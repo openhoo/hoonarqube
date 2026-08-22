@@ -199,20 +199,7 @@ pub fn import(capture: &Path, community_resolution: &Path, output: &Path) -> Res
         rule_files.insert(language_name.to_owned(), digest);
     }
 
-    let edition = json_string(
-        &read_json(capture.join("navigation-global.json"))?,
-        "edition",
-    )?;
-    let mode = instance_mode(&read_json(capture.join("instance-mode.json"))?)?;
-    let license = read_json(capture.join("license-validity.json"))?
-        .get("isValidLicense")
-        .and_then(Value::as_bool)
-        .context("license-validity evidence lacks isValidLicense")?;
-    ensure!(license, "licensed snapshot lacks valid license evidence");
-    ensure!(
-        edition != "community",
-        "licensed snapshot reports Community edition"
-    );
+    let (edition, mode, license) = imported_instance_evidence(capture, &manifest.server_version)?;
     let plugins = extract_plugins(&read_json(capture.join("plugins-installed.json"))?)?;
 
     let languages = manifest
@@ -275,6 +262,38 @@ fn validated_community_resolution(path: &Path, server_version: &str) -> Result<V
         "Community evidence does not prove exact artifact unavailability"
     );
     Ok(bytes)
+}
+
+fn imported_instance_evidence(
+    capture: &Path,
+    server_version: &str,
+) -> Result<(String, String, bool)> {
+    let navigation = read_json(capture.join("navigation-global.json"))?;
+    ensure!(
+        same_server_version(&json_string(&navigation, "version")?, server_version),
+        "edition evidence belongs to a different server build"
+    );
+    let system_status = read_json(capture.join("system-status.json"))?;
+    ensure!(
+        json_string(&system_status, "version")? == server_version,
+        "system status belongs to a different server version"
+    );
+    ensure!(
+        !json_string(&system_status, "id")?.is_empty(),
+        "system status lacks instance identity"
+    );
+    let edition = json_string(&navigation, "edition")?;
+    ensure!(
+        edition != "community",
+        "licensed snapshot reports Community edition"
+    );
+    let mode = instance_mode(&read_json(capture.join("instance-mode.json"))?)?;
+    let license = read_json(capture.join("license-validity.json"))?
+        .get("isValidLicense")
+        .and_then(Value::as_bool)
+        .context("license-validity evidence lacks isValidLicense")?;
+    ensure!(license, "licensed snapshot lacks valid license evidence");
+    Ok((edition, mode, license))
 }
 
 pub fn audit(snapshot_path: &Path, require_pages_complete: bool) -> Result<()> {
@@ -634,6 +653,14 @@ fn count_regular_files(directory: &Path) -> Result<usize> {
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
         .count())
+}
+
+fn same_server_version(left: &str, right: &str) -> bool {
+    left.split(|character: char| !character.is_ascii_digit())
+        .filter(|component| !component.is_empty())
+        .eq(right
+            .split(|character: char| !character.is_ascii_digit())
+            .filter(|component| !component.is_empty()))
 }
 
 fn canonical_json(value: &Value) -> Result<Vec<u8>> {

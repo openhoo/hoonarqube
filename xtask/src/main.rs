@@ -346,10 +346,25 @@ fn capture_into(
         record_response(&mut endpoints, &mut identity_hasher, endpoint, &response);
     }
 
+    let system_status: Value =
+        serde_json::from_slice(&fs::read(staging.join("system-status.json"))?)?;
+    ensure!(
+        system_status
+            .get("id")
+            .and_then(Value::as_str)
+            .is_some_and(|id| !id.is_empty()),
+        "api/system/status lacks instance identity"
+    );
+    ensure!(
+        system_status.get("version").and_then(Value::as_str) == Some(server_version_text.as_str()),
+        "system status belongs to a different server version"
+    );
+
     capture_instance_evidence(
         &oracle,
         staging,
         instance,
+        &server_version_text,
         &mut endpoints,
         &mut identity_hasher,
     )?;
@@ -390,12 +405,21 @@ fn capture_instance_evidence(
     oracle: &OracleClient,
     staging: &Path,
     instance: InstanceClass,
+    server_version: &str,
     endpoints: &mut BTreeMap<String, ResponseReceipt>,
     identity_hasher: &mut Sha256,
 ) -> Result<()> {
     let navigation = oracle.get("api/navigation/global", &[])?;
     navigation.require_success("api/navigation/global")?;
     let navigation_json = navigation.json("api/navigation/global")?;
+    let navigation_version = navigation_json
+        .get("version")
+        .and_then(Value::as_str)
+        .context("api/navigation/global lacks version")?;
+    ensure!(
+        same_server_version(navigation_version, server_version),
+        "edition evidence belongs to a different server build"
+    );
     let edition = navigation_json
         .get("edition")
         .and_then(Value::as_str)
@@ -747,6 +771,14 @@ fn validate_base_url(input: &str) -> Result<Url> {
     Ok(url)
 }
 
+fn same_server_version(left: &str, right: &str) -> bool {
+    left.split(|character: char| !character.is_ascii_digit())
+        .filter(|component| !component.is_empty())
+        .eq(right
+            .split(|character: char| !character.is_ascii_digit())
+            .filter(|component| !component.is_empty()))
+}
+
 fn same_origin(left: &Url, right: &Url) -> bool {
     left.scheme() == right.scheme()
         && left.host_str() == right.host_str()
@@ -989,5 +1021,17 @@ mod tests {
         let second =
             br#"{"captured_at_utc":"2026-08-22T11:00:00Z","snapshot_sha256":"same","value":1}"#;
         assert!(equivalent_manifests(first, second).unwrap());
+    }
+
+    #[test]
+    fn matches_equivalent_server_version_formats() {
+        assert!(same_server_version(
+            "2025.4.4.119049",
+            "2025.4.4 (build 119049)"
+        ));
+        assert!(!same_server_version(
+            "2025.4.4.119049",
+            "2025.4.4 (build 119050)"
+        ));
     }
 }
