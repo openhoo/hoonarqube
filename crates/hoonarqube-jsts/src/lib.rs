@@ -200,19 +200,254 @@ fn file_metrics(
         to_u32(source.lines().count())
     };
 
-    // Code lines derive from statement spans; comments are skipped by the oxc
-    // lexer (no trivia tokens exist to classify), so `comment_lines` stays 0
-    // until a dedicated scanner lands.
+    // Code lines derive from statement spans; the oxc lexer skips comments
+    // entirely (no trivia tokens exist), so comment rows come from a small
+    // string/template/regex-aware source scanner instead.
     let code_lines: BTreeSet<u32> = body
         .iter()
         .flat_map(|statement| index.covered_lines(statement.span()))
+        .collect();
+    let comment_rows: BTreeSet<u32> = scan_comment_lines(source)
+        .into_iter()
+        .filter(|row| !code_lines.contains(row))
         .collect();
 
     hoonarqube_ir::FileMetrics {
         lines,
         code_lines: to_u32(code_lines.len()),
-        comment_lines: 0,
+        comment_lines: to_u32(comment_rows.len()),
     }
+}
+
+/// One-pass scanner over raw source collecting the rows that contain comment
+/// text. Understands `'…'`, `"…"`, template literals with `${}` nesting, and
+/// a regex-literal heuristic (`/` after an operator, opening delimiter, or
+/// keyword such as `return` starts a regex, not a division).
+///
+/// Rows are 1-based to match [`LineIndex`].
+fn scan_comment_lines(source: &str) -> Vec<u32> {
+    let mut scan = Scanner::new(source);
+    scan.run();
+    scan.rows
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum ScanState {
+    Code,
+    LineComment,
+    BlockComment,
+    SingleQuote,
+    DoubleQuote,
+    Template,
+}
+
+struct Scanner {
+    chars: Vec<char>,
+    state: ScanState,
+    /// States suspended by `${` inside template literals.
+    template_stack: Vec<ScanState>,
+    prev_significant: Option<char>,
+    prev_word: String,
+    rows: Vec<u32>,
+    last_pushed_row: u32,
+}
+
+impl Scanner {
+    fn new(source: &str) -> Self {
+        Self {
+            chars: source.chars().collect(),
+            state: ScanState::Code,
+            template_stack: Vec::new(),
+            prev_significant: None,
+            prev_word: String::new(),
+            rows: Vec::new(),
+            last_pushed_row: u32::MAX,
+        }
+    }
+
+    fn run(&mut self) {
+        let mut row = 0_u32;
+        let mut i = 0;
+        while i < self.chars.len() {
+            let c = self.chars[i];
+            if c == '\n' {
+                if self.state == ScanState::LineComment {
+                    self.state = ScanState::Code;
+                } else if self.state == ScanState::BlockComment {
+                    self.push_row(row);
+                }
+                i += 1;
+                row += 1;
+                continue;
+            }
+            let next = self.chars.get(i + 1).copied();
+            let (jump, comment_start) = self.step(i, c, next);
+            if comment_start {
+                self.push_row(row);
+            }
+            i += jump;
+        }
+    }
+
+    fn push_row(&mut self, row: u32) {
+        if self.last_pushed_row != row {
+            self.rows.push(row + 1);
+            self.last_pushed_row = row;
+        }
+    }
+
+    /// Advances one non-newline character; returns `(chars consumed, whether
+    /// a comment starts here)`.
+    fn step(&mut self, i: usize, c: char, next: Option<char>) -> (usize, bool) {
+        match self.state {
+            ScanState::Code => self.step_code(i, c, next),
+            ScanState::LineComment => (1, false),
+            ScanState::BlockComment => {
+                let closing = c == '*' && next == Some('/');
+                if closing {
+                    self.state = ScanState::Code;
+                }
+                (if closing { 2 } else { 1 }, closing)
+            }
+            ScanState::SingleQuote => self.step_quoted(c, '\''),
+            ScanState::DoubleQuote => self.step_quoted(c, '"'),
+            ScanState::Template => self.step_template(c, next),
+        }
+    }
+
+    fn step_code(&mut self, i: usize, c: char, next: Option<char>) -> (usize, bool) {
+        if c == '}' && !self.template_stack.is_empty() {
+            // `${ … }` ends; resume the suspended template literal.
+            self.state = self.template_stack.pop().unwrap_or(ScanState::Code);
+            self.prev_significant = Some('`');
+            return (1, false);
+        }
+        if c == '/' && next == Some('/') {
+            self.state = ScanState::LineComment;
+            return (2, true);
+        }
+        if c == '/' && next == Some('*') {
+            self.state = ScanState::BlockComment;
+            return (2, true);
+        }
+        if c == '/' && regex_can_start(self.prev_significant, &self.prev_word) {
+            self.prev_word.clear();
+            self.prev_significant = Some('/');
+            return (skip_regex_literal(&self.chars, i + 1) - i, false);
+        }
+        match c {
+            '\'' => self.state = ScanState::SingleQuote,
+            '"' => self.state = ScanState::DoubleQuote,
+            '`' => self.state = ScanState::Template,
+            _ => {}
+        }
+        if c.is_alphanumeric() || c == '_' || c == '$' {
+            self.prev_word.push(c);
+        } else {
+            self.prev_word.clear();
+        }
+        if !c.is_whitespace() {
+            self.prev_significant = Some(c);
+        }
+        (1, false)
+    }
+
+    fn step_quoted(&mut self, c: char, quote: char) -> (usize, bool) {
+        if c == '\\' {
+            (2, false)
+        } else {
+            if c == quote {
+                self.state = ScanState::Code;
+                self.prev_significant = Some(quote);
+            }
+            (1, false)
+        }
+    }
+
+    fn step_template(&mut self, c: char, next: Option<char>) -> (usize, bool) {
+        if c == '\\' {
+            (2, false)
+        } else if c == '`' {
+            self.state = ScanState::Code;
+            self.prev_significant = Some('`');
+            (1, false)
+        } else if c == '$' && next == Some('{') {
+            self.template_stack.push(ScanState::Template);
+            self.state = ScanState::Code;
+            self.prev_significant = Some('(');
+            (2, false)
+        } else {
+            (1, false)
+        }
+    }
+}
+
+/// Whether a `/` at this point starts a regex literal instead of a division.
+fn regex_can_start(prev: Option<char>, word: &str) -> bool {
+    match prev {
+        None => true,
+        Some(c) => {
+            matches!(
+                c,
+                '(' | ','
+                    | '='
+                    | ':'
+                    | '['
+                    | '!'
+                    | '&'
+                    | '|'
+                    | '?'
+                    | '{'
+                    | '}'
+                    | ';'
+                    | '+'
+                    | '-'
+                    | '*'
+                    | '%'
+                    | '~'
+                    | '^'
+                    | '<'
+                    | '>'
+            ) || matches!(
+                word,
+                "return"
+                    | "typeof"
+                    | "case"
+                    | "in"
+                    | "of"
+                    | "new"
+                    | "delete"
+                    | "void"
+                    | "instanceof"
+                    | "do"
+                    | "else"
+                    | "yield"
+                    | "await"
+            )
+        }
+    }
+}
+
+/// Skips a regex literal starting at `chars[i - 1] == '/'`; returns the index
+/// of the closing `/` (or the line end on unterminated regexes).
+fn skip_regex_literal(chars: &[char], mut i: usize) -> usize {
+    while i < chars.len() {
+        if chars[i] == '\\' {
+            i += 2;
+            continue;
+        }
+        if chars[i] == '[' {
+            // Character class: `/` inside is literal.
+            i += 1;
+            while i < chars.len() && chars[i] != ']' {
+                i += if chars[i] == '\\' { 2 } else { 1 };
+            }
+        } else if chars[i] == '/' || chars[i] == '\n' {
+            break;
+        }
+        i += 1;
+    }
+    i
 }
 
 fn check_line_length(
@@ -707,5 +942,58 @@ new window.Function(\"also ignored\");
         // No catalog-backed parse-error rule exists for js/ts; the analyzer
         // reports the file with zero issues instead of failing the run.
         assert!(report.issues.is_empty());
+    }
+
+    #[test]
+    fn comment_lines_are_counted_separately_from_code() {
+        let report = ts("// leading note\nconst x: number = 1;\n/* block\nstill block */\n");
+        assert_eq!(report.metrics.lines, 4);
+        assert_eq!(report.metrics.code_lines, 1);
+        assert_eq!(report.metrics.comment_lines, 3);
+    }
+
+    #[test]
+    fn comment_on_code_line_counts_as_code_only() {
+        let report = js("let a = 1; // trailing\n");
+        assert_eq!(report.metrics.code_lines, 1);
+        assert_eq!(report.metrics.comment_lines, 0);
+    }
+
+    #[test]
+    fn scanner_ignores_comment_lookalikes_in_strings_templates_regexes() {
+        let source = concat!(
+            "const a = \"http://not-a-comment\";\n",
+            "const b = `template // text ${x + 1} done`;\n",
+            "const c = /regex\\/with\\/slashes/;\n",
+            "const d = a / b;\n",
+        );
+        let report = js(source);
+        assert_eq!(report.metrics.comment_lines, 0);
+        assert_eq!(report.metrics.code_lines, 4);
+    }
+
+    #[test]
+    fn scanner_finds_comments_around_regex_and_division() {
+        // Own-line comments survive; the regex and division on code lines
+        // must not swallow or fabricate comment rows.
+        let source = concat!(
+            "// header\n",
+            "function f() {\n",
+            "  return /x/g.test(s);\n",
+            "}\n",
+            "// footer\n",
+            "let d = a / b;\n",
+        );
+        let report = js(source);
+        assert_eq!(report.metrics.comment_lines, 2);
+        assert_eq!(report.metrics.code_lines, 4);
+    }
+
+    #[test]
+    fn multiline_block_comment_between_statements_is_fully_counted() {
+        let source = "let a = 1;\n/* one\ntwo\nthree */\nlet b = 2;\n";
+        let report = js(source);
+        assert_eq!(report.metrics.comment_lines, 3);
+        assert_eq!(report.metrics.code_lines, 2);
     }
 }

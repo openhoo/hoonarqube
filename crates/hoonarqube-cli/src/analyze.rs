@@ -24,6 +24,7 @@ pub(crate) struct FileOutcome {
 pub(crate) struct AnalyzerOptionsBundle {
     pub python: hoonarqube_python::AnalyzerOptions,
     pub jsts: hoonarqube_jsts::AnalyzerOptions,
+    pub csharp: hoonarqube_csharp::AnalyzerOptions,
 }
 
 /// Walks `paths`, analyzes each selected file, returns reports sorted by path.
@@ -53,7 +54,8 @@ pub(crate) fn analyze_paths(
 }
 
 /// Builds analyzer options from the frozen catalog's per-rule parameter
-/// defaults (`python:LineLength`, `javascript:S103`, `typescript:S103`);
+/// defaults (`python:LineLength`, `javascript:S103`, `typescript:S103`,
+/// `csharpsquid:S103`);
 /// any miss falls back to that language's library default so catalog edits
 /// flow through without code changes.
 pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundle {
@@ -81,7 +83,17 @@ pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundl
             },
             None => hoonarqube_jsts::AnalyzerOptions::default(),
         };
-    AnalyzerOptionsBundle { python, jsts }
+    let csharp = match maximum_line_length("csharpsquid:S103") {
+        Some(maximum_line_length) => hoonarqube_csharp::AnalyzerOptions {
+            maximum_line_length,
+        },
+        None => hoonarqube_csharp::AnalyzerOptions::default(),
+    };
+    AnalyzerOptionsBundle {
+        python,
+        jsts,
+        csharp,
+    }
 }
 
 fn walk_directory(
@@ -129,11 +141,13 @@ fn walk_directory(
 }
 
 /// One source of truth for extension dispatch:
-/// [`hoonarqube_jsts::language_for_extension`] for JS/TS, `.py` for Python.
+/// [`hoonarqube_jsts::language_for_extension`] for JS/TS, `.cs` for C#.
 fn is_analyzable_file(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension == "py" || language_for_extension(extension).is_some())
+        .is_some_and(|extension| {
+            extension == "py" || extension == "cs" || language_for_extension(extension).is_some()
+        })
 }
 
 fn read_and_analyze(
@@ -149,6 +163,12 @@ fn read_and_analyze(
                 Some("py") => {
                     hoonarqube_python::analyze(path.to_path_buf(), &source, &options.python)
                 }
+                Some("cs") => hoonarqube_csharp::analyze(
+                    path.to_path_buf(),
+                    &source,
+                    hoonarqube_csharp::CsLanguage::CSharp,
+                    &options.csharp,
+                ),
                 Some(ext) => match language_for_extension(ext) {
                     Some(language) => analyze_jsts(path, &source, language, &options.jsts),
                     None => return,
