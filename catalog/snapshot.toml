@@ -1,0 +1,618 @@
+schema_version = 1
+capture_sha256 = "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
+captured_at_utc = "2026-08-22T14:45:03.705491626Z"
+server_version = "2025.4.4.119049"
+edition = "enterprise"
+instance_mode = "standard"
+valid_license = true
+page_size = 500
+community_classification = "licensed-only-unclassified"
+community_evidence_sha256 = "9cf988ec289eea84a9ac8f623fd6c8adaf5d2706bcc5f46a0ba271aa3a6654b0"
+catalog_sha256 = "c0acd930171d52508c6211469cf6d88ba64e335bf80753f2b9e3caa5327a2774"
+total_rules = 1620
+
+[languages.csharp]
+language = "cs"
+repository = "csharpsquid"
+total = 467
+unique_keys = 467
+page_count = 1
+show_count = 467
+query_sha256 = "c8416155d871fb46e610a66f1a89b85f0036d95b1ed3a21820f07dcb63671b8b"
+pages_sha256 = "c5fad1aec0977b6c519b0cfe42b890209af349dded259ff1b8f395046f7bdf5d"
+keys_sha256 = "68d4121428e43ae35c099bbdc8d8267f23ee7e4154e8dc904926150d339a4bf1"
+shows_sha256 = "6edd50154d54423884b4bfcdf2038e4b47b97a9b6c437bd0cddd4b1da64d223e"
+
+[languages.javascript]
+language = "js"
+repository = "javascript"
+total = 406
+unique_keys = 406
+page_count = 1
+show_count = 406
+query_sha256 = "84e5065f7c57a49d4e86f3c9093938500febfb63a3261daec17a814b9c719252"
+pages_sha256 = "03518d3248a6eb510350466a7f6f25efa0898923b2f65257dbc88f5271ced9bc"
+keys_sha256 = "0ae4e91f5663f2637275d34486999732a50efce7f94ca1e67bbdbb1755d17357"
+shows_sha256 = "fe799c98246898d4f8086c9de5e5ea82791e8b88332c79ded90613897302cb1c"
+
+[languages.python]
+language = "py"
+repository = "python"
+total = 335
+unique_keys = 335
+page_count = 1
+show_count = 335
+query_sha256 = "0807b46df1f135a11cb3c3c52291f2d3e82155e6978c618d6513a163c111ce72"
+pages_sha256 = "01be12e901feb2cf3c47457d1cae710816eb7e04d8b630654596f51145f51963"
+keys_sha256 = "49672503d79a5bb1d27b1a8650ebd77cc2767208aa22591038066c2f2fa26631"
+shows_sha256 = "78d5cb4a0c5a65e68113814038cc35562a616aa3a1d4272cf882c4321004c4c8"
+
+[languages.typescript]
+language = "ts"
+repository = "typescript"
+total = 412
+unique_keys = 412
+page_count = 1
+show_count = 412
+query_sha256 = "57ef43cd6a3b81b1e6a925d34e3b896876cabe180ca2f6e02cb01fb0d018ca13"
+pages_sha256 = "f9e810f4282a4e9c5cbe120bf512a377821e30d95844c09d2a150bc630814d62"
+keys_sha256 = "be511428e88d6d1e9ec109b7dbefd4c31587ebfe6f702747a2c1083d67375bda"
+shows_sha256 = "0a8cb0b4e45895a2b60e8ee70a053939066e860db11a6d1ce303f3a693cd77a0"
+
+[endpoints."api/editions/is_valid_license"]
+status = 200
+bytes = 23
+sha256 = "c9b0ee0ffc9f653a77cfa3fcf843de5f66e538c18f21432045e3578258602964"
+
+[endpoints."api/navigation/global"]
+status = 200
+bytes = 694
+sha256 = "4c789d58f7e720d6cadeeffd70f1e6e881f9405aee02069c6f3a6fce4edc1300"
+
+[endpoints."api/plugins/installed"]
+status = 200
+bytes = 33169
+sha256 = "e59cb3dbda31b49dc19cc577bd039d6b72892d8f320fbb0cf37dd48a961ebd94"
+
+[endpoints."api/server/version"]
+status = 200
+bytes = 15
+sha256 = "c71321dd68b3f8e4d258f32d064135fcd20e1e01657df0a53b07171a8fb70a18"
+
+[endpoints."api/settings/values?keys=sonar.multi-quality-mode.enabled"]
+status = 200
+bytes = 118
+sha256 = "da893a0b344f97811feebcd664e5fee1c21d6b482ab119aecf4bb2edba123960"
+
+[endpoints."api/system/status"]
+status = 200
+bytes = 80
+sha256 = "3fb4e8504599c613ad45f71aad9f4529b670c86d144bd84b8300d507a8e5e72b"
+
+[endpoints."api/webservices/list"]
+status = 200
+bytes = 357744
+sha256 = "b6fb8fd85433b69d8c4a332f9403a0479df43a828beec0fbd5d6e478cd65968d"
+
+[[plugins]]
+key = "abap"
+version = "3.15.2 (build 6330)"
+hash = "d390de5da1fe87172be8d0433a00a797"
+implementation_build = "d0449ce833fb2164f7910c56d97d9b5dc2eb9c83"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["abap"]
+
+[[plugins]]
+key = "architecture"
+version = "2.0.1 (build 7499)"
+hash = "aa74c4aeb3c5926228d26c492a940fa8"
+implementation_build = "1580b614b0b5b0655b93e262c488f231c97f084e"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = [
+    "cs",
+    "java",
+    "js",
+    "py",
+    "ts",
+]
+
+[[plugins]]
+key = "architecturejavafrontend"
+version = "2.0.1 (build 7499)"
+hash = "d84d15c85d9c9d8384e21fd736fddc8e"
+implementation_build = "1580b614b0b5b0655b93e262c488f231c97f084e"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["java"]
+
+[[plugins]]
+key = "architecturejavascriptfrontend"
+version = "2.0.1 (build 7499)"
+hash = "bc086bfc561dce449704494199f02296"
+implementation_build = "1580b614b0b5b0655b93e262c488f231c97f084e"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = [
+    "js",
+    "ts",
+]
+
+[[plugins]]
+key = "cayc"
+version = "2.4 (build 2018)"
+hash = "ac7e7c691616214889db863baea9ec60"
+implementation_build = "c2f7910f6ecac6faa73001eeac4bd79a2db98cd3"
+edition_bundled = false
+plugin_type = "BUNDLED"
+required_for_languages = []
+
+[[plugins]]
+key = "cfamilydependencies"
+version = "6.70.1 (build 93088)"
+hash = "27bb7bf3941f2664510a4cd7c4a9409a"
+implementation_build = "a8b2860631366c673313d8786499c57370e4fa36"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = [
+    "cpp",
+    "c",
+    "objc",
+]
+
+[[plugins]]
+key = "cobol"
+version = "5.8.2 (build 9869)"
+hash = "67fff1beb28bebe4da2f5554ba3beead"
+implementation_build = "0aa7771e594feb2fb881ed3edbb0a309fa6cdfd0"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["cobol"]
+
+[[plugins]]
+key = "cpp"
+version = "6.70.1 (build 93088)"
+hash = "e87d3757cce53fda970b1014ce941382"
+implementation_build = "a8b2860631366c673313d8786499c57370e4fa36"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = [
+    "cpp",
+    "c",
+    "objc",
+]
+
+[[plugins]]
+key = "csharpenterprise"
+version = "10.15 (build 120848)"
+hash = "6c0185b6a0f6015f4a51cbc7fc836655"
+implementation_build = "89326728cf637c9935206b2fa0b4b1dea083bda0"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["cs"]
+
+[[plugins]]
+key = "dart"
+version = "1.3.0.2614"
+hash = "7e920a7d8f5b8e5b0243141f115f0ba9"
+edition_bundled = false
+plugin_type = "BUNDLED"
+required_for_languages = ["dart"]
+
+[[plugins]]
+key = "dbd"
+version = "2.2.2 (build 18779)"
+hash = "f028af179eea0373df3cd83808337a0f"
+implementation_build = "0"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = [
+    "java",
+    "py",
+]
+
+[[plugins]]
+key = "dbdjavafrontend"
+version = "2.2.2 (build 18779)"
+hash = "3908bd50495fcae6ad7a2c6fc0e8a2e9"
+implementation_build = "0"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["java"]
+
+[[plugins]]
+key = "dbdpythonfrontend"
+version = "2.2.2 (build 18779)"
+hash = "62f5e24379a57c4c381646afdc919d59"
+implementation_build = "0"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["py"]
+
+[[plugins]]
+key = "flex"
+version = "2.15 (build 6002)"
+hash = "761bfa1750f41ef569caeee0cd64e769"
+implementation_build = "3b27acf4ce511fb37e76752b2f46a0146da5fd5e"
+edition_bundled = false
+plugin_type = "BUNDLED"
+required_for_languages = ["flex"]
+
+[[plugins]]
+key = "go"
+version = "1.26.0.3421"
+hash = "fb412ae4c8a6f7258023b8526fd894f6"
+implementation_build = "91e1344c6e9bd3792b11c9b989f24de603b958ea"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["go"]
+
+[[plugins]]
+key = "iac"
+version = "1.48.1.18410"
+hash = "1588ba3e487efab814dc13259eb6df7e"
+edition_bundled = false
+plugin_type = "BUNDLED"
+required_for_languages = []
+
+[[plugins]]
+key = "iacenterprise"
+version = "1.48.1.18410"
+hash = "ba6c0cad20bb3fce55e033d147a676e1"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = []
+
+[[plugins]]
+key = "jacoco"
+version = "1.3.0 (build 1538)"
+hash = "04bba36a445c3713a632aa358be2f99c"
+implementation_build = "74a7798c7cea687c72ed9df40c93eb7ea2a58c49"
+edition_bundled = false
+plugin_type = "BUNDLED"
+required_for_languages = []
+
+[[plugins]]
+key = "jasmin"
+version = "1.3.1.8833"
+hash = "9b36ba2e2f4a1e63737162788cfca054"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = [
+    "web",
+    "js",
+    "ts",
+]
+
+[[plugins]]
+key = "java"
+version = "8.18 (build 40025)"
+hash = "b1a9179feade38e76fb3bd484426ed87"
+implementation_build = "753778714c10f42da9371328f60e221b4cc86959"
+edition_bundled = false
+plugin_type = "BUNDLED"
+required_for_languages = [
+    "java",
+    "jsp",
+]
+
+[[plugins]]
+key = "javascript"
+version = "10.26 (build 35551)"
+hash = "ba9fb3735bf1efcbf30beef809d226cf"
+implementation_build = "3349492a0897d7916525bb7d355fed8c5cfaa1aa"
+edition_bundled = false
+plugin_type = "BUNDLED"
+required_for_languages = [
+    "css",
+    "web",
+    "js",
+    "ts",
+    "yaml",
+]
+
+[[plugins]]
+key = "javasymbolicexecution"
+version = "8.18.1 (build 347)"
+hash = "c2d76f6e86ff62614672ec9579788adc"
+implementation_build = "7daa34a4ff88015cf957a7a60ce6b7aa174ba8b2"
+edition_bundled = false
+plugin_type = "BUNDLED"
+required_for_languages = [
+    "java",
+    "jsp",
+]
+
+[[plugins]]
+key = "jcl"
+version = "1.4.2 (build 2894)"
+hash = "81293dabc129c44445662d9ea3859d70"
+implementation_build = "0"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["jcl"]
+
+[[plugins]]
+key = "kotlin"
+version = "3.3.0 (build 7402)"
+hash = "c0f51f7252f22326d533ad92fa976610"
+implementation_build = "1beb40c315e3605c44594e752121a0ff123d2a7d"
+edition_bundled = false
+plugin_type = "BUNDLED"
+required_for_languages = ["kotlin"]
+
+[[plugins]]
+key = "php"
+version = "3.46.1.15272"
+hash = "f38d27ae79bc249953841d205daa2a80"
+edition_bundled = false
+plugin_type = "BUNDLED"
+required_for_languages = ["php"]
+
+[[plugins]]
+key = "pli"
+version = "1.16.2 (build 5670)"
+hash = "2734e41b0ef395d5c8a32773feb5e5d7"
+implementation_build = "3deebc7483e2668eecfb17d32f598aed6daf021c"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["pli"]
+
+[[plugins]]
+key = "plsql"
+version = "3.17.1 (build 7623)"
+hash = "5f3da8018b44bd4204451cc017dd5393"
+implementation_build = "bc9a144c70ab7947e9c2966e050eb7318a7d06c0"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["plsql"]
+
+[[plugins]]
+key = "python"
+version = "5.7.1 (build 26730)"
+hash = "5de9d7c7bfd68a6836c41732b7f5bc3b"
+implementation_build = "831e6a7d1a32a3d110b32746b3b62e831c756d58"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = [
+    "py",
+    "ipynb",
+]
+
+[[plugins]]
+key = "rpg"
+version = "3.10.1 (build 7107)"
+hash = "add55cddbf2280f45e49f935a10e6ddd"
+implementation_build = "75c820098b577e3821e5010bd56946cdc746b8e4"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["rpg"]
+
+[[plugins]]
+key = "ruby"
+version = "1.19.0 (build 471)"
+hash = "48f7f14c77edc069620f1bcc6ef77219"
+implementation_build = "415d28ce6fa5adf005ce5eef827cec15af9c14cf"
+edition_bundled = false
+plugin_type = "BUNDLED"
+required_for_languages = ["ruby"]
+
+[[plugins]]
+key = "rust"
+version = "1.0.4.1325"
+hash = "ff685ac632136ba97b16b0bf662b466e"
+edition_bundled = false
+plugin_type = "BUNDLED"
+required_for_languages = ["rust"]
+
+[[plugins]]
+key = "scmtfvc"
+version = "2.4.0 (build 127)"
+hash = "f51592d3457620f9f9f156fc7e8a095a"
+implementation_build = "32bd910717b4835d94e79daa60946c2c9040813f"
+edition_bundled = false
+plugin_type = "EXTERNAL"
+required_for_languages = []
+
+[[plugins]]
+key = "security"
+version = "11.6 (build 39346)"
+hash = "556ee6f2afecaad9b5fa758bfdc7b67f"
+implementation_build = "7aecc031f44db7306d6dcc4c018fe5290b5f6455"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = [
+    "cs",
+    "java",
+    "kotlin",
+    "go",
+    "js",
+    "php",
+    "py",
+    "vbnet",
+    "ts",
+    "yaml",
+]
+
+[[plugins]]
+key = "securitycsharpfrontend"
+version = "11.6 (build 39346)"
+hash = "770bc8ec03d625bedc6085c75d060a94"
+implementation_build = "7aecc031f44db7306d6dcc4c018fe5290b5f6455"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["cs"]
+
+[[plugins]]
+key = "securitygofrontend"
+version = "11.6 (build 39346)"
+hash = "fa9a338745b67a4012cb90c8c6f3dfc6"
+implementation_build = "7aecc031f44db7306d6dcc4c018fe5290b5f6455"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["go"]
+
+[[plugins]]
+key = "securityjavafrontend"
+version = "11.6 (build 39346)"
+hash = "72b04aa4810ae53bed51d881078afa60"
+implementation_build = "7aecc031f44db7306d6dcc4c018fe5290b5f6455"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["java"]
+
+[[plugins]]
+key = "securityjsfrontend"
+version = "11.6 (build 39346)"
+hash = "8d96f51aae94d4717c5b1166908c4d9d"
+implementation_build = "7aecc031f44db7306d6dcc4c018fe5290b5f6455"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = [
+    "js",
+    "ts",
+    "yaml",
+]
+
+[[plugins]]
+key = "securitykotlinfrontend"
+version = "11.6 (build 39346)"
+hash = "1150ba9beeba29f84856a5b01e6c40d6"
+implementation_build = "7aecc031f44db7306d6dcc4c018fe5290b5f6455"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["kotlin"]
+
+[[plugins]]
+key = "securityphpfrontend"
+version = "11.6 (build 39346)"
+hash = "d676cbf63ca44decb9ee9b9ec6fd8bfa"
+implementation_build = "7aecc031f44db7306d6dcc4c018fe5290b5f6455"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["php"]
+
+[[plugins]]
+key = "securitypythonfrontend"
+version = "11.6 (build 39346)"
+hash = "02277bc3acc09b8ced11d61be9ca4f51"
+implementation_build = "7aecc031f44db7306d6dcc4c018fe5290b5f6455"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["py"]
+
+[[plugins]]
+key = "securityvbnetfrontend"
+version = "11.6 (build 39346)"
+hash = "2c1036643025b8dd5d04f24c90967db2"
+implementation_build = "7aecc031f44db7306d6dcc4c018fe5290b5f6455"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["vbnet"]
+
+[[plugins]]
+key = "sonarapex"
+version = "1.20.1 (build 1835)"
+hash = "08d2edc0a1b7b3af7bf8cb0cf90bfb5d"
+implementation_build = "9c495a37a7f5850c8df7d20971716cbf8532ec43"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["apex"]
+
+[[plugins]]
+key = "sonargraphintegration"
+version = "7.0.0"
+hash = "c434dc5c523467902bb0a8c2c3b4e439"
+edition_bundled = false
+plugin_type = "EXTERNAL"
+required_for_languages = []
+
+[[plugins]]
+key = "sonarscala"
+version = "1.19.1 (build 1880)"
+hash = "2328b44f86dba3c3aab9776d9658d1b9"
+implementation_build = "89124f3eb28708ec0e8341e12f1661d02ea4a6a0"
+edition_bundled = false
+plugin_type = "BUNDLED"
+required_for_languages = ["scala"]
+
+[[plugins]]
+key = "swift"
+version = "4.14.0.8764"
+hash = "8d1db3b00204d4ce27586d0734847fa3"
+edition_bundled = false
+plugin_type = "BUNDLED"
+required_for_languages = ["swift"]
+
+[[plugins]]
+key = "textenterprise"
+version = "2.26.1.9976"
+hash = "3acad1a0f469f485632489ed9368fe36"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = []
+
+[[plugins]]
+key = "tsql"
+version = "1.15.1 (build 8009)"
+hash = "b163e7295f0bd73cd4a35e344288ccff"
+implementation_build = "325f48c9444239664c8e8b34bc0a20ec5bbbdabd"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["tsql"]
+
+[[plugins]]
+key = "vb"
+version = "2.14.1 (build 5552)"
+hash = "4b4caab9eac39c01d373a34b65a690a4"
+implementation_build = "8b9930174c746698b856c6a7b67eeb43edee755f"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["vb"]
+
+[[plugins]]
+key = "vbnetenterprise"
+version = "10.15 (build 120848)"
+hash = "0cd76c24bc92831e853735cfc8c2f799"
+implementation_build = "89326728cf637c9935206b2fa0b4b1dea083bda0"
+edition_bundled = true
+plugin_type = "BUNDLED"
+required_for_languages = ["vbnet"]
+
+[[plugins]]
+key = "web"
+version = "3.19.1 (build 6338)"
+hash = "b304d46695f9eb21c3d4028d3ccd5851"
+implementation_build = "844bd11ba775bd13e60f72b957d7c3bec6daef5e"
+edition_bundled = false
+plugin_type = "BUNDLED"
+required_for_languages = [
+    "web",
+    "jsp",
+    "js",
+    "php",
+]
+
+[[plugins]]
+key = "xml"
+version = "2.13.1 (build 6351)"
+hash = "867d3538824f2613008abb26d8efe6e9"
+implementation_build = "8bf743867a1919c8a56a8b3a0cd7a634548c863e"
+edition_bundled = false
+plugin_type = "BUNDLED"
+required_for_languages = ["xml"]
+
+[[plugins]]
+key = "yaml"
+version = "1.7.0"
+hash = "b7ca89e6f9987908e7e92988f16d15de"
+edition_bundled = false
+plugin_type = "EXTERNAL"
+required_for_languages = []
+
+[rule_files]
+csharp = "bba095b4f6c3fbcbcefe64c1721443e24d9d72e32a48f04b59cf2c067f12f0a5"
+javascript = "2d2392fac8c0f7718176455413e240a08968ab831898b6a1b65e9cacafdb7d60"
+python = "bbbe0fb4297d7fb04b6d6b851dad97c377ac41ab81ab3edbc01dade5dc2842a6"
+typescript = "bf5fa15429f3144b65dfe2efbc670861893ee8b1f472ee8bc63c13a017beedec"
