@@ -12,7 +12,7 @@
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
 /// Embedded languages in canonical audit order: `(catalog name, language id)`.
@@ -38,7 +38,7 @@ const PYTHON_JSON: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../catalog/rules/python.json"));
 
 /// Frozen capture evidence for one `SonarQube` server instance.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Snapshot {
     pub schema_version: u16,
@@ -60,7 +60,7 @@ pub struct Snapshot {
 }
 
 /// Per-language capture receipt recorded in the snapshot.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotLanguage {
     pub language: String,
@@ -76,7 +76,7 @@ pub struct SnapshotLanguage {
 }
 
 /// Byte-level receipt for one captured HTTP response.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResponseReceipt {
     pub status: u16,
@@ -85,7 +85,7 @@ pub struct ResponseReceipt {
 }
 
 /// Installed-plugin fact recorded in the snapshot.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PluginFact {
     pub key: String,
@@ -102,7 +102,7 @@ pub struct PluginFact {
 /// `deny_unknown_fields` subsumes the xtask `reject_forbidden_output` check: every
 /// forbidden prose key (`name`, `description`, `message`, `htmlDesc`, ...) is absent
 /// from these structs, so any occurrence fails parsing before verification proceeds.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuleCatalog {
     pub schema_version: u16,
@@ -113,7 +113,7 @@ pub struct RuleCatalog {
 }
 
 /// One `SonarQube` rule, stripped to classification-safe facts.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuleRecord {
     pub external_key: String,
@@ -137,7 +137,7 @@ pub struct RuleRecord {
 }
 
 /// Software-quality impact of a rule.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ImpactFact {
     pub software_quality: String,
@@ -145,7 +145,7 @@ pub struct ImpactFact {
 }
 
 /// Rule parameter fact.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ParameterFact {
     pub key: String,
