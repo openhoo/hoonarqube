@@ -17,7 +17,8 @@ use tree_sitter::{Node, Parser};
 /// `ParameterFact` defaults (`maximumLineLength` default `200` for
 /// `csharpsquid:S103`, `maximumFileLocThreshold` default `1000` for
 /// `csharpsquid:S104`, the naming formats of `csharpsquid:S2342` and
-/// `csharpsquid:S6669`, and the `csharpsquid:S1451` header knobs).
+/// `csharpsquid:S6669`, the `csharpsquid:S1451` header knobs, and the
+/// `csharpsquid:S2436` generic-parameter caps `max`/`maxMethod`).
 ///
 /// `header_format` intentionally defaults to empty (rule disabled) instead of
 /// the sample template shipped in the catalog, so a default-configured
@@ -38,6 +39,10 @@ pub struct AnalyzerOptions {
     pub flags_enum_naming_format: String,
     /// `csharpsquid:S6669` logger-name `format`.
     pub logger_name_format: String,
+    /// `csharpsquid:S2436` `max`: tolerated type parameters per type.
+    pub maximum_generic_parameters_for_types: u32,
+    /// `csharpsquid:S2436` `maxMethod`: tolerated type parameters per method.
+    pub maximum_generic_parameters_for_methods: u32,
 }
 
 impl Default for AnalyzerOptions {
@@ -50,6 +55,8 @@ impl Default for AnalyzerOptions {
             enum_naming_format: "^([A-Z]{1,3}[a-z0-9]+)*([A-Z]{2})?$".to_string(),
             flags_enum_naming_format: "^([A-Z]{1,3}[a-z0-9]+)*([A-Z]{2})?s$".to_string(),
             logger_name_format: "^_?[Ll]og(ger)?$".to_string(),
+            maximum_generic_parameters_for_types: 2,
+            maximum_generic_parameters_for_methods: 3,
         }
     }
 }
@@ -111,6 +118,54 @@ pub fn analyze(
     issues.extend(check_overloads_grouped(root, source, language));
     issues.extend(check_async_naming(root, source, language));
     issues.extend(check_logger_member_names(root, source, language, options));
+    issues.extend(check_public_instance_fields(root, source, language));
+    issues.extend(check_non_private_fields(root, source, language));
+    issues.extend(check_visible_static_fields(root, source, language));
+    issues.extend(check_public_constants(root, source, language));
+    issues.extend(check_mutable_public_static_fields(root, source, language));
+    issues.extend(check_sealed_protected_members(root, source, language));
+    issues.extend(check_virtual_field_events(root, source, language));
+    issues.extend(check_abstract_class_constructors(root, source, language));
+    issues.extend(check_only_private_constructors(root, source, language));
+    issues.extend(check_exception_visibility(root, source, language));
+    issues.extend(check_out_ref_parameters(root, source, language));
+    issues.extend(check_attribute_classes_sealed(root, source, language));
+    issues.extend(check_iequatable_classes_sealed(root, source, language));
+    issues.extend(check_private_types_sealed(root, source, language));
+    issues.extend(check_member_visibility_above_type(root, source, language));
+    issues.extend(check_optional_parameters(root, source, language));
+    issues.extend(check_optional_attribute_on_ref_out_parameters(
+        root, source, language,
+    ));
+    issues.extend(check_default_parameter_value_needs_optional(
+        root, source, language,
+    ));
+    issues.extend(check_default_value_attribute_parameters(
+        root, source, language,
+    ));
+    issues.extend(check_caller_information_parameters_last(
+        root, source, language,
+    ));
+    issues.extend(check_pinvoke_visibility(root, source, language));
+    issues.extend(check_native_methods_wrapped(root, source, language));
+    issues.extend(check_public_pointer_signatures(root, source, language));
+    issues.extend(check_multidimensional_arrays(root, source, language));
+    issues.extend(check_public_multidimensional_parameters(
+        root, source, language,
+    ));
+    issues.extend(check_enum_underlying_types(root, source, language));
+    issues.extend(check_nested_generics_in_signatures(root, language));
+    issues.extend(check_type_parameter_counts(root, language, options));
+    issues.extend(check_unused_type_parameters_in_parameters(
+        root, source, language,
+    ));
+    issues.extend(check_unused_type_parameters(root, source, language));
+    issues.extend(check_async_void_methods(root, source, language));
+    issues.extend(check_contextual_keyword_identifiers(root, source, language));
+    issues.extend(check_goto_statements(root, language));
+    issues.extend(check_break_statements(root, language));
+    issues.extend(check_unsafe_code(root, source, language));
+    issues.extend(check_arglist_usage(root, source, language));
     sort_issues(&mut issues);
 
     hoonarqube_ir::FileReport {
@@ -1327,6 +1382,1254 @@ fn check_logger_member_names(
     });
     issues
 }
+// ---------------------------------------------------------------------------
+// A3 — modifiers & declaration shape
+// ---------------------------------------------------------------------------
+
+/// Modifiers (`public`, `static`, `const`, …) of a declaration, source order.
+fn modifiers_of<'a>(declaration: Node<'_>, source: &'a str) -> Vec<&'a str> {
+    let mut cursor = declaration.walk();
+    declaration
+        .children(&mut cursor)
+        .filter(|child| child.kind() == "modifier")
+        .map(|modifier| node_text(modifier, source))
+        .collect()
+}
+
+/// Whether one keyword (`public`, `static`, `const`, …) is in `modifiers`.
+fn has_modifier(modifiers: &[&str], wanted: &str) -> bool {
+    modifiers.contains(&wanted)
+}
+
+fn has_any_accessibility(modifiers: &[&str]) -> bool {
+    modifiers
+        .iter()
+        .any(|modifier| matches!(*modifier, "public" | "private" | "protected" | "internal"))
+}
+
+/// C# accessibility ladder: private < private protected < internal <
+/// protected < protected internal < public. Undeclared ranks lowest; use
+/// [`type_declared_rank`] for type declarations, where C# defaults differ.
+fn accessibility_rank(modifiers: &[&str]) -> u8 {
+    let has = |wanted: &str| has_modifier(modifiers, wanted);
+    if has("public") {
+        6
+    } else if has("protected") && has("internal") {
+        5
+    } else if has("private") && has("protected") {
+        2
+    } else if has("protected") {
+        4
+    } else if has("internal") {
+        3
+    } else {
+        1
+    }
+}
+
+/// Declared rank of a *type* declaration, applying C# defaults: nested types
+/// are private, types outside any other type are internal.
+fn type_declared_rank(type_node: Node<'_>, source: &str) -> u8 {
+    let modifiers = modifiers_of(type_node, source);
+    if has_any_accessibility(&modifiers) {
+        return accessibility_rank(&modifiers);
+    }
+    let mut ancestor = type_node.parent();
+    while let Some(node) = ancestor {
+        if TYPE_DECLARATION_KINDS.contains(&node.kind()) {
+            return 1;
+        }
+        ancestor = node.parent();
+    }
+    3
+}
+
+/// Simple names of every base of a type declaration (`class D : B` → `B`),
+/// with generic and qualification tails stripped.
+fn base_simple_names<'a>(type_node: Node<'_>, source: &'a str) -> Vec<&'a str> {
+    let mut names = Vec::new();
+    let mut cursor = type_node.walk();
+    for base_list in type_node
+        .children(&mut cursor)
+        .filter(|child| child.kind() == "base_list")
+    {
+        let mut list_cursor = base_list.walk();
+        for base in base_list
+            .children(&mut list_cursor)
+            .filter(tree_sitter::Node::is_named)
+        {
+            names.push(simple_name(node_text(base, source)));
+        }
+    }
+    names
+}
+
+/// Simple attribute names applied directly to `node`
+/// (`[OptionalAttribute]` → `Optional`).
+fn attributes_of<'a>(node: Node<'_>, source: &'a str) -> Vec<&'a str> {
+    let mut names = Vec::new();
+    let mut cursor = node.walk();
+    for list in node
+        .children(&mut cursor)
+        .filter(|child| child.kind() == "attribute_list")
+    {
+        let mut list_cursor = list.walk();
+        for attribute in list
+            .children(&mut list_cursor)
+            .filter(|child| child.kind() == "attribute")
+        {
+            if let Some(name) = attribute.child_by_field_name("name") {
+                let text = simple_name(node_text(name, source));
+                names.push(text.strip_suffix("Attribute").unwrap_or(text));
+            }
+        }
+    }
+    names
+}
+
+fn has_attribute(names: &[&str], wanted: &str) -> bool {
+    names.contains(&wanted)
+}
+
+fn has_any_attribute(node: Node<'_>, source: &str, wanted: &[&str]) -> bool {
+    wanted
+        .iter()
+        .any(|name| has_attribute(&attributes_of(node, source), name))
+}
+
+/// Parameters of a callable's `parameter_list`.
+fn parameters_of(declaration: Node<'_>) -> Vec<Node<'_>> {
+    let Some(list) = declaration.child_by_field_name("parameters") else {
+        return Vec::new();
+    };
+    let mut cursor = list.walk();
+    list.children(&mut cursor)
+        .filter(|child| child.kind() == "parameter")
+        .collect()
+}
+
+/// Return-type and parameter regions of a callable; scans over these stay
+/// out of bodies.
+fn signature_regions(declaration: Node<'_>) -> Vec<Node<'_>> {
+    ["returns", "type", "parameters"]
+        .into_iter()
+        .filter_map(|field| declaration.child_by_field_name(field))
+        .collect()
+}
+
+fn subtree_contains_kind(root: Node<'_>, kind: &str) -> bool {
+    !collect_kinds(root, &[kind]).is_empty()
+}
+
+/// True when one generic argument nests another (`List<Dictionary<K, V>>`).
+fn has_nested_generics(root: Node<'_>) -> bool {
+    fn walk(node: Node<'_>, depth: u32) -> bool {
+        let depth = depth + u32::from(node.kind() == "generic_name");
+        if depth > 1 {
+            return true;
+        }
+        let mut cursor = node.walk();
+        node.children(&mut cursor).any(|child| walk(child, depth))
+    }
+    walk(root, 0)
+}
+
+/// True for multi-dimensional arrays (`int[,]`); jagged arrays are nested
+/// `array_type`s and never match.
+fn is_multidimensional_array(array_type_node: Node<'_>, source: &str) -> bool {
+    array_type_node
+        .child_by_field_name("rank")
+        .is_some_and(|rank| node_text(rank, source).contains(','))
+}
+
+fn has_ancestor_with_kind(mut node: Node<'_>, kinds: &[&str]) -> bool {
+    while let Some(parent) = node.parent() {
+        if kinds.contains(&parent.kind()) {
+            return true;
+        }
+        node = parent;
+    }
+    false
+}
+
+/// Every type name used as a base somewhere in the file.
+fn referenced_base_names(root: Node<'_>, source: &str) -> std::collections::HashSet<String> {
+    collect_kinds(root, &TYPE_DECLARATION_KINDS)
+        .iter()
+        .flat_map(|declaration| base_simple_names(*declaration, source))
+        .map(str::to_string)
+        .collect()
+}
+
+/// Names of every `new T(...)` construction site in the file.
+fn instantiated_type_names(root: Node<'_>, source: &str) -> std::collections::HashSet<String> {
+    collect_kinds(root, &["object_creation_expression"])
+        .into_iter()
+        .filter_map(|creation| creation.child_by_field_name("type"))
+        .map(|type_node| simple_name(node_text(type_node, source)).to_string())
+        .collect()
+}
+
+/// A declaration's `type_parameter_list` together with its arity.
+fn type_parameter_list_of(declaration: Node<'_>) -> Option<(Node<'_>, u32)> {
+    let mut cursor = declaration.walk();
+    let list = declaration
+        .children(&mut cursor)
+        .find(|child| child.kind() == "type_parameter_list")?;
+    let mut list_cursor = list.walk();
+    let count = to_u32(
+        list.children(&mut list_cursor)
+            .filter(|child| child.kind() == "type_parameter")
+            .count(),
+    );
+    Some((list, count))
+}
+
+/// csharpsquid:S1104 — publicly accessible instance fields break
+/// encapsulation; static and constant members belong to S2223 and S2339.
+fn check_public_instance_fields(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for field in collect_kinds(root, &["field_declaration"]) {
+        let modifiers = modifiers_of(field, source);
+        if has_modifier(&modifiers, "public")
+            && !has_modifier(&modifiers, "static")
+            && !has_modifier(&modifiers, "const")
+        {
+            issues.push(issue(
+                language,
+                "S1104",
+                "Make this field private and expose it through a property.",
+                range_of(field),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2357 — fields should be private; constants are S2339's
+/// territory.
+fn check_non_private_fields(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for field in collect_kinds(root, &["field_declaration"]) {
+        let modifiers = modifiers_of(field, source);
+        if !has_modifier(&modifiers, "const") && accessibility_rank(&modifiers) > 1 {
+            issues.push(issue(
+                language,
+                "S2357",
+                "Make this field private.",
+                range_of(field),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2223 — visible non-constant static fields hide shared
+/// mutable state; `readonly` does not rescue them.
+fn check_visible_static_fields(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for field in collect_kinds(root, &["field_declaration"]) {
+        let modifiers = modifiers_of(field, source);
+        if has_modifier(&modifiers, "static")
+            && !has_modifier(&modifiers, "const")
+            && has_any_accessibility(&modifiers)
+        {
+            issues.push(issue(
+                language,
+                "S2223",
+                "Make this static field private.",
+                range_of(field),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2339 — public constants leak implementation details into
+/// every referencing assembly.
+fn check_public_constants(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for field in collect_kinds(root, &["field_declaration"]) {
+        let modifiers = modifiers_of(field, source);
+        if has_modifier(&modifiers, "const") && has_modifier(&modifiers, "public") {
+            issues.push(issue(
+                language,
+                "S2339",
+                "Make this constant private.",
+                range_of(field),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2386 — public static mutable fields invite races; only
+/// `readonly` (or a property) settles them down.
+fn check_mutable_public_static_fields(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for field in collect_kinds(root, &["field_declaration"]) {
+        let modifiers = modifiers_of(field, source);
+        if has_modifier(&modifiers, "public")
+            && has_modifier(&modifiers, "static")
+            && !has_modifier(&modifiers, "readonly")
+            && !has_modifier(&modifiers, "const")
+        {
+            issues.push(issue(
+                language,
+                "S2386",
+                "Make this field readonly or replace it with a property.",
+                range_of(field),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2156 — sealed types cannot be inherited from, so their
+/// `protected` members are dead weight.
+fn check_sealed_protected_members(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for type_node in collect_kinds(
+        root,
+        &[
+            "class_declaration",
+            "struct_declaration",
+            "record_declaration",
+        ],
+    ) {
+        if !has_modifier(&modifiers_of(type_node, source), "sealed") {
+            continue;
+        }
+        for member in type_members(type_node) {
+            if has_modifier(&modifiers_of(member, source), "protected") {
+                issues.push(issue(
+                    language,
+                    "S2156",
+                    "The 'protected' modifier is useless here: this type is sealed.",
+                    range_of(member),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2290 — virtual field-like events cannot be overridden in any
+/// meaningful way.
+fn check_virtual_field_events(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for event_field in collect_kinds(root, &["event_field_declaration"]) {
+        if has_modifier(&modifiers_of(event_field, source), "virtual") {
+            issues.push(issue(
+                language,
+                "S2290",
+                "Remove the 'virtual' modifier from this event.",
+                range_of(event_field),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3442 — abstract classes are constructed through derived
+/// types, so public constructors mislead callers.
+fn check_abstract_class_constructors(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for type_node in collect_kinds(root, &["class_declaration", "record_declaration"]) {
+        if !has_modifier(&modifiers_of(type_node, source), "abstract") {
+            continue;
+        }
+        for member in type_members(type_node) {
+            if member.kind() == "constructor_declaration"
+                && has_modifier(&modifiers_of(member, source), "public")
+            {
+                issues.push(issue(
+                    language,
+                    "S3442",
+                    "Change this constructor's visibility to 'protected' or lower.",
+                    range_of(member),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3453 — classes with only inaccessible constructors can never
+/// be instantiated. Classes constructed elsewhere in this file, protected-
+/// constructor classes awaiting derivation, static classes, and partial
+/// classes spanning files stay untouched.
+fn check_only_private_constructors(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let instantiations = instantiated_type_names(root, source);
+    let mut issues = Vec::new();
+    for class_node in collect_kinds(root, &["class_declaration"]) {
+        let modifiers = modifiers_of(class_node, source);
+        if has_modifier(&modifiers, "static") || has_modifier(&modifiers, "partial") {
+            continue;
+        }
+        let constructors: Vec<Node> = type_members(class_node)
+            .into_iter()
+            .filter(|member| member.kind() == "constructor_declaration")
+            .collect();
+        if constructors.is_empty()
+            || !constructors
+                .iter()
+                .all(|ctor| accessibility_rank(&modifiers_of(*ctor, source)) <= 2)
+        {
+            continue;
+        }
+        let Some(name) = class_node.child_by_field_name("name") else {
+            continue;
+        };
+        if instantiations.contains(simple_name(node_text(name, source))) {
+            continue;
+        }
+        issues.push(issue(
+            language,
+            "S3453",
+            "Make this class 'static' or give it a non-private constructor.",
+            range_of(name),
+        ));
+    }
+    issues
+}
+
+/// csharpsquid:S3871 — exception types should be public so callers can catch
+/// them across assembly boundaries.
+fn check_exception_visibility(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for class_node in collect_kinds(root, &["class_declaration"]) {
+        let is_exception = base_simple_names(class_node, source)
+            .iter()
+            .any(|name| *name == "Exception" || name.ends_with("Exception"));
+        if !is_exception || has_modifier(&modifiers_of(class_node, source), "public") {
+            continue;
+        }
+        let Some(name) = class_node.child_by_field_name("name") else {
+            continue;
+        };
+        issues.push(issue(
+            language,
+            "S3871",
+            "Make this exception type public.",
+            range_of(name),
+        ));
+    }
+    issues
+}
+
+/// csharpsquid:S3874 — `out`/`ref` parameters obscure data flow; overrides
+/// must mirror their base signature, so they stay untouched.
+fn check_out_ref_parameters(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for method in collect_kinds(root, &["method_declaration"]) {
+        let modifiers = modifiers_of(method, source);
+        if has_modifier(&modifiers, "override") || has_explicit_interface_specifier(method) {
+            continue;
+        }
+        for parameter in parameters_of(method) {
+            let parameter_modifiers = modifiers_of(parameter, source);
+            for modifier_kind in ["out", "ref"] {
+                if has_modifier(&parameter_modifiers, modifier_kind) {
+                    issues.push(issue(
+                        language,
+                        "S3874",
+                        format!("Remove this '{modifier_kind}' parameter."),
+                        range_of(parameter),
+                    ));
+                }
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S4060 — non-abstract attribute classes should be sealed:
+/// nothing is meant to derive from them.
+fn check_attribute_classes_sealed(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for class_node in collect_kinds(root, &["class_declaration"]) {
+        let derives_attribute = base_simple_names(class_node, source)
+            .iter()
+            .any(|name| *name == "Attribute" || name.ends_with("Attribute"));
+        if !derives_attribute {
+            continue;
+        }
+        let modifiers = modifiers_of(class_node, source);
+        if has_modifier(&modifiers, "sealed")
+            || has_modifier(&modifiers, "abstract")
+            || has_modifier(&modifiers, "static")
+        {
+            continue;
+        }
+        let Some(name) = class_node.child_by_field_name("name") else {
+            continue;
+        };
+        issues.push(issue(
+            language,
+            "S4060",
+            "Mark this attribute class 'sealed' or 'abstract'.",
+            range_of(name),
+        ));
+    }
+    issues
+}
+
+/// csharpsquid:S4035 — IEquatable-implementing classes gain nothing from
+/// being open for inheritance and should be sealed.
+fn check_iequatable_classes_sealed(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for class_node in collect_kinds(root, &["class_declaration"]) {
+        let implements_equatable = base_simple_names(class_node, source)
+            .iter()
+            .any(|name| name.starts_with("IEquatable"));
+        if !implements_equatable {
+            continue;
+        }
+        let modifiers = modifiers_of(class_node, source);
+        if has_modifier(&modifiers, "sealed")
+            || has_modifier(&modifiers, "abstract")
+            || has_modifier(&modifiers, "static")
+        {
+            continue;
+        }
+        let Some(name) = class_node.child_by_field_name("name") else {
+            continue;
+        };
+        issues.push(issue(
+            language,
+            "S4035",
+            "Mark this class 'sealed'; it implements 'IEquatable'.",
+            range_of(name),
+        ));
+    }
+    issues
+}
+
+/// csharpsquid:S3260 — private types that nothing in this file derives from
+/// gain nothing by staying open for inheritance. Partial types span files
+/// and stay untouched.
+fn check_private_types_sealed(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let bases = referenced_base_names(root, source);
+    let mut issues = Vec::new();
+    for type_node in collect_kinds(root, &["class_declaration", "record_declaration"]) {
+        let modifiers = modifiers_of(type_node, source);
+        if has_modifier(&modifiers, "partial")
+            || has_modifier(&modifiers, "abstract")
+            || has_modifier(&modifiers, "sealed")
+            || has_modifier(&modifiers, "static")
+        {
+            continue;
+        }
+        // Private means explicitly marked, or nested without accessibility.
+        if has_any_accessibility(&modifiers) && !has_modifier(&modifiers, "private") {
+            continue;
+        }
+        if !has_any_accessibility(&modifiers) && type_declared_rank(type_node, source) != 1 {
+            continue;
+        }
+        let Some(name) = type_node.child_by_field_name("name") else {
+            continue;
+        };
+        if bases.contains(simple_name(node_text(name, source))) {
+            continue;
+        }
+        issues.push(issue(
+            language,
+            "S3260",
+            "Mark this private type 'sealed'.",
+            range_of(name),
+        ));
+    }
+    issues
+}
+
+/// csharpsquid:S3059 — members cannot be more visible than their container;
+/// undeclared members default to private and never exceed it.
+fn check_member_visibility_above_type(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    const MEMBER_KINDS: [&str; 14] = [
+        "class_declaration",
+        "struct_declaration",
+        "record_declaration",
+        "enum_declaration",
+        "interface_declaration",
+        "delegate_declaration",
+        "method_declaration",
+        "property_declaration",
+        "event_declaration",
+        "event_field_declaration",
+        "field_declaration",
+        "indexer_declaration",
+        "operator_declaration",
+        "constructor_declaration",
+    ];
+    let mut issues = Vec::new();
+    for type_node in collect_kinds(
+        root,
+        &[
+            "class_declaration",
+            "struct_declaration",
+            "record_declaration",
+        ],
+    ) {
+        let type_rank = type_declared_rank(type_node, source);
+        for member in type_members(type_node) {
+            if !MEMBER_KINDS.contains(&member.kind()) {
+                continue;
+            }
+            let member_modifiers = modifiers_of(member, source);
+            if !has_any_accessibility(&member_modifiers)
+                || accessibility_rank(&member_modifiers) <= type_rank
+            {
+                continue;
+            }
+            issues.push(issue(
+                language,
+                "S3059",
+                "Reduce this member's visibility to match its container.",
+                range_of(member),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2360 — optional parameters complicate overload resolution;
+/// overrides and explicit implementations must repeat base defaults, so they
+/// stay untouched.
+fn check_optional_parameters(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for method in collect_kinds(root, &["method_declaration"]) {
+        let modifiers = modifiers_of(method, source);
+        if has_modifier(&modifiers, "override") || has_explicit_interface_specifier(method) {
+            continue;
+        }
+        for parameter in parameters_of(method) {
+            let mut cursor = parameter.walk();
+            let has_default = parameter
+                .children(&mut cursor)
+                .any(|child| child.kind() == "=");
+            if has_default {
+                issues.push(issue(
+                    language,
+                    "S2360",
+                    "Remove this optional parameter's default value.",
+                    range_of(parameter),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3447 — `[Optional]` cannot travel through by-reference
+/// parameters.
+fn check_optional_attribute_on_ref_out_parameters(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for parameter in collect_kinds(root, &["parameter"]) {
+        let parameter_modifiers = modifiers_of(parameter, source);
+        if !(has_modifier(&parameter_modifiers, "ref") || has_modifier(&parameter_modifiers, "out"))
+        {
+            continue;
+        }
+        if has_attribute(&attributes_of(parameter, source), "Optional") {
+            issues.push(issue(
+                language,
+                "S3447",
+                "Remove this '[Optional]' attribute; the parameter is by reference.",
+                range_of(parameter),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3450 — `[DefaultParameterValue]` only takes effect together
+/// with `[Optional]`.
+fn check_default_parameter_value_needs_optional(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for parameter in collect_kinds(root, &["parameter"]) {
+        let attributes = attributes_of(parameter, source);
+        if has_attribute(&attributes, "DefaultParameterValue")
+            && !has_attribute(&attributes, "Optional")
+        {
+            issues.push(issue(
+                language,
+                "S3450",
+                "Add the '[Optional]' attribute next to '[DefaultParameterValue]'.",
+                range_of(parameter),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3451 — on parameters, `[DefaultValue]` silently behaves like
+/// `[DefaultParameterValue]`; spell the intent out.
+fn check_default_value_attribute_parameters(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for parameter in collect_kinds(root, &["parameter"]) {
+        if has_attribute(&attributes_of(parameter, source), "DefaultValue") {
+            issues.push(issue(
+                language,
+                "S3451",
+                "Use '[DefaultParameterValue]' instead of '[DefaultValue]'.",
+                range_of(parameter),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3343 — caller-information parameters must trail everything
+/// but a `params` array.
+fn check_caller_information_parameters_last(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    const CALLER_ATTRIBUTES: [&str; 3] = ["CallerMemberName", "CallerLineNumber", "CallerFilePath"];
+    let mut issues = Vec::new();
+    for method in collect_kinds(root, &["method_declaration", "constructor_declaration"]) {
+        let parameters = parameters_of(method);
+        for (index, parameter) in parameters.iter().enumerate() {
+            let attributes = attributes_of(*parameter, source);
+            if !CALLER_ATTRIBUTES
+                .iter()
+                .any(|wanted| has_attribute(&attributes, wanted))
+            {
+                continue;
+            }
+            let blocked = parameters[index + 1..]
+                .iter()
+                .any(|later| !has_modifier(&modifiers_of(*later, source), "params"));
+            if blocked {
+                issues.push(issue(
+                    language,
+                    "S3343",
+                    "Move this caller-information parameter to the end of the parameter list.",
+                    range_of(*parameter),
+                ));
+            }
+        }
+    }
+    issues
+}
+/// csharpsquid:S4214 — P/Invoke entry points stay hidden behind internal
+/// wrappers; `protected` and `public` expose them.
+fn check_pinvoke_visibility(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for method in collect_kinds(root, &["method_declaration"]) {
+        let modifiers = modifiers_of(method, source);
+        if !has_modifier(&modifiers, "extern")
+            || !has_any_attribute(method, source, &["DllImport"])
+            || !matches!(accessibility_rank(&modifiers), 4..=6)
+        {
+            continue;
+        }
+        let Some(name) = method.child_by_field_name("name") else {
+            continue;
+        };
+        issues.push(issue(
+            language,
+            "S4214",
+            "Make this P/Invoke method 'internal' or more restricted.",
+            range_of(name),
+        ));
+    }
+    issues
+}
+
+/// csharpsquid:S4200 — native entry points belong behind managed wrappers,
+/// so every `DllImport` extern declaration is flagged.
+fn check_native_methods_wrapped(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for method in collect_kinds(root, &["method_declaration"]) {
+        let modifiers = modifiers_of(method, source);
+        if !has_modifier(&modifiers, "extern") || !has_any_attribute(method, source, &["DllImport"])
+        {
+            continue;
+        }
+        let Some(name) = method.child_by_field_name("name") else {
+            continue;
+        };
+        issues.push(issue(
+            language,
+            "S4200",
+            "Wrap this native method behind a managed API.",
+            range_of(name),
+        ));
+    }
+    issues
+}
+
+/// csharpsquid:S4000 — public signatures must not leak pointer types into
+/// managed callers.
+fn check_public_pointer_signatures(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for declaration in collect_kinds(
+        root,
+        &[
+            "method_declaration",
+            "constructor_declaration",
+            "operator_declaration",
+            "indexer_declaration",
+            "delegate_declaration",
+        ],
+    ) {
+        if !has_modifier(&modifiers_of(declaration, source), "public") {
+            continue;
+        }
+        let leaks_pointer = signature_regions(declaration)
+            .iter()
+            .any(|region| subtree_contains_kind(*region, "pointer_type"));
+        if !leaks_pointer {
+            continue;
+        }
+        let anchor = declaration
+            .child_by_field_name("name")
+            .unwrap_or(declaration);
+        issues.push(issue(
+            language,
+            "S4000",
+            "Do not expose pointer types in public signatures.",
+            range_of(anchor),
+        ));
+    }
+    issues
+}
+
+/// csharpsquid:S3967 — multi-dimensional arrays should be jagged arrays.
+fn check_multidimensional_arrays(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for array_type_node in collect_kinds(root, &["array_type"]) {
+        if is_multidimensional_array(array_type_node, source) {
+            issues.push(issue(
+                language,
+                "S3967",
+                "Use a jagged array instead of a multi-dimensional array.",
+                range_of(array_type_node),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2368 — public methods must not surface multi-dimensional
+/// array parameters.
+fn check_public_multidimensional_parameters(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for method in collect_kinds(root, &["method_declaration"]) {
+        if !has_modifier(&modifiers_of(method, source), "public") {
+            continue;
+        }
+        let offending = parameters_of(method).into_iter().any(|parameter| {
+            parameter
+                .child_by_field_name("type")
+                .is_some_and(|type_node| {
+                    collect_kinds(type_node, &["array_type"])
+                        .iter()
+                        .any(|array| is_multidimensional_array(*array, source))
+                })
+        });
+        if !offending {
+            continue;
+        }
+        let Some(name) = method.child_by_field_name("name") else {
+            continue;
+        };
+        issues.push(issue(
+            language,
+            "S2368",
+            "Remove this multi-dimensional array parameter from the public signature.",
+            range_of(name),
+        ));
+    }
+    issues
+}
+
+/// csharpsquid:S4022 — enums should stick to `int` storage.
+fn check_enum_underlying_types(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for enum_node in collect_kinds(root, &["enum_declaration"]) {
+        let mut cursor = enum_node.walk();
+        let Some(base_list) = enum_node
+            .children(&mut cursor)
+            .find(|child| child.kind() == "base_list")
+        else {
+            continue;
+        };
+        let mut list_cursor = base_list.walk();
+        let underlying = base_list
+            .children(&mut list_cursor)
+            .find(tree_sitter::Node::is_named)
+            .map(|base| simple_name(node_text(base, source)));
+        if underlying.is_none_or(|stored| matches!(stored, "int" | "Int32")) {
+            continue;
+        }
+        let Some(name) = enum_node.child_by_field_name("name") else {
+            continue;
+        };
+        issues.push(issue(
+            language,
+            "S4022",
+            "Use 'int' as the underlying type of this enum.",
+            range_of(name),
+        ));
+    }
+    issues
+}
+
+/// csharpsquid:S4017 — nested generic types resist inference; signatures
+/// should stay shallow.
+fn check_nested_generics_in_signatures(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for declaration in collect_kinds(
+        root,
+        &[
+            "method_declaration",
+            "delegate_declaration",
+            "operator_declaration",
+            "indexer_declaration",
+        ],
+    ) {
+        let nests_generics = signature_regions(declaration)
+            .iter()
+            .any(|region| has_nested_generics(*region));
+        if !nests_generics {
+            continue;
+        }
+        let anchor = declaration
+            .child_by_field_name("name")
+            .unwrap_or(declaration);
+        issues.push(issue(
+            language,
+            "S4017",
+            "Refactor this signature to avoid nested generic types.",
+            range_of(anchor),
+        ));
+    }
+    issues
+}
+
+/// csharpsquid:S2436 — generic arity is capped per type (`max`) and per
+/// method (`maxMethod`).
+fn check_type_parameter_counts(
+    root: Node<'_>,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    const TYPE_KINDS: [&str; 5] = [
+        "class_declaration",
+        "struct_declaration",
+        "interface_declaration",
+        "record_declaration",
+        "delegate_declaration",
+    ];
+    let mut issues = Vec::new();
+    for declaration in collect_kinds(root, &TYPE_KINDS) {
+        if let Some((list, count)) = type_parameter_list_of(declaration) {
+            let cap = options.maximum_generic_parameters_for_types;
+            if count > cap {
+                issues.push(issue(
+                    language,
+                    "S2436",
+                    format!("Reduce the number of type parameters ({count} > {cap})."),
+                    range_of(list),
+                ));
+            }
+        }
+    }
+    for method in collect_kinds(root, &["method_declaration"]) {
+        if let Some((list, count)) = type_parameter_list_of(method) {
+            let cap = options.maximum_generic_parameters_for_methods;
+            if count > cap {
+                issues.push(issue(
+                    language,
+                    "S2436",
+                    format!("Reduce the number of type parameters ({count} > {cap})."),
+                    range_of(list),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S4018 — every method type parameter must appear in the
+/// parameter list.
+fn check_unused_type_parameters_in_parameters(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for method in collect_kinds(root, &["method_declaration"]) {
+        let Some((list, _)) = type_parameter_list_of(method) else {
+            continue;
+        };
+        let Some(parameters) = method.child_by_field_name("parameters") else {
+            continue;
+        };
+        let used: std::collections::HashSet<&str> = collect_kinds(parameters, &["identifier"])
+            .iter()
+            .map(|identifier| node_text(*identifier, source))
+            .collect();
+        for parameter in collect_kinds(list, &["type_parameter"]) {
+            let name = node_text(parameter, source);
+            if !used.contains(name) {
+                issues.push(issue(
+                    language,
+                    "S4018",
+                    format!("Type parameter \"{name}\" never appears in the parameter list."),
+                    range_of(parameter),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2326 — type parameters unused anywhere in their declaration
+/// are dead weight; constraint references count as usage. Shadowing between
+/// nested scopes is ignored.
+fn check_unused_type_parameters(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut declarations = collect_kinds(root, &TYPE_DECLARATION_KINDS);
+    declarations.extend(collect_kinds(
+        root,
+        &["method_declaration", "delegate_declaration"],
+    ));
+    let mut issues = Vec::new();
+    for declaration in declarations {
+        let Some((list, _)) = type_parameter_list_of(declaration) else {
+            continue;
+        };
+        let mut counts: std::collections::HashMap<&str, u32> = std::collections::HashMap::new();
+        for identifier in collect_kinds(declaration, &["identifier"]) {
+            *counts.entry(node_text(identifier, source)).or_insert(0) += 1;
+        }
+        let declared: Vec<Node> = collect_kinds(list, &["type_parameter"]);
+        for parameter in &declared {
+            let name = node_text(*parameter, source);
+            let occurrences_in_list = to_u32(
+                declared
+                    .iter()
+                    .filter(|other| node_text(**other, source) == name)
+                    .count(),
+            );
+            let uses_outside = counts
+                .get(name)
+                .copied()
+                .unwrap_or(0)
+                .saturating_sub(occurrences_in_list);
+            if uses_outside == 0 {
+                issues.push(issue(
+                    language,
+                    "S2326",
+                    format!("Remove this unused type parameter \"{name}\"."),
+                    range_of(*parameter),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3168 — async methods returning void swallow exceptions and
+/// cannot be awaited.
+fn check_async_void_methods(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for method in collect_kinds(root, &["method_declaration"]) {
+        if !has_modifier(&modifiers_of(method, source), "async") {
+            continue;
+        }
+        let returns_void = method
+            .child_by_field_name("returns")
+            .is_some_and(|returns| node_text(returns, source).trim() == "void");
+        if !returns_void {
+            continue;
+        }
+        let Some(name) = method.child_by_field_name("name") else {
+            continue;
+        };
+        issues.push(issue(
+            language,
+            "S3168",
+            "Return 'Task' instead of 'void' from this async method.",
+            range_of(name),
+        ));
+    }
+    issues
+}
+
+/// csharpsquid:S2306 — `async` and `await` are contextual keywords, never
+/// identifiers.
+fn check_contextual_keyword_identifiers(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for identifier in collect_kinds(root, &["identifier"]) {
+        let text = node_text(identifier, source);
+        if matches!(text, "async" | "await") {
+            issues.push(issue(
+                language,
+                "S2306",
+                format!("Rename \"{text}\"; it collides with a contextual keyword."),
+                range_of(identifier),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S907 — gotos destroy structured control flow.
+fn check_goto_statements(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for statement in collect_kinds(root, &["goto_statement"]) {
+        issues.push(issue(
+            language,
+            "S907",
+            "Replace this 'goto' with structured control flow.",
+            range_of(statement),
+        ));
+    }
+    issues
+}
+
+/// csharpsquid:S1227 — bare `break`s belong to loops and switch sections
+/// only.
+fn check_break_statements(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for statement in collect_kinds(root, &["break_statement"]) {
+        let legal_home = has_ancestor_with_kind(
+            statement,
+            &[
+                "switch_section",
+                "for_statement",
+                "foreach_statement",
+                "while_statement",
+                "do_statement",
+            ],
+        );
+        if !legal_home {
+            issues.push(issue(
+                language,
+                "S1227",
+                "Remove this 'break'; it exits neither a loop nor a switch section.",
+                range_of(statement),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S6640 — unsafe blocks and unsafe declarations opt out of
+/// memory-safety guarantees.
+fn check_unsafe_code(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    const UNSAFE_DECLARATION_KINDS: [&str; 11] = [
+        "class_declaration",
+        "struct_declaration",
+        "record_declaration",
+        "interface_declaration",
+        "delegate_declaration",
+        "field_declaration",
+        "event_field_declaration",
+        "method_declaration",
+        "property_declaration",
+        "indexer_declaration",
+        "operator_declaration",
+    ];
+    let mut issues = Vec::new();
+    for statement in collect_kinds(root, &["unsafe_statement"]) {
+        issues.push(issue(
+            language,
+            "S6640",
+            "Remove this unsafe block.",
+            range_of(statement),
+        ));
+    }
+    for declaration in collect_kinds(root, &UNSAFE_DECLARATION_KINDS) {
+        if !has_modifier(&modifiers_of(declaration, source), "unsafe") {
+            continue;
+        }
+        let anchor = declaration
+            .child_by_field_name("name")
+            .unwrap_or(declaration);
+        issues.push(issue(
+            language,
+            "S6640",
+            "Remove the 'unsafe' modifier from this declaration.",
+            range_of(anchor),
+        ));
+    }
+    issues
+}
+
+/// csharpsquid:S4061 — `params` replaced `__arglist` long ago.
+fn check_arglist_usage(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for identifier in collect_kinds(root, &["identifier"]) {
+        if node_text(identifier, source) == "__arglist" {
+            issues.push(issue(
+                language,
+                "S4061",
+                "Use 'params' instead of '__arglist'.",
+                range_of(identifier),
+            ));
+        }
+    }
+    issues
+}
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -1787,5 +3090,406 @@ mod tests {
         let mut sorted = positions.clone();
         sorted.sort_unstable();
         assert_eq!(positions, sorted);
+    }
+
+    #[test]
+    fn s1104_flags_public_instance_fields_only() {
+        let report = analyze_default(
+            "class Widget\n{\n    public int Count;\n}\nclass Hidden\n{\n    private int count;\n}\nclass Shared\n{\n    public static int total;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1104");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+
+        let clean = analyze_default("class Widget\n{\n    private int count;\n}\n");
+        assert!(with_key(&clean, "csharpsquid:S1104").is_empty());
+    }
+
+    #[test]
+    fn s2357_flags_non_private_fields_but_not_constants() {
+        let report = analyze_default(
+            "class Widget\n{\n    internal int cached;\n}\nclass Quiet\n{\n    private int cached;\n}\nclass Limits\n{\n    public const int Max = 3;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2357");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s2223_flags_visible_static_fields_even_readonly() {
+        let report = analyze_default(
+            "class Cache\n{\n    internal static int counter;\n}\nclass Scale\n{\n    public static readonly int Factor = 1;\n}\nclass Locked\n{\n    private const int Cap = 9;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2223");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(flagged[1].range.start.line, 7);
+    }
+
+    #[test]
+    fn s2339_flags_public_constants_only() {
+        let report = analyze_default(
+            "class Limits\n{\n    public const int Max = 3;\n}\nclass PrivateLimits\n{\n    private const int Cap = 2;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2339");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s2386_flags_mutable_public_static_fields() {
+        let report = analyze_default(
+            "class Counter\n{\n    public static int hits;\n}\nclass Frozen\n{\n    public static readonly int start = 1;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2386");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s2156_flags_protected_members_in_sealed_types() {
+        let report = analyze_default(
+            "sealed class Fixed\n{\n    public void Grow()\n    {\n    }\n\n    protected void Shrink()\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2156");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 7);
+    }
+
+    #[test]
+    fn s2290_flags_virtual_field_like_events() {
+        let report = analyze_default(
+            "class Broadcaster\n{\n    public virtual event System.EventHandler Changed;\n\n    public event System.EventHandler Stopped;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2290");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s3442_flags_public_constructors_in_abstract_classes() {
+        let report = analyze_default(
+            "abstract class Plant\n{\n    public Plant()\n    {\n    }\n}\nabstract class Seed\n{\n    protected Seed()\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3442");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s3453_flags_uninstantiable_private_constructor_classes() {
+        let source = "class Secret\n{\n    private Secret()\n    {\n    }\n}\nclass Gateway\n{\n    private Gateway()\n    {\n    }\n\n    public static Gateway Create()\n    {\n        return new Gateway();\n    }\n}\npartial class Split\n{\n    private Split()\n    {\n    }\n}\n";
+        let report = analyze_default(source);
+        let flagged = with_key(&report, "csharpsquid:S3453");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s3871_flags_non_public_exception_types() {
+        let report = analyze_default(
+            "class FaultError : Exception\n{\n}\npublic class AppFailure : Exception\n{\n}\nclass Container\n{\n    private class InnerError : Exception\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3871");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 1);
+        assert_eq!(flagged[1].range.start.line, 9);
+    }
+
+    #[test]
+    fn s4060_flags_unsealed_attribute_classes() {
+        let report = analyze_default(
+            "class HintAttribute : Attribute\n{\n}\nsealed class TagAttribute : Attribute\n{\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4060");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s4035_flags_unsealed_iequatable_implementations() {
+        let report = analyze_default(
+            "class Amount : IEquatable<Amount>\n{\n    public bool Equals(Amount other)\n    {\n        return true;\n    }\n}\nsealed class Ratio : IEquatable<Ratio>\n{\n    public bool Equals(Ratio other)\n    {\n        return true;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4035");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s3260_flags_undecided_private_types() {
+        let report = analyze_default(
+            "class Outer\n{\n    class Inner\n    {\n    }\n}\nclass Zoo\n{\n    class Beast\n    {\n    }\n\n    sealed class Tamed : Beast\n    {\n    }\n\n    record Token(int id);\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3260");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(flagged[1].range.start.line, 17);
+    }
+
+    #[test]
+    fn s3059_flags_members_more_visible_than_their_container() {
+        let report = analyze_default(
+            "public class Registry\n{\n    internal class Cache\n    {\n        public void Reset()\n        {\n        }\n\n        private void Prime()\n        {\n        }\n    }\n}\ninternal class Vault\n{\n    public class Door\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3059");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 16);
+    }
+
+    #[test]
+    fn s2360_flags_optional_parameters_except_overrides() {
+        let report = analyze_default(
+            "class Base\n{\n    public virtual void Configure(int retries = 3)\n    {\n    }\n}\nclass Child : Base\n{\n    public override void Configure(int retries = 3)\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2360");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s3874_flags_out_and_ref_parameters_except_overrides() {
+        let report = analyze_default(
+            "class Parser\n{\n    public bool TryRead(out int value)\n    {\n        value = 0;\n        return true;\n    }\n\n    public void Swap(ref int left)\n    {\n    }\n\n    public void Plain(int value)\n    {\n    }\n}\nclass DerivedParser : Parser\n{\n    public override bool TryRead(out int value)\n    {\n        value = 1;\n        return true;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3874");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(flagged[1].range.start.line, 9);
+    }
+
+    #[test]
+    fn s3447_flags_optional_attribute_on_ref_parameters() {
+        let report = analyze_default(
+            "class Binder\n{\n    public void Store([Optional] ref int target)\n    {\n    }\n\n    public void Keep(ref int target)\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3447");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s3450_requires_optional_next_to_default_parameter_value() {
+        let report = analyze_default(
+            "class Loader\n{\n    public void Load([DefaultParameterValue(5)] int count)\n    {\n    }\n\n    public void Ready([DefaultParameterValue(5)] [Optional] int count)\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3450");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s3451_flags_default_value_on_parameters() {
+        let report = analyze_default(
+            "class Saver\n{\n    public void Save([DefaultValue(3)] int retries)\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3451");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s3343_requires_caller_information_parameters_last() {
+        let bad = analyze_default(
+            "class Tracer\n{\n    public void Track([CallerMemberName] string member = \"\", int depth = 0)\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&bad, "csharpsquid:S3343");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+
+        let last = analyze_default(
+            "class Tracer\n{\n    public void Track(int depth, [CallerMemberName] string member = \"\")\n    {\n    }\n}\n",
+        );
+        assert!(with_key(&last, "csharpsquid:S3343").is_empty());
+
+        let before_params = analyze_default(
+            "class Tracer\n{\n    public void Track(int depth, [CallerMemberName] string member = \"\", params object[] rest)\n    {\n    }\n}\n",
+        );
+        assert!(with_key(&before_params, "csharpsquid:S3343").is_empty());
+    }
+
+    #[test]
+    fn s4214_and_s4200_flag_pinvoke_declarations_by_visibility() {
+        let report = analyze_default(
+            "class Audio\n{\n    [DllImport(\"user32.dll\")]\n    public static extern bool Beep(uint frequency, uint duration);\n\n    [DllImport(\"user32.dll\")]\n    internal static extern bool Chime(uint frequency);\n}\n",
+        );
+        let visible = with_key(&report, "csharpsquid:S4214");
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].range.start.line, 4);
+        let wrapped = with_key(&report, "csharpsquid:S4200");
+        assert_eq!(wrapped.len(), 2);
+    }
+
+    #[test]
+    fn s4000_flags_pointer_types_in_public_signatures() {
+        let report = analyze_default(
+            "class Memory\n{\n    public void Copy(int* source, int count)\n    {\n    }\n\n    internal int* Head()\n    {\n        return null;\n    }\n\n    public int* Tail()\n    {\n        return null;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4000");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(flagged[1].range.start.line, 12);
+    }
+
+    #[test]
+    fn s3967_flags_multidimensional_arrays_not_jagged() {
+        let report = analyze_default(
+            "class Board\n{\n    private int[,] grid;\n\n    private int[][] rows;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3967");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s2368_flags_public_methods_with_multidimensional_array_parameters() {
+        let report = analyze_default(
+            "class Painter\n{\n    public void Draw(int[,] pixels)\n    {\n    }\n\n    internal void Blend(int[,] pixels)\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2368");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s4022_flags_non_int_enum_storage() {
+        let report = analyze_default(
+            "enum Tiny : byte\n{\n    One\n}\nenum Plain\n{\n    Two\n}\nenum Wide : int\n{\n    Three\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4022");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s4017_flags_nested_generics_in_signatures() {
+        let report = analyze_default(
+            "class Graph\n{\n    public void Load(List<Dictionary<string, int>> data)\n    {\n    }\n\n    public List<List<int>> Build()\n    {\n        return new List<List<int>>();\n    }\n\n    public void Save(Dictionary<string, int> data)\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4017");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(flagged[1].range.start.line, 7);
+    }
+
+    #[test]
+    fn s2436_caps_generic_arities_with_boundaries_clean() {
+        let report = analyze_default(
+            "class Pairing<A, B>\n{\n}\nclass Tripling<A, B, C>\n{\n}\nclass Handler\n{\n    public void Trio<TOne, TTwo, TThree>(TOne first, TTwo second, TThree third)\n    {\n    }\n\n    public void Quad<TOne, TTwo, TThree, TFour>(TOne first, TTwo second, TThree third, TFour fourth)\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2436");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(
+            flagged[0].message,
+            "Reduce the number of type parameters (3 > 2)."
+        );
+        assert_eq!(
+            flagged[1].message,
+            "Reduce the number of type parameters (4 > 3)."
+        );
+
+        let options = AnalyzerOptions {
+            maximum_generic_parameters_for_methods: 1,
+            ..Default::default()
+        };
+        let tightened = analyze_options(
+            "class Solo\n{\n    public void Duo<TOne, TTwo>(TOne first, TTwo second)\n    {\n    }\n}\n",
+            &options,
+        );
+        let capped = with_key(&tightened, "csharpsquid:S2436");
+        assert_eq!(capped.len(), 1);
+        assert_eq!(
+            capped[0].message,
+            "Reduce the number of type parameters (2 > 1)."
+        );
+        assert!(with_key(&analyze_default("class Solo\n{\n    public void Duo<TOne, TTwo>(TOne first, TTwo second)\n    {\n    }\n}\n"), "csharpsquid:S2436").is_empty());
+    }
+
+    #[test]
+    fn s4018_flags_method_type_parameters_missing_from_parameter_list() {
+        let report = analyze_default(
+            "class Sender\n{\n    public void Send<TMessage>(TMessage message)\n    {\n    }\n\n    public void Lose<TLost>()\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4018");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 7);
+    }
+
+    #[test]
+    fn s2326_flags_unused_type_parameters_constraints_count_as_usage() {
+        let report = analyze_default(
+            "class Box<TContent>\n{\n    private int size;\n}\nclass Crate<TItem>\n{\n    private TItem item;\n\n    public bool Matches<TOther>(TOther candidate)\n        where TOther : TItem\n    {\n        return false;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2326");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s3168_flags_async_void_methods() {
+        let report = analyze_default(
+            "class Worker\n{\n    public async void FireAsync()\n    {\n    }\n\n    public async System.Threading.Tasks.Task RunAsync()\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3168");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s2306_flags_async_await_identifiers_but_not_keywords() {
+        let report = analyze_default(
+            "int async = 1;\nint await = 2;\n\nclass Sleeper\n{\n    public async void NapAsync()\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2306");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 1);
+        assert_eq!(flagged[1].range.start.line, 2);
+    }
+
+    #[test]
+    fn s907_flags_goto_statements() {
+        let report = analyze_default(
+            "class Jumper\n{\n    public void Jump()\n    {\n        goto Done;\nDone:\n        return;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S907");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s1227_flags_break_outside_loops_and_switches() {
+        let report = analyze_default(
+            "class Runner\n{\n    public void Run(bool again)\n    {\n        if (again)\n        {\n            break;\n        }\n    }\n\n    public void Walk()\n    {\n        while (true)\n        {\n            break;\n        }\n    }\n\n    public int Pick(int number)\n    {\n        switch (number)\n        {\n            case 1:\n                break;\n        }\n        return number;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1227");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 7);
+    }
+
+    #[test]
+    fn s6640_flags_unsafe_blocks_and_declarations() {
+        let report = analyze_default(
+            "class Raw\n{\n    public void Touch()\n    {\n        unsafe\n        {\n            int value = 1;\n        }\n    }\n\n    public unsafe void Direct()\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S6640");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 11);
+        assert_eq!(flagged[0].message, "Remove this unsafe block.");
+        assert_eq!(
+            flagged[1].message,
+            "Remove the 'unsafe' modifier from this declaration."
+        );
+    }
+
+    #[test]
+    fn s4061_flags_arglist_usage() {
+        let report = analyze_default(
+            "class Varargs\n{\n    public void Call()\n    {\n        Native(1, __arglist);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4061");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
     }
 }
