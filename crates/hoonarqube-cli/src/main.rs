@@ -9,6 +9,8 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use hoonarqube_catalog::{Catalog, RuleRecord, embedded};
 
+mod analyze;
+
 /// Embedded languages in canonical audit order: `(catalog name, language id)`.
 const LANGUAGE_IDS: [(&str, &str); 4] = [
     ("csharp", "cs"),
@@ -34,6 +36,12 @@ enum Command {
     Rules {
         #[command(subcommand)]
         cmd: RulesCommand,
+    },
+    /// Analyze Python sources under the given files or directories.
+    Analyze {
+        /// Files or directories to analyze.
+        #[arg(required = true)]
+        paths: Vec<std::path::PathBuf>,
     },
 }
 
@@ -62,6 +70,7 @@ fn main() -> ExitCode {
     match &cli.command {
         Command::Snapshot => print_snapshot(catalog, cli.json),
         Command::Rules { cmd } => run_rules(catalog, cmd, cli.json),
+        Command::Analyze { paths } => run_analyze(catalog, paths, cli.json),
     }
 }
 
@@ -93,17 +102,19 @@ fn run_rules(catalog: &Catalog, cmd: &RulesCommand, json: bool) -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        RulesCommand::Info { external_key } => if let Some(rule) = catalog.rule(external_key) {
-            if json {
-                print_json(rule);
+        RulesCommand::Info { external_key } => {
+            if let Some(rule) = catalog.rule(external_key) {
+                if json {
+                    print_json(rule);
+                } else {
+                    print_rule_info(rule);
+                }
+                ExitCode::SUCCESS
             } else {
-                print_rule_info(rule);
+                eprintln!("unknown rule: {external_key}");
+                ExitCode::from(1)
             }
-            ExitCode::SUCCESS
-        } else {
-            eprintln!("unknown rule: {external_key}");
-            ExitCode::from(1)
-        },
+        }
     }
 }
 
@@ -116,11 +127,11 @@ fn select_language<'a>(
     lang: Option<&str>,
 ) -> Option<Box<dyn Iterator<Item = &'a RuleRecord> + 'a>> {
     match lang {
-        None => {
-            Some(Box::new(
-                catalog.languages().flat_map(|(_, language)| language.rules()),
-            ) as Box<dyn Iterator<Item = &'a RuleRecord> + 'a>)
-        }
+        None => Some(Box::new(
+            catalog
+                .languages()
+                .flat_map(|(_, language)| language.rules()),
+        ) as Box<dyn Iterator<Item = &'a RuleRecord> + 'a>),
         Some(lang) => {
             let name = LANGUAGE_IDS
                 .iter()
@@ -131,8 +142,6 @@ fn select_language<'a>(
         }
     }
 }
-
-
 
 /// Whether the lowercased query occurs in the key, any `sys_tag`, or any tag.
 fn rule_matches(rule: &RuleRecord, query_lower: &str) -> bool {
@@ -203,4 +212,51 @@ fn print_json<T: serde::Serialize>(value: &T) {
 fn unknown_language(value: &str) -> ExitCode {
     eprintln!("unknown language: {value}");
     ExitCode::from(2)
+}
+
+/// Validates input paths, then walks and analyzes them; issues found are not
+/// failures (scanner-style), only missing paths exit nonzero.
+fn run_analyze(catalog: &Catalog, paths: &[std::path::PathBuf], json: bool) -> ExitCode {
+    let mut valid = true;
+    for path in paths {
+        if !path.exists() {
+            eprintln!("path does not exist: {}", path.display());
+            valid = false;
+        }
+    }
+    if !valid {
+        return ExitCode::from(2);
+    }
+
+    let options = analyze::analyzer_options_bundle(catalog);
+    let mut warnings = Vec::new();
+    let reports = analyze::analyze_paths(paths, &options, &mut warnings);
+    for warning in &warnings {
+        eprintln!("{warning}");
+    }
+
+    if json {
+        print_json(&hoonarqube_ir::AnalysisReport { files: reports });
+        return ExitCode::SUCCESS;
+    }
+
+    let total_issues: usize = reports.iter().map(|report| report.issues.len()).sum();
+    for report in &reports {
+        for issue in &report.issues {
+            println!(
+                "{}:{}:{}: {}: {}",
+                report.path.display(),
+                issue.range.start.line,
+                issue.range.start.column,
+                issue.rule_key,
+                issue.message
+            );
+        }
+    }
+    println!(
+        "analyzed {} file(s), {} finding(s)",
+        reports.len(),
+        total_issues
+    );
+    ExitCode::SUCCESS
 }

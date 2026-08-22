@@ -73,7 +73,10 @@ mod tests {
         assert_eq!(start.line, 1);
         assert_eq!(start.column, 0);
 
-        let end = Pos { line: 3, column: 12 };
+        let end = Pos {
+            line: 3,
+            column: 12,
+        };
         let range = Range { start, end };
         assert_eq!(range.start.line, 1);
         assert_eq!(range.start.column, 0);
@@ -92,7 +95,10 @@ mod tests {
                     message: "Replace the backticks with regular quotes.".to_string(),
                     range: Range {
                         start: Pos { line: 4, column: 8 },
-                        end: Pos { line: 4, column: 23 },
+                        end: Pos {
+                            line: 4,
+                            column: 23,
+                        },
                     },
                 }],
                 metrics: FileMetrics {

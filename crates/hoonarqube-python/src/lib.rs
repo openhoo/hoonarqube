@@ -120,7 +120,12 @@ fn covered_lines<'a>(
     index: &'a LineIndex,
     source: &'a str,
 ) -> impl Iterator<Item = u32> + 'a {
-    let first = to_u32(index.line_column(range.start(), source).line.to_zero_indexed());
+    let first = to_u32(
+        index
+            .line_column(range.start(), source)
+            .line
+            .to_zero_indexed(),
+    );
     let slice = &source[range];
     // A newline transitions to the next line only when characters follow it
     // inside the range; a token ending exactly at a newline stays on its line.
@@ -164,11 +169,7 @@ fn file_metrics(
     }
 }
 
-fn check_parsing_errors(
-    parsed: &Parsed<ModModule>,
-    index: &LineIndex,
-    source: &str,
-) -> Vec<Issue> {
+fn check_parsing_errors(parsed: &Parsed<ModModule>, index: &LineIndex, source: &str) -> Vec<Issue> {
     parsed
         .errors()
         .iter()
@@ -234,7 +235,12 @@ fn check_one_statement_per_line(
     issues
 }
 
-fn check_suite(suite: &[ruff_python_ast::Stmt], issues: &mut Vec<Issue>, index: &LineIndex, source: &str) {
+fn check_suite(
+    suite: &[ruff_python_ast::Stmt],
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
     let line_of = |stmt: &ruff_python_ast::Stmt| to_pos(stmt.range().start(), index, source).line;
 
     let mut start = 0;
@@ -332,7 +338,6 @@ fn check_call_usage(
         .collect()
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -343,7 +348,12 @@ mod tests {
         hoonarqube_ir::Pos { line, column }
     }
 
-    fn issue(rule_key: &str, message: &str, start: (u32, u32), end: (u32, u32)) -> hoonarqube_ir::Issue {
+    fn issue(
+        rule_key: &str,
+        message: &str,
+        start: (u32, u32),
+        end: (u32, u32),
+    ) -> hoonarqube_ir::Issue {
         hoonarqube_ir::Issue {
             rule_key: rule_key.to_string(),
             message: message.to_string(),
@@ -450,7 +460,11 @@ mod tests {
     #[test]
     fn exec_and_print_calls_are_flagged_but_not_attributes() {
         let source = "exec(\"x\")\nprint(\"y\")\nmy_print(\"z\")\nmy_exec(\"w\")";
-        let report = analyze(PathBuf::from("test.py"), source, &AnalyzerOptions::default());
+        let report = analyze(
+            PathBuf::from("test.py"),
+            source,
+            &AnalyzerOptions::default(),
+        );
         assert_eq!(
             report
                 .issues
@@ -503,7 +517,11 @@ mod tests {
             "\n",
             "greet(\"world\")  # NOSONAR here\n",
         );
-        let report = analyze(PathBuf::from("demo.py"), source, &AnalyzerOptions::default());
+        let report = analyze(
+            PathBuf::from("demo.py"),
+            source,
+            &AnalyzerOptions::default(),
+        );
         assert_eq!(
             report,
             hoonarqube_ir::FileReport {

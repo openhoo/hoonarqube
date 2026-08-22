@@ -26,16 +26,26 @@ const LANGUAGES: [(&str, &str); 4] = [
 /// The only classification accepted anywhere in the evidence chain.
 const CLASSIFICATION: &str = "licensed-only-unclassified";
 
-const SNAPSHOT_TOML: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../catalog/snapshot.toml"));
-const CSHARP_JSON: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../catalog/rules/csharp.json"));
-const JAVASCRIPT_JSON: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../catalog/rules/javascript.json"));
-const TYPESCRIPT_JSON: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../catalog/rules/typescript.json"));
-const PYTHON_JSON: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../catalog/rules/python.json"));
+const SNAPSHOT_TOML: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../catalog/snapshot.toml"
+));
+const CSHARP_JSON: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../catalog/rules/csharp.json"
+));
+const JAVASCRIPT_JSON: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../catalog/rules/javascript.json"
+));
+const TYPESCRIPT_JSON: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../catalog/rules/typescript.json"
+));
+const PYTHON_JSON: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../catalog/rules/python.json"
+));
 
 /// Frozen capture evidence for one `SonarQube` server instance.
 #[derive(Debug, Serialize, Deserialize)]
@@ -221,7 +231,9 @@ impl Catalog {
 
     /// Iterates all embedded languages in canonical audit order.
     pub fn languages(&self) -> impl Iterator<Item = (&'static str, &LanguageCatalog)> {
-        self.languages.iter().map(|language| (language.name, language))
+        self.languages
+            .iter()
+            .map(|language| (language.name, language))
     }
 }
 
@@ -321,7 +333,10 @@ fn verify(snapshot_text: &str, rule_texts: [&str; 4]) -> Result<Catalog, String>
     if hex::encode(catalog_hasher.finalize()) != snapshot.catalog_sha256 {
         return Err("catalog aggregate hash mismatch".to_owned());
     }
-    Ok(Catalog { snapshot, languages })
+    Ok(Catalog {
+        snapshot,
+        languages,
+    })
 }
 
 /// Whether `rules` are strictly ascending by `external_key`.
@@ -381,10 +396,16 @@ mod tests {
     fn embedded_rule_counts_match_snapshot_evidence() {
         let catalog = super::embedded();
         assert_eq!(catalog.snapshot().total_rules, 1620);
-        let expected = [("csharp", 467), ("javascript", 406), ("typescript", 412), ("python", 335)];
+        let expected = [
+            ("csharp", 467),
+            ("javascript", 406),
+            ("typescript", 412),
+            ("python", 335),
+        ];
         for (name, count) in expected {
-            let language =
-                catalog.language(name).unwrap_or_else(|| panic!("language {name} missing"));
+            let language = catalog
+                .language(name)
+                .unwrap_or_else(|| panic!("language {name} missing"));
             assert_eq!(language.len(), count, "rule count mismatch for {name}");
         }
     }
@@ -417,7 +438,9 @@ mod tests {
     #[test]
     fn rule_lookup_round_trip_resolves_repository() {
         let catalog = super::embedded();
-        let rule = catalog.rule("python:BackticksUsage").expect("known key resolves");
+        let rule = catalog
+            .rule("python:BackticksUsage")
+            .expect("known key resolves");
         assert_eq!(rule.repository, "python");
         assert_eq!(rule.language, "py");
         assert!(catalog.rule("java:NoSuchRule").is_none());
@@ -427,7 +450,10 @@ mod tests {
     fn flip_leading_hash_digit(snapshot_text: &str, marker: &str) -> String {
         let hash_start = snapshot_text.find(marker).expect("marker present") + marker.len();
         let hash = &snapshot_text[hash_start..hash_start + 64];
-        assert!(hash.bytes().all(|byte| byte.is_ascii_hexdigit()), "not a hash: {hash}");
+        assert!(
+            hash.bytes().all(|byte| byte.is_ascii_hexdigit()),
+            "not a hash: {hash}"
+        );
         let flipped = if hash.starts_with('0') { "1" } else { "0" };
         snapshot_text.replacen(hash, &format!("{flipped}{}", &hash[1..]), 1)
     }
@@ -435,8 +461,7 @@ mod tests {
     #[test]
     fn tampered_per_file_hash_fails_verification() {
         let snapshot_text = flip_leading_hash_digit(SNAPSHOT_TOML, "csharp = \"");
-        let error =
-            verify(&snapshot_text, PRISTINE).expect_err("tampered per-file hash must fail");
+        let error = verify(&snapshot_text, PRISTINE).expect_err("tampered per-file hash must fail");
         assert_eq!(error, "catalog file hash mismatch");
     }
 
@@ -473,6 +498,9 @@ mod tests {
         let mut rule_texts = PRISTINE;
         rule_texts[3] = &tampered;
         let error = verify(SNAPSHOT_TOML, rule_texts).expect_err("prose field must fail");
-        assert!(error.contains("unknown field `name`"), "unexpected error: {error}");
+        assert!(
+            error.contains("unknown field `name`"),
+            "unexpected error: {error}"
+        );
     }
 }

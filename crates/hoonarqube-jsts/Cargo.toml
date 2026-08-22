@@ -9,5 +9,13 @@ repository.workspace = true
 [lib]
 path = "src/lib.rs"
 
+[dependencies]
+hoonarqube-ir = { path = "../hoonarqube-ir" }
+oxc_allocator = "0.146.0"
+oxc_ast_visit = "0.146.0"
+oxc_ast = "0.146.0"
+oxc_parser = "0.146.0"
+oxc_span = "0.146.0"
+
 [lints]
 workspace = true
