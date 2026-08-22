@@ -470,6 +470,13 @@ version = "0.0.0"
 [[package]]
 name = "hoonarqube-catalog"
 version = "0.0.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
+]
 
 [[package]]
 name = "hoonarqube-cli"
