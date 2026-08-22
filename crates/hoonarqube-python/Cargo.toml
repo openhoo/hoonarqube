@@ -9,5 +9,12 @@ repository.workspace = true
 [lib]
 path = "src/lib.rs"
 
+[dependencies]
+hoonarqube-ir = { path = "../hoonarqube-ir" }
+ruff_python_ast = "0.0.10"
+ruff_python_parser = "0.0.10"
+ruff_source_file = "0.0.10"
+ruff_text_size = "0.0.10"
+
 [lints]
 workspace = true
