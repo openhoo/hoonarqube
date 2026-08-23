@@ -386,6 +386,152 @@ pub fn audit(snapshot_path: &Path, require_pages_complete: bool) -> Result<()> {
     Ok(())
 }
 
+/// Audits implemented-rule coverage of the analyzer crates against the frozen catalogs.
+///
+/// A frozen rule counts as implemented when its distinguishing key marker (the part
+/// after the repository prefix, such as `S103` or `BackticksUsage`) occurs anywhere in
+/// the owning analyzer crate's source. The report prints one table row per language
+/// followed by the missing-key lists. The command always exits successfully once the
+/// inputs are readable; `strict` turns any coverage gap into exit code 1.
+pub fn coverage(lang: Option<&str>, strict: bool) -> Result<()> {
+    if let Some(lang) = lang {
+        ensure!(
+            LANGUAGES.iter().any(|(name, _)| *name == lang),
+            "unknown language {lang}; expected one of csharp, javascript, typescript, python"
+        );
+    }
+    let mut rows = Vec::new();
+    for (name, language_id) in LANGUAGES {
+        if lang.is_some_and(|filter| filter != name) {
+            continue;
+        }
+        rows.push(coverage_language(name, language_id)?);
+    }
+    print_coverage(&rows);
+    if strict && rows.iter().any(LanguageCoverage::has_gaps) {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+/// One language's rule classification against its analyzer crate source.
+struct LanguageCoverage {
+    name: &'static str,
+    implemented: usize,
+    missing: Vec<String>,
+}
+
+impl LanguageCoverage {
+    fn total(&self) -> usize {
+        self.implemented + self.missing.len()
+    }
+
+    /// Whether any frozen rule lacks an implementation marker.
+    fn has_gaps(&self) -> bool {
+        !self.missing.is_empty()
+    }
+
+    /// Coverage percentage, counting an empty catalog as fully covered.
+    fn percent(&self) -> f64 {
+        let total = self.total();
+        if total == 0 {
+            return 100.0;
+        }
+        let implemented = u32::try_from(self.implemented).unwrap_or(u32::MAX);
+        let total = u32::try_from(total).unwrap_or(u32::MAX);
+        f64::from(implemented) * 100.0 / f64::from(total)
+    }
+}
+
+fn coverage_language(name: &'static str, language_id: &str) -> Result<LanguageCoverage> {
+    let source_path = coverage_source_path(name)
+        .with_context(|| format!("no analyzer crate maps language {name}"))?;
+    let source = fs::read_to_string(source_path)
+        .with_context(|| format!("failed to read analyzer source {source_path}"))?;
+    let keys = coverage_keys(name, language_id)?;
+    let missing = missing_rules(&keys, &source);
+    let implemented = keys.len() - missing.len();
+    Ok(LanguageCoverage {
+        name,
+        implemented,
+        missing,
+    })
+}
+
+/// Analyzer crate source scanned for rule markers, by catalog name.
+///
+/// `javascript` and `typescript` share the single `hoonarqube-jsts` crate.
+fn coverage_source_path(name: &str) -> Option<&'static str> {
+    match name {
+        "csharp" => Some("crates/hoonarqube-csharp/src/lib.rs"),
+        "javascript" | "typescript" => Some("crates/hoonarqube-jsts/src/lib.rs"),
+        "python" => Some("crates/hoonarqube-python/src/lib.rs"),
+        _ => None,
+    }
+}
+
+/// Frozen external keys for one language, reusing the audit catalog contract.
+fn coverage_keys(name: &str, language_id: &str) -> Result<Vec<String>> {
+    let path = Path::new("catalog")
+        .join("rules")
+        .join(format!("{name}.json"));
+    let bytes = read(&path)?;
+    let catalog: RuleCatalog = serde_json::from_slice(&bytes)
+        .with_context(|| format!("invalid catalog file {}", path.display()))?;
+    ensure!(catalog.language == language_id, "catalog language mismatch");
+    Ok(catalog
+        .rules
+        .into_iter()
+        .map(|rule| rule.external_key)
+        .collect())
+}
+
+/// Missing rule keys whose implementation marker never occurs in `source`.
+///
+/// Keys arrive strictly sorted from the frozen catalog, so the result preserves
+/// that order without re-sorting.
+fn missing_rules(keys: &[String], source: &str) -> Vec<String> {
+    keys.iter()
+        .map(String::as_str)
+        .filter(|key| !source.contains(rule_key_marker(key)))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The distinguishing source marker for one rule key.
+///
+/// Strips the repository prefix (`python:BackticksUsage` -> `BackticksUsage`,
+/// `csharpsquid:S103` -> `S103`); a prefix-less key marks itself.
+fn rule_key_marker(external_key: &str) -> &str {
+    external_key
+        .split_once(':')
+        .map_or(external_key, |(_, marker)| marker)
+}
+
+/// Prints the per-language coverage table followed by the missing-key lists.
+fn print_coverage(rows: &[LanguageCoverage]) {
+    println!("language      implemented  missing  total  coverage");
+    for row in rows {
+        println!(
+            "{:<12} {:>11} {:>7} {:>6} {:>8.1}%",
+            row.name,
+            row.implemented,
+            row.missing.len(),
+            row.total(),
+            row.percent(),
+        );
+    }
+    for row in rows {
+        if row.missing.is_empty() {
+            continue;
+        }
+        println!("\n{} missing rules:", row.name);
+        for key in &row.missing {
+            println!("  {key}");
+        }
+    }
+}
+
 fn extract_language(
     capture: &Path,
     language_name: &str,
@@ -832,4 +978,55 @@ fn hash_record(hasher: &mut Sha256, bytes: &[u8]) {
 
 fn sha256(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rule_marker_strips_repository_prefix() {
+        assert_eq!(rule_key_marker("python:BackticksUsage"), "BackticksUsage");
+        assert_eq!(rule_key_marker("csharpsquid:S103"), "S103");
+        assert_eq!(rule_key_marker("javascript:S1523"), "S1523");
+    }
+
+    #[test]
+    fn rule_marker_keeps_prefixless_key() {
+        assert_eq!(rule_key_marker("S103"), "S103");
+    }
+
+    #[test]
+    fn missing_rules_split_implemented_and_missing_in_order() {
+        let keys = vec![
+            "javascript:S100".to_owned(),
+            "javascript:S122".to_owned(),
+            "javascript:S1523".to_owned(),
+        ];
+        // Markers are matched case-sensitively: lowercase `s122` does not count.
+        let source = "fn check_s122() {} // S1523 marker";
+        assert_eq!(
+            missing_rules(&keys, source),
+            vec!["javascript:S100", "javascript:S122"]
+        );
+    }
+
+    #[test]
+    fn every_catalog_language_maps_to_analyzer_source() {
+        for (name, _) in LANGUAGES {
+            assert!(coverage_source_path(name).is_some());
+        }
+        assert_eq!(coverage_source_path("unknown"), None);
+    }
+
+    #[test]
+    fn percent_counts_empty_catalog_as_complete() {
+        let row = LanguageCoverage {
+            name: "python",
+            implemented: 0,
+            missing: Vec::new(),
+        };
+        assert!((row.percent() - 100.0).abs() < 1e-9);
+        assert!(!row.has_gaps());
+    }
 }
