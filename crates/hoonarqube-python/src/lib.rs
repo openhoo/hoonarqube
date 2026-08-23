@@ -150,6 +150,7 @@ pub fn analyze(
     issues.extend(check_tier_b_battery(&parsed, &index, source, options));
     issues.extend(check_regex_battery(&parsed, &index, source, options));
     issues.extend(check_tier_c_security_battery(&parsed, &index, source));
+    issues.extend(check_tier_c_semantic_battery(&parsed, &index, source));
     sort_issues(&mut issues);
 
     hoonarqube_ir::FileReport {
@@ -15971,6 +15972,1420 @@ fn check_s5708_excepting_non_exceptions(
     });
     issues
 }
+// ---------------------------------------------------------------------------
+// Tier-C semantic family (file-local symbol tables plus conservative call,
+// type-hint, and contract heuristics).
+//
+// Every rule restricts itself to targets resolvable inside the analyzed file;
+// anything needing import resolution or full type inference is skipped.
+// ---------------------------------------------------------------------------
+
+/// Aggregates the Tier-C semantic checks over one file.
+fn check_tier_c_semantic_battery(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_s2201_ignored_pure_returns(parsed, index, source));
+    issues.extend(check_s5756_non_callable_callees(parsed, index, source));
+    issues.extend(check_s3699_used_void_outputs(parsed, index, source));
+    issues.extend(check_s935_bare_returns(parsed, index, source));
+    issues.extend(check_s5890_annotated_assignment_kinds(
+        parsed, index, source,
+    ));
+    issues.extend(check_s5886_return_hint_mismatches(parsed, index, source));
+    issues.extend(check_s930_arity_mismatches(parsed, index, source));
+    issues.extend(check_s5655_argument_kind_mismatches(parsed, index, source));
+    issues.extend(check_s2876_iter_returns(parsed, index, source));
+    issues.extend(check_s2638_override_contracts(parsed, index, source));
+    issues.extend(check_s5713_parent_child_except_pairs(parsed, index, source));
+    issues
+}
+
+/// Fine-grained literal classification (numbers split by numeric type) shared
+/// by the Tier-C semantic rules.
+fn typed_literal_kind(expr: &Expr) -> Option<&'static str> {
+    match expr {
+        Expr::NumberLiteral(number) => Some(match &number.value {
+            ruff_python_ast::Number::Int(_) => "int",
+            ruff_python_ast::Number::Float(_) => "float",
+            ruff_python_ast::Number::Complex { .. } => "complex",
+        }),
+        Expr::StringLiteral(_) => Some("string"),
+        Expr::BytesLiteral(_) => Some("bytes"),
+        Expr::BooleanLiteral(_) => Some("boolean"),
+        Expr::NoneLiteral(_) => Some("none"),
+        Expr::List(_) => Some("list"),
+        Expr::Tuple(_) => Some("tuple"),
+        Expr::Set(_) => Some("set"),
+        Expr::Dict(_) => Some("dict"),
+        _ => None,
+    }
+}
+
+/// Names written by a statement: assignment/annotation/augmented targets,
+/// deletions, loop and `with` targets, import bindings, definition names,
+/// and `global`/`nonlocal` declarations (which license remote writes).
+/// Comprehension and match-capture scopes cannot rebind these names.
+fn stmt_store_names(stmt: &Stmt) -> Vec<String> {
+    let mut names = Vec::new();
+    match stmt {
+        Stmt::Assign(assign) => {
+            for target in &assign.targets {
+                collect_target_names(target, &mut names);
+            }
+        }
+        Stmt::AnnAssign(assign) => collect_target_names(&assign.target, &mut names),
+        Stmt::AugAssign(assign) => collect_target_names(&assign.target, &mut names),
+        Stmt::Delete(delete) => {
+            for target in &delete.targets {
+                collect_target_names(target, &mut names);
+            }
+        }
+        Stmt::For(loop_stmt) => collect_target_names(&loop_stmt.target, &mut names),
+        Stmt::With(with_stmt) => {
+            for item in &with_stmt.items {
+                if let Some(vars) = item.optional_vars.as_deref() {
+                    collect_target_names(vars, &mut names);
+                }
+            }
+        }
+        Stmt::Import(import) => {
+            for alias in &import.names {
+                names.extend(import_binding_name(alias));
+            }
+        }
+        Stmt::ImportFrom(import_from) => {
+            for alias in &import_from.names {
+                names.extend(import_binding_name(alias));
+            }
+        }
+        Stmt::FunctionDef(function) => names.push(function.name.as_str().to_string()),
+        Stmt::ClassDef(class) => names.push(class.name.as_str().to_string()),
+        Stmt::Global(global) => {
+            for name in &global.names {
+                names.push(name.as_str().to_string());
+            }
+        }
+        Stmt::Nonlocal(nonlocal_stmt) => {
+            for name in &nonlocal_stmt.names {
+                names.push(name.as_str().to_string());
+            }
+        }
+        _ => {}
+    }
+    names
+}
+
+/// Module names provably holding a non-callable literal: assigned a literal
+/// exactly once across the whole file by a top-level `name = <literal>`
+/// statement. Any second write (loop targets, walrus, `global` declarations,
+/// deletion) disqualifies the name.
+fn collect_module_literal_bindings(module: &[Stmt]) -> HashSet<String> {
+    let mut writes: HashMap<String, usize> = HashMap::new();
+    let mut count_writes = |names: Vec<String>| {
+        for name in names {
+            *writes.entry(name).or_insert(0) += 1;
+        }
+    };
+    for_each_stmt(module, &mut |stmt| {
+        count_writes(stmt_store_names(stmt));
+        for_each_stmt_expr(std::slice::from_ref(stmt), &mut |expr| {
+            if let Expr::Named(named) = expr {
+                let mut targets = Vec::new();
+                collect_target_names(&named.target, &mut targets);
+                count_writes(targets);
+            }
+        });
+    });
+    let mut candidates = HashSet::new();
+    for stmt in module {
+        if let Stmt::Assign(assign) = stmt
+            && let [target] = assign.targets.as_slice()
+            && let Expr::Name(name) = target
+            && typed_literal_kind(&assign.value).is_some()
+        {
+            candidates.insert(name.id.as_str().to_string());
+        }
+    }
+    candidates.retain(|name| writes.get(name).copied() == Some(1));
+    candidates
+}
+
+// --- python:S5756 — calls should not be made to non-callable values ----------
+
+/// Flags calls whose callee is a literal, or a module name proven by
+/// [`collect_module_literal_bindings`] to hold a non-callable literal.
+fn check_s5756_non_callable_callees(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let module = parsed.syntax().body.as_slice();
+    let bindings = collect_module_literal_bindings(module);
+    let mut issues = Vec::new();
+    for_each_stmt_expr(module, &mut |expr| {
+        let Expr::Call(call) = expr else {
+            return;
+        };
+        if typed_literal_kind(&call.func).is_some() {
+            issues.push(issue_at(
+                "python:S5756",
+                "This expression is not callable.",
+                call.func.range(),
+                index,
+                source,
+            ));
+        } else if let Expr::Name(name) = call.func.as_ref()
+            && bindings.contains(name.id.as_str())
+        {
+            issues.push(issue_at(
+                "python:S5756",
+                &format!("'{}' is not callable.", name.id.as_str()),
+                call.func.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S2201 — return values from pure calls should not be ignored ------
+
+const PURE_FREE_FUNCTIONS: [&str; 13] = [
+    "sorted", "reversed", "abs", "len", "repr", "ascii", "hash", "bin", "oct", "hex", "chr", "ord",
+    "divmod",
+];
+
+const PURE_STRING_METHODS: [&str; 46] = [
+    "upper",
+    "lower",
+    "capitalize",
+    "casefold",
+    "title",
+    "swapcase",
+    "strip",
+    "lstrip",
+    "rstrip",
+    "removeprefix",
+    "removesuffix",
+    "replace",
+    "center",
+    "zfill",
+    "ljust",
+    "rjust",
+    "count",
+    "find",
+    "rfind",
+    "index",
+    "rindex",
+    "startswith",
+    "endswith",
+    "partition",
+    "rpartition",
+    "split",
+    "rsplit",
+    "splitlines",
+    "join",
+    "encode",
+    "format",
+    "format_map",
+    "translate",
+    "expandtabs",
+    "isascii",
+    "isalpha",
+    "isalnum",
+    "isdecimal",
+    "isdigit",
+    "isidentifier",
+    "islower",
+    "isnumeric",
+    "isprintable",
+    "isspace",
+    "istitle",
+    "isupper",
+];
+
+/// Whether the expression is a string literal or a call chain over pure
+/// `str` methods rooted at a string literal (`"a,b".strip().split(",")`).
+fn is_pure_string_expression(expr: &Expr) -> bool {
+    match expr {
+        Expr::StringLiteral(_) => true,
+        Expr::Call(call) => matches!(
+            call.func.as_ref(),
+            Expr::Attribute(attribute)
+                if PURE_STRING_METHODS.contains(&attribute.attr.as_str())
+                    && is_pure_string_expression(&attribute.value)
+        ),
+        _ => false,
+    }
+}
+
+/// python:S2201 — bare-statement calls whose result is provably pure (the
+/// static free-function allowlist, or a pure-`str`-method chain rooted at a
+/// string literal) discard their return value.
+fn check_s2201_ignored_pure_returns(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::Expr(expr_stmt) = stmt else {
+            return;
+        };
+        let Expr::Call(call) = expr_stmt.value.as_ref() else {
+            return;
+        };
+        let discarded = match call.func.as_ref() {
+            Expr::Name(name) => PURE_FREE_FUNCTIONS.contains(&name.id.as_str()),
+            Expr::Attribute(attribute) => {
+                PURE_STRING_METHODS.contains(&attribute.attr.as_str())
+                    && is_pure_string_expression(&attribute.value)
+            }
+            _ => false,
+        };
+        if !discarded {
+            return;
+        }
+        issues.push(issue_at(
+            "python:S2201",
+            &format!(
+                "The return value of '{}' is not used.",
+                called_name(&call.func).unwrap_or_default()
+            ),
+            call.range(),
+            index,
+            source,
+        ));
+    });
+    issues
+}
+
+// --- python:S3699 — output of functions returning nothing should not be used -
+
+/// Whether the undecorated, non-async function provably returns nothing:
+/// no `return <value>` and no `yield` anywhere in its body.
+fn is_void_function(function: &ruff_python_ast::StmtFunctionDef) -> bool {
+    if function.is_async || !function.decorator_list.is_empty() {
+        return false;
+    }
+    let mut returns_value = false;
+    for_each_stmt(&function.body, &mut |stmt| {
+        if let Stmt::Return(returned) = stmt
+            && returned.value.is_some()
+        {
+            returns_value = true;
+        }
+    });
+    let mut yields = false;
+    for_each_stmt_expr(&function.body, &mut |expr| {
+        if matches!(expr, Expr::Yield(_) | Expr::YieldFrom(_)) {
+            yields = true;
+        }
+    });
+    !returns_value && !yields
+}
+
+/// Names of module-level functions satisfying [`is_void_function`]. Duplicate
+/// definitions shadow one another and are dropped as ambiguous.
+fn collect_void_function_names(module: &[Stmt]) -> HashSet<String> {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for stmt in module {
+        if let Stmt::FunctionDef(function) = stmt {
+            *counts
+                .entry(function.name.as_str().to_string())
+                .or_insert(0) += 1;
+        }
+    }
+    let mut void = HashSet::new();
+    for stmt in module {
+        if let Stmt::FunctionDef(function) = stmt
+            && counts.get(function.name.as_str()) == Some(&1)
+            && is_void_function(function)
+        {
+            void.insert(function.name.as_str().to_string());
+        }
+    }
+    void
+}
+
+/// python:S3699 — flags expression-position uses of calls to file-local void
+/// functions: every call except a whole expression statement, a decorator
+/// subtree, or a directly awaited operand consumes the (nonexistent) output.
+fn check_s3699_used_void_outputs(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let module = parsed.syntax().body.as_slice();
+    let void = collect_void_function_names(module);
+    if void.is_empty() {
+        return Vec::new();
+    }
+    let mut exempt_ranges: Vec<TextRange> = Vec::new();
+    for_each_stmt(module, &mut |stmt| match stmt {
+        Stmt::Expr(expr_stmt) => {
+            if let Expr::Call(call) = expr_stmt.value.as_ref() {
+                exempt_ranges.push(call.range());
+            }
+        }
+        Stmt::FunctionDef(function) => {
+            for decorator in &function.decorator_list {
+                exempt_ranges.push(decorator.range());
+            }
+        }
+        Stmt::ClassDef(class) => {
+            for decorator in &class.decorator_list {
+                exempt_ranges.push(decorator.range());
+            }
+        }
+        _ => {}
+    });
+    for_each_stmt_expr(module, &mut |expr| {
+        if let Expr::Await(awaited) = expr
+            && let Expr::Call(call) = awaited.value.as_ref()
+        {
+            exempt_ranges.push(call.range());
+        }
+    });
+    let mut issues = Vec::new();
+    for_each_stmt_expr(module, &mut |expr| {
+        let Expr::Call(call) = expr else {
+            return;
+        };
+        let Expr::Name(callee) = call.func.as_ref() else {
+            return;
+        };
+        if !void.contains(callee.id.as_str()) || exempt_ranges.contains(&call.range()) {
+            return;
+        }
+        issues.push(issue_at(
+            "python:S3699",
+            &format!(
+                "'{}' returns nothing, so this use of its output is invalid.",
+                callee.id.as_str()
+            ),
+            call.func.range(),
+            index,
+            source,
+        ));
+    });
+    issues
+}
+
+// --- shared: simple concrete annotation hints ---------------------------------
+
+/// Builtin annotations whose literal compatibility is decodable from the root
+/// name alone (`int`, `list[int]`, `typing.Dict[str, int]`). PEP 604 unions,
+/// `Optional[...]`, `Any`, `object`, string forward references, and unknown
+/// class names are deliberately unrecognized.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HintKind {
+    Int,
+    Float,
+    Complex,
+    Str,
+    Bytes,
+    Bool,
+    List,
+    Set,
+    Dict,
+    Tuple,
+    FrozenSet,
+}
+
+fn concrete_hint(annotation: &Expr) -> Option<HintKind> {
+    let root = match annotation {
+        Expr::Name(name) => name.id.as_str(),
+        Expr::Attribute(attribute) => attribute.attr.as_str(),
+        Expr::Subscript(subscript) => match subscript.value.as_ref() {
+            Expr::Name(name) => name.id.as_str(),
+            Expr::Attribute(attribute) => attribute.attr.as_str(),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    Some(match root {
+        "int" => HintKind::Int,
+        "float" => HintKind::Float,
+        "complex" => HintKind::Complex,
+        "str" => HintKind::Str,
+        "bytes" => HintKind::Bytes,
+        "bool" => HintKind::Bool,
+        "list" | "List" => HintKind::List,
+        "set" | "Set" => HintKind::Set,
+        "dict" | "Dict" => HintKind::Dict,
+        "tuple" | "Tuple" => HintKind::Tuple,
+        "frozenset" | "FrozenSet" => HintKind::FrozenSet,
+        _ => return None,
+    })
+}
+
+/// Whether a value of literal kind `kind` can populate a `hint` slot.
+/// Booleans count as ints; ints widen to `float`/`complex`; a `frozenset`
+/// slot accepts none of the mutable collection literals.
+fn hint_accepts_literal(hint: HintKind, kind: &str) -> bool {
+    match hint {
+        HintKind::Int => matches!(kind, "int" | "boolean"),
+        HintKind::Float | HintKind::Complex => {
+            matches!(kind, "int" | "float" | "complex" | "boolean")
+        }
+        HintKind::Str => kind == "string",
+        HintKind::Bytes => kind == "bytes",
+        HintKind::Bool => kind == "boolean",
+        HintKind::List => kind == "list",
+        HintKind::Set => kind == "set",
+        HintKind::Dict => kind == "dict",
+        HintKind::Tuple => kind == "tuple",
+        HintKind::FrozenSet => false,
+    }
+}
+
+/// Visits `return` statements of a suite without descending into nested
+/// function or class definitions.
+fn for_each_return_in_scope(suite: &[Stmt], visit: &mut impl FnMut(&ruff_python_ast::StmtReturn)) {
+    for stmt in suite {
+        match stmt {
+            Stmt::Return(returned) => visit(returned),
+            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
+            other => {
+                for body in child_bodies(other) {
+                    for_each_return_in_scope(body, visit);
+                }
+            }
+        }
+    }
+}
+
+// --- python:S935 — functions should only return expected values ---------------
+
+/// python:S935 — bare `return` inside a file-local function annotated with a
+/// concrete non-Optional builtin type hands back an implicit `None`.
+fn check_s935_bare_returns(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::FunctionDef(function) = stmt else {
+            return;
+        };
+        let Some(annotation) = function.returns.as_deref() else {
+            return;
+        };
+        if concrete_hint(annotation).is_none() {
+            return;
+        }
+        let annotation_text = expr_normalized_text(annotation, source);
+        for_each_return_in_scope(&function.body, &mut |returned| {
+            if returned.value.is_none() {
+                issues.push(issue_at(
+                    "python:S935",
+                    &format!(
+                        "This bare 'return' conflicts with the '{annotation_text}' \
+                         return type; return a value or make it Optional."
+                    ),
+                    returned.range(),
+                    index,
+                    source,
+                ));
+            }
+        });
+    });
+    issues
+}
+
+// --- python:S5890 — assigned values should match their annotations -----------
+
+/// python:S5890 — flags `x: T = <literal>` assignments whose literal kind
+/// provably contradicts the simple concrete annotation `T`.
+fn check_s5890_annotated_assignment_kinds(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::AnnAssign(assign) = stmt else {
+            return;
+        };
+        let Some(value) = assign.value.as_deref() else {
+            return;
+        };
+        let Some(hint) = concrete_hint(&assign.annotation) else {
+            return;
+        };
+        let Some(kind) = typed_literal_kind(value) else {
+            return;
+        };
+        if hint_accepts_literal(hint, kind) {
+            return;
+        }
+        let annotation_text = expr_normalized_text(&assign.annotation, source);
+        issues.push(issue_at(
+            "python:S5890",
+            &format!("This value does not match the '{annotation_text}' annotation."),
+            value.range(),
+            index,
+            source,
+        ));
+    });
+    issues
+}
+
+// --- python:S5886 — return types should be consistent with the hint ----------
+
+/// python:S5886 — flags `return <literal>` statements whose literal kind
+/// provably contradicts the file-local function's simple concrete `-> T` hint.
+fn check_s5886_return_hint_mismatches(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::FunctionDef(function) = stmt else {
+            return;
+        };
+        let Some(annotation) = function.returns.as_deref() else {
+            return;
+        };
+        let Some(hint) = concrete_hint(annotation) else {
+            return;
+        };
+        let annotation_text = expr_normalized_text(annotation, source);
+        for_each_return_in_scope(&function.body, &mut |returned| {
+            let Some(value) = returned.value.as_deref() else {
+                return;
+            };
+            let Some(kind) = typed_literal_kind(value) else {
+                return;
+            };
+            if hint_accepts_literal(hint, kind) {
+                return;
+            }
+            issues.push(issue_at(
+                "python:S5886",
+                &format!(
+                    "This return value does not match the '{annotation_text}' \
+                     return type."
+                ),
+                value.range(),
+                index,
+                source,
+            ));
+        });
+    });
+    issues
+}
+
+// --- shared: file-local call resolution ---------------------------------------
+
+/// A callable resolvable entirely inside the analyzed file.
+#[derive(Clone, Copy)]
+enum ResolvedCallee<'a> {
+    /// Plain module-level function call `f(...)`.
+    Function(&'a ruff_python_ast::StmtFunctionDef),
+    /// Bound form (`ClassName(...)`, `self.m`, instance or class access)
+    /// where the receiver supplies the leading parameter unless the method
+    /// is a `@staticmethod`.
+    Bound(&'a ruff_python_ast::StmtFunctionDef, bool),
+}
+
+impl ResolvedCallee<'_> {
+    fn function(&self) -> &ruff_python_ast::StmtFunctionDef {
+        match self {
+            ResolvedCallee::Function(function) | ResolvedCallee::Bound(function, _) => function,
+        }
+    }
+
+    fn skips_receiver(self) -> bool {
+        matches!(self, ResolvedCallee::Bound(_, false))
+    }
+}
+
+/// File-local call-resolution tables shared by the S930/S5655 family:
+/// module-level functions, file-local classes, and instance bindings of the
+/// shape `v = ClassName(...)` written exactly once at module level.
+struct LocalSignatures<'a> {
+    functions: HashMap<String, &'a ruff_python_ast::StmtFunctionDef>,
+    classes: HashMap<String, &'a ruff_python_ast::StmtClassDef>,
+    instances: HashMap<String, String>,
+}
+
+/// Direct base-class names of a class declaration (plain names only).
+fn direct_base_names(class: &ruff_python_ast::StmtClassDef) -> Vec<&str> {
+    match class.arguments.as_deref() {
+        Some(arguments) => arguments
+            .args
+            .iter()
+            .filter_map(|base| match base {
+                Expr::Name(name) => Some(name.id.as_str()),
+                _ => None,
+            })
+            .collect(),
+        None => Vec::new(),
+    }
+}
+
+/// Depth-first statement walk tracking the innermost file-local class name so
+/// `self.`/`cls.` callees can be resolved.
+fn for_each_stmt_with_class<'a>(
+    stmts: &'a [Stmt],
+    class: Option<&'a str>,
+    visit: &mut impl FnMut(&'a Stmt, Option<&'a str>),
+) {
+    for stmt in stmts {
+        visit(stmt, class);
+        match stmt {
+            Stmt::ClassDef(nested) => {
+                for_each_stmt_with_class(&nested.body, Some(nested.name.as_str()), visit);
+            }
+            other => {
+                for body in child_bodies(other) {
+                    for_each_stmt_with_class(body, class, visit);
+                }
+            }
+        }
+    }
+}
+
+impl<'a> LocalSignatures<'a> {
+    /// Collects module-level definitions only; duplicate names are dropped as
+    /// ambiguous, and instance bindings must come from a single unconflicted
+    /// constructor assignment.
+    fn new(module: &'a [Stmt]) -> Self {
+        let mut functions: HashMap<String, &'a ruff_python_ast::StmtFunctionDef> = HashMap::new();
+        let mut classes: HashMap<String, &'a ruff_python_ast::StmtClassDef> = HashMap::new();
+        let mut ambiguous: HashSet<String> = HashSet::new();
+        for stmt in module {
+            match stmt {
+                Stmt::FunctionDef(function) => {
+                    let name = function.name.as_str();
+                    if functions.remove(name).is_some() || !ambiguous.insert(name.to_string()) {
+                        continue;
+                    }
+                    functions.insert(name.to_string(), function);
+                }
+                Stmt::ClassDef(class) => {
+                    let name = class.name.as_str();
+                    if classes.remove(name).is_some() || !ambiguous.insert(name.to_string()) {
+                        continue;
+                    }
+                    classes.insert(name.to_string(), class);
+                }
+                _ => {}
+            }
+        }
+        let mut instances: HashMap<String, String> = HashMap::new();
+        let mut conflicted: HashSet<String> = HashSet::new();
+        let mut writes: HashMap<String, usize> = HashMap::new();
+        for stmt in module {
+            for name in stmt_store_names(stmt) {
+                *writes.entry(name).or_insert(0) += 1;
+            }
+            if let Stmt::Assign(assign) = stmt
+                && let [target] = assign.targets.as_slice()
+                && let Expr::Name(name) = target
+                && let Expr::Call(call) = assign.value.as_ref()
+                && let Expr::Name(callee) = call.func.as_ref()
+                && classes.contains_key(callee.id.as_str())
+            {
+                let key = name.id.as_str();
+                match instances.get(key) {
+                    Some(_) => {
+                        conflicted.insert(key.to_string());
+                    }
+                    None => {
+                        instances.insert(key.to_string(), callee.id.as_str().to_string());
+                    }
+                }
+            }
+        }
+        instances.retain(|name, _| writes.get(name).copied() == Some(1));
+        for name in conflicted {
+            instances.remove(&name);
+        }
+        Self {
+            functions,
+            classes,
+            instances,
+        }
+    }
+
+    /// Nearest declaration of `method` walking the file-local base chain of
+    /// `class_name`; cycles are cut by the visited set.
+    fn nearest_method(&self, class_name: &str, method: &str) -> Option<ResolvedCallee<'a>> {
+        self.nearest_method_in(class_name, method, &mut HashSet::new())
+    }
+
+    fn nearest_method_in(
+        &self,
+        class_name: &str,
+        method: &str,
+        visited: &mut HashSet<String>,
+    ) -> Option<ResolvedCallee<'a>> {
+        if !visited.insert(class_name.to_string()) {
+            return None;
+        }
+        let class = self.classes.get(class_name)?;
+        for stmt in &class.body {
+            if let Stmt::FunctionDef(function) = stmt
+                && function.name.as_str() == method
+            {
+                return Some(ResolvedCallee::Bound(
+                    function,
+                    has_decorator(function, "staticmethod"),
+                ));
+            }
+        }
+        for base in direct_base_names(class) {
+            if let Some(found) = self.nearest_method_in(base, method, visited) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    /// Resolves a call's callee expression against the tables.
+    fn resolve(&self, func: &Expr, class_context: Option<&str>) -> Option<ResolvedCallee<'a>> {
+        match func {
+            Expr::Name(callee) => {
+                if let Some(function) = self.functions.get(callee.id.as_str()) {
+                    return Some(ResolvedCallee::Function(function));
+                }
+                if self.classes.contains_key(callee.id.as_str()) {
+                    return self.nearest_method(callee.id.as_str(), "__init__");
+                }
+                None
+            }
+            Expr::Attribute(attribute) => {
+                let Expr::Name(owner) = attribute.value.as_ref() else {
+                    return None;
+                };
+                let method = attribute.attr.as_str();
+                match owner.id.as_str() {
+                    "self" | "cls" => self.nearest_method(class_context?, method),
+                    name => {
+                        if let Some(class_name) = self.instances.get(name) {
+                            return self.nearest_method(class_name, method);
+                        }
+                        if self.classes.contains_key(name) {
+                            return self.nearest_method(name, method);
+                        }
+                        None
+                    }
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+// --- python:S930 — call arguments should match parameters ----------------------
+
+/// Positional parameter entries of a signature, optionally skipping the
+/// leading bound parameter (`self`/`cls`).
+fn parameter_entries(
+    parameters: &ruff_python_ast::Parameters,
+    skip_receiver: bool,
+) -> Vec<&ruff_python_ast::ParameterWithDefault> {
+    let all: Vec<&ruff_python_ast::ParameterWithDefault> = parameters
+        .posonlyargs
+        .iter()
+        .chain(&parameters.args)
+        .collect();
+    if skip_receiver && !all.is_empty() {
+        all.into_iter().skip(1).collect()
+    } else {
+        all
+    }
+}
+
+/// Arity verdict for a resolved call, `None` when the argument list matches
+/// or cannot be judged (`*args`/`**kwargs` unpacking disables the check).
+fn s930_arity_problem(
+    resolved: &ResolvedCallee,
+    arguments: &ruff_python_ast::Arguments,
+) -> Option<&'static str> {
+    if arguments
+        .args
+        .iter()
+        .any(|arg| matches!(arg, Expr::Starred(_)))
+        || arguments
+            .keywords
+            .iter()
+            .any(|keyword| keyword.arg.is_none())
+    {
+        return None;
+    }
+    let parameters = &resolved.function().parameters;
+    let entries = parameter_entries(parameters, resolved.skips_receiver());
+    let required = entries
+        .iter()
+        .filter(|entry| entry.default.is_none())
+        .count();
+    let positional_count = arguments.args.len();
+    let keyword_names: Vec<Option<&str>> = arguments
+        .keywords
+        .iter()
+        .map(|keyword| {
+            keyword
+                .arg
+                .as_ref()
+                .map(ruff_python_ast::Identifier::as_str)
+        })
+        .collect();
+    if parameters.vararg.is_none() && positional_count > entries.len() {
+        return Some("too many arguments");
+    }
+    let mut missing = required.saturating_sub(positional_count);
+    for name in keyword_names.iter().flatten() {
+        if entries
+            .iter()
+            .take(required)
+            .any(|entry| entry.parameter.name.as_str() == *name)
+        {
+            missing = missing.saturating_sub(1);
+        }
+    }
+    if missing > 0 {
+        return Some("missing required arguments");
+    }
+    if parameters.kwarg.is_none()
+        && parameters.kwonlyargs.iter().any(|entry| {
+            entry.default.is_none() && !keyword_names.contains(&Some(entry.parameter.name.as_str()))
+        })
+    {
+        return Some("missing required keyword-only arguments");
+    }
+    None
+}
+
+/// python:S930 — flags arity mismatches of calls resolvable against the
+/// file-local tables ([`LocalSignatures`]): module functions, constructors,
+/// `self`/`cls` methods, uniquely-bound instances, and class accesses.
+fn check_s930_arity_mismatches(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let module = parsed.syntax().body.as_slice();
+    let signatures = LocalSignatures::new(module);
+    let mut issues = Vec::new();
+    for_each_stmt_with_class(module, None, &mut |stmt, class_context| {
+        for top_expr in stmt_exprs(stmt) {
+            for_each_expr(top_expr, &mut |expr| {
+                let Expr::Call(call) = expr else {
+                    return;
+                };
+                let Some(resolved) = signatures.resolve(&call.func, class_context) else {
+                    return;
+                };
+                let Some(problem) = s930_arity_problem(&resolved, &call.arguments) else {
+                    return;
+                };
+                let label = called_name(&call.func).unwrap_or_default();
+                issues.push(issue_at(
+                    "python:S930",
+                    &format!("The call to '{label}' passes {problem}."),
+                    call.range(),
+                    index,
+                    source,
+                ));
+            });
+        }
+    });
+    issues
+}
+
+// --- python:S5655 — arguments should be of an expected type -------------------
+
+/// python:S5655 — flags literal arguments that provably contradict a simple
+/// concrete parameter annotation of the resolved file-local callee.
+fn check_s5655_argument_kind_mismatches(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let module = parsed.syntax().body.as_slice();
+    let signatures = LocalSignatures::new(module);
+    let mut issues = Vec::new();
+    for_each_stmt_with_class(module, None, &mut |stmt, class_context| {
+        for top_expr in stmt_exprs(stmt) {
+            for_each_expr(top_expr, &mut |expr| {
+                let Expr::Call(call) = expr else {
+                    return;
+                };
+                let Some(resolved) = signatures.resolve(&call.func, class_context) else {
+                    return;
+                };
+                s5655_check_call(&resolved, call, &mut issues, index, source);
+            });
+        }
+    });
+    issues
+}
+
+/// Checks one resolved call's positional and keyword arguments against the
+/// callee's parameter annotations; variadic signatures disable the check.
+fn s5655_check_call(
+    resolved: &ResolvedCallee,
+    call: &ruff_python_ast::ExprCall,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    if call
+        .arguments
+        .args
+        .iter()
+        .any(|argument| matches!(argument, Expr::Starred(_)))
+    {
+        return;
+    }
+    let parameters = &resolved.function().parameters;
+    if parameters.vararg.is_some() || parameters.kwarg.is_some() {
+        return;
+    }
+    let entries = parameter_entries(parameters, resolved.skips_receiver());
+    for (position, argument) in call.arguments.args.iter().enumerate() {
+        match entries.get(position) {
+            Some(entry) => {
+                s5655_check_argument(entry, argument, issues, index, source);
+            }
+            None => break,
+        }
+    }
+    for keyword in &call.arguments.keywords {
+        let Some(name) = keyword.arg.as_deref() else {
+            continue;
+        };
+        let matched = entries
+            .iter()
+            .copied()
+            .chain(parameters.kwonlyargs.iter())
+            .find(|entry| entry.parameter.name.as_str() == name);
+        if let Some(entry) = matched {
+            s5655_check_argument(entry, &keyword.value, issues, index, source);
+        }
+    }
+}
+
+/// Flags one literal argument whose kind contradicts the parameter's simple
+/// concrete annotation.
+fn s5655_check_argument(
+    entry: &ruff_python_ast::ParameterWithDefault,
+    argument: &Expr,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    let Some(annotation) = entry.parameter.annotation.as_deref() else {
+        return;
+    };
+    let Some(hint) = concrete_hint(annotation) else {
+        return;
+    };
+    let Some(kind) = typed_literal_kind(argument) else {
+        return;
+    };
+    if hint_accepts_literal(hint, kind) {
+        return;
+    }
+    let annotation_text = expr_normalized_text(annotation, source);
+    issues.push(issue_at(
+        "python:S5655",
+        &format!("This argument does not match the '{annotation_text}' parameter type."),
+        argument.range(),
+        index,
+        source,
+    ));
+}
+
+// --- python:S2876 — "__iter__" should return an iterator ----------------------
+
+/// Free functions whose results are provably not iterators.
+const NON_ITERATOR_RETURNS: [&str; 23] = [
+    "len",
+    "abs",
+    "sum",
+    "min",
+    "max",
+    "ord",
+    "hash",
+    "id",
+    "print",
+    "input",
+    "round",
+    "divmod",
+    "bool",
+    "int",
+    "float",
+    "str",
+    "bytes",
+    "list",
+    "tuple",
+    "dict",
+    "set",
+    "frozenset",
+    "sorted",
+];
+
+/// python:S2876 — flags `__iter__` bodies (of file-local classes) returning
+/// collection literals or known non-iterator calls. Generator bodies and
+/// `return self` / `iter(...)` shapes pass by construction.
+fn check_s2876_iter_returns(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::ClassDef(class) = stmt else {
+            return;
+        };
+        let Some(function) = class.body.iter().find_map(|member| match member {
+            Stmt::FunctionDef(function) if function.name.as_str() == "__iter__" => Some(function),
+            _ => None,
+        }) else {
+            return;
+        };
+        let mut yields = false;
+        for_each_stmt_expr(&function.body, &mut |expr| {
+            if matches!(expr, Expr::Yield(_) | Expr::YieldFrom(_)) {
+                yields = true;
+            }
+        });
+        if yields {
+            return;
+        }
+        for_each_return_in_scope(&function.body, &mut |returned| {
+            let Some(value) = returned.value.as_deref() else {
+                return;
+            };
+            let not_iterator = typed_literal_kind(value).is_some()
+                || matches!(value, Expr::Call(call)
+                    if matches!(call.func.as_ref(), Expr::Name(name)
+                        if NON_ITERATOR_RETURNS.contains(&name.id.as_str())));
+            if !not_iterator {
+                return;
+            }
+            issues.push(issue_at(
+                "python:S2876",
+                "__iter__ should return an iterator object.",
+                value.range(),
+                index,
+                source,
+            ));
+        });
+    });
+    issues
+}
+
+// --- python:S2638 — method overrides should not change contracts --------------
+
+/// Decorators whose paired accessors legitimately differ between overrides.
+const PROPERTY_FAMILY_DECORATORS: [&str; 5] =
+    ["property", "setter", "getter", "deleter", "cachedproperty"];
+
+fn is_property_family(function: &ruff_python_ast::StmtFunctionDef) -> bool {
+    PROPERTY_FAMILY_DECORATORS
+        .iter()
+        .any(|name| has_decorator(function, name))
+}
+
+/// Normalized signature shape used for override comparisons; the conventional
+/// `self`/`cls` receiver is stripped and defaults are whitespace-normalized.
+struct MethodShape {
+    positional_names: Vec<String>,
+    positional_defaults: Vec<Option<String>>,
+    keyword_only: Vec<(String, Option<String>)>,
+    has_vararg: bool,
+    has_keyword_vararg: bool,
+}
+
+fn method_shape(function: &ruff_python_ast::StmtFunctionDef, source: &str) -> MethodShape {
+    let parameters = &function.parameters;
+    let mut entries: Vec<&ruff_python_ast::ParameterWithDefault> = parameters
+        .posonlyargs
+        .iter()
+        .chain(&parameters.args)
+        .collect();
+    if entries.first().is_some_and(|entry| {
+        let name = entry.parameter.name.as_str();
+        name == "self" || name == "cls"
+    }) {
+        entries.remove(0);
+    }
+    MethodShape {
+        positional_names: entries
+            .iter()
+            .map(|entry| entry.parameter.name.as_str().to_string())
+            .collect(),
+        positional_defaults: entries
+            .iter()
+            .map(|entry| {
+                entry
+                    .default
+                    .as_ref()
+                    .map(|default| expr_normalized_text(default, source))
+            })
+            .collect(),
+        keyword_only: parameters
+            .kwonlyargs
+            .iter()
+            .map(|entry| {
+                (
+                    entry.parameter.name.as_str().to_string(),
+                    entry
+                        .default
+                        .as_ref()
+                        .map(|default| expr_normalized_text(default, source)),
+                )
+            })
+            .collect(),
+        has_vararg: parameters.vararg.is_some(),
+        has_keyword_vararg: parameters.kwarg.is_some(),
+    }
+}
+
+/// First contract-breaking difference of an override, `None` when compatible
+/// (adding optional parameters, relaxing defaults, adding variadics).
+fn s2638_contract_change(base: &MethodShape, derived: &MethodShape) -> Option<&'static str> {
+    if base.has_vararg && !derived.has_vararg {
+        return Some("it removes '*args'");
+    }
+    if base.has_keyword_vararg && !derived.has_keyword_vararg {
+        return Some("it removes '**kwargs'");
+    }
+    if base.has_vararg
+        || base.has_keyword_vararg
+        || derived.has_vararg
+        || derived.has_keyword_vararg
+    {
+        return None;
+    }
+    let shared = base
+        .positional_names
+        .len()
+        .min(derived.positional_names.len());
+    for index in 0..shared {
+        if base.positional_names[index] != derived.positional_names[index] {
+            return Some("it renames a parameter");
+        }
+        match (
+            &base.positional_defaults[index],
+            &derived.positional_defaults[index],
+        ) {
+            (Some(base_default), derived_default)
+                if Some(base_default) != derived_default.as_ref() =>
+            {
+                return Some("it changes a parameter's default");
+            }
+            _ => {}
+        }
+    }
+    if derived.positional_defaults[shared..]
+        .iter()
+        .any(Option::is_none)
+    {
+        return Some("it adds a required parameter");
+    }
+    if base.positional_defaults[shared..]
+        .iter()
+        .any(Option::is_none)
+    {
+        return Some("it drops a required parameter");
+    }
+    for (name, base_default) in &base.keyword_only {
+        match derived
+            .keyword_only
+            .iter()
+            .find(|(derived_name, _)| derived_name == name)
+        {
+            None => {
+                if base_default.is_none() {
+                    return Some("it drops a required keyword-only parameter");
+                }
+            }
+            Some((_, derived_default)) => match (base_default, derived_default) {
+                (Some(base_value), derived_value) if Some(base_value) != derived_value.as_ref() => {
+                    return Some("it changes a keyword-only parameter's default");
+                }
+                (Some(_), None) => {
+                    return Some("it makes a keyword-only parameter required");
+                }
+                _ => {}
+            },
+        }
+    }
+    if derived.keyword_only.iter().any(|(name, default)| {
+        default.is_none() && !base.keyword_only.iter().any(|(other, _)| other == name)
+    }) {
+        return Some("it adds a required keyword-only parameter");
+    }
+    None
+}
+
+/// python:S2638 — compares file-local overrides against the direct file-local
+/// base declaration; pairs guarded by property-family decorators or differing
+/// static-method modifiers are exempt.
+fn check_s2638_override_contracts(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let module = parsed.syntax().body.as_slice();
+    let classes = module_classes(module);
+    let mut issues = Vec::new();
+    for stmt in module {
+        let Stmt::ClassDef(class) = stmt else {
+            continue;
+        };
+        for base_name in direct_base_names(class) {
+            let Some(base) = classes.get(base_name) else {
+                continue;
+            };
+            for member in &class.body {
+                let Stmt::FunctionDef(override_method) = member else {
+                    continue;
+                };
+                let method_name = override_method.name.as_str();
+                let Some(Stmt::FunctionDef(base_method)) = base.body.iter().find(|candidate| {
+                    matches!(candidate, Stmt::FunctionDef(function)
+                        if function.name.as_str() == method_name)
+                }) else {
+                    continue;
+                };
+                if is_property_family(base_method)
+                    || is_property_family(override_method)
+                    || has_decorator(base_method, "staticmethod")
+                        != has_decorator(override_method, "staticmethod")
+                {
+                    continue;
+                }
+                let shapes = (
+                    method_shape(base_method, source),
+                    method_shape(override_method, source),
+                );
+                let Some(reason) = s2638_contract_change(&shapes.0, &shapes.1) else {
+                    continue;
+                };
+                issues.push(issue_at(
+                    "python:S2638",
+                    &format!(
+                        "This override of '{base_name}.{method_name}' changes its contract: \
+                         {reason}."
+                    ),
+                    override_method.name.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    }
+    issues
+}
+
+// --- python:S5713 — subclass and parent should not share an except clause -----
+
+/// Module-level file-local classes by name.
+fn module_classes(module: &[Stmt]) -> HashMap<&str, &ruff_python_ast::StmtClassDef> {
+    module
+        .iter()
+        .filter_map(|stmt| match stmt {
+            Stmt::ClassDef(class) => Some((class.name.as_str(), class)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether `candidate` is a transitive file-local ancestor of `class_name`;
+/// cycles in the (invalid) inheritance graph are cut by the visited set.
+fn has_file_local_ancestor(
+    class_name: &str,
+    candidate: &str,
+    classes: &HashMap<&str, &ruff_python_ast::StmtClassDef>,
+    visited: &mut HashSet<String>,
+) -> bool {
+    if !visited.insert(class_name.to_string()) {
+        return false;
+    }
+    let Some(class) = classes.get(class_name) else {
+        return false;
+    };
+    for base in direct_base_names(class) {
+        if base == candidate || has_file_local_ancestor(base, candidate, classes, visited) {
+            return true;
+        }
+    }
+    false
+}
+
+/// python:S5713 — flags except-tuples listing both a parent and its subclass
+/// when both names resolve to file-local classes; one finding per handler.
+fn check_s5713_parent_child_except_pairs(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let module = parsed.syntax().body.as_slice();
+    let classes = module_classes(module);
+    let mut issues = Vec::new();
+    for_each_stmt(module, &mut |stmt| {
+        let Stmt::Try(try_stmt) = stmt else {
+            return;
+        };
+        for handler in &try_stmt.handlers {
+            let ExceptHandler::ExceptHandler(inner) = handler;
+            let Some(Expr::Tuple(tuple)) = inner.type_.as_deref() else {
+                continue;
+            };
+            let names: Vec<&str> = tuple
+                .elts
+                .iter()
+                .filter_map(|element| match element {
+                    Expr::Name(name) => Some(name.id.as_str()),
+                    _ => None,
+                })
+                .collect();
+            let mut pair_found: Option<(&str, &str)> = None;
+            for child in &names {
+                for parent in &names {
+                    if child == parent
+                        || !classes.contains_key(child)
+                        || !classes.contains_key(parent)
+                    {
+                        continue;
+                    }
+                    let mut visited = HashSet::new();
+                    if has_file_local_ancestor(child, parent, &classes, &mut visited) {
+                        pair_found = Some((child, parent));
+                    }
+                }
+            }
+            if let Some((child, parent)) = pair_found {
+                issues.push(issue_at(
+                    "python:S5713",
+                    &format!(
+                        "'{child}' is already a subclass of '{parent}'; \
+                         remove one of them from this except clause."
+                    ),
+                    tuple.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -19646,5 +21061,274 @@ mod tests {
         assert_eq!(findings(&scan(flagged), "python:S6663").len(), 3);
         let clean = "{\"a\": 1}[\"a\"]\n[1, 2][0]\n";
         assert!(findings(&scan(clean), "python:S6663").is_empty());
+    }
+
+    #[test]
+    fn s5756_flags_calls_of_literals_and_non_callable_bindings() {
+        let flagged = "5()\nx = 7\nx()\n";
+        let messages = findings_of(flagged, "python:S5756");
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0], "This expression is not callable.");
+        assert_eq!(messages[1], "'x' is not callable.");
+
+        let clean = concat!(
+            "\"abc\".upper()\n",
+            "def handler():\n    pass\n",
+            "handler()\n",
+            "import os\n",
+            "os.path.join('a', 'b')\n",
+            "y = 1\n",
+            "y = y + 1\n",
+            "print(y)\n"
+        );
+        assert!(findings_of(clean, "python:S5756").is_empty());
+    }
+
+    #[test]
+    fn s2201_flags_discarded_results_of_pure_calls() {
+        let flagged = concat!(
+            "sorted(items)\n",
+            "\"a,b\".split(\",\")\n",
+            "\" x \".strip().upper()\n"
+        );
+        let messages = findings_of(flagged, "python:S2201");
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0], "The return value of 'sorted' is not used.");
+        assert_eq!(messages[2], "The return value of 'upper' is not used.");
+
+        let kept = concat!(
+            "ordered = sorted(items)\n",
+            "items.append(1)\n",
+            "handler.write('x')\n"
+        );
+        assert!(findings_of(kept, "python:S2201").is_empty());
+    }
+
+    #[test]
+    fn s3699_flags_expression_uses_of_void_outputs() {
+        let flagged = concat!(
+            "def log_nothing():\n    print('x')\n",
+            "total = log_nothing() + 1\n",
+            "if log_nothing():\n    pass\n"
+        );
+        assert_eq!(findings_of(flagged, "python:S3699").len(), 2);
+
+        let clean = concat!(
+            "def log_nothing():\n    print('x')\n",
+            "log_nothing()\n",
+            "def get_value():\n    return 4\n",
+            "kept = get_value() + 1\n",
+            "@deco\n",
+            "def wrapped():\n    pass\n"
+        );
+        assert!(findings_of(clean, "python:S3699").is_empty());
+    }
+
+    #[test]
+    fn s935_flags_bare_returns_under_concrete_hints() {
+        let flagged = concat!(
+            "def score() -> int:\n",
+            "    if flag:\n",
+            "        return\n",
+            "    return 1\n"
+        );
+        assert_eq!(findings_of(flagged, "python:S935").len(), 1);
+
+        let clean = concat!(
+            "def maybe() -> Optional[int]:\n    return\n",
+            "def either(flag: bool) -> int | str:\n    return\n",
+            "def anything() -> object:\n    return\n",
+            "def loose():\n    return\n",
+            "def outer() -> int:\n",
+            "    def inner():\n        return\n",
+            "    inner()\n",
+            "    return 2\n"
+        );
+        assert!(findings_of(clean, "python:S935").is_empty());
+    }
+
+    #[test]
+    fn s5890_flags_annotated_assignments_with_contradicting_literals() {
+        let flagged = "count: int = \"many\"\nratio: float = [1]\nname: str = 5\n";
+        assert_eq!(findings_of(flagged, "python:S5890").len(), 3);
+
+        let clean = concat!(
+            "count: int = 3\n",
+            "flag: bool = True\n",
+            "ratio: float = 1\n",
+            "values: list[int] = []\n",
+            "maybe: Optional[str] = None\n",
+            "loose = \"anything\"\n"
+        );
+        assert!(findings_of(clean, "python:S5890").is_empty());
+    }
+
+    #[test]
+    fn s5886_flags_returns_contradicting_type_hints() {
+        let flagged = concat!(
+            "def count() -> int:\n",
+            "    return \"many\"\n",
+            "def label() -> str:\n",
+            "    if flag:\n",
+            "        return 4\n",
+            "    return \"ok\"\n"
+        );
+        assert_eq!(findings_of(flagged, "python:S5886").len(), 2);
+
+        let clean = concat!(
+            "def ratio() -> float:\n    return 1\n",
+            "def values() -> list[int]:\n    return []\n",
+            "def maybe() -> Optional[int]:\n    return None\n",
+            "def either(flag: bool) -> int | str:\n    return \"x\"\n"
+        );
+        assert!(findings_of(clean, "python:S5886").is_empty());
+    }
+
+    #[test]
+    fn s930_flags_argument_count_mismatches_against_local_defs() {
+        let flagged = concat!(
+            "def add(a, b):\n    return a + b\n",
+            "add(1)\n",
+            "add(1, 2, 3)\n",
+            "def tagged(value, *, key):\n    return value\n",
+            "tagged(1)\n"
+        );
+        assert_eq!(findings_of(flagged, "python:S930").len(), 3);
+
+        let clean = concat!(
+            "def add(a, b):\n    return a + b\n",
+            "add(1, 2)\n",
+            "add(b=2, a=1)\n",
+            "def opt(first, second=2):\n    return first\n",
+            "opt(1)\n",
+            "def rest(*parts):\n    return parts\n",
+            "rest()\n",
+            "rest(1, 2)\n"
+        );
+        assert!(findings_of(clean, "python:S930").is_empty());
+    }
+
+    #[test]
+    fn s930_checks_methods_and_constructors_file_locally() {
+        let flagged = concat!(
+            "class Dog:\n",
+            "    def __init__(self, name):\n        self.name = name\n",
+            "    def speak(self, times):\n        return times\n",
+            "Dog()\n",
+            "d = Dog('rex')\n",
+            "d.speak()\n"
+        );
+        assert_eq!(findings_of(flagged, "python:S930").len(), 2);
+
+        let clean = concat!(
+            "class Cat:\n",
+            "    def purr(self, volume=1):\n        return volume\n",
+            "c = Cat()\n",
+            "c.purr()\n",
+            "c.purr(3)\n"
+        );
+        assert!(findings_of(clean, "python:S930").is_empty());
+    }
+
+    #[test]
+    fn s5655_flags_arguments_contradicting_parameter_annotations() {
+        let flagged = concat!(
+            "def repeat(text: str, times: int) -> str:\n",
+            "    return text * times\n",
+            "repeat(5, 2)\n",
+            "repeat(\"a\", times=\"b\")\n"
+        );
+        assert_eq!(findings_of(flagged, "python:S5655").len(), 2);
+
+        let clean = concat!(
+            "def repeat(text: str, times: int) -> str:\n    return text * times\n",
+            "repeat(\"a\", 2)\n",
+            "repeat(times=3, text=\"a\")\n",
+            "def loose(value):\n    return value\n",
+            "loose([1])\n"
+        );
+        assert!(findings_of(clean, "python:S5655").is_empty());
+    }
+
+    #[test]
+    fn s2876_flags_non_iterator_iter_returns() {
+        let flagged_literal = concat!(
+            "class Bag:\n",
+            "    def __iter__(self):\n",
+            "        return [1, 2]\n"
+        );
+        assert_eq!(findings_of(flagged_literal, "python:S2876").len(), 1);
+
+        let flagged_call = concat!(
+            "class Bag:\n",
+            "    def __init__(self):\n        self.items = [1]\n",
+            "    def __iter__(self):\n        return sorted(self.items)\n"
+        );
+        assert_eq!(findings_of(flagged_call, "python:S2876").len(), 1);
+
+        let clean = concat!(
+            "class Bag:\n",
+            "    def __iter__(self):\n        return iter([1, 2])\n",
+            "class Gen:\n",
+            "    def __iter__(self):\n        yield 1\n",
+            "class SelfIter:\n",
+            "    def __iter__(self):\n        return self\n"
+        );
+        assert!(findings_of(clean, "python:S2876").is_empty());
+    }
+
+    #[test]
+    fn s2638_flags_overrides_that_change_contracts() {
+        let flagged_rename = concat!(
+            "class Animal:\n",
+            "    def speak(self, word, times=1):\n        return word * times\n",
+            "class Dog(Animal):\n",
+            "    def speak(self, sound, times=1):\n        return sound * times\n"
+        );
+        assert_eq!(findings_of(flagged_rename, "python:S2638").len(), 1);
+
+        let flagged_required = concat!(
+            "class Loader:\n",
+            "    def pull(self, path, *, strict=False):\n        return path\n",
+            "class FastLoader(Loader):\n",
+            "    def pull(self, path, *, strict):\n        return path\n"
+        );
+        assert_eq!(findings_of(flagged_required, "python:S2638").len(), 1);
+
+        let clean = concat!(
+            "class Animal:\n",
+            "    def speak(self, word, times=1):\n        return word * times\n",
+            "class Dog(Animal):\n",
+            "    def speak(self, word, times=1):\n        return word * times\n",
+            "class Cat(Animal):\n",
+            "    def speak(self, word, times=1, tone=\"high\"):\n        return word * times\n"
+        );
+        assert!(findings_of(clean, "python:S2638").is_empty());
+    }
+
+    #[test]
+    fn s5713_flags_subclass_and_parent_sharing_an_except_clause() {
+        let flagged_direct = concat!(
+            "class AppError(Exception):\n    pass\n",
+            "class NotFound(AppError):\n    pass\n",
+            "try:\n    pass\nexcept (NotFound, AppError):\n    pass\n"
+        );
+        assert_eq!(findings_of(flagged_direct, "python:S5713").len(), 1);
+
+        let flagged_transitive = concat!(
+            "class Top(Exception):\n    pass\n",
+            "class Middle(Top):\n    pass\n",
+            "class Leaf(Middle):\n    pass\n",
+            "try:\n    pass\nexcept (Leaf, Top):\n    pass\n"
+        );
+        assert_eq!(findings_of(flagged_transitive, "python:S5713").len(), 1);
+
+        let clean = concat!(
+            "class AppError(Exception):\n    pass\n",
+            "class NotFound(AppError):\n    pass\n",
+            "try:\n    pass\nexcept (NotFound, ValueError):\n    pass\n",
+            "try:\n    pass\nexcept NotFound:\n    pass\n"
+        );
+        assert!(findings_of(clean, "python:S5713").is_empty());
     }
 }
