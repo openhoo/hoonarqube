@@ -5,6 +5,8 @@
 //! the frozen `hoonarqube-catalog` catalog via [`hoonarqube_ir::Issue::rule_key`];
 //! they are deliberately never duplicated here.
 
+use std::collections::HashMap;
+
 use std::path::PathBuf;
 
 use hoonarqube_ir::Issue;
@@ -19,7 +21,8 @@ use ruff_text_size::{Ranged, TextRange, TextSize};
 /// `maximumLinesOfCode` default `1000`, `maximumFunctionParameters` default
 /// `13`, `maximumReturnStatements` default `3`, `maximumFunctionLength`
 /// default `100`, `maximumNestingDepth` default `4`,
-/// `maximumCognitiveComplexity` default `15`, complexity defaults `200`/`200`/`15`).
+/// `maximumCognitiveComplexity` default `15`, complexity defaults `200`/`200`/`15`,
+/// S1192 duplicate-literal threshold `3`, S139 trailing-comment whitelist).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalyzerOptions {
     pub maximum_line_length: u32,
@@ -36,6 +39,20 @@ pub struct AnalyzerOptions {
     /// matching the `SonarQube` default where `headerFormat` is unset.
     /// Compared as a literal prefix after an optional shebang line.
     pub copyright_header_format: String,
+    /// Occurrence count at which a string literal counts as duplicated
+    /// (`python:S1192` catalog default `3`).
+    pub duplicate_literal_threshold: u32,
+    /// Exclusion pattern for `python:S1192`; empty disables exclusions.
+    /// Matched as a plain substring when free of regex metacharacters.
+    pub duplicate_literal_exclusion_regex: String,
+    /// Trailing-comment whitelist shape for `python:S139`; empty selects the
+    /// catalog default semantics (`fmt:`/`type:`/`noqa:` directives and
+    /// single-token comments).
+    pub legal_trailing_comment_pattern: String,
+    /// Enables `python:S6538`/`python:S6540`. Off by default: the frozen
+    /// catalog defines no parameters for these rules and unannotated legacy
+    /// code would flood every analysis with findings.
+    pub require_type_hints: bool,
 }
 
 impl Default for AnalyzerOptions {
@@ -52,6 +69,10 @@ impl Default for AnalyzerOptions {
             maximum_file_complexity: 200,
             maximum_function_complexity: 15,
             copyright_header_format: String::new(),
+            duplicate_literal_threshold: 3,
+            duplicate_literal_exclusion_regex: String::new(),
+            legal_trailing_comment_pattern: String::new(),
+            require_type_hints: false,
         }
     }
 }
@@ -106,6 +127,7 @@ pub fn analyze(
     ));
     issues.extend(check_one_statement_per_line(&parsed, &index, source));
     issues.extend(check_tier_a_battery(&parsed, &index, source));
+    issues.extend(check_tier_a_battery_2(&parsed, &index, source, options));
     sort_issues(&mut issues);
 
     hoonarqube_ir::FileReport {
@@ -4528,6 +4550,3490 @@ fn check_tier_a_battery(parsed: &Parsed<ModModule>, index: &LineIndex, source: &
     issues
 }
 
+// ---------------------------------------------------------------------------
+// Tier-A battery entries #111–#193 (python:S1192 … python:S7489).
+//
+// One private check per catalog entry, aggregated through
+// `check_tier_a_battery_2`. Detection follows the batch spec: single-file
+// AST/token/text heuristics with deliberately conservative predicates.
+// ---------------------------------------------------------------------------
+
+/// Dotted path of a pure `a.b.c` chain rooted at a name; calls and other
+/// expressions break the chain.
+fn dotted_name(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Name(name) => Some(name.id.as_str().to_string()),
+        Expr::Attribute(attr) => Some(format!(
+            "{}.{}",
+            dotted_name(&attr.value)?,
+            attr.attr.as_str()
+        )),
+        _ => None,
+    }
+}
+
+/// `(dotted callee path, arguments)` of a call whose callee is a plain name
+/// or a dotted attribute chain.
+fn call_parts(expr: &Expr) -> Option<(String, &ruff_python_ast::Arguments)> {
+    match expr {
+        Expr::Call(call) => dotted_name(&call.func).map(|path| (path, &call.arguments)),
+        _ => None,
+    }
+}
+
+fn keyword_value<'a>(arguments: &'a ruff_python_ast::Arguments, name: &str) -> Option<&'a Expr> {
+    arguments.keywords.iter().find_map(|keyword| {
+        let arg = keyword.arg.as_ref()?;
+        (arg.as_str() == name).then_some(&keyword.value)
+    })
+}
+
+fn has_keyword(arguments: &ruff_python_ast::Arguments, name: &str) -> bool {
+    keyword_value(arguments, name).is_some()
+}
+
+fn is_true_literal(expr: &Expr) -> bool {
+    matches!(expr, Expr::BooleanLiteral(literal) if literal.value)
+}
+
+fn is_false_literal(expr: &Expr) -> bool {
+    matches!(expr, Expr::BooleanLiteral(literal) if !literal.value)
+}
+
+fn int_literal_value(expr: &Expr) -> Option<i64> {
+    match expr {
+        Expr::NumberLiteral(number) => match &number.value {
+            ruff_python_ast::Number::Int(value) => value.as_i64(),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Decoded text of a plain (non-f-string, non-bytes) string literal.
+fn string_literal_text(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::StringLiteral(literal) => Some(string_value_text(&literal.value)),
+        _ => None,
+    }
+}
+
+/// Root name of a pure attribute chain (`df` in `df.groupby(...)`).
+fn receiver_root(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Name(name) => Some(name.id.as_str()),
+        Expr::Attribute(attr) => receiver_root(&attr.value),
+        Expr::Call(call) => receiver_root(&call.func),
+        _ => None,
+    }
+}
+
+/// Visits every call reachable from a statement tree, including calls nested
+/// in expressions and compound-statement headers.
+fn for_each_call(module_body: &[Stmt], visit: &mut impl FnMut(&ruff_python_ast::ExprCall)) {
+    for_each_stmt(module_body, &mut |stmt| {
+        for expr in stmt_exprs(stmt) {
+            for_each_expr(expr, &mut |expr| {
+                if let Expr::Call(call) = expr {
+                    visit(call);
+                }
+            });
+        }
+    });
+}
+
+/// Lexical context carried by the function-aware walker below.
+#[derive(Clone, Copy)]
+struct FnContext<'a> {
+    nearest_function: Option<&'a ruff_python_ast::StmtFunctionDef>,
+    loop_depth: u32,
+}
+
+/// Depth-first statement walk that tracks the nearest enclosing function and
+/// loop depth. Nested functions reset both; loop bodies increment depth.
+fn for_each_stmt_in_fn_context(
+    suite: &[Stmt],
+    ctx: FnContext,
+    visit: &mut impl FnMut(&Stmt, FnContext),
+) {
+    for stmt in suite {
+        visit(stmt, ctx);
+        match stmt {
+            Stmt::FunctionDef(function) => {
+                for_each_stmt_in_fn_context(
+                    function.body.as_slice(),
+                    FnContext {
+                        nearest_function: Some(function),
+                        loop_depth: 0,
+                    },
+                    visit,
+                );
+            }
+            Stmt::For(loop_stmt) => {
+                for_each_stmt_in_fn_context(
+                    loop_stmt.body.as_slice(),
+                    FnContext {
+                        loop_depth: ctx.loop_depth + 1,
+                        ..ctx
+                    },
+                    visit,
+                );
+                for_each_stmt_in_fn_context(loop_stmt.orelse.as_slice(), ctx, visit);
+            }
+            Stmt::While(loop_stmt) => {
+                for_each_stmt_in_fn_context(
+                    loop_stmt.body.as_slice(),
+                    FnContext {
+                        loop_depth: ctx.loop_depth + 1,
+                        ..ctx
+                    },
+                    visit,
+                );
+                for_each_stmt_in_fn_context(loop_stmt.orelse.as_slice(), ctx, visit);
+            }
+            _ => {
+                for body in child_bodies(stmt) {
+                    for_each_stmt_in_fn_context(body, ctx, visit);
+                }
+            }
+        }
+    }
+}
+
+fn is_standalone_string_stmt(stmt: &Stmt) -> bool {
+    matches!(stmt, Stmt::Expr(expr) if matches!(expr.value.as_ref(), Expr::StringLiteral(_)))
+}
+
+/// Every plain string literal in the tree except module/class/function
+/// docstrings (a leading bare string statement of any suite).
+fn collect_literal_strings(suite: &[Stmt], out: &mut Vec<(String, TextRange)>) {
+    for (position, stmt) in suite.iter().enumerate() {
+        if !(position == 0 && is_standalone_string_stmt(stmt)) {
+            for expr in stmt_exprs(stmt) {
+                for_each_expr(expr, &mut |expr| {
+                    if let Expr::StringLiteral(literal) = expr {
+                        out.push((string_value_text(&literal.value), literal.range()));
+                    }
+                });
+            }
+        }
+        for body in child_bodies(stmt) {
+            collect_literal_strings(body, out);
+        }
+    }
+}
+
+/// Naive matcher for the `exclusionRegex` option: a plain substring when the
+/// pattern is free of regex metacharacters, otherwise no exclusion.
+fn excluded_by_pattern(pattern: &str, value: &str) -> bool {
+    !pattern.is_empty()
+        && !pattern.chars().any(|c| "\\^$.|?*+()[]{}".contains(c))
+        && value.contains(pattern)
+}
+
+fn check_duplicated_string_literals(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let threshold = (options.duplicate_literal_threshold.max(2)) as usize;
+    let mut occurrences = Vec::new();
+    collect_literal_strings(parsed.syntax().body.as_slice(), &mut occurrences);
+
+    let mut totals: HashMap<String, usize> = HashMap::new();
+    for (text, _) in &occurrences {
+        *totals.entry(text.clone()).or_insert(0) += 1;
+    }
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut issues = Vec::new();
+    for (text, range) in &occurrences {
+        let total = totals[text.as_str()];
+        let nth = seen.entry(text.clone()).or_insert(0);
+        *nth += 1;
+        let excluded = excluded_by_pattern(&options.duplicate_literal_exclusion_regex, text);
+        if total >= threshold && *nth > 1 && !excluded {
+            issues.push(issue_at(
+                "python:S1192",
+                &format!("This string literal appears {total} times; extract it into a constant."),
+                *range,
+                index,
+                source,
+            ));
+        }
+    }
+    issues
+}
+
+// --- python:S5828 — invalid open modes ---------------------------------------
+
+fn open_mode_is_valid(mode: &str) -> bool {
+    let mut primary = 0;
+    let mut plus = 0;
+    let mut binary = 0;
+    let mut textual = 0;
+    for ch in mode.chars() {
+        match ch {
+            'r' | 'w' | 'a' | 'x' => primary += 1,
+            '+' => plus += 1,
+            'b' => binary += 1,
+            't' => textual += 1,
+            'U' => {}
+            _ => return false,
+        }
+    }
+    primary == 1 && plus <= 1 && binary <= 1 && textual <= 1
+}
+
+fn check_open_modes(parsed: &Parsed<ModModule>, index: &LineIndex, source: &str) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let Some(path) = dotted_name(&call.func) else {
+            return;
+        };
+        if path != "open" && path != "io.open" {
+            return;
+        }
+        let Some(mode_expr) =
+            keyword_value(&call.arguments, "mode").or_else(|| call.arguments.args.get(1))
+        else {
+            return;
+        };
+        let Some(mode) = string_literal_text(mode_expr) else {
+            return;
+        };
+        if !open_mode_is_valid(&mode) {
+            issues.push(issue_at(
+                "python:S5828",
+                &format!("Fix this invalid open mode '{mode}'."),
+                mode_expr.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S4790 — weak hashing algorithms -----------------------------------
+
+fn hash_call_is_exempt(call: &ruff_python_ast::ExprCall) -> bool {
+    keyword_value(&call.arguments, "usedforsecurity").is_some_and(is_false_literal)
+}
+
+fn check_weak_hashing(parsed: &Parsed<ModModule>, index: &LineIndex, source: &str) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let Some(path) = dotted_name(&call.func) else {
+            return;
+        };
+        let weak_direct = matches!(path.as_str(), "hashlib.md5" | "hashlib.sha1");
+        let weak_named_new = path == "hashlib.new"
+            && call
+                .arguments
+                .args
+                .first()
+                .and_then(string_literal_text)
+                .is_some_and(|name| matches!(name.to_lowercase().as_str(), "md5" | "sha1" | "sha"));
+        if (weak_direct || weak_named_new) && !hash_call_is_exempt(call) {
+            issues.push(issue_at(
+                "python:S4790",
+                "Remove this usage of a weak hashing algorithm.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S5445 — insecure temporary files ----------------------------------
+
+fn check_insecure_temp_files(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let insecure = ["tempfile.mktemp", "os.tempnam", "os.tmpnam"];
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if dotted_name(&call.func).is_some_and(|path| insecure.contains(&path.as_str())) {
+            issues.push(issue_at(
+                "python:S5445",
+                "Remove this usage of the deprecated insecure temporary file API.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S5042 — archive extraction without resource control ---------------
+
+fn check_unbounded_archive_extraction(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if called_name(&call.func) == Some("extractall") && !has_keyword(&call.arguments, "members")
+        {
+            issues.push(issue_at(
+                "python:S5042",
+                "Limit this archive extraction with a members filter.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S4507 — debug features left enabled --------------------------------
+
+fn check_debug_features(parsed: &Parsed<ModModule>, index: &LineIndex, source: &str) -> Vec<Issue> {
+    const DEBUG_CALLS: [&str; 4] = [
+        "breakpoint",
+        "pdb.set_trace",
+        "ipdb.set_trace",
+        "celery.contrib.rdb.set_trace",
+    ];
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let debug_call =
+            dotted_name(&call.func).is_some_and(|path| DEBUG_CALLS.contains(&path.as_str()));
+        let debug_flag = keyword_value(&call.arguments, "debug").is_some_and(is_true_literal);
+        if debug_call || debug_flag {
+            issues.push(issue_at(
+                "python:S4507",
+                "Remove this debug feature before shipping to production.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S5361 — re.sub with a metacharacter-free pattern --------------------
+
+const REGEX_METACHARACTERS: [char; 14] = [
+    '\\', '^', '$', '.', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}',
+];
+
+fn check_literal_re_sub_patterns(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if !matches!(
+            dotted_name(&call.func).as_deref(),
+            Some("re.sub" | "re.subn")
+        ) {
+            return;
+        }
+        if let Some(pattern) = call.arguments.args.first().and_then(string_literal_text)
+            && !pattern.chars().any(|c| REGEX_METACHARACTERS.contains(&c))
+        {
+            issues.push(issue_at(
+                "python:S5361",
+                "Replace this regular-expression pattern with a plain string.",
+                call.arguments.args[0].range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S2612 — world/group-writable file modes -----------------------------
+
+fn check_world_writable_modes(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let os_chmods = ["os.chmod", "os.fchmod", "os.lchmod"];
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let path = dotted_name(&call.func);
+        let mode_index = if path.is_some_and(|p| os_chmods.contains(&p.as_str())) {
+            Some(1)
+        } else if called_name(&call.func) == Some("chmod") {
+            Some(0)
+        } else {
+            None
+        };
+        let Some(position) = mode_index else {
+            return;
+        };
+        let Some(mode) = call
+            .arguments
+            .args
+            .get(position)
+            .and_then(int_literal_value)
+        else {
+            return;
+        };
+        if mode & 0o022 != 0 {
+            issues.push(issue_at(
+                "python:S2612",
+                "Remove group and other write permission from this file mode.",
+                call.arguments.args[position].range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6903 — deprecated naive-UTC datetime helpers -----------------------
+
+fn check_deprecated_utc_helpers(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    const DEPRECATED_UTC: [&str; 4] = [
+        "datetime.datetime.utcnow",
+        "datetime.datetime.utcfromtimestamp",
+        "datetime.utcnow",
+        "datetime.utcfromtimestamp",
+    ];
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if dotted_name(&call.func).is_some_and(|p| DEPRECATED_UTC.contains(&p.as_str())) {
+            issues.push(issue_at(
+                "python:S6903",
+                "Use timezone-aware datetime APIs instead of this deprecated helper.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S3984 — exception instantiated but never raised ---------------------
+
+fn exception_constructor_name(call: &ruff_python_ast::ExprCall) -> Option<&str> {
+    let name = called_name(&call.func)?;
+    let known_builtin = matches!(
+        name,
+        "KeyboardInterrupt"
+            | "SystemExit"
+            | "GeneratorExit"
+            | "StopIteration"
+            | "StopAsyncIteration"
+    );
+    (looks_like_exception_name(name) || known_builtin).then_some(name)
+}
+
+fn check_unraised_exceptions(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_in_scope(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::Expr(expr) = stmt
+            && let Expr::Call(call) = expr.value.as_ref()
+            && let Some(name) = exception_constructor_name(call)
+        {
+            issues.push(issue_at(
+                "python:S3984",
+                &format!("Raise this '{name}' exception instead of creating it."),
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+// ---------------------------------------------------------------------------
+// Entries #112–#154 continued: NumPy/Math/Pandas/TensorFlow/scikit-learn/
+// PyTorch heuristics and Django conventions.
+// ---------------------------------------------------------------------------
+
+/// Visits every expression reachable from a module body, including compound
+/// statement headers.
+fn for_each_expr_in_module(module_body: &[Stmt], visit: &mut impl FnMut(&Expr)) {
+    for_each_stmt(module_body, &mut |stmt| {
+        for expr in stmt_exprs(stmt) {
+            for_each_expr(expr, visit);
+        }
+    });
+}
+
+fn is_zero_number_literal(expr: &Expr) -> bool {
+    match expr {
+        Expr::NumberLiteral(number) => match &number.value {
+            ruff_python_ast::Number::Int(value) => value.as_i64() == Some(0),
+            ruff_python_ast::Number::Float(value) => *value == 0.0,
+            ruff_python_ast::Number::Complex { .. } => false,
+        },
+        _ => false,
+    }
+}
+
+// --- python:S6725 — equality against numpy.nan --------------------------------
+
+fn is_numpy_nan(expr: &Expr) -> bool {
+    dotted_name(expr).is_some_and(|path| matches!(path.as_str(), "np.nan" | "numpy.nan"))
+}
+
+fn check_nan_comparisons(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_expr_in_module(parsed.syntax().body.as_slice(), &mut |expr| {
+        if let Expr::Compare(compare) = expr {
+            let touches_nan =
+                is_numpy_nan(&compare.left) || compare.comparators.iter().any(is_numpy_nan);
+            let equality_shaped = compare.ops.iter().any(|op| {
+                matches!(
+                    op,
+                    ruff_python_ast::CmpOp::Eq
+                        | ruff_python_ast::CmpOp::NotEq
+                        | ruff_python_ast::CmpOp::Is
+                        | ruff_python_ast::CmpOp::IsNot
+                )
+            });
+            if touches_nan && equality_shaped {
+                issues.push(issue_at(
+                    "python:S6725",
+                    "Test for NaN with math.isnan or np.isnan instead of comparing.",
+                    compare.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S6727 — math.isclose against zero without abs_tol -------------------
+
+fn check_isclose_zero_tolerance(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if dotted_name(&call.func).as_deref() != Some("math.isclose") {
+            return;
+        }
+        let compares_zero = call.arguments.args.iter().any(is_zero_number_literal)
+            || keyword_value(&call.arguments, "rel_tol").is_some_and(is_zero_number_literal);
+        if compares_zero && !has_keyword(&call.arguments, "abs_tol") {
+            issues.push(issue_at(
+                "python:S6727",
+                "Add an abs_tol to compare this value against zero precisely.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6729 — single-argument np.where ------------------------------------
+
+fn check_single_arg_np_where(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if matches!(
+            dotted_name(&call.func).as_deref(),
+            Some("np.where" | "numpy.where")
+        ) && call.arguments.args.len() == 1
+            && call.arguments.keywords.is_empty()
+        {
+            issues.push(issue_at(
+                "python:S6729",
+                "Prefer np.nonzero over a single-argument np.where.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6730 — deprecated NumPy scalar aliases ------------------------------
+
+const DEPRECATED_NUMPY_ALIASES: [&str; 16] = [
+    "np.int",
+    "np.float",
+    "np.bool",
+    "np.object",
+    "np.str",
+    "np.long",
+    "np.unicode",
+    "np.complex",
+    "np.float_",
+    "numpy.int",
+    "numpy.float",
+    "numpy.bool",
+    "numpy.object",
+    "numpy.str",
+    "numpy.long",
+    "numpy.complex",
+];
+
+fn check_deprecated_numpy_aliases(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_expr_in_module(parsed.syntax().body.as_slice(), &mut |expr| {
+        if let Expr::Attribute(_) = expr
+            && dotted_name(expr).is_some_and(|p| DEPRECATED_NUMPY_ALIASES.contains(&p.as_str()))
+        {
+            issues.push(issue_at(
+                "python:S6730",
+                "Replace this deprecated NumPy alias with its modern equivalent.",
+                expr.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6711 — RandomState instead of default_rng ---------------------------
+
+fn check_random_state_usage(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_expr_in_module(parsed.syntax().body.as_slice(), &mut |expr| {
+        // Call callees are Attributes themselves, so matching Attribute nodes
+        // alone covers both references and constructor invocations exactly once.
+        if matches!(expr, Expr::Attribute(_))
+            && matches!(
+                dotted_name(expr).as_deref(),
+                Some("np.random.RandomState" | "numpy.random.RandomState")
+            )
+        {
+            issues.push(issue_at(
+                "python:S6711",
+                "Use numpy.random.default_rng instead of RandomState.",
+                expr.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6714 — np.array over a generator -------------------------------------
+
+fn check_np_array_generator(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if matches!(
+            dotted_name(&call.func).as_deref(),
+            Some("np.array" | "numpy.array")
+        ) && let [only] = &call.arguments.args[..]
+            && matches!(only, Expr::Generator(_))
+        {
+            issues.push(issue_at(
+                "python:S6714",
+                "Pass a materialized sequence to np.array instead of a generator.",
+                only.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- pandas heuristics ------------------------------------------------------------
+
+const PANDAS_INPLACE_METHODS: [&str; 13] = [
+    "reset_index",
+    "drop",
+    "dropna",
+    "fillna",
+    "ffill",
+    "bfill",
+    "sort_values",
+    "sort_index",
+    "rename",
+    "replace",
+    "set_index",
+    "round",
+    "clip",
+];
+
+fn check_pandas_inplace(parsed: &Parsed<ModModule>, index: &LineIndex, source: &str) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if called_name(&call.func).is_some_and(|name| PANDAS_INPLACE_METHODS.contains(&name))
+            && keyword_value(&call.arguments, "inplace").is_some_and(is_true_literal)
+        {
+            issues.push(issue_at(
+                "python:S6734",
+                "Avoid inplace=True; assign the result explicitly instead.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn check_unqualified_merge(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if !matches!(called_name(&call.func), Some("merge" | "join")) {
+            return;
+        }
+        let qualified = ["on", "left_on", "right_on", "how", "validate"]
+            .iter()
+            .any(|name| has_keyword(&call.arguments, name));
+        if !qualified {
+            issues.push(issue_at(
+                "python:S6735",
+                "Make this join explicit with on/how or validate arguments.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn check_read_without_dtype(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if matches!(called_name(&call.func), Some("read_csv" | "read_table"))
+            && !has_keyword(&call.arguments, "dtype")
+        {
+            issues.push(issue_at(
+                "python:S6740",
+                "Pass an explicit dtype when reading tabular data.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+/// Names bound directly to a DataFrame-shaped construction in this file.
+fn collect_dataframe_variables(module_body: &[Stmt]) -> Vec<String> {
+    const CONSTRUCTORS: [&str; 7] = [
+        "pd.DataFrame",
+        "pandas.DataFrame",
+        "pd.read_csv",
+        "pandas.read_csv",
+        "DataFrame",
+        "read_csv",
+        "read_table",
+    ];
+    let mut names = Vec::new();
+    for_each_stmt(module_body, &mut |stmt| {
+        if let Stmt::Assign(assign) = stmt
+            && let [Expr::Name(target)] = assign.targets.as_slice()
+            && let Expr::Call(call) = assign.value.as_ref()
+            && dotted_name(&call.func).is_some_and(|path| CONSTRUCTORS.contains(&path.as_str()))
+        {
+            names.push(target.id.to_string());
+        }
+    });
+    names
+}
+
+fn check_dataframe_values_attribute(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let dataframes = collect_dataframe_variables(parsed.syntax().body.as_slice());
+    let mut issues = Vec::new();
+    for_each_expr_in_module(parsed.syntax().body.as_slice(), &mut |expr| {
+        if let Expr::Attribute(attribute) = expr
+            && attribute.attr.as_str() == "values"
+            && receiver_root(&attribute.value)
+                .is_some_and(|root| dataframes.iter().any(|n| n == root))
+        {
+            issues.push(issue_at(
+                "python:S6741",
+                "Use to_numpy() instead of values on DataFrames.",
+                attribute.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+/// Number of consecutive attribute/method segments in a receiver chain.
+fn method_chain_length(expr: &Expr) -> u32 {
+    match expr {
+        // Every `x.m` access is one hop; the surrounding `(...)` call merges
+        // into that hop instead of adding another.
+        Expr::Attribute(attribute) => 1 + method_chain_length(&attribute.value),
+        Expr::Call(call) => match call.func.as_ref() {
+            Expr::Attribute(_) => method_chain_length(&call.func),
+            _ => 1 + method_chain_length(&call.func),
+        },
+        _ => 0,
+    }
+}
+
+/// Flags maximal DataFrame-rooted method chains beyond the RSPEC length.
+fn visit_dataframe_chain(
+    expr: &Expr,
+    dataframes: &[String],
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    const CHAIN_LIMIT: u32 = 4;
+    let dataframe_rooted =
+        receiver_root(expr).is_some_and(|root| dataframes.iter().any(|name| name == root));
+    if dataframe_rooted && method_chain_length(expr) >= CHAIN_LIMIT {
+        issues.push(issue_at(
+            "python:S6742",
+            "Break up this long method chain or use pipe().",
+            expr.range(),
+            index,
+            source,
+        ));
+        return;
+    }
+    for child in child_exprs(expr) {
+        visit_dataframe_chain(child, dataframes, issues, index, source);
+    }
+}
+
+fn check_long_dataframe_chains(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let dataframes = collect_dataframe_variables(parsed.syntax().body.as_slice());
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        for expr in stmt_exprs(stmt) {
+            visit_dataframe_chain(expr, &dataframes, &mut issues, index, source);
+        }
+    });
+    issues
+}
+
+fn check_to_datetime_ambiguity(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if called_name(&call.func) != Some("to_datetime") || has_keyword(&call.arguments, "format")
+        {
+            return;
+        }
+        let ambiguous = ["dayfirst", "yearfirst"]
+            .iter()
+            .any(|name| keyword_value(&call.arguments, name).is_some_and(is_true_literal));
+        if ambiguous {
+            issues.push(issue_at(
+                "python:S6894",
+                "Resolve dayfirst/yearfirst ambiguity with an explicit format.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6900 — invalid NumPy weekmasks ---------------------------------------
+
+fn weekmask_is_valid(mask: &str) -> bool {
+    mask.len() == 7 && mask.bytes().all(|byte| byte == b'0' || byte == b'1')
+}
+
+fn check_invalid_weekmask(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    const BUSDAY_CALLS: [&str; 4] = [
+        "np.busday",
+        "np.busday_count",
+        "numpy.busday",
+        "numpy.busday_count",
+    ];
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if !dotted_name(&call.func).is_some_and(|p| BUSDAY_CALLS.contains(&p.as_str())) {
+            return;
+        }
+        let mask_position = if dotted_name(&call.func).is_some_and(|p| p.ends_with("busday_count"))
+        {
+            2
+        } else {
+            1
+        };
+        let Some(mask_expr) = keyword_value(&call.arguments, "weekmask")
+            .or_else(|| call.arguments.args.get(mask_position))
+        else {
+            return;
+        };
+        if let Some(mask) = string_literal_text(mask_expr)
+            && !weekmask_is_valid(&mask)
+        {
+            issues.push(issue_at(
+                "python:S6900",
+                "Use a 7-character weekmask containing only '0' and '1'.",
+                mask_expr.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6882 — out-of-range date/time components -----------------------------
+
+/// Inclusive upper bounds per constructor slot: year, month, day, hour,
+/// minute, second, microsecond.
+fn datetime_component_limit(constructor: &str, position: usize) -> Option<(i64, i64)> {
+    let constructor = match constructor {
+        "date" => "datetime.date",
+        "time" => "datetime.time",
+        "datetime" => "datetime.datetime",
+        other => other,
+    };
+    match constructor {
+        "datetime.date" => [(1, 9999), (1, 12), (1, 31)].get(position).copied(),
+        "datetime.time" => [(0, 23), (0, 59), (0, 59), (0, 999_999)]
+            .get(position)
+            .copied(),
+        "datetime.datetime" => [
+            (1, 9999),
+            (1, 12),
+            (1, 31),
+            (0, 23),
+            (0, 59),
+            (0, 59),
+            (0, 999_999),
+        ]
+        .get(position)
+        .copied(),
+        _ => None,
+    }
+}
+
+fn check_datetime_component_ranges(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let Some(path) = dotted_name(&call.func) else {
+            return;
+        };
+        for (position, argument) in call.arguments.args.iter().enumerate() {
+            let Some((low, high)) = datetime_component_limit(&path, position) else {
+                break;
+            };
+            if let Some(value) = int_literal_value(argument)
+                && !(low..=high).contains(&value)
+            {
+                issues.push(issue_at(
+                    "python:S6882",
+                    &format!("This datetime component must be between {low} and {high}."),
+                    argument.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S6883 — mismatched hour/AM-PM strftime specifiers ----------------------
+
+fn check_strftime_hour_markers(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if called_name(&call.func) != Some("strftime")
+            && dotted_name(&call.func).as_deref() != Some("strftime")
+        {
+            return;
+        }
+        let Some(format_expr) = call.arguments.args.first() else {
+            return;
+        };
+        let Some(format) = string_literal_text(format_expr) else {
+            return;
+        };
+        let normalized = format.replace("%%", "");
+        let twelve_hour_without_marker = normalized.contains("%I") && !normalized.contains("%p");
+        let twentyfour_with_marker = normalized.contains("%H") && normalized.contains("%p");
+        if twelve_hour_without_marker || twentyfour_with_marker {
+            issues.push(issue_at(
+                "python:S6883",
+                "Match the hour specifier with an AM/PM marker in this format.",
+                format_expr.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6887 / python:S6890 — pytz misuse --------------------------------------
+
+fn check_pytz_timezone_usage(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if dotted_name(&call.func).as_deref() == Some("pytz.timezone") {
+            issues.push(issue_at(
+                "python:S6890",
+                "Prefer zoneinfo.ZoneInfo over pytz.timezone.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn check_pytz_tzinfo_kwarg(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let is_datetime_ctor = matches!(
+            dotted_name(&call.func).as_deref(),
+            Some("datetime.datetime" | "datetime")
+        );
+        if !is_datetime_ctor {
+            return;
+        }
+        if let Some(tzinfo) = keyword_value(&call.arguments, "tzinfo")
+            && call_parts(tzinfo).is_some_and(|(path, _)| path == "pytz.timezone")
+        {
+            issues.push(issue_at(
+                "python:S6887",
+                "Constructing datetimes with pytz.timezone through tzinfo mislocalizes them.",
+                tzinfo.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6929 / python:S6925 — TensorFlow reduction/gather contracts -------------
+
+const NUMPY_REDUCTIONS: [&str; 18] = [
+    "np.sum",
+    "np.mean",
+    "np.max",
+    "np.min",
+    "np.prod",
+    "np.std",
+    "np.var",
+    "np.all",
+    "np.any",
+    "numpy.sum",
+    "numpy.mean",
+    "numpy.max",
+    "numpy.min",
+    "numpy.prod",
+    "numpy.std",
+    "numpy.var",
+    "numpy.all",
+    "numpy.any",
+];
+
+fn check_reduction_axis_missing(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let Some(path) = dotted_name(&call.func) else {
+            return;
+        };
+        let reduction = path.starts_with("tf.reduce_") || NUMPY_REDUCTIONS.contains(&path.as_str());
+        if reduction && !has_keyword(&call.arguments, "axis") && call.arguments.args.len() < 2 {
+            issues.push(issue_at(
+                "python:S6929",
+                "Specify the reduction axis explicitly.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn check_gather_validate_indices(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if dotted_name(&call.func).as_deref() == Some("tf.gather")
+            && has_keyword(&call.arguments, "validate_indices")
+        {
+            issues.push(issue_at(
+                "python:S6925",
+                "Remove the deprecated validate_indices argument.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6919 / python:S6974 — Keras Model / BaseEstimator subclass contracts ----
+
+fn class_base_paths(class: &ruff_python_ast::StmtClassDef) -> Vec<String> {
+    class
+        .arguments
+        .as_ref()
+        .map(|arguments| arguments.args.iter().filter_map(dotted_name).collect())
+        .unwrap_or_default()
+}
+
+fn base_tail_is(path: &str, tail: &str) -> bool {
+    path.rsplit('.').next() == Some(tail)
+}
+
+fn is_super_init_call(expr: &Expr) -> bool {
+    matches!(expr, Expr::Call(call)
+        if matches!(call.func.as_ref(), Expr::Attribute(attr)
+            if attr.attr.as_str() == "__init__"
+                && matches!(attr.value.as_ref(), Expr::Call(outer)
+                    if called_name(&outer.func) == Some("super"))))
+}
+
+fn check_keras_model_input_shape(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_method(parsed.syntax().body.as_slice(), &mut |class, function| {
+        let model_subclass = class_base_paths(class)
+            .iter()
+            .any(|base| base_tail_is(base, "Model"));
+        if !model_subclass || function.name.as_str() != "__init__" {
+            return;
+        }
+        for_each_stmt_in_scope(function.body.as_slice(), &mut |stmt| {
+            for expr in stmt_exprs(stmt) {
+                for_each_expr(expr, &mut |expr| {
+                    if let Expr::Call(call) = expr
+                        && is_super_init_call(expr)
+                        && has_keyword(&call.arguments, "input_shape")
+                    {
+                        issues.push(issue_at(
+                            "python:S6919",
+                            "Remove input_shape from super().__init__; subclasses infer shapes.",
+                            expr.range(),
+                            index,
+                            source,
+                        ));
+                    }
+                });
+            }
+        });
+    });
+    issues
+}
+
+fn is_self_attribute(target: &Expr, tail_predicate: impl Fn(&str) -> bool) -> bool {
+    matches!(target, Expr::Attribute(attribute)
+        if matches!(attribute.value.as_ref(), Expr::Name(name) if name.id.as_str() == "self")
+            && tail_predicate(attribute.attr.as_str()))
+}
+
+fn check_base_estimator_underscore_attributes(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_method(parsed.syntax().body.as_slice(), &mut |class, function| {
+        let estimator = class_base_paths(class)
+            .iter()
+            .any(|base| base.contains("BaseEstimator"));
+        if !estimator || function.name.as_str() != "__init__" {
+            return;
+        }
+        for_each_stmt_in_scope(function.body.as_slice(), &mut |stmt| {
+            let targets: Vec<&Expr> = match stmt {
+                Stmt::Assign(assign) => assign.targets.iter().collect(),
+                Stmt::AnnAssign(assign) => vec![&assign.target],
+                _ => Vec::new(),
+            };
+            for target in targets {
+                if is_self_attribute(target, |attr| attr.ends_with('_')) {
+                    issues.push(issue_at(
+                        "python:S6974",
+                        "Trailing-underscore attribute names are reserved for fitted state.",
+                        target.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        });
+    });
+    issues
+}
+
+// --- python:S6978 — nn.Module initializer contract -----------------------------------
+
+fn check_nn_module_super_init(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::ClassDef(class) = stmt {
+            let module_subclass = class_base_paths(class)
+                .iter()
+                .any(|base| matches!(base.as_str(), "nn.Module" | "torch.nn.Module" | "Module"));
+            let init = class.body.iter().find_map(|stmt| match stmt {
+                Stmt::FunctionDef(function) if function.name.as_str() == "__init__" => {
+                    Some(function)
+                }
+                _ => None,
+            });
+            let super_called = init.is_some_and(|function| {
+                let mut found = false;
+                for_each_stmt_in_scope(function.body.as_slice(), &mut |stmt| {
+                    for expr in stmt_exprs(stmt) {
+                        found |= is_super_init_call(expr);
+                    }
+                });
+                found
+            });
+            if module_subclass && init.is_some() && !super_called {
+                issues.push(issue_at(
+                    "python:S6978",
+                    "Call super().__init__() from this nn.Module subclass.",
+                    class.name.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S6979 / S6983 / S6985 / S6984 — PyTorch/einops contracts ------------------
+
+fn check_autograd_variable_usage(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if dotted_name(&call.func).as_deref() == Some("torch.autograd.Variable") {
+            issues.push(issue_at(
+                "python:S6979",
+                "Replace torch.autograd.Variable with torch.tensor.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn check_dataloader_workers(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if called_name(&call.func) == Some("DataLoader")
+            && !has_keyword(&call.arguments, "num_workers")
+        {
+            issues.push(issue_at(
+                "python:S6983",
+                "Pass num_workers to parallelize this DataLoader.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn check_torch_load_weights_only(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if dotted_name(&call.func).as_deref() == Some("torch.load")
+            && !has_keyword(&call.arguments, "weights_only")
+        {
+            issues.push(issue_at(
+                "python:S6985",
+                "Pass weights_only=True to torch.load.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+/// Einops pattern grammar subset: one `->`, balanced parentheses per side,
+/// identifier/ellipsis/`1` tokens only, identical multisets on both sides.
+fn einops_pattern_error(pattern: &str) -> Option<&'static str> {
+    let sides: Vec<&str> = pattern.splitn(2, "->").collect();
+    if sides.len() != 2 {
+        return Some("expected exactly one '->'");
+    }
+    let mut token_lists: Vec<Vec<&str>> = Vec::new();
+    for side in sides {
+        let mut depth: i64 = 0;
+        let mut tokens: Vec<&str> = Vec::new();
+        for token in side.split_whitespace() {
+            let valid = token == "..." || token.chars().all(|c| c.is_alphanumeric() || c == '_');
+            if !valid {
+                return Some("invalid token");
+            }
+            for ch in token.chars() {
+                match ch {
+                    '(' => depth += 1,
+                    ')' => depth -= 1,
+                    _ => {}
+                }
+                if depth < 0 {
+                    return Some("unbalanced parentheses");
+                }
+            }
+            tokens.push(token);
+        }
+        if depth != 0 {
+            return Some("unbalanced parentheses");
+        }
+        tokens.sort_unstable();
+        token_lists.push(tokens);
+    }
+    if token_lists[0] != token_lists[1] {
+        return Some("axis names must match on both sides");
+    }
+    None
+}
+
+fn check_einops_patterns(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if !matches!(
+            called_name(&call.func),
+            Some("rearrange" | "reduce" | "repeat")
+        ) {
+            return;
+        }
+        // The pattern is the second positional argument (after the tensor).
+        if let Some(pattern_expr) = call
+            .arguments
+            .args
+            .get(1)
+            .or_else(|| keyword_value(&call.arguments, "pattern"))
+            && let Some(pattern) = string_literal_text(pattern_expr)
+            && let Some(error) = einops_pattern_error(&pattern)
+        {
+            issues.push(issue_at(
+                "python:S6984",
+                &format!("Fix this invalid einops pattern: {error}."),
+                pattern_expr.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6969 / S6973 / S6971 — scikit-learn contracts ---------------------------
+
+fn required_estimator_parameters(name: &str) -> Option<&'static [&'static str]> {
+    match name {
+        "KMeans" => Some(&["n_clusters"]),
+        "PCA" | "TruncatedSVD" | "NMF" => Some(&["n_components"]),
+        "SGDClassifier" | "SGDRegressor" => Some(&["max_iter", "tol"]),
+        _ => None,
+    }
+}
+
+fn check_estimator_hyperparameters(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let Some(name) = called_name(&call.func) else {
+            return;
+        };
+        let Some(required) = required_estimator_parameters(name) else {
+            return;
+        };
+        let missing: Vec<&str> = required
+            .iter()
+            .copied()
+            .filter(|parameter| !has_keyword(&call.arguments, parameter))
+            .collect();
+        if !missing.is_empty() {
+            issues.push(issue_at(
+                "python:S6973",
+                &format!(
+                    "Initialize this estimator with required hyperparameters: {}.",
+                    missing.join(", ")
+                ),
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn check_pipeline_memory_missing(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if called_name(&call.func) == Some("Pipeline") && !has_keyword(&call.arguments, "memory") {
+            issues.push(issue_at(
+                "python:S6969",
+                "Pass a memory directory to enable Pipeline caching.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+/// Names bound to `Pipeline(...)` constructions that enable caching.
+fn collect_caching_pipeline_variables(module_body: &[Stmt]) -> Vec<String> {
+    let mut names = Vec::new();
+    for_each_stmt(module_body, &mut |stmt| {
+        if let Stmt::Assign(assign) = stmt
+            && let [Expr::Name(target)] = assign.targets.as_slice()
+            && let Expr::Call(call) = assign.value.as_ref()
+            && called_name(&call.func) == Some("Pipeline")
+            && has_keyword(&call.arguments, "memory")
+        {
+            names.push(target.id.to_string());
+        }
+    });
+    names
+}
+
+fn check_named_steps_bypass(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let pipelines = collect_caching_pipeline_variables(parsed.syntax().body.as_slice());
+    let mut issues = Vec::new();
+    for_each_expr_in_module(parsed.syntax().body.as_slice(), &mut |expr| {
+        if let Expr::Subscript(subscript) = expr
+            && let Expr::Attribute(attribute) = subscript.value.as_ref()
+            && attribute.attr.as_str() == "named_steps"
+            && receiver_root(&attribute.value)
+                .is_some_and(|root| pipelines.iter().any(|n| n == root))
+        {
+            issues.push(issue_at(
+                "python:S6971",
+                "Direct named_steps access bypasses this Pipeline's cache.",
+                subscript.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- Django conventions ---------------------------------------------------------------
+
+const DJANGO_STRING_FIELDS: [&str; 4] = ["CharField", "TextField", "SlugField", "EmailField"];
+
+fn check_django_string_field_null(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if called_name(&call.func).is_some_and(|n| DJANGO_STRING_FIELDS.contains(&n))
+            && keyword_value(&call.arguments, "null").is_some_and(is_true_literal)
+        {
+            issues.push(issue_at(
+                "python:S6553",
+                "String-based fields should use blank=True rather than null=True.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn class_defines_method(class: &ruff_python_ast::StmtClassDef, name: &str) -> bool {
+    class
+        .body
+        .iter()
+        .any(|stmt| matches!(stmt, Stmt::FunctionDef(function) if function.name.as_str() == name))
+}
+
+fn check_django_model_str(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::ClassDef(class) = stmt {
+            let django_model = class_base_paths(class)
+                .iter()
+                .any(|base| base.as_str() == "models.Model" || base_tail_is(base, "Model"));
+            if django_model && !class_defines_method(class, "__str__") {
+                issues.push(issue_at(
+                    "python:S6554",
+                    "Define __str__ on this Django model.",
+                    class.name.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+fn is_locals_call(expr: &Expr) -> bool {
+    matches!(expr, Expr::Call(call) if called_name(&call.func) == Some("locals"))
+}
+
+fn check_render_locals(parsed: &Parsed<ModModule>, index: &LineIndex, source: &str) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if dotted_name(&call.func).as_deref() == Some("render")
+            && call.arguments.args.iter().any(is_locals_call)
+        {
+            issues.push(issue_at(
+                "python:S6556",
+                "Do not pass locals() to render.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn meta_declares_fields(meta: &ruff_python_ast::StmtClassDef) -> bool {
+    meta.body.iter().any(|stmt| {
+        let target_name = match stmt {
+            Stmt::Assign(assign) => assign.targets.first().and_then(|target| match target {
+                Expr::Name(name) => Some(name.id.as_str().to_string()),
+                _ => None,
+            }),
+            Stmt::AnnAssign(assign) => match assign.target.as_ref() {
+                Expr::Name(name) => Some(name.id.as_str().to_string()),
+                _ => None,
+            },
+            _ => None,
+        };
+        matches!(target_name.as_deref(), Some("fields" | "exclude"))
+    })
+}
+
+fn check_modelform_meta_fields(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::ClassDef(class) = stmt {
+            let modelform = class_base_paths(class)
+                .iter()
+                .any(|base| base.as_str() == "forms.ModelForm" || base_tail_is(base, "ModelForm"));
+            let meta_ok = class.body.iter().any(|inner| {
+                matches!(inner, Stmt::ClassDef(meta) if meta.name.as_str() == "Meta")
+                    && matches!(inner, Stmt::ClassDef(meta) if meta_declares_fields(meta))
+            });
+            if modelform && !meta_ok {
+                issues.push(issue_at(
+                    "python:S6559",
+                    "Declare fields or exclude on this ModelForm Meta.",
+                    class.name.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+fn check_json_response_safe_flag(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if dotted_name(&call.func).as_deref() != Some("JsonResponse")
+            || has_keyword(&call.arguments, "safe")
+        {
+            return;
+        }
+        let provably_non_dict = matches!(
+            call.arguments.args.first(),
+            Some(
+                Expr::List(_)
+                    | Expr::Set(_)
+                    | Expr::Tuple(_)
+                    | Expr::StringLiteral(_)
+                    | Expr::NumberLiteral(_)
+                    | Expr::BooleanLiteral(_)
+                    | Expr::NoneLiteral(_)
+            )
+        );
+        if provably_non_dict {
+            issues.push(issue_at(
+                "python:S6560",
+                "Pass safe=False or serialize this payload into a dict.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+const ROUTE_DECORATOR_TAILS: [&str; 9] = [
+    "route", "get", "post", "put", "patch", "delete", "head", "options", "receiver",
+];
+
+/// Callee path of a decorator expression (`app.route` for `@app.route("/")`).
+fn decorator_callee_path(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Call(call) => dotted_name(&call.func),
+        _ => dotted_name(expr),
+    }
+}
+
+fn check_route_decorator_ordering(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::FunctionDef(function) = stmt {
+            let last = function.decorator_list.len().saturating_sub(1);
+            for (position, decorator) in function.decorator_list.iter().enumerate() {
+                let tail = decorator_callee_path(&decorator.expression)
+                    .and_then(|path| path.rsplit('.').next().map(str::to_string))
+                    .unwrap_or_default();
+                if ROUTE_DECORATOR_TAILS.contains(&tail.as_str()) && position < last {
+                    issues.push(issue_at(
+                        "python:S6552",
+                        "Place the routing decorator outermost.",
+                        decorator.expression.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        }
+    });
+    issues
+}
+
+fn assignment_target_leaf_name(target: &Expr) -> Option<String> {
+    match target {
+        Expr::Name(name) => Some(name.id.as_str().to_string()),
+        Expr::Attribute(attribute) => Some(attribute.attr.as_str().to_string()),
+        _ => None,
+    }
+}
+
+fn check_disclosed_secret_keys(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let (targets, value): (Vec<&Expr>, Option<&Expr>) = match stmt {
+            Stmt::Assign(assign) => (assign.targets.iter().collect(), Some(&assign.value)),
+            Stmt::AnnAssign(assign) => (vec![&assign.target], assign.value.as_deref()),
+            _ => (Vec::new(), None),
+        };
+        let secret_named = targets
+            .iter()
+            .filter_map(|target| assignment_target_leaf_name(target))
+            .any(|name| name.to_lowercase().ends_with("secret_key"));
+        if secret_named
+            && let Some(value) = value
+            && string_literal_text(value).is_some()
+        {
+            issues.push(issue_at(
+                "python:S6779",
+                "Do not disclose secret keys in source code.",
+                value.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn check_jwt_secret_arguments(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if !matches!(
+            dotted_name(&call.func).as_deref(),
+            Some("jwt.encode" | "jwt.decode")
+        ) {
+            return;
+        }
+        let key_positional = call.arguments.args.get(1).and_then(string_literal_text);
+        let key_keyword = keyword_value(&call.arguments, "key").and_then(string_literal_text);
+        if let Some(secret) = key_positional.or(key_keyword) {
+            drop(secret);
+            issues.push(issue_at(
+                "python:S6781",
+                "Do not hard-code this JWT secret key.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+// ---------------------------------------------------------------------------
+// Async-family contracts (#155–#167, #193).
+// ---------------------------------------------------------------------------
+
+/// `(call, context)` pairs for every call in the tree, carrying the nearest
+/// enclosing function and loop depth.
+fn for_each_call_in_fn_context(
+    module_body: &[Stmt],
+    visit: &mut impl FnMut(&ruff_python_ast::ExprCall, FnContext),
+) {
+    for_each_stmt_in_fn_context(
+        module_body,
+        FnContext {
+            nearest_function: None,
+            loop_depth: 0,
+        },
+        &mut |stmt, ctx| {
+            for expr in stmt_exprs(stmt) {
+                for_each_expr(expr, &mut |expr| {
+                    if let Expr::Call(call) = expr {
+                        visit(call, ctx);
+                    }
+                });
+            }
+        },
+    );
+}
+
+fn context_is_async(ctx: FnContext) -> bool {
+    ctx.nearest_function
+        .is_some_and(|function| function.is_async)
+}
+
+fn sleep_call_tail(call: &ruff_python_ast::ExprCall) -> Option<String> {
+    dotted_name(&call.func)
+        .and_then(|path| path.rsplit('.').next().map(str::to_string))
+        .filter(|tail| tail == "sleep")
+}
+
+fn flag_sync_calls_inside_async(
+    module_body: &[Stmt],
+    accepted: &impl Fn(&ruff_python_ast::ExprCall) -> bool,
+    rule_key: &str,
+    message: &str,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    for_each_call_in_fn_context(module_body, &mut |call, ctx| {
+        if context_is_async(ctx) && accepted(call) {
+            issues.push(issue_at(rule_key, message, call.range(), index, source));
+        }
+    });
+}
+
+fn function_parameters(
+    function: &ruff_python_ast::StmtFunctionDef,
+) -> Vec<&ruff_python_ast::ParameterWithDefault> {
+    let parameters = &function.parameters;
+    parameters
+        .posonlyargs
+        .iter()
+        .chain(parameters.args.iter())
+        .chain(parameters.kwonlyargs.iter())
+        .collect()
+}
+
+// --- python:S7483 — timeout parameter on an async function ---------------------
+
+fn check_async_timeout_parameters(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::FunctionDef(function) = stmt
+            && function.is_async
+        {
+            for parameter in function_parameters(function) {
+                if parameter.parameter.name.as_str().starts_with("timeout") {
+                    issues.push(issue_at(
+                        "python:S7483",
+                        "Remove the timeout parameter from this async function.",
+                        parameter.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S7484 — sleep awaited inside an async loop --------------------------
+
+fn check_sleep_in_async_loop(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_in_fn_context(
+        parsed.syntax().body.as_slice(),
+        FnContext {
+            nearest_function: None,
+            loop_depth: 0,
+        },
+        &mut |stmt, ctx| {
+            if ctx.loop_depth == 0 || !context_is_async(ctx) {
+                return;
+            }
+            if let Stmt::Expr(expr) = stmt
+                && let Expr::Await(awaited) = expr.value.as_ref()
+                && let Expr::Call(call) = awaited.value.as_ref()
+                && sleep_call_tail(call).is_some()
+            {
+                issues.push(issue_at(
+                    "python:S7484",
+                    "Await an event or use a cancellation-aware sleep inside this loop.",
+                    awaited.range(),
+                    index,
+                    source,
+                ));
+            }
+        },
+    );
+    issues
+}
+
+// --- python:S7486 — long sleeps --------------------------------------------------
+
+fn check_long_sleeps(parsed: &Parsed<ModModule>, index: &LineIndex, source: &str) -> Vec<Issue> {
+    const LONG_SLEEP_SECONDS: i64 = 60;
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if sleep_call_tail(call).is_some()
+            && let [only] = &call.arguments.args[..]
+            && int_literal_value(only).is_some_and(|seconds| seconds >= LONG_SLEEP_SECONDS)
+        {
+            issues.push(issue_at(
+                "python:S7486",
+                "Use sleep_forever or an event instead of this long sleep.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S7487 / S7493 / S7499 / S7501 / S7488 / S7489 — blocking calls -------
+
+const SYNC_SUBPROCESS_CALLS: [&str; 5] = [
+    "subprocess.run",
+    "subprocess.call",
+    "subprocess.check_call",
+    "subprocess.check_output",
+    "subprocess.Popen",
+];
+
+fn check_sync_subprocess_in_async(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    flag_sync_calls_inside_async(
+        parsed.syntax().body.as_slice(),
+        &|call| {
+            dotted_name(&call.func)
+                .is_some_and(|path| SYNC_SUBPROCESS_CALLS.contains(&path.as_str()))
+        },
+        "python:S7487",
+        "Run this subprocess through asyncio.subprocess inside async functions.",
+        index,
+        source,
+        &mut issues,
+    );
+    issues
+}
+
+fn check_blocking_sleep_in_async(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    flag_sync_calls_inside_async(
+        parsed.syntax().body.as_slice(),
+        &|call| dotted_name(&call.func).as_deref() == Some("time.sleep"),
+        "python:S7488",
+        "Await asyncio.sleep instead of blocking the event loop with time.sleep.",
+        index,
+        source,
+        &mut issues,
+    );
+    issues
+}
+
+const SYNC_OS_CALLS: [&str; 9] = [
+    "os.system",
+    "os.popen",
+    "os.fork",
+    "os.forkpty",
+    "os.execv",
+    "os.execve",
+    "os.execvp",
+    "os.execvpe",
+    "os.posix_spawn",
+];
+
+fn check_sync_os_calls_in_async(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    flag_sync_calls_inside_async(
+        parsed.syntax().body.as_slice(),
+        &|call| dotted_name(&call.func).is_some_and(|path| SYNC_OS_CALLS.contains(&path.as_str())),
+        "python:S7489",
+        "Run this OS command asynchronously inside async functions.",
+        index,
+        source,
+        &mut issues,
+    );
+    issues
+}
+
+const SYNC_FILE_CALLS: [&str; 10] = [
+    "open",
+    "io.open",
+    "os.open",
+    "os.read",
+    "os.write",
+    "os.remove",
+    "os.rename",
+    "os.listdir",
+    "os.makedirs",
+    "os.mkdir",
+];
+
+const ASYNC_FILE_METHODS: [&str; 4] = ["read_text", "read_bytes", "write_text", "write_bytes"];
+
+fn check_sync_file_ops_in_async(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    flag_sync_calls_inside_async(
+        parsed.syntax().body.as_slice(),
+        &|call| {
+            dotted_name(&call.func).is_some_and(|path| SYNC_FILE_CALLS.contains(&path.as_str()))
+                || called_name(&call.func).is_some_and(|name| ASYNC_FILE_METHODS.contains(&name))
+        },
+        "python:S7493",
+        "Use async file APIs instead of this blocking file operation.",
+        index,
+        source,
+        &mut issues,
+    );
+    issues
+}
+
+const SYNC_HTTP_CALLS: [&str; 19] = [
+    "requests.get",
+    "requests.post",
+    "requests.put",
+    "requests.patch",
+    "requests.delete",
+    "requests.head",
+    "requests.options",
+    "requests.request",
+    "requests.Session",
+    "httpx.get",
+    "httpx.post",
+    "httpx.put",
+    "httpx.patch",
+    "httpx.delete",
+    "httpx.head",
+    "httpx.options",
+    "httpx.request",
+    "httpx.Client",
+    "urllib.request.urlopen",
+];
+
+fn check_sync_http_in_async(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    flag_sync_calls_inside_async(
+        parsed.syntax().body.as_slice(),
+        &|call| {
+            dotted_name(&call.func).is_some_and(|path| SYNC_HTTP_CALLS.contains(&path.as_str()))
+        },
+        "python:S7499",
+        "Use an async HTTP client inside async functions.",
+        index,
+        source,
+        &mut issues,
+    );
+    issues
+}
+
+fn check_input_in_async(parsed: &Parsed<ModModule>, index: &LineIndex, source: &str) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    flag_sync_calls_inside_async(
+        parsed.syntax().body.as_slice(),
+        &|call| dotted_name(&call.func).as_deref() == Some("input"),
+        "python:S7501",
+        "input() blocks the event loop; use an async reader instead.",
+        index,
+        source,
+        &mut issues,
+    );
+    issues
+}
+
+// --- python:S7491 — sleep(0) instead of a checkpoint ------------------------------
+
+fn check_sleep_zero_checkpoint(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_expr_in_module(parsed.syntax().body.as_slice(), &mut |expr| {
+        if let Expr::Await(awaited) = expr
+            && let Expr::Call(call) = awaited.value.as_ref()
+            && sleep_call_tail(call).is_some()
+            && let [only] = &call.arguments.args[..]
+            && int_literal_value(only) == Some(0)
+        {
+            issues.push(issue_at(
+                "python:S7491",
+                "Replace sleep(0) with a checkpoint call.",
+                awaited.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S7492 — materialized list passed to any/all -----------------------------
+
+fn check_any_all_list_comprehension(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if matches!(dotted_name(&call.func).as_deref(), Some("any" | "all"))
+            && let [only] = &call.arguments.args[..]
+            && matches!(only, Expr::ListComp(_))
+        {
+            issues.push(issue_at(
+                "python:S7492",
+                "Pass a generator expression instead of a materialized list.",
+                only.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S7503 — async function without async features ---------------------------
+
+fn async_features_present(function: &ruff_python_ast::StmtFunctionDef) -> bool {
+    let mut found = false;
+    for_each_stmt_in_scope(function.body.as_slice(), &mut |stmt| {
+        match stmt {
+            Stmt::For(loop_stmt) => found |= loop_stmt.is_async,
+            Stmt::With(with_stmt) => found |= with_stmt.is_async,
+            _ => {}
+        }
+        for expr in stmt_exprs(stmt) {
+            for_each_expr(expr, &mut |expr| {
+                found |= matches!(expr, Expr::Await(_));
+            });
+        }
+    });
+    found
+}
+
+fn check_async_without_awaits(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::FunctionDef(function) = stmt
+            && function.is_async
+            && !async_features_present(function)
+        {
+            issues.push(issue_at(
+                "python:S7503",
+                "This async function never awaits; make it synchronous or await something.",
+                function.name.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S7513 / python:S7514 — nursery blocks ------------------------------------
+
+fn nursery_context_expression(expr: &Expr) -> bool {
+    match expr {
+        Expr::Name(name) => {
+            matches!(name.id.as_str(), "nursery" | "task_group")
+        }
+        _ => call_parts(expr).is_some_and(|(path, _)| {
+            matches!(
+                path.as_str(),
+                "trio.open_nursery"
+                    | "anyio.create_task_group"
+                    | "asyncio.TaskGroup"
+                    | "open_nursery"
+                    | "create_task_group"
+                    | "TaskGroup"
+            )
+        }),
+    }
+}
+
+fn is_nursery_block(with_stmt: &ruff_python_ast::StmtWith) -> bool {
+    with_stmt.is_async
+        && with_stmt
+            .items
+            .iter()
+            .any(|item| nursery_context_expression(&item.context_expr))
+}
+
+const NURSERY_START_CALLS: [&str; 4] = ["start_soon", "start_soon_nursery", "spawn", "create_task"];
+
+fn nursery_started_tasks(with_stmt: &ruff_python_ast::StmtWith) -> usize {
+    let mut count = 0;
+    for_each_stmt_in_scope(with_stmt.body.as_slice(), &mut |stmt| {
+        for expr in stmt_exprs(stmt) {
+            for_each_expr(expr, &mut |expr| {
+                if let Expr::Call(call) = expr
+                    && called_name(&call.func)
+                        .is_some_and(|name| NURSERY_START_CALLS.contains(&name))
+                {
+                    count += 1;
+                }
+            });
+        }
+    });
+    count
+}
+
+fn for_each_nursery_block(
+    module_body: &[Stmt],
+    visit: &mut impl FnMut(&ruff_python_ast::StmtWith),
+) {
+    for_each_stmt(module_body, &mut |stmt| {
+        if let Stmt::With(with_stmt) = stmt
+            && is_nursery_block(with_stmt)
+        {
+            visit(with_stmt);
+        }
+    });
+}
+
+fn check_single_task_nurseries(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_nursery_block(parsed.syntax().body.as_slice(), &mut |with_stmt| {
+        if nursery_started_tasks(with_stmt) == 1 {
+            issues.push(issue_at(
+                "python:S7513",
+                "Start this task directly instead of opening a nursery for one task.",
+                with_stmt.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn check_control_flow_in_nurseries(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_nursery_block(parsed.syntax().body.as_slice(), &mut |with_stmt| {
+        for_each_stmt_in_scope(with_stmt.body.as_slice(), &mut |stmt| {
+            if matches!(stmt, Stmt::Return(_) | Stmt::Break(_) | Stmt::Continue(_)) {
+                issues.push(issue_at(
+                    "python:S7514",
+                    "Do not jump out of a nursery block.",
+                    stmt.range(),
+                    index,
+                    source,
+                ));
+            }
+        });
+    });
+    issues
+}
+
+// ---------------------------------------------------------------------------
+// Typing-syntax rules (#168–#178).
+// ---------------------------------------------------------------------------
+
+/// Visits every annotation expression in the tree: parameter annotations,
+/// return annotations, and annotated assignments.
+fn for_each_annotation(module_body: &[Stmt], visit: &mut impl FnMut(&Expr)) {
+    for_each_stmt(module_body, &mut |stmt| match stmt {
+        Stmt::FunctionDef(function) => {
+            for parameter in function_parameters(function) {
+                if let Some(annotation) = &parameter.parameter.annotation {
+                    visit(annotation);
+                }
+            }
+            if let Some(returns) = &function.returns {
+                visit(returns);
+            }
+        }
+        Stmt::AnnAssign(assign) => visit(&assign.annotation),
+        _ => {}
+    });
+}
+
+// --- python:S6538 / python:S6540 — missing annotations (opt-in) -----------------
+
+fn check_missing_return_annotations(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    if !options.require_type_hints {
+        return Vec::new();
+    }
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::FunctionDef(function) = stmt
+            && function.returns.is_none()
+        {
+            issues.push(issue_at(
+                "python:S6538",
+                "Add a return type annotation to this function.",
+                function.name.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn check_missing_parameter_annotations(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    if !options.require_type_hints {
+        return Vec::new();
+    }
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::FunctionDef(function) = stmt {
+            for parameter in function_parameters(function) {
+                if parameter.parameter.annotation.is_none() {
+                    issues.push(issue_at(
+                        "python:S6540",
+                        "Annotate this parameter.",
+                        parameter.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S6542 / S6543 / S6545 / S6546 — hint shapes -------------------------
+
+fn check_any_type_hints(parsed: &Parsed<ModModule>, index: &LineIndex, source: &str) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_annotation(parsed.syntax().body.as_slice(), &mut |annotation| {
+        for_each_expr(annotation, &mut |expr| {
+            if matches!(expr, Expr::Name(name) if name.id.as_str() == "Any") {
+                issues.push(issue_at(
+                    "python:S6542",
+                    "Do not use Any as a type hint.",
+                    expr.range(),
+                    index,
+                    source,
+                ));
+            }
+        });
+    });
+    issues
+}
+
+fn check_bare_generic_hints(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    const BARE_GENERICS: [&str; 6] = ["list", "dict", "set", "tuple", "type", "frozenset"];
+    let mut issues = Vec::new();
+    for_each_annotation(parsed.syntax().body.as_slice(), &mut |annotation| {
+        if matches!(annotation, Expr::Name(name) if BARE_GENERICS.contains(&name.id.as_str())) {
+            issues.push(issue_at(
+                "python:S6543",
+                "Parameterize this generic type hint.",
+                annotation.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn check_typing_alias_hints(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    const TYPING_ALIASES: [&str; 12] = [
+        "typing.List",
+        "typing.Dict",
+        "typing.Set",
+        "typing.Tuple",
+        "typing.FrozenSet",
+        "typing.Type",
+        "List",
+        "Dict",
+        "Set",
+        "Tuple",
+        "FrozenSet",
+        "Type",
+    ];
+    let mut issues = Vec::new();
+    for_each_annotation(parsed.syntax().body.as_slice(), &mut |annotation| {
+        for_each_expr(annotation, &mut |expr| {
+            if dotted_name(expr).is_some_and(|path| TYPING_ALIASES.contains(&path.as_str())) {
+                issues.push(issue_at(
+                    "python:S6545",
+                    "Use builtin generics instead of the typing alias.",
+                    expr.range(),
+                    index,
+                    source,
+                ));
+            }
+        });
+    });
+    issues
+}
+
+fn check_typing_union_hints(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_annotation(parsed.syntax().body.as_slice(), &mut |annotation| {
+        for_each_expr(annotation, &mut |expr| {
+            if let Expr::Subscript(subscript) = expr
+                && matches!(
+                    dotted_name(&subscript.value).as_deref(),
+                    Some("typing.Union" | "Union")
+                )
+            {
+                issues.push(issue_at(
+                    "python:S6546",
+                    "Use PEP 604 unions (X | Y) instead of typing.Union.",
+                    subscript.range(),
+                    index,
+                    source,
+                ));
+            }
+        });
+    });
+    issues
+}
+
+// --- python:S6792 / S6794 / S6795 / S6796 — PEP 695 adoption ----------------------
+
+fn check_pep695_generic_classes(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::ClassDef(class) = stmt {
+            let generic_base = class.arguments.as_ref().is_some_and(|arguments| {
+                arguments.args.iter().any(|base| {
+                    matches!(base, Expr::Subscript(subscript)
+                        if matches!(dotted_name(&subscript.value).as_deref(),
+                            Some("Generic" | "typing.Generic")))
+                })
+            });
+            if generic_base {
+                issues.push(issue_at(
+                    "python:S6792",
+                    "Use PEP 695 type parameters instead of inheriting Generic[...].",
+                    class.name.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+fn check_typealias_assignments(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::AnnAssign(assign) = stmt
+            && matches!(
+                dotted_name(&assign.annotation).as_deref(),
+                Some("typing.TypeAlias" | "TypeAlias")
+            )
+        {
+            issues.push(issue_at(
+                "python:S6794",
+                "Use the type statement for this alias.",
+                stmt.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+/// Whether raw (unmasked) source declares PEP 695 `type X = ...` aliases.
+fn pep695_aliases_present(parsed: &Parsed<ModModule>, source: &str) -> bool {
+    unmasked_segments(parsed, source)
+        .iter()
+        .any(|(_, segment)| {
+            segment.lines().any(|line| {
+                let trimmed = line.trim_start();
+                trimmed.starts_with("type ") && trimmed.contains('=')
+            })
+        })
+}
+
+/// Names bound by `X = TypeVar(...)` assignments anywhere in the tree.
+fn collect_typevar_names(module_body: &[Stmt]) -> Vec<String> {
+    let mut names = Vec::new();
+    for_each_stmt(module_body, &mut |stmt| {
+        if let Stmt::Assign(assign) = stmt
+            && let [Expr::Name(target)] = assign.targets.as_slice()
+            && let Expr::Call(call) = assign.value.as_ref()
+            && called_name(&call.func) == Some("TypeVar")
+        {
+            names.push(target.id.to_string());
+        }
+    });
+    names
+}
+
+fn check_redundant_typevars(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    if !pep695_aliases_present(parsed, source) {
+        return Vec::new();
+    }
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::Assign(assign) = stmt
+            && let Expr::Call(call) = assign.value.as_ref()
+            && called_name(&call.func) == Some("TypeVar")
+        {
+            issues.push(issue_at(
+                "python:S6795",
+                "PEP 695 syntax makes this TypeVar redundant.",
+                assign.value.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn check_typevar_annotated_functions(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let typevars = collect_typevar_names(parsed.syntax().body.as_slice());
+    if typevars.is_empty() {
+        return Vec::new();
+    }
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::FunctionDef(function) = stmt {
+            let annotations = function_parameters(function)
+                .iter()
+                .filter_map(|parameter| parameter.parameter.annotation.as_deref())
+                .chain(function.returns.as_deref())
+                .collect::<Vec<_>>();
+            let mut flagged = false;
+            for annotation in annotations {
+                for_each_expr(annotation, &mut |expr| {
+                    if !flagged
+                        && matches!(expr, Expr::Name(name)
+                            if typevars.iter().any(|typevar| typevar == name.id.as_str()))
+                    {
+                        flagged = true;
+                    }
+                });
+            }
+            if flagged {
+                issues.push(issue_at(
+                    "python:S6796",
+                    "Use PEP 695 type parameters instead of TypeVar hints.",
+                    function.name.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S6468 — except* on ExceptionGroup --------------------------------------
+
+fn check_except_star_groups(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let significant = significant_tokens(parsed);
+    let mut issues = Vec::new();
+    for (position, window) in significant.windows(2).enumerate() {
+        let except_star = window[0].kind() == TokenKind::Except
+            && window[1].kind() == TokenKind::Star
+            && window[1].range().start() == window[0].range().end();
+        if !except_star {
+            continue;
+        }
+        let catches_group = significant[position + 2..]
+            .iter()
+            .take_while(|token| {
+                !matches!(
+                    token.kind(),
+                    TokenKind::Newline | TokenKind::NonLogicalNewline
+                )
+            })
+            .any(|token| {
+                token.kind() == TokenKind::Name
+                    && matches!(
+                        &source[token.range()],
+                        "ExceptionGroup" | "BaseExceptionGroup"
+                    )
+            });
+        if catches_group {
+            issues.push(issue_at(
+                "python:S6468",
+                "Catch ExceptionGroup subclasses directly rather than with except*.",
+                window[0].range(),
+                index,
+                source,
+            ));
+        }
+    }
+    issues
+}
+
+// ---------------------------------------------------------------------------
+// Unittest/misc remainder (#180–#192) and #185–#189 companions.
+// ---------------------------------------------------------------------------
+
+const COMPARISON_ASSERTS: [&str; 8] = [
+    "assertEqual",
+    "assertNotEqual",
+    "assertAlmostEqual",
+    "assertNotAlmostEqual",
+    "assertGreater",
+    "assertGreaterEqual",
+    "assertLess",
+    "assertLessEqual",
+];
+
+fn assertion_literal_kind(expr: &Expr) -> Option<u8> {
+    match expr {
+        Expr::StringLiteral(_) => Some(0),
+        Expr::BytesLiteral(_) => Some(1),
+        Expr::BooleanLiteral(_) => Some(2),
+        Expr::NumberLiteral(_) => Some(3),
+        Expr::NoneLiteral(_) => Some(4),
+        _ => None,
+    }
+}
+
+// --- python:S5845 — assertions on incompatible literal types -------------------
+
+fn check_incompatible_assert_literals(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if called_name(&call.func).is_some_and(|name| COMPARISON_ASSERTS.contains(&name))
+            && let [left, right] = &call.arguments.args[..]
+            && let (Some(left_kind), Some(right_kind)) =
+                (assertion_literal_kind(left), assertion_literal_kind(right))
+            && left_kind != right_kind
+        {
+            issues.push(issue_at(
+                "python:S5845",
+                "This assertion compares literals of different types.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S5549 — identical arguments repeated within one call ------------------
+
+fn trivially_repeatable(left: &Expr, right: &Expr) -> bool {
+    excluded_identical_pair(left, right)
+        || (is_none_literal(left) && is_none_literal(right))
+        || (matches!(left, Expr::BooleanLiteral(_)) && matches!(right, Expr::BooleanLiteral(_)))
+}
+
+fn check_duplicate_call_arguments(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let arguments = &call.arguments.args;
+        'outer: for left in arguments {
+            for right in arguments {
+                if std::ptr::eq(left, right) {
+                    continue;
+                }
+                if exprs_textually_equal(left, right, source) && !trivially_repeatable(left, right)
+                {
+                    issues.push(issue_at(
+                        "python:S5549",
+                        "This identical argument appears more than once.",
+                        call.range(),
+                        index,
+                        source,
+                    ));
+                    break 'outer;
+                }
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S1607 — skipped tests without a reason ----------------------------------
+
+fn check_skip_without_reason(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::FunctionDef(function) = stmt {
+            for decorator in &function.decorator_list {
+                if let Expr::Call(call) = &decorator.expression
+                    && matches!(
+                        decorator_callee_path(&call.func).as_deref(),
+                        Some("unittest.skip" | "pytest.mark.skip")
+                    )
+                    && call.arguments.args.is_empty()
+                {
+                    issues.push(issue_at(
+                        "python:S1607",
+                        "Give a reason for skipping this test.",
+                        call.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S5906 / python:S5914 — imprecise and unconditional asserts ---------------
+
+fn preferred_assertion(call: &ruff_python_ast::ExprCall) -> Option<&'static str> {
+    let args = &call.arguments.args;
+    match called_name(&call.func) {
+        Some("assertEqual" | "assertNotEqual") if args.len() == 2 => {
+            let negated = called_name(&call.func) == Some("assertNotEqual");
+            for pair in [(0, 1), (1, 0)] {
+                let other = &args[pair.1];
+                if is_true_literal(other) {
+                    return Some(if negated { "assertFalse" } else { "assertTrue" });
+                }
+                if is_false_literal(other) {
+                    return Some(if negated { "assertTrue" } else { "assertFalse" });
+                }
+                if is_none_literal(other) {
+                    return Some(if negated {
+                        "assertIsNotNone"
+                    } else {
+                        "assertIsNone"
+                    });
+                }
+            }
+            None
+        }
+        Some("assertTrue") if args.len() == 1 => match &args[0] {
+            Expr::Compare(compare) if compare.ops.len() == 1 => match compare.ops[0] {
+                ruff_python_ast::CmpOp::Eq => Some("assertEqual"),
+                ruff_python_ast::CmpOp::NotEq => Some("assertNotEqual"),
+                ruff_python_ast::CmpOp::Is => Some("assertIs"),
+                ruff_python_ast::CmpOp::IsNot => Some("assertIsNot"),
+                ruff_python_ast::CmpOp::In => Some("assertIn"),
+                ruff_python_ast::CmpOp::NotIn => Some("assertNotIn"),
+                _ => None,
+            },
+            _ => None,
+        },
+        Some("assertFalse") if args.len() == 1 => match &args[0] {
+            Expr::Compare(compare)
+                if compare.ops.len() == 1 && compare.ops[0] == ruff_python_ast::CmpOp::In =>
+            {
+                Some("assertNotIn")
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn check_imprecise_assertions(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if let Some(better) = preferred_assertion(call) {
+            issues.push(issue_at(
+                "python:S5906",
+                &format!("Use {better} for this assertion."),
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn unconditional_assert_verdict(
+    call: &ruff_python_ast::ExprCall,
+    source: &str,
+) -> Option<&'static str> {
+    let args = &call.arguments.args;
+    match called_name(&call.func) {
+        Some(name) if COMPARISON_ASSERTS.contains(&name) && args.len() == 2 => {
+            (exprs_textually_equal(&args[0], &args[1], source)).then_some("passes")
+        }
+        Some("assertTrue") if args.len() == 1 => match &args[0] {
+            Expr::BooleanLiteral(literal) if literal.value => Some("passes"),
+            Expr::BooleanLiteral(_) => Some("fails"),
+            _ => None,
+        },
+        Some("assertFalse") if args.len() == 1 => match &args[0] {
+            Expr::BooleanLiteral(literal) if !literal.value => Some("passes"),
+            Expr::BooleanLiteral(_) => Some("fails"),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn check_unconditional_assertions(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if let Some(verdict) = unconditional_assert_verdict(call, source) {
+            issues.push(issue_at(
+                "python:S5914",
+                &format!("This assertion always {verdict}."),
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6709 — unseeded randomness (file-level presence heuristic) ---------------
+
+fn random_entry_point(path: &str) -> bool {
+    let random_module = path.starts_with("random.") && path != "random.seed";
+    let numpy_random = (path.starts_with("np.random.") || path.starts_with("numpy.random."))
+        && !["seed", "default_rng", "Generator", "RandomState"]
+            .contains(&path.rsplit('.').next().unwrap_or(""));
+    random_module || numpy_random
+}
+
+fn seeding_call(path: &str) -> bool {
+    path.contains("seed") || path.ends_with("default_rng") || path.ends_with("manual_seed")
+}
+
+fn check_unseeded_randomness(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut uses_randomness = false;
+    let mut seeds_randomness = false;
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if let Some(path) = dotted_name(&call.func) {
+            uses_randomness |= random_entry_point(&path);
+            seeds_randomness |= seeding_call(&path);
+        }
+    });
+    if uses_randomness && !seeds_randomness {
+        return vec![issue_at(
+            "python:S6709",
+            "Seed the random number generator for reproducible results.",
+            TextRange::new(TextSize::new(0), TextSize::new(0)),
+            index,
+            source,
+        )];
+    }
+    Vec::new()
+}
+
+// --- python:S139 — comments at the end of code lines -----------------------------------
+
+/// Default catalog semantics: `fmt:`/`type:`/`noqa:` directives and
+/// single-token comments are legal; arbitrary user patterns are matched
+/// naively (`prefix.*`, `\S+`-style alternatives, literals).
+fn legal_trailing_comment(pattern: &str, content: &str) -> bool {
+    if pattern.is_empty() {
+        return !content.is_empty()
+            && (!content.contains(char::is_whitespace)
+                || content.starts_with("fmt:")
+                || content.starts_with("type:")
+                || content.starts_with("noqa"));
+    }
+    pattern.split('|').any(|alternative| {
+        let alternative = alternative.trim_matches('^').trim_matches('$');
+        if alternative.ends_with(".*") {
+            content.starts_with(alternative.trim_end_matches(".*"))
+        } else if matches!(alternative, "[^\\s]++" | "\\S+" | "[^\\s]+") {
+            !content.is_empty() && !content.contains(char::is_whitespace)
+        } else {
+            content == alternative
+        }
+    })
+}
+
+fn check_trailing_comments(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for token in comment_tokens(parsed) {
+        let raw = &source[token.range()];
+        if !raw.starts_with('#') {
+            continue;
+        }
+        let offset = u32::from(token.range().start()) as usize;
+        let line_start = source[..offset]
+            .rfind('\n')
+            .map_or(0, |position| position + 1);
+        let code_before_comment = !source[line_start..offset].trim().is_empty();
+        let content = raw[1..].trim();
+        // A line already carrying the NOSONAR marker is handled by the
+        // dedicated suppression rule; do not double-report it.
+        if code_before_comment
+            && !raw.contains("NOSONAR")
+            && !legal_trailing_comment(&options.legal_trailing_comment_pattern, content)
+        {
+            issues.push(issue_at(
+                "python:S139",
+                "Move this trailing comment to its own line.",
+                token.range(),
+                index,
+                source,
+            ));
+        }
+    }
+    issues
+}
+
+// --- python:S4143 — collection content replaced unconditionally ------------------------
+
+fn subscript_assignment_key(assign: &ruff_python_ast::StmtAssign, source: &str) -> Option<String> {
+    let [target] = assign.targets.as_slice() else {
+        return None;
+    };
+    if let Expr::Subscript(subscript) = target {
+        return Some(format!(
+            "{}@{}",
+            expr_normalized_text(&subscript.value, source),
+            expr_normalized_text(&subscript.slice, source)
+        ));
+    }
+    None
+}
+
+fn check_overwritten_collection_items(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    fn visit_suite(suite: &[Stmt], issues: &mut Vec<Issue>, index: &LineIndex, source: &str) {
+        for pair in suite.windows(2) {
+            let (Stmt::Assign(previous), Stmt::Assign(current)) = (&pair[0], &pair[1]) else {
+                continue;
+            };
+            let previous_key = subscript_assignment_key(previous, source);
+            let current_key = subscript_assignment_key(current, source);
+            if let (Some(previous_key), Some(current_key)) = (previous_key, current_key)
+                && previous_key == current_key
+            {
+                issues.push(issue_at(
+                    "python:S4143",
+                    "This element is overwritten without being read.",
+                    current.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+        for stmt in suite {
+            for body in child_bodies(stmt) {
+                visit_suite(body, issues, index, source);
+            }
+        }
+    }
+    let mut issues = Vec::new();
+    visit_suite(parsed.syntax().body.as_slice(), &mut issues, index, source);
+    issues
+}
+
+// --- python:S4144 — identical sibling function implementations --------------------------
+
+fn body_is_trivial(body: &[Stmt]) -> bool {
+    match body.len() {
+        0 => true,
+        1 => matches!(&body[0], Stmt::Pass(_) | Stmt::Expr(_)),
+        _ => false,
+    }
+}
+
+fn flag_identical_function_pairs(
+    suite: &[Stmt],
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    let definitions: Vec<&ruff_python_ast::StmtFunctionDef> = suite
+        .iter()
+        .filter_map(|stmt| match stmt {
+            Stmt::FunctionDef(function) => Some(function),
+            _ => None,
+        })
+        .collect();
+    for (position, later) in definitions.iter().enumerate().skip(1) {
+        for earlier in &definitions[..position] {
+            if body_is_trivial(&earlier.body)
+                || body_is_trivial(&later.body)
+                || !ranges_textually_equal(
+                    suite_span(&earlier.body),
+                    suite_span(&later.body),
+                    source,
+                )
+            {
+                continue;
+            }
+            issues.push(issue_at(
+                "python:S4144",
+                &format!(
+                    "Refactor this function; it duplicates the implementation of '{}'.",
+                    earlier.name.as_str()
+                ),
+                later.name.range(),
+                index,
+                source,
+            ));
+            break;
+        }
+    }
+}
+
+fn check_identical_sibling_functions(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let module_body = parsed.syntax().body.as_slice();
+    let mut issues = Vec::new();
+    flag_identical_function_pairs(module_body, &mut issues, index, source);
+    for_each_stmt(module_body, &mut |stmt| {
+        if let Stmt::ClassDef(class) = stmt {
+            flag_identical_function_pairs(class.body.as_slice(), &mut issues, index, source);
+        }
+    });
+    issues
+}
+
+// --- python:S5717 — modified/assigned parameters ----------------------------------------
+
+const MUTATING_METHODS: [&str; 9] = [
+    "append",
+    "extend",
+    "insert",
+    "remove",
+    "pop",
+    "clear",
+    "update",
+    "add",
+    "setdefault",
+];
+
+fn is_mutable_default(expr: &Expr) -> bool {
+    matches!(expr, Expr::List(_) | Expr::Dict(_) | Expr::Set(_)) || called_name_of_constructor(expr)
+}
+
+fn called_name_of_constructor(expr: &Expr) -> bool {
+    matches!(expr, Expr::Call(call)
+        if matches!(called_name(&call.func), Some("list" | "dict" | "set"))
+            && call.arguments.args.is_empty()
+            && call.arguments.keywords.is_empty())
+}
+
+fn parameter_is_assigned(body: &[Stmt], name: &str) -> bool {
+    let mut assigned = false;
+    for_each_stmt_in_scope(body, &mut |stmt| {
+        if let Stmt::Assign(assign) = stmt {
+            for target in &assign.targets {
+                assigned |= matches!(target, Expr::Name(name_target)
+                    if name_target.id.as_str() == name);
+            }
+        }
+    });
+    assigned
+}
+
+fn parameter_is_mutated(body: &[Stmt], name: &str) -> bool {
+    let mut mutated = false;
+    for_each_stmt_in_scope(body, &mut |stmt| {
+        match stmt {
+            Stmt::AugAssign(aug) => {
+                mutated |= matches!(aug.target.as_ref(), Expr::Name(n) if n.id.as_str() == name);
+            }
+            Stmt::Assign(assign) => {
+                for target in &assign.targets {
+                    mutated |= matches!(target, Expr::Subscript(subscript)
+                        if matches!(subscript.value.as_ref(), Expr::Name(n) if n.id.as_str() == name));
+                }
+            }
+            _ => {}
+        }
+        for expr in stmt_exprs(stmt) {
+            for_each_expr(expr, &mut |expr| {
+                if let Expr::Call(call) = expr
+                    && let Expr::Attribute(attribute) = call.func.as_ref()
+                    && matches!(attribute.value.as_ref(), Expr::Name(n) if n.id.as_str() == name)
+                    && MUTATING_METHODS.contains(&attribute.attr.as_str())
+                {
+                    mutated = true;
+                }
+            });
+        }
+    });
+    mutated
+}
+
+fn check_mutable_default_mutation(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let _ = source;
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::FunctionDef(function) = stmt {
+            for parameter in function_parameters(function) {
+                let Some(default) = parameter.default() else {
+                    continue;
+                };
+                if is_mutable_default(default)
+                    && parameter_is_mutated(&function.body, parameter.parameter.name.as_str())
+                {
+                    issues.push(issue_at(
+                        "python:S5717",
+                        "Do not mutate this mutable default argument.",
+                        default.range(),
+                        index,
+                        source,
+                    ));
+                }
+                if !is_none_literal(default)
+                    && parameter_is_assigned(&function.body, parameter.parameter.name.as_str())
+                {
+                    issues.push(issue_at(
+                        "python:S5717",
+                        "Do not assign to this parameter; introduce a local variable.",
+                        default.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S5797 — constant conditions ---------------------------------------------------
+
+fn constant_truth(expr: &Expr) -> Option<bool> {
+    match expr {
+        Expr::BooleanLiteral(literal) => Some(literal.value),
+        Expr::NoneLiteral(_) => Some(false),
+        Expr::NumberLiteral(number) => match &number.value {
+            ruff_python_ast::Number::Int(value) => value.as_i64().map(|value| value != 0),
+            ruff_python_ast::Number::Float(value) => Some(*value != 0.0),
+            ruff_python_ast::Number::Complex { .. } => None,
+        },
+        Expr::StringLiteral(literal) => Some(!string_value_text(&literal.value).is_empty()),
+        Expr::BoolOp(bool_op) => {
+            let operands: Option<Vec<bool>> = bool_op.values.iter().map(constant_truth).collect();
+            operands.map(|operands| match bool_op.op {
+                ruff_python_ast::BoolOp::And => operands.iter().all(|value| *value),
+                ruff_python_ast::BoolOp::Or => operands.iter().any(|value| *value),
+            })
+        }
+        _ => None,
+    }
+}
+
+fn check_constant_conditions(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let test = match stmt {
+            Stmt::If(if_stmt) => Some(&if_stmt.test),
+            Stmt::While(while_stmt) => Some(&while_stmt.test),
+            _ => None,
+        };
+        if let Some(test) = test
+            && constant_truth(test).is_some()
+            && !(matches!(stmt, Stmt::While(_)) && is_true_literal(test))
+        {
+            issues.push(issue_at(
+                "python:S5797",
+                "Replace this constant condition with real logic.",
+                test.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// ---------------------------------------------------------------------------
+// Battery aggregation: every Tier-A entry #111–#193 in artifact order.
+// ---------------------------------------------------------------------------
+
+fn check_tier_a_battery_2(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_duplicated_string_literals(
+        parsed, index, source, options,
+    ));
+    issues.extend(check_open_modes(parsed, index, source));
+    issues.extend(check_weak_hashing(parsed, index, source));
+    issues.extend(check_insecure_temp_files(parsed, index, source));
+    issues.extend(check_unbounded_archive_extraction(parsed, index, source));
+    issues.extend(check_debug_features(parsed, index, source));
+    issues.extend(check_literal_re_sub_patterns(parsed, index, source));
+    issues.extend(check_world_writable_modes(parsed, index, source));
+    issues.extend(check_deprecated_utc_helpers(parsed, index, source));
+    issues.extend(check_nan_comparisons(parsed, index, source));
+    issues.extend(check_isclose_zero_tolerance(parsed, index, source));
+    issues.extend(check_single_arg_np_where(parsed, index, source));
+    issues.extend(check_deprecated_numpy_aliases(parsed, index, source));
+    issues.extend(check_random_state_usage(parsed, index, source));
+    issues.extend(check_np_array_generator(parsed, index, source));
+    issues.extend(check_pandas_inplace(parsed, index, source));
+    issues.extend(check_unqualified_merge(parsed, index, source));
+    issues.extend(check_read_without_dtype(parsed, index, source));
+    issues.extend(check_dataframe_values_attribute(parsed, index, source));
+    issues.extend(check_long_dataframe_chains(parsed, index, source));
+    issues.extend(check_to_datetime_ambiguity(parsed, index, source));
+    issues.extend(check_invalid_weekmask(parsed, index, source));
+    issues.extend(check_datetime_component_ranges(parsed, index, source));
+    issues.extend(check_strftime_hour_markers(parsed, index, source));
+    issues.extend(check_pytz_tzinfo_kwarg(parsed, index, source));
+    issues.extend(check_pytz_timezone_usage(parsed, index, source));
+    issues.extend(check_reduction_axis_missing(parsed, index, source));
+    issues.extend(check_gather_validate_indices(parsed, index, source));
+    issues.extend(check_keras_model_input_shape(parsed, index, source));
+    issues.extend(check_pipeline_memory_missing(parsed, index, source));
+    issues.extend(check_estimator_hyperparameters(parsed, index, source));
+    issues.extend(check_base_estimator_underscore_attributes(
+        parsed, index, source,
+    ));
+    issues.extend(check_nn_module_super_init(parsed, index, source));
+    issues.extend(check_autograd_variable_usage(parsed, index, source));
+    issues.extend(check_dataloader_workers(parsed, index, source));
+    issues.extend(check_torch_load_weights_only(parsed, index, source));
+    issues.extend(check_einops_patterns(parsed, index, source));
+    issues.extend(check_named_steps_bypass(parsed, index, source));
+    issues.extend(check_django_string_field_null(parsed, index, source));
+    issues.extend(check_django_model_str(parsed, index, source));
+    issues.extend(check_render_locals(parsed, index, source));
+    issues.extend(check_modelform_meta_fields(parsed, index, source));
+    issues.extend(check_json_response_safe_flag(parsed, index, source));
+    issues.extend(check_route_decorator_ordering(parsed, index, source));
+    issues.extend(check_async_timeout_parameters(parsed, index, source));
+    issues.extend(check_sleep_in_async_loop(parsed, index, source));
+    issues.extend(check_long_sleeps(parsed, index, source));
+    issues.extend(check_sync_subprocess_in_async(parsed, index, source));
+    issues.extend(check_blocking_sleep_in_async(parsed, index, source));
+    issues.extend(check_sleep_zero_checkpoint(parsed, index, source));
+    issues.extend(check_any_all_list_comprehension(parsed, index, source));
+    issues.extend(check_sync_file_ops_in_async(parsed, index, source));
+    issues.extend(check_sync_http_in_async(parsed, index, source));
+    issues.extend(check_input_in_async(parsed, index, source));
+    issues.extend(check_async_without_awaits(parsed, index, source));
+    issues.extend(check_single_task_nurseries(parsed, index, source));
+    issues.extend(check_control_flow_in_nurseries(parsed, index, source));
+    issues.extend(check_missing_return_annotations(
+        parsed, index, source, options,
+    ));
+    issues.extend(check_missing_parameter_annotations(
+        parsed, index, source, options,
+    ));
+    issues.extend(check_any_type_hints(parsed, index, source));
+    issues.extend(check_bare_generic_hints(parsed, index, source));
+    issues.extend(check_typing_alias_hints(parsed, index, source));
+    issues.extend(check_typing_union_hints(parsed, index, source));
+    issues.extend(check_pep695_generic_classes(parsed, index, source));
+    issues.extend(check_typealias_assignments(parsed, index, source));
+    issues.extend(check_redundant_typevars(parsed, index, source));
+    issues.extend(check_typevar_annotated_functions(parsed, index, source));
+    issues.extend(check_except_star_groups(parsed, index, source));
+    issues.extend(check_unraised_exceptions(parsed, index, source));
+    issues.extend(check_incompatible_assert_literals(parsed, index, source));
+    issues.extend(check_duplicate_call_arguments(parsed, index, source));
+    issues.extend(check_skip_without_reason(parsed, index, source));
+    issues.extend(check_disclosed_secret_keys(parsed, index, source));
+    issues.extend(check_jwt_secret_arguments(parsed, index, source));
+    issues.extend(check_trailing_comments(parsed, index, source, options));
+    issues.extend(check_overwritten_collection_items(parsed, index, source));
+    issues.extend(check_identical_sibling_functions(parsed, index, source));
+    issues.extend(check_mutable_default_mutation(parsed, index, source));
+    issues.extend(check_constant_conditions(parsed, index, source));
+    issues.extend(check_imprecise_assertions(parsed, index, source));
+    issues.extend(check_unconditional_assertions(parsed, index, source));
+    issues.extend(check_unseeded_randomness(parsed, index, source));
+    issues.extend(check_sync_os_calls_in_async(parsed, index, source));
+    issues
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -5635,5 +9141,727 @@ mod tests {
         assert_eq!(findings(&flagged, "python:S7512").len(), 1);
         let clean = "for key, value in record.items():\n    audit(key, value)\n";
         assert!(findings(&scan(clean), "python:S7512").is_empty());
+    }
+
+    #[test]
+    fn s1192_flags_duplicated_literals_only_past_threshold() {
+        let flagged = scan("a = \"dup\"\nb = \"dup\"\nc = \"dup\"\n");
+        assert_eq!(findings(&flagged, "python:S1192").len(), 2);
+        assert!(findings(&scan("a = \"dup\"\nb = \"dup\"\n"), "python:S1192").is_empty());
+    }
+
+    #[test]
+    fn s1192_exclusion_regex_suppresses_matches() {
+        let options = AnalyzerOptions {
+            duplicate_literal_exclusion_regex: "dup".to_string(),
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze(
+            PathBuf::from("t.py"),
+            "a = \"dup\"\nb = \"dup\"\nc = \"dup\"\n",
+            &options,
+        );
+        assert!(findings(&report, "python:S1192").is_empty());
+    }
+
+    #[test]
+    fn s5828_flags_invalid_open_modes_only() {
+        let flagged = scan("open(\"d\", \"q\")\nopen(\"d\", mode=\"rr\")\nopen(\"d\", \"rb\")\n");
+        assert_eq!(findings(&flagged, "python:S5828").len(), 2);
+    }
+
+    #[test]
+    fn s4790_flags_weak_hashes_unless_not_used_for_security() {
+        let flagged = scan(concat!(
+            "hashlib.md5(b\"x\")\n",
+            "hashlib.new(\"sha1\")\n",
+            "hashlib.sha1(b\"y\", usedforsecurity=False)\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S4790").len(), 2);
+    }
+
+    #[test]
+    fn s5445_flags_insecure_temp_file_apis() {
+        let flagged = scan("import tempfile\ntempfile.mktemp()\nos.tmpnam()\n");
+        assert_eq!(findings(&flagged, "python:S5445").len(), 2);
+    }
+
+    #[test]
+    fn s5042_requires_members_filter_on_extractall() {
+        let flagged = scan(concat!(
+            "tarfile.open(\"a\").extractall()\n",
+            "tarfile.open(\"b\").extractall(members=[])\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S5042").len(), 1);
+    }
+
+    #[test]
+    fn s4507_flags_debug_hooks_and_debug_flags() {
+        let flagged = scan("breakpoint()\npdb.set_trace()\nrun(app, debug=True)\n");
+        assert_eq!(findings(&flagged, "python:S4507").len(), 3);
+    }
+
+    #[test]
+    fn s5361_flags_metacharacter_free_re_sub_patterns() {
+        let flagged = scan("re.sub(\"abc\", \"x\", s)\nre.sub(\"a.c\", \"x\", s)\n");
+        assert_eq!(findings(&flagged, "python:S5361").len(), 1);
+    }
+
+    #[test]
+    fn s2612_flags_group_and_world_writable_modes() {
+        let flagged = scan("os.chmod(\"f\", 0o777)\nos.chmod(\"g\", 0o644)\npath.chmod(0o664)\n");
+        assert_eq!(findings(&flagged, "python:S2612").len(), 2);
+    }
+
+    #[test]
+    fn s6903_flags_deprecated_utc_helpers() {
+        let flagged = scan("datetime.utcnow()\ndatetime.now(tz=None)\n");
+        assert_eq!(findings(&flagged, "python:S6903").len(), 1);
+    }
+
+    #[test]
+    fn s6725_flags_equality_against_numpy_nan() {
+        let flagged = scan("if x == np.nan:\n    pass\nif y <= np.nan:\n    pass\n");
+        assert_eq!(findings(&flagged, "python:S6725").len(), 1);
+    }
+
+    #[test]
+    fn s6727_requires_abs_tol_for_zero_comparisons() {
+        let flagged = scan(concat!(
+            "math.isclose(a, 0)\n",
+            "math.isclose(a, b)\n",
+            "math.isclose(0, tiny, abs_tol=1e-12)\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6727").len(), 1);
+    }
+
+    #[test]
+    fn s6729_prefers_nonzero_for_single_arg_where() {
+        let flagged = scan("np.where(mask)\nnp.where(mask, a, b)\n");
+        assert_eq!(findings(&flagged, "python:S6729").len(), 1);
+    }
+
+    #[test]
+    fn s6730_flags_deprecated_numpy_aliases() {
+        let flagged = scan("np.int(x)\nz = np.float_\nq = np.int64\n");
+        assert_eq!(findings(&flagged, "python:S6730").len(), 2);
+    }
+
+    #[test]
+    fn s6711_flags_random_state_usage() {
+        let flagged = scan("np.random.RandomState(0)\nrng = np.random.default_rng(0)\n");
+        assert_eq!(findings(&flagged, "python:S6711").len(), 1);
+    }
+
+    #[test]
+    fn s6714_rejects_generators_into_np_array() {
+        let flagged = scan("np.array(x for x in xs)\nnp.array([1, 2])\n");
+        assert_eq!(findings(&flagged, "python:S6714").len(), 1);
+    }
+
+    #[test]
+    fn s6734_flags_inplace_pandas_methods() {
+        let flagged = scan("df.sort_values(\"a\", inplace=True)\ndf.drop(\"b\", axis=1)\n");
+        assert_eq!(findings(&flagged, "python:S6734").len(), 1);
+    }
+
+    #[test]
+    fn s6735_requires_explicit_merge_keys() {
+        let flagged = scan("left.merge(right)\nleft.merge(right, on=\"k\")\n");
+        assert_eq!(findings(&flagged, "python:S6735").len(), 1);
+    }
+
+    #[test]
+    fn s6740_requires_dtype_on_csv_reads() {
+        let flagged = scan("pd.read_csv(\"f.csv\")\npd.read_csv(\"f.csv\", dtype={\"a\": int})\n");
+        assert_eq!(findings(&flagged, "python:S6740").len(), 1);
+    }
+
+    #[test]
+    fn s6741_prefers_to_numpy_over_values() {
+        let flagged = scan("df = pd.DataFrame({\"a\": [1]})\nv = df.values\nw = qq.values\n");
+        assert_eq!(findings(&flagged, "python:S6741").len(), 1);
+    }
+
+    #[test]
+    fn s6742_flags_long_dataframe_chains() {
+        let flagged = scan(concat!(
+            "df = pd.DataFrame({\"a\": [1]})\n",
+            "r = df.groupby(\"a\").sum().reset_index().dropna()\n",
+            "s = df.groupby(\"a\").sum().reset_index()\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6742").len(), 1);
+    }
+
+    #[test]
+    fn s6894_demands_format_when_dayfirst_set() {
+        let flagged =
+            scan("pd.to_datetime(col, dayfirst=True)\npd.to_datetime(col, format=\"%Y\")\n");
+        assert_eq!(findings(&flagged, "python:S6894").len(), 1);
+    }
+
+    #[test]
+    fn s6900_validates_weekmask_grammar() {
+        let flagged = scan(
+            "np.busday(day, weekmask=\"1111100\")\nnumpy.busday_count(start, end, \"11111\")\n",
+        );
+        assert_eq!(findings(&flagged, "python:S6900").len(), 1);
+    }
+
+    #[test]
+    fn s6882_bounds_datetime_components() {
+        let flagged = scan("date(2020, 13, 1)\ndate(2020, 12, 31)\ntime(24, 0)\ntime(23, 59)\n");
+        assert_eq!(findings(&flagged, "python:S6882").len(), 2);
+    }
+
+    #[test]
+    fn s6883_pairs_hour_specifiers_with_ampm() {
+        let flagged = scan(concat!(
+            "t.strftime(\"%H:%M\")\n",
+            "u.strftime(\"%I:%M %p\")\n",
+            "v.strftime(\"%I:%M\")\n",
+            "w.strftime(\"%H:%M %p\")\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6883").len(), 2);
+    }
+
+    #[test]
+    fn s6887_rejects_pytz_in_datetime_constructor() {
+        let flagged = scan(concat!(
+            "datetime.datetime(2020, 1, 1, tzinfo=pytz.timezone(\"US/Eastern\"))\n",
+            "datetime.datetime(2020, 1, 1, tzinfo=zoneinfo.ZoneInfo(\"X\"))\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6887").len(), 1);
+    }
+
+    #[test]
+    fn s6890_prefers_zoneinfo_over_pytz() {
+        let flagged = scan("import pytz\nzone = pytz.timezone(\"UTC\")\n");
+        assert_eq!(findings(&flagged, "python:S6890").len(), 1);
+    }
+
+    #[test]
+    fn s6929_requires_explicit_reduction_axis() {
+        let flagged = scan("tf.reduce_sum(x)\ntf.reduce_sum(x, axis=0)\nnp.sum(y)\nnp.sum(y, 0)\n");
+        assert_eq!(findings(&flagged, "python:S6929").len(), 2);
+    }
+
+    #[test]
+    fn s6925_flags_deprecated_gather_argument() {
+        let flagged = scan("tf.gather(p, i, validate_indices=True)\ntf.gather(p, i)\n");
+        assert_eq!(findings(&flagged, "python:S6925").len(), 1);
+    }
+
+    #[test]
+    fn s6919_rejects_input_shape_on_model_subclasses() {
+        let flagged = scan(concat!(
+            "class Net(keras.Model):\n",
+            "    def __init__(self):\n",
+            "        super().__init__(input_shape=(28,))\n",
+            "class Fine(keras.Model):\n",
+            "    def __init__(self):\n",
+            "        super().__init__()\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6919").len(), 1);
+    }
+
+    #[test]
+    fn s6969_requires_memory_on_pipelines() {
+        let flagged = scan("Pipeline(steps)\nPipeline(steps, memory=\"./cache\")\n");
+        assert_eq!(findings(&flagged, "python:S6969").len(), 1);
+    }
+
+    #[test]
+    fn s6973_flags_estimators_missing_required_hyperparameters() {
+        let flagged = scan("KMeans(3)\nKMeans(n_clusters=3)\nPCA(4)\nSGDClassifier(max_iter=5)\n");
+        assert_eq!(findings(&flagged, "python:S6973").len(), 3);
+    }
+
+    #[test]
+    fn s6974_flags_trailing_underscore_attributes_in_init() {
+        let flagged = scan(concat!(
+            "class E(BaseEstimator):\n",
+            "    def __init__(self):\n",
+            "        self.x_ = 1\n",
+            "        self.y = 2\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6974").len(), 1);
+    }
+
+    #[test]
+    fn s6978_requires_super_init_in_module_subclasses() {
+        let flagged = scan(concat!(
+            "class M(nn.Module):\n",
+            "    def __init__(self):\n",
+            "        self.layer = 1\n",
+            "class Ok(nn.Module):\n",
+            "    def __init__(self):\n",
+            "        super().__init__()\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6978").len(), 1);
+    }
+
+    #[test]
+    fn s6979_flags_autograd_variable_usage() {
+        let flagged = scan("torch.autograd.Variable(x)\n");
+        assert_eq!(findings(&flagged, "python:S6979").len(), 1);
+    }
+
+    #[test]
+    fn s6983_requires_num_workers_on_dataloaders() {
+        let flagged = scan("DataLoader(ds, batch_size=2)\nDataLoader(ds, num_workers=4)\n");
+        assert_eq!(findings(&flagged, "python:S6983").len(), 1);
+    }
+
+    #[test]
+    fn s6985_requires_weights_only_on_torch_load() {
+        let flagged = scan("torch.load(\"m.pt\")\ntorch.load(\"m.pt\", weights_only=True)\n");
+        assert_eq!(findings(&flagged, "python:S6985").len(), 1);
+    }
+
+    #[test]
+    fn s6984_validates_einops_patterns() {
+        let flagged = scan(concat!(
+            "rearrange(img, \"b h w -> b w h\")\n",
+            "rearrange(img, \"b h -> b w h\")\n",
+            "rearrange(img, \"b (h h2 w -> b h w\")\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6984").len(), 2);
+    }
+
+    #[test]
+    fn s6971_flags_named_steps_bypass_on_cached_pipelines() {
+        let flagged = scan(concat!(
+            "pipe = Pipeline(steps, memory=\"./c\")\n",
+            "step = pipe.named_steps[\"s\"]\n",
+            "plain = other.named_steps[\"s\"]\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6971").len(), 1);
+    }
+
+    #[test]
+    fn s6553_rejects_null_on_string_fields() {
+        let flagged = scan(
+            "CharField(max_length=10, null=True)\nCharField(max_length=10)\nIntegerField(null=True)\n",
+        );
+        assert_eq!(findings(&flagged, "python:S6553").len(), 1);
+    }
+
+    #[test]
+    fn s6554_requires_str_on_django_models() {
+        let flagged = scan(concat!(
+            "class Book(models.Model):\n",
+            "    title = models.CharField(max_length=5)\n",
+            "class Shelf(models.Model):\n",
+            "    def __str__(self):\n",
+            "        return \"s\"\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6554").len(), 1);
+    }
+
+    #[test]
+    fn s6556_rejects_locals_in_render() {
+        let flagged = scan("render(req, \"t.html\", locals())\nrender(req, \"t.html\", {})\n");
+        assert_eq!(findings(&flagged, "python:S6556").len(), 1);
+    }
+
+    #[test]
+    fn s6559_requires_meta_field_declarations() {
+        let flagged = scan(concat!(
+            "class FormF(forms.ModelForm):\n",
+            "    class Meta:\n",
+            "        model = M\n",
+            "class Good(forms.ModelForm):\n",
+            "    class Meta:\n",
+            "        fields = [\"a\"]\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6559").len(), 1);
+    }
+
+    #[test]
+    fn s6560_requires_safe_flag_for_non_dict_payloads() {
+        let flagged =
+            scan("JsonResponse([1, 2])\nJsonResponse({\"a\": 1})\nJsonResponse([1], safe=False)\n");
+        assert_eq!(findings(&flagged, "python:S6560").len(), 1);
+    }
+
+    #[test]
+    fn s6552_requires_route_decorator_outermost() {
+        let flagged = scan(concat!(
+            "@app.get(\"/x\")\n",
+            "@log_call\n",
+            "def handler():\n",
+            "    return 1\n",
+            "@app.get(\"/y\")\n",
+            "def good():\n",
+            "    return 2\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6552").len(), 1);
+    }
+
+    #[test]
+    fn s6779_flags_disclosed_secret_keys() {
+        let flagged =
+            scan("SECRET_KEY = \"hunter2\"\napp.secret_key = \"abc123\"\nDEBUG_KEY = 42\n");
+        assert_eq!(findings(&flagged, "python:S6779").len(), 2);
+    }
+
+    #[test]
+    fn s6781_flags_hardcoded_jwt_secrets() {
+        let flagged = scan("jwt.encode(payload, \"secret\")\njwt.encode(payload, key_from_env)\n");
+        assert_eq!(findings(&flagged, "python:S6781").len(), 1);
+    }
+
+    #[test]
+    fn s7483_flags_timeout_parameters_on_async_functions_only() {
+        let flagged = scan(concat!(
+            "async def fetch(client, timeout_s):\n",
+            "    await client.get(\"/\")\n",
+            "def sync(timeout_s):\n",
+            "    return timeout_s\n"
+        ));
+        let found = findings(&flagged, "python:S7483");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s7484_flags_sleep_awaits_inside_async_loops() {
+        let flagged = scan(concat!(
+            "async def poll(client):\n",
+            "    while True:\n",
+            "        await asyncio.sleep(1)\n",
+            "async def once(client):\n",
+            "    await asyncio.sleep(1)\n"
+        ));
+        let found = findings(&flagged, "python:S7484");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s7486_flags_only_long_sleeps() {
+        let flagged = scan("await asyncio.sleep(59)\nawait asyncio.sleep(60)\n");
+        let found = findings(&flagged, "python:S7486");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 2);
+    }
+
+    #[test]
+    fn s7487_flags_sync_subprocess_in_async_functions() {
+        let flagged = scan(concat!(
+            "async def run_cmd():\n",
+            "    subprocess.run([\"ls\"])\n",
+            "    await asyncio.sleep(1)\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S7487").len(), 1);
+    }
+
+    #[test]
+    fn s7488_flags_blocking_time_sleep_in_async_functions() {
+        let flagged = scan("async def tick():\n    time.sleep(1)\n    await asyncio.sleep(1)\n");
+        assert_eq!(findings(&flagged, "python:S7488").len(), 1);
+    }
+
+    #[test]
+    fn s7489_flags_sync_os_calls_in_async_functions() {
+        let flagged = scan("async def sh():\n    os.system(\"ls\")\n    await asyncio.sleep(1)\n");
+        assert_eq!(findings(&flagged, "python:S7489").len(), 1);
+    }
+
+    #[test]
+    fn s7491_prefers_checkpoint_over_sleep_zero() {
+        let flagged = scan("await asyncio.sleep(0)\nawait asyncio.sleep(1)\n");
+        let found = findings(&flagged, "python:S7491");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s7492_prefers_generator_expressions_for_any_all() {
+        let flagged = scan("any([x for x in xs])\nany(x for x in xs)\n");
+        assert_eq!(findings(&flagged, "python:S7492").len(), 1);
+    }
+
+    #[test]
+    fn s7493_flags_blocking_file_operations_in_async_functions() {
+        let flagged = scan(concat!(
+            "async def rd():\n",
+            "    data = open(\"f\").read()\n",
+            "    text = p.read_text()\n",
+            "    await asyncio.sleep(1)\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S7493").len(), 2);
+    }
+
+    #[test]
+    fn s7499_flags_sync_http_clients_in_async_functions() {
+        let flagged =
+            scan("async def web():\n    requests.get(\"http://x\")\n    await asyncio.sleep(1)\n");
+        assert_eq!(findings(&flagged, "python:S7499").len(), 1);
+    }
+
+    #[test]
+    fn s7501_flags_blocking_input_in_async_functions() {
+        let flagged = scan("async def ask():\n    name = input()\n    await asyncio.sleep(1)\n");
+        assert_eq!(findings(&flagged, "python:S7501").len(), 1);
+    }
+
+    #[test]
+    fn s7503_flags_async_functions_without_awaits() {
+        let flagged = scan(concat!(
+            "async def noop():\n",
+            "    return 1\n",
+            "async def real():\n",
+            "    await asyncio.sleep(1)\n"
+        ));
+        let found = findings(&flagged, "python:S7503");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s7513_flags_nurseries_starting_single_tasks() {
+        let flagged = scan(concat!(
+            "async def one():\n",
+            "    async with trio.open_nursery() as nursery:\n",
+            "        nursery.start_soon(work)\n",
+            "async def many():\n",
+            "    async with trio.open_nursery() as nursery:\n",
+            "        nursery.start_soon(a)\n",
+            "        nursery.start_soon(b)\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S7513").len(), 1);
+    }
+
+    #[test]
+    fn s7514_flags_control_flow_out_of_nurseries() {
+        let flagged = scan(concat!(
+            "async def esc():\n",
+            "    async with trio.open_nursery() as nursery:\n",
+            "        nursery.start_soon(a)\n",
+            "        nursery.start_soon(b)\n",
+            "        return\n"
+        ));
+        let found = findings(&flagged, "python:S7514");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s6538_gated_return_annotations() {
+        let source = "def add(a, b):\n    return a\n";
+        assert!(findings(&scan(source), "python:S6538").is_empty());
+        let options = AnalyzerOptions {
+            require_type_hints: true,
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze(PathBuf::from("t.py"), source, &options);
+        assert_eq!(findings(&report, "python:S6538").len(), 1);
+    }
+
+    #[test]
+    fn s6540_gated_parameter_annotations() {
+        let source = "def add(a, b):\n    return a\ndef tagged(a: int):\n    return a\n";
+        let options = AnalyzerOptions {
+            require_type_hints: true,
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze(PathBuf::from("t.py"), source, &options);
+        assert_eq!(findings(&report, "python:S6540").len(), 2);
+        assert!(findings(&scan(source), "python:S6540").is_empty());
+    }
+
+    #[test]
+    fn s6542_flags_any_type_hints() {
+        let flagged = scan("def f(x: Any) -> int:\n    return 1\n");
+        assert_eq!(findings(&flagged, "python:S6542").len(), 1);
+    }
+
+    #[test]
+    fn s6543_flags_bare_generic_hints() {
+        let flagged = scan(
+            "def first(xs: list) -> int:\n    return 1\ndef second(xs: list[int]) -> int:\n    return 1\n",
+        );
+        assert_eq!(findings(&flagged, "python:S6543").len(), 1);
+    }
+
+    #[test]
+    fn s6545_prefers_builtin_generics_over_typing_aliases() {
+        let flagged =
+            scan("def f() -> List[int]:\n    return []\ndef g() -> list[int]:\n    return []\n");
+        assert_eq!(findings(&flagged, "python:S6545").len(), 1);
+    }
+
+    #[test]
+    fn s6546_prefers_pep604_unions() {
+        let flagged = scan(
+            "def f(x: Union[int, str]) -> int:\n    return 1\ndef g(x: int | str) -> int:\n    return 1\n",
+        );
+        assert_eq!(findings(&flagged, "python:S6546").len(), 1);
+    }
+
+    #[test]
+    fn s6792_prefers_pep695_generic_classes() {
+        let flagged = scan("class Box(Generic[T]):\n    pass\nclass Plain:\n    pass\n");
+        assert_eq!(findings(&flagged, "python:S6792").len(), 1);
+    }
+
+    #[test]
+    fn s6794_prefers_type_statement_aliases() {
+        let flagged = scan("X: TypeAlias = int\nY = int\n");
+        assert_eq!(findings(&flagged, "python:S6794").len(), 1);
+    }
+
+    #[test]
+    fn s6795_flags_typevars_alongside_pep695_syntax() {
+        let flagged = scan("T = TypeVar(\"T\")\ntype PairOf[T] = tuple[T, T]\n");
+        assert_eq!(findings(&flagged, "python:S6795").len(), 1);
+    }
+
+    #[test]
+    fn s6796_prefers_pep695_parameters_over_typevar_hints() {
+        let flagged = scan(concat!(
+            "T = TypeVar(\"T\")\n",
+            "def identity(x: T) -> T:\n",
+            "    return x\n",
+            "def plain(x: int) -> int:\n",
+            "    return x\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6796").len(), 1);
+    }
+
+    #[test]
+    fn s6468_flags_except_star_on_exception_groups() {
+        let flagged = scan("try:\n    pass\nexcept* ExceptionGroup:\n    pass\n");
+        assert_eq!(findings(&flagged, "python:S6468").len(), 1);
+    }
+
+    #[test]
+    fn s3984_flags_exceptions_created_without_raising() {
+        let flagged = scan(
+            "ValueError(\"bad\")\nraise ValueError(\"good\")\nstored = ValueError(\"kept\")\n",
+        );
+        assert_eq!(findings(&flagged, "python:S3984").len(), 1);
+    }
+
+    #[test]
+    fn s5845_flags_incompatible_assert_literal_types() {
+        let flagged = scan(
+            "case.assertEqual(\"1\", 2)\ncase.assertEqual(1, 2)\ncase.assertEqual(\"1\", \"2\")\n",
+        );
+        assert_eq!(findings(&flagged, "python:S5845").len(), 1);
+    }
+
+    #[test]
+    fn s5549_flags_repeated_nontrivial_arguments() {
+        let flagged = scan("f(a, a)\nf(None, None)\ng(1, 1)\nh(a, b)\n");
+        assert_eq!(findings(&flagged, "python:S5549").len(), 1);
+    }
+
+    #[test]
+    fn s1607_requires_reasons_for_skips() {
+        let flagged = scan(
+            "@unittest.skip()\ndef t1():\n    pass\n@unittest.skip(\"flaky\")\ndef t2():\n    pass\n",
+        );
+        assert_eq!(findings(&flagged, "python:S1607").len(), 1);
+    }
+
+    #[test]
+    fn s5906_suggests_specific_assertions() {
+        let flagged = scan(concat!(
+            "case.assertEqual(x, True)\n",
+            "case.assertTrue(x == y)\n",
+            "case.assertFalse(a in b)\n",
+            "case.assertEqual(x, y)\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S5906").len(), 3);
+    }
+
+    #[test]
+    fn s5914_flags_unconditional_assertions() {
+        let flagged = scan(
+            "case.assertEqual(a, a)\ncase.assertTrue(True)\ncase.assertFalse(True)\ncase.assertEqual(a, b)\n",
+        );
+        assert_eq!(findings(&flagged, "python:S5914").len(), 3);
+    }
+
+    #[test]
+    fn s6709_flags_files_using_unseeded_randomness() {
+        let unseeded = scan("import random\nvalue = random.random()\n");
+        let found = findings(&unseeded, "python:S6709");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start, pos(1, 0));
+        let seeded = scan("random.seed(7)\nvalue = random.random()\n");
+        assert!(findings(&seeded, "python:S6709").is_empty());
+    }
+
+    #[test]
+    fn s139_flags_trailing_comments_except_whitelisted_shapes() {
+        let flagged = scan(concat!(
+            "x = 1  # step one\n",
+            "y = 2  # fmt: off\n",
+            "# standalone comment\n",
+            "z = 3  # NOSONAR anywhere\n"
+        ));
+        let found = findings(&flagged, "python:S139");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s4143_flags_consecutive_same_slot_writes() {
+        let flagged = scan("items[0] = 1\nitems[0] = 2\nitems[1] = 3\n");
+        let found = findings(&flagged, "python:S4143");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 2);
+    }
+
+    #[test]
+    fn s4144_flags_identical_sibling_implementations() {
+        let flagged = scan(concat!(
+            "def alpha():\n",
+            "    setup()\n",
+            "    return 1\n",
+            "def beta():\n",
+            "    setup()\n",
+            "    return 1\n",
+            "def gamma():\n",
+            "    return 2\n"
+        ));
+        let found = findings(&flagged, "python:S4144");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 4);
+    }
+
+    #[test]
+    fn s5717_flags_mutated_defaults_and_assigned_parameters() {
+        let flagged = scan(concat!(
+            "def collect(bucket=[]):\n",
+            "    bucket.append(1)\n",
+            "    return bucket\n",
+            "def rename(name=\"x\"):\n",
+            "    name = \"y\"\n",
+            "    return name\n",
+            "def safe(items=None):\n",
+            "    return items\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S5717").len(), 2);
+    }
+
+    #[test]
+    fn s5797_flags_constant_conditions_but_not_while_true() {
+        let flagged = scan(
+            "if True:\n    pass\nwhile False:\n    pass\nwhile True:\n    pass\nif flag:\n    pass\n",
+        );
+        let found = findings(&flagged, "python:S5797");
+        assert_eq!(found.len(), 2);
+        assert_eq!(
+            found
+                .iter()
+                .map(|issue| issue.range.start.line)
+                .collect::<Vec<_>>(),
+            vec![1, 3]
+        );
     }
 }
