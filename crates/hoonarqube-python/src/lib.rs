@@ -104,6 +104,7 @@ pub fn analyze(
 ) -> hoonarqube_ir::FileReport {
     let parsed = parse(source);
     let index = LineIndex::from_source_text(source);
+    let metrics = file_metrics(&parsed, source, &index);
 
     let mut issues = Vec::new();
     issues.extend(check_parsing_errors(&parsed, &index, source));
@@ -147,6 +148,10 @@ pub fn analyze(
     issues.extend(check_one_statement_per_line(&parsed, &index, source));
     issues.extend(check_tier_a_battery(&parsed, &index, source));
     issues.extend(check_tier_a_battery_2(&parsed, &index, source, options));
+    issues.extend(check_naming_convention_battery(&parsed, &index, source));
+    issues.extend(check_size_metric_battery(
+        &parsed, &index, source, options, &metrics,
+    ));
     issues.extend(check_tier_b_battery(&parsed, &index, source, options));
     issues.extend(check_regex_battery(&parsed, &index, source, options));
     issues.extend(check_tier_c_security_battery(&parsed, &index, source));
@@ -157,7 +162,7 @@ pub fn analyze(
         path,
         language: "python".to_string(),
         issues,
-        metrics: file_metrics(&parsed, source, &index),
+        metrics,
     }
 }
 
@@ -17386,6 +17391,620 @@ fn check_s5713_parent_child_except_pairs(
     issues
 }
 
+// ---------------------------------------------------------------------------
+// Tier A — naming conventions (python:S100, python:S101, python:S116,
+// python:S117, python:S1542).
+// ---------------------------------------------------------------------------
+
+/// Visits every function definition together with its lexical class-body
+/// context: definitions written directly in a class body are methods,
+/// everything else (module-level functions and functions nested inside other
+/// functions) is not. This context partitions python:S100 from python:S1542.
+fn for_each_function_def<'a>(
+    stmts: &'a [Stmt],
+    in_class_body: bool,
+    visit: &mut impl FnMut(&'a ruff_python_ast::StmtFunctionDef, bool),
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::FunctionDef(function) => {
+                visit(function, in_class_body);
+                for_each_function_def(&function.body, false, visit);
+            }
+            Stmt::ClassDef(class) => for_each_function_def(&class.body, true, visit),
+            _ => {
+                for body in child_bodies(stmt) {
+                    for_each_function_def(body, in_class_body, visit);
+                }
+            }
+        }
+    }
+}
+
+/// `^[a-z_][a-z0-9_]*$` — shared shape of function, method, parameter and
+/// local-variable names (python:S100/S1542/S117).
+fn matches_snake_case(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) if first.is_ascii_lowercase() || first == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
+}
+
+/// `^_?([A-Z_][a-zA-Z0-9]*|[a-z_][a-z0-9_]*)$` — class names (python:S101).
+fn matches_class_name(name: &str) -> bool {
+    let rest = name.strip_prefix('_').unwrap_or(name);
+    let mut chars = rest.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if first.is_ascii_uppercase() || first == '_' {
+        chars.all(|c| c.is_ascii_alphanumeric())
+    } else {
+        first.is_ascii_lowercase()
+            && chars.all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
+    }
+}
+
+/// `^[_a-z][_a-z0-9]*$` — class-body field names; unlike function and local
+/// names no digit may directly follow the leading character (python:S116).
+fn matches_field_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) if first == '_' || first.is_ascii_lowercase() => {}
+        _ => return false,
+    }
+    match chars.next() {
+        None => true,
+        Some(second) if second == '_' || second.is_ascii_lowercase() => {
+            chars.all(|c| c == '_' || c.is_ascii_lowercase() || c.is_ascii_digit())
+        }
+        _ => false,
+    }
+}
+
+/// Name leaves of an assignment-target tree (`a`, `a, b = ...`, `[a] = ...`).
+fn binding_target_names(target: &Expr) -> Vec<&Expr> {
+    match target {
+        Expr::Name(_) => vec![target],
+        Expr::Tuple(tuple) => tuple.elts.iter().flat_map(binding_target_names).collect(),
+        Expr::List(list) => list.elts.iter().flat_map(binding_target_names).collect(),
+        Expr::Starred(starred) => binding_target_names(&starred.value),
+        _ => Vec::new(),
+    }
+}
+
+/// Fields assigned directly in a class body are python:S116.
+fn check_class_field_names(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::ClassDef(class) = stmt else {
+            return;
+        };
+        for member in &class.body {
+            let targets: Vec<&Expr> = match member {
+                Stmt::Assign(assign) => assign.targets.iter().collect(),
+                Stmt::AnnAssign(assignment) => vec![&*assignment.target],
+                _ => continue,
+            };
+            for target in targets {
+                for target_name in binding_target_names(target) {
+                    let Expr::Name(name) = target_name else {
+                        continue;
+                    };
+                    if !matches_field_name(name.id.as_str()) {
+                        issues.push(issue_at(
+                            "python:S116",
+                            "Rename this field to match the regular expression \
+                             '^[_a-z][_a-z0-9]*$'.",
+                            target_name.range(),
+                            index,
+                            source,
+                        ));
+                    }
+                }
+            }
+        }
+    });
+    issues
+}
+
+/// All named parameters of a definition, including `*args` and `**kwargs`.
+fn function_all_parameters(
+    function: &ruff_python_ast::StmtFunctionDef,
+) -> Vec<&ruff_python_ast::Identifier> {
+    let parameters = &function.parameters;
+    parameters
+        .posonlyargs
+        .iter()
+        .chain(&parameters.args)
+        .chain(&parameters.kwonlyargs)
+        .map(|parameter| &parameter.parameter.name)
+        .chain(
+            parameters
+                .vararg
+                .as_deref()
+                .map(|parameter| &parameter.name),
+        )
+        .chain(parameters.kwarg.as_deref().map(|parameter| &parameter.name))
+        .collect()
+}
+
+/// Bound name-bearing target expressions of a binding statement.
+fn binding_stmt_targets(stmt: &Stmt) -> Vec<&Expr> {
+    match stmt {
+        Stmt::Assign(assign) => assign
+            .targets
+            .iter()
+            .flat_map(binding_target_names)
+            .collect(),
+        Stmt::AnnAssign(assignment) => binding_target_names(&assignment.target),
+        Stmt::AugAssign(assignment) => binding_target_names(&assignment.target),
+        Stmt::For(loop_stmt) => binding_target_names(&loop_stmt.target),
+        Stmt::With(with_stmt) => with_stmt
+            .items
+            .iter()
+            .filter_map(|item| item.optional_vars.as_deref())
+            .flat_map(binding_target_names)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn push_local_name_issue(
+    issues: &mut Vec<Issue>,
+    seen: &mut HashSet<String>,
+    name: &str,
+    range: TextRange,
+    index: &LineIndex,
+    source: &str,
+) {
+    if !seen.insert(name.to_string()) || matches_snake_case(name) {
+        return;
+    }
+    issues.push(issue_at(
+        "python:S117",
+        "Rename this local variable to match the regular expression '^[_a-z][a-z0-9_]*$'.",
+        range,
+        index,
+        source,
+    ));
+}
+
+/// Parameters and locals of every function are python:S117; nested
+/// definitions form their own scopes and are checked separately.
+fn check_parameter_and_local_names(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_function_def(
+        parsed.syntax().body.as_slice(),
+        false,
+        &mut |function, _| {
+            let mut seen = HashSet::new();
+            for name in function_all_parameters(function) {
+                if !seen.insert(name.as_str().to_string()) {
+                    continue;
+                }
+                if !matches_snake_case(name.as_str()) {
+                    issues.push(issue_at(
+                        "python:S117",
+                        "Rename this parameter to match the regular expression \
+                     '^[_a-z][a-z0-9_]*$'.",
+                        name.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+            for_each_stmt_in_scope(&function.body, &mut |stmt| {
+                for target in binding_stmt_targets(stmt) {
+                    if let Expr::Name(name) = target {
+                        push_local_name_issue(
+                            &mut issues,
+                            &mut seen,
+                            name.id.as_str(),
+                            target.range(),
+                            index,
+                            source,
+                        );
+                    }
+                }
+                if let Stmt::Try(try_stmt) = stmt {
+                    for handler in &try_stmt.handlers {
+                        let ExceptHandler::ExceptHandler(inner) = handler;
+                        if let Some(name) = &inner.name {
+                            push_local_name_issue(
+                                &mut issues,
+                                &mut seen,
+                                name.as_str(),
+                                name.range(),
+                                index,
+                                source,
+                            );
+                        }
+                    }
+                }
+            });
+        },
+    );
+    issues
+}
+
+/// Methods (functions declared directly in a class body) are python:S100;
+/// module-level and nested functions are python:S1542.
+fn check_method_and_function_names(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_function_def(
+        parsed.syntax().body.as_slice(),
+        false,
+        &mut |function, in_class_body| {
+            if !matches_snake_case(function.name.as_str()) {
+                let (rule_key, kind) = if in_class_body {
+                    ("python:S100", "method")
+                } else {
+                    ("python:S1542", "function")
+                };
+                issues.push(issue_at(
+                    rule_key,
+                    &format!(
+                        "Rename this {kind} to match the regular expression '^[a-z_][a-z0-9_]*$'."
+                    ),
+                    function.name.range(),
+                    index,
+                    source,
+                ));
+            }
+        },
+    );
+    issues
+}
+
+/// Class names at any nesting depth are python:S101.
+fn check_class_names(parsed: &Parsed<ModModule>, index: &LineIndex, source: &str) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::ClassDef(class) = stmt else {
+            return;
+        };
+        if !matches_class_name(class.name.as_str()) {
+            issues.push(issue_at(
+                "python:S101",
+                "Rename this class to match the regular expression \
+                     '^_?([A-Z_][a-zA-Z0-9]*|[a-z_][a-z0-9_]*)$'.",
+                class.name.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+// ---------------------------------------------------------------------------
+// Tier A — size metrics (python:S104, python:S107, python:S1142,
+// python:S138, python:S134).
+// ---------------------------------------------------------------------------
+
+/// python:S104 — total lines of code against `maximumLinesOfCode`.
+fn check_lines_of_code(
+    metrics: &hoonarqube_ir::FileMetrics,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    if metrics.code_lines <= options.maximum_lines_of_code {
+        return Vec::new();
+    }
+    vec![Issue {
+        rule_key: "python:S104".to_string(),
+        message: format!(
+            "This file has {} lines of code, which is greater than the {} authorized.",
+            metrics.code_lines, options.maximum_lines_of_code
+        ),
+        range: hoonarqube_ir::Range {
+            start: hoonarqube_ir::Pos { line: 1, column: 0 },
+            end: hoonarqube_ir::Pos { line: 1, column: 0 },
+        },
+    }]
+}
+
+/// python:S107 — parameter count against `maximumFunctionParameters`;
+/// `*args` and `**kwargs` each count as one parameter.
+fn check_function_parameter_counts(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_function_def(
+        parsed.syntax().body.as_slice(),
+        false,
+        &mut |function, _| {
+            let parameters = &function.parameters;
+            let count = parameters.posonlyargs.len()
+                + parameters.args.len()
+                + parameters.kwonlyargs.len()
+                + usize::from(parameters.vararg.is_some())
+                + usize::from(parameters.kwarg.is_some());
+            let maximum = options.maximum_function_parameters;
+            if to_u32(count) > maximum {
+                issues.push(issue_at(
+                    "python:S107",
+                    &format!(
+                        "This function has {count} parameters, which is greater than the \
+                     {maximum} authorized."
+                    ),
+                    function.name.range(),
+                    index,
+                    source,
+                ));
+            }
+        },
+    );
+    issues
+}
+
+/// Counts `return` statements in this function's own body; nested function
+/// definitions are separate units with their own budgets.
+fn count_own_returns(stmts: &[Stmt]) -> usize {
+    stmts
+        .iter()
+        .map(|stmt| match stmt {
+            Stmt::Return(_) => 1,
+            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => 0,
+            _ => child_bodies(stmt)
+                .iter()
+                .map(|body| count_own_returns(body))
+                .sum(),
+        })
+        .sum()
+}
+
+/// python:S1142 — `return` statements per function against
+/// `maximumReturnStatements`.
+fn check_function_return_counts(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_function_def(
+        parsed.syntax().body.as_slice(),
+        false,
+        &mut |function, _| {
+            let count = count_own_returns(&function.body);
+            let maximum = options.maximum_return_statements;
+            if to_u32(count) > maximum {
+                issues.push(issue_at(
+                    "python:S1142",
+                    &format!(
+                        "This function has {count} return statements, which is greater than \
+                     the {maximum} authorized."
+                    ),
+                    function.name.range(),
+                    index,
+                    source,
+                ));
+            }
+        },
+    );
+    issues
+}
+
+/// python:S138 — function line span against `maximumFunctionLength`.
+fn check_function_lengths(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_function_def(
+        parsed.syntax().body.as_slice(),
+        false,
+        &mut |function, _| {
+            let start_line = index
+                .line_column(function.range().start(), source)
+                .line
+                .get();
+            let end_line = index.line_column(function.range().end(), source).line.get();
+            let lines = end_line - start_line + 1;
+            let maximum = options.maximum_function_length;
+            if to_u32(lines) > maximum {
+                issues.push(issue_at(
+                    "python:S138",
+                    &format!(
+                        "This function has {lines} lines, which is greater than the \
+                     {maximum} authorized."
+                    ),
+                    function.name.range(),
+                    index,
+                    source,
+                ));
+            }
+        },
+    );
+    issues
+}
+
+/// Keyword introducing a python:S134 nesting construct.
+fn nesting_keyword(stmt: &Stmt) -> Option<&'static str> {
+    match stmt {
+        Stmt::If(_) => Some("if"),
+        Stmt::For(loop_stmt) => Some(if loop_stmt.is_async {
+            "async for"
+        } else {
+            "for"
+        }),
+        Stmt::While(_) => Some("while"),
+        Stmt::Try(_) => Some("try"),
+        Stmt::With(with_stmt) => Some(if with_stmt.is_async {
+            "async with"
+        } else {
+            "with"
+        }),
+        _ => None,
+    }
+}
+
+fn flag_excess_nesting(
+    stmt: &Stmt,
+    level: u32,
+    options: &AnalyzerOptions,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    let Some(keyword) = nesting_keyword(stmt) else {
+        return;
+    };
+    if level <= options.maximum_nesting_depth {
+        return;
+    }
+    let width = TextSize::try_from(keyword.len()).unwrap_or_default();
+    issues.push(issue_at(
+        "python:S134",
+        &format!(
+            "Refactor this code to not nest more than {} levels.",
+            options.maximum_nesting_depth
+        ),
+        TextRange::at(stmt.start(), width),
+        index,
+        source,
+    ));
+}
+
+/// Walks nesting constructs (If/For/While/Try/With), tracking depth. Elif
+/// and else clauses share their `if`'s level; handler bodies share their
+/// `try`'s level; nested definitions are units of their own and reset it.
+fn walk_nesting_depth(
+    stmts: &[Stmt],
+    depth: u32,
+    options: &AnalyzerOptions,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::FunctionDef(function) => {
+                walk_nesting_depth(&function.body, 0, options, issues, index, source);
+            }
+            Stmt::ClassDef(class) => {
+                walk_nesting_depth(&class.body, 0, options, issues, index, source);
+            }
+            Stmt::If(if_stmt) => {
+                flag_excess_nesting(stmt, depth + 1, options, issues, index, source);
+                walk_nesting_depth(&if_stmt.body, depth + 1, options, issues, index, source);
+                for clause in &if_stmt.elif_else_clauses {
+                    walk_nesting_depth(&clause.body, depth + 1, options, issues, index, source);
+                }
+            }
+            Stmt::For(loop_stmt) => {
+                flag_excess_nesting(stmt, depth + 1, options, issues, index, source);
+                walk_nesting_depth(&loop_stmt.body, depth + 1, options, issues, index, source);
+                walk_nesting_depth(&loop_stmt.orelse, depth + 1, options, issues, index, source);
+            }
+            Stmt::While(while_stmt) => {
+                flag_excess_nesting(stmt, depth + 1, options, issues, index, source);
+                walk_nesting_depth(&while_stmt.body, depth + 1, options, issues, index, source);
+                walk_nesting_depth(
+                    &while_stmt.orelse,
+                    depth + 1,
+                    options,
+                    issues,
+                    index,
+                    source,
+                );
+            }
+            Stmt::Try(try_stmt) => {
+                flag_excess_nesting(stmt, depth + 1, options, issues, index, source);
+                walk_nesting_depth(&try_stmt.body, depth + 1, options, issues, index, source);
+                for handler in &try_stmt.handlers {
+                    let ExceptHandler::ExceptHandler(inner) = handler;
+                    walk_nesting_depth(&inner.body, depth + 1, options, issues, index, source);
+                }
+                walk_nesting_depth(&try_stmt.orelse, depth + 1, options, issues, index, source);
+                walk_nesting_depth(
+                    &try_stmt.finalbody,
+                    depth + 1,
+                    options,
+                    issues,
+                    index,
+                    source,
+                );
+            }
+            Stmt::With(with_stmt) => {
+                flag_excess_nesting(stmt, depth + 1, options, issues, index, source);
+                walk_nesting_depth(&with_stmt.body, depth + 1, options, issues, index, source);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// python:S134 — nesting depth of If/For/While/Try/With against
+/// `maximumNestingDepth`.
+fn check_nesting_depths(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    walk_nesting_depth(
+        parsed.syntax().body.as_slice(),
+        0,
+        options,
+        &mut issues,
+        index,
+        source,
+    );
+    issues
+}
+
+fn check_size_metric_battery(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    options: &AnalyzerOptions,
+    metrics: &hoonarqube_ir::FileMetrics,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_function_parameter_counts(
+        parsed, index, source, options,
+    ));
+    issues.extend(check_function_return_counts(parsed, index, source, options));
+    issues.extend(check_function_lengths(parsed, index, source, options));
+    issues.extend(check_nesting_depths(parsed, index, source, options));
+    issues.extend(check_lines_of_code(metrics, options));
+    issues
+}
+
+fn check_naming_convention_battery(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_method_and_function_names(parsed, index, source));
+    issues.extend(check_class_names(parsed, index, source));
+    issues.extend(check_class_field_names(parsed, index, source));
+    issues.extend(check_parameter_and_local_names(parsed, index, source));
+    issues
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -21330,5 +21949,395 @@ mod tests {
             "try:\n    pass\nexcept NotFound:\n    pass\n"
         );
         assert!(findings_of(clean, "python:S5713").is_empty());
+    }
+    #[test]
+    fn s100_and_s1542_partition_functions_by_class_nesting() {
+        let report = analyze(
+            PathBuf::from("test.py"),
+            "class C:\n    def BadName(self):\n        pass\n",
+            &AnalyzerOptions::default(),
+        );
+        let s100: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "python:S100")
+            .collect();
+        assert_eq!(s100.len(), 1);
+        assert_eq!(s100[0].range.start.line, 2);
+
+        // A def nested inside a method is a nested function: python:S1542,
+        // never python:S100. Compliant names stay silent.
+        let nested = analyze(
+            PathBuf::from("test.py"),
+            "class C:\n    def ok(self):\n        def Inner():\n            pass\n",
+            &AnalyzerOptions::default(),
+        );
+        let s1542: Vec<_> = nested
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "python:S1542")
+            .collect();
+        assert_eq!(s1542.len(), 1);
+        assert_eq!(s1542[0].range.start.line, 3);
+        assert!(
+            nested
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "python:S100")
+        );
+    }
+
+    #[test]
+    fn s1542_flags_module_and_nested_functions_on_boundary_shapes() {
+        let violating = analyze(
+            PathBuf::from("test.py"),
+            "def Outer():\n    pass\n\n\ndef _ok_name():\n    pass\n",
+            &AnalyzerOptions::default(),
+        );
+        let s1542: Vec<_> = violating
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "python:S1542")
+            .collect();
+        assert_eq!(s1542.len(), 1);
+        assert_eq!(s1542[0].range.start.line, 1);
+
+        // Dunder-style names comply; digits and underscores follow the lead
+        // character.
+        let clean = analyze(
+            PathBuf::from("test.py"),
+            "def __enter__():\n    pass\n\n\ndef x_1():\n    pass\n",
+            &AnalyzerOptions::default(),
+        );
+        assert!(
+            clean
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "python:S1542")
+        );
+    }
+    #[test]
+    fn s101_flags_non_conforming_class_names_on_boundary_shapes() {
+        // A trailing underscore breaks every branch of the pattern.
+        assert_eq!(
+            findings_of("class FooBar_:\n    pass\n", "python:S101").len(),
+            1
+        );
+        // Mixed case after the optional lead underscore breaks both branches.
+        assert_eq!(
+            findings_of("class _fooBar:\n    pass\n", "python:S101").len(),
+            1
+        );
+        // PascalCase, leading-underscore PascalCase and snake_case comply.
+        assert!(findings_of(
+            "class FooBar:\n    pass\n\n\nclass _Private:\n    pass\n\n\nclass snake_case:\n    pass\n",
+            "python:S101"
+        )
+        .is_empty());
+    }
+    #[test]
+    fn s116_flags_class_fields_on_boundary_shapes() {
+        // Upper-case constants violate the field pattern; multi-target
+        // assignments report each offending name.
+        assert_eq!(
+            findings_of("class C:\n    Value = 1\n", "python:S116").len(),
+            1
+        );
+        assert_eq!(
+            findings_of("class C:\n    A = B = 1\n", "python:S116").len(),
+            2
+        );
+        // No digit directly after the lead character.
+        assert_eq!(
+            findings_of("class C:\n    _1bad = 1\n", "python:S116").len(),
+            1
+        );
+        // Lowercase, underscore-prefixed, dunder and digit-tailed names
+        // comply.
+        assert!(
+            findings_of(
+                "class C:\n    value = 1\n    _hidden = 2\n    __dunder__ = 3\n    x_1 = 4\n",
+                "python:S116"
+            )
+            .is_empty()
+        );
+    }
+    #[test]
+    fn s117_flags_non_conforming_parameters_and_locals_once() {
+        assert_eq!(
+            findings_of("def f(good, Bad):\n    pass\n", "python:S117").len(),
+            1
+        );
+        // Star-args shapes count as parameters.
+        assert_eq!(
+            findings_of("def f(*Args, **Kw):\n    pass\n", "python:S117").len(),
+            2
+        );
+        // Locals bind through assignment, for loops and except clauses.
+        assert_eq!(
+            findings_of("def f():\n    Bad = 1\n", "python:S117").len(),
+            1
+        );
+        assert_eq!(
+            findings_of(
+                "def f():\n    for Item in []:\n        pass\n",
+                "python:S117"
+            )
+            .len(),
+            1
+        );
+        assert_eq!(
+            findings_of(
+                "def f():\n    try:\n        pass\n    except ValueError as Err:\n        pass\n",
+                "python:S117"
+            )
+            .len(),
+            1
+        );
+        // A rebound offending name is reported once per scope.
+        assert_eq!(
+            findings_of("def f():\n    Bad = 1\n    Bad = 2\n", "python:S117").len(),
+            1
+        );
+        // Compliant snake_case names stay silent.
+        assert!(
+            findings_of(
+                "def f(_ok, x_1=None, *a, **kw):\n    y_1 = _ok\n",
+                "python:S117"
+            )
+            .is_empty()
+        );
+    }
+    #[test]
+    fn s104_flags_files_exceeding_maximum_lines_of_code() {
+        let options = AnalyzerOptions {
+            maximum_lines_of_code: 3,
+            ..AnalyzerOptions::default()
+        };
+
+        // Exactly at the limit: silent.
+        let boundary = analyze(PathBuf::from("test.py"), "a = 1\nb = 2\nc = 3\n", &options);
+        assert!(
+            boundary
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "python:S104")
+        );
+
+        // One code line over the limit: flagged once, anchored at line 1.
+        let over = analyze(
+            PathBuf::from("test.py"),
+            "a = 1\nb = 2\nc = 3\n\n# comment only\nd = 4\n",
+            &options,
+        );
+        let s104: Vec<_> = over
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "python:S104")
+            .collect();
+        assert_eq!(s104.len(), 1);
+        assert_eq!(s104[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s107_flags_functions_exceeding_parameter_budget() {
+        let options = AnalyzerOptions {
+            maximum_function_parameters: 2,
+            ..AnalyzerOptions::default()
+        };
+
+        // Exactly at the limit: silent.
+        let boundary = analyze(
+            PathBuf::from("test.py"),
+            "def f(a, b):\n    pass\n",
+            &options,
+        );
+        assert!(
+            boundary
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "python:S107")
+        );
+
+        // One parameter over: flagged on the function name.
+        let over = analyze(
+            PathBuf::from("test.py"),
+            "def f(a, b, c):\n    pass\n",
+            &options,
+        );
+        let s107: Vec<_> = over
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "python:S107")
+            .collect();
+        assert_eq!(s107.len(), 1);
+        assert_eq!(s107[0].range.start.line, 1);
+
+        // Star args and kwargs each count toward the budget.
+        let starred = analyze(
+            PathBuf::from("test.py"),
+            "def f(a, b, *args, **kwargs):\n    pass\n",
+            &options,
+        );
+        assert_eq!(
+            starred
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "python:S107")
+                .count(),
+            1
+        );
+
+        // The catalog default budget keeps ordinary signatures silent.
+        let defaults = analyze(
+            PathBuf::from("test.py"),
+            "def f(a, b, c):\n    pass\n",
+            &AnalyzerOptions::default(),
+        );
+        assert!(
+            defaults
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "python:S107")
+        );
+    }
+    #[test]
+    fn s1142_counts_only_the_functions_own_returns() {
+        // Exactly three own returns stay silent at the catalog default.
+        assert!(
+            findings_of(
+                "def f():\n    return 1\n    return 2\n    return 3\n",
+                "python:S1142"
+            )
+            .is_empty()
+        );
+        // Four own returns exceed the budget.
+        assert_eq!(
+            findings_of(
+                "def f():\n    return 1\n    return 2\n    return 3\n    return 4\n",
+                "python:S1142"
+            )
+            .len(),
+            1
+        );
+        // A nested definition owns its returns: the outer function stays
+        // silent while the inner one is flagged on its own budget.
+        let nested = analyze(
+            PathBuf::from("test.py"),
+            "def outer():\n    def inner():\n        return 1\n        return 2\n        return 3\n        return 4\n    return 0\n",
+            &AnalyzerOptions::default(),
+        );
+        let s1142: Vec<_> = nested
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "python:S1142")
+            .collect();
+        assert_eq!(s1142.len(), 1);
+        assert_eq!(s1142[0].range.start.line, 2);
+    }
+    #[test]
+    fn s138_flags_functions_exceeding_the_line_budget() {
+        let options = AnalyzerOptions {
+            maximum_function_length: 4,
+            ..AnalyzerOptions::default()
+        };
+
+        // Exactly four lines of span: silent.
+        let boundary = analyze(
+            PathBuf::from("test.py"),
+            "def f():\n    a = 1\n    b = 2\n    c = 3\n",
+            &options,
+        );
+        assert!(
+            boundary
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "python:S138")
+        );
+
+        // Five lines of span: flagged once on the function name.
+        let over = analyze(
+            PathBuf::from("test.py"),
+            "def f():\n    a = 1\n    b = 2\n    c = 3\n    d = 4\n",
+            &options,
+        );
+        let s138: Vec<_> = over
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "python:S138")
+            .collect();
+        assert_eq!(s138.len(), 1);
+        assert_eq!(s138[0].range.start.line, 1);
+
+        // The catalog default budget keeps ordinary functions silent.
+        let defaults = analyze(
+            PathBuf::from("test.py"),
+            "def f():\n    a = 1\n    b = 2\n    c = 3\n    d = 4\n",
+            &AnalyzerOptions::default(),
+        );
+        assert!(
+            defaults
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "python:S138")
+        );
+    }
+    #[test]
+    fn s134_flags_constructs_beyond_the_default_four_levels() {
+        // Four nested levels stay silent at the catalog default.
+        let boundary = analyze(
+            PathBuf::from("test.py"),
+            "for a in []:\n    for b in []:\n        while b:\n            if a:\n                pass\n",
+            &AnalyzerOptions::default(),
+        );
+        assert!(
+            boundary
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "python:S134")
+        );
+
+        // A fifth level is flagged once, on its own construct.
+        let over = analyze(
+            PathBuf::from("test.py"),
+            "for a in []:\n    for b in []:\n        while b:\n            if a:\n                if a:\n                    pass\n",
+            &AnalyzerOptions::default(),
+        );
+        let s134: Vec<_> = over
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "python:S134")
+            .collect();
+        assert_eq!(s134.len(), 1);
+        assert_eq!(s134[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s134_elif_chains_and_nested_units_do_not_inflate_depth() {
+        // An elif chain shares its `if`'s single level.
+        let chain = analyze(
+            PathBuf::from("test.py"),
+            "for a in []:\n    for b in []:\n        while b:\n            if a:\n                pass\n            elif a:\n                pass\n            elif a:\n                pass\n            else:\n                pass\n",
+            &AnalyzerOptions::default(),
+        );
+        assert!(
+            chain
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "python:S134")
+        );
+
+        // Nested definitions are separate units and reset the counter.
+        let units = analyze(
+            PathBuf::from("test.py"),
+            "def outer():\n    for a in []:\n        def inner():\n            for b in []:\n                pass\n",
+            &AnalyzerOptions::default(),
+        );
+        assert!(
+            units
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "python:S134")
+        );
     }
 }
