@@ -23,6 +23,9 @@ use tree_sitter::{Node, Parser};
 /// `header_format` intentionally defaults to empty (rule disabled) instead of
 /// the sample template shipped in the catalog, so a default-configured
 /// analyzer does not flag every file.
+/// The Tier-A structural thresholds (`S107`, `S1151`, `S134`, `S138`,
+/// `S1479`, `S1541`, `S1067`, `S3776`) mirror their catalog parameter
+/// defaults.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalyzerOptions {
     pub maximum_line_length: u32,
@@ -43,6 +46,24 @@ pub struct AnalyzerOptions {
     pub maximum_generic_parameters_for_types: u32,
     /// `csharpsquid:S2436` `maxMethod`: tolerated type parameters per method.
     pub maximum_generic_parameters_for_methods: u32,
+    /// `csharpsquid:S1479` tolerated statements per switch section.
+    pub maximum_switch_section_statements: u32,
+    /// `csharpsquid:S1151` tolerated lines per switch section.
+    pub maximum_switch_section_lines: u32,
+    /// `csharpsquid:S134` tolerated control-flow nesting depth.
+    pub maximum_nesting_level: u32,
+    /// `csharpsquid:S138` tolerated lines per function body.
+    pub maximum_function_lines: u32,
+    /// `csharpsquid:S107` tolerated parameters per method.
+    pub maximum_method_parameters: u32,
+    /// `csharpsquid:S1541` cyclomatic complexity threshold.
+    pub maximum_function_complexity_threshold: u32,
+    /// `csharpsquid:S3776` cognitive complexity threshold for callables.
+    pub maximum_cognitive_complexity_threshold: u32,
+    /// `csharpsquid:S3776` `propertyThreshold` for accessors.
+    pub maximum_accessor_complexity_threshold: u32,
+    /// `csharpsquid:S1067` tolerated logical operators per expression.
+    pub maximum_logical_operators: u32,
 }
 
 impl Default for AnalyzerOptions {
@@ -57,6 +78,15 @@ impl Default for AnalyzerOptions {
             logger_name_format: "^_?[Ll]og(ger)?$".to_string(),
             maximum_generic_parameters_for_types: 2,
             maximum_generic_parameters_for_methods: 3,
+            maximum_switch_section_statements: 30,
+            maximum_switch_section_lines: 8,
+            maximum_nesting_level: 3,
+            maximum_function_lines: 80,
+            maximum_method_parameters: 7,
+            maximum_function_complexity_threshold: 10,
+            maximum_cognitive_complexity_threshold: 15,
+            maximum_accessor_complexity_threshold: 3,
+            maximum_logical_operators: 3,
         }
     }
 }
@@ -166,6 +196,7 @@ pub fn analyze(
     issues.extend(check_break_statements(root, language));
     issues.extend(check_unsafe_code(root, source, language));
     issues.extend(check_arglist_usage(root, source, language));
+    issues.extend(structural_issues(root, source, language, options));
     sort_issues(&mut issues);
 
     hoonarqube_ir::FileReport {
@@ -234,6 +265,79 @@ fn file_metrics(root: Node<'_>, source: &str) -> hoonarqube_ir::FileMetrics {
         code_lines: to_u32(code_lines.len()),
         comment_lines: to_u32(comment_only.len()),
     }
+}
+
+/// Gathers every Tier-A4/A5 structural, function-metric, and expression
+/// pattern issue.
+fn structural_issues(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_curly_braces(root, language));
+    issues.extend(check_empty_blocks(root, language));
+    issues.extend(check_empty_statements(root, language));
+    issues.extend(check_redundant_parentheses(root, language));
+    issues.extend(check_context_parentheses(root, language));
+    issues.extend(check_mergeable_ifs(root, language));
+    issues.extend(check_chains_end_with_else(root, language));
+    issues.extend(check_switch_has_default(root, language));
+    issues.extend(check_switch_case_counts(root, language));
+    issues.extend(check_switch_section_statement_counts(
+        root, language, options,
+    ));
+    issues.extend(check_switch_section_line_spans(root, language, options));
+    issues.extend(check_nesting_depth(root, language, options));
+    issues.extend(check_nested_code_blocks(root, language));
+    issues.extend(check_function_lengths(root, language, options));
+    issues.extend(check_method_parameter_counts(root, language, options));
+    issues.extend(check_cyclomatic_complexity(root, source, language, options));
+    issues.extend(check_cognitive_complexity(root, source, language, options));
+    issues.extend(check_logical_operator_counts(
+        root, source, language, options,
+    ));
+    issues.extend(check_empty_methods(root, source, language));
+    issues.extend(check_finalizer_throws(root, language));
+    issues.extend(check_empty_finalizers(root, language));
+    issues.extend(check_property_getter_throws(root, source, language));
+    issues.extend(check_write_only_properties(root, source, language));
+    issues.extend(check_trivial_properties(root, source, language));
+    issues.extend(check_abstract_member_mix(root, source, language));
+    issues.extend(check_empty_classes_and_records(root, source, language));
+    issues.extend(check_empty_interfaces(root, source, language));
+    issues.extend(check_empty_namespaces(root, language));
+    issues.extend(check_types_outside_namespaces(root, language));
+    issues.extend(check_multiline_embedded_statements(root, language));
+    issues.extend(check_nested_switches(root, language));
+    issues.extend(check_default_clause_position(root, language));
+    issues.extend(check_empty_cases_before_default(root, language));
+    issues.extend(check_empty_default_clauses(root, language));
+    issues.extend(check_condition_only_for_loops(root, language));
+    issues.extend(check_for_increment_modifies_counter(root, source, language));
+    issues.extend(check_local_shadowing(root, source, language));
+    issues.extend(check_assignments_in_expressions(root, language));
+    issues.extend(check_embedded_increments(root, language));
+    issues.extend(check_self_assignments(root, source, language));
+    issues.extend(check_redundant_boolean_comparisons(root, source, language));
+    issues.extend(check_simplifiable_conditions(root, source, language));
+    issues.extend(check_inverted_boolean_checks(root, language));
+    issues.extend(check_doubled_prefix_operators(root, language));
+    issues.extend(check_nan_comparisons(root, source, language));
+    issues.extend(check_float_equality(root, language));
+    issues.extend(check_self_relational_comparisons(root, source, language));
+    issues.extend(check_negative_size_comparisons(root, source, language));
+    issues.extend(check_indexof_positive_checks(root, source, language));
+    issues.extend(check_shift_amounts(root, source, language));
+    issues.extend(check_unnecessary_bit_operations(root, source, language));
+    issues.extend(check_modulus_equality(root, language));
+    issues.extend(check_nested_ternaries(root, language));
+    issues.extend(check_this_is_checks(root, source, language));
+    issues.extend(check_null_check_with_is(root, source, language));
+    issues.extend(check_gettype_typeof_comparisons(root, source, language));
+    issues.extend(check_null_or_empty_patterns(root, source, language));
+    issues
 }
 
 /// Classifies every covered row as code or comment by walking the whole CST;
@@ -2630,6 +2734,2092 @@ fn check_arglist_usage(root: Node<'_>, source: &str, language: CsLanguage) -> Ve
     }
     issues
 }
+// ---------------------------------------------------------------------------
+// A4 — structural statement checks
+// ---------------------------------------------------------------------------
+
+/// Headers embedding a brace-less statement body.
+const EMBEDDED_HEADER_KINDS: [&str; 8] = [
+    "if_statement",
+    "for_statement",
+    "foreach_statement",
+    "while_statement",
+    "do_statement",
+    "using_statement",
+    "lock_statement",
+    "fixed_statement",
+];
+
+/// Declarations whose `block` children are callable bodies.
+const CALLABLE_BODY_OWNER_KINDS: [&str; 6] = [
+    "method_declaration",
+    "constructor_declaration",
+    "destructor_declaration",
+    "operator_declaration",
+    "accessor_declaration",
+    "local_function_statement",
+];
+
+/// Control-flow constructs counted by the S134 nesting-depth walk.
+const NESTING_CONSTRUCT_KINDS: [&str; 12] = [
+    "if_statement",
+    "for_statement",
+    "foreach_statement",
+    "while_statement",
+    "do_statement",
+    "switch_statement",
+    "try_statement",
+    "catch_clause",
+    "finally_clause",
+    "using_statement",
+    "lock_statement",
+    "fixed_statement",
+];
+
+/// Every parent of `node`, nearest first.
+fn ancestors_of(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
+    std::iter::successors(node.parent(), tree_sitter::Node::parent)
+}
+
+/// True when `node` sits under an `ERROR`/missing region of a recovered
+/// tree; such regions carry unreliable structure, so checks skip them.
+fn is_error_tainted(node: Node<'_>) -> bool {
+    node.is_error() || node.is_missing() || ancestors_of(node).any(|ancestor| ancestor.is_error())
+}
+
+/// True for nodes forming statements: explicit `block`s and `*_statement`s.
+fn is_statement_kind(kind: &str) -> bool {
+    kind == "block" || kind.ends_with("_statement")
+}
+
+/// Statement bodies embedded in a control header, source order: the
+/// consequence first, the `else` alternative last.
+fn embedded_bodies(header: Node<'_>) -> Vec<Node<'_>> {
+    let mut cursor = header.walk();
+    header
+        .children(&mut cursor)
+        .filter(|child| child.is_named() && is_statement_kind(child.kind()))
+        .collect()
+}
+
+/// The statement following an `else` keyword, when present.
+fn else_alternative(if_statement: Node<'_>) -> Option<Node<'_>> {
+    let mut cursor = if_statement.walk();
+    let mut past_else = false;
+    for child in if_statement.children(&mut cursor) {
+        if child.kind() == "else" {
+            past_else = true;
+        } else if past_else && child.is_named() {
+            return Some(child);
+        }
+    }
+    None
+}
+
+/// Whether `node` is the alternative branch of an enclosing `if_statement`.
+fn is_else_alternative(node: Node<'_>) -> bool {
+    node.parent().is_some_and(|parent| {
+        parent.kind() == "if_statement" && else_alternative(parent) == Some(node)
+    })
+}
+
+/// The `switch_body` of a `switch_statement`.
+fn switch_body_of(switch_statement: Node<'_>) -> Option<Node<'_>> {
+    let mut cursor = switch_statement.walk();
+    switch_statement
+        .children(&mut cursor)
+        .find(|child| child.kind() == "switch_body")
+}
+
+/// Sections of a `switch_body`, source order.
+fn switch_sections_of(switch_body: Node<'_>) -> Vec<Node<'_>> {
+    let mut cursor = switch_body.walk();
+    switch_body
+        .children(&mut cursor)
+        .filter(|child| child.kind() == "switch_section")
+        .collect()
+}
+
+/// Whether a section carries a `default` label.
+fn section_has_default(section: Node<'_>) -> bool {
+    let mut cursor = section.walk();
+    section
+        .children(&mut cursor)
+        .any(|child| child.kind() == "default")
+}
+
+/// Statements directly inside a section; labels are anonymous tokens and
+/// never appear here.
+fn section_statements(section: Node<'_>) -> Vec<Node<'_>> {
+    let mut cursor = section.walk();
+    section
+        .children(&mut cursor)
+        .filter(|child| child.is_named() && is_statement_kind(child.kind()))
+        .collect()
+}
+
+/// The initializer, condition, and update clauses of a `for_statement`,
+/// split on its semicolons.
+fn for_clauses(for_statement: Node<'_>) -> (Option<Node<'_>>, Option<Node<'_>>, Option<Node<'_>>) {
+    let mut clauses = [None, None, None];
+    let mut semicolons_seen = 0_usize;
+    let mut cursor = for_statement.walk();
+    for child in for_statement.children(&mut cursor) {
+        if child.kind() == ")" {
+            break;
+        }
+        if child.kind() == ";" {
+            semicolons_seen += 1;
+        } else if child.is_named() && semicolons_seen < clauses.len() {
+            clauses[semicolons_seen] = Some(child);
+        }
+    }
+    (clauses[0], clauses[1], clauses[2])
+}
+
+/// Loop-counter candidate of an initializer clause: its first identifier
+/// (`int i = 0`, `i = 0`, both spellings alike).
+fn counter_name<'a>(initializer: Node<'_>, source: &'a str) -> Option<&'a str> {
+    collect_kinds(initializer, &["identifier"])
+        .first()
+        .map(|identifier| node_text(*identifier, source))
+}
+
+/// csharpsquid:S121 — control structures wrap their bodies in curly braces.
+fn check_curly_braces(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for header in collect_kinds(root, &EMBEDDED_HEADER_KINDS) {
+        if is_error_tainted(header) {
+            continue;
+        }
+        for body in embedded_bodies(header) {
+            if body.kind() != "block" {
+                issues.push(issue(
+                    language,
+                    "S121",
+                    "Add curly braces around this embedded statement.",
+                    range_of(body),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S108 — blocks are not left empty. Commented placeholder
+/// bodies stay clean; callable bodies belong to S1186 and S3880.
+fn check_empty_blocks(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for block in collect_kinds(root, &["block"]) {
+        if is_error_tainted(block) {
+            continue;
+        }
+        let owned_by_callable = block
+            .parent()
+            .is_some_and(|owner| CALLABLE_BODY_OWNER_KINDS.contains(&owner.kind()));
+        let mut cursor = block.walk();
+        let has_content = block.children(&mut cursor).any(|child| child.is_named());
+        if !owned_by_callable && !has_content {
+            issues.push(issue(
+                language,
+                "S108",
+                "Either populate this block or remove it.",
+                range_of(block),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S1116 — stray empty statements are removed.
+fn check_empty_statements(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &["empty_statement"])
+        .into_iter()
+        .filter(|statement| !is_error_tainted(*statement))
+        .map(|statement| {
+            issue(
+                language,
+                "S1116",
+                "Remove this empty statement.",
+                range_of(statement),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S1110 — a parenthesis pair wrapping only another pair is
+/// redundant.
+fn check_redundant_parentheses(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for parenthesized in collect_kinds(root, &["parenthesized_expression"]) {
+        if is_error_tainted(parenthesized) {
+            continue;
+        }
+        let mut cursor = parenthesized.walk();
+        let wraps_single_pair = parenthesized.named_child_count() == 1
+            && parenthesized
+                .children(&mut cursor)
+                .all(|child| !child.is_named() || child.kind() == "parenthesized_expression");
+        if wraps_single_pair {
+            issues.push(issue(
+                language,
+                "S1110",
+                "Remove this redundant pair of parentheses.",
+                range_of(parenthesized),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3235 — parentheses around return values and arguments
+/// cannot change precedence there and are noise.
+fn check_context_parentheses(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for parenthesized in collect_kinds(root, &["parenthesized_expression"]) {
+        if is_error_tainted(parenthesized) {
+            continue;
+        }
+        let context = parenthesized.parent().map(|parent| parent.kind());
+        if matches!(context, Some("return_statement" | "argument")) {
+            issues.push(issue(
+                language,
+                "S3235",
+                "Remove these unnecessary parentheses.",
+                range_of(parenthesized),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S1066 — an `else`-less `if` holding exactly one nested `if`
+/// merges into a single condition.
+fn check_mergeable_ifs(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    fn mergeable_block(block: Node<'_>) -> bool {
+        let statements = embedded_bodies(block);
+        statements.len() == 1
+            && statements[0].kind() == "if_statement"
+            && else_alternative(statements[0]).is_none()
+    }
+    let mut issues = Vec::new();
+    for if_statement in collect_kinds(root, &["if_statement"]) {
+        if is_error_tainted(if_statement) || else_alternative(if_statement).is_some() {
+            continue;
+        }
+        let Some(consequence) = embedded_bodies(if_statement).first().copied() else {
+            continue;
+        };
+        let mergeable = match consequence.kind() {
+            "if_statement" => else_alternative(consequence).is_none(),
+            "block" => mergeable_block(consequence),
+            _ => false,
+        };
+        if mergeable {
+            issues.push(issue(
+                language,
+                "S1066",
+                "Merge this if statement with the nested one.",
+                range_of(if_statement),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S126 — `else if` chains end with a terminal `else`.
+fn check_chains_end_with_else(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for head in collect_kinds(root, &["if_statement"]) {
+        if is_error_tainted(head) || is_else_alternative(head) {
+            continue;
+        }
+        let mut current = head;
+        loop {
+            match else_alternative(current) {
+                None => {
+                    if current != head {
+                        issues.push(issue(
+                            language,
+                            "S126",
+                            "Add an 'else' clause to close this 'else if' chain.",
+                            range_of(current),
+                        ));
+                    }
+                    break;
+                }
+                Some(alternative) if alternative.kind() == "if_statement" => {
+                    current = alternative;
+                }
+                Some(_) => break,
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S131 — every `switch` carries a `default` clause.
+fn check_switch_has_default(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for switch_statement in collect_kinds(root, &["switch_statement"]) {
+        if is_error_tainted(switch_statement) {
+            continue;
+        }
+        let has_default = switch_body_of(switch_statement)
+            .is_some_and(|body| subtree_contains_kind(body, "default"));
+        if !has_default {
+            issues.push(issue(
+                language,
+                "S131",
+                "Add a 'default' clause to this switch.",
+                range_of(switch_statement),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S1301 — switches replace at least three-way dispatch;
+/// smaller ones read better as `if`/`else`.
+fn check_switch_case_counts(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for switch_statement in collect_kinds(root, &["switch_statement"]) {
+        if is_error_tainted(switch_statement) {
+            continue;
+        }
+        let Some(body) = switch_body_of(switch_statement) else {
+            continue;
+        };
+        let case_labels = collect_kinds(body, &["case"]).len();
+        if case_labels < 3 {
+            issues.push(issue(
+                language,
+                "S1301",
+                "Replace this switch with an 'if'/'else' chain; it has fewer than three cases.",
+                range_of(switch_statement),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S1479 — a switch section holds at most the tolerated number
+/// of statements.
+fn check_switch_section_statement_counts(
+    root: Node<'_>,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for switch_statement in collect_kinds(root, &["switch_statement"]) {
+        if is_error_tainted(switch_statement) {
+            continue;
+        }
+        for section in switch_body_of(switch_statement)
+            .map(switch_sections_of)
+            .unwrap_or_default()
+        {
+            let count = to_u32(section_statements(section).len());
+            if count > options.maximum_switch_section_statements {
+                issues.push(issue(
+                    language,
+                    "S1479",
+                    format!("Split this 'case' block; it contains {count} statements."),
+                    range_of(section),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S1151 — a switch section fits within the tolerated span.
+fn check_switch_section_line_spans(
+    root: Node<'_>,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for switch_statement in collect_kinds(root, &["switch_statement"]) {
+        if is_error_tainted(switch_statement) {
+            continue;
+        }
+        for section in switch_body_of(switch_statement)
+            .map(switch_sections_of)
+            .unwrap_or_default()
+        {
+            let height = to_u32(section.end_position().row - section.start_position().row + 1);
+            if height > options.maximum_switch_section_lines {
+                issues.push(issue(
+                    language,
+                    "S1151",
+                    format!("Reduce this 'case' block; it spans {height} lines."),
+                    range_of(section),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S134 — control-flow nesting stays within the configured
+/// depth.
+fn check_nesting_depth(
+    root: Node<'_>,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for construct in collect_kinds(root, &NESTING_CONSTRUCT_KINDS) {
+        if is_error_tainted(construct) {
+            continue;
+        }
+        let depth = ancestors_of(construct)
+            .filter(|ancestor| NESTING_CONSTRUCT_KINDS.contains(&ancestor.kind()))
+            .count();
+        if to_u32(depth) > options.maximum_nesting_level {
+            issues.push(issue(
+                language,
+                "S134",
+                format!("Reduce this code's nesting depth ({depth} levels deep)."),
+                range_of(construct),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S1199 — plain code blocks nest only through control flow.
+fn check_nested_code_blocks(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for block in collect_kinds(root, &["block"]) {
+        if is_error_tainted(block) {
+            continue;
+        }
+        if block
+            .parent()
+            .is_some_and(|parent| parent.kind() == "block")
+        {
+            issues.push(issue(
+                language,
+                "S1199",
+                "Remove this nested code block.",
+                range_of(block),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2681 — multi-line embedded bodies wear braces so no later
+/// line can masquerade as part of the body.
+fn check_multiline_embedded_statements(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for header in collect_kinds(root, &EMBEDDED_HEADER_KINDS) {
+        if is_error_tainted(header) {
+            continue;
+        }
+        for body in embedded_bodies(header) {
+            if body.kind() != "block" && body.start_position().row != body.end_position().row {
+                issues.push(issue(
+                    language,
+                    "S2681",
+                    "Enclose this multi-line body in curly braces.",
+                    range_of(body),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S1821 — switch statements do not nest inside other switches.
+fn check_nested_switches(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for switch_statement in collect_kinds(root, &["switch_statement"]) {
+        if is_error_tainted(switch_statement) {
+            continue;
+        }
+        let nested_in_switch = ancestors_of(switch_statement)
+            .take_while(|ancestor| !CALLABLE_BODY_OWNER_KINDS.contains(&ancestor.kind()))
+            .any(|ancestor| ancestor.kind() == "switch_statement");
+        if nested_in_switch {
+            issues.push(issue(
+                language,
+                "S1821",
+                "Refactor this nested 'switch' into a separate method.",
+                range_of(switch_statement),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S4524 — the `default` clause leads or trails the sections.
+fn check_default_clause_position(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for switch_statement in collect_kinds(root, &["switch_statement"]) {
+        if is_error_tainted(switch_statement) {
+            continue;
+        }
+        let Some(body) = switch_body_of(switch_statement) else {
+            continue;
+        };
+        let sections = switch_sections_of(body);
+        let Some(index) = sections.iter().position(|s| section_has_default(*s)) else {
+            continue;
+        };
+        if index > 0 && index != sections.len() - 1 {
+            issues.push(issue(
+                language,
+                "S4524",
+                "Move this 'default' clause first or last among the sections.",
+                range_of(sections[index]),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3458 — an empty `case` stack falling straight into
+/// `default` drops its labels.
+fn check_empty_cases_before_default(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for switch_statement in collect_kinds(root, &["switch_statement"]) {
+        if is_error_tainted(switch_statement) {
+            continue;
+        }
+        let Some(body) = switch_body_of(switch_statement) else {
+            continue;
+        };
+        for pair in switch_sections_of(body).windows(2) {
+            if section_statements(pair[0]).is_empty() && section_has_default(pair[1]) {
+                issues.push(issue(
+                    language,
+                    "S3458",
+                    "Remove this empty 'case'; it falls through to 'default'.",
+                    range_of(pair[0]),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3532 — empty `default` clauses are removed.
+fn check_empty_default_clauses(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for switch_statement in collect_kinds(root, &["switch_statement"]) {
+        if is_error_tainted(switch_statement) {
+            continue;
+        }
+        let Some(body) = switch_body_of(switch_statement) else {
+            continue;
+        };
+        for section in switch_sections_of(body) {
+            if section_has_default(section) && section_statements(section).is_empty() {
+                issues.push(issue(
+                    language,
+                    "S3532",
+                    "Remove this empty 'default' clause.",
+                    range_of(section),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S1264 — a `for` with neither initializer nor update is a
+/// `while`.
+fn check_condition_only_for_loops(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for for_statement in collect_kinds(root, &["for_statement"]) {
+        if is_error_tainted(for_statement) {
+            continue;
+        }
+        let (initializer, _, update) = for_clauses(for_statement);
+        if initializer.is_none() && update.is_none() {
+            issues.push(issue(
+                language,
+                "S1264",
+                "Convert this 'for' into a 'while'.",
+                range_of(for_statement),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S1994 — the increment clause drives the loop counter.
+fn check_for_increment_modifies_counter(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for for_statement in collect_kinds(root, &["for_statement"]) {
+        if is_error_tainted(for_statement) {
+            continue;
+        }
+        let (Some(initializer), _, update) = for_clauses(for_statement) else {
+            continue;
+        };
+        let Some(counter) = counter_name(initializer, source) else {
+            continue;
+        };
+        let modifies_counter = update.is_some_and(|clause| {
+            collect_kinds(clause, &["identifier"])
+                .iter()
+                .any(|identifier| node_text(*identifier, source) == counter)
+        });
+        if !modifies_counter {
+            issues.push(issue(
+                language,
+                "S1994",
+                format!("Update the counter '{counter}' inside this loop's increment."),
+                range_of(for_statement),
+            ));
+        }
+    }
+    issues
+}
+/// The `block` body of a callable, when it has one (abstract and
+/// expression-bodied members do not).
+fn body_of(declaration: Node<'_>) -> Option<Node<'_>> {
+    let mut cursor = declaration.walk();
+    declaration
+        .children(&mut cursor)
+        .find(|child| child.kind() == "block")
+}
+
+/// A declaration's name identifier, falling back to the whole declaration.
+fn name_anchor(declaration: Node<'_>) -> Node<'_> {
+    declaration
+        .child_by_field_name("name")
+        .unwrap_or(declaration)
+}
+
+/// Whether the declaration carries any attribute directly.
+fn is_attributed(declaration: Node<'_>, source: &str) -> bool {
+    !attributes_of(declaration, source).is_empty()
+}
+
+/// The operator token of a binary expression (`&&`, `<<`, `==`, ...).
+fn binary_operator<'a>(expression: Node<'_>, source: &'a str) -> &'a str {
+    let mut cursor = expression.walk();
+    expression
+        .children(&mut cursor)
+        .find(|child| !child.is_named())
+        .map_or("", |token| node_text(token, source))
+}
+
+/// csharpsquid:S138 — function bodies stay within the tolerated span.
+fn check_function_lengths(
+    root: Node<'_>,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for function in collect_kinds(root, &CALLABLE_BODY_OWNER_KINDS) {
+        if is_error_tainted(function) {
+            continue;
+        }
+        let Some(body) = body_of(function) else {
+            continue;
+        };
+        let height = to_u32(body.end_position().row - body.start_position().row + 1);
+        if height > options.maximum_function_lines {
+            issues.push(issue(
+                language,
+                "S138",
+                format!("Reduce this function's size; its body spans {height} lines."),
+                range_of(name_anchor(function)),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S107 — methods and constructors take at most the tolerated
+/// number of parameters.
+fn check_method_parameter_counts(
+    root: Node<'_>,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    const KINDS: [&str; 2] = ["method_declaration", "constructor_declaration"];
+    let mut issues = Vec::new();
+    for method in collect_kinds(root, &KINDS) {
+        if is_error_tainted(method) {
+            continue;
+        }
+        let count = parameters_of(method).len();
+        if to_u32(count) > options.maximum_method_parameters {
+            issues.push(issue(
+                language,
+                "S107",
+                format!(
+                    "Reduce the number of parameters ({count} > {}).",
+                    options.maximum_method_parameters
+                ),
+                range_of(name_anchor(method)),
+            ));
+        }
+    }
+    issues
+}
+
+/// Decision points of the S1541 cyclomatic walk: branching statements,
+/// case labels, catches, ternaries, null-coalescing, and short-circuiting
+/// operators. Nested local functions count toward their enclosing member.
+fn cyclomatic_decisions(body: Node<'_>, source: &str) -> u32 {
+    let mut decisions = 0_u32;
+    walk_all(body, &mut |node| match node.kind() {
+        "if_statement"
+        | "for_statement"
+        | "foreach_statement"
+        | "while_statement"
+        | "do_statement"
+        | "catch_clause"
+        | "conditional_expression"
+        | "coalescing_expression"
+        | "case" => decisions += 1,
+        "binary_expression" => {
+            if matches!(binary_operator(node, source), "&&" | "||" | "??") {
+                decisions += 1;
+            }
+        }
+        _ => {}
+    });
+    decisions
+}
+
+/// csharpsquid:S1541 — a function's cyclomatic complexity stays within the
+/// threshold.
+fn check_cyclomatic_complexity(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for function in collect_kinds(root, &CALLABLE_BODY_OWNER_KINDS) {
+        if is_error_tainted(function) {
+            continue;
+        }
+        let Some(body) = body_of(function) else {
+            continue;
+        };
+        let complexity = 1 + cyclomatic_decisions(body, source);
+        if complexity > options.maximum_function_complexity_threshold {
+            issues.push(issue(
+                language,
+                "S1541",
+                format!(
+                    "Reduce this function's cyclomatic complexity from {complexity} to at most {}.",
+                    options.maximum_function_complexity_threshold
+                ),
+                range_of(name_anchor(function)),
+            ));
+        }
+    }
+    issues
+}
+
+/// Simplified S3776 cognitive score: structural keywords weigh one plus
+/// their nesting depth, boolean operators and jumps weigh one each.
+fn cognitive_complexity(node: Node<'_>, nesting: u32, source: &str) -> u32 {
+    let mut score = 0_u32;
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        let kind = child.kind();
+        if matches!(
+            kind,
+            "if_statement"
+                | "for_statement"
+                | "foreach_statement"
+                | "while_statement"
+                | "do_statement"
+                | "switch_statement"
+                | "catch_clause"
+                | "conditional_expression"
+        ) {
+            score += 1 + nesting;
+            score += cognitive_complexity(child, nesting + 1, source);
+        } else {
+            match kind {
+                "case" | "goto_statement" | "break_statement" | "continue_statement" => {
+                    score += 1;
+                }
+                "binary_expression" => {
+                    if matches!(binary_operator(child, source), "&&" | "||") {
+                        score += 1;
+                    }
+                }
+                _ => {}
+            }
+            score += cognitive_complexity(child, nesting, source);
+        }
+    }
+    score
+}
+
+/// csharpsquid:S3776 — cognitive complexity stays within the thresholds;
+/// accessors use the smaller `propertyThreshold`.
+fn check_cognitive_complexity(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for function in collect_kinds(root, &CALLABLE_BODY_OWNER_KINDS) {
+        if is_error_tainted(function) {
+            continue;
+        }
+        let Some(body) = body_of(function) else {
+            continue;
+        };
+        let threshold = if function.kind() == "accessor_declaration" {
+            options.maximum_accessor_complexity_threshold
+        } else {
+            options.maximum_cognitive_complexity_threshold
+        };
+        let score = cognitive_complexity(body, 0, source);
+        if score > threshold {
+            issues.push(issue(
+                language,
+                "S3776",
+                format!(
+                    "Reduce this function's cognitive complexity from {score} to at most {threshold}."
+                ),
+                range_of(name_anchor(function)),
+            ));
+        }
+    }
+    issues
+}
+
+/// Logical-operator occurrences within an expression subtree.
+fn logical_operator_count(expression: Node<'_>, source: &str) -> u32 {
+    to_u32(
+        collect_kinds(expression, &["binary_expression"])
+            .iter()
+            .filter(|operand| matches!(binary_operator(**operand, source), "&&" | "||"))
+            .count(),
+    )
+}
+
+/// csharpsquid:S1067 — one expression chains at most the tolerated number
+/// of logical operators.
+fn check_logical_operator_counts(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for expression in collect_kinds(root, &["binary_expression"]) {
+        if is_error_tainted(expression)
+            || !matches!(binary_operator(expression, source), "&&" | "||")
+        {
+            continue;
+        }
+        let parent_is_logical_chain = expression.parent().is_some_and(|parent| {
+            parent.kind() == "binary_expression"
+                && matches!(binary_operator(parent, source), "&&" | "||")
+        });
+        if parent_is_logical_chain {
+            continue;
+        }
+        let count = logical_operator_count(expression, source);
+        if count > options.maximum_logical_operators {
+            issues.push(issue(
+                language,
+                "S1067",
+                format!(
+                    "Reduce the number of logical operators ({count} > {}).",
+                    options.maximum_logical_operators
+                ),
+                range_of(expression),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S1186 — methods, constructors, and operators are not left
+/// empty. Attributed members (framework hooks, externals, stubs under test
+/// markers) stay untouched.
+fn check_empty_methods(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    const KINDS: [&str; 3] = [
+        "method_declaration",
+        "constructor_declaration",
+        "operator_declaration",
+    ];
+    const KIND_WORDS: [(&str, &str); 3] = [
+        ("method_declaration", "method"),
+        ("constructor_declaration", "constructor"),
+        ("operator_declaration", "operator"),
+    ];
+    let mut issues = Vec::new();
+    for member in collect_kinds(root, &KINDS) {
+        if is_error_tainted(member) || is_attributed(member, source) {
+            continue;
+        }
+        let Some(body) = body_of(member) else {
+            continue;
+        };
+        let mut cursor = body.walk();
+        if body.children(&mut cursor).any(|child| child.is_named()) {
+            continue;
+        }
+        let word = KIND_WORDS
+            .iter()
+            .find(|(kind, _)| *kind == member.kind())
+            .map_or("member", |(_, word)| word);
+        issues.push(issue(
+            language,
+            "S1186",
+            format!("Remove this empty {word} or add its implementation."),
+            range_of(name_anchor(member)),
+        ));
+    }
+    issues
+}
+
+/// csharpsquid:S1048 — finalizers do not throw.
+fn check_finalizer_throws(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for destructor in collect_kinds(root, &["destructor_declaration"]) {
+        if is_error_tainted(destructor) {
+            continue;
+        }
+        let Some(body) = body_of(destructor) else {
+            continue;
+        };
+        if subtree_contains_kind(body, "throw_statement") {
+            issues.push(issue(
+                language,
+                "S1048",
+                "A finalizer must not throw exceptions.",
+                range_of(destructor),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3880 — finalizers either work or disappear.
+fn check_empty_finalizers(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for destructor in collect_kinds(root, &["destructor_declaration"]) {
+        if is_error_tainted(destructor) {
+            continue;
+        }
+        let Some(body) = body_of(destructor) else {
+            continue;
+        };
+        let mut cursor = body.walk();
+        if !body.children(&mut cursor).any(|child| child.is_named()) {
+            issues.push(issue(
+                language,
+                "S3880",
+                "Remove this empty finalizer.",
+                range_of(destructor),
+            ));
+        }
+    }
+    issues
+}
+
+/// Accessors of a property's accessor list, source order.
+fn accessors_of(property: Node<'_>) -> Vec<Node<'_>> {
+    let mut cursor = property.walk();
+    property
+        .children(&mut cursor)
+        .find(|child| child.kind() == "accessor_list")
+        .map(|list| {
+            let mut list_cursor = list.walk();
+            list.children(&mut list_cursor)
+                .filter(|accessor| accessor.kind() == "accessor_declaration")
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// An accessor's keyword (`get`, `set`, ...).
+fn accessor_keyword<'a>(accessor: Node<'_>, source: &'a str) -> &'a str {
+    let mut cursor = accessor.walk();
+    accessor
+        .children(&mut cursor)
+        .find(|child| !child.is_named())
+        .map_or("", |token| node_text(token, source))
+}
+
+/// csharpsquid:S2372 — property getters do not throw.
+fn check_property_getter_throws(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for property in collect_kinds(root, &["property_declaration"]) {
+        if is_error_tainted(property) {
+            continue;
+        }
+        for accessor in accessors_of(property) {
+            if accessor_keyword(accessor, source) != "get" {
+                continue;
+            }
+            let throws = body_of(accessor)
+                .is_some_and(|body| subtree_contains_kind(body, "throw_statement"));
+            if throws {
+                issues.push(issue(
+                    language,
+                    "S2372",
+                    "A property getter must not throw exceptions.",
+                    range_of(accessor),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2376 — write-only properties hide their intent.
+fn check_write_only_properties(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for property in collect_kinds(root, &["property_declaration"]) {
+        if is_error_tainted(property) || accessors_of(property).is_empty() {
+            continue;
+        }
+        let has_getter = accessors_of(property)
+            .iter()
+            .any(|accessor| accessor_keyword(*accessor, source) == "get");
+        if !has_getter {
+            issues.push(issue(
+                language,
+                "S2376",
+                "Add a getter to this write-only property.",
+                range_of(name_anchor(property)),
+            ));
+        }
+    }
+    issues
+}
+
+/// The backing identifier a getter yields: a lone `return field;` or
+/// `=> field;` body. Computed returns (`return field + 1;`) never match.
+fn getter_field<'a>(accessor: Node<'_>, source: &'a str) -> Option<&'a str> {
+    fn yields_sole_identifier(expression: Node<'_>) -> bool {
+        let mut cursor = expression.walk();
+        let operands: Vec<Node> = expression
+            .children(&mut cursor)
+            .filter(tree_sitter::Node::is_named)
+            .collect();
+        operands.len() == 1 && operands[0].kind() == "identifier"
+    }
+    let body = body_of(accessor)?;
+    let shaped = if body.kind() == "arrow_expression_clause" {
+        yields_sole_identifier(body)
+    } else if body.kind() == "block" {
+        let statements = embedded_bodies(body);
+        statements.len() == 1
+            && statements[0].kind() == "return_statement"
+            && yields_sole_identifier(statements[0])
+    } else {
+        false
+    };
+    if !shaped {
+        return None;
+    }
+    let identifiers = collect_kinds(body, &["identifier"]);
+    (identifiers.len() == 1).then(|| node_text(identifiers[0], source))
+}
+
+/// The backing identifier a setter stores into: a single `field = value;`
+/// or `=> field = value;` body.
+fn setter_field<'a>(accessor: Node<'_>, source: &'a str) -> Option<&'a str> {
+    let body = body_of(accessor)?;
+    let assignments = collect_kinds(body, &["assignment_expression"]);
+    let assignment = assignments.first()?;
+    let identifiers = collect_kinds(*assignment, &["identifier"]);
+    if assignments.len() != 1
+        || identifiers.len() != 2
+        || binary_operator(*assignment, source) != "="
+        || node_text(identifiers[1], source) != "value"
+    {
+        return None;
+    }
+    Some(node_text(identifiers[0], source))
+}
+
+/// csharpsquid:S2292 — trivial getter/setter pairs become auto-properties.
+fn check_trivial_properties(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for property in collect_kinds(root, &["property_declaration"]) {
+        if is_error_tainted(property) {
+            continue;
+        }
+        let accessors = accessors_of(property);
+        let reads_backing_field = accessors.iter().any(|accessor| {
+            accessor_keyword(*accessor, source) == "get"
+                && getter_field(*accessor, source).is_some()
+        });
+        let writes_backing_field = accessors.iter().any(|accessor| {
+            accessor_keyword(*accessor, source) == "set"
+                && setter_field(*accessor, source).is_some()
+        });
+        if reads_backing_field && writes_backing_field && accessors.len() == 2 {
+            issues.push(issue(
+                language,
+                "S2292",
+                "Replace this trivial property with an auto-implemented one.",
+                range_of(name_anchor(property)),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S1694 — abstract classes mix abstract with concrete members.
+fn check_abstract_member_mix(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for class_declaration in collect_kinds(root, &["class_declaration"]) {
+        if is_error_tainted(class_declaration)
+            || !has_modifier(&modifiers_of(class_declaration, source), "abstract")
+        {
+            continue;
+        }
+        let mut abstract_members = 0_usize;
+        let mut concrete_members = 0_usize;
+        for member in type_members(class_declaration) {
+            if !matches!(member.kind(), "method_declaration" | "property_declaration") {
+                continue;
+            }
+            if has_modifier(&modifiers_of(member, source), "abstract") {
+                abstract_members += 1;
+            } else {
+                concrete_members += 1;
+            }
+        }
+        if abstract_members == 0 || concrete_members == 0 {
+            issues.push(issue(
+                language,
+                "S1694",
+                "Make this abstract class declare both abstract and concrete members.",
+                range_of(name_anchor(class_declaration)),
+            ));
+        }
+    }
+    issues
+}
+
+/// Whether a type's declaration list carries no member declarations; the
+/// raw member list includes the anonymous braces.
+fn type_has_no_members(type_node: Node<'_>) -> bool {
+    type_members(type_node)
+        .iter()
+        .all(|member| !member.is_named())
+}
+
+/// csharpsquid:S2094 — classes and records carry members.
+fn check_empty_classes_and_records(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    const KINDS: [&str; 2] = ["class_declaration", "record_declaration"];
+    let mut issues = Vec::new();
+    for type_declaration in collect_kinds(root, &KINDS) {
+        let positional_record = type_declaration.kind() == "record_declaration"
+            && type_declaration
+                .children(&mut type_declaration.walk())
+                .any(|child| child.kind() == "parameter_list");
+        if is_error_tainted(type_declaration)
+            || has_modifier(&modifiers_of(type_declaration, source), "partial")
+            || positional_record
+        {
+            continue;
+        }
+        if type_has_no_members(type_declaration) {
+            issues.push(issue(
+                language,
+                "S2094",
+                format!(
+                    "Add members to this {} or remove it.",
+                    declaration_kind_word(type_declaration.kind())
+                ),
+                range_of(name_anchor(type_declaration)),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S4023 — interfaces carry members.
+fn check_empty_interfaces(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for interface in collect_kinds(root, &["interface_declaration"]) {
+        if is_error_tainted(interface) || has_modifier(&modifiers_of(interface, source), "partial")
+        {
+            continue;
+        }
+        if type_has_no_members(interface) {
+            issues.push(issue(
+                language,
+                "S4023",
+                "Add members to this interface or remove it.",
+                range_of(name_anchor(interface)),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3261 — namespaces group declarations.
+fn check_empty_namespaces(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for namespace in collect_kinds(root, &["namespace_declaration"]) {
+        if is_error_tainted(namespace) {
+            continue;
+        }
+        let mut cursor = namespace.walk();
+        let has_members = namespace
+            .children(&mut cursor)
+            .find(|child| child.kind() == "declaration_list")
+            .is_some_and(|list| {
+                let mut list_cursor = list.walk();
+                list.children(&mut list_cursor)
+                    .any(|member| member.is_named())
+            });
+        if !has_members {
+            issues.push(issue(
+                language,
+                "S3261",
+                "Remove this empty namespace or populate it.",
+                range_of(namespace),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3903 — types live in named namespaces. A compilation unit
+/// holding a single type stays untouched: a lone top-level type is a
+/// common, deliberate layout.
+fn check_types_outside_namespaces(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let file_scope_types: Vec<Node> = collect_kinds(root, &TYPE_DECLARATION_KINDS)
+        .into_iter()
+        .filter(|type_declaration| {
+            type_declaration
+                .parent()
+                .is_some_and(|parent| parent.kind() == "compilation_unit")
+        })
+        .collect();
+    if file_scope_types.len() < 2 {
+        return Vec::new();
+    }
+    let mut issues = Vec::new();
+    for type_declaration in file_scope_types {
+        if is_error_tainted(type_declaration) {
+            continue;
+        }
+        issues.push(issue(
+            language,
+            "S3903",
+            format!(
+                "Move this {} into a namespace.",
+                declaration_kind_word(type_declaration.kind())
+            ),
+            range_of(name_anchor(type_declaration)),
+        ));
+    }
+    issues
+}
+
+// ---------------------------------------------------------------------------
+// A5 — shadowing, assignment placement, simple expression patterns
+// ---------------------------------------------------------------------------
+
+/// The operator token of a binary or assignment expression. Anonymous
+/// tokens carry their spelling as node kind, so no source text is needed.
+fn operator_of(expression: Node<'_>) -> Option<&'static str> {
+    const OPERATORS: [&str; 23] = [
+        "==", "!=", "<", ">", "<=", ">=", "&&", "||", "??", "+", "-", "*", "/", "%", "&", "|", "^",
+        "<<", ">>", ">>>", "=", "+=", "-=",
+    ];
+    let mut cursor = expression.walk();
+    let kind = expression
+        .children(&mut cursor)
+        .find(|child| !child.is_named())?
+        .kind();
+    OPERATORS
+        .iter()
+        .find(|operator| **operator == kind)
+        .copied()
+}
+
+/// The two operand expressions of a binary or assignment expression.
+fn binary_operands<'t>(expression: Node<'t>) -> Option<(Node<'t>, Node<'t>)> {
+    let mut cursor = expression.walk();
+    let operands: Vec<Node<'t>> = expression
+        .children(&mut cursor)
+        .filter(tree_sitter::Node::is_named)
+        .collect();
+    match operands.as_slice() {
+        [left, right] => Some((*left, *right)),
+        _ => None,
+    }
+}
+
+/// Comparison expressions as `(expression, left, right)` triples; tainted
+/// subtrees are skipped.
+fn comparisons(root: Node<'_>) -> Vec<(Node<'_>, Node<'_>, Node<'_>)> {
+    collect_kinds(root, &["binary_expression"])
+        .into_iter()
+        .filter(|expression| !is_error_tainted(*expression))
+        .filter_map(|expression| {
+            let (left, right) = binary_operands(expression)?;
+            matches!(
+                operator_of(expression),
+                Some("==" | "!=" | "<" | ">" | "<=" | ">=")
+            )
+            .then_some((expression, left, right))
+        })
+        .collect()
+}
+
+/// The first named child (the sole operand of a prefix unary expression).
+fn first_named_child(node: Node<'_>) -> Option<Node<'_>> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor).find(tree_sitter::Node::is_named)
+}
+
+/// The plain identifier an expression denotes: identifiers themselves and
+/// the member name of a member access (`x.Count` → `Count`).
+fn expression_name<'a>(expression: Node<'_>, source: &'a str) -> Option<&'a str> {
+    match expression.kind() {
+        "identifier" => Some(node_text(expression, source)),
+        "member_access_expression" => {
+            let mut cursor = expression.walk();
+            let named: Vec<Node> = expression
+                .children(&mut cursor)
+                .filter(tree_sitter::Node::is_named)
+                .collect();
+            let last = named.last()?;
+            (last.kind() == "identifier").then(|| node_text(*last, source))
+        }
+        _ => None,
+    }
+}
+
+/// Whether the operand is the literal `0`.
+fn is_zero_literal(operand: Node<'_>, source: &str) -> bool {
+    operand.kind() == "integer_literal" && node_text(operand, source) == "0"
+}
+
+/// `-1`: a negated unit literal.
+fn is_negative_one(operand: Node<'_>, source: &str) -> bool {
+    operand.kind() == "prefix_unary_expression"
+        && operator_of(operand) == Some("-")
+        && first_named_child(operand).is_some_and(|literal| node_text(literal, source) == "1")
+}
+
+/// Parses an integer literal's decimal or hexadecimal value.
+fn integer_literal_value(literal_text: &str) -> Option<u64> {
+    let trimmed = literal_text.trim_end_matches(['u', 'U', 'l', 'L']);
+    if let Some(hex) = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+    {
+        let cleaned: String = hex.chars().filter(char::is_ascii_hexdigit).collect();
+        return u64::from_str_radix(&cleaned, 16).ok();
+    }
+    if !trimmed.chars().all(|c| c.is_ascii_digit() || c == '_') {
+        return None;
+    }
+    trimmed
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .ok()
+}
+
+/// Names of fields and properties declared directly by a type.
+fn field_and_property_names(
+    type_declaration: Node<'_>,
+    source: &str,
+) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    for member in type_members(type_declaration) {
+        match member.kind() {
+            "field_declaration" | "event_field_declaration" => {
+                for declarator in collect_kinds(member, &["variable_declarator"]) {
+                    if let Some(identifier) = first_named_child(declarator)
+                        && identifier.kind() == "identifier"
+                    {
+                        names.insert(node_text(identifier, source).to_string());
+                    }
+                }
+            }
+            "property_declaration" => {
+                if let Some(name) = member.child_by_field_name("name") {
+                    names.insert(node_text(name, source).to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    names
+}
+
+/// csharpsquid:S1117 — locals do not shadow fields or properties of their
+/// enclosing type.
+fn check_local_shadowing(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for type_declaration in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
+        if is_error_tainted(type_declaration) {
+            continue;
+        }
+        let member_names = field_and_property_names(type_declaration, source);
+        if member_names.is_empty() {
+            continue;
+        }
+        for local in collect_kinds(type_declaration, &["local_declaration_statement"]) {
+            for declarator in collect_kinds(local, &["variable_declarator"]) {
+                let Some(identifier) = first_named_child(declarator) else {
+                    continue;
+                };
+                if identifier.kind() != "identifier" {
+                    continue;
+                }
+                let name = node_text(identifier, source);
+                if member_names.contains(name) {
+                    issues.push(issue(
+                        language,
+                        "S1117",
+                        format!("Rename '{name}'; it shadows a member of its enclosing type."),
+                        range_of(declarator),
+                    ));
+                }
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S1121 — assignments belong in dedicated statements.
+fn check_assignments_in_expressions(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for assignment in collect_kinds(root, &["assignment_expression"]) {
+        if is_error_tainted(assignment) {
+            continue;
+        }
+        let parent_kind = assignment.parent().map(|parent| parent.kind());
+        if matches!(parent_kind, Some("expression_statement" | "for_statement")) {
+            continue;
+        }
+        issues.push(issue(
+            language,
+            "S1121",
+            "Assign this value in a dedicated statement.",
+            range_of(assignment),
+        ));
+    }
+    issues
+}
+
+/// csharpsquid:S881 — increments and decrements stay standalone.
+fn check_embedded_increments(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    const KINDS: [&str; 2] = ["prefix_unary_expression", "postfix_unary_expression"];
+    let mut issues = Vec::new();
+    for unary in collect_kinds(root, &KINDS) {
+        if is_error_tainted(unary) || !matches!(operator_of(unary), Some("++" | "--")) {
+            continue;
+        }
+        let parent_kind = unary.parent().map(|parent| parent.kind());
+        if matches!(parent_kind, Some("expression_statement" | "for_statement")) {
+            continue;
+        }
+        issues.push(issue(
+            language,
+            "S881",
+            "Extract this increment or decrement into its own statement.",
+            range_of(unary),
+        ));
+    }
+    issues
+}
+
+/// csharpsquid:S1656 — nothing assigns an expression to itself.
+fn check_self_assignments(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for assignment in collect_kinds(root, &["assignment_expression"]) {
+        if is_error_tainted(assignment) || operator_of(assignment) != Some("=") {
+            continue;
+        }
+        let Some((left, right)) = binary_operands(assignment) else {
+            continue;
+        };
+        if node_text(left, source).trim() == node_text(right, source).trim() {
+            issues.push(issue(
+                language,
+                "S1656",
+                "Remove this self-assignment.",
+                range_of(assignment),
+            ));
+        }
+    }
+    issues
+}
+
+/// Boolean-literal value on either side of a comparison, if present.
+fn boolean_literal_side(left: Node<'_>, right: Node<'_>, source: &str) -> Option<bool> {
+    for operand in [left, right] {
+        if operand.kind() == "boolean_literal" {
+            return Some(node_text(operand, source) == "true");
+        }
+    }
+    None
+}
+
+/// csharpsquid:S1125 — identity comparisons against boolean literals drop
+/// the literal.
+fn check_redundant_boolean_comparisons(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for (expression, left, right) in comparisons(root) {
+        let literal = boolean_literal_side(left, right, source);
+        let redundant = matches!(
+            (operator_of(expression), literal),
+            (Some("=="), Some(true)) | (Some("!="), Some(false))
+        );
+        if redundant {
+            issues.push(issue(
+                language,
+                "S1125",
+                "Remove the redundant boolean literal from this comparison.",
+                range_of(expression),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3240 — conditions use their simplest shape: negation beats
+/// comparing against `false`, ternaries over boolean literals collapse to
+/// their condition.
+fn check_simplifiable_conditions(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for (expression, left, right) in comparisons(root) {
+        let literal = boolean_literal_side(left, right, source);
+        let simplifiable = matches!(
+            (operator_of(expression), literal),
+            (Some("=="), Some(false)) | (Some("!="), Some(true))
+        );
+        if simplifiable {
+            issues.push(issue(
+                language,
+                "S3240",
+                "Replace this comparison with a negation of its operand.",
+                range_of(expression),
+            ));
+        }
+    }
+    for conditional in collect_kinds(root, &["conditional_expression"]) {
+        if is_error_tainted(conditional) {
+            continue;
+        }
+        let mut cursor = conditional.walk();
+        let branches: Vec<Node> = conditional
+            .children(&mut cursor)
+            .filter(tree_sitter::Node::is_named)
+            .skip(1)
+            .collect();
+        if branches.len() == 2 && branches.iter().all(|b| b.kind() == "boolean_literal") {
+            issues.push(issue(
+                language,
+                "S3240",
+                "Replace this ternary with its condition directly.",
+                range_of(conditional),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S1940 — negated equality flips into the opposite operator.
+fn check_inverted_boolean_checks(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for unary in collect_kinds(root, &["prefix_unary_expression"]) {
+        if is_error_tainted(unary) || operator_of(unary) != Some("!") {
+            continue;
+        }
+        let invertible = first_named_child(unary).is_some_and(|operand| {
+            operand.kind() == "parenthesized_expression"
+                && first_named_child(operand).is_some_and(|inner| {
+                    inner.kind() == "binary_expression"
+                        && matches!(operator_of(inner), Some("==" | "!="))
+                })
+        });
+        if invertible {
+            issues.push(issue(
+                language,
+                "S1940",
+                "Invert this comparison instead of negating it.",
+                range_of(unary),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2761 — prefix operators do not double up.
+fn check_doubled_prefix_operators(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for unary in collect_kinds(root, &["prefix_unary_expression"]) {
+        if is_error_tainted(unary) || !matches!(operator_of(unary), Some("!" | "~" | "+" | "-")) {
+            continue;
+        }
+        let doubled = first_named_child(unary).is_some_and(|operand| {
+            operand.kind() == "prefix_unary_expression"
+                && matches!(operator_of(operand), Some("!" | "~" | "+" | "-"))
+        });
+        if doubled {
+            issues.push(issue(
+                language,
+                "S2761",
+                "Collapse these doubled prefix operators.",
+                range_of(unary),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2688 — NaN compares unequal to everything, itself included.
+fn check_nan_comparisons(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for (expression, left, right) in comparisons(root) {
+        if !matches!(operator_of(expression), Some("==" | "!=")) {
+            continue;
+        }
+        let names_nan = [left, right]
+            .iter()
+            .any(|operand| expression_name(*operand, source) == Some("NaN"));
+        if names_nan {
+            issues.push(issue(
+                language,
+                "S2688",
+                "Use 'IsNaN' to test for NaN; equality comparisons never hold.",
+                range_of(expression),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S1244 — floating-point equality needs a tolerance.
+fn check_float_equality(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for (expression, left, right) in comparisons(root) {
+        let float_side = left.kind() == "real_literal" || right.kind() == "real_literal";
+        if matches!(operator_of(expression), Some("==" | "!=")) && float_side {
+            issues.push(issue(
+                language,
+                "S1244",
+                "Compare floating-point values with a tolerance instead of equality.",
+                range_of(expression),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2198 — relational self-comparisons are always constant.
+fn check_self_relational_comparisons(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for (expression, left, right) in comparisons(root) {
+        if !matches!(operator_of(expression), Some("<" | ">" | "<=" | ">=")) {
+            continue;
+        }
+        if node_text(left, source).trim() == node_text(right, source).trim() {
+            issues.push(issue(
+                language,
+                "S2198",
+                "Remove this contradictory comparison of an expression with itself.",
+                range_of(expression),
+            ));
+        }
+    }
+    issues
+}
+
+/// Collection-count member tails (`Count`, `Length`).
+fn count_member_tail(operand: Node<'_>, source: &str) -> bool {
+    matches!(expression_name(operand, source), Some("Count" | "Length"))
+}
+
+/// csharpsquid:S3981 — collection sizes never compare against negatives.
+fn check_negative_size_comparisons(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    fn negative_value(operand: Node<'_>, source: &str) -> Option<i64> {
+        if operand.kind() != "prefix_unary_expression" || operator_of(operand) != Some("-") {
+            return None;
+        }
+        let literal = first_named_child(operand)?;
+        integer_literal_value(node_text(literal, source))
+            .and_then(|value| i64::try_from(value).ok())
+            .map(|value| -value)
+    }
+    let mut issues = Vec::new();
+    for (expression, left, right) in comparisons(root) {
+        let size_side = [left, right].iter().any(|o| count_member_tail(*o, source));
+        let negative_side = [left, right]
+            .iter()
+            .any(|o| negative_value(*o, source).is_some());
+        if size_side && negative_side {
+            issues.push(issue(
+                language,
+                "S3981",
+                "Collection sizes are never negative; fix this comparison.",
+                range_of(expression),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2692 — '`IndexOf`' presence tests use '>=' not '>'.
+fn check_indexof_positive_checks(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    fn indexof_call(operand: Node<'_>, source: &str) -> bool {
+        operand.kind() == "invocation_expression"
+            && first_named_child(operand).is_some_and(|callee| {
+                callee.kind() == "member_access_expression"
+                    && matches!(
+                        expression_name(callee, source),
+                        Some("IndexOf" | "LastIndexOf")
+                    )
+            })
+    }
+    let mut issues = Vec::new();
+    for (expression, left, right) in comparisons(root) {
+        let pattern = operator_of(expression) == Some(">")
+            && ((indexof_call(left, source) && is_zero_literal(right, source))
+                || (indexof_call(right, source) && is_zero_literal(left, source)));
+        if pattern {
+            issues.push(issue(
+                language,
+                "S2692",
+                "Test 'IndexOf' results with '>= 0'; '>' wrongly rejects index 0.",
+                range_of(expression),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2183 — shift amounts stay within 1..31 for 32-bit operands.
+fn check_shift_amounts(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for expression in collect_kinds(root, &["binary_expression"]) {
+        if is_error_tainted(expression)
+            || !matches!(operator_of(expression), Some("<<" | ">>" | ">>>"))
+        {
+            continue;
+        }
+        let Some((_, right)) = binary_operands(expression) else {
+            continue;
+        };
+        if right.kind() != "integer_literal" {
+            continue;
+        }
+        let Some(amount) = integer_literal_value(node_text(right, source)) else {
+            continue;
+        };
+        if amount == 0 || amount >= 32 {
+            issues.push(issue(
+                language,
+                "S2183",
+                format!(
+                    "Shift by a non-zero amount below the operand width ({amount} is out of range)."
+                ),
+                range_of(expression),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2437 — bit operations fold away when an operand makes them
+/// constants.
+fn check_unnecessary_bit_operations(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for expression in collect_kinds(root, &["binary_expression"]) {
+        if is_error_tainted(expression) {
+            continue;
+        }
+        let Some((left, right)) = binary_operands(expression) else {
+            continue;
+        };
+        let zero_on_either = is_zero_literal(left, source) || is_zero_literal(right, source);
+        let minus_one_on_either = is_negative_one(left, source) || is_negative_one(right, source);
+        let identical = node_text(left, source).trim() == node_text(right, source).trim();
+        let verdict = match operator_of(expression) {
+            Some("&") if zero_on_either => Some("'and' with zero always yields zero."),
+            Some("|") if minus_one_on_either => Some("'or' with -1 always yields -1."),
+            Some("|") if zero_on_either => Some("'or' with zero changes nothing."),
+            Some("^") if identical => Some("'xor' of identical operands always yields zero."),
+            _ => None,
+        };
+        if let Some(verdict) = verdict {
+            issues.push(issue(
+                language,
+                "S2437",
+                format!("Remove this unnecessary bit operation: {verdict}"),
+                range_of(expression),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2197 — remainders compare against ranges, not values.
+fn check_modulus_equality(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    fn modulus(operand: Node<'_>) -> bool {
+        operand.kind() == "binary_expression" && operator_of(operand) == Some("%")
+    }
+    let mut issues = Vec::new();
+    for (expression, left, right) in comparisons(root) {
+        if matches!(operator_of(expression), Some("==" | "!=")) && (modulus(left) || modulus(right))
+        {
+            issues.push(issue(
+                language,
+                "S2197",
+                "Compare remainder results against ranges, not single values.",
+                range_of(expression),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3358 — ternaries do not nest.
+fn check_nested_ternaries(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for conditional in collect_kinds(root, &["conditional_expression"]) {
+        if !is_error_tainted(conditional)
+            && has_ancestor_with_kind(conditional, &["conditional_expression"])
+        {
+            issues.push(issue(
+                language,
+                "S3358",
+                "Extract this nested ternary into its own statement.",
+                range_of(conditional),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3060 — 'this' does not take part in 'is' type tests.
+fn check_this_is_checks(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for is_expression in collect_kinds(root, &["is_expression"]) {
+        if is_error_tainted(is_expression) {
+            continue;
+        }
+        let tests_this = first_named_child(is_expression)
+            .is_some_and(|operand| node_text(operand, source) == "this");
+        if tests_this {
+            issues.push(issue(
+                language,
+                "S3060",
+                "Do not combine 'this' with the 'is' operator.",
+                range_of(is_expression),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S4201 — null checks merge into 'is' patterns.
+fn check_null_check_with_is(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    fn is_pattern_name<'a>(operand: Node<'_>, source: &'a str) -> Option<&'a str> {
+        if operand.kind() != "is_expression" {
+            return None;
+        }
+        first_named_child(operand)
+            .filter(|target| target.kind() == "identifier")
+            .and_then(|target| expression_name(target, source))
+    }
+    let mut issues = Vec::new();
+    for expression in collect_kinds(root, &["binary_expression"]) {
+        if is_error_tainted(expression) || operator_of(expression) != Some("&&") {
+            continue;
+        }
+        let Some((left, right)) = binary_operands(expression) else {
+            continue;
+        };
+        let redundant = [
+            (
+                null_check_name(left, source),
+                is_pattern_name(right, source),
+            ),
+            (
+                null_check_name(right, source),
+                is_pattern_name(left, source),
+            ),
+        ]
+        .iter()
+        .any(|(null_name, pattern)| null_name.is_some() && *null_name == *pattern);
+        if redundant {
+            issues.push(issue(
+                language,
+                "S4201",
+                "Drop the null check; the 'is' type test already rejects null.",
+                range_of(expression),
+            ));
+        }
+    }
+    issues
+}
+
+/// Zero-argument `GetType()` invocation.
+fn gettype_invocation(operand: Node<'_>, source: &str) -> bool {
+    if operand.kind() != "invocation_expression" {
+        return false;
+    }
+    let Some(callee) = first_named_child(operand) else {
+        return false;
+    };
+    callee.kind() == "member_access_expression"
+        && expression_name(callee, source) == Some("GetType")
+        && collect_kinds(operand, &["argument_list"])
+            .iter()
+            .all(|list| list.named_child_count() == 0)
+}
+
+/// csharpsquid:S2219 — GetType()/typeof(X) pairs become 'is' patterns.
+fn check_gettype_typeof_comparisons(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for (expression, left, right) in comparisons(root) {
+        if !matches!(operator_of(expression), Some("==" | "!=")) {
+            continue;
+        }
+        let pattern = (gettype_invocation(left, source) && right.kind() == "typeof_expression")
+            || (gettype_invocation(right, source) && left.kind() == "typeof_expression");
+        if pattern {
+            issues.push(issue(
+                language,
+                "S2219",
+                "Use the 'is' type pattern instead of comparing GetType() with typeof().",
+                range_of(expression),
+            ));
+        }
+    }
+    issues
+}
+
+/// The identifier a comparison checks against `null`.
+fn null_check_name<'a>(comparison: Node<'_>, source: &'a str) -> Option<&'a str> {
+    if !matches!(operator_of(comparison), Some("==")) {
+        return None;
+    }
+    let (left, right) = binary_operands(comparison)?;
+    if left.kind() == "null_literal" {
+        return expression_name(right, source);
+    }
+    if right.kind() == "null_literal" {
+        return expression_name(left, source);
+    }
+    None
+}
+
+/// The identifier an empty-string test inspects, when the operand is one
+/// (`s == ""`, `s == string.Empty`, and `s.Length == 0` shapes alike).
+fn empty_check_name<'a>(comparison: Node<'_>, source: &'a str) -> Option<&'a str> {
+    if !matches!(operator_of(comparison), Some("==")) {
+        return None;
+    }
+    let (left, right) = binary_operands(comparison)?;
+    for (tested, expected) in [(left, right), (right, left)] {
+        let name = match tested.kind() {
+            "identifier" => expression_name(tested, source),
+            "member_access_expression" => {
+                if expression_name(tested, source) == Some("Length") {
+                    first_named_child(tested).and_then(|target| expression_name(target, source))
+                } else {
+                    None
+                }
+            }
+            _ => continue,
+        }?;
+        let is_empty_test = match expected.kind() {
+            "string_literal" => node_text(expected, source) == "\"\"",
+            "member_access_expression" => expression_name(expected, source) == Some("Empty"),
+            "integer_literal" => is_zero_literal(expected, source),
+            _ => false,
+        };
+        if is_empty_test {
+            return Some(name);
+        }
+    }
+    None
+}
+
+/// csharpsquid:S3256 — compound null-and-empty checks collapse into
+/// 'string.IsNullOrEmpty'.
+fn check_null_or_empty_patterns(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for expression in collect_kinds(root, &["binary_expression"]) {
+        if is_error_tainted(expression) || operator_of(expression) != Some("||") {
+            continue;
+        }
+        let Some((left, right)) = binary_operands(expression) else {
+            continue;
+        };
+        let collapsible = [
+            (
+                null_check_name(left, source),
+                empty_check_name(right, source),
+            ),
+            (
+                null_check_name(right, source),
+                empty_check_name(left, source),
+            ),
+        ]
+        .iter()
+        .any(|(null_name, empty_name)| null_name.is_some() && *null_name == *empty_name);
+        if collapsible {
+            issues.push(issue(
+                language,
+                "S3256",
+                "Replace this compound check with 'string.IsNullOrEmpty'.",
+                range_of(expression),
+            ));
+        }
+    }
+    issues
+}
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -3491,5 +5681,502 @@ mod tests {
         let flagged = with_key(&report, "csharpsquid:S4061");
         assert_eq!(flagged.len(), 1);
         assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s121_requires_curly_braces_on_embedded_statements() {
+        let report = analyze_default(
+            "class A\n{\n    void M(bool x)\n    {\n        if (x)\n        {\n            DoIt();\n        }\n        while (x)\n            DoIt();\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S121");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 10);
+
+        let clean = analyze_default(
+            "class A\n{\n    void M(bool x)\n    {\n        while (x)\n        {\n            DoIt();\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&clean, "csharpsquid:S121").is_empty());
+    }
+
+    #[test]
+    fn s108_flags_empty_blocks_but_not_commented_ones() {
+        let report = analyze_default(
+            "class A\n{\n    void M(bool x)\n    {\n        if (x)\n        {\n        }\n        if (x)\n        {\n            /* note */\n        }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S108");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 6);
+    }
+
+    #[test]
+    fn s1116_flags_empty_statements() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        ;\n        DoIt();\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1116");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s1110_flags_redundant_parenthesis_pairs() {
+        let report = analyze_default(
+            "class A\n{\n    int Twice(int x)\n    {\n        return ((x)) + (x);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1110");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s3235_flags_return_and_argument_parentheses() {
+        let report = analyze_default(
+            "class A\n{\n    int Get(int x)\n    {\n        return (x);\n    }\n    void Use(int y)\n    {\n        Consume((y));\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3235");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 9);
+
+        let clean =
+            analyze_default("class A\n{\n    int Get(int x)\n    {\n        return x;\n    }\n}\n");
+        assert!(with_key(&clean, "csharpsquid:S3235").is_empty());
+    }
+
+    #[test]
+    fn s1066_merges_else_less_ifs_holding_one_nested_if() {
+        let report = analyze_default(
+            "class A\n{\n    void M(bool a, bool b)\n    {\n        if (a)\n        {\n            if (b)\n            {\n                DoIt();\n            }\n        }\n        if (a)\n        {\n            if (b)\n            {\n                DoIt();\n            }\n            else\n            {\n                Stop();\n            }\n        }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1066");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s126_demands_a_terminal_else_on_chains() {
+        let open_chain = analyze_default(
+            "class A\n{\n    void M(int n)\n    {\n        if (n == 1)\n        {\n            Stop();\n        }\n        else if (n == 2)\n        {\n            Stop();\n        }\n    }\n}\n",
+        );
+        let flagged = with_key(&open_chain, "csharpsquid:S126");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 9);
+
+        let closed_chain = analyze_default(
+            "class A\n{\n    void M(int n)\n    {\n        if (n == 1)\n        {\n            Stop();\n        }\n        else\n        {\n            Stop();\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&closed_chain, "csharpsquid:S126").is_empty());
+    }
+
+    #[test]
+    fn s131_requires_a_default_clause() {
+        let missing = analyze_default(
+            "class A\n{\n    void M(int n)\n    {\n        switch (n)\n        {\n            case 1:\n                break;\n        }\n    }\n}\n",
+        );
+        assert_eq!(with_key(&missing, "csharpsquid:S131").len(), 1);
+
+        let present = analyze_default(
+            "class A\n{\n    void M(int n)\n    {\n        switch (n)\n        {\n            case 1:\n                break;\n            default:\n                break;\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&present, "csharpsquid:S131").is_empty());
+    }
+
+    #[test]
+    fn s1301_rejects_switches_with_fewer_than_three_cases() {
+        let small = analyze_default(
+            "class A\n{\n    void M(int n)\n    {\n        switch (n)\n        {\n            case 1:\n                break;\n            case 2:\n                break;\n            default:\n                break;\n        }\n    }\n}\n",
+        );
+        assert_eq!(with_key(&small, "csharpsquid:S1301").len(), 1);
+
+        let boundary = analyze_default(
+            "class A\n{\n    void M(int n)\n    {\n        switch (n)\n        {\n            case 1:\n                break;\n            case 2:\n                break;\n            case 3:\n                break;\n            default:\n                break;\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&boundary, "csharpsquid:S1301").is_empty());
+    }
+
+    #[test]
+    fn s1479_limits_switch_section_statement_counts() {
+        let options = AnalyzerOptions {
+            maximum_switch_section_statements: 2,
+            ..Default::default()
+        };
+        let over = analyze_options(
+            "class A\n{\n    void M(int n)\n    {\n        switch (n)\n        {\n            case 1:\n                DoIt();\n                DoIt();\n                DoIt();\n                break;\n        }\n    }\n}\n",
+            &options,
+        );
+        assert_eq!(with_key(&over, "csharpsquid:S1479").len(), 1);
+
+        let at_limit = analyze_options(
+            "class A\n{\n    void M(int n)\n    {\n        switch (n)\n        {\n            case 1:\n                DoIt();\n                break;\n        }\n    }\n}\n",
+            &options,
+        );
+        assert!(with_key(&at_limit, "csharpsquid:S1479").is_empty());
+    }
+
+    #[test]
+    fn s1151_limits_switch_section_line_spans() {
+        let options = AnalyzerOptions {
+            maximum_switch_section_lines: 4,
+            ..Default::default()
+        };
+        let over = analyze_options(
+            "class A\n{\n    void M(int n)\n    {\n        switch (n)\n        {\n            case 1:\n                DoIt();\n                DoIt();\n                DoIt();\n                break;\n        }\n    }\n}\n",
+            &options,
+        );
+        assert_eq!(with_key(&over, "csharpsquid:S1151").len(), 1);
+
+        let at_limit = analyze_options(
+            "class A\n{\n    void M(int n)\n    {\n        switch (n)\n        {\n            case 1:\n                DoIt();\n                DoIt();\n                break;\n        }\n    }\n}\n",
+            &options,
+        );
+        assert!(with_key(&at_limit, "csharpsquid:S1151").is_empty());
+    }
+
+    #[test]
+    fn s134_enforces_the_configured_nesting_depth() {
+        let nested = "class A\n{\n    void M(bool go, bool ok)\n    {\n        foreach (var item in Items)\n        {\n            while (go)\n            {\n                if (ok)\n                {\n                    DoIt();\n                }\n            }\n        }\n    }\n}\n";
+        let options = AnalyzerOptions {
+            maximum_nesting_level: 0,
+            ..Default::default()
+        };
+        let report = analyze_options(nested, &options);
+        let flagged = with_key(&report, "csharpsquid:S134");
+        assert_eq!(flagged[0].range.start.line, 7);
+        assert_eq!(flagged[1].range.start.line, 9);
+
+        let relaxed = AnalyzerOptions {
+            maximum_nesting_level: 2,
+
+            ..Default::default()
+        };
+        assert!(with_key(&analyze_options(nested, &relaxed), "csharpsquid:S134").is_empty());
+    }
+
+    #[test]
+    fn s1199_flags_plain_nested_code_blocks() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        {\n            DoIt();\n        }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1199");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+    #[test]
+    fn s2681_encloses_multiline_embedded_bodies_in_braces() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int x)\n    {\n        if (x > 0)\n            DoIt(\n                x);\n        if (x > 0)\n        {\n            DoIt(x);\n        }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2681");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 6);
+
+        let braced = analyze_default(
+            "class A\n{\n    void M(int x)\n    {\n        if (x > 0)\n        {\n            DoIt(\n                x);\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&braced, "csharpsquid:S2681").is_empty());
+    }
+
+    #[test]
+    fn s1821_flags_switches_nested_in_switches() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int a, int b)\n    {\n        switch (a)\n        {\n            case 1:\n                switch (b)\n                {\n                    case 2:\n                        break;\n                }\n                break;\n        }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1821");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 8);
+
+        let flat = analyze_default(
+            "class A\n{\n    void M(int a)\n    {\n        switch (a)\n        {\n            case 1:\n                break;\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&flat, "csharpsquid:S1821").is_empty());
+    }
+
+    #[test]
+    fn s4524_keeps_default_first_or_last() {
+        let middle = analyze_default(
+            "class A\n{\n    void M(int a)\n    {\n        switch (a)\n        {\n            case 1:\n                break;\n            default:\n                break;\n            case 2:\n                break;\n        }\n    }\n}\n",
+        );
+        let flagged = with_key(&middle, "csharpsquid:S4524");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 9);
+
+        let trailing = analyze_default(
+            "class A\n{\n    void M(int a)\n    {\n        switch (a)\n        {\n            case 1:\n                break;\n            case 2:\n                break;\n            default:\n                break;\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&trailing, "csharpsquid:S4524").is_empty());
+    }
+
+    #[test]
+    fn s3458_drops_empty_cases_falling_into_default() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int a)\n    {\n        switch (a)\n        {\n            case 1:\n            default:\n                break;\n            case 2:\n                break;\n        }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3458");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 7);
+
+        let stacked = analyze_default(
+            "class A\n{\n    void M(int a)\n    {\n        switch (a)\n        {\n            case 1:\n            case 2:\n                break;\n            default:\n                break;\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&stacked, "csharpsquid:S3458").is_empty());
+    }
+
+    #[test]
+    fn s3532_removes_empty_default_clauses() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int a)\n    {\n        switch (a)\n        {\n            case 1:\n                break;\n            default:\n        }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3532");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 9);
+
+        let populated = analyze_default(
+            "class A\n{\n    void M(int a)\n    {\n        switch (a)\n        {\n            default:\n                break;\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&populated, "csharpsquid:S3532").is_empty());
+    }
+
+    #[test]
+    fn s1264_converts_condition_only_for_loops_to_while() {
+        let report = analyze_default(
+            "class A\n{\n    void M(bool go)\n    {\n        for (;;)\n        {\n            if (!go)\n            {\n                break;\n            }\n        }\n        for (; go; )\n        {\n            DoIt();\n        }\n        for (var i = 0; i < 3; i++)\n        {\n            DoIt();\n        }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1264");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 12);
+
+        let complete = analyze_default(
+            "class A\n{\n    void M()\n    {\n        for (var i = 0; i < 3; i++)\n        {\n            DoIt();\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&complete, "csharpsquid:S1264").is_empty());
+    }
+
+    #[test]
+    fn s1994_requires_the_increment_to_drive_the_counter() {
+        let detached = analyze_default(
+            "class A\n{\n    void M()\n    {\n        for (var i = 0; i < 3; )\n        {\n            i = 1;\n        }\n    }\n}\n",
+        );
+        let flagged = with_key(&detached, "csharpsquid:S1994");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+
+        let driven = analyze_default(
+            "class A\n{\n    void M()\n    {\n        for (var i = 0; i < 3; i++)\n        {\n            DoIt();\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&driven, "csharpsquid:S1994").is_empty());
+    }
+
+    #[test]
+    fn s138_limits_function_body_spans() {
+        let options = AnalyzerOptions {
+            maximum_function_lines: 2,
+            ..Default::default()
+        };
+        let over = analyze_options(
+            "class A\n{\n    void M()\n    {\n        DoIt();\n        DoIt();\n        DoIt();\n    }\n}\n",
+            &options,
+        );
+        let flagged = with_key(&over, "csharpsquid:S138");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+
+        let at_limit = AnalyzerOptions {
+            maximum_function_lines: 5,
+            ..Default::default()
+        };
+        assert!(
+            with_key(&analyze_options(
+                "class A\n{\n    void M()\n    {\n        DoIt();\n        DoIt();\n        DoIt();\n    }\n}\n",
+                &at_limit
+            ), "csharpsquid:S138")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn s107_limits_method_parameter_counts() {
+        let eight = analyze_default(
+            "class A\n{\n    void M(int a, int b, int c, int d, int e, int f, int g, int h)\n    {\n        DoIt();\n    }\n}\n",
+        );
+        let flagged = with_key(&eight, "csharpsquid:S107");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+
+        let seven = analyze_default(
+            "class A\n{\n    void M(int a, int b, int c, int d, int e, int f, int g)\n    {\n        DoIt();\n    }\n}\n",
+        );
+        assert!(with_key(&seven, "csharpsquid:S107").is_empty());
+    }
+
+    #[test]
+    fn s1541_limits_cyclomatic_complexity() {
+        let branching = "class A\n{\n    int Score(bool a, bool b, bool c)\n    {\n        if (a && b)\n        {\n            return 1;\n        }\n        return c ? 2 : 3;\n    }\n}\n";
+        let strict = AnalyzerOptions {
+            maximum_function_complexity_threshold: 3,
+            ..Default::default()
+        };
+        let report = analyze_options(branching, &strict);
+        let flagged = with_key(&report, "csharpsquid:S1541");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+
+        let tolerant = AnalyzerOptions {
+            maximum_function_complexity_threshold: 4,
+            ..Default::default()
+        };
+        assert!(with_key(&analyze_options(branching, &tolerant), "csharpsquid:S1541").is_empty());
+    }
+
+    #[test]
+    fn s3776_limits_cognitive_complexity_with_nesting_weights() {
+        let nested = "class A\n{\n    void M(bool a, bool b)\n    {\n        if (a)\n        {\n            if (b)\n            {\n                DoIt();\n            }\n        }\n    }\n}\n";
+        let strict = AnalyzerOptions {
+            maximum_cognitive_complexity_threshold: 2,
+            ..Default::default()
+        };
+        let report = analyze_options(nested, &strict);
+        let flagged = with_key(&report, "csharpsquid:S3776");
+        assert_eq!(flagged[0].range.start.line, 3);
+
+        let tolerant = AnalyzerOptions {
+            maximum_cognitive_complexity_threshold: 3,
+            ..Default::default()
+        };
+        assert!(with_key(&analyze_options(nested, &tolerant), "csharpsquid:S3776").is_empty());
+    }
+
+    #[test]
+    fn s1067_limits_logical_operators_per_expression() {
+        let four = analyze_default(
+            "class A\n{\n    bool Check(bool a, bool b, bool c, bool d, bool e)\n    {\n        return a && b && c && d && e;\n    }\n}\n",
+        );
+        let flagged = with_key(&four, "csharpsquid:S1067");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+
+        let three = analyze_default(
+            "class A\n{\n    bool Check(bool a, bool b, bool c)\n    {\n        return a && b && c;\n    }\n}\n",
+        );
+        assert!(with_key(&three, "csharpsquid:S1067").is_empty());
+    }
+
+    #[test]
+    fn s1186_flags_empty_methods_except_attributed_ones() {
+        let report = analyze_default(
+            "class A\n{\n    void Empty()\n    {\n    }\n\n    [System.Obsolete]\n    void Hook()\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1186");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s1048_forbids_throwing_finalizers() {
+        let report = analyze_default(
+            "class A\n{\n    ~A()\n    {\n        throw new System.Exception();\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1048");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+
+        let quiet = analyze_default("class A\n{\n    ~A()\n    {\n        Release();\n    }\n}\n");
+        assert!(with_key(&quiet, "csharpsquid:S1048").is_empty());
+    }
+
+    #[test]
+    fn s3880_flags_empty_finalizers() {
+        let report = analyze_default("class A\n{\n    ~A()\n    {\n    }\n}\n");
+        let flagged = with_key(&report, "csharpsquid:S3880");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s2372_forbids_throwing_property_getters() {
+        let report = analyze_default(
+            "class A\n{\n    string Name\n    {\n        get\n        {\n            throw new System.Exception();\n        }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2372");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+
+        let calm = analyze_default("class A\n{\n    string Name => \"value\";\n}\n");
+        assert!(with_key(&calm, "csharpsquid:S2372").is_empty());
+    }
+
+    #[test]
+    fn s2376_flags_write_only_properties() {
+        let report = analyze_default(
+            "class A\n{\n    string Name\n    {\n        set\n        {\n            stored = value;\n        }\n    }\n\n    string Both\n    {\n        get\n        {\n            return stored;\n        }\n        set\n        {\n            stored = value;\n        }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2376");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s2292_replaces_trivial_accessor_pairs_with_auto_properties() {
+        let report = analyze_default(
+            "class A\n{\n    int Value\n    {\n        get { return number; }\n        set { number = value; }\n    }\n\n    int Auto { get; set; }\n\n    int Computed\n    {\n        get { return number + 1; }\n        set { number = value; }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2292");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s1694_demands_abstract_and_concrete_members_on_abstract_classes() {
+        let report = analyze_default(
+            "abstract class OnlyAbstract\n{\n    public abstract void Go();\n}\n\nabstract class OnlyConcrete\n{\n    public void Walk()\n    {\n        DoIt();\n    }\n}\n\nabstract class Mixed\n{\n    public abstract void Run();\n\n    public void Walk()\n    {\n        DoIt();\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1694");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 1);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s2094_flags_empty_classes_and_records() {
+        let report = analyze_default(
+            "class Bare\n{\n}\n\nrecord BareRecord;\n\npartial class Split\n{\n}\n\nrecord Positioned(int Id);\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2094");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 1);
+        assert_eq!(flagged[1].range.start.line, 5);
+    }
+
+    #[test]
+    fn s4023_flags_empty_interfaces() {
+        let report =
+            analyze_default("interface IBare\n{\n}\n\ninterface IFull\n{\n    void Go();\n}\n");
+        let flagged = with_key(&report, "csharpsquid:S4023");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s3261_flags_empty_namespaces() {
+        let report = analyze_default(
+            "namespace Empty\n{\n}\n\nnamespace Full\n{\n    class Inside\n    {\n        int member;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3261");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s3903_moves_file_scope_types_into_namespaces() {
+        let report = analyze_default(
+            "class One\n{\n    int member;\n}\n\nclass Two\n{\n    int member;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3903");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 1);
+        assert_eq!(flagged[1].range.start.line, 6);
+
+        let lone = analyze_default("class Solo\n{\n    int member;\n}\n");
+        assert!(with_key(&lone, "csharpsquid:S3903").is_empty());
     }
 }
