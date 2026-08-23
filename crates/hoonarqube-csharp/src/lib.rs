@@ -295,8 +295,9 @@ fn file_metrics(root: Node<'_>, source: &str) -> hoonarqube_ir::FileMetrics {
     }
 }
 
-/// Gathers every Tier-A4 through A11 structural, function-metric, expression,
-/// attribute-contract, member-contract, and literal-content issue.
+/// Gathers every Tier-A4 through A13 structural, function-metric, expression,
+/// attribute-contract, member-contract, literal-content, security deny-list,
+/// and date/time or ASP.NET heuristic issue.
 fn structural_issues(
     root: Node<'_>,
     source: &str,
@@ -371,6 +372,8 @@ fn structural_issues(
     issues.extend(literal_content_issues(root, source, language, options));
     issues.extend(usage_heuristic_issues(root, source, language));
     issues.extend(declaration_contract_issues(root, source, language));
+    issues.extend(security_deny_list_issues(root, source, language));
+    issues.extend(datetime_aspnet_issues(root, source, language));
     issues
 }
 
@@ -8901,6 +8904,1735 @@ fn check_flags_zero_member_named_none(
         })
         .collect()
 }
+
+// ---------------------------------------------------------------------------
+// A12 — security textual deny/require lists
+// ---------------------------------------------------------------------------
+
+/// The declaration an attribute decorates (`attribute` → `attribute_list` →
+/// declaration). Assembly-level attributes have no declaration.
+fn attributed_declaration(attribute: Node<'_>) -> Option<Node<'_>> {
+    attribute
+        .parent()
+        .filter(|list| list.kind() == "attribute_list")
+        .and_then(|list| list.parent())
+}
+
+/// Return-type spelling of a callable (`void`, `Task<int>`, ...); the field
+/// carrying it differs between declaration kinds.
+fn return_type_text<'a>(callable: Node<'_>, source: &'a str) -> &'a str {
+    for field in ["returns", "type"] {
+        if let Some(return_type) = callable.child_by_field_name(field) {
+            return node_text(return_type, source);
+        }
+    }
+    ""
+}
+
+/// csharpsquid:S3597 — `[OperationContract]` methods belong to
+/// `[ServiceContract]` types.
+fn check_operation_contract_pairing(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for (name, _, attribute) in attribute_applications(root, source) {
+        if !matches!(name, "OperationContract" | "OperationContractAttribute") {
+            continue;
+        }
+        let Some(method) = attributed_declaration(attribute) else {
+            continue;
+        };
+        if method.kind() != "method_declaration" {
+            continue;
+        }
+        let contracted = enclosing_type(method)
+            .is_some_and(|ty| has_any_attribute(ty, source, &["ServiceContract"]));
+        if !contracted {
+            issues.push(issue(
+                language,
+                "S3597",
+                "Use '[OperationContract]' only on methods of a '[ServiceContract]' type.",
+                range_of(attribute),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3598 — one-way operations cannot report a result.
+fn check_one_way_contracts_return_void(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for (name, args, attribute) in attribute_applications(root, source) {
+        if !matches!(name, "OperationContract" | "OperationContractAttribute") {
+            continue;
+        }
+        let Some(args) = args else { continue };
+        let args_text = node_text(args, source);
+        if !(args_text.contains("IsOneWay") && args_text.contains("true")) {
+            continue;
+        }
+        let Some(method) = attributed_declaration(attribute) else {
+            continue;
+        };
+        if method.kind() == "method_declaration" && return_type_text(method, source) != "void" {
+            issues.push(issue(
+                language,
+                "S3598",
+                "Remove 'IsOneWay' from this operation or make it return void.",
+                range_of(attribute),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3603 — methods annotated '[Pure]' must return a value.
+fn check_pure_methods_return_values(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for (name, _, attribute) in attribute_applications(root, source) {
+        if !matches!(name, "Pure" | "PureAttribute") {
+            continue;
+        }
+        let Some(method) = attributed_declaration(attribute) else {
+            continue;
+        };
+        if method.kind() == "method_declaration" && return_type_text(method, source) == "void" {
+            issues.push(issue(
+                language,
+                "S3603",
+                "Methods annotated '[Pure]' must return a value.",
+                range_of(attribute),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S4210 — `WinForms` entry points are marked `[STAThread]`.
+fn check_winforms_entry_points(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let winforms_file =
+        source.contains("System.Windows.Forms") || source.contains("Application.Run");
+    if !winforms_file {
+        return Vec::new();
+    }
+    collect_kinds(root, &["method_declaration"])
+        .into_iter()
+        .filter(|method| !is_error_tainted(*method))
+        .filter(|method| {
+            method
+                .child_by_field_name("name")
+                .is_some_and(|name| node_text(name, source) == "Main")
+        })
+        .filter(|method| !has_any_attribute(*method, source, &["STAThread"]))
+        .map(|method| {
+            issue(
+                language,
+                "S4210",
+                "Mark the WinForms entry point with '[STAThread]'.",
+                range_of(name_anchor(method)),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S4211 — the two transparency levels contradict each other.
+fn check_conflicting_transparency_attributes(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for type_node in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
+        if is_error_tainted(type_node) {
+            continue;
+        }
+        let attributes = attributes_of(type_node, source);
+        if has_attribute(&attributes, "SecurityCritical")
+            && has_attribute(&attributes, "SecuritySafeCritical")
+        {
+            issues.push(issue(
+                language,
+                "S4211",
+                "Apply either 'SecurityCritical' or 'SecuritySafeCritical', not both.",
+                range_of(type_node),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S4212 — serialization constructors stay hidden from callers.
+fn check_serialization_constructors_secured(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    const SERIALIZATION_PARAM_TYPES: [&str; 2] = ["SerializationInfo", "StreamingContext"];
+    let mut issues = Vec::new();
+    for constructor in collect_kinds(root, &["constructor_declaration"]) {
+        if is_error_tainted(constructor) {
+            continue;
+        }
+        let param_types: Vec<String> = parameters_of(constructor)
+            .into_iter()
+            .filter_map(|param| param.child_by_field_name("type"))
+            .map(|ty| simple_name(node_text(ty, source)).to_string())
+            .collect();
+        if !SERIALIZATION_PARAM_TYPES
+            .iter()
+            .all(|wanted| param_types.iter().any(|found| found == wanted))
+        {
+            continue;
+        }
+        let modifiers = modifiers_of(constructor, source);
+        let family_visible = has_modifier(&modifiers, "protected");
+        let exposed = has_modifier(&modifiers, "public")
+            || (has_modifier(&modifiers, "internal") && !family_visible);
+        if exposed {
+            issues.push(issue(
+                language,
+                "S4212",
+                "Reduce the visibility of this serialization constructor.",
+                range_of(constructor),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3926 — `[OptionalField]` members need an `[OnDeserialized]`
+/// hook to repair data written by older versions.
+fn check_optional_fields_have_deserialization_hooks(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for field in collect_kinds(root, &["field_declaration"]) {
+        if is_error_tainted(field) || !has_any_attribute(field, source, &["OptionalField"]) {
+            continue;
+        }
+        let hooked = enclosing_type(field).is_some_and(|ty| {
+            member_declarations_of_kind(ty, "method_declaration")
+                .iter()
+                .any(|method| has_any_attribute(*method, source, &["OnDeserialized"]))
+        });
+        if !hooked {
+            issues.push(issue(
+                language,
+                "S3926",
+                "Handle this '[OptionalField]' member in an '[OnDeserialized]' callback.",
+                range_of(field),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3927 — serialization callbacks return void and take exactly
+/// one `StreamingContext`.
+fn check_serialization_event_handler_shapes(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    const SERIALIZATION_EVENT_ATTRIBUTES: [&str; 4] = [
+        "OnSerializing",
+        "OnDeserializing",
+        "OnSerialized",
+        "OnDeserialized",
+    ];
+    let mut issues = Vec::new();
+    for method in collect_kinds(root, &["method_declaration"]) {
+        if is_error_tainted(method)
+            || !has_any_attribute(method, source, &SERIALIZATION_EVENT_ATTRIBUTES)
+        {
+            continue;
+        }
+        let parameters = parameters_of(method);
+        let context_parameter = parameters
+            .first()
+            .and_then(|param| param.child_by_field_name("type"));
+        let shape_ok = return_type_text(method, source) == "void"
+            && parameters.len() == 1
+            && context_parameter
+                .is_some_and(|ty| simple_name(node_text(ty, source)) == "StreamingContext");
+        if !shape_ok {
+            issues.push(issue(
+                language,
+                "S3927",
+                "Serialization callbacks return void and take exactly one 'StreamingContext'.",
+                range_of(method),
+            ));
+        }
+    }
+    issues
+}
+
+/// `argument` wrapper nodes of an invocation or object creation; the
+/// wrappers live one level down inside the `argument_list`.
+fn call_argument_nodes(call: Node<'_>) -> Vec<Node<'_>> {
+    let mut cursor = call.walk();
+    call.children(&mut cursor)
+        .find(|child| child.kind() == "argument_list")
+        .map(argument_nodes)
+        .unwrap_or_default()
+}
+
+/// csharpsquid:S3928 — the 'paramName' argument must name a parameter that
+/// actually exists on the throwing method.
+fn check_argument_exception_param_names(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    const ARGUMENT_EXCEPTION_TYPES: [&str; 3] = [
+        "ArgumentException",
+        "ArgumentNullException",
+        "ArgumentOutOfRangeException",
+    ];
+    let mut issues = Vec::new();
+    for creation in collect_kinds(root, &["object_creation_expression"]) {
+        if is_error_tainted(creation) {
+            continue;
+        }
+        if !ARGUMENT_EXCEPTION_TYPES.contains(&simple_name(creation_type_text(creation, source))) {
+            continue;
+        }
+        let arguments = call_argument_nodes(creation);
+        if arguments.len() < 2 {
+            continue;
+        }
+        let value = argument_expression(arguments[1]);
+        if value.kind() != "string_literal" {
+            continue;
+        }
+        let wanted = literal_inner_text(value, source);
+        let Some(method) = enclosing_method(creation) else {
+            continue;
+        };
+        let known = parameters_of(method).iter().any(|param| {
+            param
+                .child_by_field_name("name")
+                .is_some_and(|name| node_text(name, source) == wanted)
+        });
+        if !known {
+            issues.push(issue(
+                language,
+                "S3928",
+                "Pass an existing parameter name to this exception.",
+                range_of(creation),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S4581 — `new Guid()` yields all zeros; only `Guid.NewGuid`
+/// produces a real identity.
+fn check_empty_guid_creations(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for creation in collect_kinds(root, &["object_creation_expression"]) {
+        if is_error_tainted(creation) {
+            continue;
+        }
+        if simple_name(creation_type_text(creation, source)) == "Guid"
+            && call_argument_nodes(creation).is_empty()
+        {
+            issues.push(issue(
+                language,
+                "S4581",
+                "Generate a new GUID instead of relying on the empty value.",
+                range_of(creation),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S4260 — `[ConstructorArgument]` names must exist as parameters
+/// of a constructor of the same class.
+fn check_constructor_argument_names(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for (name, args, attribute) in attribute_applications(root, source) {
+        if !matches!(name, "ConstructorArgument" | "ConstructorArgumentAttribute") {
+            continue;
+        }
+        let Some(args) = args else { continue };
+        let literals = collect_kinds(args, &["string_literal"]);
+        let Some(literal) = literals.first() else {
+            continue;
+        };
+        let wanted = literal_inner_text(*literal, source);
+        let Some(member) = attributed_declaration(attribute) else {
+            continue;
+        };
+        if !matches!(member.kind(), "property_declaration" | "field_declaration") {
+            continue;
+        }
+        let supplied = enclosing_type(member).is_some_and(|ty| {
+            collect_kinds(ty, &["constructor_declaration"])
+                .iter()
+                .any(|ctor| {
+                    parameters_of(*ctor).iter().any(|param| {
+                        param
+                            .child_by_field_name("name")
+                            .is_some_and(|param_name| node_text(param_name, source) == wanted)
+                    })
+                })
+        });
+        if !supplied {
+            issues.push(issue(
+                language,
+                "S4260",
+                "Match this '[ConstructorArgument]' name with a declared constructor parameter.",
+                range_of(attribute),
+            ));
+        }
+    }
+    issues
+}
+
+/// Identifier nodes spelling one of `names`, ignoring using directives where
+/// the name merely imports a namespace.
+fn identifier_usages<'t>(root: Node<'t>, source: &str, names: &[&str]) -> Vec<Node<'t>> {
+    collect_kinds(root, &["identifier"])
+        .into_iter()
+        .filter(|node| !is_error_tainted(*node))
+        .filter(|node| names.contains(&node_text(*node, source)))
+        .filter(|node| {
+            node.parent()
+                .is_none_or(|parent| parent.kind() != "using_directive")
+        })
+        .collect()
+}
+
+/// csharpsquid:S4428 — `[PartCreationPolicy]` is meaningless without
+/// '[Export]'.
+fn check_part_creation_policy_needs_export(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for type_node in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
+        if is_error_tainted(type_node) {
+            continue;
+        }
+        let attributes = attributes_of(type_node, source);
+        if has_attribute(&attributes, "PartCreationPolicy") && !has_attribute(&attributes, "Export")
+        {
+            issues.push(issue(
+                language,
+                "S4428",
+                "Add an '[Export]' attribute next to this '[PartCreationPolicy]'.",
+                range_of(type_node),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S4423 — deprecated SSL/TLS protocol versions invite downgrade
+/// attacks; negotiate 'Tls12' or 'Tls13'.
+fn check_weak_ssl_protocols(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let ssl_protocol_accesses = banned_member_accesses(
+        root,
+        source,
+        "SslProtocols",
+        &["Ssl2", "Ssl3", "Tls", "Tls10", "Tls11"],
+    );
+    let security_protocol_accesses =
+        banned_member_accesses(root, source, "SecurityProtocolType", &["Ssl3", "Tls"]);
+    ssl_protocol_accesses
+        .into_iter()
+        .chain(security_protocol_accesses)
+        .map(|access| {
+            issue(
+                language,
+                "S4423",
+                "Negotiate 'Tls12' or 'Tls13' instead of this deprecated protocol.",
+                range_of(access),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S4790 — 'MD5' and 'SHA1' are broken for security purposes.
+fn check_weak_hash_algorithms(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    const WEAK_HASH_TYPES: [&str; 9] = [
+        "MD5",
+        "HMACMD5",
+        "MD5CryptoServiceProvider",
+        "MD5Cng",
+        "SHA1",
+        "HMACSHA1",
+        "SHA1CryptoServiceProvider",
+        "SHA1Cng",
+        "SHA1Managed",
+    ];
+    identifier_usages(root, source, &WEAK_HASH_TYPES)
+        .into_iter()
+        .map(|identifier| {
+            issue(
+                language,
+                "S4790",
+                "Use a stronger hash algorithm such as 'SHA256'.",
+                range_of(identifier),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S5542 — unauthenticated modes and zero padding leak or forge
+/// plaintext.
+fn check_insecure_cipher_modes(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mode_accesses = banned_member_accesses(root, source, "CipherMode", &["ECB", "OFB", "CFB"]);
+    let padding_accesses = banned_member_accesses(root, source, "PaddingMode", &["None", "Zeros"]);
+    mode_accesses
+        .into_iter()
+        .chain(padding_accesses)
+        .map(|access| {
+            issue(
+                language,
+                "S5542",
+                "Encrypt with an authenticated cipher mode and explicit padding.",
+                range_of(access),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S5547 — legacy block ciphers belong in museums, not code.
+fn check_robust_ciphers_required(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    const WEAK_CIPHER_PROVIDERS: [&str; 7] = [
+        "DES",
+        "TripleDES",
+        "RC2",
+        "RC4",
+        "DESCryptoServiceProvider",
+        "TripleDESCryptoServiceProvider",
+        "RC2CryptoServiceProvider",
+    ];
+    identifier_usages(root, source, &WEAK_CIPHER_PROVIDERS)
+        .into_iter()
+        .map(|identifier| {
+            issue(
+                language,
+                "S5547",
+                "Use a robust cipher such as 'Aes' instead of this provider.",
+                range_of(identifier),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S4426 — weak asymmetric providers and short keys give way.
+fn check_cryptographic_keys_robust(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    const WEAK_ASYMMETRIC_PROVIDERS: [&str; 2] =
+        ["RSACryptoServiceProvider", "DSACryptoServiceProvider"];
+    const MINIMUM_ASYMMETRIC_KEY_SIZE: u64 = 2048;
+    let mut issues: Vec<Issue> = identifier_usages(root, source, &WEAK_ASYMMETRIC_PROVIDERS)
+        .into_iter()
+        .map(|identifier| {
+            issue(
+                language,
+                "S4426",
+                "Generate this key with 'RSA.Create' at 2048 bits or more.",
+                range_of(identifier),
+            )
+        })
+        .collect();
+    for assignment in collect_kinds(root, &["assignment_expression"]) {
+        if is_error_tainted(assignment) || operator_of(assignment) != Some("=") {
+            continue;
+        }
+        let Some((target, value)) = binary_operands(assignment) else {
+            continue;
+        };
+        if !node_text(target, source).ends_with("KeySize") || value.kind() != "integer_literal" {
+            continue;
+        }
+        let undersized = integer_literal_value(node_text(value, source))
+            .is_some_and(|bits| bits < MINIMUM_ASYMMETRIC_KEY_SIZE);
+        if undersized {
+            issues.push(issue(
+                language,
+                "S4426",
+                "Keep cryptographic keys at 2048 bits or more.",
+                range_of(assignment),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S5659 — JWTs signed or accepted with 'none'/weak HMAC
+/// algorithms can be forged by anyone.
+fn check_jwt_strong_algorithms(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    const WEAK_JWT_ALGORITHMS: [&str; 4] = ["none", "HS256", "HS384", "HS512"];
+    let jwt_context_tokens = ["Jwt", "TokenValidation", "SigningCredentials"];
+    let mut issues = Vec::new();
+    for literal in string_literals(root) {
+        if is_error_tainted(literal) {
+            continue;
+        }
+        let algorithm = literal_inner_text(literal, source);
+        if !WEAK_JWT_ALGORITHMS.contains(&algorithm) {
+            continue;
+        }
+        let call_context = ancestors_of(literal).find(|ancestor| {
+            matches!(
+                ancestor.kind(),
+                "invocation_expression" | "object_creation_expression"
+            )
+        });
+        let jwt_context = call_context.is_some_and(|call| {
+            let text = node_text(call, source);
+            jwt_context_tokens.iter().any(|token| text.contains(token))
+        });
+        if jwt_context {
+            issues.push(issue(
+                language,
+                "S5659",
+                "Sign and verify JWTs with a strong algorithm such as 'RS256'.",
+                range_of(literal),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S5332 — clear-text channels expose everything they carry;
+/// namespace schemas and loopback addresses are exempt.
+fn check_clear_text_protocols(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    const EXEMPT_MARKERS: [&str; 4] = ["://localhost", "127.0.0.1", "www.w3.org", "schemas."];
+    let mut issues = Vec::new();
+    for literal in string_literals(root) {
+        if is_error_tainted(literal) {
+            continue;
+        }
+        let lowered = literal_inner_text(literal, source).to_ascii_lowercase();
+        let clear_text = (lowered.contains("http://") || lowered.contains("ws://"))
+            && !EXEMPT_MARKERS.iter().any(|marker| lowered.contains(marker));
+        if clear_text {
+            issues.push(issue(
+                language,
+                "S5332",
+                "Serve this connection over an encrypted channel instead.",
+                range_of(literal),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S5443 — publicly writable directories let any local user swap
+/// the files you just wrote.
+fn check_publicly_writable_temp_paths(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    const PUBLIC_TEMP_MARKERS: [&str; 4] = ["/tmp/", "/var/tmp", "%temp%", "\\windows\\temp"];
+    let mut issues = Vec::new();
+    for literal in string_literals(root) {
+        if is_error_tainted(literal) {
+            continue;
+        }
+        let lowered = literal_inner_text(literal, source).to_ascii_lowercase();
+        if PUBLIC_TEMP_MARKERS
+            .iter()
+            .any(|marker| lowered.contains(marker))
+        {
+            issues.push(issue(
+                language,
+                "S5443",
+                "Do not place files in publicly writable directories.",
+                range_of(literal),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S5445 — predictable temporary file names let attackers pre-
+/// create the path and hijack the write.
+fn check_predictable_temp_files(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &["invocation_expression"])
+        .into_iter()
+        .filter(|invocation| !is_error_tainted(*invocation))
+        .filter(|invocation| {
+            invocation_targets(*invocation, source, Some("Path"), &["GetTempFileName"])
+        })
+        .map(|invocation| {
+            issue(
+                language,
+                "S5445",
+                "Create temporary files with unpredictable names in a private directory.",
+                range_of(invocation),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S4507 — shipping with debugging enabled hands attackers a
+/// detailed map of the application.
+fn check_debugging_left_enabled(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for literal in string_literals(root) {
+        if is_error_tainted(literal) {
+            continue;
+        }
+        let lowered = literal_inner_text(literal, source).to_ascii_lowercase();
+        let debug_on = (lowered.contains("customerrors") && lowered.contains("off"))
+            || (lowered.contains("debug=") && lowered.contains("true"));
+        if debug_on {
+            issues.push(issue(
+                language,
+                "S4507",
+                "Disable debugging features in production.",
+                range_of(literal),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S5753 — disabling request validation reopens the XSS door.
+fn check_request_validation_disabled(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for literal in string_literals(root) {
+        if is_error_tainted(literal) {
+            continue;
+        }
+        let lowered = literal_inner_text(literal, source).to_ascii_lowercase();
+        if lowered.contains("validaterequest") && lowered.contains("false") {
+            issues.push(issue(
+                language,
+                "S5753",
+                "Keep ASP.NET request validation enabled.",
+                range_of(literal),
+            ));
+        }
+    }
+    for invocation in collect_kinds(root, &["invocation_expression"]) {
+        if is_error_tainted(invocation)
+            || !invocation_targets(invocation, source, None, &["ValidateInput"])
+        {
+            continue;
+        }
+        let disables = invocation_arguments(invocation)
+            .iter()
+            .any(|argument| node_text(*argument, source) == "false");
+        if disables {
+            issues.push(issue(
+                language,
+                "S5753",
+                "Keep ASP.NET request validation enabled.",
+                range_of(invocation),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S4502 — turning antiforgery off invites cross-site request
+/// forgery.
+fn check_antiforgery_disabled(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &["assignment_expression"])
+        .into_iter()
+        .filter(|assignment| !is_error_tainted(*assignment))
+        .filter(|assignment| operator_of(*assignment) == Some("="))
+        .filter(|assignment| {
+            binary_operands(*assignment).is_some_and(|(target, value)| {
+                node_text(target, source)
+                    .to_ascii_lowercase()
+                    .contains("ntiforgery")
+                    && value.kind() == "boolean_literal"
+                    && node_text(value, source) == "false"
+            })
+        })
+        .map(|assignment| {
+            issue(
+                language,
+                "S4502",
+                "Keep antiforgery validation enabled.",
+                range_of(assignment),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S5773 — `TypeNameHandling` beyond `None` lets payloads name
+/// arbitrary types to instantiate.
+fn check_unrestricted_deserialization(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    banned_member_accesses(
+        root,
+        source,
+        "TypeNameHandling",
+        &["All", "Auto", "Objects", "Arrays"],
+    )
+    .into_iter()
+    .map(|access| {
+        issue(
+            language,
+            "S5773",
+            "Restrict deserialization by keeping 'TypeNameHandling' at 'None'.",
+            range_of(access),
+        )
+    })
+    .collect()
+}
+
+/// csharpsquid:S5042 — unbounded archive extraction grinds the host down
+/// with zip bombs.
+fn check_unbounded_archive_extraction(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    const EXTRACTION_METHODS: [&str; 2] = ["ExtractToDirectory", "ExtractToFile"];
+    collect_kinds(root, &["invocation_expression"])
+        .into_iter()
+        .filter(|invocation| !is_error_tainted(*invocation))
+        .filter(|invocation| {
+            callee_name(*invocation, source).is_some_and(|name| EXTRACTION_METHODS.contains(&name))
+        })
+        .map(|invocation| {
+            issue(
+                language,
+                "S5042",
+                "Bound this archive extraction before running it.",
+                range_of(invocation),
+            )
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// A13 — date/time & Azure/ASP.NET textual heuristics
+// ---------------------------------------------------------------------------
+
+/// csharpsquid:S6354 — the system clock is untestable; inject a time
+/// provider instead of reading `DateTime` statics.
+fn check_direct_datetime_usage(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    banned_member_accesses(root, source, "DateTime", &["Now", "UtcNow", "Today"])
+        .into_iter()
+        .map(|access| {
+            issue(
+                language,
+                "S6354",
+                "Inject a testable time provider instead of reading the system clock.",
+                range_of(access),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S6561 — timing measurements belong to `Stopwatch`, not wall
+/// clock reads that jump with timezone or NTP changes.
+fn check_datetime_now_for_timing(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &["method_declaration"])
+        .into_iter()
+        .filter(|method| !is_error_tainted(*method))
+        .filter_map(|method| body_of(method).map(|body| (method, body)))
+        .filter(|(_, body)| mentions_identifier_outside_parameter_list(*body, "Stopwatch", source))
+        .flat_map(|(_, body)| banned_member_accesses(body, source, "DateTime", &["Now", "Today"]))
+        .map(|access| {
+            issue(
+                language,
+                "S6561",
+                "Measure elapsed time with 'Stopwatch' instead of 'DateTime.Now'.",
+                range_of(access),
+            )
+        })
+        .collect()
+}
+
+/// The `argument` expressions of a `new T(...)` creation.
+fn creation_argument_expressions(creation: Node<'_>) -> Vec<Node<'_>> {
+    call_argument_nodes(creation)
+        .iter()
+        .copied()
+        .map(argument_expression)
+        .collect()
+}
+
+/// csharpsquid:S6562 — `DateTime` values without an explicit
+/// `DateTimeKind` flip meaning across timezones and DST boundaries.
+fn check_datetime_kind_specified(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for creation in collect_kinds(root, &["object_creation_expression"]) {
+        if is_error_tainted(creation)
+            || simple_name(creation_type_text(creation, source)) != "DateTime"
+        {
+            continue;
+        }
+        let arguments = creation_argument_expressions(creation);
+        let kind_specified = arguments
+            .iter()
+            .any(|argument| node_text(*argument, source).contains("DateTimeKind"));
+        if !kind_specified {
+            issues.push(issue(
+                language,
+                "S6562",
+                "Specify the 'DateTimeKind' when constructing this value.",
+                range_of(creation),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S6588 — the Unix epoch literal spells `UnixEpoch`.
+fn check_unix_epoch_literal(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    const EPOCH_COMPONENTS: [u64; 3] = [1970, 1, 1];
+    let mut issues = Vec::new();
+    for creation in collect_kinds(root, &["object_creation_expression"]) {
+        if is_error_tainted(creation)
+            || simple_name(creation_type_text(creation, source)) != "DateTime"
+        {
+            continue;
+        }
+        let arguments = creation_argument_expressions(creation);
+        if arguments.len() < 3 {
+            continue;
+        }
+        let matches_epoch = EPOCH_COMPONENTS.iter().enumerate().all(|(index, wanted)| {
+            arguments[index].kind() == "integer_literal"
+                && integer_literal_value(node_text(arguments[index], source)) == Some(*wanted)
+        });
+        if matches_epoch {
+            issues.push(issue(
+                language,
+                "S6588",
+                "Use 'DateTimeOffset.UnixEpoch' instead of this literal.",
+                range_of(creation),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S6575 — Windows time-zone ids vanish on other platforms;
+/// `TimeZoneConverter` translates them safely.
+fn check_find_system_time_zone_without_converter(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    if source.contains("TimeZoneConverter") {
+        return Vec::new();
+    }
+    collect_kinds(root, &["invocation_expression"])
+        .into_iter()
+        .filter(|invocation| !is_error_tainted(*invocation))
+        .filter(|invocation| {
+            invocation_targets(
+                *invocation,
+                source,
+                Some("TimeZoneInfo"),
+                &["FindSystemTimeZoneById"],
+            )
+        })
+        .map(|invocation| {
+            issue(
+                language,
+                "S6575",
+                "Resolve time zones through 'TimeZoneConverter' for portability.",
+                range_of(invocation),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S6580 — parsing dates without a format provider silently
+/// adopts the machine's culture.
+fn check_culture_less_date_parsing(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    const CULTURE_ARGUMENT_MARKERS: [&str; 2] = ["CultureInfo", "IFormatProvider"];
+    const PARSING_TARGETS: [&str; 4] = ["Parse", "ParseExact", "TryParse", "ToDateTime"];
+    collect_kinds(root, &["invocation_expression"])
+        .into_iter()
+        .filter(|invocation| !is_error_tainted(*invocation))
+        .filter(|invocation| {
+            invocation_targets(*invocation, source, None, &PARSING_TARGETS)
+                || invocation_targets(*invocation, source, Some("DateTime"), &PARSING_TARGETS)
+                || invocation_targets(*invocation, source, Some("Convert"), &PARSING_TARGETS)
+        })
+        .filter(|invocation| {
+            !invocation_arguments(*invocation).iter().any(|argument| {
+                let text = node_text(*argument, source);
+                CULTURE_ARGUMENT_MARKERS
+                    .iter()
+                    .any(|marker| text.contains(marker))
+            })
+        })
+        .map(|invocation| {
+            issue(
+                language,
+                "S6580",
+                "Pass an explicit culture when parsing this date or time.",
+                range_of(invocation),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S6585 — hard-coded date format strings ignore the user's
+/// culture; pass a provider or use the invariant one deliberately.
+fn check_hardcoded_date_formats(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    /// Distinctive date/time pattern tokens (`MM` differs from `mm`).
+    const DATE_FORMAT_TOKENS: [&str; 12] = [
+        "yyyy", "yyy", "MMMM", "MMM", "dddd", "ddd", "MM", "dd", "HH", "hh", "mm", "ss",
+    ];
+    collect_kinds(root, &["invocation_expression"])
+        .into_iter()
+        .filter(|invocation| !is_error_tainted(*invocation))
+        .filter(|invocation| callee_name(*invocation, source) == Some("ToString"))
+        .filter_map(|invocation| invocation_arguments(invocation).first().copied())
+        .map(argument_expression)
+        .filter(|argument| argument.kind() == "string_literal")
+        .filter(|argument| {
+            let text = literal_inner_text(*argument, source);
+            DATE_FORMAT_TOKENS.iter().any(|token| text.contains(token))
+        })
+        .map(|argument| {
+            issue(
+                language,
+                "S6585",
+                "Format this date with an explicit culture-aware provider.",
+                range_of(argument),
+            )
+        })
+        .collect()
+}
+/// Methods attributed `[Function]` or `[FunctionName]` (Azure Functions).
+fn azure_function_methods<'t>(root: Node<'t>, source: &str) -> Vec<Node<'t>> {
+    collect_kinds(root, &["method_declaration"])
+        .into_iter()
+        .filter(|method| !is_error_tainted(*method))
+        .filter(|method| has_any_attribute(*method, source, &["Function", "FunctionName"]))
+        .collect()
+}
+
+/// csharpsquid:S6419 — mutable instance state leaks across parallel Azure
+/// Function invocations.
+fn check_azure_function_instance_state(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for type_node in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
+        let hosts_function = member_declarations_of_kind(type_node, "method_declaration")
+            .iter()
+            .any(|method| has_any_attribute(*method, source, &["Function", "FunctionName"]));
+        if !hosts_function {
+            continue;
+        }
+        for field in member_declarations_of_kind(type_node, "field_declaration") {
+            if is_error_tainted(field) {
+                continue;
+            }
+            let modifiers = modifiers_of(field, source);
+            let immutable = has_modifier(&modifiers, "static")
+                || has_modifier(&modifiers, "readonly")
+                || has_modifier(&modifiers, "const");
+            if !immutable {
+                issues.push(issue(
+                    language,
+                    "S6419",
+                    "Keep this class stateless; do not hold mutable instance fields.",
+                    range_of(field),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S6421 — unhandled exceptions in a Function surface as raw
+/// 500s; failures belong in a try/catch.
+fn check_azure_functions_catch_failures(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    azure_function_methods(root, source)
+        .into_iter()
+        .filter(|method| body_of(*method).is_some_and(|body| body.kind() == "block"))
+        .filter(|method| {
+            !subtree_contains_kind(body_of(*method).unwrap_or(*method), "try_statement")
+        })
+        .map(|method| {
+            issue(
+                language,
+                "S6421",
+                "Wrap this Function in a try/catch and report the failure.",
+                range_of(name_anchor(method)),
+            )
+        })
+        .collect()
+}
+
+/// Types hosting at least one Azure Function method.
+fn azure_function_classes<'t>(root: Node<'t>, source: &str) -> Vec<Node<'t>> {
+    collect_kinds(root, &TYPE_DECLARATION_KINDS)
+        .into_iter()
+        .filter(|type_node| {
+            member_declarations_of_kind(*type_node, "method_declaration")
+                .iter()
+                .any(|method| has_any_attribute(*method, source, &["Function", "FunctionName"]))
+        })
+        .collect()
+}
+
+/// Blocking member accesses and calls nested inside `scope`.
+fn blocking_calls_in_scope<'t>(scope: Node<'t>, source: &str) -> Vec<Node<'t>> {
+    let accesses = collect_kinds(scope, &["member_access_expression"])
+        .into_iter()
+        .filter(|access| !is_error_tainted(*access))
+        .filter(|access| {
+            matches!(
+                expression_name(*access, source).unwrap_or(""),
+                "Result" | "Wait"
+            )
+        });
+    let get_results = collect_kinds(scope, &["invocation_expression"])
+        .into_iter()
+        .filter(|invocation| callee_name(*invocation, source) == Some("GetResult"));
+    accesses.chain(get_results).collect()
+}
+
+/// csharpsquid:S6422 — blocking on async work inside a Function deadlocks
+/// the single-invocation host.
+fn check_azure_functions_do_not_block(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    azure_function_classes(root, source)
+        .into_iter()
+        .flat_map(|class_node| blocking_calls_in_scope(class_node, source))
+        .map(|call| {
+            issue(
+                language,
+                "S6422",
+                "Await async work instead of blocking inside an Azure Function.",
+                range_of(call),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S6423 — swallowed failures in a Function vanish from view;
+/// every catch must log.
+fn check_azure_catches_log_failures(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    const LOGGING_MARKERS: [&str; 3] = ["Log", "_log", "logger"];
+    azure_function_classes(root, source)
+        .iter()
+        .flat_map(|class_node| collect_kinds(*class_node, &["catch_clause"]))
+        .filter(|catch_clause| !is_error_tainted(*catch_clause))
+        .filter(|catch_clause| {
+            let text = node_text(*catch_clause, source);
+            !LOGGING_MARKERS.iter().any(|marker| text.contains(marker))
+        })
+        .map(|catch_clause| {
+            issue(
+                language,
+                "S6423",
+                "Log the failure inside this catch block.",
+                range_of(catch_clause),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S6420 — per-invocation client construction burns sockets and
+/// SDK handshake budget; clients are thread-safe and reusable.
+fn check_azure_clients_created_per_invocation(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    const AZURE_CLIENT_TYPES: [&str; 8] = [
+        "BlobContainerClient",
+        "BlobClient",
+        "BlobServiceClient",
+        "QueueClient",
+        "TableClient",
+        "ServiceBusClient",
+        "CosmosClient",
+        "SecretClient",
+    ];
+    azure_function_methods(root, source)
+        .into_iter()
+        .filter_map(|method| body_of(method))
+        .flat_map(|body| collect_kinds(body, &["object_creation_expression"]))
+        .filter(|creation| !is_error_tainted(*creation))
+        .filter(|creation| {
+            AZURE_CLIENT_TYPES.contains(&simple_name(creation_type_text(*creation, source)))
+        })
+        .map(|creation| {
+            issue(
+                language,
+                "S6420",
+                "Create this client once and reuse it across invocations.",
+                range_of(creation),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S6798 — Blazor can only reach public methods through JS
+/// interop.
+fn check_js_invokable_methods_public(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["method_declaration"])
+        .into_iter()
+        .filter(|method| has_any_attribute(*method, source, &["JSInvokable"]))
+        .filter(|method| !has_modifier(&modifiers_of(*method, source), "public"))
+        .map(|method| {
+            issue(
+                language,
+                "S6798",
+                "Mark this '[JSInvokable]' method public.",
+                range_of(name_anchor(method)),
+            )
+        })
+        .collect()
+}
+
+/// Attribute names carrying route templates.
+const ROUTE_ATTRIBUTE_NAMES: [&str; 6] = [
+    "Route",
+    "HttpGet",
+    "HttpPost",
+    "HttpPut",
+    "HttpDelete",
+    "HttpPatch",
+];
+
+/// Route-template string literals of an attribute application's arguments.
+fn route_template_literals(args: Option<Node<'_>>) -> Vec<Node<'_>> {
+    args.map(string_literals).unwrap_or_default()
+}
+
+/// Whether an attribute application carries a route template.
+fn is_route_attribute(name: &str) -> bool {
+    ROUTE_ATTRIBUTE_NAMES.contains(&name.trim_end_matches("Attribute"))
+}
+
+/// HTTP verb attribute names marking ASP.NET actions.
+const VERB_ATTRIBUTE_NAMES: [&str; 6] = [
+    "HttpGet",
+    "HttpPost",
+    "HttpPut",
+    "HttpDelete",
+    "HttpPatch",
+    "AcceptVerbs",
+];
+
+/// Whether any attribute on the type marks it API-controller-like.
+fn is_api_controller_like(type_node: Node<'_>, source: &str) -> bool {
+    has_any_attribute(type_node, source, &["ApiController"])
+        || type_node
+            .child_by_field_name("name")
+            .is_some_and(|name| node_text(name, source).ends_with("Controller"))
+}
+
+/// Public action candidates declared by a controller-like type.
+fn controller_actions<'t>(type_node: Node<'t>, source: &str) -> Vec<Node<'t>> {
+    member_declarations_of_kind(type_node, "method_declaration")
+        .into_iter()
+        .filter(|method| {
+            let modifiers = modifiers_of(*method, source);
+            has_modifier(&modifiers, "public")
+                && !has_modifier(&modifiers, "static")
+                && !has_modifier(&modifiers, "override")
+        })
+        .filter(|method| {
+            method
+                .child_by_field_name("name")
+                .is_some_and(|name| node_text(name, source) != "Dispose")
+        })
+        .filter(|method| !has_any_attribute(*method, source, &["NonAction"]))
+        .collect()
+}
+
+/// csharpsquid:S6930 — backslashes break route templates on every platform
+/// but Windows.
+fn check_route_templates_use_forward_slashes(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    attribute_applications(root, source)
+        .into_iter()
+        .filter(|(name, _, _)| is_route_attribute(name))
+        .flat_map(|(_, args, _)| route_template_literals(args))
+        .filter(|literal| literal_inner_text(*literal, source).contains('\\'))
+        .map(|literal| {
+            issue(
+                language,
+                "S6930",
+                "Use forward slashes in this route template.",
+                range_of(literal),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S6931 — action-level route templates starting with '/' escape
+/// the controller prefix entirely.
+fn check_action_routes_not_rooted(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for (name, args, attribute) in attribute_applications(root, source) {
+        if !is_route_attribute(name) {
+            continue;
+        }
+        let Some(declaration) = attributed_declaration(attribute) else {
+            continue;
+        };
+        if declaration.kind() != "method_declaration" {
+            continue;
+        }
+        for literal in route_template_literals(args) {
+            let template = literal_inner_text(literal, source);
+            if template.starts_with('/') && !template.starts_with("~/") {
+                issues.push(issue(
+                    language,
+                    "S6931",
+                    "Start this route template without a leading slash.",
+                    range_of(attribute),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S6932 — raw request reads bypass binding and validation;
+/// model parameters document the contract.
+fn check_model_binding_over_raw_request_reads(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    banned_member_accesses(root, source, "Request", &["Form", "Query", "Body"])
+        .into_iter()
+        .map(|access| {
+            issue(
+                language,
+                "S6932",
+                "Bind this data through a model instead of reading the request.",
+                range_of(access),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S6934 — repeating templates on every action signals a missing
+/// controller-level '[Route]'.
+fn check_controller_level_route_present(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for class_node in collect_kinds(root, &["class_declaration"]) {
+        if is_error_tainted(class_node) || has_any_attribute(class_node, source, &["Route"]) {
+            continue;
+        }
+        let action_templates = controller_actions(class_node, source).iter().any(|method| {
+            attributes_of(*method, source)
+                .iter()
+                .any(|name| ROUTE_ATTRIBUTE_NAMES.contains(name))
+        });
+        if action_templates {
+            issues.push(issue(
+                language,
+                "S6934",
+                "Declare a controller-level '[Route]' for these action templates.",
+                range_of(class_node),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S6961 — API controllers derive `ControllerBase`, which lacks
+/// view support they must never use.
+fn check_api_controllers_derive_base(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["class_declaration"])
+        .into_iter()
+        .filter(|class_node| base_simple_names(*class_node, source).contains(&"Controller"))
+        .filter(|class_node| {
+            has_any_attribute(*class_node, source, &["ApiController"])
+                || controller_actions(*class_node, source)
+                    .iter()
+                    .any(|action| has_any_attribute(*action, source, &VERB_ATTRIBUTE_NAMES))
+        })
+        .map(|class_node| {
+            issue(
+                language,
+                "S6961",
+                "Derive API controllers from 'ControllerBase'.",
+                range_of(class_node),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S6962 — hand-rolled `HttpClient` instances rot sockets;
+/// `IHttpClientFactory` pools them.
+fn check_http_clients_via_factory(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["object_creation_expression"])
+        .into_iter()
+        .filter(|creation| !is_error_tainted(*creation))
+        .filter(|creation| simple_name(creation_type_text(*creation, source)) == "HttpClient")
+        .map(|creation| {
+            issue(
+                language,
+                "S6962",
+                "Create 'HttpClient' through 'IHttpClientFactory' instead.",
+                range_of(creation),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S6965 — actions without an HTTP verb annotation answer every
+/// verb, including the dangerous ones.
+fn check_actions_annotated_with_verbs(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["class_declaration"])
+        .into_iter()
+        .filter(|class_node| is_api_controller_like(*class_node, source))
+        .flat_map(|class_node| controller_actions(class_node, source))
+        .filter(|action| !has_any_attribute(*action, source, &VERB_ATTRIBUTE_NAMES))
+        .map(|action| {
+            issue(
+                language,
+                "S6965",
+                "Annotate this action with an HTTP verb attribute.",
+                range_of(name_anchor(action)),
+            )
+        })
+        .collect()
+}
+
+/// Simple types a binder handles without a complex model.
+fn is_simple_binding_type(type_text: &str) -> bool {
+    const SIMPLE_TYPES: [&str; 18] = [
+        "bool",
+        "byte",
+        "sbyte",
+        "char",
+        "short",
+        "ushort",
+        "int",
+        "uint",
+        "long",
+        "ulong",
+        "float",
+        "double",
+        "decimal",
+        "string",
+        "Guid",
+        "DateTime",
+        "DateTimeOffset",
+        "CancellationToken",
+    ];
+    SIMPLE_TYPES.contains(&type_text.trim_end_matches('?').trim_end_matches("[]"))
+}
+
+/// csharpsquid:S6967 — actions receiving models must gate their use behind
+/// 'ModelState.IsValid'.
+fn check_model_state_checked_for_models(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["class_declaration"])
+        .into_iter()
+        .filter(|class_node| is_api_controller_like(*class_node, source))
+        .flat_map(|class_node| controller_actions(class_node, source))
+        .filter(|action| {
+            parameters_of(*action).iter().any(|parameter| {
+                parameter
+                    .child_by_field_name("type")
+                    .is_some_and(|ty| !is_simple_binding_type(node_text(ty, source)))
+            })
+        })
+        .filter(|action| {
+            body_of(*action)
+                .is_none_or(|body| !node_text(body, source).contains("ModelState.IsValid"))
+        })
+        .map(|action| {
+            issue(
+                language,
+                "S6967",
+                "Check 'ModelState.IsValid' before using bound model data.",
+                range_of(name_anchor(action)),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S6968 — declared success responses keep generated clients
+/// honest about what an action returns.
+fn check_produces_response_type_annotated(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["method_declaration"])
+        .into_iter()
+        .filter(|action| has_any_attribute(*action, source, &VERB_ATTRIBUTE_NAMES))
+        .filter(|action| return_type_text(*action, source) != "void")
+        .filter(|action| !has_any_attribute(*action, source, &["ProducesResponseType"]))
+        .map(|action| {
+            issue(
+                language,
+                "S6968",
+                "Declare '[ProducesResponseType]' for this action's responses.",
+                range_of(name_anchor(action)),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S5122 — reflecting any origin erases the same-origin
+/// protection CORS exists to provide.
+fn check_permissive_cors(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    const ANY_ORIGIN_MARKERS: [&str; 1] = ["AllowAnyOrigin"];
+    let mut issues: Vec<Issue> = identifier_usages(root, source, &ANY_ORIGIN_MARKERS)
+        .into_iter()
+        .map(|identifier| {
+            issue(
+                language,
+                "S5122",
+                "Restrict CORS responses to trusted origins.",
+                range_of(identifier),
+            )
+        })
+        .collect();
+    for literal in string_literals(root) {
+        if is_error_tainted(literal) {
+            continue;
+        }
+        let lowered = literal_inner_text(literal, source).to_ascii_lowercase();
+        if lowered.contains("access-control-allow-origin") && lowered.contains('*') {
+            issues.push(issue(
+                language,
+                "S5122",
+                "Restrict CORS responses to trusted origins.",
+                range_of(literal),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S7039 — 'unsafe-inline' or 'unsafe-eval' sources hollow out
+/// the Content-Security-Policy.
+fn check_permissive_csp(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    const UNSAFE_CSP_SOURCES: [&str; 2] = ["unsafe-inline", "unsafe-eval"];
+    let mut issues = Vec::new();
+    for literal in string_literals(root) {
+        if is_error_tainted(literal) {
+            continue;
+        }
+        let lowered = literal_inner_text(literal, source).to_ascii_lowercase();
+        let permissive = lowered.contains("content-security-policy")
+            && UNSAFE_CSP_SOURCES
+                .iter()
+                .any(|source_token| lowered.contains(source_token));
+        if permissive {
+            issues.push(issue(
+                language,
+                "S7039",
+                "Serve a restrictive Content-Security-Policy.",
+                range_of(literal),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S5693 — request bodies beyond the tolerated size exhaust
+/// server memory.
+fn check_request_size_limits(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    /// Catalog default `fileUploadSizeLimit` for csharpsquid:S5693.
+    const REQUEST_BODY_LIMIT_BYTES: u64 = 8_388_608;
+    const LIMIT_TARGETS: [&str; 4] = [
+        "MaxRequestBodySize",
+        "MaxRequestBodyLength",
+        "MultipartBodyLengthLimit",
+        "FormSize",
+    ];
+    collect_kinds(root, &["assignment_expression"])
+        .into_iter()
+        .filter(|assignment| !is_error_tainted(*assignment))
+        .filter(|assignment| operator_of(*assignment) == Some("="))
+        .filter(|assignment| {
+            binary_operands(*assignment).is_some_and(|(target, value)| {
+                LIMIT_TARGETS
+                    .iter()
+                    .any(|limit| node_text(target, source).ends_with(limit))
+                    && value.kind() == "integer_literal"
+                    && integer_literal_value(node_text(value, source))
+                        .is_some_and(|bytes| bytes > REQUEST_BODY_LIMIT_BYTES)
+            })
+        })
+        .map(|assignment| {
+            issue(
+                language,
+                "S5693",
+                format!("Keep request bodies at or below {REQUEST_BODY_LIMIT_BYTES} bytes."),
+                range_of(assignment),
+            )
+        })
+        .collect()
+}
+
+/// Gathers every Tier-A12 security deny/require-list issue.
+fn security_deny_list_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_operation_contract_pairing(root, source, language));
+    issues.extend(check_one_way_contracts_return_void(root, source, language));
+    issues.extend(check_pure_methods_return_values(root, source, language));
+    issues.extend(check_winforms_entry_points(root, source, language));
+    issues.extend(check_conflicting_transparency_attributes(
+        root, source, language,
+    ));
+    issues.extend(check_serialization_constructors_secured(
+        root, source, language,
+    ));
+    issues.extend(check_optional_fields_have_deserialization_hooks(
+        root, source, language,
+    ));
+    issues.extend(check_serialization_event_handler_shapes(
+        root, source, language,
+    ));
+    issues.extend(check_argument_exception_param_names(root, source, language));
+    issues.extend(check_empty_guid_creations(root, source, language));
+    issues.extend(check_constructor_argument_names(root, source, language));
+    issues.extend(check_part_creation_policy_needs_export(
+        root, source, language,
+    ));
+    issues.extend(check_weak_ssl_protocols(root, source, language));
+    issues.extend(check_weak_hash_algorithms(root, source, language));
+    issues.extend(check_insecure_cipher_modes(root, source, language));
+    issues.extend(check_robust_ciphers_required(root, source, language));
+    issues.extend(check_cryptographic_keys_robust(root, source, language));
+    issues.extend(check_jwt_strong_algorithms(root, source, language));
+    issues.extend(check_clear_text_protocols(root, source, language));
+    issues.extend(check_publicly_writable_temp_paths(root, source, language));
+    issues.extend(check_predictable_temp_files(root, source, language));
+    issues.extend(check_debugging_left_enabled(root, source, language));
+    issues.extend(check_request_validation_disabled(root, source, language));
+    issues.extend(check_antiforgery_disabled(root, source, language));
+    issues.extend(check_unrestricted_deserialization(root, source, language));
+    issues.extend(check_unbounded_archive_extraction(root, source, language));
+    issues.extend(check_permissive_cors(root, source, language));
+    issues.extend(check_permissive_csp(root, source, language));
+    issues.extend(check_request_size_limits(root, source, language));
+    issues
+}
+
+/// Placeholder gathering point for the remaining Tier-A13 date/time and
+/// ASP.NET heuristics; populated group by group.
+fn datetime_aspnet_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_direct_datetime_usage(root, source, language));
+    issues.extend(check_datetime_now_for_timing(root, source, language));
+    issues.extend(check_datetime_kind_specified(root, source, language));
+    issues.extend(check_unix_epoch_literal(root, source, language));
+    issues.extend(check_find_system_time_zone_without_converter(
+        root, source, language,
+    ));
+    issues.extend(check_culture_less_date_parsing(root, source, language));
+    issues.extend(check_hardcoded_date_formats(root, source, language));
+    issues.extend(check_azure_function_instance_state(root, source, language));
+    issues.extend(check_azure_functions_catch_failures(root, source, language));
+    issues.extend(check_azure_functions_do_not_block(root, source, language));
+    issues.extend(check_azure_catches_log_failures(root, source, language));
+    issues.extend(check_azure_clients_created_per_invocation(
+        root, source, language,
+    ));
+    issues.extend(check_js_invokable_methods_public(root, source, language));
+    issues.extend(check_route_templates_use_forward_slashes(
+        root, source, language,
+    ));
+    issues.extend(check_action_routes_not_rooted(root, source, language));
+    issues.extend(check_model_binding_over_raw_request_reads(
+        root, source, language,
+    ));
+    issues.extend(check_controller_level_route_present(root, source, language));
+    issues.extend(check_api_controllers_derive_base(root, source, language));
+    issues.extend(check_http_clients_via_factory(root, source, language));
+    issues.extend(check_actions_annotated_with_verbs(root, source, language));
+    issues.extend(check_model_state_checked_for_models(root, source, language));
+    issues.extend(check_produces_response_type_annotated(
+        root, source, language,
+    ));
+    issues
+}
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -11604,5 +13336,804 @@ mod tests {
         let named_none =
             analyze_default("[System.Flags]\nenum Rights\n{\n    None = 0,\n    Read = 1,\n}\n");
         assert!(with_key(&named_none, "csharpsquid:S2346").is_empty());
+    }
+
+    #[test]
+    fn s3597_requires_service_contract_on_operation_methods() {
+        let orphan =
+            analyze_default("class Repo\n{\n    [OperationContract]\n    void Do(int x) { }\n}\n");
+        let flagged = with_key(&orphan, "csharpsquid:S3597");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+
+        let contracted = analyze_default(
+            "[ServiceContract]\nclass Repo\n{\n    [OperationContract]\n    void Do(int x) { }\n}\n",
+        );
+        assert!(with_key(&contracted, "csharpsquid:S3597").is_empty());
+    }
+
+    #[test]
+    fn s3598_flags_one_way_operations_returning_values() {
+        let one_way_result = analyze_default(
+            "[ServiceContract]\nclass Repo\n{\n    [OperationContract(IsOneWay = true)]\n    int Count(string q) => 1;\n}\n",
+        );
+        let flagged = with_key(&one_way_result, "csharpsquid:S3598");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: a void operation may be one-way.
+        let one_way_void = analyze_default(
+            "[ServiceContract]\nclass Repo\n{\n    [OperationContract(IsOneWay = true)]\n    void Fire(string q) { }\n}\n",
+        );
+        assert!(with_key(&one_way_void, "csharpsquid:S3598").is_empty());
+
+        // Boundary: without 'IsOneWay' returning is fine.
+        let two_way = analyze_default(
+            "[ServiceContract]\nclass Repo\n{\n    [OperationContract]\n    int Count(string q) => 1;\n}\n",
+        );
+        assert!(with_key(&two_way, "csharpsquid:S3598").is_empty());
+    }
+
+    #[test]
+    fn s3603_flags_pure_void_methods() {
+        let pure_void = analyze_default("class C\n{\n    [Pure]\n    void Save(int x) { }\n}\n");
+        let flagged = with_key(&pure_void, "csharpsquid:S3603");
+        assert_eq!(flagged.len(), 1);
+
+        let pure_value = analyze_default("class C\n{\n    [Pure]\n    int Add(int x) => x;\n}\n");
+        assert!(with_key(&pure_value, "csharpsquid:S3603").is_empty());
+    }
+
+    #[test]
+    fn s4210_requires_stathread_on_winforms_entry_points() {
+        let plain_main = analyze_default(
+            "using System.Windows.Forms;\nclass Program\n{\n    static void Main() { }\n}\n",
+        );
+        let flagged = with_key(&plain_main, "csharpsquid:S4210");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 4);
+
+        let decorated_main = analyze_default(
+            "using System.Windows.Forms;\nclass Program\n{\n    [STAThread]\n    static void Main() { }\n}\n",
+        );
+        assert!(with_key(&decorated_main, "csharpsquid:S4210").is_empty());
+
+        // Boundary: outside WinForms an unadorned 'Main' stays clean.
+        let console_main = analyze_default("class Program\n{\n    static void Main() { }\n}\n");
+        assert!(with_key(&console_main, "csharpsquid:S4210").is_empty());
+    }
+
+    #[test]
+    fn s4211_flags_conflicting_transparency_annotations() {
+        let both =
+            analyze_default("[SecurityCritical]\n[SecuritySafeCritical]\nclass Vault\n{\n}\n");
+        let flagged = with_key(&both, "csharpsquid:S4211");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+
+        // Boundary: either level alone is consistent.
+        let critical_only = analyze_default("[SecurityCritical]\nclass Vault\n{\n}\n");
+        assert!(with_key(&critical_only, "csharpsquid:S4211").is_empty());
+    }
+
+    #[test]
+    fn s4212_secures_serialization_constructors() {
+        let public_ctor = analyze_default(
+            "class Item\n{\n    public Item(SerializationInfo info, StreamingContext ctx) { }\n}\n",
+        );
+        let flagged = with_key(&public_ctor, "csharpsquid:S4212");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: protected serialization constructors are the convention.
+        let protected_ctor = analyze_default(
+            "class Item\n{\n    protected Item(SerializationInfo info, StreamingContext ctx) { }\n}\n",
+        );
+        assert!(with_key(&protected_ctor, "csharpsquid:S4212").is_empty());
+
+        // Boundary: unrelated two-parameter constructors stay untouched.
+        let plain_ctor =
+            analyze_default("class Item\n{\n    public Item(int a, string b) { }\n}\n");
+        assert!(with_key(&plain_ctor, "csharpsquid:S4212").is_empty());
+    }
+
+    #[test]
+    fn s3926_requires_deserialization_hook_for_optional_fields() {
+        let unhooked = analyze_default(
+            "[Serializable]\nclass Doc\n{\n    [OptionalField]\n    private int version;\n}\n",
+        );
+        let flagged = with_key(&unhooked, "csharpsquid:S3926");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 4);
+
+        let hooked = analyze_default(
+            "[Serializable]\nclass Doc\n{\n    [OptionalField]\n    private int version;\n\n    [OnDeserialized]\n    private void OnFixup(StreamingContext ctx) { }\n}\n",
+        );
+        assert!(with_key(&hooked, "csharpsquid:S3926").is_empty());
+    }
+
+    #[test]
+    fn s3927_checks_serialization_callback_shapes() {
+        let wrong_shape = analyze_default(
+            "class Doc\n{\n    [OnSerializing]\n    void Before(SerializationInfo info) { }\n}\n",
+        );
+        let flagged = with_key(&wrong_shape, "csharpsquid:S3927");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: the canonical '(StreamingContext)' shape passes.
+        let right_shape = analyze_default(
+            "class Doc\n{\n    [OnSerializing]\n    void Before(StreamingContext ctx) { }\n}\n",
+        );
+        assert!(with_key(&right_shape, "csharpsquid:S3927").is_empty());
+    }
+
+    #[test]
+    fn s3928_matches_param_name_with_enclosing_parameters() {
+        let mismatched = analyze_default(
+            "class Guard\n{\n    void Check(int amount)\n    {\n        throw new ArgumentException(\"bad\", \"value\");\n    }\n}\n",
+        );
+        let flagged = with_key(&mismatched, "csharpsquid:S3928");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: naming the real parameter stays clean; non-literal
+        // arguments are unverifiable and skipped.
+        let matched = analyze_default(
+            "class Guard\n{\n    void Check(int amount)\n    {\n        throw new ArgumentException(\"bad\", nameof(amount));\n    }\n}\n",
+        );
+        assert!(with_key(&matched, "csharpsquid:S3928").is_empty());
+
+        let named = analyze_default(
+            "class Guard\n{\n    void Check(int amount)\n    {\n        throw new ArgumentException(\"bad\", \"amount\");\n    }\n}\n",
+        );
+        assert!(with_key(&named, "csharpsquid:S3928").is_empty());
+    }
+
+    #[test]
+    fn s4581_flags_parameterless_guid_creation() {
+        let empty = analyze_default("class C\n{\n    Guid g = new Guid();\n}\n");
+        let flagged = with_key(&empty, "csharpsquid:S4581");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.column, 13);
+
+        // Boundary: byte-argument creation and NewGuid stay clean.
+        let from_bytes = analyze_default("class C\n{\n    Guid g = new Guid(bytes);\n}\n");
+        assert!(with_key(&from_bytes, "csharpsquid:S4581").is_empty());
+
+        let fresh = analyze_default("class C\n{\n    Guid g = Guid.NewGuid();\n}\n");
+        assert!(with_key(&fresh, "csharpsquid:S4581").is_empty());
+    }
+
+    #[test]
+    fn s4260_matches_constructor_argument_names_with_constructors() {
+        let unknown_name = analyze_default(
+            "class Shape\n{\n    [ConstructorArgument(\"radius\")]\n    public double Width { get; set; }\n}\n",
+        );
+        let flagged = with_key(&unknown_name, "csharpsquid:S4260");
+        assert_eq!(flagged.len(), 1);
+
+        let known_name = analyze_default(
+            "class Shape\n{\n    public Shape(double radius) { }\n\n    [ConstructorArgument(\"radius\")]\n    public double Width { get; set; }\n}\n",
+        );
+        assert!(with_key(&known_name, "csharpsquid:S4260").is_empty());
+    }
+
+    #[test]
+    fn s4428_requires_export_besides_part_creation_policy() {
+        let unexported =
+            analyze_default("[PartCreationPolicy(CreationPolicy.NonShared)]\nclass Engine\n{\n}\n");
+        let flagged = with_key(&unexported, "csharpsquid:S4428");
+        assert_eq!(flagged.len(), 1);
+
+        let exported = analyze_default(
+            "[Export]\n[PartCreationPolicy(CreationPolicy.NonShared)]\nclass Engine\n{\n}\n",
+        );
+        assert!(with_key(&exported, "csharpsquid:S4428").is_empty());
+    }
+
+    #[test]
+    fn s4423_flags_deprecated_tls_protocols() {
+        let deprecated = analyze_default(
+            "class Net\n{\n    void Lock()\n    {\n        ServicePointManager.SecurityProtocol = SecurityProtocolType.Ssl3;\n    }\n}\n",
+        );
+        let flagged = with_key(&deprecated, "csharpsquid:S4423");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: modern protocol members stay clean.
+        let modern = analyze_default(
+            "class Net\n{\n    void Open()\n    {\n        var protocols = SslProtocols.Tls13 | SslProtocols.Tls12;\n    }\n}\n",
+        );
+        assert!(with_key(&modern, "csharpsquid:S4423").is_empty());
+    }
+
+    #[test]
+    fn s4790_flags_md5_and_sha1_usage() {
+        let weak = analyze_default(
+            "using System.Security.Cryptography;\nclass Hash\n{\n    byte[] Bad(byte[] data)\n    {\n        return MD5.Create().ComputeHash(data);\n    }\n}\n",
+        );
+        let flagged = with_key(&weak, "csharpsquid:S4790");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: the using import alone is not a usage.
+        let imported_only =
+            analyze_default("using System.Security.Cryptography;\nclass Hash\n{\n}\n");
+        assert!(with_key(&imported_only, "csharpsquid:S4790").is_empty());
+    }
+
+    #[test]
+    fn s5542_flags_insecure_cipher_modes_and_padding() {
+        let insecure = analyze_default(
+            "class Crypto\n{\n    Aes Make()\n    {\n        var aes = Aes.Create();\n        aes.Mode = CipherMode.ECB;\n        aes.Padding = PaddingMode.None;\n        return aes;\n    }\n}\n",
+        );
+        let flagged = with_key(&insecure, "csharpsquid:S5542");
+        assert_eq!(flagged.len(), 2);
+
+        let secure = analyze_default(
+            "class Crypto\n{\n    Aes Make()\n    {\n        var aes = Aes.Create();\n        aes.Mode = CipherMode.CBC;\n        aes.Padding = PaddingMode.PKCS7;\n        return aes;\n    }\n}\n",
+        );
+        assert!(with_key(&secure, "csharpsquid:S5542").is_empty());
+    }
+
+    #[test]
+    fn s5547_flags_legacy_block_ciphers() {
+        let legacy = analyze_default(
+            "class Vault\n{\n    DES des = DESCryptoServiceProvider.Create();\n}\n",
+        );
+        let flagged = with_key(&legacy, "csharpsquid:S5547");
+        assert_eq!(flagged.len(), 2);
+
+        let robust = analyze_default("class Vault\n{\n    Aes aes = Aes.Create();\n}\n");
+        assert!(with_key(&robust, "csharpsquid:S5547").is_empty());
+    }
+
+    #[test]
+    fn s4426_flags_weak_asymmetric_providers_and_short_keys() {
+        let legacy_provider = analyze_default(
+            "class Sign\n{\n    RSA Make() => new RSACryptoServiceProvider(1024);\n}\n",
+        );
+        assert!(!with_key(&legacy_provider, "csharpsquid:S4426").is_empty());
+
+        let short_key = analyze_default(
+            "class Sign\n{\n    void Configure(RSA rsa)\n    {\n        rsa.KeySize = 1024;\n    }\n}\n",
+        );
+        let flagged = with_key(&short_key, "csharpsquid:S4426");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: 2048 bits meets the floor.
+        let adequate_key = analyze_default(
+            "class Sign\n{\n    void Configure(RSA rsa)\n    {\n        rsa.KeySize = 2048;\n    }\n}\n",
+        );
+        assert!(with_key(&adequate_key, "csharpsquid:S4426").is_empty());
+    }
+
+    #[test]
+    fn s5659_flags_weak_jwt_algorithms_in_token_contexts() {
+        let weak = analyze_default(
+            "class Auth\n{\n    TokenValidationParameters Make()\n    {\n        return new TokenValidationParameters { ValidAlgorithms = new[] { \"HS256\" } };\n    }\n}\n",
+        );
+        let flagged = with_key(&weak, "csharpsquid:S5659");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: strong algorithms stay clean even in token contexts, and
+        // weak spellings outside JWT contexts are untouched.
+        let strong = analyze_default(
+            "class Auth\n{\n    TokenValidationParameters Make()\n    {\n        return new TokenValidationParameters { ValidAlgorithms = new[] { \"RS256\" } };\n    }\n}\n",
+        );
+        assert!(with_key(&strong, "csharpsquid:S5659").is_empty());
+
+        let outside_jwt = analyze_default("class Codec\n{\n    string Mode() => \"HS256\";\n}\n");
+        assert!(with_key(&outside_jwt, "csharpsquid:S5659").is_empty());
+    }
+
+    #[test]
+    fn s5332_flags_clear_text_url_literals() {
+        let clear_text = analyze_default(
+            "class Feed\n{\n    string Endpoint() => \"http://api.example.com/v1\";\n}\n",
+        );
+        let flagged = with_key(&clear_text, "csharpsquid:S5332");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: encrypted channels, loopback targets, and XML namespaces
+        // stay clean.
+        let secure = analyze_default(
+            "class Feed\n{\n    string Endpoint() => \"https://api.example.com/v1\";\n}\n",
+        );
+        assert!(with_key(&secure, "csharpsquid:S5332").is_empty());
+
+        let namespace_uri = analyze_default(
+            "class Doc\n{\n    string Xmlns() => \"http://www.w3.org/2001/XMLSchema\";\n}\n",
+        );
+        assert!(with_key(&namespace_uri, "csharpsquid:S5332").is_empty());
+    }
+
+    #[test]
+    fn s5443_flags_publicly_writable_temp_paths() {
+        let public_dir =
+            analyze_default("class Scratch\n{\n    string Spot() => \"/tmp/build-cache\";\n}\n");
+        let flagged = with_key(&public_dir, "csharpsquid:S5443");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: app-private locations stay clean.
+        let private_dir = analyze_default(
+            "class Scratch\n{\n    string Spot() => Path.Combine(appData, \"cache\")\n;\n}\n",
+        );
+        assert!(with_key(&private_dir, "csharpsquid:S5443").is_empty());
+    }
+
+    #[test]
+    fn s5445_flags_predictable_temp_file_apis() {
+        let predictable = analyze_default(
+            "class Upload\n{\n    void Stash()\n    {\n        var path = Path.GetTempFileName();\n    }\n}\n",
+        );
+        let flagged = with_key(&predictable, "csharpsquid:S5445");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: other 'Path' helpers stay untouched.
+        let directory_helper =
+            analyze_default("class Upload\n{\n    string Dir() => Path.GetTempPath();\n}\n");
+        assert!(with_key(&directory_helper, "csharpsquid:S5445").is_empty());
+    }
+
+    #[test]
+    fn s4507_flags_debugging_enabled_in_config_literals() {
+        let debug_on = analyze_default(
+            "class Boot\n{\n    string Config() => \"<customErrors mode=\\\"Off\\\"/>\";\n}\n",
+        );
+        assert_eq!(with_key(&debug_on, "csharpsquid:S4507").len(), 1);
+
+        let compile_debug = analyze_default(
+            "class Boot\n{\n    string Config() => \"<compilation debug=\\\"true\\\">\";\n}\n",
+        );
+        assert_eq!(with_key(&compile_debug, "csharpsquid:S4507").len(), 1);
+
+        // Boundary: production-safe spellings stay clean.
+        let remote_only = analyze_default(
+            "class Boot\n{\n    string Config() => \"<customErrors mode=\\\"RemoteOnly\\\"/>\";\n}\n",
+        );
+        assert!(with_key(&remote_only, "csharpsquid:S4507").is_empty());
+    }
+
+    #[test]
+    fn s5753_flags_request_validation_disabled() {
+        let directive = analyze_default(
+            "class Pages\n{\n    string Template() => \"<@ Page validateRequest=\\\"false\\\" %>\";\n}\n",
+        );
+        assert_eq!(with_key(&directive, "csharpsquid:S5753").len(), 1);
+
+        let validate_input = analyze_default(
+            "class Legacy\n{\n    void Post()\n    {\n        ValidateInput(false);\n    }\n}\n",
+        );
+        let flagged = with_key(&validate_input, "csharpsquid:S5753");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: leaving validation on is clean.
+        let enabled = analyze_default(
+            "class Legacy\n{\n    void Post()\n    {\n        ValidateInput(true);\n    }\n}\n",
+        );
+        assert!(with_key(&enabled, "csharpsquid:S5753").is_empty());
+    }
+
+    #[test]
+    fn s4502_flags_antiforgery_disabled_assignments() {
+        let disabled = analyze_default(
+            "class Setup\n{\n    void Configure(AntiforgeryOptions options)\n    {\n        options.Antiforgery.Enabled = false;\n    }\n}\n",
+        );
+        assert_eq!(with_key(&disabled, "csharpsquid:S4502").len(), 1);
+
+        // Boundary: unrelated or enabling assignments stay clean.
+        let untouched = analyze_default(
+            "class Setup\n{\n    void Configure(AntiforgeryOptions options)\n    {\n        options.Enabled = true;\n    }\n}\n",
+        );
+        assert!(with_key(&untouched, "csharpsquid:S4502").is_empty());
+    }
+
+    #[test]
+    fn s5773_flags_typename_handling_beyond_none() {
+        let permissive = analyze_default(
+            "class Wire\n{\n    JsonSerializerSettings Make() => new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };\n}\n",
+        );
+        let flagged = with_key(&permissive, "csharpsquid:S5773");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: 'TypeNameHandling.None' (or no mention) stays clean.
+        let safe = analyze_default(
+            "class Wire\n{\n    JsonSerializerSettings Make() => new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };\n}\n",
+        );
+        assert!(with_key(&safe, "csharpsquid:S5773").is_empty());
+    }
+
+    #[test]
+    fn s5042_flags_unbounded_archive_extraction() {
+        let unbounded = analyze_default(
+            "class Unpack\n{\n    void Extract(ZipArchive archive, string target)\n    {\n        archive.ExtractToDirectory(target);\n        ZipFile.ExtractToDirectory(archivePath, target);\n    }\n}\n",
+        );
+        let flagged = with_key(&unbounded, "csharpsquid:S5042");
+        assert_eq!(flagged.len(), 2);
+
+        // Boundary: unrelated methods stay untouched.
+        let unrelated = analyze_default("class Store\n{\n    void Put(string key) { }\n}\n");
+        assert!(with_key(&unrelated, "csharpsquid:S5042").is_empty());
+    }
+
+    #[test]
+    fn s5122_flags_any_origin_cors_policies() {
+        let any_origin = analyze_default(
+            "class Api\n{\n    void Configure(CorsPolicyBuilder policy)\n    {\n        policy.AllowAnyOrigin();\n    }\n}\n",
+        );
+        assert_eq!(with_key(&any_origin, "csharpsquid:S5122").len(), 1);
+
+        let wildcard_header = analyze_default(
+            "class Api\n{\n    string Header() => \"Access-Control-Allow-Origin: *\";\n}\n",
+        );
+        assert_eq!(with_key(&wildcard_header, "csharpsquid:S5122").len(), 1);
+
+        // Boundary: pinned origins stay clean.
+        let pinned = analyze_default(
+            "class Api\n{\n    void Configure(CorsPolicyBuilder policy)\n    {\n        policy.WithOrigins(\"https://app.example.com\");\n    }\n}\n",
+        );
+        assert!(with_key(&pinned, "csharpsquid:S5122").is_empty());
+    }
+
+    #[test]
+    fn s7039_flags_unsafe_csp_sources() {
+        let unsafe_inline = analyze_default(
+            "class Headers\n{\n    string Policy() => \"Content-Security-Policy: default-src 'self'; script-src 'unsafe-inline'\";\n}\n",
+        );
+        assert_eq!(with_key(&unsafe_inline, "csharpsquid:S7039").len(), 1);
+
+        // Boundary: a strict policy without unsafe sources stays clean.
+        let strict = analyze_default(
+            "class Headers\n{\n    string Policy() => \"Content-Security-Policy: default-src 'self'\";\n}\n",
+        );
+        assert!(with_key(&strict, "csharpsquid:S7039").is_empty());
+    }
+
+    #[test]
+    fn s5693_flags_oversized_request_body_limits() {
+        let oversized = analyze_default(
+            "class Limits\n{\n    void Configure(FormOptions options)\n    {\n        options.MultipartBodyLengthLimit = 16777216;\n    }\n}\n",
+        );
+        let flagged = with_key(&oversized, "csharpsquid:S5693");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: the tolerated maximum itself passes.
+        let at_limit = analyze_default(
+            "class Limits\n{\n    void Configure(FormOptions options)\n    {\n        options.MultipartBodyLengthLimit = 8388608;\n    }\n}\n",
+        );
+        assert!(with_key(&at_limit, "csharpsquid:S5693").is_empty());
+    }
+
+    #[test]
+    fn s6354_flags_direct_system_clock_reads() {
+        let direct = analyze_default(
+            "class Report\n{\n    string Stamp() => DateTime.UtcNow.ToString();\n}\n",
+        );
+        let flagged = with_key(&direct, "csharpsquid:S6354");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: a passed-in value carries no clock read.
+        let injected = analyze_default(
+            "class Report\n{\n    string Stamp(DateTime when) => when.ToString();\n}\n",
+        );
+        assert!(with_key(&injected, "csharpsquid:S6354").is_empty());
+    }
+
+    #[test]
+    fn s6561_flags_datetime_now_near_stopwatch() {
+        let timing = analyze_default(
+            "class Bench\n{\n    void Measure()\n    {\n        var watch = Stopwatch.StartNew();\n        var started = DateTime.Now;\n        watch.Stop();\n    }\n}\n",
+        );
+        let flagged = with_key(&timing, "csharpsquid:S6561");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: 'DateTime.Now' outside a timing method is S6354's
+        // territory, not this rule's.
+        let untimed =
+            analyze_default("class Report\n{\n    string Stamp() => DateTime.Now.ToString();\n}\n");
+        assert!(with_key(&untimed, "csharpsquid:S6561").is_empty());
+    }
+
+    #[test]
+    fn s6562_requires_datetime_kind_on_construction() {
+        let unspecified = analyze_default(
+            "class Clock\n{\n    DateTime Make() => new DateTime(2020, 5, 1);\n}\n",
+        );
+        let flagged = with_key(&unspecified, "csharpsquid:S6562");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: an explicit kind settles the meaning.
+        let specified = analyze_default(
+            "class Clock\n{\n    DateTime Make() => new DateTime(2020, 5, 1, 0, 0, 0, DateTimeKind.Utc);\n}\n",
+        );
+        assert!(with_key(&specified, "csharpsquid:S6562").is_empty());
+    }
+
+    #[test]
+    fn s6588_flags_unix_epoch_literals() {
+        let epoch = analyze_default(
+            "class Sync\n{\n    DateTime Epoch() => new DateTime(1970, 1, 1);\n}\n",
+        );
+        let flagged = with_key(&epoch, "csharpsquid:S6588");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: any other date stays untouched.
+        let other = analyze_default(
+            "class Sync\n{\n    DateTime Start() => new DateTime(1971, 1, 1);\n}\n",
+        );
+        assert!(with_key(&other, "csharpsquid:S6588").is_empty());
+    }
+
+    #[test]
+    fn s6575_flags_windows_time_zone_lookups_without_converter() {
+        let windows_only = analyze_default(
+            "class Zones\n{\n    TimeZoneInfo Resolve(string id) => TimeZoneInfo.FindSystemTimeZoneById(id);\n}\n",
+        );
+        let flagged = with_key(&windows_only, "csharpsquid:S6575");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: once 'TimeZoneConverter' is referenced the migration is
+        // considered underway and the file stays clean.
+        let converter_present = analyze_default(
+            "using TimeZoneConverter;\nclass Zones\n{\n    TimeZoneInfo Resolve(string id) => TZConvert.GetTimeZoneInfo(id);\n}\n",
+        );
+        assert!(with_key(&converter_present, "csharpsquid:S6575").is_empty());
+    }
+
+    #[test]
+    fn s6580_flags_culture_less_date_parsing() {
+        let culture_less = analyze_default(
+            "class Feed\n{\n    DateTime Read(string raw) => DateTime.Parse(raw);\n}\n",
+        );
+        let flagged = with_key(&culture_less, "csharpsquid:S6580");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: passing a culture satisfies the rule.
+        let cultured = analyze_default(
+            "class Feed\n{\n    DateTime Read(string raw) => DateTime.Parse(raw, CultureInfo.InvariantCulture);\n}\n",
+        );
+        assert!(with_key(&cultured, "csharpsquid:S6580").is_empty());
+    }
+
+    #[test]
+    fn s6585_flags_hardcoded_date_format_strings() {
+        let fixed_format = analyze_default(
+            "class Report\n{\n    string Stamp(DateTime when) => when.ToString(\"yyyy-MM-dd HH:mm:ss\");\n}\n",
+        );
+        let flagged = with_key(&fixed_format, "csharpsquid:S6585");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: non-date format spellings stay clean.
+        let currency_format = analyze_default(
+            "class Report\n{\n    string Price(decimal amount) => amount.ToString(\"C\");\n}\n",
+        );
+        assert!(with_key(&currency_format, "csharpsquid:S6585").is_empty());
+    }
+
+    #[test]
+    fn s6419_flags_mutable_state_in_azure_function_classes() {
+        let mutable = analyze_default(
+            "class Greeter\n{\n    private int hits;\n\n    [FunctionName(\"Ping\")]\n    public void Ping() { }\n}\n",
+        );
+        let flagged = with_key(&mutable, "csharpsquid:S6419");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: immutable members do not leak state between invocations.
+        let immutable = analyze_default(
+            "class Greeter\n{\n    private readonly int total = 0;\n\n    [FunctionName(\"Ping\")]\n    public void Ping() { }\n}\n",
+        );
+        assert!(with_key(&immutable, "csharpsquid:S6419").is_empty());
+    }
+
+    #[test]
+    fn s6421_requires_try_catch_in_azure_functions() {
+        let unprotected = analyze_default(
+            "class Greeter\n{\n    [FunctionName(\"Ping\")]\n    public void Ping()\n    {\n        Send();\n    }\n}\n",
+        );
+        let flagged = with_key(&unprotected, "csharpsquid:S6421");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: a guarded body satisfies the rule.
+        let guarded = analyze_default(
+            "class Greeter\n{\n    [FunctionName(\"Ping\")]\n    public void Ping()\n    {\n        try { Send(); } catch (System.Exception ex) { logger.LogError(ex, \"failed\"); }\n    }\n}\n",
+        );
+        assert!(with_key(&guarded, "csharpsquid:S6421").is_empty());
+    }
+
+    #[test]
+    fn s6422_flags_blocking_inside_azure_function_classes() {
+        let blocking = analyze_default(
+            "class OrderFn\n{\n    [FunctionName(\"Run\")]\n    public int Run()\n    {\n        var task = System.Threading.Tasks.Task.Run(() => 1);\n        return task.Result;\n    }\n}\n",
+        );
+        assert!(!with_key(&blocking, "csharpsquid:S6422").is_empty());
+
+        // Boundary: the same access outside a Function class is not this
+        // rule's concern.
+        let outside = analyze_default(
+            "class Worker\n{\n    public int Block()\n    {\n        var task = System.Threading.Tasks.Task.Run(() => 1);\n        return task.Result;\n    }\n}\n",
+        );
+        assert!(with_key(&outside, "csharpsquid:S6422").is_empty());
+    }
+
+    #[test]
+    fn s6423_requires_logging_inside_azure_function_catches() {
+        let silent = analyze_default(
+            "class OrderFn\n{\n    [FunctionName(\"Run\")]\n    public void Run()\n    {\n        try { Send(); } catch (System.Exception ex) { throw; }\n    }\n}\n",
+        );
+        let flagged = with_key(&silent, "csharpsquid:S6423");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: a catch that reports the failure stays clean.
+        let reporting = analyze_default(
+            "class OrderFn\n{\n    [FunctionName(\"Run\")]\n    public void Run()\n    {\n        try { Send(); } catch (System.Exception ex) { _log.Error(ex, \"run failed\"); }\n    }\n}\n",
+        );
+        assert!(with_key(&reporting, "csharpsquid:S6423").is_empty());
+    }
+
+    #[test]
+    fn s6420_flags_clients_built_per_invocation() {
+        let per_call = analyze_default(
+            "class OrderFn\n{\n    [FunctionName(\"Run\")]\n    public void Run()\n    {\n        var client = new BlobContainerClient(\"conn\", \"orders\");\n    }\n}\n",
+        );
+        let flagged = with_key(&per_call, "csharpsquid:S6420");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: the same creation outside a Function is untouched here.
+        let elsewhere = analyze_default(
+            "class Hosted\n{\n    public void Start()\n    {\n        var client = new BlobContainerClient(\"conn\", \"orders\");\n    }\n}\n",
+        );
+        assert!(with_key(&elsewhere, "csharpsquid:S6420").is_empty());
+    }
+
+    #[test]
+    fn s6798_requires_public_on_js_invokable_methods() {
+        let mixed = analyze_default(
+            "class Counter\n{\n    [JSInvokable]\n    public void Increment() { }\n\n    [JSInvokable]\n    internal void Reset() { }\n}\n",
+        );
+        let flagged = with_key(&mixed, "csharpsquid:S6798");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 7);
+    }
+
+    #[test]
+    fn s6930_flags_backslashes_in_route_templates() {
+        let windows_route = analyze_default(
+            "class UsersController : ControllerBase\n{\n    [HttpGet(\"users\\\\list\")]\n    public IActionResult List() => Ok();\n}\n",
+        );
+        let flagged = with_key(&windows_route, "csharpsquid:S6930");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: forward slashes are portable.
+        let portable_route = analyze_default(
+            "class UsersController : ControllerBase\n{\n    [HttpGet(\"users/list\")]\n    public IActionResult List() => Ok();\n}\n",
+        );
+        assert!(with_key(&portable_route, "csharpsquid:S6930").is_empty());
+    }
+
+    #[test]
+    fn s6931_flags_rooted_action_route_templates() {
+        let rooted = analyze_default(
+            "class UsersController : ControllerBase\n{\n    [HttpGet(\"/users\")]\n    public IActionResult List() => Ok();\n}\n",
+        );
+        let flagged = with_key(&rooted, "csharpsquid:S6931");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: tilde-rooted and controller-level templates stay clean.
+        let tilde_rooted = analyze_default(
+            "class UsersController : ControllerBase\n{\n    [HttpGet(\"~/users\")]\n    public IActionResult List() => Ok();\n}\n",
+        );
+        assert!(with_key(&tilde_rooted, "csharpsquid:S6931").is_empty());
+
+        let controller_level = analyze_default(
+            "[Route(\"api/users\")]\nclass UsersController : ControllerBase\n{\n}\n",
+        );
+        assert!(with_key(&controller_level, "csharpsquid:S6931").is_empty());
+    }
+
+    #[test]
+    fn s6934_requires_controller_level_route_for_action_templates() {
+        let missing = analyze_default(
+            "class UsersController\n{\n    [Route(\"list\")]\n    public IActionResult List() => Ok();\n}\n",
+        );
+        let flagged = with_key(&missing, "csharpsquid:S6934");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: a controller-level route covers the actions.
+        let present = analyze_default(
+            "[Route(\"api/users\")]\nclass UsersController\n{\n    [HttpGet(\"list\")]\n    public IActionResult List() => Ok();\n}\n",
+        );
+        assert!(with_key(&present, "csharpsquid:S6934").is_empty());
+    }
+
+    #[test]
+    fn s6932_flags_raw_request_reads() {
+        let raw_read = analyze_default(
+            "class LegacyApi\n{\n    void Read()\n    {\n        var form = Request.Form;\n    }\n}\n",
+        );
+        let flagged = with_key(&raw_read, "csharpsquid:S6932");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: other request members stay untouched.
+        let headers_only = analyze_default(
+            "class LegacyApi\n{\n    void Read()\n    {\n        var agent = Request.Headers[\"User-Agent\"];\n    }\n}\n",
+        );
+        assert!(with_key(&headers_only, "csharpsquid:S6932").is_empty());
+    }
+
+    #[test]
+    fn s6961_prefers_controller_base_for_api_controllers() {
+        let view_base =
+            analyze_default("[ApiController]\nclass ProductsController : Controller\n{\n}\n");
+        let flagged = with_key(&view_base, "csharpsquid:S6961");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: 'ControllerBase' and MVC view controllers without API
+        // markers both stay clean.
+        let base_ok =
+            analyze_default("[ApiController]\nclass ProductsController : ControllerBase\n{\n}\n");
+        assert!(with_key(&base_ok, "csharpsquid:S6961").is_empty());
+
+        let mvc_views = analyze_default(
+            "class HomeController : Controller\n{\n    public IActionResult Index() => View();\n}\n",
+        );
+        assert!(with_key(&mvc_views, "csharpsquid:S6961").is_empty());
+    }
+
+    #[test]
+    fn s6962_flags_hand_rolled_http_clients() {
+        let manual =
+            analyze_default("class Fetcher\n{\n    HttpClient Make() => new HttpClient();\n}\n");
+        let flagged = with_key(&manual, "csharpsquid:S6962");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: similarly named handlers are not clients.
+        let handler =
+            analyze_default("class Fetcher\n{\n    var handler = new HttpClientHandler();\n}\n");
+        assert!(with_key(&handler, "csharpsquid:S6962").is_empty());
+    }
+
+    #[test]
+    fn s6965_requires_verb_attributes_on_actions() {
+        let unannotated = analyze_default(
+            "class WidgetsController\n{\n    public IActionResult Get() => Ok();\n\n    [HttpGet]\n    public IActionResult List() => Ok();\n\n    public void Utility() { }\n}\n",
+        );
+        let flagged = with_key(&unannotated, "csharpsquid:S6965");
+        assert_eq!(flagged.len(), 2);
+    }
+
+    #[test]
+    fn s6967_requires_model_state_check_for_bound_models() {
+        let unchecked = analyze_default(
+            "class OrdersController\n{\n    public IActionResult Create(OrderDto dto) => Ok();\n}\n",
+        );
+        let flagged = with_key(&unchecked, "csharpsquid:S6967");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: validated bodies and primitive parameters stay clean.
+        let checked = analyze_default(
+            "class OrdersController\n{\n    public IActionResult Create(OrderDto dto)\n    {\n        if (!ModelState.IsValid) return BadRequest();\n        return Ok();\n    }\n}\n",
+        );
+        assert!(with_key(&checked, "csharpsquid:S6967").is_empty());
+
+        let primitive = analyze_default(
+            "class OrdersController\n{\n    public IActionResult Get(int id) => Ok();\n}\n",
+        );
+        assert!(with_key(&primitive, "csharpsquid:S6967").is_empty());
+    }
+
+    #[test]
+    fn s6968_requires_produces_response_type_on_actions() {
+        let undeclared = analyze_default(
+            "class OrdersController\n{\n    [HttpPost]\n    public IActionResult Create(OrderDto dto) => Ok();\n}\n",
+        );
+        let flagged = with_key(&undeclared, "csharpsquid:S6968");
+        assert_eq!(flagged.len(), 1);
+
+        // Boundary: declared responses and void commands stay clean.
+        let declared = analyze_default(
+            "class OrdersController\n{\n    [HttpPost]\n    [ProducesResponseType(typeof(OrderDto), 200)]\n    public IActionResult Create(OrderDto dto) => Ok();\n}\n",
+        );
+        assert!(with_key(&declared, "csharpsquid:S6968").is_empty());
+
+        let void_action = analyze_default(
+            "class OrdersController\n{\n    [HttpPost]\n    public void Queue(OrderDto dto) { }\n}\n",
+        );
+        assert!(with_key(&void_action, "csharpsquid:S6968").is_empty());
     }
 }
