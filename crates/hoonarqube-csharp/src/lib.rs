@@ -25,7 +25,8 @@ use tree_sitter::{Node, Parser};
 /// analyzer does not flag every file.
 /// The Tier-A structural thresholds (`S107`, `S1151`, `S134`, `S138`,
 /// `S1479`, `S1541`, `S1067`, `S3776`) mirror their catalog parameter
-/// defaults.
+/// defaults, as do the Tier-A9 literal-scan knobs (`S1192` duplication
+/// threshold, `S2068` credential words, `S6418` secret words and entropy).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalyzerOptions {
     pub maximum_line_length: u32,
@@ -64,6 +65,18 @@ pub struct AnalyzerOptions {
     pub maximum_accessor_complexity_threshold: u32,
     /// `csharpsquid:S1067` tolerated logical operators per expression.
     pub maximum_logical_operators: u32,
+    /// `csharpsquid:S1192` `threshold`: occurrences at which a repeated
+    /// string literal is reported.
+    pub duplicate_string_threshold: u32,
+    /// `csharpsquid:S2068` `credentialWords`; entries match assigned names
+    /// case-insensitively as substrings.
+    pub credential_words: Vec<String>,
+    /// `csharpsquid:S6418` `secretWords`. The catalog default entries are
+    /// understood natively; custom entries degrade to substring matches.
+    pub secret_words: Vec<String>,
+    /// `csharpsquid:S6418` `randomnessSensibility`: distinct character
+    /// classes required inside a suspected secret literal.
+    pub secret_randomness_sensibility: u32,
 }
 
 impl Default for AnalyzerOptions {
@@ -87,6 +100,21 @@ impl Default for AnalyzerOptions {
             maximum_cognitive_complexity_threshold: 15,
             maximum_accessor_complexity_threshold: 3,
             maximum_logical_operators: 3,
+            duplicate_string_threshold: 3,
+            credential_words: vec![
+                "password".to_string(),
+                "passwd".to_string(),
+                "pwd".to_string(),
+                "passphrase".to_string(),
+            ],
+            secret_words: vec![
+                r"api[_\-]?key".to_string(),
+                "auth".to_string(),
+                "credential".to_string(),
+                "secret".to_string(),
+                "token".to_string(),
+            ],
+            secret_randomness_sensibility: 3,
         }
     }
 }
@@ -267,8 +295,8 @@ fn file_metrics(root: Node<'_>, source: &str) -> hoonarqube_ir::FileMetrics {
     }
 }
 
-/// Gathers every Tier-A4 through A8 structural, function-metric, expression,
-/// attribute-contract, and member-contract issue.
+/// Gathers every Tier-A4 through A11 structural, function-metric, expression,
+/// attribute-contract, member-contract, and literal-content issue.
 fn structural_issues(
     root: Node<'_>,
     source: &str,
@@ -340,6 +368,9 @@ fn structural_issues(
     issues.extend(constant_fold_issues(root, source, language));
     issues.extend(attribute_contract_issues(root, source, language));
     issues.extend(member_contract_issues(root, source, language));
+    issues.extend(literal_content_issues(root, source, language, options));
+    issues.extend(usage_heuristic_issues(root, source, language));
+    issues.extend(declaration_contract_issues(root, source, language));
     issues
 }
 
@@ -6978,6 +7009,1898 @@ fn member_contract_issues(root: Node<'_>, source: &str, language: CsLanguage) ->
     issues
 }
 
+// ---------------------------------------------------------------------------
+// A9 — literal-content scans
+// ---------------------------------------------------------------------------
+
+/// Every plain and verbatim string literal in the file, document order.
+/// Interpolated strings carry no static content and are skipped.
+fn string_literals(root: Node<'_>) -> Vec<Node<'_>> {
+    collect_kinds(root, &["string_literal", "verbatim_string_literal"])
+}
+
+fn is_string_literal(node: Node<'_>) -> bool {
+    matches!(node.kind(), "string_literal" | "verbatim_string_literal")
+}
+
+/// Inner text of a plain or verbatim string literal: quotes and the verbatim
+/// `@` prefix stripped; escape sequences stay as written.
+fn literal_inner_text<'a>(literal: Node<'_>, source: &'a str) -> &'a str {
+    let text = node_text(literal, source);
+    let trimmed = text.trim_start_matches('@');
+    trimmed
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .unwrap_or(trimmed)
+}
+
+/// Simple name of an assignment target: bare identifiers and the trailing
+/// member of `this.Password`-style accesses.
+fn assignment_target_name<'a>(target: Node<'_>, source: &'a str) -> Option<&'a str> {
+    match target.kind() {
+        "identifier" => Some(node_text(target, source)),
+        "member_access_expression" => {
+            let name = target.child_by_field_name("name")?;
+            Some(node_text(name, source))
+        }
+        _ => None,
+    }
+}
+
+/// The initializer of a declarator, if any: its last named child behind the
+/// name (`x = "v"`).
+fn declarator_initializer<'a>(declarator: Node<'a>, name: Node<'a>) -> Option<Node<'a>> {
+    let mut cursor = declarator.walk();
+    declarator
+        .named_children(&mut cursor)
+        .find(|child| child.id() != name.id())
+}
+
+/// Every place where a named target receives a string literal: assignments
+/// (`password = "x"`) and declarator initializers (`var key = "x";`). Yields
+/// `(anchor, target name, literal)` triples in document order.
+fn literal_assignments<'t, 's>(
+    root: Node<'t>,
+    source: &'s str,
+) -> Vec<(Node<'t>, &'s str, Node<'t>)> {
+    let mut out = Vec::new();
+    for assignment in collect_kinds(root, &["assignment_expression"]) {
+        let Some(left) = assignment.child_by_field_name("left") else {
+            continue;
+        };
+        let Some(right) = assignment.child_by_field_name("right") else {
+            continue;
+        };
+        if is_string_literal(right)
+            && let Some(name) = assignment_target_name(left, source)
+        {
+            out.push((assignment, name, right));
+        }
+    }
+    for declarator in collect_kinds(root, &["variable_declarator"]) {
+        let Some(name) = declarator.child_by_field_name("name") else {
+            continue;
+        };
+        let Some(initializer) = declarator_initializer(declarator, name) else {
+            continue;
+        };
+        if is_string_literal(initializer) {
+            out.push((declarator, node_text(name, source), initializer));
+        }
+    }
+    out
+}
+
+/// csharpsquid:S1192 — string literals repeated up to the configured
+/// threshold deserve a named constant. Occurrences from the second on are
+/// flagged; the empty literal is exempt.
+fn check_duplicate_string_literals(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut counts: std::collections::HashMap<&str, u32> = std::collections::HashMap::new();
+    for literal in string_literals(root) {
+        let text = literal_inner_text(literal, source);
+        if !text.is_empty() {
+            *counts.entry(text).or_insert(0) += 1;
+        }
+    }
+    let threshold = options.duplicate_string_threshold.max(2);
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut issues = Vec::new();
+    for literal in string_literals(root) {
+        let text = literal_inner_text(literal, source);
+        if text.is_empty() || counts[text] < threshold {
+            continue;
+        }
+        if seen.insert(text) {
+            continue; // the first occurrence anchors nothing
+        }
+        issue_text(&mut issues, language, text, counts[text], range_of(literal));
+    }
+    issues
+}
+
+/// One S1192 finding for a repeated literal's non-first occurrence.
+fn issue_text(
+    issues: &mut Vec<Issue>,
+    language: CsLanguage,
+    text: &str,
+    count: u32,
+    range: hoonarqube_ir::Range,
+) {
+    issues.push(issue(
+        language,
+        "S1192",
+        format!("Define a constant instead of duplicating this literal \"{text}\" {count} times."),
+        range,
+    ));
+}
+
+/// Case-insensitive substring search for a credential word inside a name.
+fn credential_word_in<'w>(name: &str, words: &'w [String]) -> Option<&'w str> {
+    let lowered = name.to_lowercase();
+    words
+        .iter()
+        .map(String::as_str)
+        .find(|word| lowered.contains(&word.to_lowercase()))
+}
+
+/// csharpsquid:S2068 — names carrying a credential word must not receive
+/// hard-coded string literals.
+fn check_hardcoded_credentials(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    literal_assignments(root, source)
+        .into_iter()
+        .filter(|(_, name, literal)| {
+            !literal_inner_text(*literal, source).is_empty()
+                && credential_word_in(name, &options.credential_words).is_some()
+        })
+        .map(|(anchor, name, _)| {
+            issue(
+                language,
+                "S2068",
+                format!("Review this hard-coded credential assigned through '{name}'."),
+                range_of(anchor),
+            )
+        })
+        .collect()
+}
+
+/// Matches the catalog default `secretWords` shapes natively
+/// (`api[_\-]?key`) and degrades every other entry to a case-insensitive
+/// substring search.
+fn secret_word_in<'w>(name: &str, words: &'w [String]) -> Option<&'w str> {
+    let lowered = name.to_lowercase();
+    words.iter().map(String::as_str).find(|word| {
+        if word.eq_ignore_ascii_case(r"api[_\-]?key") {
+            lowered.contains("apikey") || lowered.contains("api_key") || lowered.contains("api-key")
+        } else {
+            lowered.contains(&word.to_lowercase())
+        }
+    })
+}
+
+/// Entropy heuristic: enough distinct character classes and a non-trivial
+/// length separate real secrets from placeholder values like `"token"`.
+fn looks_like_secret(value: &str, sensibility: u32) -> bool {
+    let classes = [
+        value.chars().any(|c| c.is_ascii_lowercase()),
+        value.chars().any(|c| c.is_ascii_uppercase()),
+        value.chars().any(|c| c.is_ascii_digit()),
+        value.chars().any(|c| !c.is_ascii_alphanumeric()),
+    ];
+    value.len() >= 8
+        && classes.iter().filter(|seen| **seen).count()
+            >= usize::try_from(sensibility).unwrap_or(usize::MAX)
+}
+
+/// csharpsquid:S6418 — names matching a secret word plus high-entropy
+/// literal values point at hard-coded secrets.
+fn check_hardcoded_secrets(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    literal_assignments(root, source)
+        .into_iter()
+        .filter(|(_, name, literal)| {
+            secret_word_in(name, &options.secret_words).is_some()
+                && looks_like_secret(
+                    literal_inner_text(*literal, source),
+                    options.secret_randomness_sensibility,
+                )
+        })
+        .map(|(anchor, _, _)| {
+            issue(
+                language,
+                "S6418",
+                "Review this potentially hard-coded secret.",
+                range_of(anchor),
+            )
+        })
+        .collect()
+}
+
+/// Strict dotted-quad IPv4 shape with octets in range; versions and dates
+/// never fully match.
+fn is_ipv4_address(text: &str) -> bool {
+    let octets: Vec<&str> = text.split('.').collect();
+    octets.len() == 4
+        && octets.iter().all(|octet| {
+            !octet.is_empty()
+                && octet.len() <= 3
+                && octet.bytes().all(|byte| byte.is_ascii_digit())
+                && octet.parse::<u16>().is_ok_and(|value| value <= 255)
+        })
+}
+
+/// csharpsquid:S1313 — hard-coded IP addresses belong in configuration.
+fn check_hardcoded_ip_addresses(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    string_literals(root)
+        .into_iter()
+        .filter(|literal| is_ipv4_address(literal_inner_text(*literal, source)))
+        .map(|literal| {
+            issue(
+                language,
+                "S1313",
+                "Refactor this code to not use hard-coded IP addresses.",
+                range_of(literal),
+            )
+        })
+        .collect()
+}
+
+/// URI schemes whose hard-coded presence S1075 tracks.
+const URI_SCHEMES: [&str; 7] = [
+    "http://", "https://", "ftp://", "ftps://", "file://", "ws://", "wss://",
+];
+
+/// csharpsquid:S1075 — URIs belong in configuration, not literals.
+fn check_hardcoded_uris(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    string_literals(root)
+        .into_iter()
+        .filter(|literal| {
+            let lowered = literal_inner_text(*literal, source).to_lowercase();
+            URI_SCHEMES.iter().any(|scheme| lowered.starts_with(scheme))
+        })
+        .map(|literal| {
+            issue(
+                language,
+                "S1075",
+                "Refactor your code not to use hard-coded URLs.",
+                range_of(literal),
+            )
+        })
+        .collect()
+}
+
+/// SQL keywords whose squeezed spelling (`SELECT*FROM`) betrays concatenated
+/// query strings.
+const SQL_KEYWORDS: [&str; 12] = [
+    "select", "insert", "update", "delete", "drop", "alter", "create", "truncate", "union",
+    "merge", "exec", "execute",
+];
+
+/// SQL keywords inside the literal that touch a following punctuation symbol
+/// instead of whitespace (`SELECT*`). Longer words merely containing a
+/// keyword (`SELECTION`) stay clean.
+fn squeezed_sql_keywords(text: &str) -> Vec<&'static str> {
+    let lowered = text.to_lowercase();
+    SQL_KEYWORDS
+        .iter()
+        .filter(|keyword| {
+            let mut search_from = 0;
+            while let Some(found) = lowered[search_from..].find(*keyword) {
+                let start = search_from + found;
+                let end = start + keyword.len();
+                let bytes = lowered.as_bytes();
+                let word_started = start == 0 || !bytes[start - 1].is_ascii_alphanumeric();
+                let squeezed = end < bytes.len()
+                    && !bytes[end].is_ascii_whitespace()
+                    && !bytes[end].is_ascii_alphanumeric();
+                if word_started && squeezed {
+                    return true;
+                }
+                search_from = start + keyword.len();
+            }
+            false
+        })
+        .copied()
+        .collect()
+}
+
+/// csharpsquid:S2857 — SQL keywords must be delimited by whitespace;
+/// glued spellings indicate dynamically concatenated queries.
+fn check_sql_keyword_delimiters(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    string_literals(root)
+        .into_iter()
+        .flat_map(|literal| {
+            squeezed_sql_keywords(literal_inner_text(literal, source))
+                .into_iter()
+                .map(move |keyword| {
+                    issue(
+                        language,
+                        "S2857",
+                        format!(
+                            "Delimit the SQL keyword '{}' with whitespace.",
+                            keyword.to_ascii_uppercase()
+                        ),
+                        range_of(literal),
+                    )
+                })
+        })
+        .collect()
+}
+
+/// Hand-rolled syntactic validation of regular-expression patterns:
+/// balanced groups and classes, well-placed quantifiers, valid escapes, and
+/// sane character-class ranges — no regex engine required.
+fn is_valid_regex(pattern: &str) -> bool {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut i = 0;
+    let mut depth: usize = 0;
+    let mut atom = false;
+    while i < chars.len() {
+        match chars[i] {
+            '\\' => {
+                if i + 1 >= chars.len() {
+                    return false;
+                }
+                i += 2;
+                atom = true;
+            }
+            '[' => {
+                if !scan_regex_class(&chars, i, &mut i) {
+                    return false;
+                }
+                atom = true;
+            }
+            '(' => {
+                depth += 1;
+                if chars.get(i + 1) == Some(&'?') {
+                    // Group header such as `(?:`, `(?=`, `(?<=`, `(?<name>`:
+                    // consume through its terminator so inner quantifier
+                    // positions stay correct.
+                    let mut j = i + 2;
+                    while j < chars.len() && !matches!(chars[j], ':' | '=' | '!' | '>' | ')') {
+                        j += 1;
+                    }
+                    match chars.get(j) {
+                        Some(')') => {
+                            depth -= 1;
+                            i = j + 1;
+                        }
+                        Some(_) => i = j + 1,
+                        None => return false,
+                    }
+                } else {
+                    i += 1;
+                }
+                atom = false;
+            }
+            ')' => {
+                if depth == 0 {
+                    return false;
+                }
+                depth -= 1;
+                i += 1;
+                atom = true;
+            }
+            '|' => {
+                i += 1;
+                atom = false;
+            }
+            '*' | '+' | '?' => {
+                if !atom {
+                    return false;
+                }
+                while i < chars.len() && matches!(chars[i], '*' | '+' | '?') {
+                    i += 1;
+                }
+            }
+            '{' => {
+                let mut j = i + 1;
+                while j < chars.len() && chars[j].is_ascii_digit() {
+                    j += 1;
+                }
+                if j < chars.len() && chars[j] == ',' {
+                    j += 1;
+                    while j < chars.len() && chars[j].is_ascii_digit() {
+                        j += 1;
+                    }
+                }
+                if atom && j < chars.len() && chars[j] == '}' && j > i + 1 {
+                    i = j + 1;
+                } else {
+                    i += 1;
+                }
+                atom = true;
+            }
+            _ => {
+                i += 1;
+                atom = true;
+            }
+        }
+    }
+    depth == 0
+}
+
+/// Scans one `[...]` character class starting at `start`, advancing `i`
+/// past it. Rejects unterminated classes and reversed ranges (`[z-a]`);
+/// false means the pattern is invalid.
+fn scan_regex_class(chars: &[char], start: usize, i: &mut usize) -> bool {
+    let mut j = start + 1;
+    if chars.get(j) == Some(&'^') {
+        j += 1;
+    }
+    if chars.get(j) == Some(&']') {
+        j += 1;
+    }
+    let mut prev: Option<char> = None;
+    while j < chars.len() {
+        match chars[j] {
+            ']' => {
+                *i = j + 1;
+                return true;
+            }
+            '\\' => {
+                if j + 1 >= chars.len() {
+                    *i = chars.len();
+                    return false;
+                }
+                j += 2;
+                prev = None;
+            }
+            '-' if prev.is_some() && chars.get(j + 1).is_some_and(|hi| *hi != ']') => {
+                let hi = chars[j + 1];
+                if hi != '\\' && prev.is_some_and(|lo| lo > hi) {
+                    *i = chars.len();
+                    return false;
+                }
+                prev = None;
+                j += 1;
+            }
+            _ => {
+                prev = Some(chars[j]);
+                j += 1;
+            }
+        }
+    }
+    *i = chars.len();
+    false
+}
+
+fn argument_nodes(node: Node<'_>) -> Vec<Node<'_>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .filter(|child| child.kind() == "argument")
+        .collect()
+}
+
+/// The expression inside an `argument` wrapper node.
+fn argument_expression(argument: Node<'_>) -> Node<'_> {
+    let mut cursor = argument.walk();
+    argument
+        .named_children(&mut cursor)
+        .next()
+        .unwrap_or(argument)
+}
+
+/// Whether an object creation instantiates `Regex` directly.
+fn is_regex_creation(creation: Node<'_>, source: &str) -> bool {
+    creation
+        .child_by_field_name("type")
+        .is_none_or(|type_node| node_text(type_node, source) != "Regex")
+        .then_some(())
+        .is_none()
+}
+
+/// Methods of `System.Text.RegularExpressions.Regex` taking a pattern.
+const REGEX_PATTERN_METHODS: [&str; 5] = ["IsMatch", "Match", "Matches", "Replace", "Split"];
+
+/// The pattern argument of a static `Regex.Method(...)` call, if any.
+fn regex_static_pattern<'t>(invocation: Node<'t>, source: &str) -> Option<Node<'t>> {
+    let function = invocation.child_by_field_name("function")?;
+    if function.kind() != "member_access_expression" {
+        return None;
+    }
+    let receiver = function.child_by_field_name("expression")?;
+    let name = function.child_by_field_name("name")?;
+    if node_text(receiver, source) != "Regex"
+        || !REGEX_PATTERN_METHODS.contains(&node_text(name, source))
+    {
+        return None;
+    }
+    let arguments = invocation.child_by_field_name("arguments")?;
+    argument_nodes(arguments)
+        .get(1)
+        .copied()
+        .map(argument_expression)
+}
+
+/// Pattern arguments worth validating: first argument of a `new Regex(...)`
+/// creation and second argument of a static `Regex.Method(...)` call.
+fn regex_pattern_arguments<'t>(root: Node<'t>, source: &str) -> Vec<(Node<'t>, Node<'t>)> {
+    let mut out = Vec::new();
+    for creation in collect_kinds(root, &["object_creation_expression"]) {
+        if !is_regex_creation(creation, source) {
+            continue;
+        }
+        let Some(arguments) = creation.child_by_field_name("arguments") else {
+            continue;
+        };
+        if let Some(pattern) = argument_nodes(arguments).first() {
+            out.push((creation, argument_expression(*pattern)));
+        }
+    }
+    for invocation in collect_kinds(root, &["invocation_expression"]) {
+        if let Some(pattern) = regex_static_pattern(invocation, source) {
+            out.push((invocation, pattern));
+        }
+    }
+    out
+}
+
+/// Whether any argument mentions `TimeSpan`, the timeout carrier.
+fn arguments_carry_timeout(arguments: Node<'_>, source: &str) -> bool {
+    argument_nodes(arguments)
+        .iter()
+        .any(|argument| node_text(*argument, source).contains("TimeSpan"))
+}
+
+/// csharpsquid:S5856 — regular expressions must be syntactically valid.
+fn check_regex_syntax(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    regex_pattern_arguments(root, source)
+        .into_iter()
+        .filter(|(_, pattern)| {
+            is_string_literal(*pattern) && !is_valid_regex(literal_inner_text(*pattern, source))
+        })
+        .map(|(anchor, _)| {
+            issue(
+                language,
+                "S5856",
+                "Fix this invalid regular expression.",
+                range_of(anchor),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S6444 — every Regex construction and static pattern call
+/// carries a timeout.
+fn check_regex_timeouts(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for creation in collect_kinds(root, &["object_creation_expression"]) {
+        if !is_regex_creation(creation, source) {
+            continue;
+        }
+        let Some(arguments) = creation.child_by_field_name("arguments") else {
+            continue;
+        };
+        if !arguments_carry_timeout(arguments, source) {
+            issues.push(issue(
+                language,
+                "S6444",
+                "Provide a timeout when constructing this 'Regex'.",
+                range_of(creation),
+            ));
+        }
+    }
+    for invocation in collect_kinds(root, &["invocation_expression"]) {
+        if regex_static_pattern(invocation, source).is_none() {
+            continue;
+        }
+        let timed_out = invocation
+            .child_by_field_name("arguments")
+            .is_some_and(|arguments| arguments_carry_timeout(arguments, source));
+        if !timed_out {
+            issues.push(issue(
+                language,
+                "S6444",
+                "Provide a timeout for this 'Regex' call.",
+                range_of(invocation),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2479 — raw whitespace/control characters inside literals
+/// hide their intent; spell them as escape sequences.
+fn check_raw_control_characters(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    string_literals(root)
+        .into_iter()
+        .filter(|literal| {
+            literal_inner_text(*literal, source)
+                .chars()
+                .any(char::is_control)
+        })
+        .map(|literal| {
+            issue(
+                language,
+                "S2479",
+                "Replace this control character with its escape sequence form.",
+                range_of(literal),
+            )
+        })
+        .collect()
+}
+
+/// Longest trailing run of suffix letters whose remainder still ends in a
+/// digit yields the literal's suffix; lowercase suffixes are flagged. Hex
+/// digits outside the suffix set fall out naturally (`0xd` stays clean).
+fn has_lowercase_suffix(text: &str) -> bool {
+    const SUFFIX_LETTERS: [char; 10] = ['u', 'U', 'l', 'L', 'f', 'F', 'd', 'D', 'm', 'M'];
+    let run_len = text
+        .chars()
+        .rev()
+        .take_while(|letter| SUFFIX_LETTERS.contains(letter))
+        .count();
+    for k in 0..=run_len.min(text.len() - 1) {
+        if text.as_bytes()[text.len() - k - 1].is_ascii_digit() {
+            return text[text.len() - k..]
+                .chars()
+                .any(|letter: char| letter.is_ascii_lowercase());
+        }
+    }
+    false
+}
+
+/// csharpsquid:S818 — numeric literal suffixes are uppercase.
+fn check_numeric_suffix_case(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &["integer_literal", "real_literal"])
+        .into_iter()
+        .filter(|literal| has_lowercase_suffix(node_text(*literal, source)))
+        .map(|literal| {
+            issue(
+                language,
+                "S818",
+                "Uppercase this numeric literal suffix.",
+                range_of(literal),
+            )
+        })
+        .collect()
+}
+
+/// Gathers every Tier-A9 literal-content issue.
+fn literal_content_issues(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_duplicate_string_literals(
+        root, source, language, options,
+    ));
+    issues.extend(check_hardcoded_credentials(root, source, language, options));
+    issues.extend(check_hardcoded_secrets(root, source, language, options));
+    issues.extend(check_hardcoded_ip_addresses(root, source, language));
+    issues.extend(check_hardcoded_uris(root, source, language));
+    issues.extend(check_sql_keyword_delimiters(root, source, language));
+    issues.extend(check_regex_syntax(root, source, language));
+    issues.extend(check_regex_timeouts(root, source, language));
+    issues.extend(check_raw_control_characters(root, source, language));
+    issues.extend(check_numeric_suffix_case(root, source, language));
+    issues
+}
+
+// ---------------------------------------------------------------------------
+// A10 — in-file usage heuristics
+// ---------------------------------------------------------------------------
+
+/// Number of whole-word occurrences of `word` in `text`. Identifier
+/// characters are alphanumeric plus `_`, so `field` never matches `my_field`.
+fn count_word_occurrences(text: &str, word: &str) -> usize {
+    let bytes = text.as_bytes();
+    let mut count = 0;
+    let mut from = 0;
+    while let Some(found) = text[from..].find(word) {
+        let start = from + found;
+        let end = start + word.len();
+        let left_clean =
+            start == 0 || !(bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_');
+        let right_clean =
+            end >= bytes.len() || !(bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_');
+        if left_clean && right_clean {
+            count += 1;
+        }
+        from = start + word.len();
+    }
+    count
+}
+
+/// Last meaningful name segment of a using directive's target
+/// (`using Alias = System.IO.File;` → `File`).
+fn using_target_segment<'a>(directive: Node<'_>, source: &'a str) -> Option<&'a str> {
+    let text = node_text(directive, source).trim();
+    let inner = text.strip_prefix("using")?.trim();
+    let inner = inner.strip_prefix("global").map_or(inner, str::trim);
+    let inner = inner.strip_prefix("static").map_or(inner, str::trim);
+    let inner = inner.strip_suffix(';')?.trim();
+    let target = match inner.split_once('=') {
+        Some((_, aliased)) => aliased.trim(),
+        None => inner,
+    };
+    if target.is_empty() {
+        None
+    } else {
+        target.rsplit('.').next()
+    }
+}
+
+/// csharpsquid:S1128 — using directives whose target segment appears nowhere
+/// else in the file import nothing this file uses.
+fn check_unused_usings(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let directives = collect_kinds(root, &["using_directive"]);
+    if directives.is_empty() {
+        return Vec::new();
+    }
+    // Blank every directive (back to front keeps earlier offsets valid)
+    // before counting references in the remainder.
+    let mut body = source.to_string();
+    for directive in directives.iter().rev() {
+        let range = directive.byte_range();
+        let length = range.end - range.start;
+        body.replace_range(range, &" ".repeat(length));
+    }
+    directives
+        .into_iter()
+        .filter_map(|directive| {
+            let segment = using_target_segment(directive, source)?;
+            (count_word_occurrences(&body, segment) == 0).then_some(directive)
+        })
+        .map(|directive| {
+            issue(
+                language,
+                "S1128",
+                "Remove this unnecessary 'using'.",
+                range_of(directive),
+            )
+        })
+        .collect()
+}
+
+/// One private member candidate for the S1144 audit.
+struct PrivateMember<'t> {
+    anchor: Node<'t>,
+    name: String,
+    kind_word: &'static str,
+}
+
+/// Collects private methods, properties, fields, and events declared by
+/// non-partial types. Constants are exempt (they often document intent),
+/// attributed members may be reflection hooks, and `Main` is an entry point.
+fn private_member_candidates<'t>(root: Node<'t>, source: &str) -> Vec<PrivateMember<'t>> {
+    let mut candidates = Vec::new();
+    for type_node in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
+        if has_modifier(&modifiers_of(type_node, source), "partial") {
+            continue;
+        }
+        for member in type_members(type_node) {
+            match member.kind() {
+                "method_declaration" | "property_declaration" => {
+                    let Some(name_node) = member.child_by_field_name("name") else {
+                        continue;
+                    };
+                    if accessibility_rank(&modifiers_of(member, source)) != 1
+                        || !attributes_of(member, source).is_empty()
+                        || node_text(name_node, source) == "Main"
+                    {
+                        continue;
+                    }
+                    candidates.push(PrivateMember {
+                        anchor: name_node,
+                        name: node_text(name_node, source).to_string(),
+                        kind_word: if member.kind() == "method_declaration" {
+                            "method"
+                        } else {
+                            "property"
+                        },
+                    });
+                }
+                "field_declaration" => {
+                    if accessibility_rank(&modifiers_of(member, source)) == 1
+                        && !has_modifier(&modifiers_of(member, source), "const")
+                        && attributes_of(member, source).is_empty()
+                    {
+                        candidates.extend(private_declarators(member, source, "field"));
+                    }
+                }
+                "event_field_declaration"
+                    if accessibility_rank(&modifiers_of(member, source)) == 1
+                        && attributes_of(member, source).is_empty() =>
+                {
+                    candidates.extend(private_declarators(member, source, "event"));
+                }
+                _ => {}
+            }
+        }
+    }
+    candidates
+}
+
+/// Declarator candidates of a field-like declaration.
+fn private_declarators<'t>(
+    declaration: Node<'t>,
+    source: &str,
+    kind_word: &'static str,
+) -> Vec<PrivateMember<'t>> {
+    collect_kinds(declaration, &["variable_declarator"])
+        .into_iter()
+        .filter_map(|declarator| {
+            let name_node = declarator.child_by_field_name("name")?;
+            Some(PrivateMember {
+                anchor: name_node,
+                name: node_text(name_node, source).to_string(),
+                kind_word,
+            })
+        })
+        .collect()
+}
+
+/// csharpsquid:S1144 — unused private types and members are dead weight.
+/// Overloads sharing one name must all be unreferenced before the name dies;
+/// partial types span files and stay untouched.
+fn check_unused_private_members(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    let members = private_member_candidates(root, source);
+    let mut declared: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for member in &members {
+        *declared.entry(&member.name).or_insert(0) += 1;
+    }
+    for member in &members {
+        if count_word_occurrences(source, &member.name) <= declared[member.name.as_str()] {
+            issues.push(issue(
+                language,
+                "S1144",
+                format!("Remove this unused private {}.", member.kind_word),
+                range_of(member.anchor),
+            ));
+        }
+    }
+    // Nested types default to private; partial ones span files.
+    for type_node in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
+        let mods = modifiers_of(type_node, source);
+        if has_modifier(&mods, "partial") || type_declared_rank(type_node, source) != 1 {
+            continue;
+        }
+        let Some(name_node) = type_node.child_by_field_name("name") else {
+            continue;
+        };
+        let name = node_text(name_node, source);
+        if count_word_occurrences(source, name) <= 1 {
+            issues.push(issue(
+                language,
+                "S1144",
+                format!("Remove this unused private {name}."),
+                range_of(name_node),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S1481 — local variables nobody reads are noise. Discard
+/// declarations (`_`) are exempt by convention.
+fn check_unused_locals(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &["local_declaration_statement"])
+        .into_iter()
+        .filter(|statement| !has_modifier(&modifiers_of(*statement, source), "const"))
+        .flat_map(|statement| collect_kinds(statement, &["variable_declarator"]))
+        .filter_map(|declarator| {
+            let name = declarator.child_by_field_name("name")?;
+            let text = node_text(name, source);
+            (text != "_").then_some((declarator, text))
+        })
+        .filter(|(_, text)| count_word_occurrences(source, text) <= 1)
+        .map(|(declarator, _)| {
+            issue(
+                language,
+                "S1481",
+                "Remove this unused local variable.",
+                range_of(declarator),
+            )
+        })
+        .collect()
+}
+
+/// Whether `root`'s subtree mentions the identifier `name`, ignoring
+/// parameter lists (where the parameter itself is declared).
+fn mentions_identifier_outside_parameter_list(root: Node<'_>, name: &str, source: &str) -> bool {
+    if root.kind() == "parameter_list" {
+        return false;
+    }
+    if root.kind() == "identifier" {
+        return node_text(root, source) == name;
+    }
+    let mut cursor = root.walk();
+    root.children(&mut cursor)
+        .any(|child| mentions_identifier_outside_parameter_list(child, name, source))
+}
+
+/// Modifiers whose callables keep their signatures regardless of usage.
+const SIGNATURE_KEEPING_MODIFIERS: [&str; 8] = [
+    "public",
+    "protected",
+    "internal",
+    "virtual",
+    "override",
+    "abstract",
+    "partial",
+    "extern",
+];
+
+/// csharpsquid:S1172 — parameters no body ever reads mislead callers.
+/// Visible, virtual, abstract, partial, and extern callables keep their
+/// signatures; discard names (`_`) are exempt by convention.
+fn check_unused_method_parameters(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["method_declaration", "constructor_declaration"])
+        .into_iter()
+        .filter(|callable| {
+            !modifiers_of(*callable, source)
+                .iter()
+                .any(|modifier| SIGNATURE_KEEPING_MODIFIERS.contains(modifier))
+        })
+        .flat_map(|callable| {
+            parameters_of(callable)
+                .into_iter()
+                .map(move |parameter| (callable, parameter))
+        })
+        .filter_map(|(callable, parameter)| {
+            let name = parameter.child_by_field_name("name")?;
+            let text = node_text(name, source);
+            (text != "_").then_some((callable, parameter, text))
+        })
+        .filter(|(callable, _, name)| {
+            !mentions_identifier_outside_parameter_list(*callable, name, source)
+        })
+        .map(|(_, parameter, name)| {
+            issue(
+                language,
+                "S1172",
+                format!("Remove this unused method parameter '{name}'."),
+                range_of(parameter),
+            )
+        })
+        .collect()
+}
+
+/// Whether a numeric literal's value is exactly -1, 0, or 1.
+fn is_small_allowed_number(text: &str) -> bool {
+    if let Some(value) = integer_literal_value(text) {
+        return value <= 1;
+    }
+    // Real literals: spell out zero and one textually to stay exact.
+    let base = text.trim_end_matches(|c: char| c.is_ascii_alphabetic());
+    let Some((integer, fraction)) = base.split_once('.') else {
+        return false;
+    };
+    let normalized = integer.trim_start_matches('0');
+    let fraction_all_zero = fraction.bytes().all(|digit| digit == b'0');
+    (normalized.is_empty() && fraction_all_zero)
+        || (normalized == "1" && (fraction.is_empty() || fraction_all_zero))
+}
+
+/// Contexts where even large numbers are not magic: enumeration members,
+/// constant declarations, and parameter defaults.
+fn magic_number_exempt(mut literal: Node<'_>, source: &str) -> bool {
+    while let Some(parent) = literal.parent() {
+        match parent.kind() {
+            "enum_member_declaration" | "parameter" => return true,
+            "field_declaration" | "local_declaration_statement" => {
+                return has_modifier(&modifiers_of(parent, source), "const");
+            }
+            _ => {}
+        }
+        literal = parent;
+    }
+    false
+}
+
+/// csharpsquid:S109 — numbers beyond -1/0/1 deserve names.
+fn check_magic_numbers(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &["integer_literal", "real_literal"])
+        .into_iter()
+        .filter(|literal| {
+            !magic_number_exempt(*literal, source)
+                && !is_small_allowed_number(node_text(*literal, source))
+        })
+        .map(|literal| {
+            issue(
+                language,
+                "S109",
+                "Replace this magic number with a named constant.",
+                range_of(literal),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S3264 — events nobody raises can never inform anybody.
+/// Subscriptions alone do not raise; this in-file heuristic only certifies
+/// events whose name appears nowhere beyond its declaration.
+fn check_uninvoked_events(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let declared: Vec<(Node<'_>, &str)> = collect_kinds(root, &["event_field_declaration"])
+        .into_iter()
+        .flat_map(|declaration| collect_kinds(declaration, &["variable_declarator"]))
+        .filter_map(|declarator| {
+            let name = declarator.child_by_field_name("name")?;
+            Some((declarator, node_text(name, source)))
+        })
+        .collect();
+    if declared.is_empty() {
+        return Vec::new();
+    }
+    let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for (_, name) in &declared {
+        *counts.entry(name).or_insert(0) += 1;
+    }
+    declared
+        .into_iter()
+        .filter(|(_, name)| count_word_occurrences(source, name) <= counts[name])
+        .map(|(declarator, name)| {
+            issue(
+                language,
+                "S3264",
+                format!("Invoke the event '{name}' or remove it."),
+                range_of(declarator),
+            )
+        })
+        .collect()
+}
+
+/// Gathers every Tier-A10 in-file usage heuristic issue.
+fn usage_heuristic_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_unused_usings(root, source, language));
+    issues.extend(check_unused_private_members(root, source, language));
+    issues.extend(check_unused_locals(root, source, language));
+    issues.extend(check_unused_method_parameters(root, source, language));
+    issues.extend(check_magic_numbers(root, source, language));
+    issues.extend(check_uninvoked_events(root, source, language));
+    issues
+}
+
+// ---------------------------------------------------------------------------
+// A11 — field/static/threading declaration contracts
+// ---------------------------------------------------------------------------
+
+/// Whether a callable declares an implementation body (not just `;`).
+fn has_body_block(callable: Node<'_>) -> bool {
+    callable.child_by_field_name("body").is_some()
+}
+
+/// csharpsquid:S3251 — a `partial` method without any implementing part in
+/// this file never runs. Partial types span files, so implementations living
+/// elsewhere are out of reach for this analyzer.
+fn check_partial_methods_implemented(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let partials: Vec<(Node<'_>, &str, bool)> = collect_kinds(root, &["method_declaration"])
+        .into_iter()
+        .filter(|method| has_modifier(&modifiers_of(*method, source), "partial"))
+        .filter_map(|method| {
+            let name = node_text(method.child_by_field_name("name")?, source);
+            Some((method, name, has_body_block(method)))
+        })
+        .collect();
+    let mut implemented: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for (_, name, has_body) in &partials {
+        if *has_body {
+            implemented.insert(name);
+        }
+    }
+    partials
+        .into_iter()
+        .filter_map(move |(method, name, _)| {
+            (!implemented.contains(name)).then_some((method, name))
+        })
+        .map(|(method, name)| {
+            issue(
+                language,
+                "S3251",
+                format!("Implement or remove this partial method '{name}'."),
+                range_of(method),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S3052 — fields initialized to their type's default value gain
+/// nothing from the explicit assignment.
+fn is_default_value_expression(node: Node<'_>, source: &str) -> bool {
+    match node.kind() {
+        "null_literal" | "default_expression" => true,
+        "boolean_literal" => node_text(node, source) == "false",
+        "character_literal" => node_text(node, source) == "'\\0'",
+        "integer_literal" => integer_literal_value(node_text(node, source)) == Some(0),
+        "real_literal" => {
+            let base = node_text(node, source).trim_end_matches(|c: char| c.is_ascii_alphabetic());
+            base.bytes().all(|byte| byte == b'0' || byte == b'.')
+                && base.bytes().any(|byte| byte == b'0')
+        }
+        _ => false,
+    }
+}
+
+/// csharpsquid:S3052 — drop field initializers spelling the default value.
+fn check_default_field_initializers(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["field_declaration"])
+        .into_iter()
+        .flat_map(|field| collect_kinds(field, &["variable_declarator"]))
+        .filter_map(|declarator| {
+            Some((
+                declarator,
+                declarator_initializer(declarator, declarator.child_by_field_name("name")?),
+            ))
+        })
+        .filter(|(_, initializer)| {
+            initializer.is_some_and(|node| is_default_value_expression(node, source))
+        })
+        .map(|(declarator, _)| {
+            issue(
+                language,
+                "S3052",
+                "Remove this redundant initialization to the default value.",
+                range_of(declarator),
+            )
+        })
+        .collect()
+}
+
+/// Static, non-constant field declarators declared directly by a type.
+fn static_field_declarators<'t>(type_node: Node<'t>, source: &'t str) -> Vec<Node<'t>> {
+    member_declarations_of_kind(type_node, "field_declaration")
+        .into_iter()
+        .filter(|field| {
+            let mods = modifiers_of(*field, source);
+            has_modifier(&mods, "static") && !has_modifier(&mods, "const")
+        })
+        .flat_map(|field| collect_kinds(field, &["variable_declarator"]))
+        .collect()
+}
+
+/// Names assigned on the left of assignments inside `scope`.
+fn assigned_names<'a>(scope: Node<'_>, source: &'a str) -> Vec<&'a str> {
+    collect_kinds(scope, &["assignment_expression"])
+        .into_iter()
+        .filter_map(|assignment| {
+            assignment
+                .child_by_field_name("left")
+                .filter(|left| left.kind() == "identifier")
+                .map(|left| node_text(left, source))
+        })
+        .collect()
+}
+
+/// csharpsquid:S3963 — static fields assigned only inside the static
+/// constructor belong inline with their declarations.
+fn check_static_fields_initialized_inline(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for type_node in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
+        let static_ctor = member_declarations_of_kind(type_node, "constructor_declaration")
+            .into_iter()
+            .filter(|ctor| has_modifier(&modifiers_of(*ctor, source), "static"))
+            .find_map(|ctor| ctor.child_by_field_name("body").map(|body| (ctor, body)));
+        let Some((_, body)) = static_ctor else {
+            continue;
+        };
+        let assigned: std::collections::HashSet<&str> =
+            assigned_names(body, source).into_iter().collect();
+        if assigned.is_empty() {
+            continue;
+        }
+        for declarator in static_field_declarators(type_node, source) {
+            let Some(name_node) = declarator.child_by_field_name("name") else {
+                continue;
+            };
+            let name = node_text(name_node, source);
+            if assigned.contains(name) && declarator_initializer(declarator, name_node).is_none() {
+                issues.push(issue(
+                    language,
+                    "S3963",
+                    format!("Initialize '{name}' inline instead of in the static constructor."),
+                    range_of(name_node),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3253 — constructors that only restate what the compiler
+/// generates, and finalizers that merely chain disposal, are noise.
+fn check_redundant_constructors(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for ctor in collect_kinds(root, &["constructor_declaration"]) {
+        let mods = modifiers_of(ctor, source);
+        // Private parameterless constructors can deliberately block
+        // instantiation; visible ones add nothing.
+        if accessibility_rank(&mods) < 2 || !parameters_of(ctor).is_empty() {
+            continue;
+        }
+        let Some(body) = ctor.child_by_field_name("body") else {
+            continue;
+        };
+        if body.named_child_count() == 0 {
+            issues.push(issue(
+                language,
+                "S3253",
+                "Remove this redundant constructor.",
+                range_of(ctor),
+            ));
+        }
+    }
+    for dtor in collect_kinds(root, &["destructor_declaration"]) {
+        let Some(body) = dtor.child_by_field_name("body") else {
+            continue;
+        };
+        // `base.Dispose();` alone is exactly what the compiler already does.
+        let inner = node_text(body, source).trim_matches(|c| c == '{' || c == '}');
+        if inner.trim() == "base.Dispose();" {
+            issues.push(issue(
+                language,
+                "S3253",
+                "Remove this redundant finalizer.",
+                range_of(dtor),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3962 — literal-initialized `static readonly` fields should be
+/// `const`: their values never change at runtime.
+fn is_literal_node(node: Node<'_>) -> bool {
+    matches!(
+        node.kind(),
+        "string_literal"
+            | "verbatim_string_literal"
+            | "integer_literal"
+            | "real_literal"
+            | "boolean_literal"
+            | "character_literal"
+    )
+}
+
+/// csharpsquid:S3962 — promote literal-backed static readonly fields to const.
+fn check_static_readonly_literals(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["field_declaration"])
+        .into_iter()
+        .filter(|field| {
+            let mods = modifiers_of(*field, source);
+            has_modifier(&mods, "static") && has_modifier(&mods, "readonly")
+        })
+        .flat_map(|field| collect_kinds(field, &["variable_declarator"]))
+        .filter_map(|declarator| {
+            let name = declarator.child_by_field_name("name")?;
+            let initializer = declarator_initializer(declarator, name)?;
+            is_literal_node(initializer).then_some((declarator, initializer))
+        })
+        .map(|(declarator, _)| {
+            issue(
+                language,
+                "S3962",
+                "Declare this field as 'const' instead of 'static readonly'.",
+                range_of(declarator),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S3010 — instance constructors updating static fields leak
+/// state across instances.
+fn check_static_fields_updated_in_constructors(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for type_node in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
+        let static_names: std::collections::HashSet<&str> =
+            static_field_declarators(type_node, source)
+                .into_iter()
+                .filter_map(|declarator| {
+                    declarator
+                        .child_by_field_name("name")
+                        .map(|name| node_text(name, source))
+                })
+                .collect();
+        if static_names.is_empty() {
+            continue;
+        }
+        for ctor in member_declarations_of_kind(type_node, "constructor_declaration") {
+            if has_modifier(&modifiers_of(ctor, source), "static") {
+                continue; // static constructors are the right place
+            }
+            let Some(body) = ctor.child_by_field_name("body") else {
+                continue;
+            };
+            for assignment in collect_kinds(body, &["assignment_expression"]) {
+                if let Some(name) = assigned_names(assignment, source)
+                    .first()
+                    .filter(|name| static_names.contains(*name))
+                {
+                    issues.push(issue(
+                        language,
+                        "S3010",
+                        format!(
+                            "Do not assign the static field '{name}' from an instance constructor."
+                        ),
+                        range_of(assignment),
+                    ));
+                }
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2996 — `ThreadStatic` fields start uninitialized on every
+/// thread; initializers run once and mislead.
+fn check_thread_static_initializers(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["field_declaration"])
+        .into_iter()
+        .filter(|field| {
+            has_any_attribute(*field, source, &["ThreadStatic", "ThreadStaticAttribute"])
+        })
+        .flat_map(|field| collect_kinds(field, &["variable_declarator"]))
+        .filter_map(|declarator| {
+            let name = declarator.child_by_field_name("name")?;
+            Some((declarator, declarator_initializer(declarator, name)))
+        })
+        .filter(|(_, initializer)| initializer.is_some())
+        .map(|(declarator, _)| {
+            issue(
+                language,
+                "S2996",
+                "Remove this initializer; '[ThreadStatic]' fields must not be initialized.",
+                range_of(declarator),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S3005 — `ThreadStatic` only affects static fields; on an
+/// instance field it silently does nothing.
+fn check_thread_static_needs_static(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["field_declaration"])
+        .into_iter()
+        .filter(|field| {
+            has_any_attribute(*field, source, &["ThreadStatic", "ThreadStaticAttribute"])
+                && !has_modifier(&modifiers_of(*field, source), "static")
+        })
+        .filter_map(|field| {
+            collect_kinds(field, &["variable_declarator"])
+                .first()
+                .copied()
+        })
+        .filter_map(|declarator| declarator.child_by_field_name("name"))
+        .map(|name_node| {
+            issue(
+                language,
+                "S3005",
+                "Mark this field 'static'; '[ThreadStatic]' applies only to static fields.",
+                range_of(name_node),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S2743 — static fields of generic types are shared by every
+/// instantiation, which is almost never intended.
+fn check_static_fields_in_generic_types(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for type_node in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
+        if type_parameter_list_of(type_node).is_none() {
+            continue;
+        }
+        for declarator in static_field_declarators(type_node, source) {
+            let Some(name_node) = declarator.child_by_field_name("name") else {
+                continue;
+            };
+            issues.push(issue(
+                language,
+                "S2743",
+                format!(
+                    "Move the static field '{}' to a non-generic type; it is shared across instantiations.",
+                    node_text(name_node, source)
+                ),
+                range_of(name_node),
+            ));
+        }
+    }
+    issues
+}
+
+/// Whether a parameter type names an EventArgs-derived type.
+fn is_event_args_parameter(parameter: Node<'_>, source: &str) -> bool {
+    parameter
+        .child_by_field_name("type")
+        .is_some_and(|type_node| simple_name(node_text(type_node, source)).ends_with("EventArgs"))
+}
+
+/// Signature shape `(object sender, TEventArgs e)`.
+fn is_event_handler_shape(delegate: Node<'_>, source: &str) -> bool {
+    let parameters = parameters_of(delegate);
+    parameters.len() == 2
+        && parameters[0]
+            .child_by_field_name("type")
+            .is_some_and(|type_node| simple_name(node_text(type_node, source)) == "object")
+        && is_event_args_parameter(parameters[1], source)
+}
+
+/// csharpsquid:S3906 — delegates shaped like event handlers must return void:
+/// raising an event should not hand callers a result to ignore.
+fn check_event_delegate_return_types(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["delegate_declaration"])
+        .into_iter()
+        .filter(|delegate| {
+            is_event_handler_shape(*delegate, source)
+                && delegate
+                    .child_by_field_name("type")
+                    .is_some_and(|returns| node_text(returns, source) != "void")
+        })
+        .filter_map(|delegate| delegate.child_by_field_name("name"))
+        .map(|name_node| {
+            issue(
+                language,
+                "S3906",
+                "Change the return type of this delegate to 'void'.".to_string(),
+                range_of(name_node),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S3908 — custom delegates shaped like `(object, EventArgs)`
+/// duplicate `EventHandler<T>`; use the framework type.
+fn check_custom_event_handler_delegates(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let handler_shapes: std::collections::HashSet<&str> =
+        collect_kinds(root, &["delegate_declaration"])
+            .into_iter()
+            .filter(|delegate| is_event_handler_shape(*delegate, source))
+            .filter_map(|delegate| delegate.child_by_field_name("name"))
+            .map(|name_node| node_text(name_node, source))
+            .collect();
+    if handler_shapes.is_empty() {
+        return Vec::new();
+    }
+    collect_kinds(root, &["event_field_declaration"])
+        .into_iter()
+        .flat_map(|event_field| collect_kinds(event_field, &["variable_declaration"]))
+        .filter(|declaration| {
+            declaration
+                .child_by_field_name("type")
+                .is_some_and(|type_node| {
+                    handler_shapes.contains(simple_name(node_text(type_node, source)))
+                })
+        })
+        .flat_map(|declaration| collect_kinds(declaration, &["variable_declarator"]))
+        .filter_map(|declarator| declarator.child_by_field_name("name"))
+        .map(|name_node| {
+            issue(
+                language,
+                "S3908",
+                format!(
+                    "Use 'EventHandler<T>' instead of this custom delegate for '{}'.",
+                    node_text(name_node, source)
+                ),
+                range_of(name_node),
+            )
+        })
+        .collect()
+}
+
+/// Gathers every Tier-A11 declaration contract issue.
+fn declaration_contract_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_partial_methods_implemented(root, source, language));
+    issues.extend(check_redundant_constructors(root, source, language));
+    issues.extend(check_default_field_initializers(root, source, language));
+    issues.extend(check_static_fields_initialized_inline(
+        root, source, language,
+    ));
+    issues.extend(check_static_readonly_literals(root, source, language));
+    issues.extend(check_static_fields_updated_in_constructors(
+        root, source, language,
+    ));
+    issues.extend(check_thread_static_initializers(root, source, language));
+    issues.extend(check_thread_static_needs_static(root, source, language));
+    issues.extend(check_static_fields_in_generic_types(root, source, language));
+    issues.extend(check_event_delegate_return_types(root, source, language));
+    issues.extend(check_custom_event_handler_delegates(root, source, language));
+    issues.extend(check_attribute_classes_constrained(root, source, language));
+    issues.extend(check_extension_methods_on_object(root, source, language));
+    issues.extend(check_event_payload_types(root, source, language));
+    issues.extend(check_assembly_annotations(root, source, language));
+    issues.extend(check_reserved_enum_members(root, source, language));
+    issues.extend(check_flags_enums_used_bitwise(root, source, language));
+    issues.extend(check_flags_members_explicit_values(root, source, language));
+    issues.extend(check_flags_zero_member_named_none(root, source, language));
+    issues
+}
+
+/// csharpsquid:S4225 — extension methods on 'object' match everything and
+/// hide real members.
+fn check_extension_methods_on_object(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["method_declaration"])
+        .into_iter()
+        .filter_map(|method| {
+            let first = parameters_of(method).first().copied()?;
+            Some((method, first))
+        })
+        .filter(|(_, first)| node_text(*first, source).trim_start().starts_with("this"))
+        .filter_map(|(method, first)| {
+            // Receiver type: the token between `this` and the parameter name.
+            let text = node_text(first, source)
+                .trim_start()
+                .strip_prefix("this")?
+                .trim();
+            let type_name = simple_name(text.split_whitespace().next()?);
+            (type_name == "object").then_some(method)
+        })
+        .filter_map(|method| method.child_by_field_name("name"))
+        .map(|name_node| {
+            issue(
+                language,
+                "S4225",
+                "Refactor this extension method on 'object' to extend a more specific type.",
+                range_of(name_node),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S4220 — events whose custom delegate payload is not an
+/// EventArgs-derived type lose the framework's sender/payload conventions.
+fn check_event_payload_types(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let custom_delegates: std::collections::HashMap<&str, bool> =
+        collect_kinds(root, &["delegate_declaration"])
+            .into_iter()
+            .filter_map(|delegate| {
+                let name = delegate.child_by_field_name("name")?;
+                let parameters = parameters_of(delegate);
+                let carries_args = parameters
+                    .last()
+                    .is_some_and(|parameter| is_event_args_parameter(*parameter, source));
+                Some((node_text(name, source), carries_args))
+            })
+            .collect();
+    if custom_delegates.is_empty() {
+        return Vec::new();
+    }
+    collect_kinds(root, &["event_field_declaration"])
+        .into_iter()
+        .flat_map(|event_field| collect_kinds(event_field, &["variable_declaration"]))
+        .filter(|declaration| {
+            declaration
+                .child_by_field_name("type")
+                .and_then(|type_node| {
+                    custom_delegates.get(simple_name(node_text(type_node, source)))
+                })
+                .copied()
+                .is_some_and(|carries_args| !carries_args)
+        })
+        .filter(|declaration| {
+            declaration
+                .child_by_field_name("type")
+                .is_some_and(|type_node| {
+                    custom_delegates.contains_key(simple_name(node_text(type_node, source)))
+                })
+        })
+        .flat_map(|declaration| collect_kinds(declaration, &["variable_declarator"]))
+        .filter_map(|declarator| declarator.child_by_field_name("name"))
+        .map(|name_node| {
+            issue(
+                language,
+                "S4220",
+                format!(
+                    "Have the event '{}' carry an 'EventArgs'-derived payload.",
+                    node_text(name_node, source)
+                ),
+                range_of(name_node),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S3993 — attribute classes should declare `[AttributeUsage]`
+/// so compilers and tooling know where they apply.
+fn check_attribute_classes_constrained(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["class_declaration"])
+        .into_iter()
+        .filter(|class_node| base_simple_names(*class_node, source).contains(&"Attribute"))
+        .filter(|class_node| {
+            !has_any_attribute(
+                *class_node,
+                source,
+                &["AttributeUsage", "AttributeUsageAttribute"],
+            )
+        })
+        .filter_map(|class_node| class_node.child_by_field_name("name"))
+        .map(|name| {
+            issue(
+                language,
+                "S3993",
+                format!(
+                    "Constrain the attribute '{}' with '[AttributeUsage]'.",
+                    node_text(name, source)
+                ),
+                range_of(name),
+            )
+        })
+        .collect()
+}
+
+/// Whether any assembly-level (`[assembly: ...]`) attribute is present.
+fn assembly_attribute_names<'a>(root: Node<'_>, source: &'a str) -> Vec<&'a str> {
+    collect_kinds(root, &["global_attribute"])
+        .iter()
+        .flat_map(|global| collect_kinds(*global, &["attribute"]))
+        .filter_map(|attribute| attribute.child_by_field_name("name"))
+        .map(|name| simple_name(node_text(name, source)))
+        .collect()
+}
+
+/// File-level finding anchored at the top of the file, like S1451.
+fn file_level_issue(language: CsLanguage, rule: &str, message: &str) -> Issue {
+    issue(
+        language,
+        rule,
+        message,
+        hoonarqube_ir::Range {
+            start: hoonarqube_ir::Pos { line: 1, column: 0 },
+            end: hoonarqube_ir::Pos { line: 1, column: 0 },
+        },
+    )
+}
+
+/// Assembly-annotation presence checks (csharpsquid:S3990, S3992, S4026).
+/// Files without any assembly attributes are not treated as assembly-info
+/// files and stay clean; a file annotating some but not all of the trio is
+/// flagged for the missing ones.
+fn check_assembly_annotations(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let names = assembly_attribute_names(root, source);
+    if names.is_empty() {
+        return Vec::new();
+    }
+    let has = |wanted: &[&str]| names.iter().any(|name| wanted.contains(name));
+    let mut issues = Vec::new();
+    if !has(&["CLSCompliant", "CLSCompliantAttribute"]) {
+        issues.push(file_level_issue(
+            language,
+            "S3990",
+            "Annotate this assembly with '[assembly: CLSCompliant]'.",
+        ));
+    }
+    if !has(&["ComVisible", "ComVisibleAttribute"]) {
+        issues.push(file_level_issue(
+            language,
+            "S3992",
+            "Annotate this assembly with '[assembly: ComVisible]'.",
+        ));
+    }
+    if !has(&[
+        "NeutralResourcesLanguage",
+        "NeutralResourcesLanguageAttribute",
+    ]) {
+        issues.push(file_level_issue(
+            language,
+            "S4026",
+            "Annotate this assembly with '[assembly: NeutralResourcesLanguage]'.",
+        ));
+    }
+    issues
+}
+
+/// csharpsquid:S4016 — members named 'Reserved' promise nothing and invite
+/// cargo-cult extensions.
+fn check_reserved_enum_members(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &["enum_declaration"])
+        .into_iter()
+        .flat_map(|enum_node| collect_kinds(enum_node, &["enum_member_declaration"]))
+        .filter_map(|member| member.child_by_field_name("name"))
+        .filter(|name| node_text(*name, source).eq_ignore_ascii_case("reserved"))
+        .map(|name| {
+            issue(
+                language,
+                "S4016",
+                "Rename this 'Reserved' enumeration member.",
+                range_of(name),
+            )
+        })
+        .collect()
+}
+
+/// Whether any binary or compound-assignment expression in the file applies
+/// a bitwise operator (`&`, `|`, `^`, `|=`, `&=`, `^=`); `&&`/`||` stay
+/// logical.
+fn file_uses_bitwise_operators(root: Node<'_>, source: &str) -> bool {
+    for expr in collect_kinds(root, &["binary_expression", "assignment_expression"]) {
+        let bytes = node_text(expr, source).as_bytes();
+        let mut index = 0;
+        while index < bytes.len() {
+            match bytes[index] {
+                b'|' | b'&' => {
+                    let doubled = bytes.get(index + 1) == Some(&bytes[index]);
+                    if !doubled {
+                        return true;
+                    }
+                    index += 1;
+                }
+                b'^' => return true,
+                _ => {}
+            }
+            index += 1;
+        }
+    }
+    false
+}
+
+/// csharpsquid:S4070 — '[Flags]' on enumerations nobody combines bitwise is
+/// misleading decoration.
+fn check_flags_enums_used_bitwise(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    if file_uses_bitwise_operators(root, source) {
+        return Vec::new();
+    }
+    collect_kinds(root, &["enum_declaration"])
+        .into_iter()
+        .filter(|enum_node| enum_has_flags_attribute(*enum_node, source))
+        .filter_map(|enum_node| enum_node.child_by_field_name("name"))
+        .map(|name| {
+            issue(
+                language,
+                "S4070",
+                "Remove '[Flags]' from this enumeration or apply bitwise operations to it.",
+                range_of(name),
+            )
+        })
+        .collect()
+}
+
+/// Members of a flags enumeration with their explicit value nodes.
+fn enum_members(enum_node: Node<'_>) -> Vec<(Node<'_>, Option<Node<'_>>)> {
+    collect_kinds(enum_node, &["enum_member_declaration"])
+        .into_iter()
+        .map(|member| (member, member.child_by_field_name("value")))
+        .collect()
+}
+
+/// csharpsquid:S2345 — '[Flags]' members without explicit values get
+/// powers-of-two-unfriendly implicit numbering.
+fn check_flags_members_explicit_values(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["enum_declaration"])
+        .into_iter()
+        .filter(|enum_node| enum_has_flags_attribute(*enum_node, source))
+        .flat_map(|enum_node| enum_members(enum_node))
+        .filter_map(|(member, value)| {
+            let name = member.child_by_field_name("name")?;
+            value.is_none().then_some(name)
+        })
+        .map(|name| {
+            issue(
+                language,
+                "S2345",
+                format!(
+                    "Give the enumeration member '{}' an explicit value.",
+                    node_text(name, source)
+                ),
+                range_of(name),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S2346 — the zero value of a '[Flags]' enumeration means 'no
+/// options' and should be named 'None'.
+fn check_flags_zero_member_named_none(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["enum_declaration"])
+        .into_iter()
+        .filter(|enum_node| enum_has_flags_attribute(*enum_node, source))
+        .flat_map(|enum_node| {
+            let members = enum_members(enum_node);
+            // Explicit zero wins; otherwise an uninitialized first member is
+            // implicitly zero.
+            let zero = members.iter().find_map(|(_, value)| {
+                value
+                    .and_then(|node| integer_literal_value(node_text(node, source)))
+                    .filter(|parsed| *parsed == 0)
+            });
+            let zero_member = zero.and_then(|_| {
+                members.iter().find(|(_, value)| {
+                    value.and_then(|node| integer_literal_value(node_text(node, source))) == Some(0)
+                })
+            });
+            let candidate = match (zero_member, members.first()) {
+                (Some((_, _)), _) => Some(zero_member.unwrap().0),
+                (None, Some((first, None))) if members.len() > 1 => Some(*first),
+                _ => None,
+            };
+            candidate.into_iter()
+        })
+        .filter_map(|member| member.child_by_field_name("name"))
+        .filter(|name| !node_text(*name, source).eq_ignore_ascii_case("none"))
+        .map(|name| {
+            issue(
+                language,
+                "S2346",
+                format!(
+                    "Name this zero-valued '[Flags]' member '{}' 'None' instead.",
+                    node_text(name, source)
+                ),
+                range_of(name),
+            )
+        })
+        .collect()
+}
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -6994,13 +8917,13 @@ mod tests {
     fn clean_csharp_parses_with_metrics() {
         let report = analyze(
             PathBuf::from("test.cs"),
-            "class A\n{\n    int X;\n}\n",
+            "int total = 1;\ntotal = total + total;\n",
             CsLanguage::CSharp,
             &AnalyzerOptions::default(),
         );
         assert_eq!(report.language, "csharpsquid");
         assert!(report.issues.is_empty());
-        assert_eq!(report.metrics.lines, 4);
+        assert_eq!(report.metrics.lines, 2);
         assert!(report.metrics.code_lines > 0);
         assert_eq!(report.metrics.comment_lines, 0);
     }
@@ -9077,5 +11000,609 @@ mod tests {
             "class C\n{\n    int Count(int total)\n    {\n        while (More())\n        {\n            total += 1;\n        }\n        return total;\n    }\n}\n",
         );
         assert!(with_key(&numeric, "csharpsquid:S1643").is_empty());
+    }
+    #[test]
+    fn s1192_flags_repeated_literals_from_the_second_occurrence() {
+        let repeated = analyze_default(
+            "class C\n{\n    void M()\n    {\n        Use(\"alpha\");\n        Use(\"alpha\");\n\
+             Use(\"alpha\");\n        Use(\"beta\");\n        Use(\"beta\");\n    }\n}\n",
+        );
+        let flagged = with_key(&repeated, "csharpsquid:S1192");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 6);
+        assert_eq!(flagged[1].range.start.line, 7);
+        assert!(flagged[0].message.contains("\"alpha\" 3 times."));
+
+        let options = AnalyzerOptions {
+            duplicate_string_threshold: 2,
+            ..Default::default()
+        };
+        let lowered = analyze_options(
+            "class C\n{\n    void M()\n    {\n        Use(\"beta\");\n        Use(\"beta\");\n    }\n}\n",
+            &options,
+        );
+        assert_eq!(with_key(&lowered, "csharpsquid:S1192").len(), 1);
+    }
+
+    #[test]
+    fn s1192_exempts_empty_and_unique_literals() {
+        let report = analyze_default(
+            "class C\n{\n    void M()\n    {\n        Use(\"\");\n        Use(\"\");\n\
+             Use(\"\");\n        Use(\"only once\");\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1192").is_empty());
+    }
+
+    #[test]
+    fn s2068_flags_credential_named_assignments_and_declarators() {
+        let report = analyze_default(
+            "class C\n{\n    string pwd = \"s3cret\";\n\n    void Set()\n    {\n\
+                 password = \"hunter2\";\n        this.passPhrase = \"z\";\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2068");
+        assert_eq!(flagged.len(), 3);
+        assert!(flagged[0].message.contains("pwd"));
+
+        let clean = analyze_default(
+            "class C\n{\n    string name = \"s3cret\";\n\n    void Set()\n    {\n\
+                 password = string.Empty;\n    }\n}\n",
+        );
+        assert!(with_key(&clean, "csharpsquid:S2068").is_empty());
+    }
+
+    #[test]
+    fn s6418_needs_secret_word_and_entropy_together() {
+        let secret = analyze_default("var apiKey = \"aB3$xY9#kQ\";\n");
+        assert_eq!(with_key(&secret, "csharpsquid:S6418").len(), 1);
+
+        let low_entropy = analyze_default("var token = \"abc12345\";\n");
+        assert!(with_key(&low_entropy, "csharpsquid:S6418").is_empty());
+
+        let no_secret_word = analyze_default("var label = \"aB3$xY9#kQ\";\n");
+        assert!(with_key(&no_secret_word, "csharpsquid:S6418").is_empty());
+
+        let dashed = analyze_default("var My_ApiKey = \"aB3$xY9#kQ\";\n");
+        assert_eq!(with_key(&dashed, "csharpsquid:S6418").len(), 1);
+    }
+
+    #[test]
+    fn s1313_flags_only_valid_dotted_quads() {
+        let report = analyze_default(
+            "class C\n{\n    string ip = \"192.168.0.1\";\n    string bad = \"999.9.9.9\";\n\
+                 string short1 = \"1.2.3\";\n    string ver = \"v1.2.3.4\";\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1313");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s1075_flags_scheme_prefixed_literals() {
+        let report = analyze_default(
+            "class C\n{\n    string a = \"https://example.com/x\";\n    string b = \"example.com/y\";\n\
+                 string c = \"FTP://f.z\";\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S1075").len(), 2);
+    }
+
+    #[test]
+    fn s2857_flags_squeezed_sql_keywords_only() {
+        let squeezed = analyze_default("var q = \"SELECT*FROM users WHERE id=@id\";\n");
+        let flagged = with_key(&squeezed, "csharpsquid:S2857");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'SELECT'"));
+
+        let spaced = analyze_default("var q = \"SELECT * FROM users\";\n");
+        assert!(with_key(&spaced, "csharpsquid:S2857").is_empty());
+
+        let wordy = analyze_default("var w = \"SELECTION of items\";\n");
+        assert!(with_key(&wordy, "csharpsquid:S2857").is_empty());
+    }
+
+    #[test]
+    fn s5856_rejects_syntactically_invalid_patterns() {
+        let report = analyze_default(
+            "class C\n{\n    Regex R = new Regex(\"[a-z+\");\n\n    bool Check(string input) =>\n\
+                 Regex.IsMatch(input, \"*bad\");\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S5856").len(), 2);
+
+        let valid = analyze_default(
+            "class C\n{\n    Regex R = new Regex(@\"^\\d{2,4}([a-z]|$)\", RegexOptions.Compiled);\n\
+                 bool Look(string input) => Regex.IsMatch(input, \"(?<=x)y*\");\n}\n",
+        );
+        assert!(with_key(&valid, "csharpsquid:S5856").is_empty());
+
+        let reversed = analyze_default("bool B = Regex.IsMatch(s, \"[z-a]\");\n");
+        assert_eq!(with_key(&reversed, "csharpsquid:S5856").len(), 1);
+    }
+
+    #[test]
+    fn s6444_requires_timeouts_on_regex_apis() {
+        let missing = analyze_default(
+            "class C\n{\n    Regex R = new Regex(\"p\");\n\n    bool Find(string input) =>\n\
+                 Regex.IsMatch(input, \"\\\\w\");\n}\n",
+        );
+        assert_eq!(with_key(&missing, "csharpsquid:S6444").len(), 2);
+
+        let present = analyze_default(
+            "class C\n{\n    Regex R = new Regex(\n        \"p\",\n\
+                 RegexOptions.None,\n        TimeSpan.FromSeconds(2));\n\n    bool Find(string input) =>\n\
+                 Regex.IsMatch(input, \"\\\\w\", RegexOptions.None, TimeSpan.FromSeconds(2));\n}\n",
+        );
+        assert!(with_key(&present, "csharpsquid:S6444").is_empty());
+    }
+
+    #[test]
+    fn s2479_flags_raw_whitespace_but_not_escapes() {
+        let raw_tab = analyze_default("var t = \"a\tb\";\n");
+        assert_eq!(with_key(&raw_tab, "csharpsquid:S2479").len(), 1);
+
+        let escaped = analyze_default("var t = \"a\\tb\\n\";\n");
+        assert!(with_key(&escaped, "csharpsquid:S2479").is_empty());
+    }
+
+    #[test]
+    fn s818_flags_lowercase_numeric_suffixes() {
+        let flagged = analyze_default(
+            "class C\n{\n    long a = 123l;\n    float b = 1.5f;\n    decimal c = 100m;\n}\n",
+        );
+        assert_eq!(with_key(&flagged, "csharpsquid:S818").len(), 3);
+
+        let clean = analyze_default(
+            "class C\n{\n    long a = 123L;\n    double b = 1.5D;\n    ulong c = 0xFFUL;\n\
+                 int d = 0xd;\n    int e = 42;\n    double f = 1.5e3;\n}\n",
+        );
+        assert!(with_key(&clean, "csharpsquid:S818").is_empty());
+    }
+
+    #[test]
+    fn s1128_flags_using_directives_without_file_references() {
+        let unused = analyze_default("using System.Collections.Generic;\nclass C\n{\n}\n");
+        let flagged = with_key(&unused, "csharpsquid:S1128");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+
+        let aliased = analyze_default(
+            "using Alias = System.IO.File;\nclass C\n{\n    string Read()\n    {\n\
+                 return File.ReadAllText(\"x\");\n    }\n}\n",
+        );
+        assert!(with_key(&aliased, "csharpsquid:S1128").is_empty());
+
+        let static_unused = analyze_default("using static System.Math;\nclass C\n{\n}\n");
+        assert_eq!(with_key(&static_unused, "csharpsquid:S1128").len(), 1);
+    }
+
+    #[test]
+    fn s1144_flags_unreferenced_private_members_only() {
+        let unused =
+            analyze_default("class C\n{\n    int field;\n\n    void Method()\n    {\n    }\n}\n");
+        assert_eq!(with_key(&unused, "csharpsquid:S1144").len(), 2);
+
+        let overloads = analyze_default(
+            "class C\n{\n    void Twice()\n    {\n    }\n\n    void Twice(int n)\n    {\n    }\n}\n",
+        );
+        assert_eq!(with_key(&overloads, "csharpsquid:S1144").len(), 2);
+
+        let used = analyze_default(
+            "class C\n{\n    int field;\n\n    public int Get()\n    {\n\
+                 return field;\n    }\n}\n",
+        );
+        assert!(with_key(&used, "csharpsquid:S1144").is_empty());
+
+        let partial = analyze_default("partial class C\n{\n    void Method()\n    {\n    }\n}\n");
+        assert!(with_key(&partial, "csharpsquid:S1144").is_empty());
+
+        let constant = analyze_default("class C\n{\n    const int Limit = 5;\n}\n");
+        assert!(with_key(&constant, "csharpsquid:S1144").is_empty());
+    }
+
+    #[test]
+    fn s1481_flags_locals_nobody_reads() {
+        let stale = analyze_default(
+            "class C\n{\n    int M()\n    {\n        int stale = 1;\n        return 2;\n    }\n}\n",
+        );
+        assert_eq!(with_key(&stale, "csharpsquid:S1481").len(), 1);
+
+        let read = analyze_default(
+            "class C\n{\n    int M()\n    {\n        int fresh = 1;\n        return fresh;\n    }\n}\n",
+        );
+        assert!(with_key(&read, "csharpsquid:S1481").is_empty());
+
+        let exempt = analyze_default(
+            "class C\n{\n    void M()\n    {\n        int _ = 1;\n        const int kMax = 5;\n\
+                 Use(kMax);\n    }\n}\n",
+        );
+        assert!(with_key(&exempt, "csharpsquid:S1481").is_empty());
+    }
+
+    #[test]
+    fn s1172_flags_parameters_no_body_reads() {
+        let unused = analyze_default(
+            "class C\n{\n    void Handle(int value)\n    {\n        Log();\n    }\n}\n",
+        );
+        let flagged = with_key(&unused, "csharpsquid:S1172");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'value'"));
+
+        let read = analyze_default(
+            "class C\n{\n    void Handle(int value)\n    {\n        Log(value);\n    }\n}\n",
+        );
+        assert!(with_key(&read, "csharpsquid:S1172").is_empty());
+
+        let visible = analyze_default(
+            "class C\n{\n    public void Handle(int value)\n    {\n        Log();\n    }\n}\n",
+        );
+        assert!(with_key(&visible, "csharpsquid:S1172").is_empty());
+
+        let discarded = analyze_default(
+            "class C\n{\n    void Handle(int _)\n    {\n        Log();\n    }\n}\n",
+        );
+        assert!(with_key(&discarded, "csharpsquid:S1172").is_empty());
+    }
+
+    #[test]
+    fn s109_flags_numbers_beyond_the_small_allowance() {
+        let magic =
+            analyze_default("class C\n{\n    int M()\n    {\n        return 42;\n    }\n}\n");
+        assert_eq!(with_key(&magic, "csharpsquid:S109").len(), 1);
+
+        let hex = analyze_default("int mask = 0xFF;\n");
+        assert_eq!(with_key(&hex, "csharpsquid:S109").len(), 1);
+
+        let boundary_two = analyze_default("int x = 2;\n");
+        assert_eq!(with_key(&boundary_two, "csharpsquid:S109").len(), 1);
+
+        let allowed = analyze_default("int a = -1;\nint b = 0;\nint c = 1;\ndouble d = 1.0;\n");
+        assert!(with_key(&allowed, "csharpsquid:S109").is_empty());
+
+        let constants = analyze_default(
+            "class C\n{\n    const int Limit = 100;\n    int Read() => Limit;\n}\n",
+        );
+        assert!(with_key(&constants, "csharpsquid:S109").is_empty());
+
+        let enumerations = analyze_default("enum E\n{\n    Max = 200,\n}\n");
+        assert!(with_key(&enumerations, "csharpsquid:S109").is_empty());
+
+        let defaults = analyze_default(
+            "class C\n{\n    void M(int retries = 3)\n    {\n        Use(retries);\n    }\n}\n",
+        );
+        assert!(with_key(&defaults, "csharpsquid:S109").is_empty());
+    }
+
+    #[test]
+    fn s3264_flags_events_that_are_never_raised() {
+        let silent = analyze_default("class C\n{\n    event System.EventHandler Done;\n}\n");
+        let flagged = with_key(&silent, "csharpsquid:S3264");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'Done'"));
+
+        let raised = analyze_default(
+            "class C\n{\n    event System.EventHandler Done;\n\n    void Raise()\n    {\n        Done(this, System.EventArgs.Empty);\n    }\n}\n",
+        );
+        assert!(with_key(&raised, "csharpsquid:S3264").is_empty());
+
+        // Documented heuristic limit: a bare subscription silences the check,
+        // because distinguishing it from a raise needs type flow.
+        let subscribed = analyze_default(
+            "class C\n{\n    event System.EventHandler Done;\n\n    void Wire()\n    {\n        Done += OnDone;\n    }\n}\n",
+        );
+        assert!(with_key(&subscribed, "csharpsquid:S3264").is_empty());
+    }
+
+    #[test]
+    fn s3251_flags_partial_methods_without_implementations() {
+        let orphan = analyze_default("partial class C\n{\n    partial void OnRaise();\n}\n");
+        for f in &orphan.issues {
+            println!("DBGA {}", f.rule_key);
+        }
+        let flagged = with_key(&orphan, "csharpsquid:S3251");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'OnRaise'"));
+
+        let paired = analyze_default(
+            "partial class C\n{\n    partial void OnRaise();\n\n    partial void OnRaise()\n    {\n    }\n}\n",
+        );
+        assert!(with_key(&paired, "csharpsquid:S3251").is_empty());
+
+        // Boundary: without the 'partial' modifier the method is out of scope.
+        let plain = analyze_default("class C\n{\n    void Method();\n}\n");
+        assert!(with_key(&plain, "csharpsquid:S3251").is_empty());
+    }
+
+    #[test]
+    fn s3253_flags_redundant_constructors_and_finalizers() {
+        let redundant = analyze_default(
+            "class C\n{\n    public C()\n    {\n    }\n\n    ~C()\n    {\n        base.Dispose();\n    }\n}\n",
+        );
+        assert_eq!(with_key(&redundant, "csharpsquid:S3253").len(), 2);
+
+        let meaningful = analyze_default(
+            "class C\n{\n    private C()\n    {\n    }\n\n    public C(int seed)\n    {\n        Use(seed);\n    }\n\n    ~C()\n    {\n        Log();\n    }\n}\n",
+        );
+        assert!(with_key(&meaningful, "csharpsquid:S3253").is_empty());
+    }
+
+    #[test]
+    fn s3052_flags_field_initializers_spelling_defaults() {
+        let defaults = analyze_default(
+            "class C\n{\n    int a = 0;\n    string b = null;\n    bool c = false;\n        char d = '\\0';\n    double e = 0.0;\n    object f = default;\n}\n",
+        );
+        assert_eq!(with_key(&defaults, "csharpsquid:S3052").len(), 6);
+
+        let meaningful = analyze_default(
+            "class C\n{\n    int a = 1;\n    string b = \"x\";\n    bool c = true;\n        double d = 0.5;\n    int[] e = new int[0];\n}\n",
+        );
+        assert!(with_key(&meaningful, "csharpsquid:S3052").is_empty());
+    }
+
+    #[test]
+    fn s3962_promotes_literal_backed_static_readonly_fields() {
+        let literal =
+            analyze_default("class C\n{\n    static readonly string Greeting = \"hi\";\n}\n");
+        assert_eq!(with_key(&literal, "csharpsquid:S3962").len(), 1);
+
+        let computed = analyze_default(
+            "class C\n{\n    static readonly TimeSpan Wait = TimeSpan.FromSeconds(2);\n        readonly int local = 5;\n}\n",
+        );
+        assert!(with_key(&computed, "csharpsquid:S3962").is_empty());
+    }
+
+    #[test]
+    fn s3963_moves_static_ctor_only_initialization_inline() {
+        let moved = analyze_default(
+            "class C\n{\n    static int value;\n\n    static C()\n    {\n        value = Compute();\n    }\n}\n",
+        );
+        let flagged = with_key(&moved, "csharpsquid:S3963");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'value'"));
+
+        let inline = analyze_default(
+            "class C\n{\n    static int value = Compute();\n\n    static C()\n    {\n        value++;\n    }\n}\n",
+        );
+        assert!(with_key(&inline, "csharpsquid:S3963").is_empty());
+
+        let untouched = analyze_default(
+            "class C\n{\n    static int value;\n\n    static C()\n    {\n        Log();\n    }\n}\n",
+        );
+        assert!(with_key(&untouched, "csharpsquid:S3963").is_empty());
+    }
+
+    #[test]
+    fn s3010_flags_static_writes_from_instance_constructors() {
+        let leaking = analyze_default(
+            "class C\n{\n    static int count;\n    int seen;\n\n    public C()\n    {\n        count = 1;\n        seen = 2;\n    }\n}\n",
+        );
+        let flagged = with_key(&leaking, "csharpsquid:S3010");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'count'"));
+
+        let proper = analyze_default(
+            "class C\n{\n    static int count;\n\n    static C()\n    {\n        count = 1;\n    }\n        public C()\n    {\n        Use(count);\n    }\n}\n",
+        );
+        assert!(with_key(&proper, "csharpsquid:S3010").is_empty());
+    }
+
+    #[test]
+    fn s2996_flags_thread_static_field_initializers() {
+        let initialized =
+            analyze_default("class C\n{\n    [ThreadStatic]\n    static int perThread = 5;\n}\n");
+        assert_eq!(with_key(&initialized, "csharpsquid:S2996").len(), 1);
+
+        let bare =
+            analyze_default("class C\n{\n    [ThreadStatic]\n    static int perThread;\n}\n");
+        assert!(with_key(&bare, "csharpsquid:S2996").is_empty());
+    }
+
+    #[test]
+    fn s3005_requires_static_on_thread_static_fields() {
+        let instance = analyze_default("class C\n{\n    [ThreadStatic]\n    int perThread;\n}\n");
+        let flagged = with_key(&instance, "csharpsquid:S3005");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'static'"));
+
+        let proper =
+            analyze_default("class C\n{\n    [ThreadStatic]\n    static int perThread;\n}\n");
+        assert!(with_key(&proper, "csharpsquid:S3005").is_empty());
+    }
+
+    #[test]
+    fn s2743_flags_static_fields_inside_generic_types() {
+        let shared =
+            analyze_default("class Cache<T>\n{\n    static Dictionary<string, T> map;\n}\n");
+        let flagged = with_key(&shared, "csharpsquid:S2743");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'map'"));
+
+        let instance_only = analyze_default(
+            "class Cache<T>\n{\n    Dictionary<string, T> map;\n\n    const int Limit = 4;\n}\n",
+        );
+        assert!(with_key(&instance_only, "csharpsquid:S2743").is_empty());
+
+        let non_generic = analyze_default("class Cache\n{\n    static int hits;\n}\n");
+        assert!(with_key(&non_generic, "csharpsquid:S2743").is_empty());
+    }
+
+    #[test]
+    fn s3906_keeps_event_handler_delegates_void() {
+        let returning = analyze_default("delegate int Op(object sender, MyEventArgs e);\n");
+        for f in &returning.issues {
+            println!("DBGB {}", f.rule_key);
+        }
+        let flagged = with_key(&returning, "csharpsquid:S3906");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'void'"));
+
+        let proper = analyze_default("delegate void Op(object sender, MyEventArgs e);\n");
+        assert!(with_key(&proper, "csharpsquid:S3906").is_empty());
+
+        let unshaped = analyze_default("delegate int Map(string input);\n");
+        assert!(with_key(&unshaped, "csharpsquid:S3906").is_empty());
+    }
+
+    #[test]
+    fn s3908_prefers_event_handler_over_custom_shaped_delegates() {
+        let custom = analyze_default(
+            "delegate void Op(object sender, MyEventArgs e);\n\nclass C\n{\n    event Op Raised;\n}\n",
+        );
+        let flagged = with_key(&custom, "csharpsquid:S3908");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'Raised'"));
+
+        let framework =
+            analyze_default("class C\n{\n    event System.EventHandler<MyEventArgs> Raised;\n}\n");
+        assert!(with_key(&framework, "csharpsquid:S3908").is_empty());
+
+        let unshaped =
+            analyze_default("delegate void Op(int code);\n\nclass C\n{\n    event Op Failed;\n}\n");
+        assert!(with_key(&unshaped, "csharpsquid:S3908").is_empty());
+    }
+
+    #[test]
+    fn s4225_flags_extension_methods_on_object() {
+        let broad = analyze_default(
+            "static class Ext\n{\n    public static bool Blank(this object item)\n    {\n        return item == null;\n    }\n}\n",
+        );
+        let flagged = with_key(&broad, "csharpsquid:S4225");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'object'"));
+
+        let specific = analyze_default(
+            "static class Ext\n{\n    public static bool Blank(this string item)\n    {\n        return item == null;\n    }\n}\n",
+        );
+        assert!(with_key(&specific, "csharpsquid:S4225").is_empty());
+
+        let plain_method = analyze_default(
+            "static class Ext\n{\n    public static bool Blank(object item)\n    {\n        return item == null;\n    }\n}\n",
+        );
+        assert!(with_key(&plain_method, "csharpsquid:S4225").is_empty());
+    }
+
+    #[test]
+    fn s4220_flags_events_without_eventargs_payloads() {
+        let raw_payload = analyze_default(
+            "delegate void Handler(int code);\n\nclass C\n{\n    event Handler Failed;\n}\n",
+        );
+        let flagged = with_key(&raw_payload, "csharpsquid:S4220");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'Failed'"));
+
+        let proper = analyze_default(
+            "delegate void Handler(object sender, MyEventArgs e);\n\nclass C\n{\n        event Handler Failed;\n}\n",
+        );
+        assert!(with_key(&proper, "csharpsquid:S4220").is_empty());
+
+        let framework = analyze_default("class C\n{\n    event System.EventHandler Failed;\n}\n");
+        assert!(with_key(&framework, "csharpsquid:S4220").is_empty());
+    }
+
+    #[test]
+    fn s3993_constrains_attribute_classes_with_usage() {
+        let open = analyze_default("class Mine : System.Attribute\n{\n}\n");
+        let flagged = with_key(&open, "csharpsquid:S3993");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("[AttributeUsage]"));
+
+        let constrained = analyze_default(
+            "[System.AttributeUsage(System.AttributeTargets.Class)]\nclass Mine : System.Attribute\n{\n}\n",
+        );
+        assert!(with_key(&constrained, "csharpsquid:S3993").is_empty());
+
+        let plain_class = analyze_default("class Mine : Base\n{\n}\n");
+        assert!(with_key(&plain_class, "csharpsquid:S3993").is_empty());
+    }
+
+    #[test]
+    fn s3990_s3992_s4026_flag_missing_assembly_annotations() {
+        let partial = analyze_default("[assembly: System.ComVisible(true)]\nclass C\n{\n}\n");
+        assert_eq!(with_key(&partial, "csharpsquid:S3990").len(), 1);
+        assert!(with_key(&partial, "csharpsquid:S3992").is_empty());
+        assert_eq!(with_key(&partial, "csharpsquid:S4026").len(), 1);
+
+        let complete = analyze_default(
+            "[assembly: System.CLSCompliant(false)]\n[assembly: System.ComVisible(false)]\n        [assembly: System.NeutralResourcesLanguage(\"en\")]\nclass C\n{\n}\n",
+        );
+        assert!(with_key(&complete, "csharpsquid:S3990").is_empty());
+        assert!(with_key(&complete, "csharpsquid:S3992").is_empty());
+        assert!(with_key(&complete, "csharpsquid:S4026").is_empty());
+
+        // Boundary: files without any assembly attributes are not
+        // assembly-info files and stay clean.
+        let plain = analyze_default("class C\n{\n}\n");
+        assert!(with_key(&plain, "csharpsquid:S3990").is_empty());
+        assert!(with_key(&plain, "csharpsquid:S3992").is_empty());
+        assert!(with_key(&plain, "csharpsquid:S4026").is_empty());
+    }
+
+    #[test]
+    fn s4016_renames_reserved_enum_members() {
+        let reserved = analyze_default("enum Level\n{\n    Reserved,\n    High = 1,\n}\n");
+        let flagged = with_key(&reserved, "csharpsquid:S4016");
+        assert_eq!(flagged.len(), 1);
+
+        let lowercase = analyze_default("enum Level\n{\n    reserved,\n    High = 1,\n}\n");
+        assert_eq!(with_key(&lowercase, "csharpsquid:S4016").len(), 1);
+
+        let clean = analyze_default("enum Level\n{\n    Low,\n    High = 1,\n}\n");
+        assert!(with_key(&clean, "csharpsquid:S4016").is_empty());
+    }
+
+    #[test]
+    fn s4070_flags_unused_flags_enumerations() {
+        let decorated_only =
+            analyze_default("[System.Flags]\nenum Rights\n{\n    Read = 1,\n    Write = 2,\n}\n");
+        let flagged = with_key(&decorated_only, "csharpsquid:S4070");
+        assert_eq!(flagged.len(), 1);
+
+        let combined = analyze_default(
+            "[System.Flags]\nenum Rights\n{\n    Read = 1,\n    Write = 2,\n}\n\nclass C\n{\n        Rights All() => Rights.Read | Rights.Write;\n}\n",
+        );
+        assert!(with_key(&combined, "csharpsquid:S4070").is_empty());
+
+        let undecorated = analyze_default("enum Rights\n{\n    Read = 1,\n    Write = 2,\n}\n");
+        assert!(with_key(&undecorated, "csharpsquid:S4070").is_empty());
+    }
+
+    #[test]
+    fn s2345_requires_explicit_values_on_flags_members() {
+        let implicit_tail =
+            analyze_default("[System.Flags]\nenum Rights\n{\n    Read = 1,\n    Write,\n}\n");
+        let flagged = with_key(&implicit_tail, "csharpsquid:S2345");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'Write'"));
+
+        let explicit_all =
+            analyze_default("[System.Flags]\nenum Rights\n{\n    Read = 1,\n    Write = 2,\n}\n");
+        assert!(with_key(&explicit_all, "csharpsquid:S2345").is_empty());
+
+        // Boundary: without '[Flags]' implicit numbering is fine.
+        let sequential = analyze_default("enum Stage\n{\n    Start,\n    Stop,\n}\n");
+        assert!(with_key(&sequential, "csharpsquid:S2345").is_empty());
+    }
+
+    #[test]
+    fn s2346_names_the_zero_flags_member_none() {
+        let misnamed_zero =
+            analyze_default("[System.Flags]\nenum Rights\n{\n    Zero = 0,\n    Read = 1,\n}\n");
+        let flagged = with_key(&misnamed_zero, "csharpsquid:S2346");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'Zero'"));
+
+        // Boundary: an uninitialized first member is implicitly zero and
+        // equally needs the 'None' name.
+        let implicit_zero =
+            analyze_default("[System.Flags]\nenum Rights\n{\n    Read,\n    Write = 2,\n}\n");
+        let flagged_implicit = with_key(&implicit_zero, "csharpsquid:S2346");
+        assert_eq!(flagged_implicit.len(), 1);
+        assert!(flagged_implicit[0].message.contains("'Read'"));
+
+        // No zero-valued member at all: nothing to rename in-file.
+        let no_zero =
+            analyze_default("[System.Flags]\nenum Levels\n{\n    Read = 1,\n    Write = 2,\n}\n");
+        assert!(with_key(&no_zero, "csharpsquid:S2346").is_empty());
+
+        let named_none =
+            analyze_default("[System.Flags]\nenum Rights\n{\n    None = 0,\n    Read = 1,\n}\n");
+        assert!(with_key(&named_none, "csharpsquid:S2346").is_empty());
     }
 }
