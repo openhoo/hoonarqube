@@ -20858,9 +20858,9 @@ fn check_dispose_of_non_members(root: Node<'_>, source: &str, language: CsLangua
             .flat_map(|field| field_declarator_names(field, source))
             .collect();
         for method in member_declarations_of_kind(class, "method_declaration") {
-            if !method
+            if method
                 .child_by_field_name("name")
-                .is_some_and(|name| node_text(name, source) == "Dispose")
+                .is_none_or(|name| node_text(name, source) != "Dispose")
             {
                 continue;
             }
@@ -20985,9 +20985,7 @@ fn check_serializable_without_deserialization_validation(
             has_any_attribute(*class, source, &["Serializable", "SerializableAttribute"])
         })
         .filter(|class| {
-            !base_simple_names(*class, source)
-                .iter()
-                .any(|name| *name == "IDeserializationCallback")
+            !base_simple_names(*class, source).contains(&"IDeserializationCallback")
         })
         .filter(|class| {
             !type_members(*class).into_iter().any(|member| {
@@ -21300,15 +21298,13 @@ fn check_first_or_single_on_known_non_empty(
                         Some("Clear") => {
                             populated.remove(name);
                         }
-                        Some("FirstOrDefault" | "SingleOrDefault") => {
-                            if populated.contains(name) {
-                                issues.push(issue(
+                        Some("FirstOrDefault" | "SingleOrDefault") if populated.contains(name) => {
+                            issues.push(issue(
                                     language,
                                     "S7130",
                                     "Use 'First' or 'Single' here; this collection is known to be non-empty.",
                                     range_of(node),
                                 ));
-                            }
                         }
                         _ => {}
                     }
