@@ -6,6 +6,7 @@
 //! they are deliberately never duplicated here.
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use std::path::PathBuf;
 
@@ -22,7 +23,8 @@ use ruff_text_size::{Ranged, TextRange, TextSize};
 /// `13`, `maximumReturnStatements` default `3`, `maximumFunctionLength`
 /// default `100`, `maximumNestingDepth` default `4`,
 /// `maximumCognitiveComplexity` default `15`, complexity defaults `200`/`200`/`15`,
-/// S1192 duplicate-literal threshold `3`, S139 trailing-comment whitelist).
+/// S1192 duplicate-literal threshold `3`, S139 trailing-comment whitelist,
+/// S1481 unused-local ignore pattern, S4487 single-underscore opt-in).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalyzerOptions {
     pub maximum_line_length: u32,
@@ -53,6 +55,15 @@ pub struct AnalyzerOptions {
     /// catalog defines no parameters for these rules and unannotated legacy
     /// code would flood every analysis with findings.
     pub require_type_hints: bool,
+    /// Ignore shape for `python:S1481` unused locals; matches the catalog
+    /// `regex` default `(_[a-zA-Z0-9_]*|dummy|unused|ignored)` semantics:
+    /// underscore-prefixed names plus the literal alternatives. Custom
+    /// patterns are honored per top-level `|` alternation, supporting
+    /// trailing `*` prefix wildcards and literal names.
+    pub unused_local_ignore_pattern: String,
+    /// Extends `python:S4487` to single-underscore attributes; mirrors the
+    /// catalog `enableSingleUnderscoreIssues` parameter (default `false`).
+    pub enable_single_underscore_attribute_issues: bool,
 }
 
 impl Default for AnalyzerOptions {
@@ -73,6 +84,8 @@ impl Default for AnalyzerOptions {
             duplicate_literal_exclusion_regex: String::new(),
             legal_trailing_comment_pattern: String::new(),
             require_type_hints: false,
+            unused_local_ignore_pattern: String::from("(_[a-zA-Z0-9_]*|dummy|unused|ignored)"),
+            enable_single_underscore_attribute_issues: false,
         }
     }
 }
@@ -128,6 +141,7 @@ pub fn analyze(
     issues.extend(check_one_statement_per_line(&parsed, &index, source));
     issues.extend(check_tier_a_battery(&parsed, &index, source));
     issues.extend(check_tier_a_battery_2(&parsed, &index, source, options));
+    issues.extend(check_tier_b_battery(&parsed, &index, source, options));
     sort_issues(&mut issues);
 
     hoonarqube_ir::FileReport {
@@ -8034,6 +8048,2594 @@ fn check_tier_a_battery_2(
     issues
 }
 
+// ---------------------------------------------------------------------------
+// Tier B — symbol / flow / value / effect groups.
+//
+// A minimal in-file symbol layer backs these rules: scopes (module, function,
+// class, comprehension), per-scope bindings with source ranges, and name loads
+// resolved through the scope chain. The layer is deliberately conservative:
+//
+// * a token-level "use net" vetoes unused-name reports whenever an identifier
+//   appears anywhere else in the file (f-string interiors, keyword argument
+//   names, and attribute names are invisible to the AST walk);
+// * files using dynamic features (`locals`, `globals`, `eval`, `exec`) skip
+//   resolution-based rules entirely;
+// * class scopes are invisible to functions/comprehensions nested inside them;
+// * comprehension scopes bind their own targets while their iterables resolve
+//   in the enclosing scope.
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ScopeKind {
+    Module,
+    Function,
+    Class,
+    Comprehension,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum BindingKind {
+    Import,
+    Assignment,
+    ExceptName,
+    Parameter,
+    Definition,
+}
+
+struct Binding {
+    range: TextRange,
+    kind: BindingKind,
+    loop_depth: u32,
+}
+
+struct SymbolScope {
+    kind: ScopeKind,
+    parent: Option<usize>,
+    bindings: HashMap<String, Vec<Binding>>,
+    loads: Vec<(String, TextRange, bool)>,
+    global_names: Vec<String>,
+    nonlocal_names: Vec<String>,
+}
+
+impl SymbolScope {
+    fn new(kind: ScopeKind, parent: Option<usize>) -> Self {
+        Self {
+            kind,
+            parent,
+            bindings: HashMap::new(),
+            loads: Vec::new(),
+            global_names: Vec::new(),
+            nonlocal_names: Vec::new(),
+        }
+    }
+}
+
+struct LoadRecord {
+    scope: usize,
+    name: String,
+    range: TextRange,
+    target: Option<usize>,
+    in_annotation: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DefFlavor {
+    Function,
+    Class,
+}
+
+struct DefSite {
+    enclosing_scope: usize,
+    own_scope: usize,
+    name: String,
+    name_range: TextRange,
+    flavor: DefFlavor,
+    decorated: bool,
+    tf_traced: bool,
+    params: Vec<(String, TextRange)>,
+}
+
+struct SymbolTable {
+    scopes: Vec<SymbolScope>,
+    resolved_loads: Vec<LoadRecord>,
+    def_sites: Vec<DefSite>,
+    attr_writes: Vec<(String, TextRange)>,
+}
+
+/// Cross-file lexical facts used to veto reports conservatively.
+struct FileFacts {
+    token_names: Vec<(String, TextRange)>,
+    attr_reads: Vec<(String, TextRange)>,
+    called_names: HashSet<String>,
+    string_texts: Vec<String>,
+    dynamic_names: bool,
+    has_wildcard_import: bool,
+}
+
+const BUILTIN_NAMES: &[&str] = &[
+    "abs", "all", "any", "ascii", "bin", "bool", "bytearray", "bytes", "callable", "chr",
+    "classmethod", "compile", "complex", "delattr", "dict", "dir", "divmod", "enumerate", "eval",
+    "exec", "exit", "filter", "float", "format", "frozenset", "getattr", "globals", "hasattr",
+    "hash", "help", "hex", "id", "input", "int", "isinstance", "issubclass", "iter", "len",
+    "list", "locals", "map", "max", "memoryview", "min", "next", "object", "oct", "open", "ord",
+    "pow", "print", "property", "quit", "range", "repr", "reversed", "round", "set", "setattr",
+    "slice", "sorted", "staticmethod", "str", "sum", "super", "tuple", "type", "vars", "zip",
+    "__import__", "__name__", "__file__", "__doc__", "__spec__", "__package__", "__loader__",
+    "__builtins__", "__debug__", "__annotations__", "__cached__", "ArithmeticError",
+    "AssertionError", "AttributeError", "BaseException", "BlockingIOError", "BrokenPipeError",
+    "BufferError", "BytesWarning", "ChildProcessError", "ConnectionAbortedError",
+    "ConnectionError", "ConnectionRefusedError", "ConnectionResetError", "DeprecationWarning",
+    "EOFError", "EnvironmentError", "Exception", "FileExistsError", "FileNotFoundError",
+    "FloatingPointError", "FutureWarning", "GeneratorExit", "IOError", "ImportError",
+    "ImportWarning", "IndentationError", "IndexError", "InterruptedError", "IsADirectoryError",
+    "KeyError", "KeyboardInterrupt", "LookupError", "MemoryError", "ModuleNotFoundError",
+    "NameError", "NotADirectoryError", "NotImplementedError", "OSError", "OverflowError",
+    "PendingDeprecationWarning", "PermissionError", "ProcessLookupError", "RecursionError",
+    "ReferenceError", "ResourceWarning", "RuntimeError", "RuntimeWarning",
+    "StopAsyncIteration", "StopIteration", "SyntaxError", "SyntaxWarning", "SystemError",
+    "SystemExit", "TabError", "TimeoutError", "TypeError", "UnboundLocalError",
+    "UnicodeDecodeError", "UnicodeEncodeError", "UnicodeError", "UnicodeTranslateError",
+    "UnicodeWarning", "UserWarning", "ValueError", "Warning", "ZeroDivisionError",
+];
+
+fn is_builtin_name(name: &str) -> bool {
+    BUILTIN_NAMES.contains(&name)
+}
+
+fn is_dunder_name(name: &str) -> bool {
+    name.len() >= 4 && name.starts_with("__") && name.ends_with("__")
+}
+
+fn is_private_name(name: &str) -> bool {
+    name.starts_with('_') && !is_dunder_name(name)
+}
+
+/// Catalog semantics for the `python:S1481` `regex` parameter: the default
+/// value `(_[a-zA-Z0-9_]*|dummy|unused|ignored)` maps to underscore-prefixed
+/// names plus the literal alternatives; custom patterns honor top-level `|`
+/// alternations with trailing `*` wildcards and literal names.
+fn unused_name_matches_pattern(name: &str, pattern: &str) -> bool {
+    let trimmed = pattern.strip_prefix('^').unwrap_or(pattern);
+    let trimmed = trimmed.strip_suffix('$').unwrap_or(trimmed);
+    trimmed.split('|').any(|alternative| {
+        let alternative = alternative.trim();
+        if alternative == "_[a-zA-Z0-9_]*" {
+            return name.starts_with('_');
+        }
+        if let Some(prefix) = alternative.strip_suffix('*') {
+            return name.starts_with(prefix);
+        }
+        alternative == name
+    })
+}
+
+fn named_parameters(
+    parameters: &ruff_python_ast::Parameters,
+) -> Vec<&ruff_python_ast::ParameterWithDefault> {
+    parameters
+        .posonlyargs
+        .iter()
+        .chain(&parameters.args)
+        .chain(&parameters.kwonlyargs)
+        .collect()
+}
+
+fn import_binding_name(alias: &ruff_python_ast::Alias) -> Option<String> {
+    let name = alias.name.as_str();
+    if name == "*" {
+        return None;
+    }
+    Some(match alias.asname.as_deref() {
+        Some(asname) => asname.to_string(),
+        None => name.split('.').next().unwrap_or(name).to_string(),
+    })
+}
+
+fn bind_symbol(
+    scope: &mut SymbolScope,
+    name: &str,
+    range: TextRange,
+    kind: BindingKind,
+    loop_depth: u32,
+) {
+    scope
+        .bindings
+        .entry(name.to_string())
+        .or_default()
+        .push(Binding {
+            range,
+            kind,
+            loop_depth,
+        });
+}
+
+fn push_symbol_scope(table: &mut SymbolTable, kind: ScopeKind, parent: usize) -> usize {
+    table.scopes.push(SymbolScope::new(kind, Some(parent)));
+    table.scopes.len() - 1
+}
+
+fn is_tf_function(function: &ruff_python_ast::StmtFunctionDef) -> bool {
+    function.decorator_list.iter().any(|decorator| {
+        decorator_callee_path(&decorator.expression).as_deref() == Some("tf.function")
+    })
+}
+
+fn build_symbol_table(parsed: &Parsed<ModModule>) -> SymbolTable {
+    let mut table = SymbolTable {
+        scopes: vec![SymbolScope::new(ScopeKind::Module, None)],
+        resolved_loads: Vec::new(),
+        def_sites: Vec::new(),
+        attr_writes: Vec::new(),
+    };
+    collect_scope_stmts(&mut table, 0, parsed.syntax().body.as_slice(), 0);
+    resolve_symbol_loads(&mut table);
+    table
+}
+
+fn collect_scope_stmts(table: &mut SymbolTable, current: usize, suite: &[Stmt], loop_depth: u32) {
+    for stmt in suite {
+        collect_scope_stmt(table, current, stmt, loop_depth);
+    }
+}
+
+fn collect_scope_stmt(table: &mut SymbolTable, current: usize, stmt: &Stmt, loop_depth: u32) {
+    match stmt {
+        Stmt::Assign(_) | Stmt::AnnAssign(_) | Stmt::AugAssign(_) => {
+            record_assignment_stmt(table, current, stmt, loop_depth);
+        }
+        Stmt::Import(_) | Stmt::ImportFrom(_) => {
+            record_import_stmt(table, current, stmt, loop_depth);
+        }
+        Stmt::Global(global_stmt) => {
+            table.scopes[current]
+                .global_names
+                .extend(global_stmt.names.iter().map(|name| name.as_str().to_string()));
+        }
+        Stmt::Nonlocal(nonlocal_stmt) => {
+            table.scopes[current]
+                .nonlocal_names
+                .extend(nonlocal_stmt.names.iter().map(|name| name.as_str().to_string()));
+        }
+        Stmt::For(loop_stmt) => {
+            record_expr_loads(table, current, &loop_stmt.iter, false, loop_depth);
+            record_store_target(
+                table,
+                current,
+                &loop_stmt.target,
+                BindingKind::Assignment,
+                loop_depth + 1,
+            );
+            collect_scope_stmts(table, current, &loop_stmt.body, loop_depth + 1);
+            collect_scope_stmts(table, current, &loop_stmt.orelse, loop_depth);
+        }
+        Stmt::While(while_stmt) => {
+            record_expr_loads(table, current, &while_stmt.test, false, loop_depth);
+            collect_scope_stmts(table, current, &while_stmt.body, loop_depth + 1);
+            collect_scope_stmts(table, current, &while_stmt.orelse, loop_depth);
+        }
+        Stmt::If(if_stmt) => {
+            record_expr_loads(table, current, &if_stmt.test, false, loop_depth);
+            collect_scope_stmts(table, current, &if_stmt.body, loop_depth);
+            for clause in &if_stmt.elif_else_clauses {
+                if let Some(test) = clause.test.as_ref() {
+                    record_expr_loads(table, current, test, false, loop_depth);
+                }
+                collect_scope_stmts(table, current, &clause.body, loop_depth);
+            }
+        }
+        Stmt::With(with_stmt) => {
+            for item in &with_stmt.items {
+                record_expr_loads(table, current, &item.context_expr, false, loop_depth);
+                if let Some(vars) = item.optional_vars.as_deref() {
+                    record_store_target(
+                        table,
+                        current,
+                        vars,
+                        BindingKind::Assignment,
+                        loop_depth,
+                    );
+                }
+            }
+            collect_scope_stmts(table, current, &with_stmt.body, loop_depth);
+        }
+        Stmt::Try(try_stmt) => {
+            collect_try_stmt(table, current, try_stmt, loop_depth);
+        }
+        Stmt::FunctionDef(function) => {
+            collect_function_def(table, current, function, loop_depth);
+        }
+        Stmt::ClassDef(class) => {
+            collect_class_def(table, current, class, loop_depth);
+        }
+        _ => {
+            for expr in stmt_exprs(stmt) {
+                record_expr_loads(table, current, expr, false, loop_depth);
+            }
+            for body in child_bodies(stmt) {
+                collect_scope_stmts(table, current, body, loop_depth);
+            }
+        }
+    }
+}
+
+fn record_assignment_stmt(
+    table: &mut SymbolTable,
+    current: usize,
+    stmt: &Stmt,
+    loop_depth: u32,
+) {
+    match stmt {
+        Stmt::Assign(assign) => {
+            for target in &assign.targets {
+                record_store_target(
+                    table,
+                    current,
+                    target,
+                    BindingKind::Assignment,
+                    loop_depth,
+                );
+            }
+            record_expr_loads(table, current, &assign.value, false, loop_depth);
+        }
+        Stmt::AnnAssign(annotated) => {
+            record_store_target(
+                table,
+                current,
+                &annotated.target,
+                BindingKind::Assignment,
+                loop_depth,
+            );
+            record_expr_loads(table, current, &annotated.annotation, true, loop_depth);
+            if let Some(value) = annotated.value.as_deref() {
+                record_expr_loads(table, current, value, false, loop_depth);
+            }
+        }
+        Stmt::AugAssign(augmented) => {
+            if let Expr::Name(name) = augmented.target.as_ref() {
+                table.scopes[current]
+                    .loads
+                    .push((name.id.as_str().to_string(), name.range(), false));
+            }
+            record_store_target(
+                table,
+                current,
+                &augmented.target,
+                BindingKind::Assignment,
+                loop_depth,
+            );
+            record_expr_loads(table, current, &augmented.value, false, loop_depth);
+        }
+        _ => {}
+    }
+}
+
+fn record_import_stmt(table: &mut SymbolTable, current: usize, stmt: &Stmt, loop_depth: u32) {
+    let aliases: &[ruff_python_ast::Alias] = match stmt {
+        Stmt::Import(import_stmt) => &import_stmt.names,
+        Stmt::ImportFrom(import_from) => {
+            if import_from
+                .module
+                .as_ref()
+                .is_some_and(|module| module.as_str() == "__future__")
+            {
+                return;
+            }
+            &import_from.names
+        }
+        _ => return,
+    };
+    for alias in aliases {
+        if let Some(binding_name) = import_binding_name(alias) {
+            bind_symbol(
+                &mut table.scopes[current],
+                &binding_name,
+                alias.range(),
+                BindingKind::Import,
+                loop_depth,
+            );
+        }
+    }
+}
+
+fn collect_try_stmt(
+    table: &mut SymbolTable,
+    current: usize,
+    try_stmt: &ruff_python_ast::StmtTry,
+    loop_depth: u32,
+) {
+    collect_scope_stmts(table, current, &try_stmt.body, loop_depth);
+    for handler in &try_stmt.handlers {
+        let ExceptHandler::ExceptHandler(inner) = handler;
+        if let Some(type_expr) = inner.type_.as_deref() {
+            record_expr_loads(table, current, type_expr, false, loop_depth);
+        }
+        if let Some(bound) = &inner.name {
+            bind_symbol(
+                &mut table.scopes[current],
+                bound.as_str(),
+                bound.range(),
+                BindingKind::ExceptName,
+                loop_depth,
+            );
+        }
+        collect_scope_stmts(table, current, &inner.body, loop_depth);
+    }
+    collect_scope_stmts(table, current, &try_stmt.orelse, loop_depth);
+    collect_scope_stmts(table, current, &try_stmt.finalbody, loop_depth);
+}
+
+fn collect_function_def(
+    table: &mut SymbolTable,
+    current: usize,
+    function: &ruff_python_ast::StmtFunctionDef,
+    loop_depth: u32,
+) {
+    for decorator in &function.decorator_list {
+        record_expr_loads(table, current, &decorator.expression, false, loop_depth);
+    }
+    bind_symbol(
+        &mut table.scopes[current],
+        function.name.as_str(),
+        function.name.range(),
+        BindingKind::Definition,
+        loop_depth,
+    );
+    let fn_scope = push_symbol_scope(table, ScopeKind::Function, current);
+    let mut header_exprs: Vec<&Expr> = Vec::new();
+    push_parameter_exprs(&function.parameters, &mut header_exprs);
+    for expr in header_exprs {
+        record_expr_loads(table, current, expr, false, loop_depth);
+    }
+    for parameter in named_parameters(&function.parameters) {
+        bind_symbol(
+            &mut table.scopes[fn_scope],
+            parameter.parameter.name.as_str(),
+            parameter.parameter.name.range(),
+            BindingKind::Parameter,
+            0,
+        );
+    }
+    table.def_sites.push(DefSite {
+        enclosing_scope: current,
+        own_scope: fn_scope,
+        name: function.name.as_str().to_string(),
+        name_range: function.name.range(),
+        flavor: DefFlavor::Function,
+        decorated: !function.decorator_list.is_empty(),
+        tf_traced: is_tf_function(function),
+        params: named_parameters(&function.parameters)
+            .iter()
+            .map(|parameter| {
+                (
+                    parameter.parameter.name.as_str().to_string(),
+                    parameter.parameter.name.range(),
+                )
+            })
+            .collect(),
+    });
+    collect_scope_stmts(table, fn_scope, &function.body, 0);
+}
+
+fn collect_class_def(
+    table: &mut SymbolTable,
+    current: usize,
+    class: &ruff_python_ast::StmtClassDef,
+    loop_depth: u32,
+) {
+    for decorator in &class.decorator_list {
+        record_expr_loads(table, current, &decorator.expression, false, loop_depth);
+    }
+    if let Some(arguments) = &class.arguments {
+        for base in &arguments.args {
+            record_expr_loads(table, current, base, false, loop_depth);
+        }
+        for keyword in &arguments.keywords {
+            record_expr_loads(table, current, &keyword.value, false, loop_depth);
+        }
+    }
+    bind_symbol(
+        &mut table.scopes[current],
+        class.name.as_str(),
+        class.name.range(),
+        BindingKind::Definition,
+        loop_depth,
+    );
+    let class_scope = push_symbol_scope(table, ScopeKind::Class, current);
+    collect_scope_stmts(table, class_scope, &class.body, 0);
+    table.def_sites.push(DefSite {
+        enclosing_scope: current,
+        own_scope: class_scope,
+        name: class.name.as_str().to_string(),
+        name_range: class.name.range(),
+        flavor: DefFlavor::Class,
+        decorated: !class.decorator_list.is_empty(),
+        tf_traced: false,
+        params: Vec::new(),
+    });
+}
+
+/// Records a binding-position expression: plain names become stores while
+/// attribute/subscript roots stay reads of their container.
+fn record_store_target(
+    table: &mut SymbolTable,
+    current: usize,
+    target: &Expr,
+    kind: BindingKind,
+    loop_depth: u32,
+) {
+    match target {
+        Expr::Name(name) => {
+            bind_symbol(
+                &mut table.scopes[current],
+                name.id.as_str(),
+                name.range(),
+                kind,
+                loop_depth,
+            );
+        }
+        Expr::Tuple(tuple) => {
+            for element in &tuple.elts {
+                record_store_target(table, current, element, kind, loop_depth);
+            }
+        }
+        Expr::List(list) => {
+            for element in &list.elts {
+                record_store_target(table, current, element, kind, loop_depth);
+            }
+        }
+        Expr::Starred(starred) => {
+            record_store_target(table, current, &starred.value, kind, loop_depth);
+        }
+        Expr::Attribute(attribute) => {
+            record_self_attribute_write(table, attribute, target.range());
+            record_expr_loads(table, current, &attribute.value, false, loop_depth);
+        }
+        Expr::Subscript(subscript) => {
+            record_expr_loads(table, current, &subscript.value, false, loop_depth);
+            record_expr_loads(table, current, &subscript.slice, false, loop_depth);
+        }
+        _ => {}
+    }
+}
+
+fn record_self_attribute_write(
+    table: &mut SymbolTable,
+    attribute: &ruff_python_ast::ExprAttribute,
+    range: TextRange,
+) {
+    let mut cursor = attribute.value.as_ref();
+    while let Expr::Attribute(enclosed) = cursor {
+        cursor = enclosed.value.as_ref();
+    }
+    if let Expr::Name(root) = cursor
+        && matches!(root.id.as_str(), "self" | "cls")
+    {
+        table
+            .attr_writes
+            .push((attribute.attr.as_str().to_string(), range));
+    }
+}
+
+fn record_expr_loads(
+    table: &mut SymbolTable,
+    current: usize,
+    expr: &Expr,
+    in_annotation: bool,
+    loop_depth: u32,
+) {
+    match expr {
+        Expr::Name(name) => match name.ctx {
+            ruff_python_ast::ExprContext::Store => {
+                bind_symbol(
+                    &mut table.scopes[current],
+                    name.id.as_str(),
+                    name.range(),
+                    BindingKind::Assignment,
+                    loop_depth,
+                );
+            }
+            ruff_python_ast::ExprContext::Load | ruff_python_ast::ExprContext::Del => {
+                table
+                    .scopes[current]
+                    .loads
+                    .push((name.id.as_str().to_string(), name.range(), in_annotation));
+            }
+            ruff_python_ast::ExprContext::Invalid => {}
+        },
+        Expr::Named(_) | Expr::Lambda(_) | Expr::ListComp(_) | Expr::SetComp(_)
+        | Expr::Generator(_) | Expr::DictComp(_) => {
+            record_scope_creating_expr(table, current, expr, in_annotation, loop_depth);
+        }
+        _ => {
+            for child in child_exprs(expr) {
+                record_expr_loads(table, current, child, in_annotation, loop_depth);
+            }
+        }
+    }
+}
+
+/// Handles the expressions that open a nested scope: walrus targets bind in
+/// the nearest non-comprehension ancestor, lambdas bind their parameters, and
+/// comprehensions evaluate their iterables in the enclosing scope.
+fn record_scope_creating_expr(
+    table: &mut SymbolTable,
+    current: usize,
+    expr: &Expr,
+    in_annotation: bool,
+    loop_depth: u32,
+) {
+    match expr {
+        Expr::Named(named) => {
+            record_expr_loads(table, current, &named.value, in_annotation, loop_depth);
+            let mut target_scope = current;
+            while matches!(table.scopes[target_scope].kind, ScopeKind::Comprehension) {
+                match table.scopes[target_scope].parent {
+                    Some(parent) => target_scope = parent,
+                    None => break,
+                }
+            }
+            if let Expr::Name(target) = named.target.as_ref() {
+                bind_symbol(
+                    &mut table.scopes[target_scope],
+                    target.id.as_str(),
+                    target.range(),
+                    BindingKind::Assignment,
+                    loop_depth,
+                );
+            }
+        }
+        Expr::Lambda(lambda) => {
+            let fn_scope = push_symbol_scope(table, ScopeKind::Function, current);
+            if let Some(parameters) = &lambda.parameters {
+                for parameter in named_parameters(parameters) {
+                    bind_symbol(
+                        &mut table.scopes[fn_scope],
+                        parameter.parameter.name.as_str(),
+                        parameter.parameter.name.range(),
+                        BindingKind::Parameter,
+                        0,
+                    );
+                }
+            }
+            record_expr_loads(table, fn_scope, &lambda.body, in_annotation, 0);
+        }
+        Expr::ListComp(comp) => {
+            let results = [comp.elt.as_ref()];
+            record_comprehension_scope(
+                table,
+                current,
+                &results,
+                &comp.generators,
+                in_annotation,
+                loop_depth,
+            );
+        }
+        Expr::SetComp(comp) => {
+            let results = [comp.elt.as_ref()];
+            record_comprehension_scope(
+                table,
+                current,
+                &results,
+                &comp.generators,
+                in_annotation,
+                loop_depth,
+            );
+        }
+        Expr::Generator(comp) => {
+            let results = [comp.elt.as_ref()];
+            record_comprehension_scope(
+                table,
+                current,
+                &results,
+                &comp.generators,
+                in_annotation,
+                loop_depth,
+            );
+        }
+        Expr::DictComp(comp) => {
+            let mut results: Vec<&Expr> = Vec::new();
+            if let Some(key) = &comp.key {
+                results.push(key);
+            }
+            results.push(&comp.value);
+            record_comprehension_scope(
+                table,
+                current,
+                &results,
+                &comp.generators,
+                in_annotation,
+                loop_depth,
+            );
+        }
+        _ => {}
+    }
+}
+fn record_comprehension_scope(
+    table: &mut SymbolTable,
+    current: usize,
+    results: &[&Expr],
+    generators: &[ruff_python_ast::Comprehension],
+    in_annotation: bool,
+    loop_depth: u32,
+) {
+    let comp_scope = push_symbol_scope(table, ScopeKind::Comprehension, current);
+    for generator in generators {
+        record_expr_loads(table, current, &generator.iter, in_annotation, loop_depth);
+        record_store_target(
+            table,
+            comp_scope,
+            &generator.target,
+            BindingKind::Assignment,
+            loop_depth,
+        );
+        for condition in &generator.ifs {
+            record_expr_loads(table, comp_scope, condition, in_annotation, loop_depth);
+        }
+    }
+    for result in results {
+        record_expr_loads(table, comp_scope, result, in_annotation, loop_depth);
+    }
+}
+
+fn resolve_symbol_loads(table: &mut SymbolTable) {
+    let mut resolved = Vec::new();
+    for scope_idx in 0..table.scopes.len() {
+        let entries: Vec<(String, TextRange, bool)> = table.scopes[scope_idx].loads.clone();
+        for (name, range, in_annotation) in entries {
+            let target = resolve_name(table, scope_idx, &name);
+            resolved.push(LoadRecord {
+                scope: scope_idx,
+                name,
+                range,
+                target,
+                in_annotation,
+            });
+        }
+    }
+    table.resolved_loads = resolved;
+}
+
+/// Resolves a name from `start` through the scope chain. Functions and
+/// comprehensions cannot see through an intervening class scope; unresolved
+/// names fall back to the builtin table (`None`).
+fn resolve_name(table: &SymbolTable, start: usize, name: &str) -> Option<usize> {
+    let mut cursor = start;
+    loop {
+        let scope = &table.scopes[cursor];
+        if scope.bindings.contains_key(name)
+            || scope.global_names.iter().any(|declared| declared == name)
+            || scope.nonlocal_names.iter().any(|declared| declared == name)
+        {
+            return Some(cursor);
+        }
+        let mut next = scope.parent?;
+        if matches!(scope.kind, ScopeKind::Function | ScopeKind::Comprehension)
+            && matches!(table.scopes[next].kind, ScopeKind::Class)
+        {
+            next = table.scopes[next].parent?;
+        }
+        cursor = next;
+    }
+}
+
+fn scope_is_within(table: &SymbolTable, scope: usize, ancestor: usize) -> bool {
+    let mut cursor = Some(scope);
+    while let Some(current) = cursor {
+        if current == ancestor {
+            return true;
+        }
+        cursor = table.scopes[current].parent;
+    }
+    false
+}
+
+fn collect_file_facts(parsed: &Parsed<ModModule>, source: &str) -> FileFacts {
+    let mut facts = FileFacts {
+        token_names: Vec::new(),
+        attr_reads: Vec::new(),
+        called_names: HashSet::new(),
+        string_texts: Vec::new(),
+        dynamic_names: false,
+        has_wildcard_import: false,
+    };
+    for token in parsed.tokens() {
+        if token.kind() == TokenKind::Name {
+            facts
+                .token_names
+                .push((source[token.range()].to_string(), token.range()));
+        }
+    }
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::ImportFrom(import_from) = stmt
+            && import_from.names.iter().any(|alias| alias.name.as_str() == "*")
+        {
+            facts.has_wildcard_import = true;
+        }
+    });
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        if let Expr::Call(call) = expr {
+            if let Some(name) = called_name(&call.func) {
+                facts.called_names.insert(name.to_string());
+            }
+            if matches!(
+                called_name(&call.func),
+                Some("locals" | "globals" | "eval" | "exec")
+            ) {
+                facts.dynamic_names = true;
+            }
+        }
+        if let Expr::Attribute(attribute) = expr
+            && matches!(attribute.ctx, ruff_python_ast::ExprContext::Load)
+        {
+            facts
+                .attr_reads
+                .push((attribute.attr.as_str().to_string(), expr.range()));
+        }
+    });
+    facts.string_texts = collect_string_contents(parsed.syntax().body.as_slice())
+        .into_iter()
+        .map(|(text, _)| text)
+        .collect();
+    facts
+}
+
+/// Token-net veto: `true` when the identifier appears anywhere outside the
+/// excluded (definition) ranges. Never produces false positives for
+/// unused-name rules because every plausible textual use counts.
+fn name_used_in_tokens(facts: &FileFacts, name: &str, excluded: &[TextRange]) -> bool {
+    facts
+        .token_names
+        .iter()
+        .any(|(token_name, range)| {
+            token_name == name
+                && !excluded.iter().any(|excluded_range| {
+                    excluded_range.start() <= range.start()
+                        && range.end() <= excluded_range.end()
+                })
+        })
+}
+fn module_all_exports(parsed: &Parsed<ModModule>) -> Vec<(String, TextRange)> {
+    let mut exports: Vec<(String, TextRange)> = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let (targets, value): (&[Expr], Option<&Expr>) = match stmt {
+            Stmt::Assign(assign) => (assign.targets.as_slice(), Some(&assign.value)),
+            Stmt::AugAssign(augmented) => (
+                std::slice::from_ref(augmented.target.as_ref()),
+                Some(augmented.value.as_ref()),
+            ),
+            _ => return,
+        };
+        if !targets.iter().any(is_dunder_all_target) {
+            return;
+        }
+        let Some(value) = value else { return };
+        let elements: &[Expr] = match value {
+            Expr::List(list) => &list.elts,
+            Expr::Tuple(tuple) => &tuple.elts,
+            _ => return,
+        };
+        for element in elements {
+            if let Expr::StringLiteral(literal) = element {
+                exports.push((string_value_text(&literal.value), element.range()));
+            }
+        }
+    });
+    exports
+}
+
+fn scope_has_dynamic_declaration(scope: &SymbolScope, name: &str) -> bool {
+    scope.global_names.iter().any(|n| n == name) || scope.nonlocal_names.iter().any(|n| n == name)
+}
+
+// --- python:S1128 — unused imports ------------------------------------------
+
+fn check_unused_imports(
+    table: &SymbolTable,
+    facts: &FileFacts,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for (name, bindings) in &table.scopes[0].bindings {
+        let import_ranges: Vec<TextRange> = bindings
+            .iter()
+            .filter(|binding| binding.kind == BindingKind::Import)
+            .map(|binding| binding.range)
+            .collect();
+        if import_ranges.is_empty() {
+            continue;
+        }
+        let used = table
+            .resolved_loads
+            .iter()
+            .any(|load| load.target == Some(0) && load.name == *name)
+            || name_used_in_tokens(facts, name, &import_ranges);
+        if !used {
+            for range in import_ranges {
+                issues.push(issue_at(
+                    "python:S1128",
+                    "Remove this unused import.",
+                    range,
+                    index,
+                    source,
+                ));
+            }
+        }
+    }
+    issues
+}
+
+// --- python:S1144 — unused private methods -----------------------------------
+
+fn check_unused_private_methods(
+    table: &SymbolTable,
+    facts: &FileFacts,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for site in &table.def_sites {
+        if site.flavor != DefFlavor::Function
+            || site.decorated
+            || !matches!(table.scopes[site.enclosing_scope].kind, ScopeKind::Class)
+            || !is_private_name(&site.name)
+        {
+            continue;
+        }
+        let referenced = facts.attr_reads.iter().any(|(attr, _)| attr == &site.name)
+            || facts.called_names.contains(&site.name)
+            || facts.string_texts.iter().any(|text| text.contains(&site.name))
+            || name_used_in_tokens(facts, &site.name, &[site.name_range]);
+        if !referenced {
+            issues.push(issue_at(
+                "python:S1144",
+                &format!("Remove this unused private method '{}'.", site.name),
+                site.name_range,
+                index,
+                source,
+            ));
+        }
+    }
+    issues
+}
+
+// --- python:S1172 — unused function parameters -------------------------------
+
+fn check_unused_parameters(
+    table: &SymbolTable,
+    facts: &FileFacts,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for site in &table.def_sites {
+        if site.flavor != DefFlavor::Function || site.decorated {
+            continue;
+        }
+        for (param_name, param_range) in &site.params {
+            if param_name.starts_with('_') || matches!(param_name.as_str(), "self" | "cls") {
+                continue;
+            }
+            let used = table.resolved_loads.iter().any(|load| {
+                load.target == Some(site.own_scope) && load.name == *param_name
+            }) || name_used_in_tokens(facts, param_name, &[*param_range]);
+            if !used {
+                issues.push(issue_at(
+                    "python:S1172",
+                    &format!("Remove this unused function parameter '{param_name}'."),
+                    *param_range,
+                    index,
+                    source,
+                ));
+            }
+        }
+    }
+    issues
+}
+
+// --- python:S1481 — unused local variables -----------------------------------
+
+fn check_unused_locals(
+    table: &SymbolTable,
+    facts: &FileFacts,
+    options: &AnalyzerOptions,
+    exports: &[(String, TextRange)],
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for (scope_idx, scope) in table.scopes.iter().enumerate() {
+        if !matches!(scope.kind, ScopeKind::Module | ScopeKind::Function) {
+            continue;
+        }
+        for (name, bindings) in &scope.bindings {
+            if name.starts_with('_')
+                || unused_name_matches_pattern(name, &options.unused_local_ignore_pattern)
+                || scope_has_dynamic_declaration(scope, name)
+                || bindings
+                    .iter()
+                    .any(|binding| !matches!(binding.kind, BindingKind::Assignment | BindingKind::ExceptName))
+            {
+                continue;
+            }
+            if scope_idx == 0 && exports.iter().any(|(exported, _)| exported == name) {
+                continue;
+            }
+            let ranges: Vec<TextRange> = bindings.iter().map(|binding| binding.range).collect();
+            let used = table
+                .resolved_loads
+                .iter()
+                .any(|load| load.target == Some(scope_idx) && load.name == *name)
+                || name_used_in_tokens(facts, name, &ranges);
+            if !used {
+                issues.push(issue_at(
+                    "python:S1481",
+                    &format!("Remove this unused local variable '{name}'."),
+                    ranges[0],
+                    index,
+                    source,
+                ));
+            }
+        }
+    }
+    issues
+}
+
+// --- python:S3827 — use before definition ------------------------------------
+
+fn check_use_before_definition(
+    table: &SymbolTable,
+    facts: &FileFacts,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    if facts.dynamic_names || facts.has_wildcard_import {
+        return Vec::new();
+    }
+    let mut issues = Vec::new();
+    for load in &table.resolved_loads {
+        if load.scope != 0 || load.in_annotation || load.target != Some(0) {
+            continue;
+        }
+        let Some(bindings) = table.scopes[0].bindings.get(&load.name) else {
+            continue;
+        };
+        let Some(first_definition) = bindings.iter().map(|b| b.range.start()).min() else {
+            continue;
+        };
+        if load.range.end() <= first_definition {
+            issues.push(issue_at(
+                "python:S3827",
+                &format!("'{}' is used before it is defined.", load.name),
+                load.range,
+                index,
+                source,
+            ));
+        }
+    }
+    issues
+}
+
+// --- python:S3985 / python:S5603 — unused nested definitions ------------------
+
+fn definition_is_used(table: &SymbolTable, facts: &FileFacts, site: &DefSite) -> bool {
+    table.resolved_loads.iter().any(|load| {
+        load.target == Some(site.enclosing_scope) && load.name == site.name
+    }) || facts.called_names.contains(&site.name)
+        || facts.string_texts.iter().any(|text| text.contains(&site.name))
+        || name_used_in_tokens(facts, &site.name, &[site.name_range])
+}
+
+fn check_unused_private_nested_classes(
+    table: &SymbolTable,
+    facts: &FileFacts,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for site in &table.def_sites {
+        if site.flavor != DefFlavor::Class
+            || site.decorated
+            || !is_private_name(&site.name)
+            || matches!(table.scopes[site.enclosing_scope].kind, ScopeKind::Module)
+            || definition_is_used(table, facts, site)
+        {
+            continue;
+        }
+        issues.push(issue_at(
+            "python:S3985",
+            &format!("Remove this unused private nested class '{}'.", site.name),
+            site.name_range,
+            index,
+            source,
+        ));
+    }
+    issues
+}
+
+fn check_unused_nested_definitions(
+    table: &SymbolTable,
+    facts: &FileFacts,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for site in &table.def_sites {
+        if !matches!(table.scopes[site.enclosing_scope].kind, ScopeKind::Function)
+            || site.decorated
+            || is_dunder_name(&site.name)
+            || definition_is_used(table, facts, site)
+        {
+            continue;
+        }
+        let (key, message) = match site.flavor {
+            DefFlavor::Function if is_private_name(&site.name) => (
+                "python:S5603",
+                format!("Remove this unused private nested function '{}'.", site.name),
+            ),
+            DefFlavor::Function => (
+                "python:S5603",
+                format!("Remove this unused nested function '{}'.", site.name),
+            ),
+            DefFlavor::Class => (
+                "python:S5603",
+                format!("Remove this unused nested class '{}'.", site.name),
+            ),
+        };
+        issues.push(issue_at(key, &message, site.name_range, index, source));
+    }
+    issues
+}
+
+// --- python:S5806 — shadowed builtins ----------------------------------------
+
+fn check_shadowed_builtins(
+    table: &SymbolTable,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for scope in &table.scopes {
+        for (name, bindings) in &scope.bindings {
+            if !is_builtin_name(name) {
+                continue;
+            }
+            if let Some(binding) = bindings.first() {
+                issues.push(issue_at(
+                    "python:S5806",
+                    &format!("Rename '{name}' because it shadows a Python builtin."),
+                    binding.range,
+                    index,
+                    source,
+                ));
+            }
+        }
+    }
+    issues
+}
+
+// --- python:S5807 — __all__ names must exist ---------------------------------
+
+fn check_all_exports_exist(
+    parsed: &Parsed<ModModule>,
+    table: &SymbolTable,
+    facts: &FileFacts,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    if facts.dynamic_names || facts.has_wildcard_import {
+        return Vec::new();
+    }
+    let mut issues = Vec::new();
+    for (exported, range) in module_all_exports(parsed) {
+        if !table.scopes[0].bindings.contains_key(&exported) {
+            issues.push(issue_at(
+                "python:S5807",
+                &format!("'{exported}' is listed in __all__ but is not defined in this module."),
+                range,
+                index,
+                source,
+            ));
+        }
+    }
+    issues
+}
+
+// --- python:S5953 — undefined names ------------------------------------------
+
+fn check_undefined_names(
+    table: &SymbolTable,
+    facts: &FileFacts,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    if facts.dynamic_names || facts.has_wildcard_import {
+        return Vec::new();
+    }
+    let mut issues = Vec::new();
+    for load in &table.resolved_loads {
+        if load.in_annotation || load.target.is_some() || is_builtin_name(&load.name) {
+            continue;
+        }
+        if is_dunder_name(&load.name) {
+            continue;
+        }
+        issues.push(issue_at(
+            "python:S5953",
+            &format!("'{}' is not defined.", load.name),
+            load.range,
+            index,
+            source,
+        ));
+    }
+    issues
+}
+
+// --- python:S4487 — unread private attributes --------------------------------
+
+fn check_unread_private_attributes(
+    table: &SymbolTable,
+    facts: &FileFacts,
+    options: &AnalyzerOptions,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    let mut reported: HashSet<String> = HashSet::new();
+    for (attr, range) in &table.attr_writes {
+        let single_underscore = attr.starts_with('_') && !attr.starts_with("__");
+        let double_underscore = attr.starts_with("__") && !is_dunder_name(attr);
+        if !(double_underscore
+            || (single_underscore && options.enable_single_underscore_attribute_issues))
+            || !reported.insert(attr.clone())
+        {
+            continue;
+        }
+        let read = facts.attr_reads.iter().any(|(read_attr, _)| read_attr == attr)
+            || name_used_in_tokens(facts, attr, &[*range])
+            || facts.string_texts.iter().any(|text| text.contains(attr.as_str()));
+        if !read {
+            issues.push(issue_at(
+                "python:S4487",
+                &format!("Private attribute '{attr}' is written but never read."),
+                *range,
+                index,
+                source,
+            ));
+        }
+    }
+    issues
+}
+
+// ---------------------------------------------------------------------------
+// flow: control-flow / exception-flow reasoning.
+// ---------------------------------------------------------------------------
+
+// --- python:S1045 — unreachable except blocks --------------------------------
+
+fn check_unreachable_except_blocks(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::Try(try_stmt) = stmt else { return };
+        let mut seen_bare = false;
+        let mut seen_broad: Option<&'static str> = None;
+        let mut seen_types: Vec<String> = Vec::new();
+        for handler in &try_stmt.handlers {
+            let ExceptHandler::ExceptHandler(inner) = handler;
+            let Some(type_expr) = inner.type_.as_deref() else {
+                if seen_bare || !seen_types.is_empty() || seen_broad.is_some() {
+                    issues.push(issue_at(
+                        "python:S1045",
+                        "This except block cannot catch anything; review the preceding clauses.",
+                        inner.range(),
+                        index,
+                        source,
+                    ));
+                }
+                seen_bare = true;
+                continue;
+            };
+            let normalized = expr_normalized_text(type_expr, source);
+            if seen_bare || seen_broad.is_some() {
+                issues.push(issue_at(
+                    "python:S1045",
+                    "This except block cannot catch anything; an earlier clause catches everything.",
+                    type_expr.range(),
+                    index,
+                    source,
+                ));
+            } else if seen_types.iter().any(|previous| previous == &normalized) {
+                issues.push(issue_at(
+                    "python:S1045",
+                    "An earlier except clause catches the same exceptions.",
+                    type_expr.range(),
+                    index,
+                    source,
+                ));
+            }
+            if normalized == "Exception" || normalized == "BaseException" {
+                seen_broad = Some(match normalized.as_str() {
+                    "Exception" => "Exception",
+                    _ => "BaseException",
+                });
+            }
+            seen_types.push(normalized);
+        }
+    });
+    issues
+}
+
+// --- python:S1751 — loops running at most once --------------------------------
+
+fn suite_has_direct_continue(suite: &[Stmt]) -> bool {
+    suite.iter().any(|stmt| match stmt {
+        Stmt::Continue(_) => true,
+        Stmt::For(_) | Stmt::While(_) | Stmt::FunctionDef(_) | Stmt::ClassDef(_) => false,
+        _ => child_bodies(stmt).iter().any(|body| suite_has_direct_continue(body)),
+    })
+}
+
+fn check_single_iteration_loops(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let body = match stmt {
+            Stmt::For(loop_stmt) => &loop_stmt.body,
+            Stmt::While(loop_stmt) => &loop_stmt.body,
+            _ => return,
+        };
+        let Some(last) = body.last() else { return };
+        if matches!(last, Stmt::Break(_)) && !suite_has_direct_continue(body) {
+            issues.push(issue_at(
+                "python:S1751",
+                "This loop runs at most once; replace it with its body.",
+                last.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S2190 — infinite recursion ---------------------------------------
+
+fn straight_line_self_call(suite: &[Stmt], name: &str) -> bool {
+    for stmt in suite {
+        match stmt {
+            Stmt::Expr(expr_stmt) => {
+                if is_call_to(&expr_stmt.value, name) {
+                    return true;
+                }
+            }
+            Stmt::Return(return_stmt) => {
+                if let Some(value) = return_stmt.value.as_deref()
+                    && is_call_to(value, name)
+                {
+                    return true;
+                }
+            }
+            _ => return false,
+        }
+    }
+    false
+}
+
+fn check_infinite_recursion(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::FunctionDef(function) = stmt
+            && straight_line_self_call(&function.body, function.name.as_str())
+        {
+            issues.push(issue_at(
+                "python:S2190",
+                "Add a way to break out of this recursive call.",
+                function.name.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S5918 — tests skipped through early returns ----------------------
+
+fn check_explicit_test_skips(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::FunctionDef(function) = stmt else { return };
+        if !function.name.as_str().starts_with("test") || function.body.len() < 2 {
+            return;
+        }
+        let Some(Stmt::If(guard)) = function.body.first() else {
+            return;
+        };
+        let Some(Stmt::Return(last)) = guard.body.last() else {
+            return;
+        };
+        if last.value.is_some() || constant_truth(&guard.test) == Some(false) {
+            return;
+        }
+        issues.push(issue_at(
+            "python:S5918",
+            "Skip this test explicitly with the framework's skip mechanism instead of an early return.",
+            guard.test.range(),
+            index,
+            source,
+        ));
+    });
+    issues
+}
+
+// --- python:S6908 — recursion inside tf.function ------------------------------
+
+fn check_tf_function_recursion(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::FunctionDef(function) = stmt else { return };
+        if !is_tf_function(function) {
+            return;
+        }
+        let mut flagged = false;
+        for_each_stmt_expr(&function.body, &mut |expr| {
+            if !flagged
+                && let Expr::Call(call) = expr
+                && called_name(&call.func) == Some(function.name.as_str())
+            {
+                flagged = true;
+                issues.push(issue_at(
+                    "python:S6908",
+                    "Rewrite this recursion; it is not supported inside a tf.function.",
+                    call.range(),
+                    index,
+                    source,
+                ));
+            }
+        });
+    });
+    issues
+}
+
+// ---------------------------------------------------------------------------
+// value: liveness & value tracking.
+// ---------------------------------------------------------------------------
+
+// --- python:S1226 — ignored parameter initial values --------------------------
+
+fn check_overwritten_parameters(
+    table: &SymbolTable,
+    facts: &FileFacts,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for site in &table.def_sites {
+        if site.flavor != DefFlavor::Function {
+            continue;
+        }
+        let scope = &table.scopes[site.own_scope];
+        for (param_name, param_range) in &site.params {
+            if param_name.starts_with('_') || matches!(param_name.as_str(), "self" | "cls") {
+                continue;
+            }
+            let Some(bindings) = scope.bindings.get(param_name) else {
+                continue;
+            };
+            let overwrites: Vec<TextRange> = bindings
+                .iter()
+                .filter(|binding| binding.kind == BindingKind::Assignment)
+                .map(|binding| binding.range)
+                .collect();
+            let loads: Vec<TextRange> = table
+                .resolved_loads
+                .iter()
+                .map(|load| load.range)
+                .collect();
+            let Some(&first_overwrite) = overwrites.iter().reduce(|left, right| {
+                if right.start() < left.start() {
+                    right
+                } else {
+                    left
+                }
+            }) else {
+                continue;
+            };
+            // The initial value counts as read when the parameter is loaded
+            // before the overwrite, or when any other textual occurrence
+            // (f-string interior, keyword name, nested closure) sits between
+            // the parameter and the overwriting assignment.
+            let read_before_overwrite = loads
+                .iter()
+                .any(|range| range.start() < first_overwrite.start())
+                || facts.token_names.iter().any(|(token_name, range)| {
+                    token_name == param_name
+                        && range.start() >= param_range.end()
+                        && range.end() <= first_overwrite.start()
+                });
+            let read_after_overwrite = loads
+                .iter()
+                .any(|range| range.end() > first_overwrite.end())
+                || facts.token_names.iter().any(|(token_name, range)| {
+                    token_name == param_name
+                        && range.start() >= first_overwrite.end()
+                        && !overwrites.contains(range)
+                });
+            if !read_before_overwrite && read_after_overwrite {
+                issues.push(issue_at(
+                    "python:S1226",
+                    &format!("Parameter '{param_name}' is overwritten before its initial value is read."),
+                    first_overwrite,
+                    index,
+                    source,
+                ));
+            }
+        }
+    }
+    issues
+}
+
+// --- python:S1854 — dead stores ----------------------------------------------
+
+fn check_dead_stores(
+    table: &SymbolTable,
+    facts: &FileFacts,
+    options: &AnalyzerOptions,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    if facts.dynamic_names {
+        return Vec::new();
+    }
+    let mut issues = Vec::new();
+    for (scope_idx, scope) in table.scopes.iter().enumerate() {
+        if !matches!(scope.kind, ScopeKind::Module | ScopeKind::Function) {
+            continue;
+        }
+        for (name, bindings) in &scope.bindings {
+            if name.starts_with('_')
+                || unused_name_matches_pattern(name, &options.unused_local_ignore_pattern)
+                || scope_has_dynamic_declaration(scope, name)
+                || bindings
+                    .iter()
+                    .any(|binding| binding.kind != BindingKind::Assignment)
+            {
+                continue;
+            }
+            let mut stores: Vec<&Binding> = bindings.iter().collect();
+            stores.sort_by_key(|binding| binding.range.start());
+            let Some(last) = stores.last() else { continue };
+            let store_ranges: Vec<TextRange> = stores.iter().map(|b| b.range).collect();
+            let earlier_loads = table
+                .resolved_loads
+                .iter()
+                .filter(|load| load.target == Some(scope_idx) && load.name == *name)
+                .filter(|load| load.range.start() < last.range.start())
+                .count();
+            let loaded_after = table
+                .resolved_loads
+                .iter()
+                .any(|load| {
+                    load.target == Some(scope_idx)
+                        && load.name == *name
+                        && load.range.start() > last.range.start()
+                })
+                || facts
+                    .token_names
+                    .iter()
+                    .any(|(token_name, range)| {
+                        token_name == name
+                            && range.start() > last.range.end()
+                            && !store_ranges.contains(range)
+                    });
+            if earlier_loads > 0 && !loaded_after && last.loop_depth == 0 {
+                issues.push(issue_at(
+                    "python:S1854",
+                    &format!("Remove this useless assignment to local variable '{name}'."),
+                    last.range,
+                    index,
+                    source,
+                ));
+            }
+        }
+    }
+    issues
+}
+
+// --- python:S2159 — unnecessary equality checks -------------------------------
+
+fn literal_comparison_operand(expr: &Expr, source: &str) -> Option<String> {
+    constant_truth(expr)?;
+    match expr {
+        Expr::StringLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_) => Some(expr_normalized_text(expr, source)),
+        _ => None,
+    }
+}
+
+fn scan_known_value_expr(
+    expr: &Expr,
+    known: &HashMap<String, String>,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    if let Expr::Compare(compare) = expr {
+        let mut operands: Vec<&Expr> = Vec::new();
+        operands.push(&compare.left);
+        operands.extend(compare.comparators.iter());
+        for position in 0..compare.ops.len() {
+            let op = &compare.ops[position];
+            if !matches!(
+                op,
+                ruff_python_ast::CmpOp::Eq | ruff_python_ast::CmpOp::NotEq
+            ) {
+                continue;
+            }
+            let left = operands[position];
+            let right = operands[position + 1];
+            let matched = known_value_pair(left, right, known, source)
+                .or_else(|| known_value_pair(right, left, known, source));
+            if let Some(name) = matched {
+                issues.push(issue_at(
+                    "python:S2159",
+                    &format!("This comparison always evaluates the same way; '{name}' already holds that value."),
+                    compare.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+        return;
+    }
+    for child in child_exprs(expr) {
+        scan_known_value_expr(child, known, index, source, issues);
+    }
+}
+
+fn known_value_pair(
+    candidate: &Expr,
+    literal: &Expr,
+    known: &HashMap<String, String>,
+    source: &str,
+) -> Option<String> {
+    let Expr::Name(name) = candidate else { return None };
+    let text = literal_comparison_operand(literal, source)?;
+    if known.get(name.id.as_str()) == Some(&text) {
+        Some(name.id.as_str().to_string())
+    } else {
+        None
+    }
+}
+
+fn clear_known_targets(targets: &[Expr], known: &mut HashMap<String, String>) {
+    for target in targets {
+        let mut names: Vec<String> = Vec::new();
+        collect_target_names(target, &mut names);
+        for name in names {
+            known.remove(&name);
+        }
+    }
+}
+
+fn scan_known_value_suite(
+    suite: &[Stmt],
+    inherited: &HashMap<String, String>,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    let mut known = inherited.clone();
+    for stmt in suite {
+        match stmt {
+            Stmt::Assign(assign) => {
+                for target in &assign.targets {
+                    scan_known_value_expr(target, &known, index, source, issues);
+                }
+                scan_known_value_expr(&assign.value, &known, index, source, issues);
+                if let [Expr::Name(target)] = assign.targets.as_slice() {
+                    if let Some(text) = literal_comparison_operand(&assign.value, source) {
+                        known.insert(target.id.as_str().to_string(), text);
+                    } else {
+                        known.remove(target.id.as_str());
+                    }
+                } else {
+                    clear_known_targets(&assign.targets, &mut known);
+                }
+            }
+            Stmt::If(if_stmt) => {
+                scan_known_value_expr(&if_stmt.test, &known, index, source, issues);
+                scan_known_value_suite(&if_stmt.body, &known, index, source, issues);
+                for clause in &if_stmt.elif_else_clauses {
+                    if let Some(test) = clause.test.as_ref() {
+                        scan_known_value_expr(test, &known, index, source, issues);
+                    }
+                    scan_known_value_suite(&clause.body, &known, index, source, issues);
+                }
+                known.clear();
+            }
+            Stmt::While(while_stmt) => {
+                scan_known_value_expr(&while_stmt.test, &known, index, source, issues);
+                scan_known_value_suite(&while_stmt.body, &HashMap::new(), index, source, issues);
+                known.clear();
+            }
+            Stmt::For(for_stmt) => {
+                scan_known_value_expr(&for_stmt.iter, &known, index, source, issues);
+                scan_known_value_suite(&for_stmt.body, &HashMap::new(), index, source, issues);
+                known.clear();
+            }
+            Stmt::With(with_stmt) => {
+                for item in &with_stmt.items {
+                    scan_known_value_expr(&item.context_expr, &known, index, source, issues);
+                }
+                scan_known_value_suite(&with_stmt.body, &HashMap::new(), index, source, issues);
+                known.clear();
+            }
+            Stmt::Try(try_stmt) => {
+                scan_known_value_suite(&try_stmt.body, &HashMap::new(), index, source, issues);
+                for handler in &try_stmt.handlers {
+                    let ExceptHandler::ExceptHandler(inner) = handler;
+                    scan_known_value_suite(&inner.body, &HashMap::new(), index, source, issues);
+                }
+                scan_known_value_suite(&try_stmt.orelse, &HashMap::new(), index, source, issues);
+                scan_known_value_suite(&try_stmt.finalbody, &HashMap::new(), index, source, issues);
+                known.clear();
+            }
+            Stmt::FunctionDef(function) => {
+                scan_known_value_suite(&function.body, &HashMap::new(), index, source, issues);
+            }
+            Stmt::ClassDef(class) => {
+                scan_known_value_suite(&class.body, &HashMap::new(), index, source, issues);
+            }
+            _ => {
+                for expr in stmt_exprs(stmt) {
+                    scan_known_value_expr(expr, &known, index, source, issues);
+                }
+            }
+        }
+    }
+}
+
+fn check_known_value_comparisons(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    scan_known_value_suite(
+        parsed.syntax().body.as_slice(),
+        &HashMap::new(),
+        index,
+        source,
+        &mut issues,
+    );
+    issues
+}
+
+// --- python:S2275 / python:S3457 — printf-style formatting ---------------------
+
+/// Conversion characters of a printf-style format string; `None` marks an
+/// invalid or truncated specification.
+fn percent_conversions(format_text: &str) -> Option<Vec<u8>> {
+    let bytes = format_text.as_bytes();
+    let mut conversions = Vec::new();
+    let mut position = 0;
+    while position < bytes.len() {
+        if bytes[position] != b'%' {
+            position += 1;
+            continue;
+        }
+        position += 1;
+        if position >= bytes.len() {
+            return None;
+        }
+        if bytes[position] == b'%' {
+            position += 1;
+            continue;
+        }
+        while position < bytes.len() && matches!(bytes[position], b'-' | b'+' | b' ' | b'#' | b'0') {
+            position += 1;
+        }
+        while position < bytes.len() && bytes[position].is_ascii_digit() {
+            position += 1;
+        }
+        if position < bytes.len() && bytes[position] == b'.' {
+            position += 1;
+            while position < bytes.len() && bytes[position].is_ascii_digit() {
+                position += 1;
+            }
+        }
+        while position < bytes.len() && matches!(bytes[position], b'h' | b'l' | b'L') {
+            position += 1;
+        }
+        let conversion = *bytes.get(position)?;
+        if b"diouxXeEfFgGcrsa".contains(&conversion) {
+            conversions.push(conversion);
+        } else {
+            return None;
+        }
+        position += 1;
+    }
+    Some(conversions)
+}
+
+/// `(format text, arguments, right operand, span)` of a `%`-formatted string
+/// literal; `None` for anything else.
+fn percent_format_parts(
+    expr: &Expr,
+) -> Option<(String, Vec<&Expr>, &Expr, TextRange)> {
+    let Expr::BinOp(bin_op) = expr else { return None };
+    if !matches!(bin_op.op, ruff_python_ast::Operator::Mod) {
+        return None;
+    }
+    let Expr::StringLiteral(literal) = bin_op.left.as_ref() else {
+        return None;
+    };
+    let arguments: Vec<&Expr> = match bin_op.right.as_ref() {
+        Expr::Tuple(tuple) => tuple.elts.iter().collect(),
+        other => vec![other],
+    };
+    Some((
+        string_value_text(&literal.value),
+        arguments,
+        bin_op.right.as_ref(),
+        bin_op.range(),
+    ))
+}
+
+fn check_percent_argument_counts(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        let Some((format_text, arguments, right_operand, range)) = percent_format_parts(expr)
+        else {
+            return;
+        };
+        let Some(conversions) = percent_conversions(&format_text) else {
+            return;
+        };
+        if matches!(right_operand, Expr::Dict(_)) {
+            if !conversions.is_empty() && !format_text.contains("%(") {
+                issues.push(issue_at(
+                    "python:S2275",
+                    "Add mapping keys to this format string; a mapping is formatted without them.",
+                    range,
+                    index,
+                    source,
+                ));
+            }
+            return;
+        }
+        if conversions.len() != arguments.len() {
+            issues.push(issue_at(
+                "python:S2275",
+                "Fix this format string; its conversions do not match the provided arguments.",
+                range,
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+
+fn check_percent_argument_types(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        let Some((format_text, arguments, _, range)) = percent_format_parts(expr) else {
+            return;
+        };
+        let Some(conversions) = percent_conversions(&format_text) else {
+            return;
+        };
+        for (conversion, argument) in conversions.iter().zip(arguments) {
+            let mismatch = match argument {
+                Expr::StringLiteral(literal) => {
+                    let numeric = matches!(
+                        conversion,
+                        b'd' | b'i' | b'u' | b'x' | b'X' | b'o' | b'e' | b'E' | b'f' | b'F'
+                            | b'g' | b'G'
+                    );
+                    let character = *conversion == b'c'
+                        && string_value_text(&literal.value).chars().count() != 1;
+                    numeric || character
+                }
+                _ => false,
+            };
+            if mismatch {
+                issues.push(issue_at(
+                    "python:S3457",
+                    "Use a conversion in this format string that matches the argument types.",
+                    range,
+                    index,
+                    source,
+                ));
+                break;
+            }
+        }
+    });
+    issues
+}
+
+
+// --- python:S3516 — invariant function returns --------------------------------
+
+/// Normalized texts of direct non-None constant `return` values.
+fn direct_constant_return_texts(suite: &[Stmt], source: &str) -> Vec<String> {
+    let mut texts = Vec::new();
+    for_each_stmt_in_scope(suite, &mut |stmt| {
+        if let Stmt::Return(return_stmt) = stmt
+            && let Some(value) = return_stmt.value.as_deref()
+            && !is_none_literal(value)
+            && constant_truth(value).is_some()
+        {
+            texts.push(expr_normalized_text(value, source));
+        }
+    });
+    texts
+}
+
+fn check_invariant_returns(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_in_scope(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::FunctionDef(function) = stmt {
+            let returns = direct_constant_return_texts(&function.body, source);
+            let identical = returns.len() >= 2
+                && returns.windows(2).all(|pair| pair[0] == pair[1]);
+            if identical {
+                issues.push(issue_at(
+                    "python:S3516",
+                    "Every return path yields the same constant; verify this is intended.",
+                    function.name.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S3801 — inconsistent return values --------------------------------
+
+fn suite_contains_yield(suite: &[Stmt]) -> bool {
+    let mut found = false;
+    for_each_stmt_expr(suite, &mut |expr| {
+        found |= matches!(expr, Expr::Yield(_) | Expr::YieldFrom(_));
+    });
+    found
+}
+
+fn direct_return_kinds(suite: &[Stmt]) -> (usize, usize) {
+    let mut valued = 0;
+    let mut empty = 0;
+    for_each_stmt_in_scope(suite, &mut |stmt| {
+        if let Stmt::Return(return_stmt) = stmt {
+            match return_stmt.value.as_deref() {
+                Some(value) if !is_none_literal(value) => valued += 1,
+                _ => empty += 1,
+            }
+        }
+    });
+    (valued, empty)
+}
+
+fn check_inconsistent_returns(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_in_scope(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::FunctionDef(function) = stmt else { return };
+        if suite_contains_yield(&function.body) || function.body.is_empty() {
+            return;
+        }
+        let (valued, empty) = direct_return_kinds(&function.body);
+        let falls_off_end = !matches!(
+            function.body.last(),
+            Some(Stmt::Return(_) | Stmt::Raise(_))
+        );
+        if valued > 0 && (empty > 0 || falls_off_end) {
+            issues.push(issue_at(
+                "python:S3801",
+                "Make the return paths consistent; some paths return a value while others return None.",
+                function.name.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S5864 — confusing type checks --------------------------------------
+
+fn check_confusing_type_checks(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        let Expr::Call(call) = expr else { return };
+        if called_name(&call.func) != Some("isinstance") || call.arguments.args.len() != 2 {
+            return;
+        }
+        let checked = &call.arguments.args[0];
+        let types = &call.arguments.args[1];
+        let confusing = match types {
+            Expr::List(_) | Expr::Set(_) | Expr::Dict(_) => true,
+            Expr::Tuple(tuple) => {
+                let elements: Vec<String> = tuple
+                    .elts
+                    .iter()
+                    .map(|element| expr_normalized_text(element, source))
+                    .collect();
+                let mut unique = elements.clone();
+                unique.sort();
+                unique.dedup();
+                unique.len() != elements.len()
+            }
+            _ => expr_normalized_text(checked, source) == expr_normalized_text(types, source),
+        };
+        if confusing {
+            issues.push(issue_at(
+                "python:S5864",
+                "Fix this confusing type check; the second argument must be a distinct type or tuple of types.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// ---------------------------------------------------------------------------
+// effect: effect / retention tracking.
+// ---------------------------------------------------------------------------
+
+const SIDE_EFFECT_TAILS: [&str; 10] = [
+    "print", "input", "open", "system", "popen", "getcwd", "remove", "rename", "mkdir", "sleep",
+];
+
+const LOAD_MODEL_TAILS: [&str; 5] = [
+    "load",
+    "load_model",
+    "load_state_dict",
+    "from_pretrained",
+    "load_weights",
+];
+
+const CANCELLATION_SCOPE_TAILS: [&str; 6] = [
+    "move_on_after",
+    "fail_after",
+    "move_on_if",
+    "CancelScope",
+    "fail_at",
+    "move_on_at",
+];
+
+const KNOWN_STEP_HINTS: [&str; 18] = [
+    "pipeline", "model", "clf", "reg", "scaler", "preprocessor", "vectorizer", "encoder",
+    "imputer", "transformer", "selector", "reducer", "classifier", "regressor", "steps",
+    "features", "numeric", "categorical",
+];
+
+// --- python:S2325 — methods that could be static -------------------------------
+
+fn check_static_candidates(
+    table: &SymbolTable,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for site in &table.def_sites {
+        if site.flavor != DefFlavor::Function
+            || site.decorated
+            || !matches!(table.scopes[site.enclosing_scope].kind, ScopeKind::Class)
+            || is_dunder_name(&site.name)
+        {
+            continue;
+        }
+        let Some((first_parameter, _)) = site.params.first() else {
+            continue;
+        };
+        if first_parameter.as_str() != "self" {
+            continue;
+        }
+        let self_used = table.resolved_loads.iter().any(|load| {
+            matches!(load.name.as_str(), "self" | "super")
+                && scope_is_within(table, load.scope, site.own_scope)
+        });
+        if !self_used {
+            issues.push(issue_at(
+                "python:S2325",
+                "Mark this method '@staticmethod'; it never uses 'self'.",
+                site.name_range,
+                index,
+                source,
+            ));
+        }
+    }
+    issues
+}
+
+// --- python:S6911 / S6918 / S6928 — tf.function contracts ----------------------
+
+fn for_each_tf_function_body(
+    module_body: &[Stmt],
+    visit: &mut impl FnMut(&ruff_python_ast::StmtFunctionDef),
+) {
+    for_each_stmt(module_body, &mut |stmt| {
+        if let Stmt::FunctionDef(function) = stmt
+            && is_tf_function(function)
+        {
+            visit(function);
+        }
+    });
+}
+
+fn check_tf_function_global_captures(
+    table: &SymbolTable,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for site in &table.def_sites {
+        if site.flavor != DefFlavor::Function || !site.tf_traced {
+            continue;
+        }
+        let mut reported: HashSet<String> = HashSet::new();
+        for load in &table.resolved_loads {
+            if load.target != Some(0)
+                || load.name.starts_with('_')
+                || !scope_is_within(table, load.scope, site.own_scope)
+            {
+                continue;
+            }
+            if !reported.insert(load.name.clone()) {
+                continue;
+            }
+            let is_variable = table.scopes[0]
+                .bindings
+                .get(&load.name)
+                .is_some_and(|bindings| {
+                    bindings
+                        .iter()
+                        .any(|binding| binding.kind == BindingKind::Assignment)
+                });
+            if is_variable {
+                issues.push(issue_at(
+                    "python:S6911",
+                    &format!("'{}' is captured from module scope inside this tf.function; pass it as an argument.", load.name),
+                    load.range,
+                    index,
+                    source,
+                ));
+            }
+        }
+    }
+    issues
+}
+
+fn check_tf_variable_creation(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_tf_function_body(parsed.syntax().body.as_slice(), &mut |function| {
+        for_each_stmt_expr(&function.body, &mut |expr| {
+            if let Expr::Call(call) = expr
+                && called_name(&call.func) == Some("Variable")
+            {
+                issues.push(issue_at(
+                    "python:S6918",
+                    "Create this tf.Variable outside the traced function; it would be recreated on each tracing run.",
+                    call.range(),
+                    index,
+                    source,
+                ));
+            }
+        });
+    });
+    issues
+}
+
+fn check_tf_function_side_effects(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_tf_function_body(parsed.syntax().body.as_slice(), &mut |function| {
+        for_each_stmt_expr(&function.body, &mut |expr| {
+            if let Expr::Call(call) = expr
+                && called_name(&call.func)
+                    .is_some_and(|tail| SIDE_EFFECT_TAILS.contains(&tail))
+            {
+                issues.push(issue_at(
+                    "python:S6928",
+                    "Move this Python side effect out of the tf.function; it runs only once during tracing.",
+                    call.range(),
+                    index,
+                    source,
+                ));
+            }
+        });
+        for_each_stmt_in_scope(&function.body, &mut |stmt| {
+            if let Stmt::Assert(assert_stmt) = stmt {
+                issues.push(issue_at(
+                    "python:S6928",
+                    "Move this Python side effect out of the tf.function; it runs only once during tracing.",
+                    assert_stmt.range(),
+                    index,
+                    source,
+                ));
+            }
+        });
+    });
+    issues
+}
+
+// --- python:S6982 — eval() after loading a model -------------------------------
+
+fn check_missing_eval_after_load(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut loaded_models: HashSet<String> = HashSet::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::Assign(assign) = stmt
+            && let [Expr::Name(target)] = assign.targets.as_slice()
+            && let Expr::Call(call) = assign.value.as_ref()
+            && called_name(&call.func)
+                .is_some_and(|tail| LOAD_MODEL_TAILS.contains(&tail))
+        {
+            loaded_models.insert(target.id.as_str().to_string());
+        }
+    });
+    let mut train_calls: Vec<(String, TextRange)> = Vec::new();
+    let mut evaluated: HashSet<String> = HashSet::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        let Expr::Call(call) = expr else { return };
+        let Expr::Attribute(attribute) = call.func.as_ref() else {
+            return;
+        };
+        let Expr::Name(receiver) = attribute.value.as_ref() else {
+            return;
+        };
+        match attribute.attr.as_str() {
+            "train" => train_calls.push((receiver.id.as_str().to_string(), expr.range())),
+            "eval" => {
+                evaluated.insert(receiver.id.as_str().to_string());
+            }
+            _ => {}
+        }
+    });
+    let mut issues = Vec::new();
+    for (receiver, range) in train_calls {
+        if loaded_models.contains(&receiver) && !evaluated.contains(&receiver) {
+            issues.push(issue_at(
+                "python:S6982",
+                "Call 'eval()' on this loaded model before inference; it stays in training mode.",
+                range,
+                index,
+                source,
+            ));
+        }
+    }
+    issues
+}
+
+// --- python:S7502 / python:S7515 — asyncio task and resource lifetimes ---------
+
+fn check_unreferenced_asyncio_tasks(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::Expr(expr_stmt) = stmt
+            && let Expr::Call(call) = expr_stmt.value.as_ref()
+            && called_name(&call.func)
+                .is_some_and(|tail| matches!(tail, "create_task" | "ensure_future"))
+        {
+            issues.push(issue_at(
+                "python:S7502",
+                "Keep a reference to this task; the event loop only holds a weak reference.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn for_each_with_in_function_context(
+    module_body: &[Stmt],
+    visit: &mut impl FnMut(&ruff_python_ast::StmtWith, bool),
+) {
+    fn walk(
+        suite: &[Stmt],
+        in_async: bool,
+        visit: &mut impl FnMut(&ruff_python_ast::StmtWith, bool),
+    ) {
+        for stmt in suite {
+            match stmt {
+                Stmt::FunctionDef(function) => walk(&function.body, function.is_async, visit),
+                Stmt::ClassDef(class) => walk(&class.body, false, visit),
+                Stmt::With(with_stmt) => {
+                    visit(with_stmt, in_async);
+                    walk(&with_stmt.body, in_async, visit);
+                }
+                _ => {
+                    for body in child_bodies(stmt) {
+                        walk(body, in_async, visit);
+                    }
+                }
+            }
+        }
+    }
+    walk(module_body, false, visit);
+}
+
+fn check_sync_open_without_async_with(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_with_in_function_context(
+        parsed.syntax().body.as_slice(),
+        &mut |with_stmt, in_async| {
+            if !in_async || with_stmt.is_async {
+                return;
+            }
+            for item in &with_stmt.items {
+                if is_call_to(&item.context_expr, "open") {
+                    issues.push(issue_at(
+                        "python:S7515",
+                        "Open this resource with 'async with' so it does not block the event loop.",
+                        item.context_expr.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        },
+    );
+    issues
+}
+
+// --- python:S6972 — nested estimator parameter names ---------------------------
+
+fn check_nested_estimator_parameters(
+    parsed: &Parsed<ModModule>,
+    table: &SymbolTable,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let sklearn_present = unmasked_segments(parsed, source)
+        .iter()
+        .any(|(_, segment)| segment.contains("sklearn"));
+    if !sklearn_present {
+        return Vec::new();
+    }
+    let mut known: HashSet<String> = KNOWN_STEP_HINTS
+        .iter()
+        .map(|hint| (*hint).to_string())
+        .collect();
+    known.extend(table.scopes[0].bindings.keys().cloned());
+    for site in &table.def_sites {
+        known.insert(site.name.clone());
+    }
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        let Expr::Call(call) = expr else { return };
+        for keyword in &call.arguments.keywords {
+            let Some(arg) = &keyword.arg else { continue };
+            let Some(separator) = arg.as_str().find("__") else {
+                continue;
+            };
+            let prefix = &arg.as_str()[..separator];
+            if !known.contains(prefix) {
+                issues.push(issue_at(
+                    "python:S6972",
+                    &format!("'{prefix}' does not match a known pipeline step; verify this nested parameter."),
+                    keyword.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S7490 / python:S7497 — cancellation contracts -----------------------
+
+fn suite_contains_checkpoint(suite: &[Stmt]) -> bool {
+    let mut found = false;
+    for_each_stmt_expr(suite, &mut |expr| {
+        found |= matches!(expr, Expr::Await(_));
+    });
+    found
+}
+
+fn check_cancellation_scope_checkpoints(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_with_in_function_context(
+        parsed.syntax().body.as_slice(),
+        &mut |with_stmt, in_async| {
+            if !in_async {
+                return;
+            }
+            let is_scope = with_stmt.items.iter().any(|item| {
+                is_call_context_tail(item, &CANCELLATION_SCOPE_TAILS)
+            });
+            if is_scope && !suite_contains_checkpoint(&with_stmt.body) {
+                issues.push(issue_at(
+                    "python:S7490",
+                    "Add a checkpoint (an await point) inside this cancellation scope.",
+                    with_stmt.range(),
+                    index,
+                    source,
+                ));
+            }
+        },
+    );
+    issues
+}
+
+fn is_call_context_tail(item: &ruff_python_ast::WithItem, tails: &[&str]) -> bool {
+    let Expr::Call(call) = &item.context_expr else {
+        return false;
+    };
+    called_name(&call.func).is_some_and(|tail| tails.contains(&tail))
+}
+
+fn suite_contains_raise(suite: &[Stmt]) -> bool {
+    suite.iter().any(|stmt| match stmt {
+        Stmt::Raise(_) => true,
+        Stmt::FunctionDef(_) | Stmt::ClassDef(_) => false,
+        _ => child_bodies(stmt).iter().any(|body| suite_contains_raise(body)),
+    })
+}
+
+fn check_swallowed_cancellations(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::Try(try_stmt) = stmt else { return };
+        for handler in &try_stmt.handlers {
+            let ExceptHandler::ExceptHandler(inner) = handler;
+            let caught = exception_type_names(inner.type_.as_deref());
+            let cancellation = caught
+                .iter()
+                .any(|name| matches!(name.as_str(), "CancelledError" | "Cancelled"));
+            if cancellation && !suite_contains_raise(&inner.body) {
+                issues.push(issue_at(
+                    "python:S7497",
+                    "Re-raise the cancellation exception after cleanup.",
+                    inner.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+// ---------------------------------------------------------------------------
+// Battery aggregation: every Tier-B entry (symbol/flow/value/effect).
+// ---------------------------------------------------------------------------
+
+fn check_tier_b_battery(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let table = build_symbol_table(parsed);
+    let facts = collect_file_facts(parsed, source);
+    let exports = module_all_exports(parsed);
+    let mut issues = Vec::new();
+    if !facts.dynamic_names {
+        issues.extend(check_unused_imports(&table, &facts, index, source));
+        issues.extend(check_unused_parameters(&table, &facts, index, source));
+        issues.extend(check_unused_locals(
+            &table,
+            &facts,
+            options,
+            &exports,
+            index,
+            source,
+        ));
+        issues.extend(check_use_before_definition(&table, &facts, index, source));
+        issues.extend(check_dead_stores(&table, &facts, options, index, source));
+        issues.extend(check_overwritten_parameters(&table, &facts, index, source));
+        issues.extend(check_known_value_comparisons(parsed, index, source));
+        issues.extend(check_static_candidates(&table, index, source));
+    }
+    issues.extend(check_unused_private_methods(&table, &facts, index, source));
+    issues.extend(check_unused_private_nested_classes(&table, &facts, index, source));
+    issues.extend(check_unused_nested_definitions(&table, &facts, index, source));
+    issues.extend(check_shadowed_builtins(&table, index, source));
+    issues.extend(check_all_exports_exist(parsed, &table, &facts, index, source));
+    issues.extend(check_undefined_names(&table, &facts, index, source));
+    issues.extend(check_unread_private_attributes(
+        &table, &facts, options, index, source,
+    ));
+    issues.extend(check_unreachable_except_blocks(parsed, index, source));
+    issues.extend(check_single_iteration_loops(parsed, index, source));
+    issues.extend(check_infinite_recursion(parsed, index, source));
+    issues.extend(check_explicit_test_skips(parsed, index, source));
+    issues.extend(check_tf_function_recursion(parsed, index, source));
+    issues.extend(check_percent_argument_counts(parsed, index, source));
+    issues.extend(check_percent_argument_types(parsed, index, source));
+    issues.extend(check_invariant_returns(parsed, index, source));
+    issues.extend(check_inconsistent_returns(parsed, index, source));
+    issues.extend(check_confusing_type_checks(parsed, index, source));
+    issues.extend(check_tf_function_global_captures(&table, index, source));
+    issues.extend(check_tf_variable_creation(parsed, index, source));
+    issues.extend(check_tf_function_side_effects(parsed, index, source));
+    issues.extend(check_missing_eval_after_load(parsed, index, source));
+    issues.extend(check_unreferenced_asyncio_tasks(parsed, index, source));
+    issues.extend(check_sync_open_without_async_with(parsed, index, source));
+    issues.extend(check_nested_estimator_parameters(
+        parsed, &table, index, source,
+    ));
+    issues.extend(check_cancellation_scope_checkpoints(parsed, index, source));
+    issues.extend(check_swallowed_cancellations(parsed, index, source));
+    issues
+}
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -8082,7 +10684,7 @@ mod tests {
     fn nosonar_comment_is_flagged_case_sensitively() {
         let report = analyze(
             PathBuf::from("test.py"),
-            "x = 1  # NOSONAR\n",
+            "x = 1  # NOSONAR\nstr(x)\n",
             &AnalyzerOptions::default(),
         );
         assert_eq!(
@@ -8097,7 +10699,7 @@ mod tests {
 
         let lowercase = analyze(
             PathBuf::from("test.py"),
-            "x = 1  # nosonar\n",
+            "x = 1  # nosonar\nstr(x)\n",
             &AnalyzerOptions::default(),
         );
         assert!(lowercase.issues.is_empty());
@@ -8112,19 +10714,48 @@ mod tests {
         );
         assert_eq!(
             report.issues,
-            vec![issue(
-                "python:OneStatementPerLine",
-                "Only one statement per line is allowed.",
-                (3, 7),
-                (3, 12),
-            )]
+            vec![
+                issue(
+                    "python:S1481",
+                    "Remove this unused local variable 'a'.",
+                    (1, 0),
+                    (1, 1),
+                ),
+                issue(
+                    "python:S1481",
+                    "Remove this unused local variable 'b'.",
+                    (2, 0),
+                    (2, 1),
+                ),
+                issue(
+                    "python:S1481",
+                    "Remove this unused local variable 'c'.",
+                    (3, 0),
+                    (3, 1),
+                ),
+                issue(
+                    "python:S1481",
+                    "Remove this unused local variable 'd'.",
+                    (3, 7),
+                    (3, 8),
+                ),
+                issue(
+                    "python:OneStatementPerLine",
+                    "Only one statement per line is allowed.",
+                    (3, 7),
+                    (3, 12),
+                ),
+            ]
         );
     }
     #[test]
     fn line_length_honors_option() {
-        let long_121 = format!("x = {}\n", "1".repeat(117));
-        // 4 + 117 content chars plus the trailing newline required by S113.
-        assert_eq!(long_121.chars().count(), 122);
+        let long_121 = format!("x = {}\nstr(x)\n", "1".repeat(117));
+        // 4 + 117 content characters on line 1, plus a short reader line.
+        assert_eq!(
+            long_121.lines().next().map(str::chars).map(Iterator::count),
+            Some(121)
+        );
         let report = analyze(
             PathBuf::from("test.py"),
             &long_121,
@@ -8135,7 +10766,7 @@ mod tests {
         assert_eq!(report.issues[0].range.start, pos(1, 0));
         assert_eq!(report.issues[0].range.end, pos(1, 121));
 
-        let long_120 = format!("x = {}\n", "1".repeat(116));
+        let long_120 = format!("x = {}\nstr(x)\n", "1".repeat(116));
         let clean = analyze(
             PathBuf::from("test.py"),
             &long_120,
@@ -8147,7 +10778,11 @@ mod tests {
             maximum_line_length: 10,
             ..AnalyzerOptions::default()
         };
-        let flagged = analyze(PathBuf::from("test.py"), "x = 12345678\n", &strict);
+        let flagged = analyze(
+            PathBuf::from("test.py"),
+            "x = 12345678\nstr(x)\n",
+            &strict,
+        );
         assert_eq!(flagged.issues.len(), 1);
         assert_eq!(
             flagged.issues[0].message,
@@ -8197,8 +10832,13 @@ mod tests {
             "if x:\n  exec(y)\n",
             &AnalyzerOptions::default(),
         );
-        assert_eq!(report.issues.len(), 1);
-        assert_eq!(report.issues[0].range.start, pos(2, 2));
+        let exec_issues: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "python:ExecStatementUsage")
+            .collect();
+        assert_eq!(exec_issues.len(), 1);
+        assert_eq!(exec_issues[0].range.start, pos(2, 2));
     }
 
     #[test]
@@ -8259,19 +10899,21 @@ mod tests {
             }
         );
     }
-
     #[test]
     fn file_must_end_with_newline() {
         let missing = analyze(PathBuf::from("t.py"), "x = 1", &AnalyzerOptions::default());
+        let newline_issues: Vec<_> = missing
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "python:S113")
+            .collect();
+        assert_eq!(newline_issues.len(), 1);
         assert_eq!(
-            missing.issues,
-            vec![issue(
-                "python:S113",
-                "Add a newline character at the end of this file.",
-                (1, 0),
-                (1, 5),
-            )]
+            newline_issues[0].message,
+            "Add a newline character at the end of this file."
         );
+        assert_eq!(newline_issues[0].range.start, pos(1, 0));
+        assert_eq!(newline_issues[0].range.end, pos(1, 5));
         assert!(
             analyze(PathBuf::from("t.py"), "", &AnalyzerOptions::default())
                 .issues
@@ -8379,20 +11021,28 @@ mod tests {
             ..AnalyzerOptions::default()
         };
         assert!(
-            analyze(PathBuf::from("t.py"), "# Copyright 2026\nx = 1\n", &options)
+            analyze(
+                PathBuf::from("t.py"),
+                "# Copyright 2026\nfor _ in []:\n    pass\n",
+                &options
+            )
                 .issues
                 .is_empty()
         );
         assert!(
             analyze(
                 PathBuf::from("t.py"),
-                "#!/usr/bin/env python3\n# Copyright 2026\nx = 1\n",
+                "#!/usr/bin/env python3\n# Copyright 2026\nfor _ in []:\n    pass\n",
                 &options
             )
             .issues
             .is_empty()
         );
-        let missing = analyze(PathBuf::from("t.py"), "x = 1\n", &options);
+        let missing = analyze(
+            PathBuf::from("t.py"),
+            "for _ in []:\n    pass\n",
+            &options
+        );
         assert_eq!(
             missing.issues,
             vec![issue(
@@ -8405,7 +11055,7 @@ mod tests {
         assert!(
             analyze(
                 PathBuf::from("t.py"),
-                "x = 1\n",
+                "for _ in []:\n    pass\n",
                 &AnalyzerOptions::default()
             )
             .issues
@@ -8969,7 +11619,7 @@ mod tests {
     #[test]
     fn s7496_flags_redundant_wrapping_constructors() {
         let flagged = scan(
-            "wrapped = list([1, 2])\nsets = set({1})\nmaps = dict({\"a\": 1})\nconv = list((4, 5))\n",
+            "wrapped = list([1, 2])\nsets = set({1})\nmaps = dict({\"a\": 1})\nconv = list((4, 5))\nstr(conv)\n",
         );
         assert_eq!(findings(&flagged, "python:S7496").len(), 3);
         // The tuple conversion is a real type change and stays unflagged.
@@ -9863,5 +12513,426 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![1, 3]
         );
+    }
+    // ------------------------------------------------------------------
+    // Tier B — symbol group.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn s1128_flags_unused_module_imports() {
+        let flagged = scan("import os\nimport sys\nprint(os.getcwd())\n");
+        assert_eq!(findings(&flagged, "python:S1128").len(), 1);
+        assert_eq!(
+            findings(&scan("import os\nimport sys\nprint(os.getcwd(), sys.path)\n"),
+            "python:S1128")
+            .len(),
+            0
+        );
+    }
+
+    #[test]
+    fn s1144_flags_unreferenced_private_methods() {
+        let flagged = scan("class C:\n    def _hidden(self):\n        return 7\n\n\nc = C()\n");
+        assert_eq!(findings(&flagged, "python:S1144").len(), 1);
+        let referenced = scan("class C:\n    def _hidden(self):\n        return 7\n\n\nc = C()\nprint(c._hidden())\n");
+        assert!(findings(&referenced, "python:S1144").is_empty());
+    }
+
+    #[test]
+    fn s1172_flags_unused_function_parameters() {
+        let flagged = scan("def scale(value, factor):\n    return value\n\n\nscale(2, 3)\n");
+        assert_eq!(findings(&flagged, "python:S1172").len(), 1);
+        let used = scan("def scale(value, factor):\n    return value * factor\n\n\nscale(2, 3)\n");
+        assert!(findings(&used, "python:S1172").is_empty());
+    }
+
+    #[test]
+    fn s1481_flags_unused_local_variables() {
+        let flagged = scan("def run():\n    total = 1\n    result = 2\n    return result\n\n\nrun()\n");
+        let found = findings(&flagged, "python:S1481");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 2);
+        let clean = scan("def run():\n    total = 1\n    return total\n\n\nrun()\n");
+        assert!(findings(&clean, "python:S1481").is_empty());
+    }
+
+    #[test]
+    fn s3827_flags_module_uses_before_definition() {
+        let flagged = scan("handler()\n\n\ndef handler():\n    pass\n");
+        let found = findings(&flagged, "python:S3827");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 1);
+        let ordered = scan("def handler():\n    pass\n\n\nhandler()\n");
+        assert!(findings(&ordered, "python:S3827").is_empty());
+    }
+
+    #[test]
+    fn s3985_flags_unused_private_nested_classes() {
+        let flagged = scan("def outer():\n    class _Inner:\n        pass\n\n    return 1\n\n\nouter()\n");
+        assert_eq!(findings(&flagged, "python:S3985").len(), 1);
+        let exported = scan("def outer():\n    class _Inner:\n        pass\n\n    return _Inner\n\n\nouter()\n");
+        assert!(findings(&exported, "python:S3985").is_empty());
+    }
+
+    #[test]
+    fn s5603_flags_unused_nested_definitions() {
+        let flagged = scan("def outer():\n    def helper():\n        pass\n\n    return 1\n\n\nouter()\n");
+        assert_eq!(findings(&flagged, "python:S5603").len(), 1);
+        let called = scan("def outer():\n    def helper():\n        pass\n\n    return helper()\n\n\nouter()\n");
+        assert!(findings(&called, "python:S5603").is_empty());
+    }
+
+    #[test]
+    fn s5806_flags_bindings_shadowing_builtins() {
+        let flagged = scan("def process(items):\n    len = len(items)\n    return len\n\n\nprocess([1])\n");
+        assert_eq!(findings(&flagged, "python:S5806").len(), 1);
+        let renamed = scan("def process(items):\n    length = len(items)\n    return length\n\n\nprocess([1])\n");
+        assert!(findings(&renamed, "python:S5806").is_empty());
+    }
+
+    #[test]
+    fn s5807_requires_all_names_to_exist() {
+        let flagged = scan("__all__ = [\"alpha\", \"missing_one\"]\nalpha = 1\n");
+        let found = findings(&flagged, "python:S5807");
+        assert_eq!(found.len(), 1);
+        let defined = scan("__all__ = [\"alpha\"]\nalpha = 1\n");
+        assert!(findings(&defined, "python:S5807").is_empty());
+    }
+
+    #[test]
+    fn s5953_flags_undefined_name_loads() {
+        let flagged = scan("value = undefined_thing + 1\nprint(value)\n");
+        let found = findings(&flagged, "python:S5953");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 1);
+        let defined = scan("thing = 1\nvalue = thing + 1\nprint(value)\n");
+        assert!(findings(&defined, "python:S5953").is_empty());
+    }
+
+    #[test]
+    fn s4487_flags_written_but_unread_private_attributes() {
+        let flagged = scan(concat!(
+            "class Holder:\n",
+            "    def setup(self):\n",
+            "        self.__orphan = 1\n",
+            "\n",
+            "    def keep(self):\n",
+            "        self.__kept = 2\n",
+            "        return self.__kept\n",
+            "\n",
+            "holder = Holder()\n",
+            "holder.setup()\n",
+            "holder.keep()\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S4487").len(), 1);
+        let read = scan(concat!(
+            "class Holder:\n",
+            "    def setup(self):\n",
+            "        self.__orphan = 1\n",
+            "        return self.__orphan\n",
+            "\n",
+            "holder = Holder()\n",
+            "holder.setup()\n"
+        ));
+        assert!(findings(&read, "python:S4487").is_empty());
+    }
+
+    // ------------------------------------------------------------------
+    // Tier B — flow group.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn s1045_flags_unreachable_except_blocks() {
+        let flagged = scan(
+            "try:\n    step()\nexcept Exception:\n    handle_wide()\nexcept ValueError:\n    handle_narrow()\n",
+        );
+        assert_eq!(findings(&flagged, "python:S1045").len(), 1);
+        let ordered = scan(
+            "try:\n    step()\nexcept ValueError:\n    handle_narrow()\nexcept Exception:\n    handle_wide()\n",
+        );
+        assert!(findings(&ordered, "python:S1045").is_empty());
+    }
+
+    #[test]
+    fn s2190_flags_straight_line_infinite_recursion() {
+        let flagged = scan("def spin():\n    return spin()\n\n\nspin()\n");
+        assert_eq!(findings(&flagged, "python:S2190").len(), 1);
+        let guarded = scan("def spin(count):\n    if count <= 0:\n        return 1\n    return spin(count - 1)\n\n\nspin(3)\n");
+        assert!(findings(&guarded, "python:S2190").is_empty());
+    }
+
+    #[test]
+    fn s1751_flags_loops_with_trailing_break() {
+        let flagged = scan("for item in items_source:\n    prepare(item)\n    break\n");
+        assert_eq!(findings(&flagged, "python:S1751").len(), 1);
+        let full = scan("for item in items_source:\n    prepare(item)\n");
+        assert!(findings(&full, "python:S1751").is_empty());
+    }
+
+    #[test]
+    fn s5918_prefers_explicit_test_skips_over_guards() {
+        let flagged = scan("def test_upload(self):\n    if upload_ready:\n        return\n    verify_upload()\n");
+        assert_eq!(findings(&flagged, "python:S5918").len(), 1);
+        let direct = scan("def test_upload(self):\n    verify_upload()\n");
+        assert!(findings(&direct, "python:S5918").is_empty());
+    }
+
+    #[test]
+    fn s6908_flags_recursion_inside_tf_function() {
+        let flagged = scan("import tensorflow as tf\n\n\n@tf.function\ndef train(step):\n    return train(step - 1)\n");
+        assert_eq!(findings(&flagged, "python:S6908").len(), 1);
+        let flat = scan("import tensorflow as tf\n\n\n@tf.function\ndef train(step):\n    return step * 2\n");
+        assert!(findings(&flat, "python:S6908").is_empty());
+    }
+
+    // ------------------------------------------------------------------
+    // Tier B — value group.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn s1226_flags_parameters_overwritten_before_read() {
+        let flagged = scan("def render(mode):\n    mode = \"fast\"\n    return mode\n\n\nrender(\"slow\")\n");
+        assert_eq!(findings(&flagged, "python:S1226").len(), 1);
+        let respected = scan(
+            "def render(mode):\n    prefix = mode or \"fast\"\n    return prefix\n\n\nrender(\"slow\")\n",
+        );
+        assert!(findings(&respected, "python:S1226").is_empty());
+    }
+
+    #[test]
+    fn s1854_flags_dead_final_stores() {
+        let flagged = scan(concat!(
+            "def tally(items):\n",
+            "    total = 0\n",
+            "    for item in items:\n",
+            "        total += item\n",
+            "    report(total)\n",
+            "    total = 0\n"
+        ));
+        let found = findings(&flagged, "python:S1854");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 6);
+        let alive = scan(concat!(
+            "def tally(items):\n",
+            "    total = 0\n",
+            "    for item in items:\n",
+            "        total += item\n",
+            "    report(total)\n"
+        ));
+        assert!(findings(&alive, "python:S1854").is_empty());
+    }
+
+    #[test]
+    fn s2159_flags_comparisons_with_known_values() {
+        let flagged = scan(
+            "def decide(flag):\n    expected = True\n    if expected == True:\n        return 1\n    return 0\n\n\ndecide(True)\n",
+        );
+        assert_eq!(findings(&flagged, "python:S2159").len(), 1);
+        let unknown = scan(
+            "def decide(flag):\n    expected = compute_flag()\n    if expected == True:\n        return 1\n    return 0\n\n\ndecide(True)\n",
+        );
+        assert!(findings(&unknown, "python:S2159").is_empty());
+    }
+
+    #[test]
+    fn s2275_flags_percent_format_count_mismatches() {
+        let flagged = scan("label = \"point: %d %s\" % (x_axis,)\nprint(label)\n");
+        assert_eq!(findings(&flagged, "python:S2275").len(), 1);
+        let matched = scan("label = \"point: %d %s\" % (x_axis, y_axis)\nprint(label)\n");
+        assert!(findings(&matched, "python:S2275").is_empty());
+    }
+
+    #[test]
+    fn s3457_flags_printf_type_mismatches() {
+        let flagged = scan("label = \"age: %d\" % (\"old\",)\nprint(label)\n");
+        assert_eq!(findings(&flagged, "python:S3457").len(), 1);
+        let typed = scan("label = \"age: %d years\" % (42,)\nprint(label)\n");
+        assert!(findings(&typed, "python:S3457").is_empty());
+    }
+
+    #[test]
+    fn s3516_flags_identical_constant_returns() {
+        let flagged = scan("def pick(mode):\n    if mode:\n        return 7\n    return 7\n\n\npick(1)\n");
+        assert_eq!(findings(&flagged, "python:S3516").len(), 1);
+        let varied = scan("def pick(mode):\n    if mode:\n        return 7\n    return 8\n\n\npick(1)\n");
+        assert!(findings(&varied, "python:S3516").is_empty());
+    }
+
+    #[test]
+    fn s3801_flags_mixed_value_and_none_returns() {
+        let flagged = scan("def fetch(flag):\n    if flag:\n        return 5\n    return None\n\n\nfetch(1)\n");
+        assert_eq!(findings(&flagged, "python:S3801").len(), 1);
+        let consistent = scan("def fetch(flag):\n    if flag:\n        return 5\n    return 0\n\n\nfetch(1)\n");
+        assert!(findings(&consistent, "python:S3801").is_empty());
+    }
+
+    #[test]
+    fn s5864_flags_confusing_type_checks() {
+        let flagged = scan("matches = isinstance(value_item, [int, str])\nprint(matches)\n");
+        assert_eq!(findings(&flagged, "python:S5864").len(), 1);
+        let proper = scan("matches = isinstance(value_item, (int, str))\nprint(matches)\n");
+        assert!(findings(&proper, "python:S5864").is_empty());
+    }
+
+    // ------------------------------------------------------------------
+    // Tier B — effect group.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn s2325_flags_methods_never_using_self() {
+        let flagged = scan(concat!(
+            "class Math:\n",
+            "    def combine(self, left, right):\n",
+            "        return left + right\n",
+            "\n",
+            "math_tool = Math()\n",
+            "print(math_tool.combine(1, 2))\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S2325").len(), 1);
+        let stateful = scan(concat!(
+            "class Math:\n",
+            "    def combine(self, left, right):\n",
+            "        return self.scale(left) + right\n",
+            "\n",
+            "        return self.factor * value\n",
+            "\n",
+            "math_tool = Math()\n",
+            "print(math_tool.combine(1, 2))\n"
+        ));
+        assert!(findings(&stateful, "python:S2325").is_empty());
+    }
+
+    #[test]
+    fn s6911_flag_tf_functions_capturing_module_state() {
+        let flagged = scan("import tensorflow as tf\n\nrate = 0.1\n\n\n@tf.function\ndef step(value):\n    return value * rate\n");
+        assert_eq!(findings(&flagged, "python:S6911").len(), 1);
+        let parameterized = scan(
+            "import tensorflow as tf\n\n\n@tf.function\ndef step(value, rate):\n    return value * rate\n",
+        );
+        assert!(findings(&parameterized, "python:S6911").is_empty());
+    }
+
+    #[test]
+    fn s6918_flags_variables_created_inside_tf_functions() {
+        let flagged = scan("import tensorflow as tf\n\n\n@tf.function\ndef build():\n    return tf.Variable(1.0)\n");
+        assert_eq!(findings(&flagged, "python:S6918").len(), 1);
+        let outside = scan("import tensorflow as tf\n\nweight = tf.Variable(1.0)\n\n\n@tf.function\ndef build():\n    return weight\n");
+        assert!(findings(&outside, "python:S6918").is_empty());
+    }
+
+    #[test]
+    fn s6928_flags_python_side_effects_inside_tf_functions() {
+        let flagged = scan(
+            "import tensorflow as tf\n\n\n@tf.function\ndef run(batch):\n    print(\"tracing\")\n    return batch * 2\n",
+        );
+        assert_eq!(findings(&flagged, "python:S6928").len(), 1);
+        let pure = scan(
+            "import tensorflow as tf\n\n\n@tf.function\ndef run(batch):\n    return batch * 2\n",
+        );
+        assert!(findings(&pure, "python:S6928").is_empty());
+    }
+
+    #[test]
+    fn s6982_requires_eval_before_loaded_model_inference() {
+        let flagged = scan("model = load_model(weights_path)\nmodel.train()\nmodel(input_tensor)\n");
+        assert_eq!(findings(&flagged, "python:S6982").len(), 1);
+        let evaluated = scan("model = load_model(weights_path)\nmodel.eval()\nmodel.train()\nmodel(input_tensor)\n");
+        assert!(findings(&evaluated, "python:S6982").is_empty());
+    }
+
+    #[test]
+    fn s7502_flags_discarded_asyncio_tasks() {
+        let flagged = scan("import asyncio\n\n\nasync def worker():\n    pass\n\n\nasyncio.create_task(worker())\n");
+        assert_eq!(findings(&flagged, "python:S7502").len(), 1);
+        let retained = scan("import asyncio\n\n\nasync def worker():\n    pass\n\n\ntask_handle = asyncio.create_task(worker())\n");
+        assert!(findings(&retained, "python:S7502").is_empty());
+    }
+
+    #[test]
+    fn s7515_flags_sync_open_context_managers_in_async_functions() {
+        let flagged = scan("async def read_config():\n    with open(config_path) as handle:\n        return handle.read()\n");
+        assert_eq!(findings(&flagged, "python:S7515").len(), 1);
+        let sync_caller = scan("def read_config():\n    with open(config_path) as handle:\n        return handle.read()\n");
+        assert!(findings(&sync_caller, "python:S7515").is_empty());
+    }
+
+    #[test]
+    fn s6972_validates_nested_estimator_parameter_prefixes() {
+        let flagged = scan(
+            "from sklearn.pipeline import Pipeline\n\npipe = Pipeline(steps=[(\"scale\", scaler_value)])\npipe.set_params(bogus__alpha=0.5)\n",
+        );
+        assert_eq!(findings(&flagged, "python:S6972").len(), 1);
+        let known_step = scan(
+            "from sklearn.pipeline import Pipeline\n\npipe = Pipeline(steps=[(\"scale\", scaler_value)])\npipe.set_params(scaler__alpha=0.5)\n",
+        );
+        assert!(findings(&known_step, "python:S6972").is_empty());
+    }
+
+    #[test]
+    fn s7490_requires_checkpoints_inside_cancellation_scopes() {
+        let flagged = scan("async def guarded():\n    with move_on_after(5):\n        finish_loading()\n");
+        assert_eq!(findings(&flagged, "python:S7490").len(), 1);
+        let checkpointed = scan("async def guarded():\n    with move_on_after(5):\n        await sleep_short()\n");
+        assert!(findings(&checkpointed, "python:S7490").is_empty());
+    }
+
+    #[test]
+    fn s7497_requires_reraise_of_cancellation_exceptions() {
+        let flagged = scan(
+            "async def shielded():\n    try:\n        await work()\n    except CancelledError:\n        release_lock()\n",
+        );
+        assert_eq!(findings(&flagged, "python:S7497").len(), 1);
+        let reraised = scan(
+            "async def shielded():\n    try:\n        await work()\n    except CancelledError:\n        release_lock()\n        raise\n",
+        );
+        assert!(findings(&reraised, "python:S7497").is_empty());
+    }
+
+    // ------------------------------------------------------------------
+    // Tier B — option knobs.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn s1481_honors_the_ignore_pattern_option() {
+        let defaults = scan("def run():\n    dummy = 1\n    return 1\n\n\nrun()\n");
+        assert!(findings(&defaults, "python:S1481").is_empty());
+        let options = AnalyzerOptions {
+            unused_local_ignore_pattern: String::from("scratch_*"),
+            ..AnalyzerOptions::default()
+        };
+        let custom_clean = analyze(
+            PathBuf::from("t.py"),
+            "def run():\n    scratch_pad = 1\n    leftover = 2\n    return leftover\n\n\nrun()\n",
+            &options,
+        );
+        assert!(findings(&custom_clean, "python:S1481").is_empty());
+        let custom_flagged = analyze(
+            PathBuf::from("t.py"),
+            "def run():\n    scratch_pad = 1\n    leftover = 2\n    return leftover\n\n\nrun()\n",
+            &AnalyzerOptions::default(),
+        );
+        assert_eq!(findings(&custom_flagged, "python:S1481").len(), 1);
+    }
+
+    #[test]
+    fn s4487_single_underscore_issues_are_opt_in() {
+        let source = concat!(
+            "class Holder:\n",
+            "    def prep(self):\n",
+            "        self._ghost = 1\n",
+            "\n",
+            "holder = Holder()\n",
+            "holder.prep()\n"
+        );
+        assert!(
+            findings(&scan(source), "python:S4487").is_empty(),
+            "single-underscore attributes stay silent by default"
+        );
+        let options = AnalyzerOptions {
+            enable_single_underscore_attribute_issues: true,
+            ..AnalyzerOptions::default()
+        };
+        let enabled = analyze(PathBuf::from("t.py"), source, &options);
+        assert_eq!(findings(&enabled, "python:S4487").len(), 1);
     }
 }
