@@ -105,6 +105,7 @@ pub fn analyze(
         "Remove this usage of 'print'.",
     ));
     issues.extend(check_one_statement_per_line(&parsed, &index, source));
+    issues.extend(check_tier_a_battery(&parsed, &index, source));
     sort_issues(&mut issues);
 
     hoonarqube_ir::FileReport {
@@ -1619,6 +1620,2914 @@ fn is_bytes_literal(raw: &str) -> bool {
     prefix.contains('b')
 }
 
+// ---------------------------------------------------------------------------
+// Tier-A battery entries #48–#110 (python:S2772 … python:S7512).
+//
+// One private check per catalog entry, wired through `check_tier_a_battery`.
+// Detection follows the batch spec: single-file AST/token/text heuristics
+// with deliberately conservative predicates.
+// ---------------------------------------------------------------------------
+
+/// Builds an issue anchored at `range`.
+fn issue_at(
+    rule_key: &str,
+    message: &str,
+    range: TextRange,
+    index: &LineIndex,
+    source: &str,
+) -> Issue {
+    Issue {
+        rule_key: rule_key.to_string(),
+        message: message.to_string(),
+        range: to_range(range, index, source),
+    }
+}
+
+/// Whitespace-normalized source text of `expr` (dedent-insensitive equality).
+fn expr_normalized_text(expr: &Expr, source: &str) -> String {
+    source[expr.range()]
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn exprs_textually_equal(left: &Expr, right: &Expr, source: &str) -> bool {
+    expr_normalized_text(left, source) == expr_normalized_text(right, source)
+}
+
+fn ranges_textually_equal(left: TextRange, right: TextRange, source: &str) -> bool {
+    let normalize = |range: TextRange| -> String {
+        source[range]
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    normalize(left) == normalize(right)
+}
+
+/// Span covering a whole non-empty suite.
+fn suite_span(suite: &[Stmt]) -> TextRange {
+    TextRange::new(
+        suite.first().expect("non-empty").range().start(),
+        suite.last().expect("non-empty").range().end(),
+    )
+}
+
+/// Callee name of a call shaped `name(...)` or `value.name(...)`.
+fn called_name(func: &Expr) -> Option<&str> {
+    match func {
+        Expr::Name(name) => Some(name.id.as_str()),
+        Expr::Attribute(attribute) => Some(attribute.attr.as_str()),
+        _ => None,
+    }
+}
+
+fn is_call_to(expr: &Expr, name: &str) -> bool {
+    matches!(expr, Expr::Call(call) if called_name(&call.func) == Some(name))
+}
+
+/// Positional parameters (`posonlyargs` followed by regular `args`).
+fn positional_parameters(
+    parameters: &ruff_python_ast::Parameters,
+) -> Vec<&ruff_python_ast::Parameter> {
+    parameters
+        .posonlyargs
+        .iter()
+        .chain(&parameters.args)
+        .map(|with_default| &with_default.parameter)
+        .collect()
+}
+
+fn is_none_literal(expr: &Expr) -> bool {
+    matches!(expr, Expr::NoneLiteral(_))
+}
+
+fn is_zero_literal(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::NumberLiteral(number)
+            if matches!(&number.value, ruff_python_ast::Number::Int(value) if value.as_i64() == Some(0))
+    )
+}
+
+fn collect_target_names(target: &Expr, names: &mut Vec<String>) {
+    match target {
+        Expr::Name(name) => names.push(name.id.to_string()),
+        Expr::Tuple(tuple) => {
+            for element in &tuple.elts {
+                collect_target_names(element, names);
+            }
+        }
+        Expr::List(list) => {
+            for element in &list.elts {
+                collect_target_names(element, names);
+            }
+        }
+        Expr::Starred(starred) => collect_target_names(&starred.value, names),
+        _ => {}
+    }
+}
+
+/// Whether any `break` lexically bound to a loop over `suite` exists. Breaks
+/// inside nested loop bodies belong to the inner loop and do not count.
+fn suite_can_break(suite: &[Stmt]) -> bool {
+    suite.iter().any(|stmt| match stmt {
+        Stmt::Break(_) => true,
+        Stmt::For(inner) => suite_can_break(&inner.orelse),
+        Stmt::While(inner) => suite_can_break(&inner.orelse),
+        Stmt::FunctionDef(_) | Stmt::ClassDef(_) => false,
+        _ => child_bodies(stmt).iter().any(|body| suite_can_break(body)),
+    })
+}
+fn check_nested_conditional_expressions(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        for expr in stmt_exprs(stmt) {
+            visit_ifexp_branches(expr, false, &mut issues, index, source);
+        }
+    });
+    issues
+}
+
+fn visit_ifexp_branches(
+    expr: &Expr,
+    in_branch: bool,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    match expr {
+        Expr::If(nested) => {
+            if in_branch {
+                issues.push(issue_at(
+                    "python:S3358",
+                    "Refactor this conditional expression nested inside another into a statement.",
+                    nested.range(),
+                    index,
+                    source,
+                ));
+            }
+            visit_ifexp_branches(&nested.test, false, issues, index, source);
+            visit_ifexp_branches(&nested.body, true, issues, index, source);
+            visit_ifexp_branches(&nested.orelse, true, issues, index, source);
+        }
+        _ => {
+            for child in child_exprs(expr) {
+                visit_ifexp_branches(child, in_branch, issues, index, source);
+            }
+        }
+    }
+}
+
+/// Whether `expr`'s subtree loads any of `names`.
+fn loads_any_name(expr: &Expr, names: &[String]) -> bool {
+    let mut found = false;
+    for_each_expr(expr, &mut |node| {
+        if let Expr::Name(name) = node
+            && matches!(name.ctx, ruff_python_ast::ExprContext::Load)
+        {
+            found |= names.iter().any(|candidate| candidate == name.id.as_str());
+        }
+    });
+    found
+}
+
+/// Whether `expr` contains a floating-point literal anywhere in its subtree.
+fn contains_float_literal(expr: &Expr) -> bool {
+    let mut found = false;
+    for_each_expr(expr, &mut |node| {
+        found |= matches!(
+            node,
+            Expr::NumberLiteral(number) if matches!(number.value, ruff_python_ast::Number::Float(_))
+        );
+    });
+    found
+}
+
+/// Canonical grouping text for constant-foldable literal keys/elements.
+fn constant_literal_text(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::StringLiteral(literal) => Some(format!("s:{}", string_value_text(&literal.value))),
+        Expr::BytesLiteral(literal) => {
+            let bytes: Vec<u8> = literal
+                .value
+                .iter()
+                .flat_map(|part| part.value.iter())
+                .copied()
+                .collect();
+            Some(format!("b:{bytes:?}"))
+        }
+        Expr::NumberLiteral(literal) => Some(match &literal.value {
+            ruff_python_ast::Number::Int(value) => match value.as_i64() {
+                Some(small) => format!("i:{small}"),
+                None => "i:large".to_string(),
+            },
+            ruff_python_ast::Number::Float(value) => format!("f:{value:?}"),
+            ruff_python_ast::Number::Complex { real, imag } => format!("c:{real:?}{imag:?}"),
+        }),
+        Expr::BooleanLiteral(literal) => Some(format!("z:{}", literal.value)),
+        Expr::NoneLiteral(_) => Some("n:".to_string()),
+        Expr::Tuple(tuple) => {
+            let parts: Option<Vec<String>> = tuple.elts.iter().map(constant_literal_text).collect();
+            parts.map(|parts| format!("t:({})", parts.join(",")))
+        }
+        Expr::UnaryOp(unary) if unary.op == ruff_python_ast::UnaryOp::USub => {
+            constant_literal_text(&unary.operand).map(|text| format!("-{text}"))
+        }
+        _ => None,
+    }
+}
+
+/// Like [`for_each_stmt`] but does not descend into nested function or class
+/// scopes.
+fn for_each_stmt_in_scope(stmts: &[Stmt], visit: &mut impl FnMut(&Stmt)) {
+    for stmt in stmts {
+        visit(stmt);
+        if matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
+            continue;
+        }
+        for body in child_bodies(stmt) {
+            for_each_stmt_in_scope(body, visit);
+        }
+    }
+}
+
+fn has_decorator(function: &ruff_python_ast::StmtFunctionDef, decorator_name: &str) -> bool {
+    function
+        .decorator_list
+        .iter()
+        .any(|decorator| match &decorator.expression {
+            Expr::Name(name) => name.id.as_str() == decorator_name,
+            Expr::Attribute(attribute) => attribute.attr.as_str() == decorator_name,
+            _ => false,
+        })
+}
+
+// --- python:S2772 — needless `pass` ----------------------------------------
+
+#[derive(Clone, Copy)]
+enum SuiteOwner {
+    Module,
+    Class,
+    Other,
+}
+
+fn check_needless_pass(parsed: &Parsed<ModModule>, index: &LineIndex, source: &str) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    visit_suites_for_pass(
+        parsed.syntax().body.as_slice(),
+        SuiteOwner::Module,
+        &mut issues,
+        index,
+        source,
+    );
+    issues
+}
+
+fn visit_suites_for_pass(
+    suite: &[Stmt],
+    owner: SuiteOwner,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    for (position, stmt) in suite.iter().enumerate() {
+        if matches!(stmt, Stmt::Pass(_))
+            && suite.len() > 1
+            && !(matches!(owner, SuiteOwner::Class) && position == 0)
+        {
+            issues.push(issue_at(
+                "python:S2772",
+                "Remove this unnecessary 'pass'.",
+                stmt.range(),
+                index,
+                source,
+            ));
+        }
+        let nested = if matches!(stmt, Stmt::ClassDef(_)) {
+            SuiteOwner::Class
+        } else {
+            SuiteOwner::Other
+        };
+        for body in child_bodies(stmt) {
+            visit_suites_for_pass(body, nested, issues, index, source);
+        }
+    }
+}
+
+// --- python:S2823 — `__all__` must contain only strings ---------------------
+
+fn is_dunder_all_target(expr: &Expr) -> bool {
+    matches!(expr, Expr::Name(name) if name.id.as_str() == "__all__")
+}
+
+fn check_dunder_all_strings(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for stmt in parsed.syntax().body.as_slice() {
+        let assigned: Option<&Expr> = match stmt {
+            Stmt::Assign(assign) => assign
+                .targets
+                .iter()
+                .any(is_dunder_all_target)
+                .then(|| assign.value.as_ref()),
+            Stmt::AugAssign(assign) => {
+                is_dunder_all_target(&assign.target).then(|| assign.value.as_ref())
+            }
+            _ => None,
+        };
+        let elements = match assigned {
+            Some(Expr::List(list)) => &list.elts,
+            Some(Expr::Set(set)) => &set.elts,
+            Some(Expr::Tuple(tuple)) => &tuple.elts,
+            _ => continue,
+        };
+        for element in elements {
+            if !matches!(element, Expr::StringLiteral(_)) {
+                issues.push(issue_at(
+                    "python:S2823",
+                    "Only string literals are allowed in '__all__'.",
+                    element.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    }
+    issues
+}
+
+// --- python:S2836 — loop `else` without `break` -----------------------------
+
+fn check_loop_else_without_break(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let (body, orelse) = match stmt {
+            Stmt::For(loop_stmt) => (&loop_stmt.body, &loop_stmt.orelse),
+            Stmt::While(loop_stmt) => (&loop_stmt.body, &loop_stmt.orelse),
+            _ => return,
+        };
+        if orelse.is_empty() || suite_can_break(body) {
+            return;
+        }
+        issues.push(issue_at(
+            "python:S2836",
+            "This 'else' only runs when the loop finishes without 'break'; remove it or add a 'break'.",
+            suite_span(orelse),
+            index,
+            source,
+        ));
+    });
+    issues
+}
+
+// --- python:S3626 — redundant jump statements --------------------------------
+
+fn check_redundant_jump_statements(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| match stmt {
+        Stmt::FunctionDef(function) => {
+            if let Some(Stmt::Return(last)) = function.body.last()
+                && last.value.as_deref().is_none_or(is_none_literal)
+            {
+                issues.push(issue_at(
+                    "python:S3626",
+                    "Remove this redundant jump statement.",
+                    last.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+        Stmt::For(for_stmt) => {
+            flag_trailing_continue(&for_stmt.body, &mut issues, index, source);
+        }
+        Stmt::While(while_stmt) => {
+            flag_trailing_continue(&while_stmt.body, &mut issues, index, source);
+        }
+        Stmt::Match(match_stmt) => {
+            for case in &match_stmt.cases {
+                if let Some(Stmt::Break(last)) = case.body.last() {
+                    issues.push(issue_at(
+                        "python:S3626",
+                        "Remove this redundant jump statement.",
+                        last.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        }
+        _ => {}
+    });
+    issues
+}
+
+fn flag_trailing_continue(body: &[Stmt], issues: &mut Vec<Issue>, index: &LineIndex, source: &str) {
+    if let Some(Stmt::Continue(last)) = body.last() {
+        issues.push(issue_at(
+            "python:S3626",
+            "Remove this redundant jump statement.",
+            last.range(),
+            index,
+            source,
+        ));
+    }
+}
+
+// --- python:S3923 — identical `if`/`else` branches ---------------------------
+
+fn check_identical_if_else_branches(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::If(if_stmt) = stmt else { return };
+        let [clause] = &if_stmt.elif_else_clauses[..] else {
+            return;
+        };
+        if clause.test.is_some()
+            || !ranges_textually_equal(suite_span(&if_stmt.body), suite_span(&clause.body), source)
+        {
+            return;
+        }
+        issues.push(issue_at(
+            "python:S3923",
+            "Either merge this branch with the identical one or change one of the implementations.",
+            if_stmt.range(),
+            index,
+            source,
+        ));
+    });
+    issues
+}
+
+// --- python:S3981 — meaningless collection-size comparisons ------------------
+
+fn check_meaningless_size_comparisons(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        let Expr::Compare(compare) = expr else { return };
+        let meaningless = compare
+            .ops
+            .iter()
+            .zip(&compare.comparators)
+            .any(|(op, comparator)| {
+                len_zero_verdict(&compare.left, comparator, *op)
+                    || len_zero_verdict_swapped(&compare.left, comparator, *op)
+            });
+        if meaningless {
+            issues.push(issue_at(
+                "python:S3981",
+                "Review this meaningless collection-size comparison.",
+                compare.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn len_zero_verdict(left: &Expr, comparator: &Expr, op: ruff_python_ast::CmpOp) -> bool {
+    is_len_call(left)
+        && is_zero_literal(comparator)
+        && matches!(
+            op,
+            ruff_python_ast::CmpOp::GtE | ruff_python_ast::CmpOp::Lt | ruff_python_ast::CmpOp::LtE
+        )
+}
+
+fn len_zero_verdict_swapped(left: &Expr, comparator: &Expr, op: ruff_python_ast::CmpOp) -> bool {
+    is_len_call(comparator)
+        && is_zero_literal(left)
+        && matches!(
+            op,
+            ruff_python_ast::CmpOp::LtE | ruff_python_ast::CmpOp::Gt | ruff_python_ast::CmpOp::GtE
+        )
+}
+
+fn is_len_call(expr: &Expr) -> bool {
+    matches!(expr, Expr::Call(call) if called_name(&call.func) == Some("len") && call.arguments.args.len() == 1)
+}
+
+// --- python:S1763 — unreachable code -----------------------------------------
+
+fn check_unreachable_code(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    let scan = |suite: &[Stmt], issues: &mut Vec<Issue>| {
+        for (position, stmt) in suite.iter().enumerate() {
+            if is_jump_terminator(stmt) {
+                for follower in &suite[position + 1..] {
+                    issues.push(issue_at(
+                        "python:S1763",
+                        "This code is unreachable.",
+                        follower.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        }
+    };
+    scan(parsed.syntax().body.as_slice(), &mut issues);
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        for body in child_bodies(stmt) {
+            scan(body, &mut issues);
+        }
+    });
+    issues
+}
+
+fn is_jump_terminator(stmt: &Stmt) -> bool {
+    matches!(
+        stmt,
+        Stmt::Return(_) | Stmt::Raise(_) | Stmt::Break(_) | Stmt::Continue(_)
+    )
+}
+
+// --- python:S1764 — identical operands ---------------------------------------
+
+fn check_identical_operands(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| match expr {
+        Expr::BinOp(binary) => {
+            if exprs_textually_equal(&binary.left, &binary.right, source)
+                && !excluded_identical_pair(&binary.left, &binary.right)
+            {
+                issues.push(issue_at(
+                    "python:S1764",
+                    "Review this operation; its operands are identical.",
+                    binary.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+        Expr::Compare(compare) => {
+            for comparator in &compare.comparators {
+                if exprs_textually_equal(&compare.left, comparator, source)
+                    && !excluded_identical_pair(&compare.left, comparator)
+                {
+                    issues.push(issue_at(
+                        "python:S1764",
+                        "Review this operation; its operands are identical.",
+                        compare.range(),
+                        index,
+                        source,
+                    ));
+                    break;
+                }
+            }
+        }
+        _ => {}
+    });
+    issues
+}
+
+/// RSPEC exempts trivially true identities over the `0`/`1` literals.
+fn excluded_identical_pair(left: &Expr, right: &Expr) -> bool {
+    is_small_int_literal(left) && is_small_int_literal(right)
+}
+
+fn is_small_int_literal(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::NumberLiteral(number)
+            if matches!(&number.value, ruff_python_ast::Number::Int(value) if matches!(value.as_u8(), Some(0 | 1)))
+    )
+}
+
+// --- python:S1862 — identical conditions in an if/elif chain -----------------
+
+fn check_duplicate_conditions(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::If(if_stmt) = stmt else { return };
+        let mut previous: Vec<&Expr> = vec![&if_stmt.test];
+        for clause in &if_stmt.elif_else_clauses {
+            let Some(test) = clause.test.as_ref() else {
+                break;
+            };
+            if previous
+                .iter()
+                .any(|earlier| exprs_textually_equal(earlier, test, source))
+            {
+                issues.push(issue_at(
+                    "python:S1862",
+                    "This condition duplicates an earlier one; this branch can never run.",
+                    test.range(),
+                    index,
+                    source,
+                ));
+            }
+            previous.push(test);
+        }
+    });
+    issues
+}
+
+// --- python:S1871 — duplicate conditional branches ---------------------------
+
+fn check_duplicate_branches(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| match stmt {
+        Stmt::If(if_stmt) => {
+            let mut branches: Vec<&[Stmt]> = vec![&if_stmt.body];
+            branches.extend(
+                if_stmt
+                    .elif_else_clauses
+                    .iter()
+                    .map(|clause| clause.body.as_slice()),
+            );
+            flag_duplicate_branches(&branches, "python:S1871", &mut issues, index, source);
+        }
+        Stmt::Try(try_stmt) => {
+            let handlers: Vec<&[Stmt]> = try_stmt
+                .handlers
+                .iter()
+                .map(|handler| match handler {
+                    ExceptHandler::ExceptHandler(inner) => inner.body.as_slice(),
+                })
+                .collect();
+            flag_duplicate_branches(&handlers, "python:S1871", &mut issues, index, source);
+        }
+        _ => {}
+    });
+    issues
+}
+
+fn flag_duplicate_branches(
+    branches: &[&[Stmt]],
+    rule_key: &str,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    for (later_index, later) in branches.iter().enumerate() {
+        for earlier in &branches[..later_index] {
+            if ranges_textually_equal(suite_span(later), suite_span(earlier), source) {
+                issues.push(issue_at(
+                    rule_key,
+                    "This branch duplicates an earlier one; merge them or change one implementation.",
+                    suite_span(later),
+                    index,
+                    source,
+                ));
+                break;
+            }
+        }
+    }
+}
+
+// --- python:S1940 — inverted boolean checks ----------------------------------
+
+fn check_inverted_boolean_checks(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        if let Expr::UnaryOp(unary) = expr
+            && unary.op == ruff_python_ast::UnaryOp::Not
+            && matches!(unary.operand.as_ref(), Expr::Compare(_))
+        {
+            issues.push(issue_at(
+                "python:S1940",
+                "Replace this negated comparison with the inverted operator.",
+                unary.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S1656 — self-assignment ------------------------------------------
+
+fn check_self_assignment(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| match stmt {
+        Stmt::Assign(assign) => {
+            if assign.targets.iter().any(|target| {
+                is_assignable_shape(target) && exprs_textually_equal(target, &assign.value, source)
+            }) {
+                issues.push(issue_at(
+                    "python:S1656",
+                    "Remove this self-assignment.",
+                    assign.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+        Stmt::AnnAssign(annotated) => {
+            if let Some(value) = annotated.value.as_deref()
+                && is_assignable_shape(&annotated.target)
+                && exprs_textually_equal(&annotated.target, value, source)
+            {
+                issues.push(issue_at(
+                    "python:S1656",
+                    "Remove this self-assignment.",
+                    annotated.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+        _ => {}
+    });
+    issues
+}
+
+fn is_assignable_shape(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::Name(_) | Expr::Attribute(_) | Expr::Subscript(_)
+    )
+}
+
+// --- python:S2208 — wildcard imports -----------------------------------------
+
+fn check_wildcard_imports(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::ImportFrom(import) = stmt
+            && import.names.iter().any(|alias| alias.name.as_str() == "*")
+        {
+            issues.push(issue_at(
+                "python:S2208",
+                "Name the symbols to import explicitly instead of importing '*'.",
+                import.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S2761 — doubled prefix operators ---------------------------------
+
+fn check_doubled_prefix_operators(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        if let Expr::UnaryOp(unary) = expr
+            && let Expr::UnaryOp(inner) = unary.operand.as_ref()
+            && unary.op == inner.op
+            && matches!(
+                unary.op,
+                ruff_python_ast::UnaryOp::Not | ruff_python_ast::UnaryOp::Invert
+            )
+        {
+            issues.push(issue_at(
+                "python:S2761",
+                "Remove this doubled prefix operator.",
+                unary.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S5685 — confusing walrus operator placement ----------------------
+
+fn check_confusing_walrus_placement(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| match expr {
+        Expr::ListComp(comp) => flag_comprehension_walrus(&comp.elt, &mut issues, index, source),
+        Expr::SetComp(comp) => flag_comprehension_walrus(&comp.elt, &mut issues, index, source),
+        Expr::Generator(comp) => flag_comprehension_walrus(&comp.elt, &mut issues, index, source),
+        Expr::DictComp(comp) => {
+            if let Some(key) = &comp.key {
+                flag_comprehension_walrus(key, &mut issues, index, source);
+            }
+            flag_comprehension_walrus(&comp.value, &mut issues, index, source);
+        }
+        Expr::Compare(compare) => {
+            let chained = compare.ops.len() > 1;
+            if chained {
+                if matches!(compare.left.as_ref(), Expr::Named(_)) {
+                    issues.push(issue_at(
+                        "python:S5685",
+                        "Move this walrus operator to a clearer location.",
+                        compare.left.range(),
+                        index,
+                        source,
+                    ));
+                }
+                for comparator in &compare.comparators {
+                    if matches!(comparator, Expr::Named(_)) {
+                        issues.push(issue_at(
+                            "python:S5685",
+                            "Move this walrus operator to a clearer location.",
+                            comparator.range(),
+                            index,
+                            source,
+                        ));
+                    }
+                }
+            }
+        }
+        _ => {}
+    });
+    issues
+}
+
+fn flag_comprehension_walrus(
+    element: &Expr,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    if matches!(element, Expr::Named(_)) {
+        issues.push(issue_at(
+            "python:S5685",
+            "Move this walrus operator to a clearer location.",
+            element.range(),
+            index,
+            source,
+        ));
+    }
+}
+
+// --- python:S5727 — constant comparison to None -------------------------------
+
+fn check_constant_none_comparisons(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        let Expr::Compare(compare) = expr else { return };
+        let mut sides: Vec<&Expr> = vec![&compare.left];
+        sides.extend(&compare.comparators);
+        let constant_involved = sides.iter().any(|side| {
+            is_none_literal(side)
+                && sides.iter().any(|other| {
+                    !std::ptr::eq(*side, *other) && constant_literal_text(other).is_some()
+                })
+        });
+        if constant_involved {
+            issues.push(issue_at(
+                "python:S5727",
+                "Review this comparison; it involves only constants and 'None'.",
+                compare.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S5796 — identity check on freshly created objects ----------------
+
+fn check_fresh_object_identity_checks(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        let Expr::Compare(compare) = expr else { return };
+        let identity = compare.ops.iter().any(|op| {
+            matches!(
+                op,
+                ruff_python_ast::CmpOp::Is | ruff_python_ast::CmpOp::IsNot
+            )
+        });
+        if !identity {
+            return;
+        }
+        let mut sides: Vec<&Expr> = vec![&compare.left];
+        sides.extend(&compare.comparators);
+        if sides.iter().any(|side| is_freshly_created(side)) {
+            issues.push(issue_at(
+                "python:S5796",
+                "Do not test freshly created objects for identity; compare values with '=='.",
+                compare.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn is_freshly_created(expr: &Expr) -> bool {
+    match expr {
+        Expr::List(_)
+        | Expr::Set(_)
+        | Expr::Tuple(_)
+        | Expr::Dict(_)
+        | Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Generator(_) => true,
+        Expr::Call(call) => matches!(
+            called_name(&call.func),
+            Some("list" | "dict" | "set" | "tuple" | "frozenset")
+        ),
+        _ => false,
+    }
+}
+
+// --- python:S5905 — assert on a tuple literal ---------------------------------
+
+fn check_tuple_assertions(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::Assert(assert) = stmt
+            && let Expr::Tuple(tuple) = assert.test.as_ref()
+            && !tuple.elts.is_empty()
+        {
+            issues.push(issue_at(
+                "python:S5905",
+                "This assertion always passes because it tests a non-empty tuple.",
+                assert.test.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6660 — `type()` equality instead of isinstance -------------------
+
+fn check_type_equality_comparisons(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        let Expr::Compare(compare) = expr else { return };
+        if !compare.ops.iter().any(|op| {
+            matches!(
+                op,
+                ruff_python_ast::CmpOp::Eq
+                    | ruff_python_ast::CmpOp::NotEq
+                    | ruff_python_ast::CmpOp::Is
+                    | ruff_python_ast::CmpOp::IsNot
+            )
+        }) {
+            return;
+        }
+        let mut sides: Vec<&Expr> = vec![&compare.left];
+        sides.extend(&compare.comparators);
+        let flagged = sides.iter().any(|side| {
+            is_type_call(side)
+                && sides.iter().any(|other| {
+                    !std::ptr::eq(*side, *other)
+                        && matches!(other, Expr::Name(_) | Expr::Attribute(_))
+                })
+        });
+        if flagged {
+            issues.push(issue_at(
+                "python:S6660",
+                "Use 'isinstance' instead of comparing the result of 'type()' directly.",
+                compare.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn is_type_call(expr: &Expr) -> bool {
+    matches!(expr, Expr::Call(call)
+        if called_name(&call.func) == Some("type")
+            && call.arguments.args.len() == 1
+            && call.arguments.keywords.is_empty())
+}
+
+// --- python:S6661 — lambda assigned to a variable -----------------------------
+
+fn check_lambda_assignments(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| match stmt {
+        Stmt::Assign(assign) => {
+            if let Expr::Lambda(lambda) = assign.value.as_ref() {
+                issues.push(issue_at(
+                    "python:S6661",
+                    "Replace this assigned lambda with a 'def' statement.",
+                    lambda.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+        Stmt::AnnAssign(annotated) => {
+            if let Some(Expr::Lambda(lambda)) = annotated.value.as_deref() {
+                issues.push(issue_at(
+                    "python:S6661",
+                    "Replace this assigned lambda with a 'def' statement.",
+                    lambda.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+        _ => {}
+    });
+    issues
+}
+
+// --- python:S6659 — startswith/endswith over slicing --------------------------
+
+fn check_boundary_slice_comparisons(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        let Expr::Compare(compare) = expr else { return };
+        if !compare.ops.iter().any(|op| {
+            matches!(
+                op,
+                ruff_python_ast::CmpOp::Eq
+                    | ruff_python_ast::CmpOp::NotEq
+                    | ruff_python_ast::CmpOp::Is
+                    | ruff_python_ast::CmpOp::IsNot
+            )
+        }) {
+            return;
+        }
+        let mut sides: Vec<&Expr> = vec![&compare.left];
+        sides.extend(&compare.comparators);
+        let flagged = sides.iter().any(|side| {
+            is_boundary_slice(side)
+                && sides.iter().any(|other| {
+                    !std::ptr::eq(*side, *other) && matches!(other, Expr::StringLiteral(_))
+                })
+        });
+        if flagged {
+            issues.push(issue_at(
+                "python:S6659",
+                "Use 'startswith' or 'endswith' for this prefix or suffix comparison.",
+                compare.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+fn is_boundary_slice(expr: &Expr) -> bool {
+    let Expr::Subscript(subscript) = expr else {
+        return false;
+    };
+    let Expr::Slice(slice) = subscript.slice.as_ref() else {
+        return false;
+    };
+    if slice.step.is_some() {
+        return false;
+    }
+    match (&slice.lower, &slice.upper) {
+        (None, Some(_)) => true,
+        (Some(bound), None) => {
+            matches!(bound.as_ref(), Expr::UnaryOp(unary)
+                if unary.op == ruff_python_ast::UnaryOp::USub
+                    && matches!(unary.operand.as_ref(), Expr::NumberLiteral(_)))
+        }
+        _ => false,
+    }
+}
+
+// --- python:S1244 — float equality testing ------------------------------------
+
+fn check_float_equality_comparisons(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        let Expr::Compare(compare) = expr else { return };
+        let equality = compare.ops.iter().any(|op| {
+            matches!(
+                op,
+                ruff_python_ast::CmpOp::Eq | ruff_python_ast::CmpOp::NotEq
+            )
+        });
+        if !equality {
+            return;
+        }
+        let float_involved = contains_float_literal(&compare.left)
+            || compare.comparators.iter().any(contains_float_literal);
+        if float_involved {
+            issues.push(issue_at(
+                "python:S1244",
+                "Compare floating-point values with a tolerance instead of testing equality exactly.",
+                compare.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S905 — statements without effect ----------------------------------
+
+fn check_no_effect_statements(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    visit_suites_for_no_effect(parsed.syntax().body.as_slice(), &mut issues, index, source);
+    issues
+}
+
+fn visit_suites_for_no_effect(
+    suite: &[Stmt],
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    for (position, stmt) in suite.iter().enumerate() {
+        if let Stmt::Expr(value) = stmt
+            && !(position == 0 && matches!(value.value.as_ref(), Expr::StringLiteral(_)))
+            && statement_has_no_effect(&value.value)
+        {
+            issues.push(issue_at(
+                "python:S905",
+                "Remove this statement; it has no effect.",
+                stmt.range(),
+                index,
+                source,
+            ));
+        }
+        for body in child_bodies(stmt) {
+            visit_suites_for_no_effect(body, issues, index, source);
+        }
+    }
+}
+
+fn statement_has_no_effect(expr: &Expr) -> bool {
+    match expr {
+        Expr::NoneLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::Name(_) => true,
+        Expr::Tuple(tuple) => tuple.elts.iter().all(statement_has_no_effect),
+        Expr::List(list) => list.elts.iter().all(statement_has_no_effect),
+        Expr::Set(set) => set.elts.iter().all(statement_has_no_effect),
+        Expr::Dict(dict) => dict.items.iter().all(|item| {
+            item.key.as_ref().is_none_or(statement_has_no_effect)
+                && statement_has_no_effect(&item.value)
+        }),
+        Expr::UnaryOp(unary) => statement_has_no_effect(&unary.operand),
+        Expr::BinOp(binary) => {
+            statement_has_no_effect(&binary.left) && statement_has_no_effect(&binary.right)
+        }
+        Expr::BoolOp(boolean) => boolean.values.iter().all(statement_has_no_effect),
+        Expr::Compare(compare) => {
+            statement_has_no_effect(&compare.left)
+                && compare.comparators.iter().all(statement_has_no_effect)
+        }
+        _ => false,
+    }
+}
+
+// --- python:S2733 — `__exit__` signature --------------------------------------
+
+fn check_exit_signatures(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::FunctionDef(function) = stmt
+            && function.name.as_str() == "__exit__"
+            && positional_parameters(&function.parameters).len() < 4
+        {
+            issues.push(issue_at(
+                "python:S2733",
+                "'__exit__' requires the exc_type, exc_value and traceback parameters.",
+                function.name.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S2734 — `__init__` returning a value ------------------------------
+
+fn check_init_return_values(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::FunctionDef(function) = stmt
+            && function.name.as_str() == "__init__"
+        {
+            for_each_stmt_in_scope(&function.body, &mut |inner| {
+                if let Stmt::Return(returned) = inner
+                    && let Some(value) = returned.value.as_deref()
+                    && !is_none_literal(value)
+                {
+                    issues.push(issue_at(
+                        "python:S2734",
+                        "Remove this 'return'; '__init__' cannot return a value.",
+                        returned.range(),
+                        index,
+                        source,
+                    ));
+                }
+            });
+        }
+    });
+    issues
+}
+
+// --- python:S2737 — except clause that only re-raises -------------------------
+
+fn check_only_reraise_handlers(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::Try(try_stmt) = stmt else { return };
+        for handler in &try_stmt.handlers {
+            let ExceptHandler::ExceptHandler(inner) = handler;
+            let [only] = &inner.body[..] else { continue };
+            let Stmt::Raise(raised) = only else { continue };
+            let caught = exception_type_names(inner.type_.as_deref());
+            let pure_reraise = raised.exc.is_none() && raised.cause.is_none()
+                || raised.exc.as_deref().is_some_and(
+                    |exc| matches!(exc, Expr::Name(name) if caught.contains(&name.id.to_string())),
+                );
+            if pure_reraise {
+                issues.push(issue_at(
+                    "python:S2737",
+                    "Remove this 'except' clause or handle the exception; it only re-raises.",
+                    handler.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+/// Names caught by an except type expression (`Name`, attribute tail, or any
+/// element of a tuple).
+fn exception_type_names(type_expr: Option<&Expr>) -> Vec<String> {
+    let mut names = Vec::new();
+    if let Some(expr) = type_expr {
+        collect_exception_names(expr, &mut names);
+    }
+    names
+}
+
+fn collect_exception_names(expr: &Expr, names: &mut Vec<String>) {
+    match expr {
+        Expr::Name(name) => names.push(name.id.to_string()),
+        Expr::Attribute(attribute) => names.push(attribute.attr.to_string()),
+        Expr::Tuple(tuple) => {
+            for element in &tuple.elts {
+                collect_exception_names(element, names);
+            }
+        }
+        _ => {}
+    }
+}
+
+// --- python:S5712 — special methods raising NotImplementedError ---------------
+
+const PROTOCOL_DUNDERS: [&str; 34] = [
+    "__add__",
+    "__sub__",
+    "__mul__",
+    "__truediv__",
+    "__floordiv__",
+    "__mod__",
+    "__pow__",
+    "__lshift__",
+    "__rshift__",
+    "__and__",
+    "__or__",
+    "__xor__",
+    "__radd__",
+    "__rsub__",
+    "__rmul__",
+    "__rtruediv__",
+    "__rfloordiv__",
+    "__rmod__",
+    "__rpow__",
+    "__rlshift__",
+    "__rrshift__",
+    "__rand__",
+    "__ror__",
+    "__rxor__",
+    "__iadd__",
+    "__isub__",
+    "__imul__",
+    "__eq__",
+    "__ne__",
+    "__lt__",
+    "__le__",
+    "__gt__",
+    "__ge__",
+    "__hash__",
+];
+
+fn check_notimplemented_raises(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::FunctionDef(function) = stmt
+            && PROTOCOL_DUNDERS.contains(&function.name.as_str())
+        {
+            for_each_stmt_in_scope(&function.body, &mut |inner| {
+                if let Stmt::Raise(raised) = inner
+                    && raised
+                        .exc
+                        .as_deref()
+                        .is_some_and(is_notimplemented_error_expr)
+                {
+                    issues.push(issue_at(
+                        "python:S5712",
+                        "Return 'NotImplemented' instead of raising 'NotImplementedError'.",
+                        raised.range(),
+                        index,
+                        source,
+                    ));
+                }
+            });
+        }
+    });
+    issues
+}
+
+fn is_notimplemented_error_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Name(name) => name.id.as_str() == "NotImplementedError",
+        Expr::Call(call) => {
+            matches!(call.func.as_ref(), Expr::Name(name) if name.id.as_str() == "NotImplementedError")
+        }
+        _ => false,
+    }
+}
+
+// --- python:S5719 — instance/class methods need a positional parameter --------
+
+/// Iterates `(class, function)` for every method directly defined in a class
+/// body anywhere in the tree.
+fn for_each_method(
+    stmts: &[Stmt],
+    visit: &mut impl FnMut(&ruff_python_ast::StmtClassDef, &ruff_python_ast::StmtFunctionDef),
+) {
+    for_each_stmt(stmts, &mut |stmt| {
+        if let Stmt::ClassDef(class) = stmt {
+            for member in &class.body {
+                if let Stmt::FunctionDef(function) = member {
+                    visit(class, function);
+                }
+            }
+        }
+    });
+}
+
+fn check_methods_missing_parameters(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_method(parsed.syntax().body.as_slice(), &mut |_class, function| {
+        if !has_decorator(function, "staticmethod")
+            && positional_parameters(&function.parameters).is_empty()
+        {
+            issues.push(issue_at(
+                "python:S5719",
+                "Add the missing instance or class method parameter ('self' or 'cls').",
+                function.name.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S5720 — `self` must be the first instance-method parameter --------
+
+fn check_instance_self_parameters(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_method(parsed.syntax().body.as_slice(), &mut |_class, function| {
+        if has_decorator(function, "staticmethod") || has_decorator(function, "classmethod") {
+            return;
+        }
+        if let Some(first) = positional_parameters(&function.parameters).first()
+            && first.name.as_str() != "self"
+        {
+            issues.push(issue_at(
+                "python:S5720",
+                "Rename this first parameter to 'self'.",
+                first.name.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S5722 — special method arity --------------------------------------
+
+const ARITY_ONE_DUNDERS: [&str; 17] = [
+    "__str__",
+    "__repr__",
+    "__len__",
+    "__hash__",
+    "__bool__",
+    "__iter__",
+    "__next__",
+    "__enter__",
+    "__dir__",
+    "__index__",
+    "__neg__",
+    "__pos__",
+    "__invert__",
+    "__abs__",
+    "__int__",
+    "__float__",
+    "__complex__",
+];
+
+const ARITY_TWO_DUNDERS: [&str; 39] = [
+    "__add__",
+    "__sub__",
+    "__mul__",
+    "__truediv__",
+    "__floordiv__",
+    "__mod__",
+    "__pow__",
+    "__lshift__",
+    "__rshift__",
+    "__and__",
+    "__or__",
+    "__xor__",
+    "__eq__",
+    "__ne__",
+    "__lt__",
+    "__le__",
+    "__gt__",
+    "__ge__",
+    "__radd__",
+    "__rsub__",
+    "__rmul__",
+    "__rtruediv__",
+    "__rfloordiv__",
+    "__rmod__",
+    "__rpow__",
+    "__rlshift__",
+    "__rrshift__",
+    "__rand__",
+    "__ror__",
+    "__rxor__",
+    "__iadd__",
+    "__isub__",
+    "__imul__",
+    "__contains__",
+    "__getitem__",
+    "__delitem__",
+    "__getattr__",
+    "__getattribute__",
+    "__delete__",
+];
+
+const ARITY_THREE_DUNDERS: [&str; 4] =
+    ["__setitem__", "__setattr__", "__delattr__", "__set_name__"];
+
+fn required_special_method_arity(name: &str) -> Option<usize> {
+    if ARITY_ONE_DUNDERS.contains(&name) {
+        Some(1)
+    } else if ARITY_TWO_DUNDERS.contains(&name) {
+        Some(2)
+    } else if ARITY_THREE_DUNDERS.contains(&name) {
+        Some(3)
+    } else {
+        None
+    }
+}
+
+fn check_special_method_arities(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::FunctionDef(function) = stmt else {
+            return;
+        };
+        let Some(required) = required_special_method_arity(function.name.as_str()) else {
+            return;
+        };
+        if function.name.as_str() == "__exit__"
+            || function.parameters.vararg.is_some()
+            || positional_parameters(&function.parameters).len() >= required
+        {
+            return;
+        }
+        issues.push(issue_at(
+            "python:S5722",
+            "Fix this special method signature; it is missing required parameters.",
+            function.name.range(),
+            index,
+            source,
+        ));
+    });
+    issues
+}
+
+// --- python:S5724 — property accessor arity -----------------------------------
+
+fn check_property_accessor_arities(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_method(parsed.syntax().body.as_slice(), &mut |_class, function| {
+        let required = if has_decorator(function, "property") {
+            1
+        } else if has_decorator(function, "setter") || has_decorator(function, "deleter") {
+            2
+        } else {
+            return;
+        };
+        if positional_parameters(&function.parameters).len() == required {
+            return;
+        }
+        issues.push(issue_at(
+            "python:S5724",
+            "Fix the parameter count of this property accessor.",
+            function.name.range(),
+            index,
+            source,
+        ));
+    });
+    issues
+}
+
+// --- python:S5709 — custom exceptions inherit Exception -----------------------
+
+fn looks_like_exception_name(name: &str) -> bool {
+    name.ends_with("Error") || name.ends_with("Warning") || name.ends_with("Exception")
+}
+
+fn is_builtin_exception_base(expr: &Expr) -> bool {
+    let tail = match expr {
+        Expr::Name(name) => Some(name.id.as_str()),
+        Expr::Attribute(attribute) => Some(attribute.attr.as_str()),
+        _ => None,
+    };
+    matches!(tail, Some(base) if base == "Exception" || base == "BaseException" || looks_like_exception_name(base))
+}
+
+fn check_exception_inheritance(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::ClassDef(class) = stmt
+            && looks_like_exception_name(class.name.as_str())
+            && !class.bases().iter().any(is_builtin_exception_base)
+        {
+            issues.push(issue_at(
+                "python:S5709",
+                "Make this exception inherit from a built-in exception class.",
+                class.name.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S5714 — boolean expression in except clause -----------------------
+
+fn check_boolean_except_clauses(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::Try(try_stmt) = stmt else { return };
+        for handler in &try_stmt.handlers {
+            let ExceptHandler::ExceptHandler(inner) = handler;
+            let Some(type_expr) = inner.type_.as_deref() else {
+                continue;
+            };
+            let mut boolean = false;
+            for_each_expr(type_expr, &mut |node| {
+                boolean |= matches!(node, Expr::BoolOp(_) | Expr::If(_));
+            });
+            if boolean {
+                issues.push(issue_at(
+                    "python:S5714",
+                    "Simplify this except specification; boolean expressions cannot be caught.",
+                    type_expr.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S5704/S5747/S1143/S1716 — raise/jump flow placement ---------------
+
+#[derive(Clone, Copy, PartialEq)]
+enum RaiseContext {
+    Outside,
+    InExcept,
+    InFinally,
+}
+
+fn check_raise_and_jump_flow(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    scan_flow_statements(
+        parsed.syntax().body.as_slice(),
+        FlowState {
+            context: RaiseContext::Outside,
+            finally_depth: 0,
+            loop_depth: 0,
+        },
+        &mut issues,
+        index,
+        source,
+    );
+    issues
+}
+
+/// Lexical raise/jump binding state carried by the flow walk.
+#[derive(Clone, Copy)]
+struct FlowState {
+    context: RaiseContext,
+    finally_depth: u32,
+    loop_depth: u32,
+}
+
+impl FlowState {
+    fn with_loop(self) -> Self {
+        Self {
+            loop_depth: self.loop_depth + 1,
+            ..self
+        }
+    }
+
+    fn in_finally(self) -> Self {
+        Self {
+            context: RaiseContext::InFinally,
+            finally_depth: self.finally_depth + 1,
+            ..self
+        }
+    }
+
+    fn fresh_scope() -> Self {
+        Self {
+            context: RaiseContext::Outside,
+            finally_depth: 0,
+            loop_depth: 0,
+        }
+    }
+}
+
+fn scan_flow_statements(
+    suite: &[Stmt],
+    state: FlowState,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    for stmt in suite {
+        match stmt {
+            Stmt::Break(_) | Stmt::Continue(_) => {
+                flag_flow_jump(stmt, state, issues, index, source);
+            }
+            Stmt::Return(_) => {
+                if state.finally_depth > 0 {
+                    issues.push(issue_at(
+                        "python:S1143",
+                        "Move this return statement out of 'finally'; it discards the in-flight exception.",
+                        stmt.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+            Stmt::Raise(raised) => flag_flow_raise(raised, state, issues, index, source),
+            _ => scan_flow_nested_bodies(stmt, state, issues, index, source),
+        }
+    }
+}
+
+fn flag_flow_jump(
+    stmt: &Stmt,
+    state: FlowState,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    if state.finally_depth > 0 {
+        issues.push(issue_at(
+            "python:S1143",
+            "Move this jump statement out of 'finally'; it discards the in-flight exception.",
+            stmt.range(),
+            index,
+            source,
+        ));
+    } else if state.loop_depth == 0 {
+        issues.push(issue_at(
+            "python:S1716",
+            "Remove this jump statement; no enclosing loop exists.",
+            stmt.range(),
+            index,
+            source,
+        ));
+    }
+}
+
+fn flag_flow_raise(
+    raised: &ruff_python_ast::StmtRaise,
+    state: FlowState,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    if raised.exc.is_some() || raised.cause.is_some() || state.context == RaiseContext::InExcept {
+        return;
+    }
+    let (key, message) = if state.context == RaiseContext::InFinally {
+        (
+            "python:S5704",
+            "A bare 'raise' inside 'finally' masks the in-flight exception.",
+        )
+    } else {
+        (
+            "python:S5747",
+            "A bare 'raise' is only allowed in an 'except' clause; raise an explicit exception.",
+        )
+    };
+    issues.push(issue_at(key, message, raised.range(), index, source));
+}
+
+fn scan_flow_nested_bodies(
+    stmt: &Stmt,
+    state: FlowState,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    match stmt {
+        Stmt::For(loop_stmt) => {
+            scan_flow_statements(&loop_stmt.body, state.with_loop(), issues, index, source);
+            scan_flow_statements(&loop_stmt.orelse, state, issues, index, source);
+        }
+        Stmt::While(loop_stmt) => {
+            scan_flow_statements(&loop_stmt.body, state.with_loop(), issues, index, source);
+            scan_flow_statements(&loop_stmt.orelse, state, issues, index, source);
+        }
+        Stmt::Try(try_stmt) => {
+            scan_flow_statements(&try_stmt.body, state, issues, index, source);
+            for handler in &try_stmt.handlers {
+                let ExceptHandler::ExceptHandler(inner) = handler;
+                scan_flow_statements(
+                    &inner.body,
+                    FlowState {
+                        context: RaiseContext::InExcept,
+                        ..state
+                    },
+                    issues,
+                    index,
+                    source,
+                );
+            }
+            scan_flow_statements(&try_stmt.orelse, state, issues, index, source);
+            scan_flow_statements(
+                &try_stmt.finalbody,
+                state.in_finally(),
+                issues,
+                index,
+                source,
+            );
+        }
+        Stmt::With(with_stmt) => {
+            scan_flow_statements(&with_stmt.body, state, issues, index, source);
+        }
+        Stmt::If(if_stmt) => {
+            scan_flow_statements(&if_stmt.body, state, issues, index, source);
+            for clause in &if_stmt.elif_else_clauses {
+                scan_flow_statements(&clause.body, state, issues, index, source);
+            }
+        }
+        Stmt::Match(match_stmt) => {
+            for case in &match_stmt.cases {
+                scan_flow_statements(&case.body, state, issues, index, source);
+            }
+        }
+        // Jumps bind within the innermost function scope; reset the state.
+        Stmt::FunctionDef(function) => {
+            scan_flow_statements(
+                &function.body,
+                FlowState::fresh_scope(),
+                issues,
+                index,
+                source,
+            );
+        }
+        _ => {}
+    }
+}
+
+// --- python:S5706 — `__exit__` re-raising the provided exception --------------
+
+fn check_exit_reraises_argument(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::FunctionDef(function) = stmt else {
+            return;
+        };
+        if function.name.as_str() != "__exit__" {
+            return;
+        }
+        let arguments: Vec<String> = positional_parameters(&function.parameters)
+            .iter()
+            .skip(1)
+            .map(|parameter| parameter.name.to_string())
+            .collect();
+        for_each_stmt_in_scope(&function.body, &mut |inner| {
+            if let Stmt::Raise(raised) = inner
+                && let Some(Expr::Name(name)) = raised.exc.as_deref()
+                && arguments.contains(&name.id.to_string())
+            {
+                issues.push(issue_at(
+                    "python:S5706",
+                    "Remove this 'raise'; '__exit__' must not re-raise the exception argument.",
+                    raised.range(),
+                    index,
+                    source,
+                ));
+            }
+        });
+    });
+    issues
+}
+
+// --- python:S5754 — SystemExit must be re-raised -------------------------------
+
+fn check_swallowed_system_exit(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::Try(try_stmt) = stmt else { return };
+        for handler in &try_stmt.handlers {
+            let ExceptHandler::ExceptHandler(inner) = handler;
+            let caught = exception_type_names(inner.type_.as_deref());
+            if !caught.iter().any(|name| name == "SystemExit") {
+                continue;
+            }
+            let mut re_raised = false;
+            for_each_stmt_in_scope(&inner.body, &mut |candidate| {
+                re_raised |= matches!(candidate, Stmt::Raise(_));
+            });
+            if !re_raised {
+                issues.push(issue_at(
+                    "python:S5754",
+                    "Re-raise 'SystemExit'; swallowing it prevents proper termination.",
+                    handler.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S1515 — closures capturing loop variables --------------------------
+
+fn check_closure_captures_loop_variable(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::For(for_stmt) = stmt else { return };
+        let mut targets = Vec::new();
+        collect_target_names(&for_stmt.target, &mut targets);
+        if targets.is_empty() {
+            return;
+        }
+        for_each_stmt_expr(&for_stmt.body, &mut |expr| {
+            if let Expr::Lambda(lambda) = expr
+                && loads_any_name(&lambda.body, &targets)
+            {
+                issues.push(issue_at(
+                    "python:S1515",
+                    "This closure captures a loop variable by reference; bind it with a default argument.",
+                    lambda.range(),
+                    index,
+                    source,
+                ));
+            }
+        });
+        for_each_stmt(&for_stmt.body, &mut |nested| {
+            if let Stmt::FunctionDef(function) = nested
+                && stmts_load_any_name(&function.body, &targets)
+            {
+                issues.push(issue_at(
+                    "python:S1515",
+                    "This closure captures a loop variable by reference; bind it with a default argument.",
+                    function.name.range(),
+                    index,
+                    source,
+                ));
+            }
+        });
+    });
+    issues
+}
+
+fn stmts_load_any_name(stmts: &[Stmt], names: &[String]) -> bool {
+    let mut found = false;
+    for_each_stmt_expr(stmts, &mut |expr| {
+        found |= loads_any_name(expr, names);
+    });
+    found
+}
+
+// --- python:S2710 — classmethod first argument naming --------------------------
+
+fn check_classmethod_parameter_names(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_method(parsed.syntax().body.as_slice(), &mut |_class, function| {
+        if !has_decorator(function, "classmethod") {
+            return;
+        }
+        if let Some(first) = positional_parameters(&function.parameters).first()
+            && !matches!(first.name.as_str(), "cls" | "mcs" | "metacls")
+        {
+            issues.push(issue_at(
+                "python:S2710",
+                "Rename this first parameter to 'cls'.",
+                first.name.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S2711 — yield/return outside a function ----------------------------
+
+fn check_yield_return_outside_function(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    visit_scopes_for_yields(
+        parsed.syntax().body.as_slice(),
+        0,
+        &mut issues,
+        index,
+        source,
+    );
+    issues
+}
+
+fn visit_scopes_for_yields(
+    suite: &[Stmt],
+    function_depth: u32,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    for stmt in suite {
+        match stmt {
+            Stmt::FunctionDef(function) => {
+                visit_scopes_for_yields(&function.body, function_depth + 1, issues, index, source);
+            }
+            Stmt::ClassDef(class) => {
+                visit_scopes_for_yields(&class.body, function_depth, issues, index, source);
+            }
+            _ => {
+                if function_depth == 0 {
+                    if matches!(stmt, Stmt::Return(_)) {
+                        issues.push(issue_at(
+                            "python:S2711",
+                            "Remove this 'return'; it appears outside a function.",
+                            stmt.range(),
+                            index,
+                            source,
+                        ));
+                    }
+                    for expr in stmt_exprs(stmt) {
+                        for_each_expr(expr, &mut |node| match node {
+                            Expr::Yield(_) | Expr::YieldFrom(_) => {
+                                issues.push(issue_at(
+                                    "python:S2711",
+                                    "Move this 'yield' into a function; it appears outside one.",
+                                    node.range(),
+                                    index,
+                                    source,
+                                ));
+                            }
+                            _ => {}
+                        });
+                    }
+                }
+                for body in child_bodies(stmt) {
+                    visit_scopes_for_yields(body, function_depth, issues, index, source);
+                }
+            }
+        }
+    }
+}
+
+// --- python:S2712 — return with a value in a generator -------------------------
+
+fn check_generator_return_values(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::FunctionDef(function) = stmt else {
+            return;
+        };
+        let mut generates = false;
+        for_each_stmt_in_scope(&function.body, &mut |inner| {
+            for expr in stmt_exprs(inner) {
+                for_each_expr(expr, &mut |node| {
+                    generates |= matches!(node, Expr::Yield(_) | Expr::YieldFrom(_));
+                });
+            }
+        });
+        if !generates {
+            return;
+        }
+        for_each_stmt_in_scope(&function.body, &mut |inner| {
+            if let Stmt::Return(returned) = inner
+                && let Some(value) = returned.value.as_deref()
+                && !is_none_literal(value)
+            {
+                issues.push(issue_at(
+                    "python:S2712",
+                    "Generators may only return 'None'; remove this returned value.",
+                    returned.range(),
+                    index,
+                    source,
+                ));
+            }
+        });
+    });
+    issues
+}
+
+// --- python:S5899 — unreachable test methods ------------------------------------
+
+fn is_test_case_base(expr: &Expr) -> bool {
+    let tail = match expr {
+        Expr::Name(name) => Some(name.id.as_str()),
+        Expr::Attribute(attribute) => Some(attribute.attr.as_str()),
+        _ => None,
+    };
+    matches!(tail, Some(base) if base.ends_with("TestCase"))
+}
+
+fn check_unreachable_test_methods(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::ClassDef(class) = stmt else { return };
+        if !class.bases().iter().any(is_test_case_base) {
+            return;
+        }
+        for member in &class.body {
+            if let Stmt::FunctionDef(function) = member {
+                let name = function.name.as_str();
+                if name.contains("test") && !name.starts_with("test") {
+                    issues.push(issue_at(
+                        "python:S5899",
+                        "Rename this method to start with 'test' or remove it; test runners will not discover it.",
+                        function.name.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S5915 — assertion at end of except block ---------------------------
+
+fn is_unittest_assert_call(stmt: &Stmt) -> bool {
+    let Stmt::Expr(value) = stmt else {
+        return false;
+    };
+    let Expr::Call(call) = value.value.as_ref() else {
+        return false;
+    };
+    match call.func.as_ref() {
+        Expr::Name(name) => name.id.as_str().starts_with("assert"),
+        Expr::Attribute(attribute) => attribute.attr.as_str().starts_with("assert"),
+        _ => false,
+    }
+}
+
+fn check_assertion_at_end_of_except(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::Try(try_stmt) = stmt else { return };
+        for handler in &try_stmt.handlers {
+            let ExceptHandler::ExceptHandler(inner) = handler;
+            if let Some(last) = inner.body.last()
+                && is_unittest_assert_call(last)
+            {
+                issues.push(issue_at(
+                    "python:S5915",
+                    "Asserting at the end of an 'except' block masks the original exception.",
+                    last.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S5780 — duplicate dict literal keys ---------------------------------
+
+fn check_duplicate_dict_keys(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        let Expr::Dict(dict) = expr else { return };
+        let mut seen = std::collections::HashSet::new();
+        for item in &dict.items {
+            let Some(key) = &item.key else { continue };
+            let Some(canonical) = constant_literal_text(key) else {
+                continue;
+            };
+            if !seen.insert(canonical) {
+                issues.push(issue_at(
+                    "python:S5780",
+                    "Change this duplicate key; it overrides an earlier entry.",
+                    key.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S5781 — duplicate set literal values ---------------------------------
+
+fn check_duplicate_set_elements(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        let Expr::Set(set) = expr else { return };
+        let mut seen = std::collections::HashSet::new();
+        for element in &set.elts {
+            let Some(canonical) = constant_literal_text(element) else {
+                continue;
+            };
+            if !seen.insert(canonical) {
+                issues.push(issue_at(
+                    "python:S5781",
+                    "Remove this duplicate element.",
+                    element.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S7498 — literal syntax for empty collections ----------------------
+
+fn check_empty_collection_constructors(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        let Expr::Call(call) = expr else { return };
+        if !call.arguments.args.is_empty() {
+            return;
+        }
+        let literal_shaped = matches!(
+            called_name(&call.func),
+            Some("list" | "set" | "tuple" | "dict")
+        ) && (call.arguments.keywords.is_empty()
+            || called_name(&call.func) == Some("dict")
+                && call
+                    .arguments
+                    .keywords
+                    .iter()
+                    .all(|keyword| keyword.arg.is_some()));
+        if literal_shaped {
+            issues.push(issue_at(
+                "python:S7498",
+                "Replace this call with the equivalent collection literal.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S7496 — constructor wrapping an existing literal/comprehension ----
+
+fn wrapping_redundancy(func_name: &str, argument: &Expr) -> bool {
+    match func_name {
+        "list" => matches!(argument, Expr::List(_) | Expr::ListComp(_)),
+        "set" => matches!(argument, Expr::Set(_) | Expr::SetComp(_)),
+        "dict" => matches!(argument, Expr::Dict(_) | Expr::DictComp(_)),
+        _ => false,
+    }
+}
+
+fn check_wrapping_collection_constructors(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        let Expr::Call(call) = expr else { return };
+        let Some(name) = called_name(&call.func) else {
+            return;
+        };
+        if call.arguments.keywords.is_empty()
+            && let [only] = &call.arguments.args[..]
+            && wrapping_redundancy(name, only)
+        {
+            issues.push(issue_at(
+                "python:S7496",
+                "Use the inner literal or comprehension directly; this wrapping is redundant.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S7494 — comprehension over a generator expression -----------------
+
+/// `(name, sole positional argument)` for calls shaped `name(x)` without
+/// keywords.
+fn single_positional_call<'a>(expr: &'a Expr, name: &str) -> Option<&'a Expr> {
+    match expr {
+        Expr::Call(call)
+            if called_name(&call.func) == Some(name)
+                && call.arguments.args.len() == 1
+                && call.arguments.keywords.is_empty() =>
+        {
+            Some(&call.arguments.args[0])
+        }
+        _ => None,
+    }
+}
+
+fn check_generator_into_constructor(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        if matches!(expr, Expr::Call(call) if matches!(called_name(&call.func), Some("list" | "set")))
+            && let Some(argument) =
+                single_positional_call(expr, "list").or_else(|| single_positional_call(expr, "set"))
+            && matches!(argument, Expr::Generator(_))
+        {
+            issues.push(issue_at(
+                "python:S7494",
+                "Use a comprehension instead of passing a generator expression here.",
+                expr.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S7500 — copy-only comprehensions -----------------------------------
+
+fn check_copy_only_comprehensions(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| match expr {
+        Expr::ListComp(comp) => flag_copy_only(
+            comp.elt.as_ref(),
+            &comp.generators,
+            comp.range(),
+            &mut issues,
+            index,
+            source,
+        ),
+        Expr::SetComp(comp) => flag_copy_only(
+            comp.elt.as_ref(),
+            &comp.generators,
+            comp.range(),
+            &mut issues,
+            index,
+            source,
+        ),
+        _ => {}
+    });
+    issues
+}
+
+fn flag_copy_only(
+    element: &Expr,
+    generators: &[ruff_python_ast::Comprehension],
+    range: TextRange,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    let [generator] = generators else { return };
+    if generator.ifs.is_empty() && exprs_textually_equal(element, &generator.target, source) {
+        issues.push(issue_at(
+            "python:S7500",
+            "Copy the iterable directly instead of using a comprehension that only renames.",
+            range,
+            index,
+            source,
+        ));
+    }
+}
+
+// --- python:S7504 — list() when iterating ---------------------------------------
+
+fn check_list_wrapped_iteration(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::For(for_stmt) = stmt
+            && is_call_to(&for_stmt.iter, "list")
+        {
+            issues.push(issue_at(
+                "python:S7504",
+                "Iterate over the iterable directly; wrapping it in 'list()' is unnecessary.",
+                for_stmt.iter.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S7505 — map with lambda ----------------------------------------------
+
+fn check_map_lambda_calls(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        let Expr::Call(call) = expr else { return };
+        if called_name(&call.func) == Some("map")
+            && call
+                .arguments
+                .args
+                .first()
+                .is_some_and(|first| matches!(first, Expr::Lambda(_)))
+        {
+            issues.push(issue_at(
+                "python:S7505",
+                "Replace this 'map' call with a comprehension.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S7506 — static value in dict comprehension ---------------------------
+
+/// Constant expression trees: literals and pure operators only.
+fn is_constant_expression(expr: &Expr) -> bool {
+    let mut constant = true;
+    for_each_expr(expr, &mut |node| {
+        constant &= matches!(
+            node,
+            Expr::NoneLiteral(_)
+                | Expr::BooleanLiteral(_)
+                | Expr::NumberLiteral(_)
+                | Expr::StringLiteral(_)
+                | Expr::BytesLiteral(_)
+                | Expr::EllipsisLiteral(_)
+                | Expr::Tuple(_)
+                | Expr::List(_)
+                | Expr::Set(_)
+                | Expr::UnaryOp(_)
+                | Expr::BinOp(_)
+                | Expr::BoolOp(_)
+                | Expr::Compare(_)
+        );
+    });
+    constant
+}
+
+fn check_constant_dict_comprehension_values(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        if let Expr::DictComp(comp) = expr
+            && is_constant_expression(&comp.value)
+        {
+            issues.push(issue_at(
+                "python:S7506",
+                "Use 'dict.fromkeys' to build a mapping with a constant value.",
+                comp.value.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S7507 — defaultdict default_factory keyword --------------------------
+
+fn check_defaultdict_keyword_factory(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        let Expr::Call(call) = expr else { return };
+        if called_name(&call.func) != Some("defaultdict") {
+            return;
+        }
+        for keyword in &call.arguments.keywords {
+            if keyword
+                .arg
+                .as_ref()
+                .is_some_and(|arg| arg.as_str() == "default_factory")
+            {
+                issues.push(issue_at(
+                    "python:S7507",
+                    "Pass the default factory positionally; 'default_factory' is not a valid keyword.",
+                    keyword.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S7508 — redundant identical nested constructors ----------------------
+
+/// Name of a collection-constructor call (`list`, `set`, `tuple`, `frozenset`).
+fn constructor_name(expr: &Expr) -> Option<&str> {
+    let Expr::Call(call) = expr else { return None };
+    let name = called_name(&call.func)?;
+    matches!(name, "list" | "set" | "tuple" | "frozenset").then_some(name)
+}
+fn check_nested_identical_constructors(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        let Some(outer_name) = constructor_name(expr) else {
+            return;
+        };
+        let Some(outer_argument) = single_positional_call(expr, outer_name) else {
+            return;
+        };
+        if constructor_name(outer_argument) == Some(outer_name) {
+            issues.push(issue_at(
+                "python:S7508",
+                "Remove the redundant nested call; the outer constructor adds nothing.",
+                expr.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S7510/S7511/S7516 — sorted/reversed call shapes ----------------------
+
+fn check_sorted_reversed_shapes(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        // S7510: reversed(sorted(x))
+        if let Some(argument) = single_positional_call(expr, "reversed")
+            && single_positional_call(argument, "sorted").is_some()
+        {
+            issues.push(issue_at(
+                "python:S7510",
+                "Sort descending directly with 'sorted(..., reverse=True)'.",
+                expr.range(),
+                index,
+                source,
+            ));
+            return;
+        }
+        // S7516: set(sorted(x))
+        if let Some(argument) = single_positional_call(expr, "set")
+            && single_positional_call(argument, "sorted").is_some()
+        {
+            issues.push(issue_at(
+                "python:S7516",
+                "Sorting before 'set' is pointless; the order is discarded.",
+                expr.range(),
+                index,
+                source,
+            ));
+            return;
+        }
+        // S7511: set(reversed(x)) / sorted(reversed(x)) / reversed(reversed(x))
+        for wrapper in ["set", "sorted"] {
+            if let Some(argument) = single_positional_call(expr, wrapper)
+                && single_positional_call(argument, "reversed").is_some()
+            {
+                issues.push(issue_at(
+                    "python:S7511",
+                    "The 'reversed' call has no effect on the result here.",
+                    expr.range(),
+                    index,
+                    source,
+                ));
+                return;
+            }
+        }
+        if let Some(argument) = single_positional_call(expr, "reversed")
+            && single_positional_call(argument, "reversed").is_some()
+        {
+            issues.push(issue_at(
+                "python:S7511",
+                "The 'reversed' call has no effect on the result here.",
+                expr.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S7517 — manual key/value iteration ------------------------------------
+
+fn check_manual_key_iteration(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::For(for_stmt) = stmt else { return };
+        let Expr::Name(key) = for_stmt.target.as_ref() else {
+            return;
+        };
+        let dict_text = expr_normalized_text(&for_stmt.iter, source);
+        for_each_stmt_expr(&for_stmt.body, &mut |expr| {
+            if let Expr::Subscript(subscript) = expr
+                && expr_normalized_text(&subscript.value, source) == dict_text
+                && matches!(subscript.slice.as_ref(), Expr::Name(lookup) if lookup.id.as_str() == key.id.as_str())
+            {
+                issues.push(issue_at(
+                    "python:S7517",
+                    "Use '.items()' instead of indexing with the loop variable.",
+                    subscript.range(),
+                    index,
+                    source,
+                ));
+            }
+        });
+    });
+    issues
+}
+
+// --- python:S7519 — constant-populated dict built in a loop ------------------------
+
+fn check_constant_populated_dict_loop(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::For(for_stmt) = stmt else { return };
+        if for_stmt.body.is_empty() {
+            return;
+        }
+        let mut constant: Option<String> = None;
+        let all_constant_assignments = for_stmt.body.iter().all(|inner| {
+            let Stmt::Assign(assign) = inner else {
+                return false;
+            };
+            let [Expr::Subscript(subscript)] = &assign.targets[..] else {
+                return false;
+            };
+            matches!(subscript.slice.as_ref(), Expr::Name(_))
+                && matches!(subscript.value.as_ref(), Expr::Name(_))
+                && is_constant_expression(&assign.value)
+        }) && for_stmt.body.iter().all(|inner| {
+            let Stmt::Assign(assign) = inner else {
+                return false;
+            };
+            let normalized = expr_normalized_text(&assign.value, source);
+            match &constant {
+                None => {
+                    constant = Some(normalized);
+                    true
+                }
+                Some(existing) => *existing == normalized,
+            }
+        });
+        if all_constant_assignments {
+            issues.push(issue_at(
+                "python:S7519",
+                "Populate this dictionary with 'dict.fromkeys' instead of assigning a constant in a loop.",
+                for_stmt.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S7512 — items() when only keys are needed -------------------------------
+
+fn check_items_only_keys_needed(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::For(for_stmt) = stmt else { return };
+        let Expr::Tuple(tuple) = for_stmt.target.as_ref() else {
+            return;
+        };
+        let [Expr::Name(_), Expr::Name(value)] = &tuple.elts[..] else {
+            return;
+        };
+        let items_call = matches!(
+            for_stmt.iter.as_ref(),
+            Expr::Call(call) if matches!(call.func.as_ref(), Expr::Attribute(attribute) if attribute.attr.as_str() == "items")
+        );
+        if items_call && !stmts_load_any_name(&for_stmt.body, &[value.id.to_string()]) {
+            issues.push(issue_at(
+                "python:S7512",
+                "Iterate over the dictionary directly; the value is not used.",
+                for_stmt.iter.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// ---------------------------------------------------------------------------
+// Battery aggregation: every Tier-A entry #48–#110 in artifact order.
+// ---------------------------------------------------------------------------
+
+fn check_tier_a_battery(parsed: &Parsed<ModModule>, index: &LineIndex, source: &str) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_needless_pass(parsed, index, source));
+    issues.extend(check_dunder_all_strings(parsed, index, source));
+    issues.extend(check_loop_else_without_break(parsed, index, source));
+    issues.extend(check_nested_conditional_expressions(parsed, index, source));
+    issues.extend(check_redundant_jump_statements(parsed, index, source));
+    issues.extend(check_identical_if_else_branches(parsed, index, source));
+    issues.extend(check_meaningless_size_comparisons(parsed, index, source));
+    issues.extend(check_unreachable_code(parsed, index, source));
+    issues.extend(check_identical_operands(parsed, index, source));
+    issues.extend(check_duplicate_conditions(parsed, index, source));
+    issues.extend(check_duplicate_branches(parsed, index, source));
+    issues.extend(check_inverted_boolean_checks(parsed, index, source));
+    issues.extend(check_self_assignment(parsed, index, source));
+    issues.extend(check_wildcard_imports(parsed, index, source));
+    issues.extend(check_doubled_prefix_operators(parsed, index, source));
+    issues.extend(check_confusing_walrus_placement(parsed, index, source));
+    issues.extend(check_constant_none_comparisons(parsed, index, source));
+    issues.extend(check_fresh_object_identity_checks(parsed, index, source));
+    issues.extend(check_tuple_assertions(parsed, index, source));
+    issues.extend(check_type_equality_comparisons(parsed, index, source));
+    issues.extend(check_lambda_assignments(parsed, index, source));
+    issues.extend(check_boundary_slice_comparisons(parsed, index, source));
+    issues.extend(check_float_equality_comparisons(parsed, index, source));
+    issues.extend(check_no_effect_statements(parsed, index, source));
+    issues.extend(check_exit_signatures(parsed, index, source));
+    issues.extend(check_init_return_values(parsed, index, source));
+    issues.extend(check_only_reraise_handlers(parsed, index, source));
+    issues.extend(check_notimplemented_raises(parsed, index, source));
+    issues.extend(check_methods_missing_parameters(parsed, index, source));
+    issues.extend(check_instance_self_parameters(parsed, index, source));
+    issues.extend(check_special_method_arities(parsed, index, source));
+    issues.extend(check_property_accessor_arities(parsed, index, source));
+    issues.extend(check_exception_inheritance(parsed, index, source));
+    issues.extend(check_boolean_except_clauses(parsed, index, source));
+    issues.extend(check_raise_and_jump_flow(parsed, index, source));
+    issues.extend(check_exit_reraises_argument(parsed, index, source));
+    issues.extend(check_swallowed_system_exit(parsed, index, source));
+    issues.extend(check_closure_captures_loop_variable(parsed, index, source));
+    issues.extend(check_classmethod_parameter_names(parsed, index, source));
+    issues.extend(check_yield_return_outside_function(parsed, index, source));
+    issues.extend(check_generator_return_values(parsed, index, source));
+    issues.extend(check_unreachable_test_methods(parsed, index, source));
+    issues.extend(check_assertion_at_end_of_except(parsed, index, source));
+    issues.extend(check_duplicate_dict_keys(parsed, index, source));
+    issues.extend(check_duplicate_set_elements(parsed, index, source));
+    issues.extend(check_empty_collection_constructors(parsed, index, source));
+    issues.extend(check_wrapping_collection_constructors(
+        parsed, index, source,
+    ));
+    issues.extend(check_generator_into_constructor(parsed, index, source));
+    issues.extend(check_copy_only_comprehensions(parsed, index, source));
+    issues.extend(check_list_wrapped_iteration(parsed, index, source));
+    issues.extend(check_map_lambda_calls(parsed, index, source));
+    issues.extend(check_constant_dict_comprehension_values(
+        parsed, index, source,
+    ));
+    issues.extend(check_defaultdict_keyword_factory(parsed, index, source));
+    issues.extend(check_nested_identical_constructors(parsed, index, source));
+    issues.extend(check_sorted_reversed_shapes(parsed, index, source));
+    issues.extend(check_manual_key_iteration(parsed, index, source));
+    issues.extend(check_constant_populated_dict_loop(parsed, index, source));
+    issues.extend(check_items_only_keys_needed(parsed, index, source));
+    issues
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -2022,5 +4931,709 @@ mod tests {
                 "name: {name}"
             );
         }
+    }
+
+    fn findings<'a>(
+        report: &'a hoonarqube_ir::FileReport,
+        key: &str,
+    ) -> Vec<&'a hoonarqube_ir::Issue> {
+        report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == key)
+            .collect()
+    }
+
+    fn scan(source: &str) -> hoonarqube_ir::FileReport {
+        analyze(PathBuf::from("t.py"), source, &AnalyzerOptions::default())
+    }
+
+    #[test]
+    fn s2772_flags_only_redundant_pass() {
+        let flagged = scan("def f():\n    pass\n    return 1\n");
+        let found = findings(&flagged, "python:S2772");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 2);
+        for clean in ["def f():\n    pass\n", "class A:\n    pass\n    x = 1\n"] {
+            assert!(
+                findings(&scan(clean), "python:S2772").is_empty(),
+                "clean: {clean}"
+            );
+        }
+    }
+
+    #[test]
+    fn s2823_requires_string_literals_in_dunder_all() {
+        let flagged = scan("__all__ = [\"a\", b]\n");
+        let found = findings(&flagged, "python:S2823");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 1);
+        for clean in ["__all__ = [\"a\", \"b\"]\n", "__all__ += [\"c\"]\n"] {
+            assert!(findings(&scan(clean), "python:S2823").is_empty(), "{clean}");
+        }
+    }
+
+    #[test]
+    fn s2836_flags_loop_else_without_break() {
+        let flagged = scan("while x:\n    drain()\nelse:\n    close()\n");
+        let found = findings(&flagged, "python:S2836");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 4);
+        let clean = "while x:\n    if done(x):\n        break\nelse:\n    close()\n";
+        assert!(findings(&scan(clean), "python:S2836").is_empty());
+    }
+
+    #[test]
+    fn s3358_flags_nested_conditional_expressions() {
+        let flagged = scan("v = a if b else c if d else e\n");
+        assert_eq!(findings(&flagged, "python:S3358").len(), 1);
+        assert!(findings(&scan("v = a if b else e\n"), "python:S3358").is_empty());
+    }
+
+    #[test]
+    fn s3626_flags_trailing_jump_statements() {
+        let cases = [
+            ("def f():\n    setup()\n    return\n", 3),
+            ("for i in xs:\n    step(i)\n    continue\n", 3),
+            ("match x:\n    case 1:\n        break\n", 3),
+        ];
+        for (source, line) in cases {
+            let report = scan(source);
+            let found = findings(&report, "python:S3626");
+            assert_eq!(found.len(), 1, "{source}");
+            assert_eq!(found[0].range.start.line, line);
+        }
+        let clean = "def f():\n    if a:\n        return 0\n    return 1\n";
+        assert!(findings(&scan(clean), "python:S3626").is_empty());
+    }
+
+    #[test]
+    fn s3923_flags_identical_if_else_branches() {
+        let flagged = scan("if a:\n    run()\nelse:\n    run()\n");
+        assert_eq!(findings(&flagged, "python:S3923").len(), 1);
+        let clean = "if a:\n    run()\nelse:\n    walk()\n";
+        assert!(findings(&scan(clean), "python:S3923").is_empty());
+    }
+
+    #[test]
+    fn s3981_len_zero_comparison_table() {
+        for source in [
+            "if len(xs) >= 0:\n    show()\n",
+            "if 0 <= len(xs):\n    show()\n",
+        ] {
+            assert_eq!(findings(&scan(source), "python:S3981").len(), 1, "{source}");
+        }
+        for clean in [
+            "if len(xs) == 0:\n    show()\n",
+            "if len(xs) < 5:\n    show()\n",
+        ] {
+            assert!(findings(&scan(clean), "python:S3981").is_empty(), "{clean}");
+        }
+    }
+
+    #[test]
+    fn s1763_flags_statements_after_terminator() {
+        let flagged = scan("def f():\n    return 1\n    print(x)\n    y()\n");
+        let found = findings(&flagged, "python:S1763");
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].range.start.line, 3);
+        assert_eq!(found[1].range.start.line, 4);
+        let clean = "def f():\n    if a:\n        return 1\n    return 2\n";
+        assert!(findings(&scan(clean), "python:S1763").is_empty());
+    }
+
+    #[test]
+    fn s1764_flags_identical_operands_except_small_ints() {
+        assert_eq!(findings(&scan("z = x - x\n"), "python:S1764").len(), 1);
+        assert_eq!(findings(&scan("q = x == x\n"), "python:S1764").len(), 1);
+        for clean in ["z = x * 2\n", "q = 1 - 1\n"] {
+            assert!(findings(&scan(clean), "python:S1764").is_empty(), "{clean}");
+        }
+    }
+
+    #[test]
+    fn s1862_flags_duplicate_conditions_in_chain() {
+        let flagged = scan("if a == 1:\n    f()\nelif a == 1:\n    g()\n");
+        let found = findings(&flagged, "python:S1862");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
+        let clean = "if a == 1:\n    f()\nelif a == 2:\n    g()\n";
+        assert!(findings(&scan(clean), "python:S1862").is_empty());
+    }
+
+    #[test]
+    fn s1871_flags_duplicate_branch_bodies() {
+        let chain = scan("if a == 1:\n    do(x)\nelif a == 2:\n    do(x)\n");
+        let found = findings(&chain, "python:S1871");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 4);
+        let handlers =
+            scan("try:\n    risky()\nexcept A:\n    handle()\nexcept B:\n    handle()\n");
+        assert_eq!(findings(&handlers, "python:S1871").len(), 1);
+        let clean = "if a == 1:\n    do(x)\nelif a == 2:\n    do(y)\n";
+        assert!(findings(&scan(clean), "python:S1871").is_empty());
+    }
+
+    #[test]
+    fn s1940_flags_negated_comparisons() {
+        assert_eq!(
+            findings(&scan("ok = not (a == b)\n"), "python:S1940").len(),
+            1
+        );
+        assert!(findings(&scan("fine = not (a and b)\n"), "python:S1940").is_empty());
+    }
+
+    #[test]
+    fn s1656_flags_self_assignment() {
+        assert_eq!(findings(&scan("x = x\n"), "python:S1656").len(), 1);
+        assert_eq!(findings(&scan("x.y = x.y\n"), "python:S1656").len(), 1);
+        assert!(findings(&scan("x = y\n"), "python:S1656").is_empty());
+    }
+
+    #[test]
+    fn s2208_flags_wildcard_imports() {
+        assert_eq!(
+            findings(&scan("from m import *\n"), "python:S2208").len(),
+            1
+        );
+        assert!(findings(&scan("from m import thing\n"), "python:S2208").is_empty());
+    }
+
+    #[test]
+    fn s2761_flags_doubled_prefix_operators() {
+        assert_eq!(
+            findings(&scan("b = not not flag\n"), "python:S2761").len(),
+            1
+        );
+        assert_eq!(findings(&scan("c = ~~bits\n"), "python:S2761").len(), 1);
+        assert!(findings(&scan("flip = -(-amount)\n"), "python:S2761").is_empty());
+    }
+
+    #[test]
+    fn s5685_flags_confusing_walrus_positions() {
+        assert_eq!(
+            findings(&scan("vals = [y := get(y) for y in ys]\n"), "python:S5685").len(),
+            1
+        );
+        assert_eq!(
+            findings(&scan("mid = a < (b := c) < d\n"), "python:S5685").len(),
+            1
+        );
+        assert!(
+            findings(
+                &scan("kept = [y for y in ys if (mark := y)]\n"),
+                "python:S5685"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s5727_flags_constant_none_comparisons() {
+        assert_eq!(
+            findings(&scan("same = None == None\n"), "python:S5727").len(),
+            1
+        );
+        assert_eq!(
+            findings(&scan("odd = \"x\" == None\n"), "python:S5727").len(),
+            1
+        );
+        assert!(findings(&scan("maybe = x == None\n"), "python:S5727").is_empty());
+    }
+
+    #[test]
+    fn s5796_flags_identity_on_fresh_objects() {
+        assert_eq!(
+            findings(&scan("never = [] is []\n"), "python:S5796").len(),
+            1
+        );
+        assert_eq!(
+            findings(&scan("fresh = list() is other\n"), "python:S5796").len(),
+            1
+        );
+        assert!(findings(&scan("ref = a is b\n"), "python:S5796").is_empty());
+    }
+
+    #[test]
+    fn s5905_flags_nonempty_tuple_assertions() {
+        let flagged = scan("assert (False, \"why\")\n");
+        assert_eq!(findings(&flagged, "python:S5905").len(), 1);
+        for clean in ["assert ()\n", "assert condition\n"] {
+            assert!(findings(&scan(clean), "python:S5905").is_empty(), "{clean}");
+        }
+    }
+
+    #[test]
+    fn s6660_prefers_isinstance_over_type_equality() {
+        assert_eq!(
+            findings(&scan("exact = type(x) is int\n"), "python:S6660").len(),
+            1
+        );
+        assert!(findings(&scan("safe = isinstance(x, int)\n"), "python:S6660").is_empty());
+    }
+
+    #[test]
+    fn s6661_flags_lambdas_assigned_to_names() {
+        assert_eq!(
+            findings(&scan("handler = lambda e: str(e)\n"), "python:S6661").len(),
+            1
+        );
+        assert!(
+            findings(
+                &scan("def handler(e):\n    return str(e)\n"),
+                "python:S6661"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s6659_prefers_startswith_endswith_over_slices() {
+        assert_eq!(
+            findings(&scan("head = name[:2] == \"ab\"\n"), "python:S6659").len(),
+            1
+        );
+        assert_eq!(
+            findings(&scan("tail = name[-2:] == \"cd\"\n"), "python:S6659").len(),
+            1
+        );
+        assert!(findings(&scan("mid = name[1:2] == \"b\"\n"), "python:S6659").is_empty());
+    }
+
+    #[test]
+    fn s1244_flags_exact_float_equality_only() {
+        assert_eq!(
+            findings(&scan("close = 0.1 + 0.2 == 0.3\n"), "python:S1244").len(),
+            1
+        );
+        for clean in ["cmp = 0.1 < 0.2\n", "ieq = 1 == 2\n"] {
+            assert!(findings(&scan(clean), "python:S1244").is_empty(), "{clean}");
+        }
+    }
+
+    #[test]
+    fn s905_flags_pure_expression_statements_but_not_docstrings() {
+        let flagged = scan("\"\"\"Module doc.\"\"\"\n42\nx == 1\nrun(x)\n");
+        let found = findings(&flagged, "python:S905");
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].range.start.line, 2);
+        assert_eq!(found[1].range.start.line, 3);
+    }
+
+    #[test]
+    fn s2733_checks_exit_signature_completeness() {
+        let flagged =
+            scan("class C:\n    def __exit__(self, kind, value):\n        return False\n");
+        assert_eq!(findings(&flagged, "python:S2733").len(), 1);
+        let clean = "class C:\n    def __exit__(self, kind, value, trace):\n        return False\n";
+        assert!(findings(&scan(clean), "python:S2733").is_empty());
+    }
+
+    #[test]
+    fn s2734_flags_init_returning_value() {
+        let flagged =
+            scan("class C:\n    def __init__(self):\n        self.x = 1\n        return 5\n");
+        let found = findings(&flagged, "python:S2734");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 4);
+        let clean = "class C:\n    def __init__(self):\n        self.x = 1\n        return None\n";
+        assert!(findings(&scan(clean), "python:S2734").is_empty());
+    }
+
+    #[test]
+    fn s2737_flags_handlers_that_only_reraise() {
+        let flagged = scan("try:\n    risky()\nexcept ValueError:\n    raise\n");
+        assert_eq!(findings(&flagged, "python:S2737").len(), 1);
+        let clean = "try:\n    risky()\nexcept ValueError:\n    log()\n    raise\n";
+        assert!(findings(&scan(clean), "python:S2737").is_empty());
+    }
+
+    #[test]
+    fn s5712_prefers_returning_notimplemented() {
+        let flagged =
+            scan("class P:\n    def __eq__(self, other):\n        raise NotImplementedError\n");
+        assert_eq!(findings(&flagged, "python:S5712").len(), 1);
+        let clean = "class P:\n    def __eq__(self, other):\n        return NotImplemented\n";
+        assert!(findings(&scan(clean), "python:S5712").is_empty());
+    }
+
+    #[test]
+    fn s5719_requires_positional_parameter_on_methods() {
+        let flagged = scan("class C:\n    def method():\n        return 1\n");
+        assert_eq!(findings(&flagged, "python:S5719").len(), 1);
+        let static_clean = "class C:\n    @staticmethod\n    def util():\n        return 1\n";
+        assert!(findings(&scan(static_clean), "python:S5719").is_empty());
+        let bound_clean = "class C:\n    def method(self):\n        return 1\n";
+        assert!(findings(&scan(bound_clean), "python:S5719").is_empty());
+    }
+
+    #[test]
+    fn s5720_requires_self_first_for_instance_methods() {
+        let flagged = scan("class C:\n    def show(this_one):\n        return this_one\n");
+        assert_eq!(findings(&flagged, "python:S5720").len(), 1);
+        let classmethod_clean =
+            "class C:\n    @classmethod\n    def build(cls):\n        return cls\n";
+        assert!(findings(&scan(classmethod_clean), "python:S5720").is_empty());
+    }
+
+    #[test]
+    fn s5722_flags_missing_special_method_parameters() {
+        let flagged = scan("class C:\n    def __lt__(self):\n        return NotImplemented\n");
+        assert_eq!(findings(&flagged, "python:S5722").len(), 1);
+        let clean = "class C:\n    def __lt__(self, other):\n        return NotImplemented\n";
+        assert!(findings(&scan(clean), "python:S5722").is_empty());
+    }
+
+    #[test]
+    fn s5724_checks_property_accessor_arity_exactly() {
+        let flagged =
+            scan("class C:\n    @property\n    def size(self, extra):\n        return 1\n");
+        assert_eq!(findings(&flagged, "python:S5724").len(), 1);
+        for clean in [
+            "class C:\n    @property\n    def size(self):\n        return 1\n",
+            "class C:\n    @size.setter\n    def size(self, value):\n        self._size = value\n",
+        ] {
+            assert!(findings(&scan(clean), "python:S5724").is_empty(), "{clean}");
+        }
+    }
+
+    #[test]
+    fn s5709_requires_exception_base_for_exception_named_classes() {
+        assert_eq!(
+            findings(&scan("class AppError:\n    pass\n"), "python:S5709").len(),
+            1
+        );
+        for clean in [
+            "class AppError(Exception):\n    pass\n",
+            "class Plain:\n    pass\n",
+        ] {
+            assert!(findings(&scan(clean), "python:S5709").is_empty(), "{clean}");
+        }
+    }
+
+    #[test]
+    fn s5714_flags_boolean_except_specifications() {
+        let flagged = scan("try:\n    run()\nexcept (A or B):\n    stop()\n");
+        assert_eq!(findings(&flagged, "python:S5714").len(), 1);
+        let clean = "try:\n    run()\nexcept (A, B):\n    stop()\n";
+        assert!(findings(&scan(clean), "python:S5714").is_empty());
+    }
+
+    #[test]
+    fn s5704_and_s5747_classify_bare_raise_by_context() {
+        let in_finally = scan(
+            "def f():\n    try:\n        work()\n    finally:\n        cleanup()\n        raise\n",
+        );
+        assert_eq!(findings(&in_finally, "python:S5704").len(), 1);
+        let outside = scan("def f():\n    if ready:\n        raise\n");
+        assert_eq!(findings(&outside, "python:S5747").len(), 1);
+        let in_except = scan("try:\n    work()\nexcept ValueError:\n    raise\n");
+        assert!(findings(&in_except, "python:S5704").is_empty());
+        assert!(findings(&in_except, "python:S5747").is_empty());
+    }
+
+    #[test]
+    fn s1143_flags_jump_statements_inside_finally() {
+        let flagged = scan("def f():\n    try:\n        load()\n    finally:\n        return 1\n");
+        assert_eq!(findings(&flagged, "python:S1143").len(), 1);
+        let clean = "def f():\n    try:\n        load()\n    finally:\n        release()\n";
+        assert!(findings(&scan(clean), "python:S1143").is_empty());
+    }
+
+    #[test]
+    fn s1716_flags_break_continue_without_enclosing_loop() {
+        assert_eq!(
+            findings(&scan("def f():\n    break\n"), "python:S1716").len(),
+            1
+        );
+        let clean = "for _ in xs:\n    break\n";
+        assert!(findings(&scan(clean), "python:S1716").is_empty());
+    }
+
+    #[test]
+    fn s5706_flags_exit_reraising_its_arguments() {
+        let flagged = scan(concat!(
+            "class C:\n",
+            "    def __exit__(self, kind, value, trace):\n",
+            "        cleanup(value)\n",
+            "        raise value\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S5706").len(), 1);
+        let clean = concat!(
+            "class C:\n",
+            "    def __exit__(self, kind, value, trace):\n",
+            "        cleanup(value)\n",
+            "        return False\n"
+        );
+        assert!(findings(&scan(clean), "python:S5706").is_empty());
+    }
+
+    #[test]
+    fn s5754_requires_systemexit_reraise() {
+        let flagged = scan("try:\n    run_app()\nexcept SystemExit:\n    cleanup()\n");
+        assert_eq!(findings(&flagged, "python:S5754").len(), 1);
+        let clean = "try:\n    run_app()\nexcept ValueError:\n    cleanup()\n";
+        assert!(findings(&scan(clean), "python:S5754").is_empty());
+    }
+
+    #[test]
+    fn s1515_flags_closures_capturing_loop_variables() {
+        let flagged = scan("callbacks = []\nfor i in range(3):\n    callbacks.append(lambda: i)\n");
+        let found = findings(&flagged, "python:S1515");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
+        let clean = "callbacks = []\nfor i in range(3):\n    callbacks.append(lambda v: v)\n";
+        assert!(findings(&scan(clean), "python:S1515").is_empty());
+    }
+
+    #[test]
+    fn s2710_requires_cls_naming_for_classmethods() {
+        let flagged =
+            scan("class C:\n    @classmethod\n    def make(other):\n        return other\n");
+        assert_eq!(findings(&flagged, "python:S2710").len(), 1);
+        let clean = "class C:\n    @classmethod\n    def make(cls):\n        return cls\n";
+        assert!(findings(&scan(clean), "python:S2710").is_empty());
+    }
+
+    #[test]
+    fn s2711_flags_yield_outside_functions() {
+        let flagged = scan("yield 1\n");
+        assert_eq!(findings(&flagged, "python:S2711").len(), 1);
+        let clean = "def g():\n    yield 1\n";
+        assert!(findings(&scan(clean), "python:S2711").is_empty());
+    }
+
+    #[test]
+    fn s2712_flags_generator_returning_value() {
+        let flagged = scan("def gen():\n    yield 1\n    return 5\n");
+        let found = findings(&flagged, "python:S2712");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
+        let clean = "def gen():\n    yield 1\n    return\n";
+        assert!(findings(&scan(clean), "python:S2712").is_empty());
+    }
+
+    #[test]
+    fn s5899_flags_test_methods_runners_cannot_discover() {
+        let flagged = scan("class T(TestCase):\n    def my_test(self):\n        pass\n");
+        assert_eq!(findings(&flagged, "python:S5899").len(), 1);
+        for clean in [
+            "class T(TestCase):\n    def test_it(self):\n        pass\n",
+            "class U:\n    def my_test(self):\n        pass\n",
+        ] {
+            assert!(findings(&scan(clean), "python:S5899").is_empty(), "{clean}");
+        }
+    }
+
+    #[test]
+    fn s5915_flags_unittest_assertion_closing_except_block() {
+        let flagged =
+            scan("try:\n    parse(raw)\nexcept ValueError:\n    self.assertEqual(got, want)\n");
+        assert_eq!(findings(&flagged, "python:S5915").len(), 1);
+        let clean = "try:\n    parse(raw)\nexcept ValueError:\n    log(got)\nassert want == got\n";
+        assert!(findings(&scan(clean), "python:S5915").is_empty());
+    }
+
+    #[test]
+    fn s5780_flags_duplicate_dict_literal_keys() {
+        let flagged = scan("cfg = {\"retries\": 1, \"retries\": 2}\n");
+        assert_eq!(findings(&flagged, "python:S5780").len(), 1);
+        let clean = "cfg = {\"retries\": 1, \"timeout\": 2}\n";
+        assert!(findings(&scan(clean), "python:S5780").is_empty());
+    }
+
+    #[test]
+    fn s5781_flags_duplicate_set_literal_elements() {
+        assert_eq!(
+            findings(&scan("singles = {1, 1}\n"), "python:S5781").len(),
+            1
+        );
+        assert!(findings(&scan("pair = {1, 2}\n"), "python:S5781").is_empty());
+    }
+
+    #[test]
+    fn s7498_prefers_literal_syntax_for_empty_collections() {
+        let flagged = scan("empty = dict()\nnamed = dict(a=1)\nseq = list()\n");
+        assert_eq!(findings(&flagged, "python:S7498").len(), 3);
+        for clean in ["first = {}\n", "second = []\n"] {
+            assert!(findings(&scan(clean), "python:S7498").is_empty(), "{clean}");
+        }
+    }
+
+    #[test]
+    fn s7496_flags_redundant_wrapping_constructors() {
+        let flagged = scan(
+            "wrapped = list([1, 2])\nsets = set({1})\nmaps = dict({\"a\": 1})\nconv = list((4, 5))\n",
+        );
+        assert_eq!(findings(&flagged, "python:S7496").len(), 3);
+        // The tuple conversion is a real type change and stays unflagged.
+        assert_eq!(
+            flagged
+                .issues
+                .iter()
+                .filter(|i| i.range.start.line == 4)
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn s7494_prefers_comprehension_over_wrapped_generator() {
+        assert_eq!(
+            findings(&scan("evens = list(x for x in xs)\n"), "python:S7494").len(),
+            1
+        );
+        assert!(findings(&scan("odds = [x for x in xs]\n"), "python:S7494").is_empty());
+    }
+
+    #[test]
+    fn s7500_flags_only_element_renaming_comprehensions() {
+        assert_eq!(
+            findings(&scan("copy = [item for item in items]\n"), "python:S7500").len(),
+            1
+        );
+        for clean in [
+            "shaped = [render(item) for item in items]\n",
+            "kept = [item for item in items if item]\n",
+        ] {
+            assert!(findings(&scan(clean), "python:S7500").is_empty(), "{clean}");
+        }
+    }
+
+    #[test]
+    fn s7504_flags_iteration_over_list_wrapped_iterable() {
+        let flagged = scan("for item in list(items):\n    show(item)\n");
+        assert_eq!(findings(&flagged, "python:S7504").len(), 1);
+        let clean = "for item in items:\n    show(item)\n";
+        assert!(findings(&scan(clean), "python:S7504").is_empty());
+    }
+
+    #[test]
+    fn s7505_flags_map_calls_with_lambda() {
+        assert_eq!(
+            findings(
+                &scan("doubled = map(lambda v: v * 2, values)\n"),
+                "python:S7505"
+            )
+            .len(),
+            1
+        );
+        assert!(findings(&scan("names = map(str, values)\n"), "python:S7505").is_empty());
+    }
+
+    #[test]
+    fn s7506_prefers_fromkeys_for_constant_values() {
+        assert_eq!(
+            findings(
+                &scan("labels = {k: \"default\" for k in keys}\n"),
+                "python:S7506"
+            )
+            .len(),
+            1
+        );
+        assert!(
+            findings(
+                &scan("computed = {k: render(k) for k in keys}\n"),
+                "python:S7506"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s7507_flags_defaultdict_default_factory_keyword() {
+        assert_eq!(
+            findings(
+                &scan("registry = defaultdict(default_factory=list)\n"),
+                "python:S7507"
+            )
+            .len(),
+            1
+        );
+        assert!(findings(&scan("registry = defaultdict(list)\n"), "python:S7507").is_empty());
+    }
+
+    #[test]
+    fn s7508_flags_nested_identical_constructors() {
+        assert_eq!(
+            findings(&scan("twice = list(list(rows))\n"), "python:S7508").len(),
+            1
+        );
+        assert!(findings(&scan("mixed = list(set(rows))\n"), "python:S7508").is_empty());
+    }
+
+    #[test]
+    fn s7510_prefers_reverse_sorting_in_place() {
+        assert_eq!(
+            findings(
+                &scan("descending = reversed(sorted(scores))\n"),
+                "python:S7510"
+            )
+            .len(),
+            1
+        );
+        assert!(
+            findings(
+                &scan("top = sorted(scores, reverse=True)\n"),
+                "python:S7510"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s7511_flags_discarded_and_doubled_reversed_calls() {
+        let flagged = scan(concat!(
+            "lost = set(reversed(stream))\n",
+            "kept = sorted(reversed(stream))\n",
+            "twice = reversed(reversed(path))\n",
+            "meaningful = reversed(sorted(path))\n"
+        ));
+        let found = findings(&flagged, "python:S7511");
+        assert_eq!(found.len(), 3);
+        assert_eq!(
+            found
+                .iter()
+                .map(|issue| issue.range.start.line)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn s7516_flags_sorting_before_set_construction() {
+        assert_eq!(
+            findings(&scan("unique = set(sorted(entries))\n"), "python:S7516").len(),
+            1
+        );
+        assert!(findings(&scan("ordered = list(sorted(entries))\n"), "python:S7516").is_empty());
+    }
+
+    #[test]
+    fn s7517_flags_manual_key_lookups_by_loop_variable() {
+        let flagged = scan("for k in prices:\n    total[k] = prices[k]\n");
+        let found = findings(&flagged, "python:S7517");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 2);
+        let clean = "for k in prices:\n    show(k)\n";
+        assert!(findings(&scan(clean), "python:S7517").is_empty());
+    }
+
+    #[test]
+    fn s7519_prefers_fromkeys_for_constant_loops() {
+        let flagged = scan("flags = {}\nfor name in nodes:\n    flags[name] = True\n");
+        let found = findings(&flagged, "python:S7519");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 2);
+        let clean = "sizes = {}\nfor name in nodes:\n    sizes[name] = len(name)\n";
+        assert!(findings(&scan(clean), "python:S7519").is_empty());
+    }
+
+    #[test]
+    fn s7512_flags_items_pairs_when_only_keys_used() {
+        let flagged = scan("for key, value in record.items():\n    audit(key)\n");
+        assert_eq!(findings(&flagged, "python:S7512").len(), 1);
+        let clean = "for key, value in record.items():\n    audit(key, value)\n";
+        assert!(findings(&scan(clean), "python:S7512").is_empty());
     }
 }
