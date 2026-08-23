@@ -5,8 +5,8 @@
 //! the frozen `hoonarqube-catalog` catalog via [`hoonarqube_ir::Issue::rule_key`];
 //! they are deliberately never duplicated here.
 
-use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap};
 
 use std::path::PathBuf;
 
@@ -22,9 +22,11 @@ use ruff_text_size::{Ranged, TextRange, TextSize};
 /// `maximumLinesOfCode` default `1000`, `maximumFunctionParameters` default
 /// `13`, `maximumReturnStatements` default `3`, `maximumFunctionLength`
 /// default `100`, `maximumNestingDepth` default `4`,
-/// `maximumCognitiveComplexity` default `15`, complexity defaults `200`/`200`/`15`,
+/// `maximumCognitiveComplexity` default `15`, complexity defaults
+/// `200`/`200`/`15`,
 /// S1192 duplicate-literal threshold `3`, S139 trailing-comment whitelist,
-/// S1481 unused-local ignore pattern, S4487 single-underscore opt-in).
+/// S1481 unused-local ignore pattern, S4487 single-underscore opt-in,
+/// S5843 maximum regular-expression complexity `20`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalyzerOptions {
     pub maximum_line_length: u32,
@@ -64,6 +66,9 @@ pub struct AnalyzerOptions {
     /// Extends `python:S4487` to single-underscore attributes; mirrors the
     /// catalog `enableSingleUnderscoreIssues` parameter (default `false`).
     pub enable_single_underscore_attribute_issues: bool,
+    /// Maximum complexity for `python:S5843` over parsed regular-expression
+    /// patterns; mirrors the catalog `maxComplexity` parameter (default `20`).
+    pub regex_maximum_complexity: u32,
 }
 
 impl Default for AnalyzerOptions {
@@ -86,6 +91,7 @@ impl Default for AnalyzerOptions {
             require_type_hints: false,
             unused_local_ignore_pattern: String::from("(_[a-zA-Z0-9_]*|dummy|unused|ignored)"),
             enable_single_underscore_attribute_issues: false,
+            regex_maximum_complexity: 20,
         }
     }
 }
@@ -142,6 +148,7 @@ pub fn analyze(
     issues.extend(check_tier_a_battery(&parsed, &index, source));
     issues.extend(check_tier_a_battery_2(&parsed, &index, source, options));
     issues.extend(check_tier_b_battery(&parsed, &index, source, options));
+    issues.extend(check_regex_battery(&parsed, &index, source, options));
     sort_issues(&mut issues);
 
     hoonarqube_ir::FileReport {
@@ -8153,29 +8160,152 @@ struct FileFacts {
 }
 
 const BUILTIN_NAMES: &[&str] = &[
-    "abs", "all", "any", "ascii", "bin", "bool", "bytearray", "bytes", "callable", "chr",
-    "classmethod", "compile", "complex", "delattr", "dict", "dir", "divmod", "enumerate", "eval",
-    "exec", "exit", "filter", "float", "format", "frozenset", "getattr", "globals", "hasattr",
-    "hash", "help", "hex", "id", "input", "int", "isinstance", "issubclass", "iter", "len",
-    "list", "locals", "map", "max", "memoryview", "min", "next", "object", "oct", "open", "ord",
-    "pow", "print", "property", "quit", "range", "repr", "reversed", "round", "set", "setattr",
-    "slice", "sorted", "staticmethod", "str", "sum", "super", "tuple", "type", "vars", "zip",
-    "__import__", "__name__", "__file__", "__doc__", "__spec__", "__package__", "__loader__",
-    "__builtins__", "__debug__", "__annotations__", "__cached__", "ArithmeticError",
-    "AssertionError", "AttributeError", "BaseException", "BlockingIOError", "BrokenPipeError",
-    "BufferError", "BytesWarning", "ChildProcessError", "ConnectionAbortedError",
-    "ConnectionError", "ConnectionRefusedError", "ConnectionResetError", "DeprecationWarning",
-    "EOFError", "EnvironmentError", "Exception", "FileExistsError", "FileNotFoundError",
-    "FloatingPointError", "FutureWarning", "GeneratorExit", "IOError", "ImportError",
-    "ImportWarning", "IndentationError", "IndexError", "InterruptedError", "IsADirectoryError",
-    "KeyError", "KeyboardInterrupt", "LookupError", "MemoryError", "ModuleNotFoundError",
-    "NameError", "NotADirectoryError", "NotImplementedError", "OSError", "OverflowError",
-    "PendingDeprecationWarning", "PermissionError", "ProcessLookupError", "RecursionError",
-    "ReferenceError", "ResourceWarning", "RuntimeError", "RuntimeWarning",
-    "StopAsyncIteration", "StopIteration", "SyntaxError", "SyntaxWarning", "SystemError",
-    "SystemExit", "TabError", "TimeoutError", "TypeError", "UnboundLocalError",
-    "UnicodeDecodeError", "UnicodeEncodeError", "UnicodeError", "UnicodeTranslateError",
-    "UnicodeWarning", "UserWarning", "ValueError", "Warning", "ZeroDivisionError",
+    "abs",
+    "all",
+    "any",
+    "ascii",
+    "bin",
+    "bool",
+    "bytearray",
+    "bytes",
+    "callable",
+    "chr",
+    "classmethod",
+    "compile",
+    "complex",
+    "delattr",
+    "dict",
+    "dir",
+    "divmod",
+    "enumerate",
+    "eval",
+    "exec",
+    "exit",
+    "filter",
+    "float",
+    "format",
+    "frozenset",
+    "getattr",
+    "globals",
+    "hasattr",
+    "hash",
+    "help",
+    "hex",
+    "id",
+    "input",
+    "int",
+    "isinstance",
+    "issubclass",
+    "iter",
+    "len",
+    "list",
+    "locals",
+    "map",
+    "max",
+    "memoryview",
+    "min",
+    "next",
+    "object",
+    "oct",
+    "open",
+    "ord",
+    "pow",
+    "print",
+    "property",
+    "quit",
+    "range",
+    "repr",
+    "reversed",
+    "round",
+    "set",
+    "setattr",
+    "slice",
+    "sorted",
+    "staticmethod",
+    "str",
+    "sum",
+    "super",
+    "tuple",
+    "type",
+    "vars",
+    "zip",
+    "__import__",
+    "__name__",
+    "__file__",
+    "__doc__",
+    "__spec__",
+    "__package__",
+    "__loader__",
+    "__builtins__",
+    "__debug__",
+    "__annotations__",
+    "__cached__",
+    "ArithmeticError",
+    "AssertionError",
+    "AttributeError",
+    "BaseException",
+    "BlockingIOError",
+    "BrokenPipeError",
+    "BufferError",
+    "BytesWarning",
+    "ChildProcessError",
+    "ConnectionAbortedError",
+    "ConnectionError",
+    "ConnectionRefusedError",
+    "ConnectionResetError",
+    "DeprecationWarning",
+    "EOFError",
+    "EnvironmentError",
+    "Exception",
+    "FileExistsError",
+    "FileNotFoundError",
+    "FloatingPointError",
+    "FutureWarning",
+    "GeneratorExit",
+    "IOError",
+    "ImportError",
+    "ImportWarning",
+    "IndentationError",
+    "IndexError",
+    "InterruptedError",
+    "IsADirectoryError",
+    "KeyError",
+    "KeyboardInterrupt",
+    "LookupError",
+    "MemoryError",
+    "ModuleNotFoundError",
+    "NameError",
+    "NotADirectoryError",
+    "NotImplementedError",
+    "OSError",
+    "OverflowError",
+    "PendingDeprecationWarning",
+    "PermissionError",
+    "ProcessLookupError",
+    "RecursionError",
+    "ReferenceError",
+    "ResourceWarning",
+    "RuntimeError",
+    "RuntimeWarning",
+    "StopAsyncIteration",
+    "StopIteration",
+    "SyntaxError",
+    "SyntaxWarning",
+    "SystemError",
+    "SystemExit",
+    "TabError",
+    "TimeoutError",
+    "TypeError",
+    "UnboundLocalError",
+    "UnicodeDecodeError",
+    "UnicodeEncodeError",
+    "UnicodeError",
+    "UnicodeTranslateError",
+    "UnicodeWarning",
+    "UserWarning",
+    "ValueError",
+    "Warning",
+    "ZeroDivisionError",
 ];
 
 fn is_builtin_name(name: &str) -> bool {
@@ -8287,14 +8417,20 @@ fn collect_scope_stmt(table: &mut SymbolTable, current: usize, stmt: &Stmt, loop
             record_import_stmt(table, current, stmt, loop_depth);
         }
         Stmt::Global(global_stmt) => {
-            table.scopes[current]
-                .global_names
-                .extend(global_stmt.names.iter().map(|name| name.as_str().to_string()));
+            table.scopes[current].global_names.extend(
+                global_stmt
+                    .names
+                    .iter()
+                    .map(|name| name.as_str().to_string()),
+            );
         }
         Stmt::Nonlocal(nonlocal_stmt) => {
-            table.scopes[current]
-                .nonlocal_names
-                .extend(nonlocal_stmt.names.iter().map(|name| name.as_str().to_string()));
+            table.scopes[current].nonlocal_names.extend(
+                nonlocal_stmt
+                    .names
+                    .iter()
+                    .map(|name| name.as_str().to_string()),
+            );
         }
         Stmt::For(loop_stmt) => {
             record_expr_loads(table, current, &loop_stmt.iter, false, loop_depth);
@@ -8327,13 +8463,7 @@ fn collect_scope_stmt(table: &mut SymbolTable, current: usize, stmt: &Stmt, loop
             for item in &with_stmt.items {
                 record_expr_loads(table, current, &item.context_expr, false, loop_depth);
                 if let Some(vars) = item.optional_vars.as_deref() {
-                    record_store_target(
-                        table,
-                        current,
-                        vars,
-                        BindingKind::Assignment,
-                        loop_depth,
-                    );
+                    record_store_target(table, current, vars, BindingKind::Assignment, loop_depth);
                 }
             }
             collect_scope_stmts(table, current, &with_stmt.body, loop_depth);
@@ -8358,22 +8488,11 @@ fn collect_scope_stmt(table: &mut SymbolTable, current: usize, stmt: &Stmt, loop
     }
 }
 
-fn record_assignment_stmt(
-    table: &mut SymbolTable,
-    current: usize,
-    stmt: &Stmt,
-    loop_depth: u32,
-) {
+fn record_assignment_stmt(table: &mut SymbolTable, current: usize, stmt: &Stmt, loop_depth: u32) {
     match stmt {
         Stmt::Assign(assign) => {
             for target in &assign.targets {
-                record_store_target(
-                    table,
-                    current,
-                    target,
-                    BindingKind::Assignment,
-                    loop_depth,
-                );
+                record_store_target(table, current, target, BindingKind::Assignment, loop_depth);
             }
             record_expr_loads(table, current, &assign.value, false, loop_depth);
         }
@@ -8392,9 +8511,11 @@ fn record_assignment_stmt(
         }
         Stmt::AugAssign(augmented) => {
             if let Expr::Name(name) = augmented.target.as_ref() {
-                table.scopes[current]
-                    .loads
-                    .push((name.id.as_str().to_string(), name.range(), false));
+                table.scopes[current].loads.push((
+                    name.id.as_str().to_string(),
+                    name.range(),
+                    false,
+                ));
             }
             record_store_target(
                 table,
@@ -8635,15 +8756,20 @@ fn record_expr_loads(
                 );
             }
             ruff_python_ast::ExprContext::Load | ruff_python_ast::ExprContext::Del => {
-                table
-                    .scopes[current]
-                    .loads
-                    .push((name.id.as_str().to_string(), name.range(), in_annotation));
+                table.scopes[current].loads.push((
+                    name.id.as_str().to_string(),
+                    name.range(),
+                    in_annotation,
+                ));
             }
             ruff_python_ast::ExprContext::Invalid => {}
         },
-        Expr::Named(_) | Expr::Lambda(_) | Expr::ListComp(_) | Expr::SetComp(_)
-        | Expr::Generator(_) | Expr::DictComp(_) => {
+        Expr::Named(_)
+        | Expr::Lambda(_)
+        | Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::Generator(_)
+        | Expr::DictComp(_) => {
             record_scope_creating_expr(table, current, expr, in_annotation, loop_depth);
         }
         _ => {
@@ -8847,7 +8973,10 @@ fn collect_file_facts(parsed: &Parsed<ModModule>, source: &str) -> FileFacts {
     }
     for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
         if let Stmt::ImportFrom(import_from) = stmt
-            && import_from.names.iter().any(|alias| alias.name.as_str() == "*")
+            && import_from
+                .names
+                .iter()
+                .any(|alias| alias.name.as_str() == "*")
         {
             facts.has_wildcard_import = true;
         }
@@ -8883,16 +9012,12 @@ fn collect_file_facts(parsed: &Parsed<ModModule>, source: &str) -> FileFacts {
 /// excluded (definition) ranges. Never produces false positives for
 /// unused-name rules because every plausible textual use counts.
 fn name_used_in_tokens(facts: &FileFacts, name: &str, excluded: &[TextRange]) -> bool {
-    facts
-        .token_names
-        .iter()
-        .any(|(token_name, range)| {
-            token_name == name
-                && !excluded.iter().any(|excluded_range| {
-                    excluded_range.start() <= range.start()
-                        && range.end() <= excluded_range.end()
-                })
-        })
+    facts.token_names.iter().any(|(token_name, range)| {
+        token_name == name
+            && !excluded.iter().any(|excluded_range| {
+                excluded_range.start() <= range.start() && range.end() <= excluded_range.end()
+            })
+    })
 }
 fn module_all_exports(parsed: &Parsed<ModModule>) -> Vec<(String, TextRange)> {
     let mut exports: Vec<(String, TextRange)> = Vec::new();
@@ -8984,7 +9109,10 @@ fn check_unused_private_methods(
         }
         let referenced = facts.attr_reads.iter().any(|(attr, _)| attr == &site.name)
             || facts.called_names.contains(&site.name)
-            || facts.string_texts.iter().any(|text| text.contains(&site.name))
+            || facts
+                .string_texts
+                .iter()
+                .any(|text| text.contains(&site.name))
             || name_used_in_tokens(facts, &site.name, &[site.name_range]);
         if !referenced {
             issues.push(issue_at(
@@ -9016,9 +9144,11 @@ fn check_unused_parameters(
             if param_name.starts_with('_') || matches!(param_name.as_str(), "self" | "cls") {
                 continue;
             }
-            let used = table.resolved_loads.iter().any(|load| {
-                load.target == Some(site.own_scope) && load.name == *param_name
-            }) || name_used_in_tokens(facts, param_name, &[*param_range]);
+            let used = table
+                .resolved_loads
+                .iter()
+                .any(|load| load.target == Some(site.own_scope) && load.name == *param_name)
+                || name_used_in_tokens(facts, param_name, &[*param_range]);
             if !used {
                 issues.push(issue_at(
                     "python:S1172",
@@ -9052,9 +9182,12 @@ fn check_unused_locals(
             if name.starts_with('_')
                 || unused_name_matches_pattern(name, &options.unused_local_ignore_pattern)
                 || scope_has_dynamic_declaration(scope, name)
-                || bindings
-                    .iter()
-                    .any(|binding| !matches!(binding.kind, BindingKind::Assignment | BindingKind::ExceptName))
+                || bindings.iter().any(|binding| {
+                    !matches!(
+                        binding.kind,
+                        BindingKind::Assignment | BindingKind::ExceptName
+                    )
+                })
             {
                 continue;
             }
@@ -9119,10 +9252,15 @@ fn check_use_before_definition(
 // --- python:S3985 / python:S5603 — unused nested definitions ------------------
 
 fn definition_is_used(table: &SymbolTable, facts: &FileFacts, site: &DefSite) -> bool {
-    table.resolved_loads.iter().any(|load| {
-        load.target == Some(site.enclosing_scope) && load.name == site.name
-    }) || facts.called_names.contains(&site.name)
-        || facts.string_texts.iter().any(|text| text.contains(&site.name))
+    table
+        .resolved_loads
+        .iter()
+        .any(|load| load.target == Some(site.enclosing_scope) && load.name == site.name)
+        || facts.called_names.contains(&site.name)
+        || facts
+            .string_texts
+            .iter()
+            .any(|text| text.contains(&site.name))
         || name_used_in_tokens(facts, &site.name, &[site.name_range])
 }
 
@@ -9171,7 +9309,10 @@ fn check_unused_nested_definitions(
         let (key, message) = match site.flavor {
             DefFlavor::Function if is_private_name(&site.name) => (
                 "python:S5603",
-                format!("Remove this unused private nested function '{}'.", site.name),
+                format!(
+                    "Remove this unused private nested function '{}'.",
+                    site.name
+                ),
             ),
             DefFlavor::Function => (
                 "python:S5603",
@@ -9189,11 +9330,7 @@ fn check_unused_nested_definitions(
 
 // --- python:S5806 — shadowed builtins ----------------------------------------
 
-fn check_shadowed_builtins(
-    table: &SymbolTable,
-    index: &LineIndex,
-    source: &str,
-) -> Vec<Issue> {
+fn check_shadowed_builtins(table: &SymbolTable, index: &LineIndex, source: &str) -> Vec<Issue> {
     let mut issues = Vec::new();
     for scope in &table.scopes {
         for (name, bindings) in &scope.bindings {
@@ -9291,9 +9428,15 @@ fn check_unread_private_attributes(
         {
             continue;
         }
-        let read = facts.attr_reads.iter().any(|(read_attr, _)| read_attr == attr)
+        let read = facts
+            .attr_reads
+            .iter()
+            .any(|(read_attr, _)| read_attr == attr)
             || name_used_in_tokens(facts, attr, &[*range])
-            || facts.string_texts.iter().any(|text| text.contains(attr.as_str()));
+            || facts
+                .string_texts
+                .iter()
+                .any(|text| text.contains(attr.as_str()));
         if !read {
             issues.push(issue_at(
                 "python:S4487",
@@ -9375,7 +9518,9 @@ fn suite_has_direct_continue(suite: &[Stmt]) -> bool {
     suite.iter().any(|stmt| match stmt {
         Stmt::Continue(_) => true,
         Stmt::For(_) | Stmt::While(_) | Stmt::FunctionDef(_) | Stmt::ClassDef(_) => false,
-        _ => child_bodies(stmt).iter().any(|body| suite_has_direct_continue(body)),
+        _ => child_bodies(stmt)
+            .iter()
+            .any(|body| suite_has_direct_continue(body)),
     })
 }
 
@@ -9459,7 +9604,9 @@ fn check_explicit_test_skips(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
-        let Stmt::FunctionDef(function) = stmt else { return };
+        let Stmt::FunctionDef(function) = stmt else {
+            return;
+        };
         if !function.name.as_str().starts_with("test") || function.body.len() < 2 {
             return;
         }
@@ -9492,7 +9639,9 @@ fn check_tf_function_recursion(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
-        let Stmt::FunctionDef(function) = stmt else { return };
+        let Stmt::FunctionDef(function) = stmt else {
+            return;
+        };
         if !is_tf_function(function) {
             return;
         }
@@ -9546,11 +9695,8 @@ fn check_overwritten_parameters(
                 .filter(|binding| binding.kind == BindingKind::Assignment)
                 .map(|binding| binding.range)
                 .collect();
-            let loads: Vec<TextRange> = table
-                .resolved_loads
-                .iter()
-                .map(|load| load.range)
-                .collect();
+            let loads: Vec<TextRange> =
+                table.resolved_loads.iter().map(|load| load.range).collect();
             let Some(&first_overwrite) = overwrites.iter().reduce(|left, right| {
                 if right.start() < left.start() {
                     right
@@ -9583,7 +9729,9 @@ fn check_overwritten_parameters(
             if !read_before_overwrite && read_after_overwrite {
                 issues.push(issue_at(
                     "python:S1226",
-                    &format!("Parameter '{param_name}' is overwritten before its initial value is read."),
+                    &format!(
+                        "Parameter '{param_name}' is overwritten before its initial value is read."
+                    ),
                     first_overwrite,
                     index,
                     source,
@@ -9631,22 +9779,15 @@ fn check_dead_stores(
                 .filter(|load| load.target == Some(scope_idx) && load.name == *name)
                 .filter(|load| load.range.start() < last.range.start())
                 .count();
-            let loaded_after = table
-                .resolved_loads
-                .iter()
-                .any(|load| {
-                    load.target == Some(scope_idx)
-                        && load.name == *name
-                        && load.range.start() > last.range.start()
-                })
-                || facts
-                    .token_names
-                    .iter()
-                    .any(|(token_name, range)| {
-                        token_name == name
-                            && range.start() > last.range.end()
-                            && !store_ranges.contains(range)
-                    });
+            let loaded_after = table.resolved_loads.iter().any(|load| {
+                load.target == Some(scope_idx)
+                    && load.name == *name
+                    && load.range.start() > last.range.start()
+            }) || facts.token_names.iter().any(|(token_name, range)| {
+                token_name == name
+                    && range.start() > last.range.end()
+                    && !store_ranges.contains(range)
+            });
             if earlier_loads > 0 && !loaded_after && last.loop_depth == 0 {
                 issues.push(issue_at(
                     "python:S1854",
@@ -9720,7 +9861,9 @@ fn known_value_pair(
     known: &HashMap<String, String>,
     source: &str,
 ) -> Option<String> {
-    let Expr::Name(name) = candidate else { return None };
+    let Expr::Name(name) = candidate else {
+        return None;
+    };
     let text = literal_comparison_operand(literal, source)?;
     if known.get(name.id.as_str()) == Some(&text) {
         Some(name.id.as_str().to_string())
@@ -9854,7 +9997,8 @@ fn percent_conversions(format_text: &str) -> Option<Vec<u8>> {
             position += 1;
             continue;
         }
-        while position < bytes.len() && matches!(bytes[position], b'-' | b'+' | b' ' | b'#' | b'0') {
+        while position < bytes.len() && matches!(bytes[position], b'-' | b'+' | b' ' | b'#' | b'0')
+        {
             position += 1;
         }
         while position < bytes.len() && bytes[position].is_ascii_digit() {
@@ -9882,10 +10026,10 @@ fn percent_conversions(format_text: &str) -> Option<Vec<u8>> {
 
 /// `(format text, arguments, right operand, span)` of a `%`-formatted string
 /// literal; `None` for anything else.
-fn percent_format_parts(
-    expr: &Expr,
-) -> Option<(String, Vec<&Expr>, &Expr, TextRange)> {
-    let Expr::BinOp(bin_op) = expr else { return None };
+fn percent_format_parts(expr: &Expr) -> Option<(String, Vec<&Expr>, &Expr, TextRange)> {
+    let Expr::BinOp(bin_op) = expr else {
+        return None;
+    };
     if !matches!(bin_op.op, ruff_python_ast::Operator::Mod) {
         return None;
     }
@@ -9943,7 +10087,6 @@ fn check_percent_argument_counts(
     issues
 }
 
-
 fn check_percent_argument_types(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
@@ -9962,8 +10105,17 @@ fn check_percent_argument_types(
                 Expr::StringLiteral(literal) => {
                     let numeric = matches!(
                         conversion,
-                        b'd' | b'i' | b'u' | b'x' | b'X' | b'o' | b'e' | b'E' | b'f' | b'F'
-                            | b'g' | b'G'
+                        b'd' | b'i'
+                            | b'u'
+                            | b'x'
+                            | b'X'
+                            | b'o'
+                            | b'e'
+                            | b'E'
+                            | b'f'
+                            | b'F'
+                            | b'g'
+                            | b'G'
                     );
                     let character = *conversion == b'c'
                         && string_value_text(&literal.value).chars().count() != 1;
@@ -9985,7 +10137,6 @@ fn check_percent_argument_types(
     });
     issues
 }
-
 
 // --- python:S3516 — invariant function returns --------------------------------
 
@@ -10013,8 +10164,7 @@ fn check_invariant_returns(
     for_each_stmt_in_scope(parsed.syntax().body.as_slice(), &mut |stmt| {
         if let Stmt::FunctionDef(function) = stmt {
             let returns = direct_constant_return_texts(&function.body, source);
-            let identical = returns.len() >= 2
-                && returns.windows(2).all(|pair| pair[0] == pair[1]);
+            let identical = returns.len() >= 2 && returns.windows(2).all(|pair| pair[0] == pair[1]);
             if identical {
                 issues.push(issue_at(
                     "python:S3516",
@@ -10060,15 +10210,14 @@ fn check_inconsistent_returns(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for_each_stmt_in_scope(parsed.syntax().body.as_slice(), &mut |stmt| {
-        let Stmt::FunctionDef(function) = stmt else { return };
+        let Stmt::FunctionDef(function) = stmt else {
+            return;
+        };
         if suite_contains_yield(&function.body) || function.body.is_empty() {
             return;
         }
         let (valued, empty) = direct_return_kinds(&function.body);
-        let falls_off_end = !matches!(
-            function.body.last(),
-            Some(Stmt::Return(_) | Stmt::Raise(_))
-        );
+        let falls_off_end = !matches!(function.body.last(), Some(Stmt::Return(_) | Stmt::Raise(_)));
         if valued > 0 && (empty > 0 || falls_off_end) {
             issues.push(issue_at(
                 "python:S3801",
@@ -10151,18 +10300,29 @@ const CANCELLATION_SCOPE_TAILS: [&str; 6] = [
 ];
 
 const KNOWN_STEP_HINTS: [&str; 18] = [
-    "pipeline", "model", "clf", "reg", "scaler", "preprocessor", "vectorizer", "encoder",
-    "imputer", "transformer", "selector", "reducer", "classifier", "regressor", "steps",
-    "features", "numeric", "categorical",
+    "pipeline",
+    "model",
+    "clf",
+    "reg",
+    "scaler",
+    "preprocessor",
+    "vectorizer",
+    "encoder",
+    "imputer",
+    "transformer",
+    "selector",
+    "reducer",
+    "classifier",
+    "regressor",
+    "steps",
+    "features",
+    "numeric",
+    "categorical",
 ];
 
 // --- python:S2325 — methods that could be static -------------------------------
 
-fn check_static_candidates(
-    table: &SymbolTable,
-    index: &LineIndex,
-    source: &str,
-) -> Vec<Issue> {
+fn check_static_candidates(table: &SymbolTable, index: &LineIndex, source: &str) -> Vec<Issue> {
     let mut issues = Vec::new();
     for site in &table.def_sites {
         if site.flavor != DefFlavor::Function
@@ -10286,8 +10446,7 @@ fn check_tf_function_side_effects(
     for_each_tf_function_body(parsed.syntax().body.as_slice(), &mut |function| {
         for_each_stmt_expr(&function.body, &mut |expr| {
             if let Expr::Call(call) = expr
-                && called_name(&call.func)
-                    .is_some_and(|tail| SIDE_EFFECT_TAILS.contains(&tail))
+                && called_name(&call.func).is_some_and(|tail| SIDE_EFFECT_TAILS.contains(&tail))
             {
                 issues.push(issue_at(
                     "python:S6928",
@@ -10325,8 +10484,7 @@ fn check_missing_eval_after_load(
         if let Stmt::Assign(assign) = stmt
             && let [Expr::Name(target)] = assign.targets.as_slice()
             && let Expr::Call(call) = assign.value.as_ref()
-            && called_name(&call.func)
-                .is_some_and(|tail| LOAD_MODEL_TAILS.contains(&tail))
+            && called_name(&call.func).is_some_and(|tail| LOAD_MODEL_TAILS.contains(&tail))
         {
             loaded_models.insert(target.id.as_str().to_string());
         }
@@ -10513,9 +10671,10 @@ fn check_cancellation_scope_checkpoints(
             if !in_async {
                 return;
             }
-            let is_scope = with_stmt.items.iter().any(|item| {
-                is_call_context_tail(item, &CANCELLATION_SCOPE_TAILS)
-            });
+            let is_scope = with_stmt
+                .items
+                .iter()
+                .any(|item| is_call_context_tail(item, &CANCELLATION_SCOPE_TAILS));
             if is_scope && !suite_contains_checkpoint(&with_stmt.body) {
                 issues.push(issue_at(
                     "python:S7490",
@@ -10541,7 +10700,9 @@ fn suite_contains_raise(suite: &[Stmt]) -> bool {
     suite.iter().any(|stmt| match stmt {
         Stmt::Raise(_) => true,
         Stmt::FunctionDef(_) | Stmt::ClassDef(_) => false,
-        _ => child_bodies(stmt).iter().any(|body| suite_contains_raise(body)),
+        _ => child_bodies(stmt)
+            .iter()
+            .any(|body| suite_contains_raise(body)),
     })
 }
 
@@ -10572,6 +10733,2703 @@ fn check_swallowed_cancellations(
     });
     issues
 }
+// ---------------------------------------------------------------------------
+// regex: shared mini regex-pattern engine (python:S4784 … python:S6537).
+//
+// One private decoder + parser over string-literal contents powers every
+// regex rule. The decoder preserves source offsets (and flags string-level
+// octal escapes), the parser models Python `re` syntax conservatively, and
+// malformed patterns never panic: structural rules simply skip them while
+// python:S5856 reports the syntax error.
+// ---------------------------------------------------------------------------
+
+/// One decoded pattern character with its absolute source offset. `octal`
+/// marks characters produced by a string-level octal escape such as `\101`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RxUnit {
+    ch: char,
+    at: TextSize,
+    octal: bool,
+}
+
+/// Decodes one string-literal part into offset-preserving units. Raw parts
+/// map characters 1:1; cooked parts resolve the escapes that Python string
+/// literals resolve and keep every other backslash sequence verbatim, which
+/// is exactly what the `re` engine then observes.
+fn decode_string_part(raw: &str, base: TextSize) -> Vec<RxUnit> {
+    let (body, body_start, is_raw) = string_part_body(raw);
+    let inner_base = base + TextSize::from(to_u32(body_start));
+    if is_raw {
+        return body
+            .char_indices()
+            .map(|(offset, ch)| RxUnit {
+                at: inner_base + TextSize::from(to_u32(offset)),
+                ch,
+                octal: false,
+            })
+            .collect();
+    }
+    let bytes = body.as_bytes();
+    let mut units = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let ch = body[i..].chars().next().unwrap_or('\\');
+        let ch_len = ch.len_utf8();
+        if ch != '\\' {
+            units.push(RxUnit {
+                at: inner_base + TextSize::from(to_u32(i)),
+                ch,
+                octal: false,
+            });
+            i += ch_len;
+            continue;
+        }
+        i += decode_escape(body, i, inner_base, &mut units);
+    }
+    units
+}
+
+/// `(inner text, is_raw)` of one string-literal part.
+fn string_part_body(raw: &str) -> (&str, usize, bool) {
+    let prefix_len = raw.find(['\'', '"']).unwrap_or(raw.len());
+    let prefix = &raw[..prefix_len];
+    let is_raw = prefix.contains('r') || prefix.contains('R');
+    let quote = raw[prefix_len..].chars().next().unwrap_or('\'');
+    let triple = raw[prefix_len..].starts_with(&quote.to_string().repeat(3));
+    let body_start = prefix_len + if triple { 3 } else { 1 };
+    let body_end = raw.len().saturating_sub(if triple { 3 } else { 1 });
+    (
+        &raw[body_start.min(body_end)..body_end],
+        body_start.min(body_end),
+        is_raw,
+    )
+}
+
+/// Decodes the escape starting at `backslash` (which holds `'\\'`), pushing
+/// units and returning the number of bytes consumed.
+fn decode_escape(body: &str, backslash: usize, base: TextSize, units: &mut Vec<RxUnit>) -> usize {
+    let bytes = body.as_bytes();
+    let mut push = |ch: char, at: usize, octal: bool| {
+        units.push(RxUnit {
+            ch,
+            at: base + TextSize::from(to_u32(at)),
+            octal,
+        });
+    };
+    let Some(&first) = bytes.get(backslash + 1) else {
+        push('\\', backslash, false);
+        return 1;
+    };
+    match first {
+        b'n' => push('\n', backslash, false),
+        b't' => push('\t', backslash, false),
+        b'r' => push('\r', backslash, false),
+        b'f' => push('\u{0c}', backslash, false),
+        b'v' => push('\u{0b}', backslash, false),
+        b'a' => push('\u{07}', backslash, false),
+        b'b' => push('\u{08}', backslash, false),
+        b'\\' => push('\\', backslash, false),
+        b'\'' => push('\'', backslash, false),
+        b'"' => push('"', backslash, false),
+        b'0'..=b'7' => return decode_octal_escape(body, backslash, base, units),
+        b'x' | b'u' | b'U' => return decode_hex_escape(body, backslash, base, units),
+        _ => return decode_unknown_escape(body, backslash, base, units),
+    }
+    2
+}
+
+/// Unknown escapes keep both characters verbatim, exactly like Python; this
+/// is what lets `\d` reach the regex parser intact.
+fn decode_unknown_escape(
+    body: &str,
+    backslash: usize,
+    base: TextSize,
+    units: &mut Vec<RxUnit>,
+) -> usize {
+    let mut push = |ch: char, at: usize| {
+        units.push(RxUnit {
+            ch,
+            at: base + TextSize::from(to_u32(at)),
+            octal: false,
+        });
+    };
+    let rest = &body[backslash + 1..];
+    if rest.starts_with('N')
+        && rest[1..].starts_with('{')
+        && let Some(close) = rest[1..].find('}')
+    {
+        push('\u{fffd}', backslash);
+        return close + 4;
+    }
+    let ch = rest.chars().next().unwrap_or('\\');
+    push('\\', backslash);
+    push(ch, backslash + 1);
+    1 + ch.len_utf8()
+}
+
+/// String-level octal escape (`\0` … `\777`); the produced character is
+/// flagged for python:S6537.
+fn decode_octal_escape(
+    body: &str,
+    backslash: usize,
+    base: TextSize,
+    units: &mut Vec<RxUnit>,
+) -> usize {
+    let bytes = body.as_bytes();
+    let mut value: u32 = 0;
+    let mut digits = 0;
+    while digits < 3
+        && bytes
+            .get(backslash + 1 + digits)
+            .is_some_and(|b| (b'0'..=b'7').contains(b))
+    {
+        value = value * 8 + u32::from(bytes[backslash + 1 + digits] - b'0');
+        digits += 1;
+    }
+    units.push(RxUnit {
+        ch: char::from_u32(value).unwrap_or('\u{fffd}'),
+        at: base + TextSize::from(to_u32(backslash)),
+        octal: true,
+    });
+    1 + digits
+}
+
+/// `\xHH`, `\uHHHH`, `\UHHHHHHHH`; invalid forms stay verbatim like Python.
+fn decode_hex_escape(
+    body: &str,
+    backslash: usize,
+    base: TextSize,
+    units: &mut Vec<RxUnit>,
+) -> usize {
+    let kind = body.as_bytes()[backslash + 1];
+    let width = match kind {
+        b'x' => 2,
+        b'u' => 4,
+        _ => 8,
+    };
+    let digits = &body[backslash + 2..(backslash + 2 + width).min(body.len())];
+    if digits.chars().count() == width
+        && digits.chars().all(|c| c.is_ascii_hexdigit())
+        && let Ok(value) = u32::from_str_radix(digits, 16)
+        && let Some(ch) = char::from_u32(value)
+    {
+        units.push(RxUnit {
+            ch,
+            at: base + TextSize::from(to_u32(backslash)),
+            octal: false,
+        });
+        return 2 + width;
+    }
+    units.push(RxUnit {
+        ch: '\\',
+        at: base + TextSize::from(to_u32(backslash)),
+        octal: false,
+    });
+    units.push(RxUnit {
+        ch: char::from_u32(u32::from(kind)).unwrap_or('x'),
+        at: base + TextSize::from(to_u32(backslash + 1)),
+        octal: false,
+    });
+    2
+}
+
+/// Parsed regular-expression node; spans are absolute source ranges.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RxNode {
+    Alternation(Vec<RxSeq>),
+    Seq(RxSeq),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RxSeq {
+    items: Vec<RxItem>,
+    span: TextRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RxItem {
+    atom: RxAtom,
+    quant: Option<RxQuant>,
+    span: TextRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RxQuant {
+    min: u32,
+    max: Option<u32>,
+    lazy: bool,
+    possessive: bool,
+    /// Written in `{n}`/`{n,m}` form (as opposed to `*`, `+`, `?`).
+    curly: bool,
+    span: TextRange,
+}
+
+#[derive(Debug, Clone, Eq)]
+enum RxAtom {
+    Literal(char),
+    Dot,
+    Class(RxClass),
+    Group(RxGroup),
+    Anchor(RxAnchor),
+    EscClass(RxEscClass),
+    Backref(u32),
+    NamedRef(String),
+    GlobalFlags,
+    Comment,
+}
+
+// Spans are excluded from atom equality: structural comparisons (duplicate
+// alternatives, contradictory lookarounds) must ignore positions.
+impl PartialEq for RxAtom {
+    fn eq(&self, other: &Self) -> bool {
+        use RxAtom as A;
+        match (self, other) {
+            (A::Literal(a), A::Literal(b)) => a == b,
+            (A::Dot, A::Dot) | (A::GlobalFlags, A::GlobalFlags) | (A::Comment, A::Comment) => true,
+            (A::Class(a), A::Class(b)) => a == b,
+            (A::Group(a), A::Group(b)) => a.kind == b.kind && rx_equivalent(&a.body, &b.body),
+            (A::Anchor(a), A::Anchor(b)) => a == b,
+            (A::EscClass(a), A::EscClass(b)) => a == b,
+            (A::Backref(a), A::Backref(b)) => a == b,
+            (A::NamedRef(a), A::NamedRef(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+/// Structural equality of parsed nodes, ignoring all source spans.
+fn rx_equivalent(left: &RxNode, right: &RxNode) -> bool {
+    match (left, right) {
+        (RxNode::Seq(a), RxNode::Seq(b)) => rx_seq_equivalent(a, b),
+        (RxNode::Alternation(a), RxNode::Alternation(b)) => {
+            a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| rx_seq_equivalent(x, y))
+        }
+        _ => false,
+    }
+}
+
+fn rx_seq_equivalent(left: &RxSeq, right: &RxSeq) -> bool {
+    left.items.len() == right.items.len()
+        && left
+            .items
+            .iter()
+            .zip(right.items.iter())
+            .all(|(a, b)| rx_item_equivalent(a, b))
+}
+
+fn rx_item_equivalent(left: &RxItem, right: &RxItem) -> bool {
+    left.atom == right.atom
+        && match (&left.quant, &right.quant) {
+            (None, None) => true,
+            (Some(a), Some(b)) => {
+                a.min == b.min && a.max == b.max && a.lazy == b.lazy && a.possessive == b.possessive
+            }
+            _ => false,
+        }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RxClass {
+    negated: bool,
+    items: Vec<RxClassItem>,
+    span: TextRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RxClassItem {
+    Char(char),
+    Range(char, char),
+    Esc(RxEscClass),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RxEscClass {
+    Digit,
+    NotDigit,
+    Word,
+    NotWord,
+    Space,
+    NotSpace,
+    UnicodeOpaque,
+}
+
+impl RxEscClass {
+    fn complement(self) -> Option<Self> {
+        Some(match self {
+            Self::Digit => Self::NotDigit,
+            Self::NotDigit => Self::Digit,
+            Self::Word => Self::NotWord,
+            Self::NotWord => Self::Word,
+            Self::Space => Self::NotSpace,
+            Self::NotSpace => Self::Space,
+            Self::UnicodeOpaque => return None,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RxAnchor {
+    Caret,
+    Dollar,
+    StringStart,
+    StringEnd,
+    StringEndNl,
+    WordBoundary,
+    NotWordBoundary,
+}
+
+impl RxAnchor {
+    fn is_start(self) -> bool {
+        matches!(self, Self::Caret | Self::StringStart)
+    }
+
+    fn is_end(self) -> bool {
+        matches!(self, Self::Dollar | Self::StringEnd | Self::StringEndNl)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RxGroupKind {
+    Capture,
+    NonCapture,
+    FlagScope,
+    Atomic,
+    Lookahead,
+    NegativeLookahead,
+    Lookbehind,
+    NegativeLookbehind,
+    Conditional,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RxGroup {
+    kind: RxGroupKind,
+    body: RxNode,
+    span: TextRange,
+}
+
+/// Syntax error with the absolute span of the offending token.
+#[derive(Debug, Clone, Copy)]
+struct RxError {
+    span: TextRange,
+}
+
+type RxResult<T> = Result<T, RxError>;
+
+/// Back reference recorded during parsing for python:S6001.
+#[derive(Debug, Clone)]
+struct RxBackrefRecord {
+    name: Option<String>,
+    number: Option<u32>,
+    span: TextRange,
+    visible_numbers: Vec<u32>,
+    visible_names: Vec<String>,
+}
+
+/// Pattern-level octal escape recorded during parsing for python:S6537.
+#[derive(Debug, Clone, Copy)]
+struct RxOctalRecord {
+    span: TextRange,
+}
+
+struct RxParser<'a> {
+    units: &'a [RxUnit],
+    pos: usize,
+    depth: u32,
+    capture_count: u32,
+    visible_numbers: Vec<u32>,
+    visible_names: Vec<String>,
+    all_names: Vec<String>,
+    backrefs: Vec<RxBackrefRecord>,
+    octals: Vec<RxOctalRecord>,
+}
+
+const RX_MAX_DEPTH: u32 = 48;
+
+impl<'a> RxParser<'a> {
+    fn new(units: &'a [RxUnit]) -> Self {
+        Self {
+            units,
+            pos: 0,
+            depth: 0,
+            capture_count: 0,
+            visible_numbers: Vec::new(),
+            visible_names: Vec::new(),
+            all_names: Vec::new(),
+            backrefs: Vec::new(),
+            octals: Vec::new(),
+        }
+    }
+
+    fn peek(&self) -> Option<RxUnit> {
+        self.units.get(self.pos).copied()
+    }
+
+    fn peek_second(&self) -> Option<RxUnit> {
+        self.units.get(self.pos + 1).copied()
+    }
+
+    fn bump(&mut self) -> Option<RxUnit> {
+        let unit = self.peek();
+        if unit.is_some() {
+            self.pos += 1;
+        }
+        unit
+    }
+
+    fn err_at(&self, unit: Option<RxUnit>) -> RxError {
+        let span = match unit {
+            Some(unit) => TextRange::at(unit.at, TextSize::from(to_u32(unit.ch.len_utf8()))),
+            None => self.tail_span(),
+        };
+        RxError { span }
+    }
+
+    fn tail_span(&self) -> TextRange {
+        match self.units.last() {
+            Some(last) => {
+                let end = last.at + TextSize::from(to_u32(last.ch.len_utf8()));
+                TextRange::new(end, end)
+            }
+            None => TextRange::empty(TextSize::new(0)),
+        }
+    }
+
+    fn enter(&mut self, unit: RxUnit) -> RxResult<()> {
+        self.depth += 1;
+        if self.depth > RX_MAX_DEPTH {
+            return Err(self.err_at(Some(unit)));
+        }
+        Ok(())
+    }
+
+    fn leave(&mut self) {
+        self.depth -= 1;
+    }
+
+    /// Parses the whole pattern; every unit must be consumed.
+    fn parse_root(mut self) -> RxResult<RxParsed> {
+        let root = self.parse_alternation(None)?;
+        Ok(RxParsed {
+            root,
+            capture_count: self.capture_count,
+            names: self.all_names,
+            backrefs: self.backrefs,
+            octals: self.octals,
+        })
+    }
+
+    /// `sequence (| sequence)*`. Captures opened inside one branch are
+    /// rolled back before the next branch parses: a back reference may only
+    /// rely on groups matched earlier on the same path (python:S6001).
+    fn parse_alternation(&mut self, closer: Option<char>) -> RxResult<RxNode> {
+        let saved_numbers = self.visible_numbers.len();
+        let saved_names = self.visible_names.len();
+        let first = self.parse_sequence(closer)?;
+        let mut branches = vec![first];
+        while self.peek().is_some_and(|unit| unit.ch == '|') {
+            self.visible_numbers.truncate(saved_numbers);
+            self.visible_names.truncate(saved_names);
+            self.bump();
+            branches.push(self.parse_sequence(closer)?);
+        }
+        self.visible_numbers.truncate(saved_numbers);
+        self.visible_names.truncate(saved_names);
+        Ok(if branches.len() == 1 {
+            RxNode::Seq(branches.remove(0))
+        } else {
+            RxNode::Alternation(branches)
+        })
+    }
+
+    fn parse_sequence(&mut self, closer: Option<char>) -> RxResult<RxSeq> {
+        let start = self
+            .peek()
+            .map_or_else(|| self.tail_span().start(), |u| u.at);
+        let mut items = Vec::new();
+        while let Some(unit) = self.peek() {
+            if unit.ch == '|' || closer.is_some_and(|c| unit.ch == c) {
+                break;
+            }
+            items.push(self.parse_item()?);
+        }
+        let end = self.peek().map_or_else(|| self.tail_span().end(), |u| u.at);
+        Ok(RxSeq {
+            items,
+            span: TextRange::new(start, end),
+        })
+    }
+
+    fn parse_item(&mut self) -> RxResult<RxItem> {
+        let (atom, start) = self.parse_atom()?;
+        let quant = self.parse_quantifier()?;
+        let end = quant
+            .as_ref()
+            .map_or_else(|| atom_span_end(&atom, start), |q| q.span.end());
+        Ok(RxItem {
+            atom,
+            quant,
+            span: TextRange::new(start, end),
+        })
+    }
+
+    /// Postfix quantifier with optional lazy (`?`) or possessive (`+`)
+    /// modifier; a `{` that does not scan as a repeat stays a literal brace.
+    fn parse_quantifier(&mut self) -> RxResult<Option<RxQuant>> {
+        let Some(unit) = self.peek() else {
+            return Ok(None);
+        };
+        let mut curly = false;
+        let (min, max) = match unit.ch {
+            '*' => {
+                self.bump();
+                (0, None)
+            }
+            '+' => {
+                self.bump();
+                (1, None)
+            }
+            '?' => {
+                self.bump();
+                (0, Some(1))
+            }
+            '{' => match self.scan_curly_repeat()? {
+                Some(bounds) => {
+                    curly = true;
+                    bounds
+                }
+                None => return Ok(None),
+            },
+            _ => return Ok(None),
+        };
+        self.finish_quantifier(min, max, curly, unit)
+    }
+
+    /// Applies lazy/possessive modifiers and the multiple-repeat guard.
+    fn finish_quantifier(
+        &mut self,
+        min: u32,
+        max: Option<u32>,
+        curly: bool,
+        unit: RxUnit,
+    ) -> RxResult<Option<RxQuant>> {
+        let mut lazy = false;
+        let mut possessive = false;
+        match self.peek().map(|u| u.ch) {
+            Some('?') => {
+                self.bump();
+                lazy = true;
+            }
+            Some('+') => {
+                self.bump();
+                possessive = true;
+            }
+            _ => {}
+        }
+        if let Some(next) = self.peek()
+            && (matches!(next.ch, '*' | '+' | '?') || (next.ch == '{' && self.curly_repeat_ahead()))
+        {
+            return Err(self.err_at(Some(next)));
+        }
+        let span_end = self.consumed_end(unit.at);
+        Ok(Some(RxQuant {
+            min,
+            max,
+            lazy,
+            possessive,
+            curly,
+            span: TextRange::new(unit.at, span_end),
+        }))
+    }
+
+    /// End offset of the most recently consumed unit (`fallback` at EOI).
+    fn consumed_end(&self, fallback: TextSize) -> TextSize {
+        self.units.get(self.pos - 1).map_or(fallback, |last| {
+            last.at + TextSize::from(to_u32(last.ch.len_utf8()))
+        })
+    }
+
+    /// Scans `{n}`, `{n,}`, `{n,m}`, `{,m}`; returns `None` without
+    /// consuming when the braces do not form a repeat (Python then treats
+    /// the brace literally).
+    fn scan_curly_repeat(&mut self) -> RxResult<Option<(u32, Option<u32>)>> {
+        if !self.curly_repeat_ahead() {
+            return Ok(None);
+        }
+        self.bump(); // '{'
+        let min = if self.peek().is_some_and(|u| u.ch == ',') {
+            0
+        } else {
+            self.scan_digits().ok_or_else(|| self.err_at(self.peek()))?
+        };
+        let max = if self.peek().is_some_and(|u| u.ch == ',') {
+            self.bump();
+            if self.peek().is_some_and(|u| u.ch == '}') {
+                None
+            } else {
+                Some(self.scan_digits().ok_or_else(|| self.err_at(self.peek()))?)
+            }
+        } else {
+            Some(min)
+        };
+        let close = self.bump();
+        match close {
+            Some(unit) if unit.ch == '}' => {
+                if max.is_some_and(|m| m < min) {
+                    return Err(self.err_at(Some(unit)));
+                }
+                Ok(Some((min, max)))
+            }
+            _ => Err(self.err_at(close)),
+        }
+    }
+
+    /// Whether a curly repeat starts at the cursor, without consuming.
+    fn curly_repeat_ahead(&self) -> bool {
+        let mut i = self.pos + 1; // past '{'
+        let mut leading = 0;
+        while self.units.get(i).is_some_and(|u| u.ch.is_ascii_digit()) {
+            i += 1;
+            leading += 1;
+        }
+        if self.units.get(i).is_some_and(|u| u.ch == ',') {
+            i += 1;
+            let mut trailing = 0;
+            while self.units.get(i).is_some_and(|u| u.ch.is_ascii_digit()) {
+                i += 1;
+                trailing += 1;
+            }
+            if trailing == 0 && self.units.get(i).is_none_or(|u| u.ch != '}') {
+                return false;
+            }
+            if leading == 0 && trailing == 0 {
+                // A bare `{,}` is a literal brace in Python.
+                return false;
+            }
+        } else if leading == 0 {
+            return false;
+        }
+        self.units.get(i).is_some_and(|u| u.ch == '}')
+    }
+
+    fn scan_digits(&mut self) -> Option<u32> {
+        let mut value: u32 = 0;
+        let mut any = false;
+        while let Some(unit) = self.peek() {
+            if !unit.ch.is_ascii_digit() {
+                break;
+            }
+            value = value
+                .checked_mul(10)?
+                .checked_add(u32::from(unit.ch as u8 - b'0'))?;
+            self.bump();
+            any = true;
+        }
+        any.then_some(value)
+    }
+
+    fn parse_atom(&mut self) -> RxResult<(RxAtom, TextSize)> {
+        let Some(unit) = self.bump() else {
+            return Err(self.err_at(None));
+        };
+        let start = unit.at;
+        let atom = match unit.ch {
+            ')' | '*' | '+' | '?' => return Err(self.err_at(Some(unit))),
+            '(' => return self.parse_group(start),
+            '[' => RxAtom::Class(self.parse_class(start)?),
+            '.' => RxAtom::Dot,
+            '^' => RxAtom::Anchor(RxAnchor::Caret),
+            '$' => RxAtom::Anchor(RxAnchor::Dollar),
+            '\\' => return self.parse_escape(start),
+            other => RxAtom::Literal(other),
+        };
+        Ok((atom, start))
+    }
+
+    /// Group dispatch: plain captures, `(?:…)`, flags groups, lookarounds,
+    /// atomic groups, `(?#…)` comments, `(?P=name)` references and
+    /// `(?(cond)…)` conditionals.
+    fn parse_group(&mut self, start: TextSize) -> RxResult<(RxAtom, TextSize)> {
+        let open = self
+            .units
+            .get(self.pos - 1)
+            .copied()
+            .ok_or_else(|| self.err_at(None))?;
+        self.enter(open)?;
+        let head = if self.peek().is_some_and(|u| u.ch == '?') {
+            self.bump();
+            self.parse_group_head()?
+        } else {
+            GroupHead::Capture(None)
+        };
+        let atom = match head {
+            GroupHead::Complete(atom) => atom,
+            GroupHead::NamedBackref(name) => RxAtom::NamedRef(name),
+            GroupHead::Kind(kind) => {
+                let body = self.parse_alternation(Some(')'))?;
+                let close = self.expect_close()?;
+                RxAtom::Group(RxGroup {
+                    kind,
+                    body,
+                    span: TextRange::new(start, close),
+                })
+            }
+            GroupHead::Capture(name) => {
+                let span_start = start;
+                self.capture_count += 1;
+                self.visible_numbers.push(self.capture_count);
+                if let Some(name) = name.as_ref() {
+                    if self.all_names.iter().any(|seen| seen == name) {
+                        return Err(self.err_at(Some(open)));
+                    }
+                    self.all_names.push(name.clone());
+                    self.visible_names.push(name.clone());
+                }
+                let body = self.parse_alternation(Some(')'))?;
+                let close = self.expect_close()?;
+                RxAtom::Group(RxGroup {
+                    kind: RxGroupKind::Capture,
+                    body,
+                    span: TextRange::new(span_start, close),
+                })
+            }
+        };
+        self.leave();
+        Ok((atom, start))
+    }
+
+    /// Consumes the `(?` extension marker and classifies the group.
+    fn parse_group_head(&mut self) -> RxResult<GroupHead> {
+        let marker = self.bump().ok_or_else(|| self.err_at(None))?;
+        match marker.ch {
+            ':' => Ok(GroupHead::Kind(RxGroupKind::NonCapture)),
+            '#' => {
+                while let Some(unit) = self.bump() {
+                    if unit.ch == ')' {
+                        break;
+                    }
+                }
+                Ok(GroupHead::Complete(RxAtom::Comment))
+            }
+            '=' => Ok(GroupHead::Kind(RxGroupKind::Lookahead)),
+            '!' => Ok(GroupHead::Kind(RxGroupKind::NegativeLookahead)),
+            '>' => Ok(GroupHead::Kind(RxGroupKind::Atomic)),
+            '<' => match self.peek().map(|u| u.ch) {
+                Some('=') => {
+                    self.bump();
+                    Ok(GroupHead::Kind(RxGroupKind::Lookbehind))
+                }
+                Some('!') => {
+                    self.bump();
+                    Ok(GroupHead::Kind(RxGroupKind::NegativeLookbehind))
+                }
+                _ => Err(self.err_at(Some(marker))),
+            },
+            'P' => self.parse_p_extension(marker),
+            '(' => self.parse_conditional_head(marker),
+            'a' | 'i' | 'L' | 'm' | 's' | 'u' | 'x' => self.parse_flag_group(marker),
+            _ => Err(self.err_at(Some(marker))),
+        }
+    }
+
+    /// `(?P<name>…)` named capture or `(?P=name)` named reference.
+    fn parse_p_extension(&mut self, marker: RxUnit) -> RxResult<GroupHead> {
+        let next = self.peek().ok_or_else(|| self.err_at(Some(marker)))?;
+        if next.ch != '<' && next.ch != '=' {
+            return Err(self.err_at(Some(next)));
+        }
+        self.bump();
+        let named_reference = next.ch == '=';
+        let terminator = if named_reference { ')' } else { '>' };
+        let mut name = String::new();
+        while let Some(unit) = self.peek() {
+            if unit.ch == terminator {
+                break;
+            }
+            if !unit.ch.is_alphanumeric() && unit.ch != '_' {
+                return Err(self.err_at(Some(unit)));
+            }
+            name.push(unit.ch);
+            self.bump();
+        }
+        if name.is_empty()
+            || !name
+                .chars()
+                .next()
+                .is_some_and(|first| first.is_alphabetic() || first == '_')
+        {
+            return Err(self.err_at(self.peek()));
+        }
+        if named_reference {
+            // `(?P=name)` is a complete atom including its closing paren.
+            let close = self.bump();
+            match close {
+                Some(unit) if unit.ch == ')' => {}
+                other => return Err(self.err_at(other)),
+            }
+            let span = TextRange::new(marker.at, self.consumed_end(marker.at));
+            self.record_backref(Some(name.clone()), None, span);
+            return Ok(GroupHead::NamedBackref(name));
+        }
+        let close = self.bump();
+        match close {
+            Some(unit) if unit.ch == '>' => {}
+            other => return Err(self.err_at(other)),
+        }
+        Ok(GroupHead::Capture(Some(name)))
+    }
+
+    /// `(?(1)yes|no)` conditional: consume the condition up to its `)`.
+    fn parse_conditional_head(&mut self, marker: RxUnit) -> RxResult<GroupHead> {
+        let mut saw_token = false;
+        while let Some(unit) = self.peek() {
+            if unit.ch == ')' {
+                break;
+            }
+            if !unit.ch.is_alphanumeric() && unit.ch != '_' {
+                return Err(self.err_at(Some(unit)));
+            }
+            saw_token = true;
+            self.bump();
+        }
+        if !saw_token {
+            return Err(self.err_at(Some(marker)));
+        }
+        let close = self.bump();
+        match close {
+            Some(unit) if unit.ch == ')' => Ok(GroupHead::Kind(RxGroupKind::Conditional)),
+            other => Err(self.err_at(other)),
+        }
+    }
+
+    /// `(?flags)` global settings or `(?flags:body)` scoped groups.
+    fn parse_flag_group(&mut self, marker: RxUnit) -> RxResult<GroupHead> {
+        // The dispatcher already consumed the first flag letter.
+        while self
+            .peek()
+            .is_some_and(|u| matches!(u.ch, 'a' | 'i' | 'L' | 'm' | 's' | 'u' | 'x'))
+        {
+            self.bump();
+        }
+        match self.peek().map(|u| u.ch) {
+            Some(':') => {
+                self.bump();
+                Ok(GroupHead::Kind(RxGroupKind::FlagScope))
+            }
+            Some(')') => {
+                self.bump();
+                Ok(GroupHead::Complete(RxAtom::GlobalFlags))
+            }
+            _ => Err(self.err_at(Some(marker))),
+        }
+    }
+
+    fn expect_close(&mut self) -> RxResult<TextSize> {
+        let close = self.bump();
+        match close {
+            Some(unit) if unit.ch == ')' => Ok(unit.at + TextSize::from(to_u32(')'.len_utf8()))),
+            other => Err(self.err_at(other)),
+        }
+    }
+
+    fn record_backref(&mut self, name: Option<String>, number: Option<u32>, span: TextRange) {
+        self.backrefs.push(RxBackrefRecord {
+            name,
+            number,
+            span,
+            visible_numbers: self.visible_numbers.clone(),
+            visible_names: self.visible_names.clone(),
+        });
+    }
+
+    /// Pattern-level escape dispatch (`\d`, anchors, `\xHH`, octal escapes,
+    /// back references, opaque `\p{...}`); unknown ASCII-letter escapes are
+    /// syntax errors exactly like Python 3.7+.
+    fn parse_escape(&mut self, start: TextSize) -> RxResult<(RxAtom, TextSize)> {
+        let Some(next) = self.peek() else {
+            return Err(self.err_at(None));
+        };
+        let done = |atom: RxAtom| Ok((atom, start));
+        match next.ch {
+            'd' => Ok(self.bump_simple(RxEscClass::Digit, start)),
+            'D' => Ok(self.bump_simple(RxEscClass::NotDigit, start)),
+            'w' => Ok(self.bump_simple(RxEscClass::Word, start)),
+            'W' => Ok(self.bump_simple(RxEscClass::NotWord, start)),
+            's' => Ok(self.bump_simple(RxEscClass::Space, start)),
+            'S' => Ok(self.bump_simple(RxEscClass::NotSpace, start)),
+            'b' => {
+                self.bump();
+                done(RxAtom::Anchor(RxAnchor::WordBoundary))
+            }
+            'B' => {
+                self.bump();
+                done(RxAtom::Anchor(RxAnchor::NotWordBoundary))
+            }
+            'A' => {
+                self.bump();
+                done(RxAtom::Anchor(RxAnchor::StringStart))
+            }
+            'Z' => {
+                self.bump();
+                done(RxAtom::Anchor(RxAnchor::StringEnd))
+            }
+            'z' => {
+                self.bump();
+                done(RxAtom::Anchor(RxAnchor::StringEndNl))
+            }
+            'x' => self.parse_hex_escape(start, 2),
+            'u' => self.parse_hex_escape(start, 4),
+            'U' => self.parse_hex_escape(start, 8),
+            'N' => self.parse_named_char(start),
+            'p' | 'P' => self.parse_unicode_property(start),
+            'g' => Err(self.err_at(Some(next))),
+            '0'..='9' => self.parse_number_escape(start),
+            ch if ch.is_ascii_alphabetic() => Err(self.err_at(Some(next))),
+            _ => {
+                self.bump();
+                done(RxAtom::Literal(next.ch))
+            }
+        }
+    }
+
+    fn bump_simple(&mut self, class: RxEscClass, start: TextSize) -> (RxAtom, TextSize) {
+        self.bump();
+        (RxAtom::EscClass(class), start)
+    }
+
+    /// `\p{Name}` / `\P{Name}`: opaque Unicode property class.
+    fn parse_unicode_property(&mut self, start: TextSize) -> RxResult<(RxAtom, TextSize)> {
+        self.bump(); // 'p'/'P'
+        if self.peek().is_none_or(|u| u.ch != '{') {
+            return Err(self.err_at(self.peek()));
+        }
+        self.bump();
+        while let Some(unit) = self.peek() {
+            if unit.ch == '}' {
+                self.bump();
+                return Ok((RxAtom::EscClass(RxEscClass::UnicodeOpaque), start));
+            }
+            self.bump();
+        }
+        Err(self.err_at(self.peek()))
+    }
+
+    /// `\xHH` / `\uHHHH` / `\UHHHHHHHH`; incomplete forms are errors.
+    fn parse_hex_escape(&mut self, start: TextSize, width: usize) -> RxResult<(RxAtom, TextSize)> {
+        self.bump(); // 'x'/'u'/'U'
+        let mut text = String::new();
+        for _ in 0..width {
+            let Some(unit) = self.peek().filter(|u| u.ch.is_ascii_hexdigit()) else {
+                return Err(self.err_at(self.peek()));
+            };
+            text.push(unit.ch);
+            self.bump();
+        }
+        let value = u32::from_str_radix(&text, 16).unwrap_or(0xfffd);
+        Ok((
+            RxAtom::Literal(char::from_u32(value).unwrap_or('\u{fffd}')),
+            start,
+        ))
+    }
+
+    /// `\N{NAME}`: opaque named character.
+    fn parse_named_char(&mut self, start: TextSize) -> RxResult<(RxAtom, TextSize)> {
+        self.bump(); // 'N'
+        if self.peek().is_none_or(|u| u.ch != '{') {
+            return Err(self.err_at(self.peek()));
+        }
+        while let Some(unit) = self.peek() {
+            self.bump();
+            if unit.ch == '}' {
+                return Ok((RxAtom::Literal('\u{fffd}'), start));
+            }
+        }
+        Err(self.err_at(self.peek()))
+    }
+
+    /// Numeric escape: `\0…`/three-octal-digit octal escapes (recorded for
+    /// python:S6537) or decimal back references (python:S6001).
+    fn parse_number_escape(&mut self, start: TextSize) -> RxResult<(RxAtom, TextSize)> {
+        let mut digits: Vec<u8> = Vec::new();
+        while let Some(unit) = self.peek().filter(|u| u.ch.is_ascii_digit())
+            && digits.len() < 3
+        {
+            digits.push(unit.ch as u8 - b'0');
+            self.bump();
+        }
+        let octal = digits[0] == 0 || (digits.len() == 3 && digits.iter().all(|d| *d <= 7));
+        let span = TextRange::new(start, self.consumed_end(start));
+        if octal {
+            let value = digits.iter().fold(0u32, |acc, d| acc * 8 + u32::from(*d));
+            if value > 0o377 {
+                return Err(self.err_at(self.peek()));
+            }
+            self.octals.push(RxOctalRecord { span });
+            Ok((
+                RxAtom::Literal(char::from_u32(value).unwrap_or('\u{fffd}')),
+                start,
+            ))
+        } else {
+            digits.truncate(2);
+            let number = digits.iter().fold(0u32, |acc, d| acc * 10 + u32::from(*d));
+            self.record_backref(None, Some(number), span);
+            Ok((RxAtom::Backref(number), start))
+        }
+    }
+
+    /// Character class contents: ranges, class shorthands, escapes; the `]`
+    /// right after `[`/`[^` is a literal, and `\b` means backspace inside.
+    fn parse_class(&mut self, start: TextSize) -> RxResult<RxClass> {
+        let negated = if self.peek().is_some_and(|u| u.ch == '^') {
+            self.bump();
+            true
+        } else {
+            false
+        };
+        let mut items = Vec::new();
+        let mut first = true;
+        loop {
+            let Some(unit) = self.peek() else {
+                return Err(self.err_at(self.peek()));
+            };
+            if unit.ch == ']' && !first {
+                self.bump();
+                break;
+            }
+            first = false;
+            self.parse_class_item(&mut items)?;
+        }
+        let end = self.consumed_end(start);
+        Ok(RxClass {
+            negated,
+            items,
+            span: TextRange::new(start, end),
+        })
+    }
+
+    /// One class member, including `-range-` composition.
+    fn parse_class_item(&mut self, items: &mut Vec<RxClassItem>) -> RxResult<()> {
+        let element = self.parse_class_element()?;
+        let RxClassItem::Char(low) = element else {
+            items.push(element);
+            return Ok(());
+        };
+        let dashes = self.peek().is_some_and(|u| u.ch == '-')
+            && self.peek_second().is_some_and(|u| u.ch != ']');
+        if dashes {
+            self.bump(); // '-'
+            match self.parse_class_element()? {
+                RxClassItem::Char(high) if high >= low => {
+                    items.push(RxClassItem::Range(low, high));
+                }
+                _ => {
+                    return Err(self.err_at(self.peek()));
+                }
+            }
+        } else {
+            items.push(RxClassItem::Char(low));
+            if self.peek().is_some_and(|u| u.ch == '-')
+                && self.peek_second().is_some_and(|u| u.ch == ']')
+            {
+                self.bump();
+                items.push(RxClassItem::Char('-'));
+            }
+        }
+        Ok(())
+    }
+
+    /// One undecorated class element: character, shorthand, or escape.
+    fn parse_class_element(&mut self) -> RxResult<RxClassItem> {
+        let Some(unit) = self.bump() else {
+            return Err(self.err_at(None));
+        };
+        if unit.ch != '\\' {
+            return Ok(RxClassItem::Char(unit.ch));
+        }
+        let Some(next) = self.peek() else {
+            return Err(self.err_at(None));
+        };
+        match next.ch {
+            'd' => Ok(self.class_shorthand(RxEscClass::Digit)),
+            'D' => Ok(self.class_shorthand(RxEscClass::NotDigit)),
+            'w' => Ok(self.class_shorthand(RxEscClass::Word)),
+            'W' => Ok(self.class_shorthand(RxEscClass::NotWord)),
+            's' => Ok(self.class_shorthand(RxEscClass::Space)),
+            'S' => Ok(self.class_shorthand(RxEscClass::NotSpace)),
+            'b' => {
+                self.bump();
+                Ok(RxClassItem::Char('\u{08}'))
+            }
+            'x' => self.class_hex(2),
+            'u' => self.class_hex(4),
+            'U' => self.class_hex(8),
+            'N' => {
+                self.bump();
+                if self.peek().is_none_or(|u| u.ch != '{') {
+                    return Err(self.err_at(self.peek()));
+                }
+                while let Some(inner) = self.peek() {
+                    self.bump();
+                    if inner.ch == '}' {
+                        return Ok(RxClassItem::Char('\u{fffd}'));
+                    }
+                }
+                Err(self.err_at(self.peek()))
+            }
+            '0'..='7' => self.class_octal(),
+            ch if ch.is_ascii_alphabetic() => Err(self.err_at(Some(next))),
+            _ => {
+                self.bump();
+                Ok(RxClassItem::Char(next.ch))
+            }
+        }
+    }
+
+    fn class_shorthand(&mut self, class: RxEscClass) -> RxClassItem {
+        self.bump();
+        RxClassItem::Esc(class)
+    }
+
+    fn class_hex(&mut self, width: usize) -> RxResult<RxClassItem> {
+        self.bump(); // 'x'/'u'/'U'
+        let mut text = String::new();
+        for _ in 0..width {
+            let Some(unit) = self.peek().filter(|u| u.ch.is_ascii_hexdigit()) else {
+                return Err(self.err_at(self.peek()));
+            };
+            text.push(unit.ch);
+            self.bump();
+        }
+        let value = u32::from_str_radix(&text, 16).unwrap_or(0xfffd);
+        Ok(RxClassItem::Char(
+            char::from_u32(value).unwrap_or('\u{fffd}'),
+        ))
+    }
+
+    /// Octal escapes inside classes are never back references.
+    fn class_octal(&mut self) -> RxResult<RxClassItem> {
+        let start = self.peek().map_or(TextSize::new(0), |u| u.at);
+        let mut value: u32 = 0;
+        let mut count = 0;
+        while let Some(unit) = self.peek().filter(|u| ('0'..='7').contains(&u.ch))
+            && count < 3
+        {
+            value = value * 8 + (u32::from(unit.ch) - u32::from('0'));
+            self.bump();
+            count += 1;
+        }
+        if value > 0o377 {
+            return Err(self.err_at(self.peek()));
+        }
+        let span = TextRange::new(start, self.consumed_end(start));
+        self.octals.push(RxOctalRecord { span });
+        Ok(RxClassItem::Char(
+            char::from_u32(value).unwrap_or('\u{fffd}'),
+        ))
+    }
+}
+
+/// Head classification returned by [`RxParser::parse_group_head`].
+enum GroupHead {
+    /// Body-less atoms whose span is already final (`(?#…)`, `(?flags)`).
+    Complete(RxAtom),
+    /// `(?P=name)` terminates the atom itself.
+    NamedBackref(String),
+    /// Body follows; closed by the matching `)`.
+    Kind(RxGroupKind),
+    /// Plain or named capturing group; bookkeeping happens in the caller.
+    Capture(Option<String>),
+}
+
+fn atom_span_end(atom: &RxAtom, start: TextSize) -> TextSize {
+    match atom {
+        RxAtom::Group(group) => group.span.end(),
+        RxAtom::Class(class) => class.span.end(),
+        _ => start,
+    }
+}
+
+/// Parsed pattern plus everything the rule checks need from the parse pass.
+struct RxParsed {
+    root: RxNode,
+    capture_count: u32,
+    names: Vec<String>,
+    backrefs: Vec<RxBackrefRecord>,
+    octals: Vec<RxOctalRecord>,
+}
+
+fn parse_regex(units: &[RxUnit]) -> RxResult<RxParsed> {
+    RxParser::new(units).parse_root()
+}
+
+// ---------------------------------------------------------------------------
+// regex: rule checks over the parsed pattern engine above.
+// ---------------------------------------------------------------------------
+
+/// Decoded string-literal contents of a regex argument.
+struct RegexLiteral {
+    units: Vec<RxUnit>,
+}
+
+/// One `re.<fn>(...)` call site relevant to the regex rules.
+struct RegexSite {
+    pattern_range: TextRange,
+    pattern: Option<Vec<RxUnit>>,
+    repl: Option<RegexLiteral>,
+    verbose: bool,
+}
+
+const REGEX_FUNCTIONS: [&str; 9] = [
+    "re.compile",
+    "re.match",
+    "re.search",
+    "re.fullmatch",
+    "re.findall",
+    "re.finditer",
+    "re.sub",
+    "re.subn",
+    "re.split",
+];
+
+fn decode_regex_literal(expr: &Expr, source: &str) -> Option<RegexLiteral> {
+    let Expr::StringLiteral(literal) = expr else {
+        return None;
+    };
+    let mut units = Vec::new();
+    for part in &literal.value {
+        units.extend(decode_string_part(
+            &source[part.range()],
+            part.range().start(),
+        ));
+    }
+    Some(RegexLiteral { units })
+}
+
+/// Whether any sub-expression selects the extended/verbose flag.
+fn has_verbose_flag(arguments: &ruff_python_ast::Arguments) -> bool {
+    let mut found = false;
+    let arg_exprs = arguments
+        .args
+        .iter()
+        .chain(arguments.keywords.iter().map(|k| &k.value));
+    for expr in arg_exprs {
+        for_each_expr(expr, &mut |e| {
+            if matches!(dotted_name(e).as_deref(), Some("re.X" | "re.VERBOSE")) {
+                found = true;
+            }
+        });
+    }
+    found
+}
+
+fn collect_regex_sites(body: &[Stmt], source: &str) -> Vec<RegexSite> {
+    let mut sites = Vec::new();
+    for_each_call(body, &mut |call| {
+        let Some(path) = dotted_name(&call.func) else {
+            return;
+        };
+        if !REGEX_FUNCTIONS.contains(&path.as_str()) {
+            return;
+        }
+        let pattern_expr = call
+            .arguments
+            .args
+            .first()
+            .or_else(|| keyword_value(&call.arguments, "pattern"));
+        let repl = if matches!(path.as_str(), "re.sub" | "re.subn") {
+            call.arguments
+                .args
+                .get(1)
+                .or_else(|| keyword_value(&call.arguments, "repl"))
+                .and_then(|expr| decode_regex_literal(expr, source))
+        } else {
+            None
+        };
+        sites.push(RegexSite {
+            pattern_range: pattern_expr.map_or_else(|| call.range(), Ranged::range),
+            pattern: pattern_expr
+                .and_then(|expr| decode_regex_literal(expr, source))
+                .map(|literal| literal.units),
+            repl,
+            verbose: has_verbose_flag(&call.arguments),
+        });
+    });
+    sites
+}
+
+/// Aggregates every regex-family check over one file.
+fn check_regex_battery(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let body = parsed.syntax().body.as_slice();
+    let sites = collect_regex_sites(body, source);
+    let mut issues = Vec::new();
+
+    // python:S4784 — every regex entry point is security-sensitive.
+    for site in &sites {
+        issues.push(issue_at(
+            "python:S4784",
+            "Make sure that using a regular expression is safe here.",
+            site.pattern_range,
+            index,
+            source,
+        ));
+    }
+
+    // python:S6328 — replacement references must exist in the pattern.
+    for site in &sites {
+        check_replacement_references(site, index, source, &mut issues);
+    }
+
+    // python:S5860 — `.group("name")` references versus defined names.
+    check_named_group_references(body, &sites, index, source, &mut issues);
+
+    // Structural per-pattern checks.
+    for site in &sites {
+        let Some(units) = &site.pattern else {
+            continue;
+        };
+        match parse_regex(units) {
+            Err(err) => issues.push(issue_at(
+                "python:S5856",
+                "Fix the syntax error inside this regular expression.",
+                err.span,
+                index,
+                source,
+            )),
+            Ok(ast) => {
+                run_structural_regex_rules(
+                    &ast,
+                    units,
+                    site.verbose,
+                    options,
+                    &mut issues,
+                    index,
+                    source,
+                );
+            }
+        }
+    }
+    issues
+}
+
+// --- shared regex-AST walkers and predicates --------------------------------
+
+fn for_each_rx_seq<'a>(node: &'a RxNode, visit: &mut impl FnMut(&'a RxSeq)) {
+    match node {
+        RxNode::Seq(seq) => visit(seq),
+        RxNode::Alternation(branches) => {
+            for branch in branches {
+                visit(branch);
+            }
+        }
+    }
+}
+
+fn for_each_rx_item<'a>(node: &'a RxNode, visit: &mut impl FnMut(&'a RxItem)) {
+    for_each_rx_seq(node, &mut |seq| {
+        for item in &seq.items {
+            visit(item);
+            if let RxAtom::Group(group) = &item.atom {
+                for_each_rx_item(&group.body, visit);
+            }
+        }
+    });
+}
+
+fn rx_atom_nullable(atom: &RxAtom) -> bool {
+    match atom {
+        RxAtom::Anchor(_)
+        | RxAtom::Backref(_)
+        | RxAtom::NamedRef(_)
+        | RxAtom::GlobalFlags
+        | RxAtom::Comment => true,
+        RxAtom::Group(group) => {
+            if matches!(
+                group.kind,
+                RxGroupKind::Lookahead
+                    | RxGroupKind::NegativeLookahead
+                    | RxGroupKind::Lookbehind
+                    | RxGroupKind::NegativeLookbehind
+            ) {
+                true
+            } else {
+                rx_node_nullable(&group.body)
+            }
+        }
+        _ => false,
+    }
+}
+
+fn rx_node_nullable(node: &RxNode) -> bool {
+    match node {
+        RxNode::Alternation(branches) => branches.iter().any(rx_seq_nullable),
+        RxNode::Seq(seq) => rx_seq_nullable(seq),
+    }
+}
+
+fn rx_seq_nullable(seq: &RxSeq) -> bool {
+    seq.items.iter().all(|item| match &item.quant {
+        Some(quant) => quant.min == 0 || rx_atom_nullable(&item.atom),
+        None => rx_atom_nullable(&item.atom),
+    })
+}
+
+/// Zero-width atoms: assertions, flags, comments, and lookarounds.
+fn rx_atom_zero_width(atom: &RxAtom) -> bool {
+    matches!(
+        atom,
+        RxAtom::Anchor(_) | RxAtom::GlobalFlags | RxAtom::Comment
+    ) || matches!(
+        atom,
+        RxAtom::Group(group)
+            if matches!(
+                group.kind,
+                RxGroupKind::Lookahead
+                    | RxGroupKind::NegativeLookahead
+                    | RxGroupKind::Lookbehind
+                    | RxGroupKind::NegativeLookbehind
+            )
+    )
+}
+
+/// Whether `item` requires at least one non-empty-width step.
+fn rx_item_consuming(item: &RxItem) -> bool {
+    let lookaround = matches!(
+        &item.atom,
+        RxAtom::Group(group)
+            if matches!(
+                group.kind,
+                RxGroupKind::Lookahead
+                    | RxGroupKind::NegativeLookahead
+                    | RxGroupKind::Lookbehind
+                    | RxGroupKind::NegativeLookbehind
+            )
+    );
+    let zero_width = lookaround
+        || matches!(
+            &item.atom,
+            RxAtom::Anchor(_) | RxAtom::GlobalFlags | RxAtom::Comment
+        );
+    !zero_width && item.quant.as_ref().is_none_or(|quant| quant.min >= 1)
+}
+
+fn rx_is_unbounded_repeat(item: &RxItem) -> bool {
+    item.quant
+        .as_ref()
+        .is_some_and(|quant| quant.max.is_none() && !quant.possessive)
+}
+
+// --- character-set approximation --------------------------------------------
+
+/// Approximate first-character set of an atom; conservative intersections.
+#[derive(Debug, Clone)]
+enum RxSet {
+    All,
+    Members {
+        exact: BTreeSet<char>,
+        ranges: Vec<(char, char)>,
+    },
+    Excluding {
+        exact: BTreeSet<char>,
+        ranges: Vec<(char, char)>,
+    },
+}
+
+fn esc_class_members(class: RxEscClass) -> Option<RxSet> {
+    let members = |exact: &[char], ranges: &[(char, char)]| RxSet::Members {
+        exact: exact.iter().copied().collect(),
+        ranges: ranges.to_vec(),
+    };
+    match class {
+        RxEscClass::Digit => Some(members(&[], &[('0', '9')])),
+        RxEscClass::Word => Some(members(&['_'], &[('0', '9'), ('A', 'Z'), ('a', 'z')])),
+        RxEscClass::Space => Some(members(&[' ', '\t', '\n', '\u{0b}', '\u{0c}', '\r'], &[])),
+        RxEscClass::NotDigit => Some(RxSet::Excluding {
+            exact: BTreeSet::new(),
+            ranges: vec![('0', '9')],
+        }),
+        RxEscClass::NotWord => Some(RxSet::Excluding {
+            exact: ['_'].into_iter().collect(),
+            ranges: vec![('0', '9'), ('A', 'Z'), ('a', 'z')],
+        }),
+        RxEscClass::NotSpace => Some(RxSet::Excluding {
+            exact: [' ', '\t', '\n', '\u{0b}', '\u{0c}', '\r']
+                .into_iter()
+                .collect(),
+            ranges: vec![],
+        }),
+        RxEscClass::UnicodeOpaque => None,
+    }
+}
+
+fn class_item_member(item: &RxClassItem, out: &mut (BTreeSet<char>, Vec<(char, char)>)) -> bool {
+    match item {
+        RxClassItem::Char(ch) => {
+            out.0.insert(*ch);
+            true
+        }
+        RxClassItem::Range(low, high) => {
+            out.1.push((*low, *high));
+            true
+        }
+        RxClassItem::Esc(class) => match esc_class_members(*class) {
+            Some(RxSet::Members { exact, ranges }) => {
+                out.0.extend(exact);
+                out.1.extend(ranges);
+                true
+            }
+            _ => false,
+        },
+    }
+}
+
+fn rx_atom_first_set(atom: &RxAtom) -> Option<RxSet> {
+    match atom {
+        RxAtom::Literal(ch) => Some(RxSet::Members {
+            exact: [*ch].into_iter().collect(),
+            ranges: vec![],
+        }),
+        RxAtom::Dot => Some(RxSet::All),
+        RxAtom::Class(class) => {
+            let mut members = (BTreeSet::new(), Vec::new());
+            let concrete = class
+                .items
+                .iter()
+                .all(|item| class_item_member(item, &mut members));
+            if !concrete {
+                return None;
+            }
+            if class.negated {
+                Some(RxSet::Excluding {
+                    exact: members.0,
+                    ranges: members.1,
+                })
+            } else {
+                Some(RxSet::Members {
+                    exact: members.0,
+                    ranges: members.1,
+                })
+            }
+        }
+        RxAtom::EscClass(class) => esc_class_members(*class),
+        RxAtom::Group(group) => rx_node_first_set(&group.body),
+        _ => None,
+    }
+}
+
+fn rx_node_first_set(node: &RxNode) -> Option<RxSet> {
+    match node {
+        RxNode::Alternation(branches) => {
+            let mut combined = None;
+            for branch in branches {
+                let set = rx_branch_first_set(branch)?;
+                combined = Some(match combined {
+                    None => set,
+                    Some(previous) => rx_union_sets(previous, set)?,
+                });
+            }
+            combined
+        }
+        RxNode::Seq(seq) => rx_branch_first_set(seq),
+    }
+}
+
+/// First mandatory character of a branch: skip leading nullable items.
+fn rx_branch_first_set(seq: &RxSeq) -> Option<RxSet> {
+    for item in &seq.items {
+        let nullable = match &item.quant {
+            Some(quant) => quant.min == 0 || rx_atom_nullable(&item.atom),
+            None => rx_atom_nullable(&item.atom),
+        };
+        if nullable {
+            continue;
+        }
+        return rx_atom_first_set(&item.atom);
+    }
+    None
+}
+
+fn rx_union_sets(left: RxSet, right: RxSet) -> Option<RxSet> {
+    match (left, right) {
+        (RxSet::All, _) | (_, RxSet::All) => Some(RxSet::All),
+        (
+            RxSet::Members {
+                exact: mut e1,
+                ranges: mut r1,
+            },
+            RxSet::Members {
+                exact: e2,
+                ranges: r2,
+            },
+        ) => {
+            e1.extend(e2);
+            r1.extend(r2);
+            Some(RxSet::Members {
+                exact: e1,
+                ranges: r1,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn member_in_ranges(ch: char, ranges: &[(char, char)]) -> bool {
+    ranges.iter().any(|(low, high)| *low <= ch && ch <= *high)
+}
+
+fn ranges_overlap(a: &[(char, char)], b: &[(char, char)]) -> bool {
+    a.iter()
+        .any(|(l1, h1)| b.iter().any(|(l2, h2)| l1 <= h2 && l2 <= h1))
+}
+
+/// Conservative intersection test; undecidable shapes count as intersecting.
+fn rx_sets_intersect(a: &RxSet, b: &RxSet) -> bool {
+    use RxSet::{All, Excluding, Members};
+    fn partly_outside(
+        ranges: &[(char, char)],
+        excluded_exact: &BTreeSet<char>,
+        excluded_ranges: &[(char, char)],
+    ) -> bool {
+        ranges.iter().any(|(low, high)| {
+            [*low, *high]
+                .into_iter()
+                .any(|ch| !excluded_exact.contains(&ch) && !member_in_ranges(ch, excluded_ranges))
+                || !excluded_ranges
+                    .iter()
+                    .any(|(l2, h2)| l2 <= low && high <= h2)
+        })
+    }
+    if matches!(a, All) || matches!(b, All) {
+        return true;
+    }
+    match (a, b) {
+        (
+            Members {
+                exact: e1,
+                ranges: r1,
+            },
+            Members {
+                exact: e2,
+                ranges: r2,
+            },
+        ) => {
+            e1.iter()
+                .any(|ch| e2.contains(ch) || member_in_ranges(*ch, r2))
+                || e2.iter().any(|ch| member_in_ranges(*ch, r1))
+                || ranges_overlap(r1, r2)
+        }
+        (
+            Members { exact, ranges },
+            Excluding {
+                exact: xe,
+                ranges: xr,
+            },
+        )
+        | (
+            Excluding {
+                exact: xe,
+                ranges: xr,
+            },
+            Members { exact, ranges },
+        ) => {
+            exact
+                .iter()
+                .any(|ch| !xe.contains(ch) && !member_in_ranges(*ch, xr))
+                || partly_outside(ranges, xe, xr)
+        }
+        _ => true,
+    }
+}
+
+// --- per-rule implementations ------------------------------------------------
+
+fn run_structural_regex_rules(
+    parsed: &RxParsed,
+    units: &[RxUnit],
+    verbose: bool,
+    options: &AnalyzerOptions,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    let mut push = |key: &str, message: &str, span: TextRange| {
+        issues.push(issue_at(key, message, span, index, source));
+    };
+    check_rx_syntax_shapes(parsed, units, verbose, &mut push);
+    check_rx_repetition_hazards(parsed, &mut push);
+    check_rx_style_shapes(parsed, verbose, options, &mut push);
+}
+
+fn check_rx_syntax_shapes(
+    parsed: &RxParsed,
+    units: &[RxUnit],
+    verbose: bool,
+    push: &mut dyn FnMut(&str, &str, TextRange),
+) {
+    // python:S5842 — repeated patterns matching the empty string.
+    for_each_rx_item(&parsed.root, &mut |item| {
+        if let Some(quant) = &item.quant
+            && rx_atom_nullable(&item.atom)
+        {
+            push(
+                "python:S5842",
+                "Change this repeated pattern so it cannot match the empty string.",
+                quant.span,
+            );
+        }
+    });
+    // python:S6001 — back references to groups not matched before them.
+    for record in &parsed.backrefs {
+        let valid = match (&record.number, &record.name) {
+            (Some(number), _) => number != &0 && record.visible_numbers.contains(number),
+            (None, Some(name)) => record.visible_names.contains(name),
+            (None, None) => true,
+        };
+        if !valid {
+            push(
+                "python:S6001",
+                "This back reference refers to a group that is not matched before it.",
+                record.span,
+            );
+        }
+    }
+    // python:S6537 — octal escapes at both the string and pattern level.
+    for span in units
+        .iter()
+        .filter(|unit| unit.octal)
+        .map(|unit| TextRange::at(unit.at, TextSize::from(to_u32(unit.ch.len_utf8()))))
+        .chain(parsed.octals.iter().map(|record| record.span))
+    {
+        push(
+            "python:S6537",
+            "Replace this octal escape with a hexadecimal or Unicode escape.",
+            span,
+        );
+    }
+    // python:S6002 / python:S6035 / python:S6323 — alternation and lookahead shapes.
+    check_rx_alternation_shapes(parsed, verbose, push);
+    // python:S5855 — alternatives covered by an earlier alternative.
+    check_rx_redundant_alternatives(&parsed.root, push);
+    check_rx_empty_groups(parsed, push);
+    check_rx_pointless_groups(parsed, push);
+}
+
+fn check_rx_alternation_shapes(
+    parsed: &RxParsed,
+    verbose: bool,
+    push: &mut dyn FnMut(&str, &str, TextRange),
+) {
+    // python:S5850 — anchors in a top-level alternation need grouping.
+    if let RxNode::Alternation(branches) = &parsed.root
+        && branches.len() >= 2
+    {
+        let leading_start = branches.first().and_then(rx_leading_anchor_span);
+        let trailing_end = branches.last().and_then(rx_trailing_anchor_span);
+        if let Some(span) = leading_start.or(trailing_end) {
+            push(
+                "python:S5850",
+                "Group this alternation so the anchors apply to all alternatives.",
+                span,
+            );
+        }
+    }
+    for_each_rx_seq(&parsed.root, &mut |seq| {
+        // python:S6002 — contradictory lookarounds.
+        for pair in seq.items.windows(2) {
+            if let (Some(a), Some(b)) = (
+                rx_lookahead_body(&pair[0].atom),
+                rx_lookahead_body(&pair[1].atom),
+            ) && rx_equivalent(a, b)
+            {
+                push(
+                    "python:S6002",
+                    "This lookahead contradicts the rest of the regular expression.",
+                    pair[1].span,
+                );
+            }
+        }
+        let mut lookahead_sets: Vec<(&RxItem, Option<RxSet>)> = Vec::new();
+        for item in &seq.items {
+            if let Some(body) = rx_positive_lookahead_body(&item.atom) {
+                lookahead_sets.push((item, rx_node_first_set(body)));
+            } else if rx_item_consuming(item) {
+                if let Some(set) = rx_atom_first_set(&item.atom) {
+                    for (lookahead, ahead_set) in &lookahead_sets {
+                        if let Some(ahead) = ahead_set
+                            && !rx_sets_intersect(ahead, &set)
+                        {
+                            push(
+                                "python:S6002",
+                                "This lookahead contradicts the rest of the regular expression.",
+                                lookahead.span,
+                            );
+                        }
+                    }
+                }
+                lookahead_sets.clear();
+            }
+        }
+        // python:S5996 — anchors that can never match.
+        check_rx_anchor_order(seq, push);
+        // python:S6326 — multiple consecutive literal spaces; skipped under
+        // the extended/verbose flag where whitespace is formatting.
+        if !verbose {
+            check_rx_space_runs(seq, push);
+        }
+    });
+    // python:S6035 / python:S6323 — single-character alternations and empty
+    // alternatives.
+    check_rx_alternation_nodes(&parsed.root, false, push);
+}
+
+/// Span of a branch-leading start anchor (`^a|b` mis-shape).
+fn rx_leading_anchor_span(branch: &RxSeq) -> Option<TextRange> {
+    match branch.items.first() {
+        Some(item)
+            if item.quant.is_none() && matches!(item.atom, RxAtom::Anchor(a) if a.is_start()) =>
+        {
+            Some(item.span)
+        }
+        _ => None,
+    }
+}
+
+fn rx_trailing_anchor_span(branch: &RxSeq) -> Option<TextRange> {
+    match branch.items.last() {
+        Some(item)
+            if item.quant.is_none() && matches!(item.atom, RxAtom::Anchor(a) if a.is_end()) =>
+        {
+            Some(item.span)
+        }
+        _ => None,
+    }
+}
+
+fn rx_lookahead_body(atom: &RxAtom) -> Option<&RxNode> {
+    match atom {
+        RxAtom::Group(group)
+            if matches!(
+                group.kind,
+                RxGroupKind::Lookahead | RxGroupKind::NegativeLookahead
+            ) =>
+        {
+            Some(&group.body)
+        }
+        _ => None,
+    }
+}
+
+fn rx_positive_lookahead_body(atom: &RxAtom) -> Option<&RxNode> {
+    match atom {
+        RxAtom::Group(group) if group.kind == RxGroupKind::Lookahead => Some(&group.body),
+        _ => None,
+    }
+}
+
+fn check_rx_anchor_order(seq: &RxSeq, push: &mut dyn FnMut(&str, &str, TextRange)) {
+    let mut misplaced_end: Option<TextRange> = None;
+    let mut seen_consuming = false;
+    for item in &seq.items {
+        if let RxAtom::Anchor(anchor) = &item.atom {
+            if anchor.is_end() && seen_consuming && misplaced_end.is_none() {
+                misplaced_end = Some(item.span);
+            }
+            if anchor.is_start() && seen_consuming {
+                push(
+                    "python:S5996",
+                    "This anchor placement can never match; reorder the anchors.",
+                    item.span,
+                );
+                return;
+            }
+        }
+        if rx_item_consuming(item) {
+            seen_consuming = true;
+            if let Some(span) = misplaced_end {
+                push(
+                    "python:S5996",
+                    "This anchor placement can never match; reorder the anchors.",
+                    span,
+                );
+                return;
+            }
+        }
+    }
+}
+
+fn check_rx_space_runs(seq: &RxSeq, push: &mut dyn FnMut(&str, &str, TextRange)) {
+    let mut run: Vec<&RxItem> = Vec::new();
+    for item in &seq.items {
+        if matches!(item.atom, RxAtom::Literal(' ')) && item.quant.is_none() {
+            run.push(item);
+        } else {
+            flush_space_run(&run, push);
+            run.clear();
+        }
+    }
+    flush_space_run(&run, push);
+}
+
+fn flush_space_run(run: &[&RxItem], push: &mut dyn FnMut(&str, &str, TextRange)) {
+    if run.len() >= 2 {
+        push(
+            "python:S6326",
+            "Replace multiple spaces with one space and a quantifier.",
+            TextRange::new(run[0].span.start(), run[run.len() - 1].span.end()),
+        );
+    }
+}
+
+fn check_rx_alternation_nodes(
+    node: &RxNode,
+    top_level_unquantified: bool,
+    push: &mut dyn FnMut(&str, &str, TextRange),
+) {
+    fn visit_items<'a>(
+        items: impl IntoIterator<Item = &'a RxItem>,
+        push: &mut dyn FnMut(&str, &str, TextRange),
+    ) {
+        for item in items {
+            if let RxAtom::Group(group) = &item.atom {
+                check_rx_alternation_nodes(&group.body, item.quant.is_none(), push);
+            }
+        }
+    }
+    match node {
+        RxNode::Alternation(branches) => {
+            // python:S6035 — all-literal single-character branches.
+            if branches.len() >= 2
+                && branches.iter().all(|branch| {
+                    branch.items.len() == 1
+                        && branch.items[0].quant.is_none()
+                        && matches!(branch.items[0].atom, RxAtom::Literal(_))
+                })
+            {
+                push(
+                    "python:S6035",
+                    "Replace this single-character alternation with a character class.",
+                    TextRange::new(
+                        branches[0].span.start(),
+                        branches[branches.len() - 1].span.end(),
+                    ),
+                );
+            }
+            // python:S6323 — empty alternatives, except a trailing empty
+            // alternative inside an unquantified group used as an
+            // optional-marker idiom.
+            for (position, branch) in branches.iter().enumerate() {
+                if branch.items.is_empty()
+                    && !(top_level_unquantified && position == branches.len() - 1)
+                {
+                    push(
+                        "python:S6323",
+                        "Remove this empty alternative.",
+                        branch.span,
+                    );
+                }
+                visit_items(&branch.items, push);
+            }
+        }
+        RxNode::Seq(seq) => visit_items(&seq.items, push),
+    }
+}
+
+/// python:S5855 — an alternative fully covered by an earlier one is dead.
+fn check_rx_redundant_alternatives(node: &RxNode, push: &mut dyn FnMut(&str, &str, TextRange)) {
+    if let RxNode::Alternation(branches) = node {
+        for later in 1..branches.len() {
+            if branches[later].items.is_empty() {
+                continue;
+            }
+            for earlier in 0..later {
+                if rx_branch_covered_by(&branches[earlier], &branches[later]) {
+                    push(
+                        "python:S5855",
+                        "Remove this redundant alternative; an earlier alternative already matches it.",
+                        branches[later].span,
+                    );
+                    break;
+                }
+            }
+        }
+    }
+    for_each_rx_seq(node, &mut |seq| {
+        for item in &seq.items {
+            if let RxAtom::Group(group) = &item.atom {
+                check_rx_redundant_alternatives(&group.body, push);
+            }
+        }
+    });
+}
+
+/// Whether every input matched by `later` is also matched by `earlier`.
+fn rx_branch_covered_by(earlier: &RxSeq, later: &RxSeq) -> bool {
+    fn single(branch: &RxSeq) -> Option<&RxItem> {
+        (branch.items.len() == 1 && branch.items[0].quant.is_none()).then(|| &branch.items[0])
+    }
+    if rx_seq_equivalent(earlier, later) {
+        return true;
+    }
+    let Some(later_item) = single(later) else {
+        return false;
+    };
+    if let RxAtom::Literal(ch) = &later_item.atom {
+        // `[ab]|a` — a class superset covers the single character.
+        if let Some(earlier_item) = single(earlier)
+            && let RxAtom::Class(class) = &earlier_item.atom
+            && !class.negated
+            && class_contains_char(class, *ch)
+        {
+            return true;
+        }
+    }
+    // `.*|a` — an all-matching wildcard alternative covers everything.
+    if earlier.items.len() == 1
+        && matches!(earlier.items[0].atom, RxAtom::Dot)
+        && earlier.items[0]
+            .quant
+            .as_ref()
+            .is_none_or(|quant| quant.max != Some(0))
+    {
+        return true;
+    }
+    false
+}
+
+fn class_contains_char(class: &RxClass, ch: char) -> bool {
+    class.items.iter().any(|item| match item {
+        RxClassItem::Char(member) => member == &ch,
+        RxClassItem::Range(low, high) => low <= &ch && &ch <= high,
+        RxClassItem::Esc(shorthand) => match shorthand {
+            RxEscClass::Digit => ch.is_ascii_digit(),
+            RxEscClass::Word => ch.is_ascii_alphanumeric() || ch == '_',
+            RxEscClass::Space => matches!(ch, ' ' | '\t' | '\n' | '\u{0b}' | '\u{0c}' | '\r'),
+            _ => false,
+        },
+    })
+}
+
+fn check_rx_empty_groups(parsed: &RxParsed, push: &mut dyn FnMut(&str, &str, TextRange)) {
+    for_each_rx_item(&parsed.root, &mut |item| {
+        if let RxAtom::Group(group) = &item.atom
+            && matches!(group.kind, RxGroupKind::Capture | RxGroupKind::NonCapture)
+            && matches!(&group.body, RxNode::Seq(seq) if seq.items.is_empty())
+        {
+            push("python:S6331", "Remove this empty group.", group.span);
+        }
+    });
+}
+
+fn check_rx_pointless_groups(parsed: &RxParsed, push: &mut dyn FnMut(&str, &str, TextRange)) {
+    for_each_rx_item(&parsed.root, &mut |item| {
+        if item.quant.is_some() {
+            return;
+        }
+        if let RxAtom::Group(group) = &item.atom
+            && group.kind == RxGroupKind::NonCapture
+            && !matches!(&group.body, RxNode::Seq(seq) if seq.items.is_empty())
+            && !matches!(group.body, RxNode::Alternation(_))
+        {
+            push(
+                "python:S6395",
+                "Remove this redundant non-capturing group or apply a quantifier to it.",
+                group.span,
+            );
+        }
+    });
+}
+
+// --- repetition hazards (S5852, S5855, S5994, S6019) -------------------------
+
+fn check_rx_repetition_hazards(parsed: &RxParsed, push: &mut dyn FnMut(&str, &str, TextRange)) {
+    for_each_rx_seq(&parsed.root, &mut |seq| {
+        check_rx_lazy_quantifiers(seq, push);
+        check_rx_possessive_deadlock(seq, push);
+        check_rx_overlapping_repeats(seq, push);
+    });
+    for_each_rx_item(&parsed.root, &mut |item| {
+        if let Some(quant) = &item.quant
+            && !quant.possessive
+            && is_repetitive(quant)
+            && let RxAtom::Group(group) = &item.atom
+            && matches!(group.kind, RxGroupKind::Capture | RxGroupKind::NonCapture)
+            && rx_body_ambiguous(&group.body)
+        {
+            push(
+                "python:S5852",
+                "Make sure this regular expression cannot cause a denial of service.",
+                quant.span,
+            );
+        }
+    });
+}
+
+fn is_repetitive(quant: &RxQuant) -> bool {
+    quant.max.is_none_or(|max| max >= 2)
+}
+
+/// Whether the body can match the same input in structurally different ways.
+fn rx_body_ambiguous(node: &RxNode) -> bool {
+    match node {
+        RxNode::Alternation(_) => true,
+        RxNode::Seq(seq) => {
+            if seq
+                .items
+                .iter()
+                .any(|item| item.quant.as_ref().is_some_and(|quant| quant.min == 0))
+            {
+                return true;
+            }
+            let repetitive: Vec<&RxItem> = seq
+                .items
+                .iter()
+                .filter(|item| item.quant.as_ref().is_some_and(is_repetitive))
+                .collect();
+            match repetitive.len() {
+                0 => false,
+                1 => {
+                    let rep = repetitive[0];
+                    if seq.items.len() == 1 {
+                        // `(a+)+`: a lone repetition can split its input in
+                        // many ways across outer iterations.
+                        return true;
+                    }
+                    // One repetition plus mandatory neighbors: ambiguous only
+                    // when a neighbor's first characters overlap the repeated
+                    // atom (e.g. `(a+a)+`) rather than anchoring it (`(ba+)+`).
+                    seq.items.iter().any(|item| {
+                        item.span != rep.span
+                            && match (rx_atom_first_set(&item.atom), rx_atom_first_set(&rep.atom)) {
+                                (Some(a), Some(b)) => rx_sets_intersect(&a, &b),
+                                _ => true,
+                            }
+                    })
+                }
+                _ => true,
+            }
+        }
+    }
+}
+
+fn check_rx_lazy_quantifiers(seq: &RxSeq, push: &mut dyn FnMut(&str, &str, TextRange)) {
+    for window in seq.items.windows(2) {
+        let (lazy, next) = (&window[0], &window[1]);
+        let Some(quant) = &lazy.quant else {
+            continue;
+        };
+        if !quant.lazy {
+            continue;
+        }
+        let next_forces_empty = lazy_next_forced_empty(next);
+        if next_forces_empty {
+            push(
+                "python:S6019",
+                "This reluctant quantifier is followed by an expression that can match the empty string; it behaves like a greedy quantifier.",
+                quant.span,
+            );
+        }
+    }
+    // A trailing lazy quantifier at the end of a branch is also pointless.
+    if let Some(last) = seq.items.last()
+        && last.quant.as_ref().is_some_and(|quant| quant.lazy)
+    {
+        push(
+            "python:S6019",
+            "This reluctant quantifier is followed by an expression that can match the empty string; it behaves like a greedy quantifier.",
+            last.quant.as_ref().expect("checked").span,
+        );
+    }
+}
+
+/// Whether `next` can be satisfied without consuming anything, or is an end
+/// anchor. A group with an explicit end-anchor alternative (e.g. `(end|$)`)
+/// is the sanctioned way to terminate a lazy quantifier and is exempt.
+fn lazy_next_forced_empty(next: &RxItem) -> bool {
+    match &next.atom {
+        RxAtom::Anchor(anchor) if anchor.is_end() => true,
+        RxAtom::Group(group)
+            if matches!(&group.body, RxNode::Alternation(branches)
+                if branches.iter().any(|branch|
+                    branch.items.len() == 1
+                        && matches!(branch.items[0].atom, RxAtom::Anchor(a) if a.is_end()))) =>
+        {
+            false
+        }
+        _ => rx_item_nullable_pub(next),
+    }
+}
+
+fn rx_item_nullable_pub(item: &RxItem) -> bool {
+    match &item.quant {
+        Some(quant) => quant.min == 0 || rx_atom_nullable(&item.atom),
+        None => rx_atom_nullable(&item.atom),
+    }
+}
+
+/// python:S5994 — content after a possessive quantifier that the possessive
+/// run already consumed can never match.
+fn check_rx_possessive_deadlock(seq: &RxSeq, push: &mut dyn FnMut(&str, &str, TextRange)) {
+    for window in seq.items.windows(2) {
+        let (possessive, next) = (&window[0], &window[1]);
+        let Some(quant) = &possessive.quant else {
+            continue;
+        };
+        if !(quant.possessive && quant.max.is_none()) {
+            continue;
+        }
+        let mandatory = next
+            .quant
+            .as_ref()
+            .is_none_or(|next_quant| next_quant.min >= 1);
+        if !mandatory {
+            continue;
+        }
+        if let (Some(consumed), Some(wanted)) = (
+            rx_atom_first_set(&possessive.atom),
+            rx_atom_first_set(&next.atom),
+        ) && rx_sets_intersect(&wanted, &consumed)
+        {
+            push(
+                "python:S5994",
+                "This sub-pattern can never match what the possessive quantifier consumed.",
+                next.span,
+            );
+        }
+    }
+}
+
+/// python:S5852 — consecutive overlapping unbounded repetitions.
+fn check_rx_overlapping_repeats(seq: &RxSeq, push: &mut dyn FnMut(&str, &str, TextRange)) {
+    for index in 0..seq.items.len() {
+        let first = &seq.items[index];
+        if !rx_is_unbounded_repeat(first) || rx_atom_zero_width(&first.atom) {
+            continue;
+        }
+        let first_set = rx_atom_first_set(&first.atom);
+        for offset in 1..=2usize {
+            let Some(second_index) = seq.items.get(index + offset) else {
+                break;
+            };
+            let second = second_index;
+            if !rx_is_unbounded_repeat(second) || rx_atom_zero_width(&second.atom) {
+                continue;
+            }
+            let separator_ok = if offset == 1 {
+                true
+            } else {
+                let middle = &seq.items[index + 1];
+                rx_item_nullable_pub(middle)
+                    || rx_optional_separator_overlaps(middle, first, second)
+            };
+            if separator_ok
+                && let (Some(a), Some(b)) = (first_set.clone(), rx_atom_first_set(&second.atom))
+                && rx_sets_intersect(&a, &b)
+            {
+                push(
+                    "python:S5852",
+                    "Make sure this regular expression cannot cause a denial of service.",
+                    second.span,
+                );
+            }
+            break;
+        }
+    }
+}
+
+fn rx_optional_separator_overlaps(middle: &RxItem, first: &RxItem, second: &RxItem) -> bool {
+    let Some(set_m) = rx_atom_first_set(&middle.atom) else {
+        return true;
+    };
+    [(first, "f"), (second, "s")].iter().any(|(item, _)| {
+        rx_atom_first_set(&item.atom).is_some_and(|set| rx_sets_intersect(&set, &set_m))
+    })
+}
+
+// --- style shapes (S6353, S6396, S6397, S5869, S5868, S5843, S5857) ----------
+
+const CLASS_METACHARACTERS: [char; 15] = [
+    '\\', '^', '$', '.', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}', '-',
+];
+
+fn check_rx_style_shapes(
+    parsed: &RxParsed,
+    verbose: bool,
+    options: &AnalyzerOptions,
+    push: &mut dyn FnMut(&str, &str, TextRange),
+) {
+    let _ = verbose;
+    // python:S5843 — overall complexity budget.
+    let score = rx_complexity(&parsed.root, 1);
+    if score > options.regex_maximum_complexity {
+        push(
+            "python:S5843",
+            "Reduce the complexity of this regular expression.",
+            rx_root_span(&parsed.root),
+        );
+    }
+    // python:S5857 — reluctant quantifiers on the wildcard.
+    for_each_rx_item(&parsed.root, &mut |item| {
+        if matches!(item.atom, RxAtom::Dot) && item.quant.as_ref().is_some_and(|quant| quant.lazy) {
+            push(
+                "python:S5857",
+                "Replace this reluctant quantifier with a negated character class.",
+                item.quant.as_ref().expect("checked").span,
+            );
+        }
+        // python:S6396 / python:S6353 — curly-quantifier conciseness.
+        if let Some(quant) = &item.quant {
+            check_curly_quantifier(quant, push);
+        }
+    });
+    // Class-level checks.
+    for_each_class(&parsed.root, &mut |class| {
+        check_rx_class(class, push);
+    });
+}
+
+fn for_each_class<'a>(node: &'a RxNode, visit: &mut impl FnMut(&'a RxClass)) {
+    for_each_rx_item(node, &mut |item| {
+        if let RxAtom::Class(class) = &item.atom {
+            visit(class);
+        }
+    });
+}
+
+fn check_curly_quantifier(quant: &RxQuant, push: &mut dyn FnMut(&str, &str, TextRange)) {
+    if !quant.curly {
+        // `*`, `+`, `?` are already the concise forms.
+        return;
+    }
+    let superfluous = quant.max == Some(quant.min) && quant.min <= 1;
+    let concise = match (quant.min, quant.max) {
+        (0, Some(1) | None) | (1, None) => true,
+        (min, Some(max)) => min == max && min >= 2,
+        _ => false,
+    };
+    if superfluous {
+        push(
+            "python:S6396",
+            "Remove this superfluous quantifier.",
+            quant.span,
+        );
+    } else if concise {
+        push(
+            "python:S6353",
+            "Use the concise equivalent for this quantifier.",
+            quant.span,
+        );
+    }
+}
+
+const GRAPHEME_RANGES: [(char, char); 6] = [
+    ('\u{0300}', '\u{036F}'),
+    ('\u{200D}', '\u{200D}'),
+    ('\u{FE00}', '\u{FE0F}'),
+    ('\u{20D0}', '\u{20FF}'),
+    ('\u{1AB0}', '\u{1AFF}'),
+    ('\u{1F1E6}', '\u{1F1FF}'),
+];
+
+fn is_grapheme_codepoint(ch: char) -> bool {
+    GRAPHEME_RANGES
+        .iter()
+        .any(|(low, high)| *low <= ch && ch <= *high)
+}
+
+fn is_regional_indicator(ch: char) -> bool {
+    ('\u{1F1E6}'..='\u{1F1FF}').contains(&ch)
+}
+
+fn check_rx_class(class: &RxClass, push: &mut dyn FnMut(&str, &str, TextRange)) {
+    // python:S6397 — single-character class.
+    if !class.negated
+        && class.items.len() == 1
+        && let RxClassItem::Char(ch) = class.items[0]
+        && !CLASS_METACHARACTERS.contains(&ch)
+    {
+        push(
+            "python:S6397",
+            "Remove this single-character class and write the character directly.",
+            class.span,
+        );
+    }
+    // python:S6353 — classes with concise shorthand equivalents.
+    if let Some(message) = concise_class_message(class) {
+        push("python:S6353", message, class.span);
+    }
+    // python:S5869 — duplicated characters and overlapping ranges.
+    let mut seen_chars: Vec<char> = Vec::new();
+    let mut seen_ranges: Vec<(char, char)> = Vec::new();
+    for item in &class.items {
+        match item {
+            RxClassItem::Char(ch) => {
+                if seen_chars.contains(ch)
+                    || seen_ranges
+                        .iter()
+                        .any(|(low, high)| low <= ch && ch <= high)
+                {
+                    push(
+                        "python:S5869",
+                        "Remove this duplicate character or overlapping range.",
+                        class.span,
+                    );
+                    return;
+                }
+                seen_chars.push(*ch);
+            }
+            RxClassItem::Range(low, high) => {
+                if seen_ranges.iter().any(|(l2, h2)| l2 <= high && low <= h2)
+                    || seen_chars.iter().any(|seen| low <= seen && seen <= high)
+                {
+                    push(
+                        "python:S5869",
+                        "Remove this duplicate character or overlapping range.",
+                        class.span,
+                    );
+                    return;
+                }
+                seen_ranges.push((*low, *high));
+            }
+            RxClassItem::Esc(_) => {}
+        }
+    }
+    // python:S5868 — grapheme clusters inside classes.
+    if class
+        .items
+        .iter()
+        .any(|item| matches!(item, RxClassItem::Char(ch) if is_grapheme_codepoint(*ch)))
+        || class.items.windows(2).any(|pair| {
+            pair.iter()
+                .all(|item| matches!(item, RxClassItem::Char(ch) if is_regional_indicator(*ch)))
+        })
+    {
+        push(
+            "python:S5868",
+            "Avoid Unicode grapheme clusters inside this character class.",
+            class.span,
+        );
+    }
+}
+
+/// Concise equivalent message for exact known class shapes.
+fn concise_class_message(class: &RxClass) -> Option<&'static str> {
+    let ranges_of = |items: &[RxClassItem]| -> Option<Vec<(char, char)>> {
+        items
+            .iter()
+            .map(|item| match item {
+                RxClassItem::Range(low, high) => Some((*low, *high)),
+                RxClassItem::Char('_') => Some(('_', '_')),
+                _ => None,
+            })
+            .collect()
+    };
+    let digit = [('0', '9')];
+    let word = [('0', '9'), ('A', 'Z'), ('_', '_'), ('a', 'z')];
+    if let Some(ranges) = ranges_of(&class.items) {
+        let same = |shape: &[(char, char)]| {
+            ranges.len() == shape.len() && shape.iter().all(|entry| ranges.contains(entry))
+        };
+        return match (class.negated, same(&digit), same(&word)) {
+            (false, true, _) => Some("Use \\d instead of this character class."),
+            (true, true, _) => Some("Use \\D instead of this character class."),
+            (false, _, true) => Some("Use \\w instead of this character class."),
+            (true, _, true) => Some("Use \\W instead of this character class."),
+            _ => None,
+        };
+    }
+    // [\w\W]-style complement pairs match everything: use the wildcard.
+    let complementary = class.items.len() == 2
+        && matches!(class.items[0], RxClassItem::Esc(_))
+        && matches!(class.items[1], RxClassItem::Esc(_))
+        && match (&class.items[0], &class.items[1]) {
+            (RxClassItem::Esc(a), RxClassItem::Esc(b)) => {
+                a.complement() == Some(*b) || b.complement() == Some(*a)
+            }
+            _ => false,
+        };
+    complementary.then_some("Use the wildcard instead of this all-matching character class.")
+}
+
+/// RSPEC-5843 complexity: nesting-sensitive operator counting.
+fn rx_complexity(node: &RxNode, level: u32) -> u32 {
+    match node {
+        RxNode::Alternation(branches) => {
+            let bars = u32::try_from(branches.len().saturating_sub(1)).unwrap_or(0);
+            let mut cost = level.saturating_add(bars.saturating_sub(1));
+            for branch in branches {
+                cost += rx_complexity(&RxNode::Seq(branch.clone()), level + 1);
+            }
+            cost
+        }
+        RxNode::Seq(seq) => seq
+            .items
+            .iter()
+            .map(|item| rx_item_complexity(item, level))
+            .sum(),
+    }
+}
+
+fn rx_item_complexity(item: &RxItem, level: u32) -> u32 {
+    let mut cost = match &item.atom {
+        RxAtom::Class(_) | RxAtom::Backref(_) | RxAtom::NamedRef(_) => 1,
+        RxAtom::Group(group)
+            if !matches!(group.kind, RxGroupKind::Capture | RxGroupKind::NonCapture) =>
+        {
+            level
+        }
+        _ => 0,
+    };
+    if item.quant.is_some() {
+        cost += level;
+    }
+    let inner_level = level + u32::from(item.quant.is_some());
+    if let RxAtom::Group(group) = &item.atom {
+        cost += rx_complexity(&group.body, inner_level);
+    }
+    cost
+}
+
+fn rx_root_span(node: &RxNode) -> TextRange {
+    match node {
+        RxNode::Seq(seq) => seq.span,
+        RxNode::Alternation(branches) => TextRange::new(
+            branches[0].span.start(),
+            branches[branches.len() - 1].span.end(),
+        ),
+    }
+}
+
+/// python:S6328 — `re.sub`/`re.subn` replacement strings must reference
+/// groups that exist in the pattern.
+fn check_replacement_references(
+    site: &RegexSite,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    let (Some(units), Some(repl)) = (&site.pattern, &site.repl) else {
+        return;
+    };
+    let Ok(parsed) = parse_regex(units) else {
+        return;
+    };
+    let mut position = 0;
+    while position < repl.units.len() {
+        if repl.units[position].ch != '\\' {
+            position += 1;
+            continue;
+        }
+        let Some(back) = repl.units.get(position + 1) else {
+            break;
+        };
+        match back.ch {
+            'g' => {
+                let mut cursor = position + 2;
+                if repl.units.get(cursor).map(|u| u.ch) != Some('<') {
+                    position += 1;
+                    continue;
+                }
+                cursor += 1;
+                let start = cursor;
+                let digits_or_name = |units: &[RxUnit], from: usize| -> Option<usize> {
+                    units[from..].iter().position(|u| u.ch == '>')
+                };
+                if let Some(close) = digits_or_name(&repl.units, start) {
+                    let body: String = repl.units[start..start + close]
+                        .iter()
+                        .map(|u| u.ch)
+                        .collect();
+                    let span = TextRange::new(repl.units[start].at, repl.units[start + close].at);
+                    let invalid = if body.chars().all(|c| c.is_ascii_digit()) && !body.is_empty() {
+                        body.parse::<u32>()
+                            .is_ok_and(|number| number > parsed.capture_count)
+                    } else {
+                        !parsed.names.iter().any(|name| name == &body)
+                    };
+                    if invalid {
+                        issues.push(issue_at(
+                            "python:S6328",
+                            "Reference an existing group in this replacement string.",
+                            span,
+                            index,
+                            source,
+                        ));
+                    }
+                    position = start + close + 1;
+                    continue;
+                }
+                position += 1;
+            }
+            '0'..='9' => {
+                let digits: String = repl.units[position + 1..]
+                    .iter()
+                    .take(2)
+                    .take_while(|u| u.ch.is_ascii_digit())
+                    .map(|u| u.ch)
+                    .collect();
+                let span = TextRange::new(
+                    back.at,
+                    back.at + TextSize::from(to_u32(digits.len().max(1))),
+                );
+                if let Ok(number) = digits.parse::<u32>()
+                    && number != 0
+                    && number > parsed.capture_count
+                {
+                    issues.push(issue_at(
+                        "python:S6328",
+                        "Reference an existing group in this replacement string.",
+                        span,
+                        index,
+                        source,
+                    ));
+                }
+                position += 1 + digits.len();
+            }
+            _ => position += 1,
+        }
+    }
+}
+
+/// python:S5860 — `.group("name")` references versus named groups defined in
+/// any literal pattern of the file.
+fn check_named_group_references(
+    body: &[Stmt],
+    sites: &[RegexSite],
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    let defined: std::collections::BTreeSet<String> = sites
+        .iter()
+        .filter_map(|site| site.pattern.as_ref())
+        .filter_map(|units| parse_regex(units).ok())
+        .flat_map(|parsed| parsed.names.into_iter())
+        .collect();
+    if defined.is_empty() {
+        return;
+    }
+    for_each_call(body, &mut |call| {
+        if called_name(&call.func) == Some("group")
+            && let Some(argument) = call.arguments.args.first()
+            && let Expr::StringLiteral(literal) = argument
+        {
+            let name = string_value_text(&literal.value);
+            if !defined.contains(&name) {
+                issues.push(issue_at(
+                    "python:S5860",
+                    "Reference an existing named group instead of a number or an unknown name.",
+                    literal.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+}
 
 // ---------------------------------------------------------------------------
 // Battery aggregation: every Tier-B entry (symbol/flow/value/effect).
@@ -10591,12 +13449,7 @@ fn check_tier_b_battery(
         issues.extend(check_unused_imports(&table, &facts, index, source));
         issues.extend(check_unused_parameters(&table, &facts, index, source));
         issues.extend(check_unused_locals(
-            &table,
-            &facts,
-            options,
-            &exports,
-            index,
-            source,
+            &table, &facts, options, &exports, index, source,
         ));
         issues.extend(check_use_before_definition(&table, &facts, index, source));
         issues.extend(check_dead_stores(&table, &facts, options, index, source));
@@ -10605,10 +13458,16 @@ fn check_tier_b_battery(
         issues.extend(check_static_candidates(&table, index, source));
     }
     issues.extend(check_unused_private_methods(&table, &facts, index, source));
-    issues.extend(check_unused_private_nested_classes(&table, &facts, index, source));
-    issues.extend(check_unused_nested_definitions(&table, &facts, index, source));
+    issues.extend(check_unused_private_nested_classes(
+        &table, &facts, index, source,
+    ));
+    issues.extend(check_unused_nested_definitions(
+        &table, &facts, index, source,
+    ));
     issues.extend(check_shadowed_builtins(&table, index, source));
-    issues.extend(check_all_exports_exist(parsed, &table, &facts, index, source));
+    issues.extend(check_all_exports_exist(
+        parsed, &table, &facts, index, source,
+    ));
     issues.extend(check_undefined_names(&table, &facts, index, source));
     issues.extend(check_unread_private_attributes(
         &table, &facts, options, index, source,
@@ -10778,11 +13637,7 @@ mod tests {
             maximum_line_length: 10,
             ..AnalyzerOptions::default()
         };
-        let flagged = analyze(
-            PathBuf::from("test.py"),
-            "x = 12345678\nstr(x)\n",
-            &strict,
-        );
+        let flagged = analyze(PathBuf::from("test.py"), "x = 12345678\nstr(x)\n", &strict);
         assert_eq!(flagged.issues.len(), 1);
         assert_eq!(
             flagged.issues[0].message,
@@ -11026,8 +13881,8 @@ mod tests {
                 "# Copyright 2026\nfor _ in []:\n    pass\n",
                 &options
             )
-                .issues
-                .is_empty()
+            .issues
+            .is_empty()
         );
         assert!(
             analyze(
@@ -11038,11 +13893,7 @@ mod tests {
             .issues
             .is_empty()
         );
-        let missing = analyze(
-            PathBuf::from("t.py"),
-            "for _ in []:\n    pass\n",
-            &options
-        );
+        let missing = analyze(PathBuf::from("t.py"), "for _ in []:\n    pass\n", &options);
         assert_eq!(
             missing.issues,
             vec![issue(
@@ -12523,8 +15374,10 @@ mod tests {
         let flagged = scan("import os\nimport sys\nprint(os.getcwd())\n");
         assert_eq!(findings(&flagged, "python:S1128").len(), 1);
         assert_eq!(
-            findings(&scan("import os\nimport sys\nprint(os.getcwd(), sys.path)\n"),
-            "python:S1128")
+            findings(
+                &scan("import os\nimport sys\nprint(os.getcwd(), sys.path)\n"),
+                "python:S1128"
+            )
             .len(),
             0
         );
@@ -12534,7 +15387,9 @@ mod tests {
     fn s1144_flags_unreferenced_private_methods() {
         let flagged = scan("class C:\n    def _hidden(self):\n        return 7\n\n\nc = C()\n");
         assert_eq!(findings(&flagged, "python:S1144").len(), 1);
-        let referenced = scan("class C:\n    def _hidden(self):\n        return 7\n\n\nc = C()\nprint(c._hidden())\n");
+        let referenced = scan(
+            "class C:\n    def _hidden(self):\n        return 7\n\n\nc = C()\nprint(c._hidden())\n",
+        );
         assert!(findings(&referenced, "python:S1144").is_empty());
     }
 
@@ -12548,7 +15403,8 @@ mod tests {
 
     #[test]
     fn s1481_flags_unused_local_variables() {
-        let flagged = scan("def run():\n    total = 1\n    result = 2\n    return result\n\n\nrun()\n");
+        let flagged =
+            scan("def run():\n    total = 1\n    result = 2\n    return result\n\n\nrun()\n");
         let found = findings(&flagged, "python:S1481");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].range.start.line, 2);
@@ -12568,25 +15424,34 @@ mod tests {
 
     #[test]
     fn s3985_flags_unused_private_nested_classes() {
-        let flagged = scan("def outer():\n    class _Inner:\n        pass\n\n    return 1\n\n\nouter()\n");
+        let flagged =
+            scan("def outer():\n    class _Inner:\n        pass\n\n    return 1\n\n\nouter()\n");
         assert_eq!(findings(&flagged, "python:S3985").len(), 1);
-        let exported = scan("def outer():\n    class _Inner:\n        pass\n\n    return _Inner\n\n\nouter()\n");
+        let exported = scan(
+            "def outer():\n    class _Inner:\n        pass\n\n    return _Inner\n\n\nouter()\n",
+        );
         assert!(findings(&exported, "python:S3985").is_empty());
     }
 
     #[test]
     fn s5603_flags_unused_nested_definitions() {
-        let flagged = scan("def outer():\n    def helper():\n        pass\n\n    return 1\n\n\nouter()\n");
+        let flagged =
+            scan("def outer():\n    def helper():\n        pass\n\n    return 1\n\n\nouter()\n");
         assert_eq!(findings(&flagged, "python:S5603").len(), 1);
-        let called = scan("def outer():\n    def helper():\n        pass\n\n    return helper()\n\n\nouter()\n");
+        let called = scan(
+            "def outer():\n    def helper():\n        pass\n\n    return helper()\n\n\nouter()\n",
+        );
         assert!(findings(&called, "python:S5603").is_empty());
     }
 
     #[test]
     fn s5806_flags_bindings_shadowing_builtins() {
-        let flagged = scan("def process(items):\n    len = len(items)\n    return len\n\n\nprocess([1])\n");
+        let flagged =
+            scan("def process(items):\n    len = len(items)\n    return len\n\n\nprocess([1])\n");
         assert_eq!(findings(&flagged, "python:S5806").len(), 1);
-        let renamed = scan("def process(items):\n    length = len(items)\n    return length\n\n\nprocess([1])\n");
+        let renamed = scan(
+            "def process(items):\n    length = len(items)\n    return length\n\n\nprocess([1])\n",
+        );
         assert!(findings(&renamed, "python:S5806").is_empty());
     }
 
@@ -12657,7 +15522,9 @@ mod tests {
     fn s2190_flags_straight_line_infinite_recursion() {
         let flagged = scan("def spin():\n    return spin()\n\n\nspin()\n");
         assert_eq!(findings(&flagged, "python:S2190").len(), 1);
-        let guarded = scan("def spin(count):\n    if count <= 0:\n        return 1\n    return spin(count - 1)\n\n\nspin(3)\n");
+        let guarded = scan(
+            "def spin(count):\n    if count <= 0:\n        return 1\n    return spin(count - 1)\n\n\nspin(3)\n",
+        );
         assert!(findings(&guarded, "python:S2190").is_empty());
     }
 
@@ -12671,7 +15538,9 @@ mod tests {
 
     #[test]
     fn s5918_prefers_explicit_test_skips_over_guards() {
-        let flagged = scan("def test_upload(self):\n    if upload_ready:\n        return\n    verify_upload()\n");
+        let flagged = scan(
+            "def test_upload(self):\n    if upload_ready:\n        return\n    verify_upload()\n",
+        );
         assert_eq!(findings(&flagged, "python:S5918").len(), 1);
         let direct = scan("def test_upload(self):\n    verify_upload()\n");
         assert!(findings(&direct, "python:S5918").is_empty());
@@ -12679,9 +15548,13 @@ mod tests {
 
     #[test]
     fn s6908_flags_recursion_inside_tf_function() {
-        let flagged = scan("import tensorflow as tf\n\n\n@tf.function\ndef train(step):\n    return train(step - 1)\n");
+        let flagged = scan(
+            "import tensorflow as tf\n\n\n@tf.function\ndef train(step):\n    return train(step - 1)\n",
+        );
         assert_eq!(findings(&flagged, "python:S6908").len(), 1);
-        let flat = scan("import tensorflow as tf\n\n\n@tf.function\ndef train(step):\n    return step * 2\n");
+        let flat = scan(
+            "import tensorflow as tf\n\n\n@tf.function\ndef train(step):\n    return step * 2\n",
+        );
         assert!(findings(&flat, "python:S6908").is_empty());
     }
 
@@ -12691,7 +15564,8 @@ mod tests {
 
     #[test]
     fn s1226_flags_parameters_overwritten_before_read() {
-        let flagged = scan("def render(mode):\n    mode = \"fast\"\n    return mode\n\n\nrender(\"slow\")\n");
+        let flagged =
+            scan("def render(mode):\n    mode = \"fast\"\n    return mode\n\n\nrender(\"slow\")\n");
         assert_eq!(findings(&flagged, "python:S1226").len(), 1);
         let respected = scan(
             "def render(mode):\n    prefix = mode or \"fast\"\n    return prefix\n\n\nrender(\"slow\")\n",
@@ -12752,17 +15626,22 @@ mod tests {
 
     #[test]
     fn s3516_flags_identical_constant_returns() {
-        let flagged = scan("def pick(mode):\n    if mode:\n        return 7\n    return 7\n\n\npick(1)\n");
+        let flagged =
+            scan("def pick(mode):\n    if mode:\n        return 7\n    return 7\n\n\npick(1)\n");
         assert_eq!(findings(&flagged, "python:S3516").len(), 1);
-        let varied = scan("def pick(mode):\n    if mode:\n        return 7\n    return 8\n\n\npick(1)\n");
+        let varied =
+            scan("def pick(mode):\n    if mode:\n        return 7\n    return 8\n\n\npick(1)\n");
         assert!(findings(&varied, "python:S3516").is_empty());
     }
 
     #[test]
     fn s3801_flags_mixed_value_and_none_returns() {
-        let flagged = scan("def fetch(flag):\n    if flag:\n        return 5\n    return None\n\n\nfetch(1)\n");
+        let flagged = scan(
+            "def fetch(flag):\n    if flag:\n        return 5\n    return None\n\n\nfetch(1)\n",
+        );
         assert_eq!(findings(&flagged, "python:S3801").len(), 1);
-        let consistent = scan("def fetch(flag):\n    if flag:\n        return 5\n    return 0\n\n\nfetch(1)\n");
+        let consistent =
+            scan("def fetch(flag):\n    if flag:\n        return 5\n    return 0\n\n\nfetch(1)\n");
         assert!(findings(&consistent, "python:S3801").is_empty());
     }
 
@@ -12804,7 +15683,9 @@ mod tests {
 
     #[test]
     fn s6911_flag_tf_functions_capturing_module_state() {
-        let flagged = scan("import tensorflow as tf\n\nrate = 0.1\n\n\n@tf.function\ndef step(value):\n    return value * rate\n");
+        let flagged = scan(
+            "import tensorflow as tf\n\nrate = 0.1\n\n\n@tf.function\ndef step(value):\n    return value * rate\n",
+        );
         assert_eq!(findings(&flagged, "python:S6911").len(), 1);
         let parameterized = scan(
             "import tensorflow as tf\n\n\n@tf.function\ndef step(value, rate):\n    return value * rate\n",
@@ -12814,9 +15695,13 @@ mod tests {
 
     #[test]
     fn s6918_flags_variables_created_inside_tf_functions() {
-        let flagged = scan("import tensorflow as tf\n\n\n@tf.function\ndef build():\n    return tf.Variable(1.0)\n");
+        let flagged = scan(
+            "import tensorflow as tf\n\n\n@tf.function\ndef build():\n    return tf.Variable(1.0)\n",
+        );
         assert_eq!(findings(&flagged, "python:S6918").len(), 1);
-        let outside = scan("import tensorflow as tf\n\nweight = tf.Variable(1.0)\n\n\n@tf.function\ndef build():\n    return weight\n");
+        let outside = scan(
+            "import tensorflow as tf\n\nweight = tf.Variable(1.0)\n\n\n@tf.function\ndef build():\n    return weight\n",
+        );
         assert!(findings(&outside, "python:S6918").is_empty());
     }
 
@@ -12834,25 +15719,36 @@ mod tests {
 
     #[test]
     fn s6982_requires_eval_before_loaded_model_inference() {
-        let flagged = scan("model = load_model(weights_path)\nmodel.train()\nmodel(input_tensor)\n");
+        let flagged =
+            scan("model = load_model(weights_path)\nmodel.train()\nmodel(input_tensor)\n");
         assert_eq!(findings(&flagged, "python:S6982").len(), 1);
-        let evaluated = scan("model = load_model(weights_path)\nmodel.eval()\nmodel.train()\nmodel(input_tensor)\n");
+        let evaluated = scan(
+            "model = load_model(weights_path)\nmodel.eval()\nmodel.train()\nmodel(input_tensor)\n",
+        );
         assert!(findings(&evaluated, "python:S6982").is_empty());
     }
 
     #[test]
     fn s7502_flags_discarded_asyncio_tasks() {
-        let flagged = scan("import asyncio\n\n\nasync def worker():\n    pass\n\n\nasyncio.create_task(worker())\n");
+        let flagged = scan(
+            "import asyncio\n\n\nasync def worker():\n    pass\n\n\nasyncio.create_task(worker())\n",
+        );
         assert_eq!(findings(&flagged, "python:S7502").len(), 1);
-        let retained = scan("import asyncio\n\n\nasync def worker():\n    pass\n\n\ntask_handle = asyncio.create_task(worker())\n");
+        let retained = scan(
+            "import asyncio\n\n\nasync def worker():\n    pass\n\n\ntask_handle = asyncio.create_task(worker())\n",
+        );
         assert!(findings(&retained, "python:S7502").is_empty());
     }
 
     #[test]
     fn s7515_flags_sync_open_context_managers_in_async_functions() {
-        let flagged = scan("async def read_config():\n    with open(config_path) as handle:\n        return handle.read()\n");
+        let flagged = scan(
+            "async def read_config():\n    with open(config_path) as handle:\n        return handle.read()\n",
+        );
         assert_eq!(findings(&flagged, "python:S7515").len(), 1);
-        let sync_caller = scan("def read_config():\n    with open(config_path) as handle:\n        return handle.read()\n");
+        let sync_caller = scan(
+            "def read_config():\n    with open(config_path) as handle:\n        return handle.read()\n",
+        );
         assert!(findings(&sync_caller, "python:S7515").is_empty());
     }
 
@@ -12870,9 +15766,11 @@ mod tests {
 
     #[test]
     fn s7490_requires_checkpoints_inside_cancellation_scopes() {
-        let flagged = scan("async def guarded():\n    with move_on_after(5):\n        finish_loading()\n");
+        let flagged =
+            scan("async def guarded():\n    with move_on_after(5):\n        finish_loading()\n");
         assert_eq!(findings(&flagged, "python:S7490").len(), 1);
-        let checkpointed = scan("async def guarded():\n    with move_on_after(5):\n        await sleep_short()\n");
+        let checkpointed =
+            scan("async def guarded():\n    with move_on_after(5):\n        await sleep_short()\n");
         assert!(findings(&checkpointed, "python:S7490").is_empty());
     }
 
@@ -12934,5 +15832,569 @@ mod tests {
         };
         let enabled = analyze(PathBuf::from("t.py"), source, &options);
         assert_eq!(findings(&enabled, "python:S4487").len(), 1);
+    }
+    // -----------------------------------------------------------------------
+    // regex engine + Tier-B regex rules.
+    // -----------------------------------------------------------------------
+
+    use super::{RxNode, RxParser, RxUnit, decode_string_part};
+
+    fn rx_units(source: &str) -> Vec<RxUnit> {
+        decode_string_part(&format!("r\"{source}\""), ruff_text_size::TextSize::new(0))
+    }
+
+    fn rx_errors(source: &str) -> usize {
+        let units = rx_units(source);
+        // Re-parse through the public helper the battery uses.
+        match super::parse_regex(&units) {
+            Ok(_) => 0,
+            Err(_) => 1,
+        }
+    }
+
+    fn findings_of(source: &str, key: &str) -> Vec<String> {
+        findings(&scan(source), key)
+            .into_iter()
+            .map(|issue| issue.message.clone())
+            .collect()
+    }
+
+    #[test]
+    fn tmp_debug4() {
+        let report = scan("import re\nre.search(r'Jack|Peter|', s)\n");
+        eprintln!(
+            "JACK {:?}",
+            report
+                .issues
+                .iter()
+                .map(|i| i.rule_key.clone())
+                .collect::<Vec<_>>()
+        );
+        let u = rx_units(r"Jack|Peter|");
+        match super::parse_regex(&u) {
+            Ok(p) => eprintln!(
+                "JACKPARSE ok root={:?} cap={}",
+                match p.root {
+                    RxNode::Alternation(ref b) => format!("alt{}", b.len()),
+                    RxNode::Seq(ref q) => format!("seq{}", q.items.len()),
+                },
+                p.capture_count
+            ),
+            Err(e) => eprintln!("JACKPARSE err {:?}", e.span),
+        }
+    }
+
+    #[test]
+    fn regex_parser_accepts_the_full_python_grammar() {
+        for pattern in [
+            r"a|bc",
+            r"(a(b))c\2",
+            r"(?P<year>\d{4})-(?P=year)",
+            r"(?:x)+",
+            r"a*?b++c{2,}",
+            r"[a-z\d\-]]?",
+            r"(?=look)(?!nope)(?<=back)(?<!noback)",
+            r"(?#comment)abc",
+            r"(?i)MiXeD(?s:.)*",
+            r"\x41\u0042\U00000043\N{BULLET}",
+            r"\p{Greek}\P{Latin}",
+            r"a{,5}b{3,7}?",
+            r"[\]\[^\\-]",
+        ] {
+            assert_eq!(rx_errors(pattern), 0, "pattern should parse: {pattern}");
+        }
+    }
+
+    #[test]
+    fn regex_parser_rejects_python_syntax_errors() {
+        for pattern in [
+            r"a(b",       // unclosed group
+            r"a)b",       // unbalanced parenthesis
+            r"*x",        // nothing to repeat
+            r"a**",       // multiple repeat
+            r"a{2,1}",    // min greater than max
+            r"a\",        // trailing backslash
+            r"\q",        // bad escape (ASCII letter)
+            r"[abc",      // unterminated class
+            r"[z-a]",     // reversed range
+            r"(?P<1x>a)", // invalid group name
+        ] {
+            assert_eq!(rx_errors(pattern), 1, "pattern should fail: {pattern}");
+        }
+    }
+
+    #[test]
+    fn regex_decoder_keeps_source_offsets_and_raw_semantics() {
+        // Cooked: \n collapses to one unit placed at the backslash offset;
+        // unknown escapes stay verbatim so `\d` reaches the parser intact.
+        let raw = r#""a\n\d""#;
+        let units = decode_string_part(raw, ruff_text_size::TextSize::new(0));
+        let text: String = units.iter().map(|unit| unit.ch).collect();
+        assert_eq!(text.chars().count(), 4); // 'a', '\n', then verbatim '\\' + 'd'
+        assert_eq!(
+            u32::from(units[0].at) + u32::try_from(units[0].ch.len_utf8()).unwrap_or(0),
+            2
+        );
+        // Raw: every character maps one-to-one.
+        let raw_units = decode_string_part(r#"r"\n\d""#, ruff_text_size::TextSize::new(0));
+        assert_eq!(raw_units.iter().map(|u| u.ch).collect::<String>(), r"\n\d");
+    }
+
+    #[test]
+    fn regex_group_numbers_follow_open_order_and_visibility() {
+        let units = rx_units(r"(a)|((b)\2)");
+        let Ok(parsed) = super::parse_regex(&units) else {
+            panic!("should parse");
+        };
+        assert_eq!(parsed.capture_count, 3);
+        // The \2 reference sits after two captures on its path: valid.
+        assert!(parsed.backrefs.iter().all(|record| {
+            record
+                .number
+                .is_none_or(|number| record.visible_numbers.contains(&number))
+        }));
+        // `(.)|\1`: the reference is on a sibling branch and must be flagged.
+        let sibling = rx_units(r"(.)|\1");
+        let parsed_sibling = super::parse_regex(&sibling).expect("parses");
+        assert_eq!(parsed_sibling.backrefs.len(), 1);
+        assert!(!parsed_sibling.backrefs[0].visible_numbers.contains(&1));
+        let _ = RxNode::Seq;
+        let _ = |parser: &RxParser| {
+            let _ = &parser.pos;
+        };
+    }
+
+    fn regex_finds(source: &str, key: &str) -> bool {
+        !findings(&scan(source), key).is_empty()
+    }
+
+    #[test]
+    fn s4784_flags_every_regex_entry_point() {
+        let flagged = "import re\nre.search(r'x', t)\nre.sub(r'y', '', t)\n";
+        assert_eq!(findings_of(flagged, "python:S4784").len(), 2);
+        assert!(!regex_finds("import re\nvalue = 'x'\n", "python:S4784"));
+    }
+
+    #[test]
+    fn s5856_reports_syntactically_invalid_patterns_only() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'a(b')\n",
+            "python:S5856"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'(ab)')\n",
+            "python:S5856"
+        ));
+    }
+
+    #[test]
+    fn s6323_flags_empty_alternatives_with_optional_maker_exempt() {
+        assert_eq!(
+            findings_of("import re\nre.search(r'Jack|Peter|', s)\n", "python:S6323").len(),
+            1
+        );
+        assert!(regex_finds(
+            "import re\nre.search(r'a||b', s)\n",
+            "python:S6323"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.search(r'mandatory(-optional|)', s)\n",
+            "python:S6323"
+        ));
+        // A quantifier after the group makes both redundant again.
+        assert!(regex_finds(
+            "import re\nre.search(r'mandatory(-optional|)?', s)\n",
+            "python:S6323"
+        ));
+    }
+
+    #[test]
+    fn s6331_flags_empty_groups() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'foo()')\n",
+            "python:S6331"
+        ));
+        assert!(regex_finds(
+            "import re\nre.compile(r'(?:)')\n",
+            "python:S6331"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'foo\\(\\)')\n",
+            "python:S6331"
+        ));
+    }
+
+    #[test]
+    fn s6396_flags_superfluous_curly_quantifiers() {
+        for pattern in [r"ab{1}c", r"ab{1,1}c", r"ab{0}c"] {
+            assert!(
+                regex_finds(
+                    &format!("import re\nre.compile(r'{pattern}')\n"),
+                    "python:S6396"
+                ),
+                "{pattern}"
+            );
+        }
+        assert!(!regex_finds(
+            "import re\nre.compile(r'abc')\n",
+            "python:S6396"
+        ));
+    }
+
+    #[test]
+    fn s6353_suggests_concise_quantifiers_and_classes() {
+        for pattern in [
+            "[0-9]",
+            "[^0-9]",
+            "[A-Za-z0-9_]",
+            r"[\w\W]",
+            "a{0,}",
+            "a{1,}",
+            "a{0,1}",
+            "a{2,2}",
+        ] {
+            assert!(
+                regex_finds(
+                    &format!("import re\nre.compile(r'{pattern}')\n"),
+                    "python:S6353"
+                ),
+                "{pattern}"
+            );
+        }
+        assert!(!regex_finds(
+            "import re\nre.compile(r'\\d')\n",
+            "python:S6353"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'[ab]')\n",
+            "python:S6353"
+        ));
+    }
+
+    #[test]
+    fn s6397_flags_single_character_classes_with_metachar_exception() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'a[b]c')\n",
+            "python:S6397"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'a[.]c')\n",
+            "python:S6397"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'[ab]')\n",
+            "python:S6397"
+        ));
+    }
+
+    #[test]
+    fn s6537_flags_octal_escapes_at_both_levels() {
+        assert!(regex_finds(
+            "import re\nre.match(r'\\101', s)\n",
+            "python:S6537"
+        ));
+        // Non-raw string: the octal escape happens at the string level.
+        assert!(regex_finds(
+            "import re\nre.match('\\101', s)\n",
+            "python:S6537"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.match(r'\\x41', s)\n",
+            "python:S6537"
+        ));
+    }
+
+    #[test]
+    fn s5869_flags_duplicate_class_members() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'[aa]')\n",
+            "python:S5869"
+        ));
+        assert!(regex_finds(
+            "import re\nre.compile(r'[a-c,c-e]')\n",
+            "python:S5869"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'[abc]')\n",
+            "python:S5869"
+        ));
+    }
+
+    #[test]
+    fn s5868_flags_grapheme_clusters_in_classes() {
+        // combining acute accent inside a class
+        let source = "import re\nre.compile(\"[e\u{301}]\")\n";
+        assert!(regex_finds(source, "python:S5868"));
+        assert!(!regex_finds(
+            "import re\nre.compile('[ea]')\n",
+            "python:S5868"
+        ));
+    }
+
+    #[test]
+    fn s5842_flags_repetitions_that_match_empty() {
+        for pattern in [r"(?:x?)*", r"(?:)*", r"(?:x|)*"] {
+            assert!(
+                regex_finds(
+                    &format!("import re\nre.compile(r'{pattern}')\n"),
+                    "python:S5842"
+                ),
+                "{pattern}"
+            );
+        }
+        assert!(!regex_finds(
+            "import re\nre.compile(r'(?:x)+')\n",
+            "python:S5842"
+        ));
+    }
+
+    #[test]
+    fn s5852_flags_catastrophic_backtracking_shapes() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'(a+)+b')\n",
+            "python:S5852"
+        ));
+        assert!(regex_finds(
+            "import re\nre.compile(r'.*_.*')\n",
+            "python:S5852"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'(ba+)+b')\n",
+            "python:S5852"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'a*_a*')\n",
+            "python:S5852"
+        ));
+    }
+
+    #[test]
+    fn s5850_flags_ungrouped_anchored_alternations() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'^alt1|alt2$')\n",
+            "python:S5850"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'^(?:alt1|alt2)$')\n",
+            "python:S5850"
+        ));
+    }
+
+    #[test]
+    fn s5855_flags_alternatives_covered_by_earlier_ones() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'[ab]|a')\n",
+            "python:S5855"
+        ));
+        assert!(regex_finds(
+            "import re\nre.compile(r'.*|a')\n",
+            "python:S5855"
+        ));
+        assert!(regex_finds(
+            "import re\nre.compile(r'foo|foo')\n",
+            "python:S5855"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'foo|bar')\n",
+            "python:S5855"
+        ));
+    }
+
+    #[test]
+    fn s5994_flags_patterns_that_fail_after_possessive_quantifiers() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'a++abc')\n",
+            "python:S5994"
+        ));
+        assert!(regex_finds(
+            "import re\nre.compile(r'\\d*+[02468]')\n",
+            "python:S5994"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'a++b')\n",
+            "python:S5994"
+        ));
+    }
+
+    #[test]
+    fn s5996_flags_boundaries_that_can_never_match() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'$[a-z]+^')\n",
+            "python:S5996"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'^[a-z]+$')\n",
+            "python:S5996"
+        ));
+    }
+
+    #[test]
+    fn s6001_flags_back_references_to_unmatched_groups() {
+        for pattern in [r"\1(.)", r"(.)\2", r"(.)|\1", r"(?P<x>.)|(?P=x)"] {
+            assert!(
+                regex_finds(
+                    &format!("import re\nre.compile(r'{pattern}')\n"),
+                    "python:S6001"
+                ),
+                "{pattern}"
+            );
+        }
+        assert!(!regex_finds(
+            "import re\nre.compile(r'(.)\\1')\n",
+            "python:S6001"
+        ));
+    }
+
+    #[test]
+    fn s6002_flags_contradictory_lookaheads() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'(?=a)b')\n",
+            "python:S6002"
+        ));
+        assert!(regex_finds(
+            "import re\nre.compile(r'(?=a)(?!a)')\n",
+            "python:S6002"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'a(?=b)')\n",
+            "python:S6002"
+        ));
+    }
+
+    #[test]
+    fn s6019_flags_lazy_quantifiers_before_empty_matches() {
+        assert!(regex_finds(
+            "import re\nre.match(r'^\\d*?$', s)\n",
+            "python:S6019"
+        ));
+        assert!(regex_finds(
+            "import re\nre.sub(r'start\\w*?(end)?', 'x', s)\n",
+            "python:S6019"
+        ));
+        // The sanctioned lazy-terminator idiom is exempt.
+        assert!(!regex_finds(
+            "import re\nre.sub(r'start\\w*?(end|$)', 'x', s)\n",
+            "python:S6019"
+        ));
+    }
+
+    #[test]
+    fn s6035_flags_single_character_alternations() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'a|b|c')\n",
+            "python:S6035"
+        ));
+        assert!(regex_finds(
+            "import re\nre.compile(r'gr(a|e)y')\n",
+            "python:S6035"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'[abc]')\n",
+            "python:S6035"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'ab|cd')\n",
+            "python:S6035"
+        ));
+    }
+
+    #[test]
+    fn s6326_flags_multiple_spaces_unless_verbose_flag_set() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'Hello,   world!')\n",
+            "python:S6326"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'Hello,   world!', re.X)\n",
+            "python:S6326"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'Hello world!')\n",
+            "python:S6326"
+        ));
+    }
+
+    #[test]
+    fn s6328_validates_group_references_in_replacements() {
+        let flagged = "import re\nre.sub(r'(a)(b)(c)', r'\\1, \\9, \\3', s)\n";
+        assert_eq!(findings_of(flagged, "python:S6328").len(), 1);
+        assert!(!regex_finds(
+            "import re\nre.sub(r'(a)(b)(c)', r'\\1, \\2, \\3', s)\n",
+            "python:S6328"
+        ));
+        assert!(regex_finds(
+            "import re\nre.sub(r'(?P<a>x)', r'\\g<b>', s)\n",
+            "python:S6328"
+        ));
+    }
+
+    #[test]
+    fn s6395_flags_pointless_non_capturing_groups() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'(?:number)\\d{2}')\n",
+            "python:S6395"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'(?:number|string)')\n",
+            "python:S6395"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'(?:number)?\\d{2}')\n",
+            "python:S6395"
+        ));
+    }
+
+    #[test]
+    fn s5857_flags_reluctant_wildcard_quantifiers() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'<.+?>')\n",
+            "python:S5857"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'<[^>]*>')\n",
+            "python:S5857"
+        ));
+    }
+
+    #[test]
+    fn s5843_enforces_the_complexity_budget() {
+        let complex = "import re\nre.compile(r'(a|b|c|d|e|f|g|h|i|j)+(k|l|m|n|o|p|q|r|s|t)+(u|v|x|y|z|A|B|C|D|E)+')\n";
+        assert!(regex_finds(complex, "python:S5843"));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'\\d{4}-\\d{2}')\n",
+            "python:S5843"
+        ));
+        // Raising the budget silences the finding.
+        let options = AnalyzerOptions {
+            regex_maximum_complexity: 500,
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze(PathBuf::from("t.py"), complex, &options);
+        assert!(
+            report
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "python:S5843")
+        );
+    }
+
+    #[test]
+    fn s5860_flags_unknown_named_group_references() {
+        let flagged = concat!(
+            "import re\n",
+            "pattern = re.compile(r'(?P<a>.)')\n",
+            "matches = pattern.match(s)\n",
+            "g = matches.group('b')\n"
+        );
+        assert!(regex_finds(flagged, "python:S5860"));
+        let compliant = concat!(
+            "import re\n",
+            "pattern = re.compile(r'(?P<a>.)')\n",
+            "matches = pattern.match(s)\n",
+            "g = matches.group('a')\n"
+        );
+        assert!(!regex_finds(compliant, "python:S5860"));
+        // Without any named groups in the file there is no signal.
+        assert!(!regex_finds("matches.group('anything')\n", "python:S5860"));
     }
 }
