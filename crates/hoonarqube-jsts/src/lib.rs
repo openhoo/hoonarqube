@@ -190,6 +190,49 @@ pub fn analyze(
     analyze_with_rules(path, source, language, options, &rules)
 }
 
+/// Whole-file text and comment checks that run before the AST walks.
+fn check_file_level_rules(
+    source: &str,
+    language: JstsLanguage,
+    options: &AnalyzerOptions,
+    rules: &RuleOptions,
+    index: &LineIndex,
+    body: &[Statement<'_>],
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_line_length(source, language, options));
+    issues.extend(check_tab_characters(source, language));
+    issues.extend(check_missing_newline_at_eof(source, language, index));
+    issues.extend(check_trailing_whitespace(source, language));
+    issues.extend(check_too_many_lines_of_code(body, index, language, rules));
+    issues.extend(check_file_header(source, language, rules));
+    issues.extend(check_comment_rules(source, index, language, rules));
+    issues
+}
+
+/// Single-traversal AST batch checks: statement, expression, binding,
+/// function-length, eval-usage, naming, and duplicate-structure rules.
+fn check_core_ast_rules(
+    program: &oxc_ast::ast::Program<'_>,
+    source: &str,
+    index: &LineIndex,
+    language: JstsLanguage,
+    rules: &RuleOptions,
+    body: &[Statement<'_>],
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_one_statement_per_line(body, index, language));
+    issues.extend(check_statement_rules(program, source, index, language));
+    issues.extend(check_expression_rules(program, index, language));
+    issues.extend(check_binding_rules(program, source, index, language, rules));
+    issues.extend(check_function_lengths(program, index, language, rules));
+    issues.extend(check_eval_usage(program, index, language));
+    // --- Batch2a: name/format and structural duplicate/identity rules ---
+    issues.extend(check_naming_rules(program, index, language, rules));
+    issues.extend(check_duplicate_rules(program, index, language));
+    issues
+}
+
 fn analyze_with_rules(
     path: PathBuf,
     source: &str,
@@ -206,45 +249,19 @@ fn analyze_with_rules(
     .parse();
     let index = LineIndex::new(source);
     let body = parsed.program.body.as_slice();
-
-    let mut issues = Vec::new();
-    issues.extend(check_line_length(source, language, options));
-    issues.extend(check_tab_characters(source, language));
-    issues.extend(check_missing_newline_at_eof(source, language, &index));
-    issues.extend(check_trailing_whitespace(source, language));
-    issues.extend(check_too_many_lines_of_code(body, &index, language, rules));
-    issues.extend(check_file_header(source, language, rules));
-    issues.extend(check_comment_rules(source, &index, language, rules));
+    let mut issues = check_file_level_rules(source, language, options, rules, &index, body);
     // `S2260` (`ParsingError`) hook: `parsed.errors` is deliberately not
     // reported — see the module documentation for the tolerant-parse
     // decision; the partial AST below is analyzed regardless.
     let _ = &parsed.diagnostics;
-    issues.extend(check_one_statement_per_line(body, &index, language));
-    issues.extend(check_statement_rules(
-        &parsed.program,
-        source,
-        &index,
-        language,
-    ));
-    issues.extend(check_expression_rules(&parsed.program, &index, language));
-    issues.extend(check_binding_rules(
+    issues.extend(check_core_ast_rules(
         &parsed.program,
         source,
         &index,
         language,
         rules,
+        body,
     ));
-    issues.extend(check_function_lengths(
-        &parsed.program,
-        &index,
-        language,
-        rules,
-    ));
-    issues.extend(check_eval_usage(&parsed.program, &index, language));
-    // --- Batch2a: name/format convention rules ---
-    issues.extend(check_naming_rules(&parsed.program, &index, language, rules));
-    // --- Batch2a: structural duplicate/identity rules ---
-    issues.extend(check_duplicate_rules(&parsed.program, &index, language));
     // --- Batch2b wiring: statement-shape and control-flow walks ---
     issues.extend(check_switch_flow(&parsed.program, &index, language));
     issues.extend(check_loop_rules(&parsed.program, source, &index, language));
@@ -280,6 +297,14 @@ fn analyze_with_rules(
     ));
     issues.extend(check_arrow_body_consistency(
         &parsed.program,
+        &index,
+        language,
+    ));
+    // --- Batch2d wiring: control-flow remainder groups D/E and the
+    // --- ES2015+ idiom section ---
+    issues.extend(check_batch2d_rules(
+        &parsed.program,
+        source,
         &index,
         language,
     ));
@@ -6576,6 +6601,1686 @@ fn check_arrow_body_consistency(
     collector.sink.issues
 }
 
+// ===== Batch2d group D: control-flow remainder =====
+//
+// Function-centric measures first: `S3776` (cognitive complexity),
+// `S1541` (cyclomatic complexity), `S3801` (mixed return styles), and
+// `S3796` (array-callback returns, JavaScript-only) all evaluate one
+// function unit at a time, excluding nested function units.
+
+/// `S3776`: functions exceeding this cognitive complexity are flagged
+/// (frozen catalog default of the `threshold` parameter).
+const MAX_COGNITIVE_COMPLEXITY: u32 = 15;
+
+/// `S1541`: functions exceeding this cyclomatic complexity are flagged
+/// (frozen catalog default of `maximumFunctionComplexityThreshold`).
+const MAX_CYCLOMATIC_COMPLEXITY: u32 = 10;
+
+/// `S3796`: array methods whose callbacks are expected to return values.
+/// `forEach` is deliberately absent — its callbacks legitimately produce
+/// nothing, so they never carry a missing-return defect.
+const ARRAY_CALLBACK_METHODS: [&str; 10] = [
+    "every",
+    "filter",
+    "find",
+    "findIndex",
+    "flatMap",
+    "map",
+    "reduce",
+    "reduceRight",
+    "some",
+    "sort",
+];
+
+use oxc_ast_visit::walk::{
+    walk_break_statement, walk_conditional_expression, walk_continue_statement, walk_for_statement,
+    walk_logical_expression,
+};
+
+/// Collects `return` statements outside nested functions, split into
+/// value-carrying and bare returns (`S3796`, `S3801`, `S6635`).
+#[derive(Default)]
+struct ReturnMixScanner {
+    valued_spans: Vec<Span>,
+    bare_spans: Vec<Span>,
+}
+
+impl<'a> Visit<'a> for ReturnMixScanner {
+    fn visit_return_statement(&mut self, it: &ReturnStatement<'a>) {
+        if it.argument.is_some() {
+            self.valued_spans.push(it.span());
+        } else {
+            self.bare_spans.push(it.span());
+        }
+    }
+
+    fn visit_expression(&mut self, it: &Expression<'a>) {
+        if !matches!(
+            it,
+            Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
+        ) {
+            walk_expression(self, it);
+        }
+    }
+
+    fn visit_declaration(&mut self, it: &Declaration<'a>) {
+        if !matches!(it, Declaration::FunctionDeclaration(_)) {
+            walk_declaration(self, it);
+        }
+    }
+
+    fn visit_method_definition(&mut self, _it: &MethodDefinition<'a>) {}
+
+    fn visit_static_block(&mut self, _it: &StaticBlock<'a>) {}
+}
+
+/// Whether one function body carries no value-returning statement outside
+/// nested functions (`S3796`).
+fn lacks_valued_return(body: &FunctionBody<'_>) -> bool {
+    let mut scanner = ReturnMixScanner::default();
+    scanner.visit_function_body(body);
+    scanner.valued_spans.is_empty()
+}
+
+/// Computes the cognitive (`S3776`) and cyclomatic (`S1541`) complexity of
+/// one function unit. Nesting weights follow the Sonar model: control-flow
+/// structures add `1 + nesting`, `else if` chains stay flat, logical
+/// operators count once per consecutive sequence of the same operator, and
+/// nested function units are excluded entirely.
+#[derive(Default)]
+struct ComplexityWalker {
+    cognitive: u32,
+    cyclomatic: u32,
+    nesting: u32,
+    /// Operator of the logical chain currently walked; entering a chain (or
+    /// switching operators mid-chain) adds one increment.
+    logic_chain: Option<LogicalOperator>,
+}
+
+impl<'a> Visit<'a> for ComplexityWalker {
+    fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
+        self.process_if(it);
+    }
+
+    fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
+        self.enter_nested(|walker| walk_for_statement(walker, it));
+    }
+
+    fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
+        self.enter_nested(|walker| walk_for_in_statement(walker, it));
+    }
+
+    fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
+        self.enter_nested(|walker| walk_for_of_statement(walker, it));
+    }
+
+    fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
+        self.enter_nested(|walker| walk_while_statement(walker, it));
+    }
+
+    fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
+        self.enter_nested(|walker| walk_do_while_statement(walker, it));
+    }
+
+    fn visit_switch_statement(&mut self, it: &SwitchStatement<'a>) {
+        self.cognitive += 1 + self.nesting;
+        let tested_cases =
+            u32::try_from(it.cases.iter().filter(|case| case.test.is_some()).count())
+                .unwrap_or(u32::MAX);
+        self.cyclomatic += tested_cases;
+        self.enter_nested(|walker| walk_switch_statement(walker, it));
+    }
+
+    fn visit_try_statement(&mut self, it: &TryStatement<'a>) {
+        for statement in &it.block.body {
+            self.visit_statement(statement);
+        }
+        if let Some(handler) = &it.handler {
+            self.cognitive += 1 + self.nesting;
+            self.cyclomatic += 1;
+            let saved = self.nesting;
+            self.nesting += 1;
+            self.visit_catch_clause(handler);
+            self.nesting = saved;
+        }
+        if let Some(finalizer) = &it.finalizer {
+            for statement in &finalizer.body {
+                self.visit_statement(statement);
+            }
+        }
+    }
+
+    fn visit_conditional_expression(&mut self, it: &ConditionalExpression<'a>) {
+        self.cognitive += 1 + self.nesting;
+        self.cyclomatic += 1;
+        self.visit_expression(&it.test);
+        let saved = self.nesting;
+        self.nesting += 1;
+        walk_conditional_expression(self, it);
+        self.nesting = saved;
+    }
+
+    fn visit_logical_expression(&mut self, it: &LogicalExpression<'a>) {
+        if self.logic_chain != Some(it.operator) {
+            self.cognitive += 1;
+            self.cyclomatic += 1;
+        }
+        let saved_chain = self.logic_chain;
+        self.logic_chain = Some(it.operator);
+        walk_logical_expression(self, it);
+        self.logic_chain = saved_chain;
+    }
+
+    fn visit_break_statement(&mut self, it: &BreakStatement<'a>) {
+        if it.label.is_some() {
+            self.cognitive += 1;
+        }
+        walk_break_statement(self, it);
+    }
+
+    fn visit_continue_statement(&mut self, it: &ContinueStatement<'a>) {
+        if it.label.is_some() {
+            self.cognitive += 1;
+        }
+        walk_continue_statement(self, it);
+    }
+
+    fn visit_expression(&mut self, it: &Expression<'a>) {
+        if !matches!(
+            it,
+            Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
+        ) {
+            walk_expression(self, it);
+        }
+    }
+
+    fn visit_declaration(&mut self, it: &Declaration<'a>) {
+        if !matches!(it, Declaration::FunctionDeclaration(_)) {
+            walk_declaration(self, it);
+        }
+    }
+
+    fn visit_method_definition(&mut self, _it: &MethodDefinition<'a>) {}
+
+    fn visit_static_block(&mut self, _it: &StaticBlock<'a>) {}
+}
+
+impl ComplexityWalker {
+    /// One `if` increment; `else if` links are processed flat so a chained
+    /// conditional adds no extra nesting weight.
+    fn process_if(&mut self, it: &IfStatement<'_>) {
+        self.cognitive += 1 + self.nesting;
+        self.cyclomatic += 1;
+        self.visit_expression(&it.test);
+        let saved = self.nesting;
+        self.nesting += 1;
+        self.visit_statement(&it.consequent);
+        self.nesting = saved;
+        if let Some(Statement::IfStatement(inner)) = &it.alternate {
+            self.process_if(inner);
+        } else if let Some(alternate) = &it.alternate {
+            self.nesting += 1;
+            self.visit_statement(alternate);
+            self.nesting = saved;
+        }
+    }
+
+    /// Walks one loop-like construct: `1 + nesting` increments with all
+    /// contents nested one level deeper.
+    fn enter_nested(&mut self, walk_children: impl FnOnce(&mut Self)) {
+        self.cognitive += 1 + self.nesting;
+        self.cyclomatic += 1;
+        let saved = self.nesting;
+        self.nesting += 1;
+        walk_children(self);
+        self.nesting = saved;
+    }
+}
+
+/// `S3776`, `S1541`, `S3801`, and `S3796` in one traversal. Every function
+/// unit is measured on entry; nested units are measured separately when the
+/// descent reaches them.
+struct FunctionMetricsCollector<'index> {
+    sink: IssueSink<'index>,
+}
+
+impl<'a> Visit<'a> for FunctionMetricsCollector<'_> {
+    fn visit_expression(&mut self, it: &Expression<'a>) {
+        if let Expression::FunctionExpression(function) = it {
+            let exempt = function.generator;
+            self.analyze_function(function, function.span(), exempt, |collector| {
+                walk_expression(collector, it);
+            });
+        } else {
+            walk_expression(self, it);
+        }
+    }
+
+    fn visit_declaration(&mut self, it: &Declaration<'a>) {
+        if let Declaration::FunctionDeclaration(function) = it {
+            let exempt = function.generator;
+            self.analyze_function(function, function.span(), exempt, |collector| {
+                walk_declaration(collector, it);
+            });
+        } else {
+            walk_declaration(self, it);
+        }
+    }
+
+    fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
+        let exempt = it.kind != MethodDefinitionKind::Method || it.value.generator;
+        self.analyze_function(&it.value, it.value.span(), exempt, |collector| {
+            walk_method_definition(collector, it);
+        });
+    }
+
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        if let Some(body) = it.body.as_function_body() {
+            self.report_unit(body, it.span(), false);
+        } else {
+            self.report_expression_unit(it.body.to_expression(), it.span());
+        }
+        walk_arrow_function_expression(self, it);
+    }
+
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        // `S3796`: array-method callbacks without any value-returning
+        // statement (JavaScript-only).
+        if let Some((property, _member)) = call_property(it)
+            && ARRAY_CALLBACK_METHODS.contains(&property)
+            && let Some(callback) = it.arguments.first().and_then(argument_expression)
+        {
+            let missing = match callback {
+                Expression::FunctionExpression(function) => function
+                    .body
+                    .as_ref()
+                    .is_some_and(|body| lacks_valued_return(body)),
+                Expression::ArrowFunctionExpression(arrow) => arrow
+                    .body
+                    .as_function_body()
+                    .is_some_and(lacks_valued_return),
+                _ => false,
+            };
+            if missing {
+                self.sink.emit_span(
+                    RuleScope::JsOnly,
+                    "S3796",
+                    "Add the missing \"return\" statement to this function.",
+                    callback.span(),
+                );
+            }
+        }
+        walk_call_expression(self, it);
+    }
+}
+
+impl FunctionMetricsCollector<'_> {
+    /// Measures one function-like unit, then descends into its subtree.
+    fn analyze_function(
+        &mut self,
+        function: &Function<'_>,
+        anchor: Span,
+        exempt_mixed_returns: bool,
+        walk_children: impl FnOnce(&mut Self),
+    ) {
+        if let Some(body) = &function.body {
+            self.report_unit(body, anchor, exempt_mixed_returns);
+        }
+        walk_children(self);
+    }
+
+    /// Emits the threshold findings for one measured unit.
+    fn report_complexity(&mut self, walker: &ComplexityWalker, anchor: Span) {
+        if walker.cognitive > MAX_COGNITIVE_COMPLEXITY {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3776",
+                &format!(
+                    "Refactor this function to reduce its Cognitive Complexity from {} to the {} allowed.",
+                    walker.cognitive, MAX_COGNITIVE_COMPLEXITY
+                ),
+                anchor,
+            );
+        }
+        if walker.cyclomatic > MAX_CYCLOMATIC_COMPLEXITY {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1541",
+                &format!(
+                    "The Cyclomatic Complexity of this function is {} which is greater than {} authorized.",
+                    walker.cyclomatic, MAX_CYCLOMATIC_COMPLEXITY
+                ),
+                anchor,
+            );
+        }
+    }
+
+    /// Measures a statement-list unit; `mixed` carries precomputed return
+    /// information when the caller wants `S3801` checked.
+    fn report_unit(&mut self, body: &FunctionBody<'_>, anchor: Span, exempt_mixed_returns: bool) {
+        // Cyclomatic complexity starts at 1 (the single entry path).
+        let mut walker = ComplexityWalker {
+            cyclomatic: 1,
+            ..ComplexityWalker::default()
+        };
+        for statement in &body.statements {
+            walker.visit_statement(statement);
+        }
+        self.report_complexity(&walker, anchor);
+        if !exempt_mixed_returns {
+            self.check_mixed_returns(body, anchor);
+        }
+    }
+
+    /// Measures an expression-bodied arrow (no `S3801`: it always yields).
+    fn report_expression_unit(&mut self, expression: &Expression<'_>, anchor: Span) {
+        let mut walker = ComplexityWalker {
+            cyclomatic: 1,
+            ..ComplexityWalker::default()
+        };
+        walker.visit_expression(expression);
+        self.report_complexity(&walker, anchor);
+    }
+
+    /// `S3801`: a function mixing valued and bare returns flags each bare
+    /// return; a function returning values but also falling off the end is
+    /// flagged at the function itself.
+    fn check_mixed_returns(&mut self, body: &FunctionBody<'_>, anchor: Span) {
+        let mut scanner = ReturnMixScanner::default();
+        scanner.visit_function_body(body);
+        let falls_off_end = !body
+            .statements
+            .last()
+            .is_some_and(|last| statement_ends_with_jump(last));
+        if !scanner.valued_spans.is_empty() && !scanner.bare_spans.is_empty() {
+            for span in &scanner.bare_spans {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S3801",
+                    "Remove this return statement or make it return a value.",
+                    *span,
+                );
+            }
+        } else if !scanner.valued_spans.is_empty() && falls_off_end {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3801",
+                "Make this function consistently return a value.",
+                anchor,
+            );
+        }
+    }
+}
+
+fn check_function_metrics(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = FunctionMetricsCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
+// ----- Group D part B: constructors, accessors, keyword placement, and
+// ----- promise/array flow: `S3854`, `S6635`, `S4275`, `S3972`, `S3973`,
+// ----- `S4619`, `S4634`, `S6671`, and `S4822`.
+
+use oxc_ast_visit::walk::walk_try_statement;
+
+/// Finds `super(...)` calls anywhere in a subtree.
+#[derive(Default)]
+struct SuperCallScanner {
+    spans: Vec<Span>,
+}
+
+impl<'a> Visit<'a> for SuperCallScanner {
+    fn visit_expression(&mut self, it: &Expression<'a>) {
+        if let Expression::CallExpression(call) = it
+            && matches!(call.callee, Expression::Super(_))
+        {
+            self.spans.push(call.span());
+        }
+        walk_expression(self, it);
+    }
+}
+
+/// Detects any `this` reference in a subtree.
+#[derive(Default)]
+struct ThisUseScanner {
+    found: bool,
+}
+
+impl<'a> Visit<'a> for ThisUseScanner {
+    fn visit_expression(&mut self, it: &Expression<'a>) {
+        if matches!(it, Expression::ThisExpression(_)) {
+            self.found = true;
+        }
+        walk_expression(self, it);
+    }
+}
+
+/// Tracks reads and writes of one expected accessor field (`S4275`).
+struct FieldAccessScanner<'n> {
+    field: &'n str,
+    read: bool,
+    written: bool,
+}
+
+impl<'a> Visit<'a> for FieldAccessScanner<'_> {
+    fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
+        if matches!(member_object(it), Expression::ThisExpression(_))
+            && static_property_name(it) == Some(self.field)
+        {
+            self.read = true;
+        }
+        walk_member_expression(self, it);
+    }
+
+    fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
+        if let Some(SimpleAssignmentTarget::StaticMemberExpression(member)) =
+            it.left.as_simple_assignment_target()
+            && matches!(member.object, Expression::ThisExpression(_))
+            && matches!(member.object, Expression::ThisExpression(_))
+            && member.property.name == self.field
+        {
+            self.written = true;
+        }
+        walk_assignment_expression(self, it);
+    }
+}
+
+/// Constructor and accessor rules over class bodies (`S3854`, `S6635`,
+/// `S4275`) plus object-literal accessors (`S4275`).
+struct ClassAccessorCollector<'index> {
+    sink: IssueSink<'index>,
+}
+
+impl<'a> Visit<'a> for ClassAccessorCollector<'_> {
+    fn visit_class(&mut self, it: &Class<'a>) {
+        let heritage = it.heritage.is_some();
+        for element in &it.body.body {
+            if let ClassElement::MethodDefinition(method) = element {
+                match method.kind {
+                    MethodDefinitionKind::Constructor => {
+                        self.check_constructor(method, heritage);
+                    }
+                    MethodDefinitionKind::Get | MethodDefinitionKind::Set => {
+                        self.check_accessor(
+                            property_key_name(&method.key),
+                            method.key.span(),
+                            method.kind == MethodDefinitionKind::Set,
+                            method.value.body.as_deref(),
+                        );
+                    }
+                    MethodDefinitionKind::Method => {}
+                }
+            }
+        }
+        walk_class(self, it);
+    }
+
+    fn visit_object_expression(&mut self, it: &ObjectExpression<'a>) {
+        for property in &it.properties {
+            if let ObjectPropertyKind::ObjectProperty(inner) = property
+                && inner.kind != PropertyKind::Init
+                && let Expression::FunctionExpression(function) = &inner.value
+                && let Some(body) = function.body.as_deref()
+            {
+                self.check_accessor(
+                    property_key_name(&inner.key),
+                    inner.key.span(),
+                    inner.kind == PropertyKind::Set,
+                    Some(body),
+                );
+            }
+        }
+        walk_object_expression(self, it);
+    }
+}
+
+impl ClassAccessorCollector<'_> {
+    /// `S3854`: missing, duplicated, conditional, or late `super()` calls;
+    /// also `S6635`: constructors returning values.
+    fn check_constructor(&mut self, method: &MethodDefinition<'_>, heritage: bool) {
+        let Some(body) = &method.value.body else {
+            return;
+        };
+        // `S6635` applies with or without a base class.
+        let mut returns = ReturnMixScanner::default();
+        returns.visit_function_body(body);
+        for span in &returns.valued_spans {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S6635",
+                "Remove this return value; constructors should not return anything.",
+                *span,
+            );
+        }
+        if !heritage {
+            return;
+        }
+
+        // Split the calls into direct top-level statements and nested
+        // (conditional) ones; only the top-level ones can be "first".
+        let mut top_level_spans: Vec<Span> = Vec::new();
+        let mut nested_spans: Vec<Span> = Vec::new();
+        for statement in &body.statements {
+            if is_super_call_statement(statement) {
+                if let Statement::ExpressionStatement(expr) = statement
+                    && let Expression::CallExpression(call) = unparenthesized(&expr.expression)
+                {
+                    top_level_spans.push(call.span());
+                }
+            } else {
+                let mut scanner = SuperCallScanner::default();
+                scanner.visit_statement(statement);
+                nested_spans.extend(scanner.spans);
+            }
+        }
+
+        if top_level_spans.is_empty() && nested_spans.is_empty() {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3854",
+                "Add a \"super()\" call in this constructor.",
+                method.key.span(),
+            );
+            return;
+        }
+        for span in &nested_spans {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3854",
+                "Move this call of super() to the first statement of this constructor.",
+                *span,
+            );
+        }
+        for span in top_level_spans.iter().skip(1) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3854",
+                "Remove this duplicated call to super().",
+                *span,
+            );
+        }
+        // `this` must not be touched before the first `super()` call.
+        if let Some(first) = top_level_spans.first() {
+            for statement in &body.statements {
+                if is_super_call_statement(statement) {
+                    break;
+                }
+                let mut scanner = ThisUseScanner::default();
+                scanner.visit_statement(statement);
+                if scanner.found {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S3854",
+                        "Call super() before accessing \"this\".",
+                        statement.span(),
+                    );
+                    break;
+                }
+            }
+            let _ = first;
+        }
+    }
+
+    /// `S4275`: accessors should touch the field their name declares.
+    fn check_accessor(
+        &mut self,
+        name: Option<&str>,
+        key_span: Span,
+        is_setter: bool,
+        body: Option<&FunctionBody<'_>>,
+    ) {
+        let (Some(name), Some(body)) = (name, body) else {
+            return;
+        };
+        let mut scanner = FieldAccessScanner {
+            field: name,
+            read: false,
+            written: false,
+        };
+        scanner.visit_function_body(body);
+        let satisfied = if is_setter {
+            scanner.written
+        } else {
+            scanner.read
+        };
+        if !satisfied {
+            let message = if is_setter {
+                format!("Verify that this setter assigns the \"{name}\" field.")
+            } else {
+                format!("Verify that this getter accesses the \"{name}\" field.")
+            };
+            self.sink
+                .emit_span(RuleScope::Both, "S4275", &message, key_span);
+        }
+    }
+}
+
+fn is_super_call_statement(statement: &Statement<'_>) -> bool {
+    matches!(statement, Statement::ExpressionStatement(expr)
+        if matches!(unparenthesized(&expr.expression), Expression::CallExpression(call)
+            if matches!(call.callee, Expression::Super(_))))
+}
+
+fn check_class_accessors(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = ClassAccessorCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
+/// `S3972` (`else`/`catch`/`finally` sharing the closing brace's line) and
+/// `S3973` (unbraced single-statement bodies indented deeper than their
+/// head statement).
+struct KeywordPlacementCollector<'a, 'index> {
+    sink: IssueSink<'index>,
+    source: &'a str,
+    index: &'index LineIndex,
+}
+
+impl<'a> Visit<'a> for KeywordPlacementCollector<'a, '_> {
+    fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
+        if let Some(alternate) = &it.alternate {
+            self.check_keyword_line(it.consequent.span(), alternate.span(), "else");
+            self.check_unbraced_indent(it.span(), alternate);
+        }
+        self.check_unbraced_indent(it.span(), &it.consequent);
+        walk_if_statement(self, it);
+    }
+
+    fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
+        self.check_unbraced_indent(it.span(), &it.body);
+        walk_for_statement(self, it);
+    }
+
+    fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
+        self.check_unbraced_indent(it.span(), &it.body);
+        walk_for_in_statement(self, it);
+    }
+
+    fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
+        self.check_unbraced_indent(it.span(), &it.body);
+        walk_for_of_statement(self, it);
+    }
+
+    fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
+        self.check_unbraced_indent(it.span(), &it.body);
+        walk_while_statement(self, it);
+    }
+
+    fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
+        self.check_unbraced_indent(it.span(), &it.body);
+        walk_do_while_statement(self, it);
+    }
+
+    fn visit_try_statement(&mut self, it: &TryStatement<'a>) {
+        if let Some(handler) = &it.handler {
+            self.check_keyword_line(it.block.span(), handler.span(), "catch");
+        }
+        let after_catch = it.handler.as_ref().map_or(it.block.span(), |h| h.span());
+        if let Some(finalizer) = &it.finalizer {
+            self.check_keyword_line(after_catch, finalizer.span(), "finally");
+        }
+        walk_try_statement(self, it);
+    }
+}
+
+impl KeywordPlacementCollector<'_, '_> {
+    /// `S3972`: the keyword joining two blocks (`else`, `catch`, `finally`)
+    /// must start on its own line after the preceding closing brace; a
+    /// keyword sharing the brace's line is flagged.
+    fn check_keyword_line(&mut self, previous: Span, following: Span, keyword: &str) {
+        let gap = &self.source[previous.end as usize..following.start as usize];
+        if !gap.contains('\n') {
+            let anchor = gap
+                .find(keyword)
+                .map_or(following.start, |at| previous.end + to_u32(at));
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3972",
+                "Move this keyword onto its own line after the closing brace.",
+                Span::new(anchor, anchor + to_u32(keyword.len())),
+            );
+        }
+    }
+
+    /// `S3973`: an unbraced body starting on a later line must be indented
+    /// strictly deeper than its head statement.
+    fn check_unbraced_indent(&mut self, head: Span, body: &Statement<'_>) {
+        if matches!(
+            body,
+            Statement::BlockStatement(_) | Statement::EmptyStatement(_)
+        ) {
+            return;
+        }
+        let head_start = self.index.pos(head.start);
+        let body_start = self.index.pos(body.span().start);
+        if body_start.line > head_start.line && body_start.column <= head_start.column {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3973",
+                "Indent this statement deeper than its parent statement.",
+                body.span(),
+            );
+        }
+    }
+}
+
+fn check_keyword_placement(
+    program: &oxc_ast::ast::Program<'_>,
+    source: &str,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = KeywordPlacementCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        source,
+        index,
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
+/// Names bound directly to an array literal anywhere in the file, for the
+/// `S4619` heuristic (`const xs = []; ... x in xs`).
+fn collect_array_binding_names(program: &oxc_ast::ast::Program<'_>) -> BTreeSet<String> {
+    #[derive(Default)]
+    struct Collector {
+        names: BTreeSet<String>,
+    }
+    impl<'a> Visit<'a> for Collector {
+        fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+            if matches!(&it.init, Some(Expression::ArrayExpression(_)))
+                && let Some(name) = binding_identifier_name(&it.id)
+            {
+                self.names.insert(name.to_string());
+            }
+        }
+    }
+    let mut collector = Collector::default();
+    collector.visit_program(program);
+    collector.names
+}
+
+/// `S4619` (`in` on arrays), `S4634` (immediately-settling promise
+/// executors), `S6671` (rejecting literals), and `S4822` (await-less
+/// promise calls inside `try` blocks).
+struct PromiseFlowCollector<'index> {
+    sink: IssueSink<'index>,
+    array_bindings: BTreeSet<String>,
+}
+
+impl<'a> Visit<'a> for PromiseFlowCollector<'_> {
+    fn visit_binary_expression(&mut self, it: &BinaryExpression<'a>) {
+        if it.operator == BinaryOperator::In {
+            let flagged = match unparenthesized(&it.right) {
+                Expression::ArrayExpression(_) => true,
+                Expression::Identifier(identifier) => {
+                    self.array_bindings.contains(identifier.name.as_str())
+                }
+                _ => false,
+            };
+            if flagged {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S4619",
+                    "Use \"includes\" or \"indexOf\" instead of the \"in\" operator on this array.",
+                    it.span(),
+                );
+            }
+        }
+        walk_binary_expression(self, it);
+    }
+
+    fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
+        if identifier_name(&it.callee) == Some("Promise")
+            && let Some(argument) = it.arguments.first().and_then(argument_expression)
+            && promise_executor_settles_immediately(argument)
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S4634",
+                "Refactor this promise executor; it resolves or rejects immediately.",
+                it.span(),
+            );
+        }
+        walk_new_expression(self, it);
+    }
+
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        // `S6671`: rejecting with a plain literal value.
+        let rejects = identifier_name(&it.callee) == Some("reject")
+            || it.callee.as_member_expression().is_some_and(|member| {
+                static_property_name(member) == Some("reject")
+                    && member_rooted_at(member, "Promise")
+            });
+        if rejects
+            && let Some(argument) = it.arguments.first().and_then(argument_expression)
+            && is_plain_literal(argument)
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S6671",
+                "Reject this promise with an \"Error\" object instead of a literal value.",
+                it.span(),
+            );
+        }
+        walk_call_expression(self, it);
+    }
+
+    fn visit_try_statement(&mut self, it: &TryStatement<'a>) {
+        // `S4822`: await-less promise-producing calls escape the catch.
+        for statement in &it.block.body {
+            let Some(expression) = statement_as_expression(statement) else {
+                continue;
+            };
+            if matches!(expression, Expression::AwaitExpression(_)) {
+                continue;
+            }
+            if let Expression::CallExpression(call) = unparenthesized(expression) {
+                let promise_api = identifier_name(&call.callee) == Some("fetch")
+                    || call
+                        .callee
+                        .as_member_expression()
+                        .is_some_and(|member| static_property_name(member) == Some("then"));
+                if promise_api {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S4822",
+                        "Await this promise; otherwise its failure bypasses the \"catch\".",
+                        statement.span(),
+                    );
+                }
+            }
+        }
+        walk_try_statement(self, it);
+    }
+}
+
+fn statement_as_expression<'a>(statement: &'a Statement<'a>) -> Option<&'a Expression<'a>> {
+    match statement {
+        Statement::ExpressionStatement(expr) => Some(&expr.expression),
+        _ => None,
+    }
+}
+
+/// Whether every top-level statement of the executor immediately calls its
+/// own resolve/reject parameter.
+fn settles_immediately(body: &FunctionBody<'_>, param: &str) -> bool {
+    !body.statements.is_empty()
+        && body.statements.iter().all(|statement| {
+            statement_as_expression(statement).is_some_and(|expression| {
+                matches!(unparenthesized(expression), Expression::CallExpression(call)
+                    if identifier_name(&call.callee) == Some(param))
+            })
+        })
+}
+
+/// Whether a `new Promise` executor argument settles the promise without
+/// doing any asynchronous work: every block statement is an immediate call
+/// of its own resolve/reject parameter, or (for expression-bodied arrows)
+/// the whole body is that call.
+fn promise_executor_settles_immediately(argument: &Expression<'_>) -> bool {
+    match argument {
+        Expression::FunctionExpression(function) => {
+            let Some(body) = function.body.as_deref() else {
+                return false;
+            };
+            let Some(param) = function
+                .params
+                .items
+                .first()
+                .and_then(|item| binding_identifier_name(&item.pattern))
+            else {
+                return false;
+            };
+            settles_immediately(body, param)
+        }
+        Expression::ArrowFunctionExpression(arrow) => {
+            let Some(param) = arrow
+                .params
+                .items
+                .first()
+                .and_then(|item| binding_identifier_name(&item.pattern))
+            else {
+                return false;
+            };
+            match arrow.body.as_function_body() {
+                Some(body) => settles_immediately(body, param),
+                None => matches!(arrow.body.to_expression(), Expression::CallExpression(call)
+                    if identifier_name(&call.callee) == Some(param)),
+            }
+        }
+        _ => false,
+    }
+}
+use oxc_ast::ast::ExportDeclaration;
+use oxc_ast::ast::RegExpFlags;
+use oxc_ast_visit::walk::{walk_export_declaration, walk_formal_parameters};
+// ===== Batch2d group E: duplication and condition complexity =====
+// `S1534` (duplicated object/class keys), `S1536` (duplicated function
+// parameters, JavaScript-only), `S6861` (mutable exports), and `S1067`
+// (overly complex boolean conditions).
+
+/// `S1067`: conditions carrying more boolean operators than this are
+/// flagged (frozen catalog default of the `max` parameter).
+const MAX_CONDITION_OPERATORS: usize = 3;
+
+/// Counts `&&`, `||`, and `!` operators in one condition, excluding
+/// conditions of nested function units.
+#[derive(Default)]
+struct ConditionOperatorScanner {
+    count: usize,
+}
+
+impl<'a> Visit<'a> for ConditionOperatorScanner {
+    fn visit_logical_expression(&mut self, it: &LogicalExpression<'a>) {
+        self.count += 1;
+        walk_logical_expression(self, it);
+    }
+
+    fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
+        if it.operator == UnaryOperator::LogicalNot {
+            self.count += 1;
+        }
+        walk_unary_expression(self, it);
+    }
+
+    fn visit_expression(&mut self, it: &Expression<'a>) {
+        if !matches!(
+            it,
+            Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
+        ) {
+            walk_expression(self, it);
+        }
+    }
+
+    fn visit_declaration(&mut self, it: &Declaration<'a>) {
+        if !matches!(it, Declaration::FunctionDeclaration(_)) {
+            walk_declaration(self, it);
+        }
+    }
+}
+
+/// `S1534`, `S1536`, `S6861`, and `S1067` in one traversal.
+struct DuplicationCollector<'index> {
+    sink: IssueSink<'index>,
+}
+
+impl<'a> Visit<'a> for DuplicationCollector<'a> {
+    fn visit_object_expression(&mut self, it: &ObjectExpression<'a>) {
+        // `S1534`: duplicated data-property keys (accessor pairs are legal).
+        let mut seen: Vec<&str> = Vec::new();
+        for property in &it.properties {
+            let ObjectPropertyKind::ObjectProperty(inner) = property else {
+                continue;
+            };
+            if inner.kind != PropertyKind::Init
+                || inner.kind == PropertyKind::Init && inner.shorthand
+            {
+                // Shorthand properties cannot collide with their own binding.
+                continue;
+            }
+            let Some(name) = duplicated_key_name(&inner.key) else {
+                continue;
+            };
+            if seen.contains(&name) {
+                self.emit_duplicate_key(&format!("\"{name}\""), inner.key.span());
+            } else {
+                seen.push(name);
+            }
+        }
+        walk_object_expression(self, it);
+    }
+
+    fn visit_class(&mut self, it: &Class<'a>) {
+        // `S1534`: duplicated class members; getters and setters pair up, so
+        // each accessor kind is tracked separately.
+        let mut plain: Vec<&str> = Vec::new();
+        let mut getters: Vec<&str> = Vec::new();
+        let mut setters: Vec<&str> = Vec::new();
+        for element in &it.body.body {
+            match element {
+                ClassElement::MethodDefinition(method) => {
+                    let Some(name) = property_key_name(&method.key) else {
+                        continue;
+                    };
+                    match method.kind {
+                        MethodDefinitionKind::Get => {
+                            self.flag_duplicate(&mut getters, name, method.key.span());
+                        }
+                        MethodDefinitionKind::Set => {
+                            self.flag_duplicate(&mut setters, name, method.key.span());
+                        }
+                        _ => self.flag_duplicate(&mut plain, name, method.key.span()),
+                    }
+                }
+                ClassElement::PropertyDefinition(definition) => {
+                    if let Some(name) = property_key_name(&definition.key) {
+                        self.flag_duplicate(&mut plain, name, definition.key.span());
+                    }
+                }
+                _ => {}
+            }
+        }
+        walk_class(self, it);
+    }
+
+    fn visit_formal_parameters(&mut self, it: &FormalParameters<'a>) {
+        // `S1536`: duplicate parameter names (JavaScript-only).
+        let mut seen: Vec<&str> = Vec::new();
+        for item in &it.items {
+            let Some(name) = binding_identifier_name(&item.pattern) else {
+                continue;
+            };
+            if seen.contains(&name) {
+                self.sink.emit_span(
+                    RuleScope::JsOnly,
+                    "S1536",
+                    &format!("Rename this parameter; \"{name}\" is already used."),
+                    item.pattern.span(),
+                );
+            } else {
+                seen.push(name);
+            }
+        }
+        walk_formal_parameters(self, it);
+    }
+
+    fn visit_export_declaration(&mut self, it: &ExportDeclaration<'a>) {
+        // `S6861`: mutable bindings must not be exported.
+        if let Declaration::VariableDeclaration(variable) = &it.declaration
+            && variable.kind != VariableDeclarationKind::Const
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S6861",
+                "Do not export mutable bindings.",
+                it.span(),
+            );
+        }
+        walk_export_declaration(self, it);
+    }
+
+    fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
+        self.check_condition_operators(&it.test);
+        walk_if_statement(self, it);
+    }
+
+    fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
+        self.check_condition_operators(&it.test);
+        walk_while_statement(self, it);
+    }
+
+    fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
+        self.check_condition_operators(&it.test);
+        walk_do_while_statement(self, it);
+    }
+
+    fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
+        if let Some(test) = &it.test {
+            self.check_condition_operators(test);
+        }
+        walk_for_statement(self, it);
+    }
+
+    fn visit_conditional_expression(&mut self, it: &ConditionalExpression<'a>) {
+        self.check_condition_operators(&it.test);
+        walk_conditional_expression(self, it);
+    }
+}
+
+impl DuplicationCollector<'_> {
+    fn flag_duplicate<'name>(&mut self, seen: &mut Vec<&'name str>, name: &'name str, span: Span) {
+        if seen.contains(&name) {
+            self.emit_duplicate_key(&format!("\"{name}\""), span);
+        } else {
+            seen.push(name);
+        }
+    }
+
+    fn emit_duplicate_key(&mut self, name: &str, span: Span) {
+        self.sink.emit_span(
+            RuleScope::Both,
+            "S1534",
+            &format!("Rename or remove this duplicated {name} key."),
+            span,
+        );
+    }
+
+    /// `S1067`: conditions with more operators than the catalog maximum.
+    fn check_condition_operators(&mut self, test: &Expression<'_>) {
+        let mut scanner = ConditionOperatorScanner::default();
+        scanner.visit_expression(test);
+        if scanner.count > MAX_CONDITION_OPERATORS {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1067",
+                &format!(
+                    "This condition uses {} boolean operators; simplify it to at most {}.",
+                    scanner.count, MAX_CONDITION_OPERATORS
+                ),
+                test.span(),
+            );
+        }
+    }
+}
+
+/// Normalized key name for duplicate detection: static identifiers plus
+/// their quoted-string spellings (`{a: 1, "a": 2}` collide).
+fn duplicated_key_name<'a>(key: &'a PropertyKey<'a>) -> Option<&'a str> {
+    match key {
+        PropertyKey::StaticIdentifier(identifier) => Some(&identifier.name),
+        PropertyKey::StringLiteral(literal) => Some(literal.value.as_str()),
+        _ => None,
+    }
+}
+
+fn check_duplications(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = DuplicationCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
+fn is_plain_literal(expression: &Expression<'_>) -> bool {
+    matches!(
+        expression,
+        Expression::StringLiteral(_)
+            | Expression::NumericLiteral(_)
+            | Expression::BooleanLiteral(_)
+            | Expression::NullLiteral(_)
+            | Expression::BigIntLiteral(_)
+            | Expression::TemplateLiteral(_)
+    )
+}
+
+fn check_promise_flows(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = PromiseFlowCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        array_bindings: collect_array_binding_names(program),
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
+/// All Batch2d checks in one place: the control-flow remainder groups D/E
+/// (`S3776`, `S3796`, `S3801`, `S3854`, `S3972`, `S3973`, `S4275`,
+/// `S4619`, `S4634`, `S4822`, `S6635`, `S6671`, `S6861`, `S1067`,
+/// `S1534`, `S1536`, `S1541`) and the ES2015+ idiom section (`S3358`,
+/// `S3498`, `S3499`, `S3512`, `S3513`, `S3514`, `S3523`, `S4158`,
+/// `S6582`, `S6594`).
+fn check_batch2d_rules(
+    program: &oxc_ast::ast::Program<'_>,
+    source: &str,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut issues = check_function_metrics(program, index, language);
+    issues.extend(check_class_accessors(program, index, language));
+    issues.extend(check_keyword_placement(program, source, index, language));
+    issues.extend(check_promise_flows(program, index, language));
+    issues.extend(check_duplications(program, index, language));
+    issues.extend(check_es_idioms(program, index, language));
+    issues
+}
+// ===== Batch2d ES2015+ idiom / rewrite suggestions =====
+//
+// `S3358` (nested ternaries), `S3498`/`S3499` (shorthand properties),
+// `S3512` (string-literal concatenation), `S3513` (`arguments`),
+// `S3514` (temp-variable swaps), `S3523` (`new Function`,
+// JavaScript-only), `S4158` (empty-array literal operations), `S6582`
+// (null guards vs. optional chaining), and `S6594` (`.match` with a
+// global regex).
+
+/// Whether an expression is entirely string literals joined by `+`
+/// (`S3512`).
+fn is_pure_string_concat(expression: &Expression<'_>) -> bool {
+    match unparenthesized(expression) {
+        Expression::BinaryExpression(binary) if binary.operator == BinaryOperator::Addition => {
+            is_pure_string_concat(&binary.left) && is_pure_string_concat(&binary.right)
+        }
+        Expression::StringLiteral(_) => true,
+        _ => false,
+    }
+}
+
+/// Identifier compared against `null`/`undefined` by one side of an `&&`
+/// guard (`S6582`).
+fn null_guard_target<'a>(expression: &'a Expression<'a>) -> Option<&'a str> {
+    let Expression::BinaryExpression(binary) = unparenthesized(expression) else {
+        return None;
+    };
+    if !is_equality_operator(binary.operator) {
+        return None;
+    }
+    let is_nullish = |expression: &Expression<'_>| {
+        matches!(expression, Expression::NullLiteral(_))
+            || identifier_name(expression) == Some("undefined")
+    };
+    match (&binary.left, &binary.right) {
+        (Expression::Identifier(identifier), other)
+        | (other, Expression::Identifier(identifier))
+            if is_nullish(other) =>
+        {
+            Some(&identifier.name)
+        }
+        _ => None,
+    }
+}
+
+/// Detects member accesses rooted at one identifier (`S6582` right-hand
+/// usage probe).
+#[derive(Default)]
+struct RootedMemberScanner<'n> {
+    root: &'n str,
+    found: bool,
+}
+
+impl<'a> Visit<'a> for RootedMemberScanner<'_> {
+    fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
+        if member_root_name(it) == Some(self.root) {
+            self.found = true;
+        }
+        walk_member_expression(self, it);
+    }
+
+    fn visit_expression(&mut self, it: &Expression<'a>) {
+        if !matches!(
+            it,
+            Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
+        ) {
+            walk_expression(self, it);
+        }
+    }
+}
+
+/// `S3358`, `S3498`, `S3499`, `S3512`, `S3513`, `S3514`, `S3523`,
+/// `S4158`, `S6582`, and `S6594` in one traversal.
+struct EsIdiomCollector<'index> {
+    sink: IssueSink<'index>,
+    /// Pure string-concatenation subroots; minimal spans resolved after the
+    /// traversal (`S3512`).
+    concat_roots: Vec<Span>,
+    /// One frame per enclosing function unit recording whether it shadows
+    /// the name `arguments` (`S3513`).
+    arguments_shadowed: Vec<bool>,
+}
+
+impl<'a> Visit<'a> for EsIdiomCollector<'a> {
+    fn visit_program(&mut self, it: &oxc_ast::ast::Program<'a>) {
+        self.scan_swap_triples(&it.body);
+        walk_program(self, it);
+    }
+
+    fn visit_block_statement(&mut self, it: &BlockStatement<'a>) {
+        self.scan_swap_triples(&it.body);
+        walk_block_statement(self, it);
+    }
+
+    fn visit_function_body(&mut self, it: &FunctionBody<'a>) {
+        self.scan_swap_triples(&it.statements);
+        walk_function_body(self, it);
+    }
+
+    fn visit_expression(&mut self, it: &Expression<'a>) {
+        if let Expression::FunctionExpression(function) = it {
+            let shadowed = function_params_shadow_arguments(&function.params);
+            self.arguments_shadowed.push(shadowed);
+            walk_expression(self, it);
+            self.arguments_shadowed.pop();
+        } else {
+            walk_expression(self, it);
+        }
+    }
+
+    fn visit_declaration(&mut self, it: &Declaration<'a>) {
+        if let Declaration::FunctionDeclaration(function) = it {
+            let shadowed = function_params_shadow_arguments(&function.params);
+            self.arguments_shadowed.push(shadowed);
+            walk_declaration(self, it);
+            self.arguments_shadowed.pop();
+        } else {
+            walk_declaration(self, it);
+        }
+    }
+
+    fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
+        let shadowed = function_params_shadow_arguments(&it.value.params);
+        self.arguments_shadowed.push(shadowed);
+        walk_method_definition(self, it);
+        self.arguments_shadowed.pop();
+    }
+
+    fn visit_static_block(&mut self, it: &StaticBlock<'a>) {
+        self.arguments_shadowed.push(false);
+        walk_static_block(self, it);
+        self.arguments_shadowed.pop();
+    }
+
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        let shadowed = function_params_shadow_arguments(&it.params);
+        self.arguments_shadowed.push(shadowed);
+        walk_arrow_function_expression(self, it);
+        self.arguments_shadowed.pop();
+    }
+
+    fn visit_identifier_reference(&mut self, it: &oxc_ast::ast::IdentifierReference<'a>) {
+        // `S3513`: direct `arguments` reads where no parameter shadows it.
+        if it.name == "arguments" && !self.arguments_shadowed.iter().any(|&shadowed| shadowed) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3513",
+                "Use rest parameters instead of \"arguments\".",
+                it.span(),
+            );
+        }
+    }
+
+    fn visit_object_expression(&mut self, it: &ObjectExpression<'a>) {
+        let mut non_shorthand_seen = false;
+        for property in &it.properties {
+            let ObjectPropertyKind::ObjectProperty(inner) = property else {
+                continue;
+            };
+            if inner.kind != PropertyKind::Init {
+                continue;
+            }
+            if inner.shorthand {
+                // `S3499`: shorthand properties come first.
+                if non_shorthand_seen {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S3499",
+                        "Write this shorthand property before the non-shorthand properties.",
+                        inner.span(),
+                    );
+                }
+            } else {
+                non_shorthand_seen = true;
+                // `S3498`: `{ a: a }` should use the shorthand form.
+                if let (Some(key), Some(value)) =
+                    (property_key_name(&inner.key), identifier_name(&inner.value))
+                    && key == value
+                {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S3498",
+                        "Use the shorthand syntax for this property.",
+                        inner.span(),
+                    );
+                }
+            }
+        }
+        walk_object_expression(self, it);
+    }
+
+    fn visit_conditional_expression(&mut self, it: &ConditionalExpression<'a>) {
+        // `S3358`: ternaries nested in consequent or alternate positions.
+        for branch in [&it.consequent, &it.alternate] {
+            if let Expression::ConditionalExpression(nested) = unparenthesized(branch) {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S3358",
+                    "Refactor this nested ternary expression.",
+                    nested.span(),
+                );
+            }
+        }
+        walk_conditional_expression(self, it);
+    }
+
+    fn visit_binary_expression(&mut self, it: &BinaryExpression<'a>) {
+        // `S3512`: record pure string-concat roots; containment filtering
+        // happens after the traversal.
+        if it.operator == BinaryOperator::Addition
+            && is_pure_string_concat(&it.left)
+            && is_pure_string_concat(&it.right)
+        {
+            self.concat_roots.push(it.span());
+        }
+        walk_binary_expression(self, it);
+    }
+
+    fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
+        // `S3523`: the `Function` constructor (JavaScript-only); overlaps
+        // the `S1523` finding on purpose — separate catalog rule keys.
+        if constructor_name(it) == Some("Function") {
+            self.sink.emit_span(
+                RuleScope::JsOnly,
+                "S3523",
+                "Remove this use of the \"Function\" constructor.",
+                it.callee.span(),
+            );
+        }
+        walk_new_expression(self, it);
+    }
+
+    fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
+        // `S4158`: operations on empty array literals always do nothing.
+        if matches!(
+            unparenthesized(member_object(it)),
+            Expression::ArrayExpression(array) if array.elements.is_empty()
+        ) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S4158",
+                "Review this operation; it always targets an empty array.",
+                it.span(),
+            );
+        }
+        walk_member_expression(self, it);
+    }
+
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        // `S6594`: `.match(/…/g)` prefers `.matchAll` or `.exec`.
+        if let Some((property, _member)) = call_property(it)
+            && property == "match"
+            && let Some(argument) = it.arguments.first().and_then(argument_expression)
+            && let Expression::RegExpLiteral(literal) = argument
+            && literal.regex.flags.contains(RegExpFlags::G)
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S6594",
+                "Prefer \".matchAll\" or \".exec\" over \".match\" for this global regex.",
+                it.span(),
+            );
+        }
+        walk_call_expression(self, it);
+    }
+
+    fn visit_logical_expression(&mut self, it: &LogicalExpression<'a>) {
+        // `S6582`: `x !== null && x.member` rewrites to optional chaining.
+        if it.operator == LogicalOperator::And
+            && let Some(root) = null_guard_target(&it.left)
+        {
+            let mut scanner = RootedMemberScanner { root, found: false };
+            scanner.visit_expression(&it.right);
+            if scanner.found {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S6582",
+                    "Use optional chaining (\"?.\") instead of this null check.",
+                    it.span(),
+                );
+            }
+        }
+        walk_logical_expression(self, it);
+    }
+}
+
+impl EsIdiomCollector<'_> {
+    /// `S3514`: consecutive `t = a; … ; a = t` statements hide a swap that
+    /// destructuring expresses directly.
+    fn scan_swap_triples(&mut self, statements: &[Statement<'_>]) {
+        for window in statements.windows(3) {
+            // First saves `saved` into `temp`, either through an assignment
+            // or a single declarator; the third restores it.
+            let Some((temp, saved)) = swap_seed(&window[0]) else {
+                continue;
+            };
+            let Some(third) = swap_assignment(&window[2]) else {
+                continue;
+            };
+            if identifier_name(&third.right) != Some(temp) {
+                continue;
+            }
+            let Some(counterpart) = assignment_target_name(&third.left) else {
+                continue;
+            };
+            let Some(middle) = swap_assignment(&window[1]) else {
+                continue;
+            };
+            let links_saved_to_counterpart = (assignment_target_name(&middle.left) == Some(saved)
+                && identifier_name(&middle.right) == Some(counterpart))
+                || (assignment_target_name(&middle.left) == Some(counterpart)
+                    && identifier_name(&middle.right) == Some(saved));
+            if counterpart != temp && links_saved_to_counterpart {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S3514",
+                    "Swap these variables with destructuring instead of this temporary.",
+                    window[0].span(),
+                );
+            }
+        }
+    }
+}
+
+/// The plain `=` assignment expression of an expression statement, if any
+/// (`S3514`).
+fn swap_assignment<'a>(statement: &'a Statement<'a>) -> Option<&'a AssignmentExpression<'a>> {
+    match statement {
+        Statement::ExpressionStatement(expression_statement) => {
+            match unparenthesized(&expression_statement.expression) {
+                Expression::AssignmentExpression(assignment)
+                    if assignment.operator == AssignmentOperator::Assign =>
+                {
+                    Some(assignment)
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn function_params_shadow_arguments(params: &FormalParameters<'_>) -> bool {
+    params
+        .items
+        .iter()
+        .any(|item| binding_identifier_name(&item.pattern) == Some("arguments"))
+}
+
+/// The `temp = saved` seed of a swap triple: either a plain assignment
+/// statement or a single-declarator declaration (`let t = a;`) with plain
+/// identifier sides (`S3514`).
+fn swap_seed<'a>(statement: &'a Statement<'a>) -> Option<(&'a str, &'a str)> {
+    match statement {
+        Statement::ExpressionStatement(expression_statement) => {
+            match unparenthesized(&expression_statement.expression) {
+                Expression::AssignmentExpression(assignment)
+                    if assignment.operator == AssignmentOperator::Assign =>
+                {
+                    Some((
+                        assignment_target_name(&assignment.left)?,
+                        identifier_name(&assignment.right)?,
+                    ))
+                }
+                _ => None,
+            }
+        }
+        Statement::VariableDeclaration(declaration) => {
+            let [declarator] = declaration.declarations.as_slice() else {
+                return None;
+            };
+            let name = binding_identifier_name(&declarator.id)?;
+            Some((name, identifier_name(declarator.init.as_ref()?)?))
+        }
+        _ => None,
+    }
+}
+fn check_es_idioms(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = EsIdiomCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        concat_roots: Vec::new(),
+        arguments_shadowed: Vec::new(),
+    };
+    collector.visit_program(program);
+    let roots: Vec<Span> = collector
+        .concat_roots
+        .iter()
+        .copied()
+        .filter(|span| {
+            // Left-nested chains share their start offset with the root,
+            // so containment is checked inclusively on both edges.
+            !collector.concat_roots.iter().any(|other| {
+                (other.start, other.end) != (span.start, span.end)
+                    && other.start <= span.start
+                    && span.end <= other.end
+            })
+        })
+        .collect();
+    for span in roots {
+        collector.sink.emit_span(
+            RuleScope::Both,
+            "S3512",
+            "Replace this string concatenation with a template literal.",
+            span,
+        );
+    }
+    collector.sink.issues
+}
+
 #[cfg(test)]
 mod tests {
     use super::{AnalyzerOptions, JstsLanguage, RuleOptions, analyze, language_for_extension};
@@ -6784,6 +8489,12 @@ new window.Function('also ignored');
                 issue(
                     "javascript:S1523",
                     "Remove this usage of 'Function'.",
+                    (2, 14),
+                    (2, 22),
+                ),
+                issue(
+                    "javascript:S3523",
+                    "Remove this use of the \"Function\" constructor.",
                     (2, 14),
                     (2, 22),
                 ),
@@ -8309,5 +10020,362 @@ draw(other, more);
         // On ties the expression-bodied arrows are flagged.
         let tie = js_keys("const a = () => {\n  return 1;\n};\nconst b = () => 2;\n");
         assert_eq!(count_key(&tie, "javascript:S3524"), 1);
+    }
+    #[test]
+    fn cognitive_complexity_threshold_and_nesting_weights() {
+        // Five chained ifs: 1+2+3+4+5 = 15, exactly at the threshold: clean.
+        let at_limit = js_keys(
+            "function f(a) {\n  if (a) {\n    if (a) {\n      if (a) {\n        if (a) {\n          if (a) {}\n        }\n      }\n    }\n  }\n}\n",
+        );
+        assert_eq!(count_key(&at_limit, "javascript:S3776"), 0);
+
+        // One more nesting level: 21 > 15.
+        let over = js_keys(
+            "function f(a) {\n  if (a) {\n    if (a) {\n      if (a) {\n        if (a) {\n          if (a) {\n            while (a) {}\n          }\n        }\n      }\n    }\n  }\n}\n",
+        );
+        assert_eq!(count_key(&over, "javascript:S3776"), 1);
+        assert_eq!(
+            over.iter()
+                .find(|(key, _)| key == "javascript:S3776")
+                .map(|(_, line)| *line),
+            Some(1)
+        );
+
+        // Logical operator sequences: same chain counts once, a switch
+        // counts again; nested functions are measured separately.
+        let logicals = js_keys("function f(a, b) {\n  if (a && b && a && b || b) {}\n}\n");
+        assert_eq!(count_key(&logicals, "javascript:S3776"), 0);
+    }
+
+    #[test]
+    fn cyclomatic_complexity_boundary_is_ten() {
+        let source = |count: usize| {
+            let mut text = String::from("function f(a) {\n");
+            for _ in 0..count {
+                text.push_str("  if (a) {}\n");
+            }
+            text.push_str("}\n");
+            js_keys(&text)
+        };
+        // 9 ifs + base 1 = 10: clean. 10 ifs = 11: flagged.
+        assert_eq!(count_key(&source(9), "javascript:S1541"), 0);
+        assert_eq!(count_key(&source(10), "javascript:S1541"), 1);
+    }
+
+    #[test]
+    fn mixed_return_styles_are_flagged() {
+        let mixed = js_keys("function f(c) {\n  if (c) {\n    return 1;\n  }\n  return;\n}\n");
+        assert_eq!(count_key(&mixed, "javascript:S3801"), 1);
+
+        // Valued returns plus an implicit fall-off end.
+        let falls_off = js_keys("function g(c) {\n  if (c) {\n    return 1;\n  }\n}\n");
+        assert_eq!(count_key(&falls_off, "javascript:S3801"), 1);
+
+        let consistent =
+            js_keys("function h(c) {\n  if (c) {\n    return 1;\n  }\n  return 2;\n}\n");
+        assert_eq!(count_key(&consistent, "javascript:S3801"), 0);
+
+        // Constructors, accessors, and generators are exempt.
+        let exempt = js_keys(
+            "class C {\n  constructor(c) {\n    if (c) {\n      return 1;\n    }\n  }\n  get v() {\n    return 2;\n  }\n}\nfunction* gen(c) {\n  if (c) {\n    return 1;\n  }\n  yield 2;\n}\n",
+        );
+        assert_eq!(count_key(&exempt, "javascript:S3801"), 0);
+    }
+
+    #[test]
+    fn array_callbacks_without_returns_flagged_javascript_only() {
+        let flagged = js_keys("[1].map(function f(x) {\n  g(x);\n});\n");
+        assert_eq!(count_key(&flagged, "javascript:S3796"), 1);
+
+        let block_arrow = js_keys("[1].filter(x => {\n  g(x);\n});\n");
+        assert_eq!(count_key(&block_arrow, "javascript:S3796"), 1);
+
+        // Expression-bodied arrows and valued callbacks are clean; forEach
+        // callbacks legitimately return nothing and are never flagged.
+        let clean = js_keys(
+            "[1].map(x => x * 2);\n[1].every(function (x) {\n  return x > 0;\n});\n[1].forEach(function (x) {\n  g(x);\n});\n",
+        );
+        assert_eq!(count_key(&clean, "javascript:S3796"), 0);
+
+        // A return inside a nested function does not count for the callback.
+        let nested = js_keys(
+            "[1].map(function (x) {\n  setTimeout(function () {\n    return 5;\n  });\n});\n",
+        );
+        assert_eq!(count_key(&nested, "javascript:S3796"), 1);
+
+        let typescript = findings(
+            "[1].map(function f(x) {\n  g(x);\n});\n",
+            JstsLanguage::TypeScript,
+        );
+        assert_eq!(count_key(&typescript, "typescript:S3796"), 0);
+    }
+    #[test]
+    fn constructor_super_call_defects_are_flagged() {
+        // Missing super() with a base class.
+        let missing = js_keys("class A extends B {\n  constructor() {\n    this.x = 1;\n  }\n}\n");
+        assert_eq!(count_key(&missing, "javascript:S3854"), 1);
+        // this-use is not separately flagged when no super() exists at all.
+
+        // Duplicate super() calls.
+        let duplicated =
+            js_keys("class A extends B {\n  constructor() {\n    super();\n    super();\n  }\n}\n");
+        assert_eq!(count_key(&duplicated, "javascript:S3854"), 1);
+
+        // Conditional super() must move to the top.
+        let conditional = js_keys(
+            "class A extends B {\n  constructor(c) {\n    if (c) {\n      super();\n    }\n  }\n}\n",
+        );
+        assert_eq!(count_key(&conditional, "javascript:S3854"), 1);
+
+        // Well-formed constructor: clean, and classes without heritage are
+        // never flagged for a missing super().
+        let clean = js_keys(
+            "class A extends B {\n  constructor() {\n    super();\n    this.x = 1;\n  }\n}\nclass C {\n  constructor() {\n    this.x = 1;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&clean, "javascript:S3854"), 0);
+    }
+
+    #[test]
+    fn constructors_returning_values_are_flagged() {
+        let flagged =
+            js_keys("class A {\n  constructor() {\n    if (x) {\n      return 1;\n    }\n  }\n}\n");
+        assert_eq!(count_key(&flagged, "javascript:S6635"), 1);
+
+        let bare_return = js_keys("class A {\n  constructor() {\n    return;\n  }\n}\n");
+        assert_eq!(count_key(&bare_return, "javascript:S6635"), 0);
+    }
+
+    #[test]
+    fn accessors_must_touch_their_named_field() {
+        let getter_bad = js_keys(
+            "class C {\n  get size() {\n    return this.length;\n  }\n}\nconst o = {\n  get count() {\n    return 1;\n  },\n};\n",
+        );
+        assert_eq!(count_key(&getter_bad, "javascript:S4275"), 2);
+
+        let setter_bad =
+            js_keys("class C {\n  set size(value) {\n    this.length = value;\n  }\n}\n");
+        assert_eq!(count_key(&setter_bad, "javascript:S4275"), 1);
+
+        let clean = js_keys(
+            "class C {\n  get size() {\n    return this.size;\n  }\n  set size(value) {\n    this.size = value;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&clean, "javascript:S4275"), 0);
+    }
+
+    #[test]
+    fn else_catch_finally_keywords_must_sit_on_their_own_line() {
+        let same_line_else = js_keys("if (a) {\n  b();\n} else {\n  c();\n}\n");
+        assert_eq!(count_key(&same_line_else, "javascript:S3972"), 1);
+
+        let same_line_catch =
+            js_keys("try {\n  a();\n} catch (e) {\n  b(e);\n} finally {\n  c();\n}\n");
+        assert_eq!(count_key(&same_line_catch, "javascript:S3972"), 2);
+
+        let separated = js_keys(
+            "if (a) {\n  b();\n}\nelse\n{\n  c();\n}\ntry {\n  a();\n}\ncatch (e) {\n  b(e);\n}\nfinally {\n  c();\n}\n",
+        );
+        assert_eq!(count_key(&separated, "javascript:S3972"), 0);
+    }
+
+    #[test]
+    fn unbraced_bodies_must_be_indented_deeper() {
+        let flagged = js_keys("function f() {\n  while (a)\n  b();\n}\n");
+        assert_eq!(count_key(&flagged, "javascript:S3973"), 1);
+
+        // Same-line bodies and properly indented bodies are clean.
+        let clean = js_keys("function f() {\n  if (a) b();\n  if (a)\n    c();\n}\n");
+        assert_eq!(count_key(&clean, "javascript:S3973"), 0);
+    }
+
+    #[test]
+    fn membership_in_operator_on_arrays_is_flagged() {
+        let literal_rhs = js_keys("const ok = 'a' in obj;\nconst bad = 'a' in [1, 2];\n");
+        assert_eq!(count_key(&literal_rhs, "javascript:S4619"), 1);
+
+        let binding_rhs =
+            js_keys("const xs = [];\nif ('a' in xs) {\n  g();\n}\nconst fine = k2 in obj;\n");
+        assert_eq!(count_key(&binding_rhs, "javascript:S4619"), 1);
+        // Object right-hand sides are untouched; only arrays flag.
+    }
+
+    #[test]
+    fn immediately_settled_promise_executors_are_flagged() {
+        let flagged = js_keys("new Promise(resolve => resolve(42));\n");
+        assert_eq!(count_key(&flagged, "javascript:S4634"), 1);
+
+        let async_work =
+            js_keys("new Promise(resolve => {\n  setTimeout(() => resolve(42), 10);\n});\n");
+        assert_eq!(count_key(&async_work, "javascript:S4634"), 0);
+    }
+
+    #[test]
+    fn rejecting_literal_values_is_flagged() {
+        let flagged = js_keys("Promise.reject('boom');\nfunction f(reject) {\n  reject(7);\n}\n");
+        assert_eq!(count_key(&flagged, "javascript:S6671"), 2);
+
+        let clean = js_keys("Promise.reject(new Error('boom'));\n");
+        assert_eq!(count_key(&clean, "javascript:S6671"), 0);
+    }
+
+    #[test]
+    fn unawaited_promise_calls_inside_try_are_flagged() {
+        let flagged = js_keys(
+            "try {\n  fetch(url);\n  client.then(r => r.json());\n  await fetch(other);\n} catch (e) {\n  log(e);\n}\n",
+        );
+        assert_eq!(count_key(&flagged, "javascript:S4822"), 2);
+
+        let awaited_only = js_keys("try {\n  await fetch(url);\n} catch (e) {\n  log(e);\n}\n");
+        assert_eq!(count_key(&awaited_only, "javascript:S4822"), 0);
+    }
+    #[test]
+    fn duplicated_object_and_class_keys_are_flagged() {
+        let object = js_keys("const o = {\n  a: 1,\n  b: 2,\n  'a': 3,\n};\n");
+        assert_eq!(count_key(&object, "javascript:S1534"), 1);
+
+        // Getter plus setter of one name pair up; two getters collide.
+        let class_dupes = js_keys(
+            "class C {\n  m() {}\n  m() {}\n  get p() {}\n  set p(v) {}\n  get q() {}\n  get q() {}\n}\n",
+        );
+        assert_eq!(count_key(&class_dupes, "javascript:S1534"), 2);
+
+        let clean = js_keys("const o = { a: 1, b: 2 };\nclass D {\n  x() {}\n  y() {}\n}\n");
+        assert_eq!(count_key(&clean, "javascript:S1534"), 0);
+    }
+
+    #[test]
+    fn duplicated_function_parameters_are_javascript_only() {
+        let flagged = js_keys("function f(a, b, a) {\n  return a + b;\n}\n");
+        assert_eq!(count_key(&flagged, "javascript:S1536"), 1);
+
+        let clean = js_keys("function f(a, b, c) {\n  return a + b;\n}\n");
+        assert_eq!(count_key(&clean, "javascript:S1536"), 0);
+
+        let typescript = findings(
+            "function f(a, b, a) {\n  return a + b;\n}\n",
+            JstsLanguage::TypeScript,
+        );
+        assert_eq!(count_key(&typescript, "typescript:S1536"), 0);
+    }
+
+    #[test]
+    fn mutable_exports_are_flagged() {
+        let flagged = js_keys("export let counter = 1;\nexport var legacy = 2;\n");
+        assert_eq!(count_key(&flagged, "javascript:S6861"), 2);
+
+        let clean = js_keys("export const stable = 1;\nconst renamed = 2;\nexport { renamed };\n");
+        assert_eq!(count_key(&clean, "javascript:S6861"), 0);
+    }
+
+    #[test]
+    fn condition_operator_limit_is_three() {
+        let at_limit = js_keys("if (a && b && c && d) {\n  g();\n}\n");
+        assert_eq!(count_key(&at_limit, "javascript:S1067"), 0);
+
+        let over = js_keys("while (a && !b && c || d) {\n  g();\n}\n");
+        assert_eq!(count_key(&over, "javascript:S1067"), 1);
+
+        // Conditions inside nested functions are their own units and are
+        // still examined when reached.
+        let nested = js_keys("const g = () => {\n  if (a && b && c && d && e) {}\n};\n");
+        assert_eq!(count_key(&nested, "javascript:S1067"), 1);
+    }
+    #[test]
+    fn nested_ternaries_are_flagged_in_both_branches() {
+        let flagged =
+            js_keys("const a = cond ? (x ? 1 : 2) : 3;\nconst b = cond ? 1 : (y ? 2 : 3);\n");
+        assert_eq!(count_key(&flagged, "javascript:S3358"), 2);
+
+        let clean = js_keys("const ok = cond ? 1 : 2;\n");
+        assert_eq!(count_key(&clean, "javascript:S3358"), 0);
+    }
+
+    #[test]
+    fn shorthand_property_rules_flag_order_and_redundancy() {
+        // `{ a: a }` should be shorthand.
+        let redundant = js_keys("const o = { a: a };\n");
+        assert_eq!(count_key(&redundant, "javascript:S3498"), 1);
+
+        // Shorthand after non-shorthand is out of order; different names are
+        // never flagged.
+        let ordering = js_keys("const p = { a: 1, b, c: c };\n");
+        assert_eq!(count_key(&ordering, "javascript:S3499"), 1);
+        assert_eq!(count_key(&ordering, "javascript:S3498"), 1);
+
+        let clean = js_keys("const q = { b, a: 1 };\n");
+        assert_eq!(count_key(&clean, "javascript:S3499"), 0);
+        assert_eq!(count_key(&clean, "javascript:S3498"), 0);
+    }
+
+    #[test]
+    fn pure_string_concatenation_suggests_template_literals() {
+        let flagged = js_keys("const s = 'a' + 'b' + 'c';\n");
+        // Only the outermost chain root is flagged.
+        assert_eq!(count_key(&flagged, "javascript:S3512"), 1);
+
+        let dynamic = js_keys("const t = 'a' + name;\n");
+        assert_eq!(count_key(&dynamic, "javascript:S3512"), 0);
+    }
+
+    #[test]
+    fn arguments_reads_are_flagged_unless_shadowed() {
+        let flagged = js_keys("function f() {\n  return arguments.length;\n}\n");
+        assert_eq!(count_key(&flagged, "javascript:S3513"), 1);
+
+        // A parameter named `arguments` shadows the built-in for its scope.
+        let shadowed = js_keys("function g(arguments) {\n  return arguments.length;\n}\n");
+        assert_eq!(count_key(&shadowed, "javascript:S3513"), 0);
+    }
+
+    #[test]
+    fn temp_variable_swaps_suggest_destructuring() {
+        let flagged = js_keys("let t = a;\na = b;\nb = t;\n");
+        assert_eq!(count_key(&flagged, "javascript:S3514"), 1);
+
+        // Unrelated statement sequences stay untouched.
+        let clean = js_keys("let u = a;\nwork(u);\nreturn u;\n");
+        assert_eq!(count_key(&clean, "javascript:S3514"), 0);
+    }
+
+    #[test]
+    fn function_constructor_is_javascript_only() {
+        let flagged = js_keys("const f = new Function('a', 'return a');\n");
+        assert_eq!(count_key(&flagged, "javascript:S3523"), 1);
+
+        let typescript = findings(
+            "const f = new Function('a', 'return a');\n",
+            JstsLanguage::TypeScript,
+        );
+        assert_eq!(count_key(&typescript, "typescript:S3523"), 0);
+    }
+
+    #[test]
+    fn operations_on_empty_array_literals_are_flagged() {
+        let member = js_keys("const n = [].length;\n[].forEach(g);\n");
+        assert_eq!(count_key(&member, "javascript:S4158"), 2);
+
+        let populated = js_keys("const m = [1].length;\n");
+        assert_eq!(count_key(&populated, "javascript:S4158"), 0);
+    }
+
+    #[test]
+    fn null_guards_rewrite_to_optional_chaining() {
+        let flagged =
+            js_keys("if (a !== null && a.b) {\n  g();\n}\nconst v = a !== undefined && a.b();\n");
+        assert_eq!(count_key(&flagged, "javascript:S6582"), 2);
+
+        // Guards whose right side does not use the guarded identifier, or
+        // that already use optional chaining semantics on other roots, are
+        // left alone.
+        let unrelated = js_keys("if (a !== null && b.c) {\n  g();\n}\n");
+        assert_eq!(count_key(&unrelated, "javascript:S6582"), 0);
+    }
+
+    #[test]
+    fn match_with_global_regex_prefers_match_all() {
+        let flagged = js_keys("const hits = text.match(/ab/g);\n");
+        assert_eq!(count_key(&flagged, "javascript:S6594"), 1);
+
+        let no_global = js_keys("const one = text.match(/ab/);\n");
+        assert_eq!(count_key(&no_global, "javascript:S6594"), 0);
     }
 }
