@@ -1,0 +1,86 @@
+use crate::engine::rx::RxItem;
+use crate::engine::rx::RxNode;
+use crate::engine::rx::RxParsed;
+use crate::engine::rx::RxSet;
+use crate::engine::rx::for_each_rx_seq;
+use crate::engine::rx::rx_atom_first_set;
+use crate::engine::rx::rx_equivalent;
+use crate::engine::rx::rx_item_consuming;
+use crate::engine::rx::rx_leading_anchor_span;
+use crate::engine::rx::rx_lookahead_body;
+use crate::engine::rx::rx_node_first_set;
+use crate::engine::rx::rx_positive_lookahead_body;
+use crate::engine::rx::rx_sets_intersect;
+use crate::engine::rx::rx_trailing_anchor_span;
+use crate::rules::rx_alternation_nodes::check_rx_alternation_nodes;
+use crate::rules::rx_anchor_order::check_rx_anchor_order;
+use crate::rules::rx_space_runs::check_rx_space_runs;
+use ruff_text_size::TextRange;
+
+pub(crate) fn check_rx_alternation_shapes(
+    parsed: &RxParsed,
+    verbose: bool,
+    push: &mut dyn FnMut(&str, &str, TextRange),
+) {
+    // python:S5850 — anchors in a top-level alternation need grouping.
+    if let RxNode::Alternation(branches) = &parsed.root
+        && branches.len() >= 2
+    {
+        let leading_start = branches.first().and_then(rx_leading_anchor_span);
+        let trailing_end = branches.last().and_then(rx_trailing_anchor_span);
+        if let Some(span) = leading_start.or(trailing_end) {
+            push(
+                "python:S5850",
+                "Group this alternation so the anchors apply to all alternatives.",
+                span,
+            );
+        }
+    }
+    for_each_rx_seq(&parsed.root, &mut |seq| {
+        // python:S6002 — contradictory lookarounds.
+        for pair in seq.items.windows(2) {
+            if let (Some(a), Some(b)) = (
+                rx_lookahead_body(&pair[0].atom),
+                rx_lookahead_body(&pair[1].atom),
+            ) && rx_equivalent(a, b)
+            {
+                push(
+                    "python:S6002",
+                    "This lookahead contradicts the rest of the regular expression.",
+                    pair[1].span,
+                );
+            }
+        }
+        let mut lookahead_sets: Vec<(&RxItem, Option<RxSet>)> = Vec::new();
+        for item in &seq.items {
+            if let Some(body) = rx_positive_lookahead_body(&item.atom) {
+                lookahead_sets.push((item, rx_node_first_set(body)));
+            } else if rx_item_consuming(item) {
+                if let Some(set) = rx_atom_first_set(&item.atom) {
+                    for (lookahead, ahead_set) in &lookahead_sets {
+                        if let Some(ahead) = ahead_set
+                            && !rx_sets_intersect(ahead, &set)
+                        {
+                            push(
+                                "python:S6002",
+                                "This lookahead contradicts the rest of the regular expression.",
+                                lookahead.span,
+                            );
+                        }
+                    }
+                }
+                lookahead_sets.clear();
+            }
+        }
+        // python:S5996 — anchors that can never match.
+        check_rx_anchor_order(seq, push);
+        // python:S6326 — multiple consecutive literal spaces; skipped under
+        // the extended/verbose flag where whitespace is formatting.
+        if !verbose {
+            check_rx_space_runs(seq, push);
+        }
+    });
+    // python:S6035 / python:S6323 — single-character alternations and empty
+    // alternatives.
+    check_rx_alternation_nodes(&parsed.root, false, push);
+}

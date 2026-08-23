@@ -1,0 +1,44 @@
+use crate::support::called_name;
+use crate::support::for_each_call;
+use crate::support::has_keyword;
+use crate::support::issue_at;
+use crate::support::required_estimator_parameters;
+use hoonarqube_ir::Issue;
+use ruff_python_ast::ModModule;
+use ruff_python_parser::Parsed;
+use ruff_source_file::LineIndex;
+use ruff_text_size::Ranged;
+
+pub(crate) fn check_estimator_hyperparameters(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let Some(name) = called_name(&call.func) else {
+            return;
+        };
+        let Some(required) = required_estimator_parameters(name) else {
+            return;
+        };
+        let missing: Vec<&str> = required
+            .iter()
+            .copied()
+            .filter(|parameter| !has_keyword(&call.arguments, parameter))
+            .collect();
+        if !missing.is_empty() {
+            issues.push(issue_at(
+                "python:S6973",
+                &format!(
+                    "Initialize this estimator with required hyperparameters: {}.",
+                    missing.join(", ")
+                ),
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
