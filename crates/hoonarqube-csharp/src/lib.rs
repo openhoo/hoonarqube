@@ -295,9 +295,10 @@ fn file_metrics(root: Node<'_>, source: &str) -> hoonarqube_ir::FileMetrics {
     }
 }
 
-/// Gathers every Tier-A4 through A13 structural, function-metric, expression,
-/// attribute-contract, member-contract, literal-content, security deny-list,
-/// and date/time or ASP.NET heuristic issue.
+/// Gathers every Tier-A4 through A15 structural, function-metric,
+/// expression, attribute-contract, member-contract, literal-content,
+/// security deny-list, date/time or ASP.NET heuristic, logging-family, and
+/// LINQ/format/assertion or misc API heuristic issue.
 fn structural_issues(
     root: Node<'_>,
     source: &str,
@@ -374,6 +375,8 @@ fn structural_issues(
     issues.extend(declaration_contract_issues(root, source, language));
     issues.extend(security_deny_list_issues(root, source, language));
     issues.extend(datetime_aspnet_issues(root, source, language));
+    issues.extend(logging_issues(root, source, language, options));
+    issues.extend(linq_api_issues(root, source, language));
     issues
 }
 
@@ -10633,6 +10636,2904 @@ fn datetime_aspnet_issues(root: Node<'_>, source: &str, language: CsLanguage) ->
     ));
     issues
 }
+// ---------------------------------------------------------------------------
+// A14 — logging family (templates, placeholders, loggers)
+// ---------------------------------------------------------------------------
+
+/// `Microsoft.Extensions.Logging`-style structured-logging entry points
+/// (`ILogger.Log*`, Serilog-style `Log.*`).
+const LOG_METHOD_NAMES: [&str; 7] = [
+    "Log",
+    "LogTrace",
+    "LogDebug",
+    "LogInformation",
+    "LogWarning",
+    "LogError",
+    "LogCritical",
+];
+
+/// csharpsquid:S6664 severity buckets with their tolerated call counts per
+/// method body (debug=4, information=2, warning=1, error=1).
+const LOG_LEVEL_LIMITS: [(&str, u32); 4] = [
+    ("debug", 4),
+    ("information", 2),
+    ("warning", 1),
+    ("error", 1),
+];
+
+/// `TraceSwitch` level properties that should not gate conditional traces.
+const TRACE_SWITCH_LEVELS: [&str; 4] = ["TraceError", "TraceWarning", "TraceInfo", "TraceVerbose"];
+
+/// Severity bucket of a logging entry point (`LogDebug` → debug).
+fn log_level_of(callee: &str) -> Option<&'static str> {
+    match callee {
+        "LogTrace" | "LogDebug" => Some("debug"),
+        "LogInformation" | "Log" => Some("information"),
+        "LogWarning" => Some("warning"),
+        "LogError" | "LogCritical" => Some("error"),
+        _ => None,
+    }
+}
+
+/// Tolerated number of `{level}` log calls inside one method body.
+fn log_level_limit(level: &str) -> u32 {
+    for (name, limit) in LOG_LEVEL_LIMITS {
+        if name == level {
+            return limit;
+        }
+    }
+    0
+}
+
+/// Whether an invocation looks like structured logging through a logger
+/// member (`logger.LogError(...)`, `Log.Information(...)`).
+fn is_logging_call(invocation: Node<'_>, source: &str) -> bool {
+    callee_name(invocation, source).is_some_and(|name| {
+        LOG_METHOD_NAMES.contains(&name) && invocation_receiver(invocation).is_some()
+    })
+}
+
+/// Logging invocations inside `scope`, in document order.
+fn logging_calls<'t>(scope: Node<'t>, source: &str) -> Vec<Node<'t>> {
+    collect_kinds(scope, &["invocation_expression"])
+        .into_iter()
+        .filter(|call| !is_error_tainted(*call) && is_logging_call(*call, source))
+        .collect()
+}
+
+/// A call's first plain string-literal argument, paired with the unquoted
+/// inner text. Interpolated templates yield nothing here.
+fn template_argument<'a>(call: Node<'a>, source: &'a str) -> Option<(Node<'a>, &'a str)> {
+    let first = invocation_arguments(call).into_iter().next()?;
+    let expression = argument_expression(first);
+    let literal = (expression.kind() == "string_literal").then_some(expression)?;
+    Some((literal, literal_inner_text(literal, source)))
+}
+
+/// Placeholder names inside a message template, in textual order.
+fn template_placeholders(template: &str) -> Vec<&str> {
+    let mut names = Vec::new();
+    let bytes = template.as_bytes();
+    let mut index = 0;
+    while let Some(offset) = bytes[index..].iter().position(|byte| *byte == b'{') {
+        let open = index + offset + 1;
+        match bytes[open..].iter().position(|byte| *byte == b'}') {
+            Some(close) if close > 0 && !bytes[open..open + close].contains(&b'{') => {
+                names.push(&template[open..open + close]);
+                index = open + close + 1;
+            }
+            _ => break,
+        }
+    }
+    names
+}
+
+/// Whether a message template parses: balanced braces, no empty or nested
+/// placeholders, and no stray closing brace.
+fn template_is_valid(template: &str) -> bool {
+    let bytes = template.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'{' => {
+                let Some(close) = bytes[index + 1..]
+                    .iter()
+                    .position(|byte| *byte == b'}')
+                    .map(|relative| index + 1 + relative)
+                else {
+                    return false;
+                };
+                if close == index + 1 || bytes[index + 1..close].contains(&b'{') {
+                    return false;
+                }
+                index = close + 1;
+            }
+            b'}' => return false,
+            _ => index += 1,
+        }
+    }
+    true
+}
+
+/// csharpsquid:S6670 — `Trace` output bypasses sinks, levels, correlation.
+fn check_trace_writes(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    banned_member_accesses(root, source, "Trace", &["Write", "WriteLine"])
+        .into_iter()
+        .map(|access| {
+            issue(
+                language,
+                "S6670",
+                "Replace this 'Trace' output with proper logging.",
+                range_of(access),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S6675 — gating `WriteLineIf` with a `TraceSwitch` level hides
+/// the decision from the configuration system.
+fn check_trace_write_line_if_switches(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["invocation_expression"])
+        .into_iter()
+        .filter(|call| !is_error_tainted(*call))
+        .filter(|call| invocation_targets(*call, source, Some("Trace"), &["WriteLineIf"]))
+        .filter(|call| {
+            invocation_arguments(*call).first().is_some_and(|argument| {
+                let expression = argument_expression(*argument);
+                TRACE_SWITCH_LEVELS.contains(&expression_name(expression, source).unwrap_or(""))
+            })
+        })
+        .map(|call| {
+            issue(
+                language,
+                "S6675",
+                "Do not use a 'TraceSwitch' level to gate this trace.",
+                range_of(call),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S6664 — chatty methods bury signals; each severity bucket has
+/// its own tolerated call count per method body.
+fn check_log_call_counts(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for method in collect_kinds(root, &["method_declaration"]) {
+        if is_error_tainted(method) {
+            continue;
+        }
+        let Some(body) = body_of(method) else {
+            continue;
+        };
+        let mut counts: std::collections::BTreeMap<&str, u32> = std::collections::BTreeMap::new();
+        for call in logging_calls(body, source) {
+            if let Some(level) = callee_name(call, source).and_then(log_level_of) {
+                *counts.entry(level).or_insert(0) += 1;
+            }
+        }
+        for (level, count) in counts {
+            let limit = log_level_limit(level);
+            if count > limit {
+                issues.push(issue(
+                    language,
+                    "S6664",
+                    format!("Limit {level}-level logging in this method to {limit} calls."),
+                    range_of(method),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S6673 — when placeholder and argument names prove a
+/// transposition, the placeholders must follow the argument order.
+fn check_log_placeholder_order(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for call in logging_calls(root, source) {
+        let Some((literal, template)) = template_argument(call, source) else {
+            continue;
+        };
+        let placeholders = template_placeholders(template);
+        let arguments: Vec<Option<&str>> = invocation_arguments(call)
+            .iter()
+            .skip(1)
+            .map(|argument| {
+                let expression = argument_expression(*argument);
+                (expression.kind() == "identifier").then(|| node_text(expression, source))
+            })
+            .collect();
+        let pairs = placeholders.len().min(arguments.len());
+        for index in 0..pairs {
+            let Some(expected) = arguments[index] else {
+                break;
+            };
+            if placeholders[index].eq_ignore_ascii_case(expected) {
+                continue;
+            }
+            let swapped = ((index + 1)..pairs).any(|later| {
+                arguments[later].is_some_and(|value| {
+                    placeholders[index].eq_ignore_ascii_case(value)
+                        && placeholders[later].eq_ignore_ascii_case(expected)
+                })
+            });
+            if swapped {
+                issues.push(issue(
+                    language,
+                    "S6673",
+                    "Align message-template placeholders with the argument order.",
+                    range_of(literal),
+                ));
+            }
+            break;
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S6674 — malformed message templates fail at logging time.
+fn check_log_template_syntax(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for call in logging_calls(root, source) {
+        let Some((literal, template)) = template_argument(call, source) else {
+            continue;
+        };
+        if !template_is_valid(template) {
+            issues.push(issue(
+                language,
+                "S6674",
+                "Fix this malformed message template.",
+                range_of(literal),
+            ));
+        }
+    }
+    issues
+}
+
+fn check_log_unique_placeholders(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for call in logging_calls(root, source) {
+        let Some((literal, template)) = template_argument(call, source) else {
+            continue;
+        };
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for name in template_placeholders(template) {
+            if !seen.insert(name.to_ascii_lowercase()) {
+                let shown = format!("{{{name}}}");
+                issues.push(issue(
+                    language,
+                    "S6677",
+                    format!("Rename the duplicate placeholder {shown}."),
+                    range_of(literal),
+                ));
+            }
+        }
+    }
+    issues
+}
+/// csharpsquid:S6678 — placeholders read as property names and must be
+/// `PascalCase`; positional numeric slots are exempt.
+fn check_log_placeholder_casing(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for call in logging_calls(root, source) {
+        let Some((literal, template)) = template_argument(call, source) else {
+            continue;
+        };
+        for name in template_placeholders(template) {
+            let positional = name.chars().all(|character| character.is_ascii_digit());
+            if positional || is_pascal_case(name) {
+                continue;
+            }
+            let shown = format!("{{{name}}}");
+            issues.push(issue(
+                language,
+                "S6678",
+                format!("Rename the placeholder {shown} to PascalCase."),
+                range_of(literal),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S6667 — catch-block logging that drops the exception loses
+/// the stack trace.
+fn check_catch_logging_passes_exception(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for clause in collect_kinds(root, &["catch_clause"]) {
+        if is_error_tainted(clause) {
+            continue;
+        }
+        let Some(caught) = caught_exception_name(clause, source) else {
+            continue;
+        };
+        let Some(body) = clause.child_by_field_name("body") else {
+            continue;
+        };
+        for call in logging_calls(body, source) {
+            let passes = invocation_arguments(call)
+                .iter()
+                .any(|argument| node_text(*argument, source).contains(caught));
+            if !passes {
+                issues.push(issue(
+                    language,
+                    "S6667",
+                    "Pass the caught exception to this log call.",
+                    range_of(call),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// The declared variable name of a catch clause (`catch (Exception ex)`).
+fn caught_exception_name<'a>(clause: Node<'_>, source: &'a str) -> Option<&'a str> {
+    let mut cursor = clause.walk();
+    clause
+        .children(&mut cursor)
+        .find(|child| child.kind() == "catch_declaration")
+        .and_then(|declaration| declaration.child_by_field_name("name"))
+        .map(|name| node_text(name, source))
+}
+
+/// csharpsquid:S2629 — interpolated or computed templates defeat structured
+/// logging; only constant templates can be parsed by log backends.
+fn check_constant_log_templates(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    logging_calls(root, source)
+        .into_iter()
+        .filter_map(|call| {
+            invocation_arguments(call)
+                .first()
+                .copied()
+                .map(|first| (call, argument_expression(first)))
+        })
+        .filter(|(_, expression)| expression.kind() != "string_literal")
+        .map(|(call, _)| {
+            issue(
+                language,
+                "S2629",
+                "Use a constant message template for this log call.",
+                range_of(call),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S1312 — logger fields follow one shape so tooling finds them.
+fn check_logger_field_modifiers(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for field in collect_kinds(root, &["field_declaration"]) {
+        if is_error_tainted(field) {
+            continue;
+        }
+        let logger_named = field_declarator_names(field, source)
+            .into_iter()
+            .any(|name| matches_logger_format(name, &options.logger_name_format));
+        if !logger_named {
+            continue;
+        }
+        let modifiers = modifiers_of(field, source);
+        let shaped = ["private", "static", "readonly"]
+            .iter()
+            .all(|wanted| has_modifier(&modifiers, wanted));
+        if !shaped {
+            issues.push(issue(
+                language,
+                "S1312",
+                "Declare this logger field 'private static readonly'.",
+                range_of(field),
+            ));
+        }
+    }
+    issues
+}
+
+/// Declarator names of a field or event declaration.
+fn field_declarator_names<'a>(field: Node<'_>, source: &'a str) -> Vec<&'a str> {
+    collect_kinds(field, &["variable_declarator"])
+        .into_iter()
+        .filter_map(|declarator| declarator.child_by_field_name("name"))
+        .map(|name| node_text(name, source))
+        .collect()
+}
+
+/// csharpsquid:S3416 — `CreateLogger<T>` must name the enclosing type.
+fn check_create_logger_types(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for call in collect_kinds(root, &["invocation_expression"]) {
+        if is_error_tainted(call) {
+            continue;
+        }
+        let Some(target) = create_logger_target(call, source) else {
+            continue;
+        };
+        let Some(enclosing) = enclosing_type(call) else {
+            continue;
+        };
+        let Some(name) = enclosing.child_by_field_name("name") else {
+            continue;
+        };
+        if simple_name(&target) != node_text(name, source) {
+            issues.push(issue(
+                language,
+                "S3416",
+                "Name this logger after its enclosing type.",
+                range_of(call),
+            ));
+        }
+    }
+    issues
+}
+
+/// The type named by `CreateLogger<T>()` or `CreateLogger(typeof(T))`.
+fn create_logger_target(call: Node<'_>, source: &str) -> Option<String> {
+    let function = invocation_function(call)?;
+    let target_node = if function.kind() == "member_access_expression" {
+        let mut cursor = function.walk();
+        let generic = function
+            .children(&mut cursor)
+            .find(|child| child.kind() == "generic_name")
+            .filter(|generic| {
+                first_named_child(*generic)
+                    .is_some_and(|identifier| node_text(identifier, source) == "CreateLogger")
+            })?;
+        let mut generic_cursor = generic.walk();
+        generic
+            .children(&mut generic_cursor)
+            .find(|child| child.kind() == "type_argument_list")?
+    } else {
+        if callee_name(call, source) != Some("CreateLogger") {
+            return None;
+        }
+        let argument = invocation_arguments(call).into_iter().next()?;
+        let expression = argument_expression(argument);
+        (expression.kind() == "typeof_expression").then_some(expression)?
+    };
+    let mut target_cursor = target_node.walk();
+    target_node
+        .children(&mut target_cursor)
+        .find(tree_sitter::Node::is_named)
+        .map(|type_node| node_text(type_node, source).to_string())
+}
+
+/// csharpsquid:S6672 — an `ILogger<T>` belongs to the type that logs.
+fn check_ilogger_generics(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for type_node in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
+        if is_error_tainted(type_node) {
+            continue;
+        }
+        let Some(name) = type_node.child_by_field_name("name") else {
+            continue;
+        };
+        let type_name = node_text(name, source);
+        for declaration in collect_kinds(type_node, &["variable_declaration"]) {
+            if enclosing_type(declaration).is_none_or(|owner| owner.id() != type_node.id()) {
+                continue;
+            }
+            let Some(type_child) = first_named_child(declaration) else {
+                continue;
+            };
+            let Some(inner) = node_text(type_child, source)
+                .strip_prefix("ILogger<")
+                .and_then(|rest| rest.strip_suffix('>'))
+            else {
+                continue;
+            };
+            if simple_name(inner) != type_name {
+                issues.push(issue(
+                    language,
+                    "S6672",
+                    format!("Use 'ILogger<{type_name}>' for loggers of this type."),
+                    range_of(declaration),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// Gathers every Tier-A14 logging-family issue.
+fn logging_issues(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_trace_writes(root, source, language));
+    issues.extend(check_trace_write_line_if_switches(root, source, language));
+    issues.extend(check_log_call_counts(root, source, language));
+    issues.extend(check_log_placeholder_order(root, source, language));
+    issues.extend(check_log_template_syntax(root, source, language));
+    issues.extend(check_log_unique_placeholders(root, source, language));
+    issues.extend(check_log_placeholder_casing(root, source, language));
+    issues.extend(check_catch_logging_passes_exception(root, source, language));
+    issues.extend(check_constant_log_templates(root, source, language));
+    issues.extend(check_logger_field_modifiers(
+        root, source, language, options,
+    ));
+    issues.extend(check_create_logger_types(root, source, language));
+    issues.extend(check_ilogger_generics(root, source, language));
+    issues
+}
+
+// ---------------------------------------------------------------------------
+// A15 — LINQ/format/assertion patterns & misc API heuristics
+// ---------------------------------------------------------------------------
+
+/// csharpsquid:S1155 — emptiness is what `Any()` expresses.
+fn check_any_instead_of_count(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for expression in collect_kinds(root, &["binary_expression"]) {
+        if is_error_tainted(expression) {
+            continue;
+        }
+        let Some(operator) = operator_of(expression) else {
+            continue;
+        };
+        if operator != "==" && operator != "<=" {
+            continue;
+        }
+        let Some((left, right)) = binary_operands(expression) else {
+            continue;
+        };
+        let zero = |operand: Node<'_>| {
+            operand.kind() == "integer_literal" && node_text(operand, source) == "0"
+        };
+        if (is_count_expression(left, source) && zero(right))
+            || (zero(left) && is_count_expression(right, source))
+        {
+            issues.push(issue(
+                language,
+                "S1155",
+                "Use 'Any()' instead of comparing a count with zero.",
+                range_of(expression),
+            ));
+        }
+    }
+    issues
+}
+
+/// Whether the operand reads a collection size (`.Count()` / `.Count`).
+fn is_count_expression(operand: Node<'_>, source: &str) -> bool {
+    match operand.kind() {
+        "invocation_expression" => callee_name(operand, source) == Some("Count"),
+        "member_access_expression" => expression_name(operand, source) == Some("Count"),
+        _ => false,
+    }
+}
+
+/// Whether an invocation feeds a composite format template (`string.Format`,
+/// `AppendFormat`, `Console.Write(Line)`).
+fn is_composite_format_call(invocation: Node<'_>, source: &str) -> bool {
+    invocation_targets(invocation, source, Some("string"), &["Format"])
+        || invocation_targets(invocation, source, Some("String"), &["Format"])
+        || callee_name(invocation, source) == Some("AppendFormat")
+        || invocation_targets(invocation, source, Some("Console"), &["Write", "WriteLine"])
+}
+
+/// The composite-format template of a call with the number of arguments
+/// following it; tolerates a leading `IFormatProvider` argument.
+fn composite_template<'a>(call: Node<'a>, source: &'a str) -> Option<(Node<'a>, &'a str, usize)> {
+    let arguments = invocation_arguments(call);
+    let position = arguments
+        .iter()
+        .position(|argument| argument_expression(*argument).kind() == "string_literal")?;
+    let literal = argument_expression(arguments[position]);
+    let budget = arguments.len() - position - 1;
+    Some((literal, literal_inner_text(literal, source), budget))
+}
+
+/// Numeric index of a `{12}`-style format slot.
+fn format_slot_index(name: &str) -> Option<u32> {
+    if !name.chars().all(|character| character.is_ascii_digit()) {
+        return None;
+    }
+    name.parse().ok()
+}
+
+/// csharpsquid:S2275 — every referenced format slot needs an argument.
+fn check_format_argument_counts(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for call in collect_kinds(root, &["invocation_expression"]) {
+        if is_error_tainted(call) || !is_composite_format_call(call, source) {
+            continue;
+        }
+        let Some((literal, template, budget)) = composite_template(call, source) else {
+            continue;
+        };
+        let highest = template_placeholders(template)
+            .iter()
+            .filter_map(|name| format_slot_index(name))
+            .max();
+        if highest.is_some_and(|index| index + 1 > to_u32(budget)) {
+            issues.push(issue(
+                language,
+                "S2275",
+                "Match the format-string slots to the arguments of this call.",
+                range_of(literal),
+            ));
+        }
+    }
+    issues
+}
+
+/// Composite-format brace scan honoring doubled-brace escapes.
+fn composite_template_is_valid(template: &str) -> bool {
+    let bytes = template.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'{' => {
+                if bytes.get(index + 1) == Some(&b'{') {
+                    index += 2;
+                    continue;
+                }
+                let Some(close) = bytes[index + 1..]
+                    .iter()
+                    .position(|byte| *byte == b'}')
+                    .map(|relative| index + 1 + relative)
+                else {
+                    return false;
+                };
+                if close == index + 1 || bytes[index + 1..close].contains(&b'{') {
+                    return false;
+                }
+                index = close + 1;
+            }
+            b'}' => {
+                if bytes.get(index + 1) != Some(&b'}') {
+                    return false;
+                }
+                index += 2;
+            }
+            _ => index += 1,
+        }
+    }
+    true
+}
+
+/// csharpsquid:S3457 — composite formats need valid slots, and pointless
+/// format strings hide plain output.
+fn check_composite_format_usage(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for call in collect_kinds(root, &["invocation_expression"]) {
+        if is_error_tainted(call) || !is_composite_format_call(call, source) {
+            continue;
+        }
+        let Some((literal, template, budget)) = composite_template(call, source) else {
+            continue;
+        };
+        if !composite_template_is_valid(template) {
+            issues.push(issue(
+                language,
+                "S3457",
+                "Fix this malformed composite format string.",
+                range_of(literal),
+            ));
+        } else if !template.contains('{') && budget > 0 {
+            issues.push(issue(
+                language,
+                "S3457",
+                "Pass the arguments directly instead of using this format string.",
+                range_of(literal),
+            ));
+        }
+    }
+    issues
+}
+
+/// Flattens an `||` chain into its operands.
+fn or_chain_operands(expression: Node<'_>) -> Vec<Node<'_>> {
+    if operator_of(expression) == Some("||")
+        && let Some((left, right)) = binary_operands(expression)
+    {
+        let mut operands = or_chain_operands(left);
+        operands.extend(or_chain_operands(right));
+        return operands;
+    }
+    vec![expression]
+}
+
+/// csharpsquid:S3937 — three-or-more equality literals over one identifier
+/// should step regularly.
+fn check_regular_number_patterns(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for expression in collect_kinds(root, &["binary_expression"]) {
+        if is_error_tainted(expression) || operator_of(expression) != Some("||") {
+            continue;
+        }
+        if expression.parent().is_some_and(|parent| {
+            parent.kind() == "binary_expression" && operator_of(parent) == Some("||")
+        }) {
+            continue;
+        }
+        let operands = or_chain_operands(expression);
+        let mut subject: Option<&str> = None;
+        let mut values: Vec<i128> = Vec::new();
+        let mut leaves: Vec<Node<'_>> = Vec::new();
+        let mut regular_shape = true;
+        for operand in &operands {
+            let equality = operator_of(*operand) == Some("==")
+                && binary_operands(*operand).is_some_and(|(left, right)| {
+                    left.kind() == "identifier"
+                        && right.kind() == "integer_literal"
+                        && integer_literal_value(node_text(right, source)).is_some()
+                        && {
+                            let name = node_text(left, source);
+                            match subject {
+                                None => {
+                                    subject = Some(name);
+                                    true
+                                }
+                                Some(seen) => seen == name,
+                            }
+                        }
+                });
+            if !equality {
+                regular_shape = false;
+                break;
+            }
+            let (_, right) = binary_operands(*operand).unwrap_or((*operand, *operand));
+            values.push(i128::from(
+                integer_literal_value(node_text(right, source)).unwrap_or(0),
+            ));
+            leaves.push(*operand);
+        }
+        if !regular_shape || leaves.len() < 3 {
+            continue;
+        }
+        let uniform = values
+            .windows(2)
+            .all(|pair| pair[1] - pair[0] == values[1] - values[0]);
+        if !uniform {
+            issues.push(issue(
+                language,
+                "S3937",
+                "Make this sequence of compared numbers regular.",
+                range_of(leaves[0]),
+            ));
+        }
+    }
+    issues
+}
+
+/// The element-access target of an assignment statement (`arr[i] = v`),
+/// keyed by its full target text.
+fn element_write_target<'a>(statement: Node<'_>, source: &'a str) -> Option<&'a str> {
+    let inner = first_named_child(statement)?;
+    if inner.kind() != "assignment_expression" || child_operator(inner, source) != Some("=") {
+        return None;
+    }
+    let (target, _) = binary_operands(inner)?;
+    (target.kind() == "element_access_expression").then(|| node_text(target, source))
+}
+
+/// The operator token behind a `left/right` expression's dedicated field.
+fn child_operator<'a>(expression: Node<'_>, source: &'a str) -> Option<&'a str> {
+    expression
+        .child_by_field_name("operator")
+        .map(|operator| node_text(operator, source))
+}
+
+/// csharpsquid:S4143 — consecutive writes to the same element leave the
+/// first one dead.
+fn check_double_element_writes(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for block in collect_kinds(root, &["block"]) {
+        let statements = block_statements(block);
+        for pair in statements.windows(2) {
+            let (Some(first), Some(second)) = (
+                element_write_target(pair[0], source),
+                element_write_target(pair[1], source),
+            ) else {
+                continue;
+            };
+            if first == second {
+                issues.push(issue(
+                    language,
+                    "S4143",
+                    "Remove this write; it is overwritten by the next statement.",
+                    range_of(pair[0]),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// Methods grouped by declared name within each type.
+fn methods_grouped_by_name<'t>(
+    root: Node<'t>,
+    source: &str,
+) -> std::collections::BTreeMap<(usize, String), Vec<Node<'t>>> {
+    let mut groups: std::collections::BTreeMap<(usize, String), Vec<Node<'t>>> =
+        std::collections::BTreeMap::new();
+    for method in collect_kinds(root, &["method_declaration"]) {
+        if is_error_tainted(method) {
+            continue;
+        }
+        let owner = enclosing_type(method).map_or(0, |owner| owner.id());
+        let name = method
+            .child_by_field_name("name")
+            .map(|name| node_text(name, source).to_string())
+            .unwrap_or_default();
+        groups.entry((owner, name)).or_default().push(method);
+    }
+    groups
+}
+
+/// csharpsquid:S3994 — string parameters duplicating a sibling `System.Uri`
+/// overload push conversion work onto callers.
+fn check_uri_string_parameters(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for methods in methods_grouped_by_name(root, source).into_values() {
+        if methods.len() < 2 {
+            continue;
+        }
+        let shapes: Vec<Vec<String>> = methods
+            .iter()
+            .map(|method| {
+                parameters_of(*method)
+                    .iter()
+                    .filter_map(|parameter| parameter.child_by_field_name("type"))
+                    .map(|type_node| simple_name(node_text(type_node, source)).to_string())
+                    .collect()
+            })
+            .collect();
+        for index in 0..shapes.iter().map(Vec::len).max().unwrap_or(0) {
+            let has_uri = shapes
+                .iter()
+                .any(|shape| shape.get(index).is_some_and(|name| name == "Uri"));
+            if !has_uri {
+                continue;
+            }
+            for (method, shape) in methods.iter().zip(&shapes) {
+                if shape.get(index).is_some_and(|name| name == "string") {
+                    issues.push(issue(
+                        language,
+                        "S3994",
+                        "Accept a 'System.Uri' instead of a string here.",
+                        range_of(*method),
+                    ));
+                }
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3995 — string returns beside a sibling `System.Uri`
+/// overload lose structure.
+fn check_uri_string_returns(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for methods in methods_grouped_by_name(root, source).into_values() {
+        if methods.len() < 2 {
+            continue;
+        }
+        let returns_uri = methods
+            .iter()
+            .any(|method| simple_name(return_type_text(*method, source)) == "Uri");
+        if !returns_uri {
+            continue;
+        }
+        for method in &methods {
+            if simple_name(return_type_text(*method, source)) == "string" {
+                issues.push(issue(
+                    language,
+                    "S3995",
+                    "Return a 'System.Uri' instead of a string here.",
+                    range_of(name_anchor(*method)),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3996 — URI-named properties should carry real URIs.
+fn check_uri_string_properties(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for property in collect_kinds(root, &["property_declaration"]) {
+        if is_error_tainted(property) {
+            continue;
+        }
+        let named_uri = property
+            .child_by_field_name("name")
+            .and_then(|name| node_text(name, source).strip_suffix("Uri"))
+            .is_some_and(|prefix| !prefix.is_empty());
+        let typed_string = property
+            .child_by_field_name("type")
+            .is_some_and(|type_node| simple_name(node_text(type_node, source)) == "string");
+        if named_uri && typed_string {
+            issues.push(issue(
+                language,
+                "S3996",
+                "Expose this URI-valued property as 'System.Uri'.",
+                range_of(property),
+            ));
+        }
+    }
+    issues
+}
+
+/// Client members whose well-known string overloads have `System.Uri`
+/// siblings.
+const STRING_URI_OVERLOAD_METHODS: [&str; 5] = [
+    "DownloadString",
+    "UploadString",
+    "DownloadData",
+    "OpenRead",
+    "OpenWrite",
+];
+
+/// csharpsquid:S4005 — pass parsed `System.Uri` values instead of raw
+/// strings at dual-overload call sites.
+fn check_string_arguments_at_uri_overloads(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for call in collect_kinds(root, &["invocation_expression"]) {
+        if is_error_tainted(call) {
+            continue;
+        }
+        let targets = callee_name(call, source)
+            .is_some_and(|name| STRING_URI_OVERLOAD_METHODS.contains(&name));
+        if !targets {
+            continue;
+        }
+        let Some(first) = invocation_arguments(call).first().copied() else {
+            continue;
+        };
+        if argument_expression(first).kind() == "string_literal" {
+            issues.push(issue(
+                language,
+                "S4005",
+                "Create a 'System.Uri' and pass it to this call.",
+                range_of(call),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3257 — when the initializer spells out the type again, `var`
+/// keeps the declaration honest without repeating it.
+fn check_concise_declarations(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for statement in collect_kinds(root, &["local_declaration_statement"]) {
+        if is_error_tainted(statement) || modifiers_of(statement, source).contains(&"const") {
+            continue;
+        }
+        let Some(declaration) = first_named_child(statement) else {
+            continue;
+        };
+        let Some(type_node) = declaration.child_by_field_name("type") else {
+            continue;
+        };
+        if type_node.kind() == "implicit_type" {
+            continue;
+        }
+        let declared = node_text(type_node, source)
+            .split_whitespace()
+            .collect::<String>();
+        for declarator in collect_kinds(declaration, &["variable_declarator"]) {
+            let Some(name) = declarator.child_by_field_name("name") else {
+                continue;
+            };
+            let Some(initializer) = declarator_initializer(declarator, name) else {
+                continue;
+            };
+            if initializer.kind() != "object_creation_expression" {
+                continue;
+            }
+            let created = creation_type_text(initializer, source)
+                .split_whitespace()
+                .collect::<String>();
+            if created == declared {
+                issues.push(issue(
+                    language,
+                    "S3257",
+                    "Use 'var' for this declaration.",
+                    range_of(declarator),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3244 — a fresh anonymous delegate never equals the one that
+/// subscribed, so the handler stays attached.
+fn check_anonymous_unsubscriptions(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["assignment_expression"])
+        .into_iter()
+        .filter(|assignment| !is_error_tainted(*assignment))
+        .filter(|assignment| child_operator(*assignment, source) == Some("-="))
+        .filter(|assignment| {
+            binary_operands(*assignment).is_some_and(|(_, value)| {
+                matches!(
+                    value.kind(),
+                    "lambda_expression" | "anonymous_method_expression"
+                )
+            })
+        })
+        .map(|assignment| {
+            issue(
+                language,
+                "S3244",
+                "Unsubscribe with the original delegate, not a new anonymous one.",
+                range_of(assignment),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S3247 — repeated casts of one expression invite drift; cast
+/// once and reuse the result.
+fn check_duplicate_casts(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut seen: std::collections::BTreeMap<(usize, String, String), u32> =
+        std::collections::BTreeMap::new();
+    let mut issues = Vec::new();
+    for cast in collect_kinds(root, &["cast_expression"]) {
+        if is_error_tainted(cast) {
+            continue;
+        }
+        let Some((target_type, operand)) = cast_fields(cast, source) else {
+            continue;
+        };
+        let scope = enclosing_method(cast).map_or(0, |method| method.id());
+        let key = (scope, target_type, operand);
+        let count = seen.entry(key).or_insert(0);
+        *count += 1;
+        if *count > 1 {
+            issues.push(issue(
+                language,
+                "S3247",
+                "Cast this expression once and store the result.",
+                range_of(cast),
+            ));
+        }
+    }
+    issues
+}
+
+/// Cast type and trimmed operand text of a `(T) x` expression.
+fn cast_fields(cast: Node<'_>, source: &str) -> Option<(String, String)> {
+    let target_type = cast
+        .child_by_field_name("type")
+        .map(|type_node| node_text(type_node, source).to_string())?;
+    let operand = cast
+        .child_by_field_name("value")
+        .map(|value| node_text(value, source).trim().to_string())?;
+    Some((target_type, operand))
+}
+
+/// csharpsquid:S1185 — overrides that only forward to `base` add noise.
+fn check_trivial_base_forwarding_overrides(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for method in collect_kinds(root, &["method_declaration"]) {
+        if is_error_tainted(method) || !has_modifier(&modifiers_of(method, source), "override") {
+            continue;
+        }
+        let Some(body) = body_of(method) else {
+            continue;
+        };
+        let statements = block_statements(body);
+        if statements.len() != 1 {
+            continue;
+        }
+        let Some(name) = method.child_by_field_name("name") else {
+            continue;
+        };
+        let forwards = forwards_to_base(statements[0], node_text(name, source), source);
+        if forwards {
+            issues.push(issue(
+                language,
+                "S1185",
+                "Remove this override; it only forwards to the base member.",
+                range_of(name_anchor(method)),
+            ));
+        }
+    }
+    issues
+}
+
+/// Whether the single statement is a bare or returning `base.M(...)` call.
+fn forwards_to_base(statement: Node<'_>, member: &str, source: &str) -> bool {
+    let Some(inner) = first_named_child(statement) else {
+        return false;
+    };
+    let invocation = match inner.kind() {
+        "return_statement" => first_named_child(inner),
+        "invocation_expression" => Some(inner),
+        _ => None,
+    };
+    let Some(invocation) = invocation else {
+        return false;
+    };
+    callee_name(invocation, source) == Some(member)
+        && invocation_function(invocation).is_some_and(|function| {
+            function.kind() == "member_access_expression"
+                && first_child_token_text(function, source) == "base"
+        })
+}
+
+/// The leading token of a node (`base` of a `base.M` member access).
+fn first_child_token_text<'a>(node: Node<'_>, source: &'a str) -> &'a str {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .next()
+        .map_or("", |first| node_text(first, source))
+}
+
+/// csharpsquid:S3237 — setters exist to consume `value`.
+fn check_setters_assign_value(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for accessor in collect_kinds(root, &["accessor_declaration"]) {
+        if accessor_keyword(accessor, source) != "set" {
+            continue;
+        }
+        let Some(body) = accessor.child_by_field_name("body") else {
+            continue;
+        };
+        let ignores_value =
+            collect_kinds(body, &["assignment_expression"])
+                .iter()
+                .any(|assignment| {
+                    child_operator(*assignment, source) == Some("=")
+                        && binary_operands(*assignment).is_some_and(|(target, value)| {
+                            target.kind() == "identifier"
+                                && node_text(target, source) != "value"
+                                && value.kind() == "identifier"
+                                && node_text(value, source) != "value"
+                                && node_text(value, source) != node_text(target, source)
+                        })
+                });
+        if ignores_value {
+            issues.push(issue(
+                language,
+                "S3237",
+                "Assign the 'value' keyword in this setter.",
+                range_of(accessor),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S4049 — `Get`/`Set` pairs read as properties.
+fn check_accessor_shaped_methods(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for method in collect_kinds(root, &["method_declaration"]) {
+        if is_error_tainted(method) {
+            continue;
+        }
+        let Some(name) = method.child_by_field_name("name") else {
+            continue;
+        };
+        let spelled = node_text(name, source);
+        let returns_void = simple_name(return_type_text(method, source)) == "void";
+        let parameters = parameters_of(method).len();
+        if spelled.len() > 3
+            && spelled.starts_with('G')
+            && spelled[1..].starts_with("et")
+            && spelled
+                .chars()
+                .nth(3)
+                .is_some_and(|c: char| c.is_ascii_uppercase())
+            && parameters == 0
+            && !returns_void
+        {
+            issues.push(issue(
+                language,
+                "S4049",
+                "Convert this getter method into a property.",
+                range_of(name_anchor(method)),
+            ));
+        } else if spelled.len() > 3
+            && spelled.starts_with("Set")
+            && spelled
+                .chars()
+                .nth(3)
+                .is_some_and(|c: char| c.is_ascii_uppercase())
+            && parameters == 1
+        {
+            issues.push(issue(
+                language,
+                "S4049",
+                "Convert this setter method into a property.",
+                range_of(name_anchor(method)),
+            ));
+        }
+    }
+    issues
+}
+
+/// Gathers the Tier-A15 LINQ/format/API-heuristic slice.
+fn linq_api_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_any_instead_of_count(root, source, language));
+    issues.extend(check_format_argument_counts(root, source, language));
+    issues.extend(check_composite_format_usage(root, source, language));
+    issues.extend(check_regular_number_patterns(root, source, language));
+    issues.extend(check_double_element_writes(root, source, language));
+    issues.extend(check_uri_string_parameters(root, source, language));
+    issues.extend(check_uri_string_returns(root, source, language));
+    issues.extend(check_uri_string_properties(root, source, language));
+    issues.extend(check_string_arguments_at_uri_overloads(
+        root, source, language,
+    ));
+    issues.extend(check_concise_declarations(root, source, language));
+    issues.extend(check_anonymous_unsubscriptions(root, source, language));
+    issues.extend(check_duplicate_casts(root, source, language));
+    issues.extend(check_trivial_base_forwarding_overrides(
+        root, source, language,
+    ));
+    issues.extend(check_setters_assign_value(root, source, language));
+    issues.extend(check_accessor_shaped_methods(root, source, language));
+    issues.extend(check_lowercase_normalization(root, source, language));
+    issues.extend(check_culture_less_conversions(root, source, language));
+    issues.extend(check_culture_less_comparisons(root, source, language));
+    issues.extend(check_culture_less_searches(root, source, language));
+    issues.extend(check_hardcoded_connection_passwords(root, source, language));
+    issues.extend(check_weak_identity_locks(root, language));
+    issues.extend(check_locks_on_locals(root, source, language));
+    issues.extend(check_locks_on_mutable_fields(root, source, language));
+    issues.extend(check_datetime_key_members(root, source, language));
+    issues.extend(check_outdated_base_types(root, source, language));
+    issues.extend(check_tests_include_assertions(root, source, language));
+    issues.extend(check_literal_assertions(root, source, language));
+    issues.extend(check_unconstrained_assertions(root, source, language));
+    issues.extend(check_reversed_assertion_arguments(root, source, language));
+    issues.extend(check_test_classes_contain_tests(root, source, language));
+    issues.extend(check_task_returns_null(root, source, language));
+    issues.extend(check_dispose_pattern(root, source, language));
+    issues.extend(check_dispose_needs_interface(root, source, language));
+    issues.extend(check_utility_class_constructors(root, source, language));
+    issues.extend(check_reserved_exception_throws(root, source, language));
+    issues.extend(check_throws_in_finally(root, language));
+    issues.extend(check_null_reference_catches(root, source, language));
+    issues.extend(check_double_reported_catches(root, source, language));
+    issues.extend(check_general_exception_catches(root, source, language));
+    issues.extend(check_unchecked_sums(root, source, language));
+    issues.extend(check_strings_matching_parameters(root, source, language));
+    issues.extend(check_mergeable_try_statements(root, source, language));
+    issues.extend(check_redundant_modifiers(root, source, language));
+    let (fixmes, todos) = comment_tag_issues(root, source, language);
+    issues.extend(fixmes);
+    issues.extend(todos);
+    issues.extend(check_test_method_signatures(root, source, language));
+    issues.extend(check_ignored_generic_exceptions(root, source, language));
+    issues.extend(check_rethrow_only_catches(root, language));
+    issues.extend(check_transposed_operators(source, language));
+    issues.extend(check_foreach_iteration_casts(root, source, language));
+    issues.extend(check_pure_debug_assertions(root, source, language));
+    issues.extend(check_overlapping_optional_overloads(root, source, language));
+    issues.extend(check_explicit_rethrows(root, language));
+    issues.extend(check_indexer_parameter_types(root, source, language));
+    issues.extend(check_array_arguments_for_params_calls(root, language));
+    issues.extend(check_readonly_primitive_fields(root, source, language));
+    issues.extend(check_assembly_versions(root, source, language));
+    issues.extend(check_public_list_signatures(root, source, language));
+    issues.extend(check_collection_property_setters(root, source, language));
+    issues.extend(check_debugger_display_references(root, source, language));
+    issues
+}
+
+/// Methods that normalize text and must not fold case downwards.
+const TO_LOWER_METHODS: [&str; 2] = ["ToLower", "ToLowerInvariant"];
+
+/// csharpsquid:S4040 — normalization belongs in uppercase; lowercased
+/// strings compare and hash differently across cultures.
+fn check_lowercase_normalization(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &["invocation_expression"])
+        .into_iter()
+        .filter(|call| !is_error_tainted(*call))
+        .filter(|call| TO_LOWER_METHODS.contains(&callee_name(*call, source).unwrap_or("")))
+        .map(|call| {
+            issue(
+                language,
+                "S4040",
+                "Use 'ToUpperInvariant' to normalize this string.",
+                range_of(call),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S4056 — culture-less `ToString`/`Parse` calls pick the
+/// machine's locale instead of a stated one.
+fn check_culture_less_conversions(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for call in collect_kinds(root, &["invocation_expression"]) {
+        if is_error_tainted(call) {
+            continue;
+        }
+        let arguments = invocation_arguments(call);
+        let flagged = match callee_name(call, source) {
+            Some("ToString") => arguments.is_empty(),
+            Some("Parse") => arguments.len() == 1,
+            _ => false,
+        };
+        if flagged {
+            issues.push(issue(
+                language,
+                "S4056",
+                "Call the overload that takes an 'IFormatProvider'.",
+                range_of(call),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S4058 — two-operand comparisons silently use the current
+/// culture instead of a stated comparison mode.
+fn check_culture_less_comparisons(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["invocation_expression"])
+        .into_iter()
+        .filter(|call| !is_error_tainted(*call))
+        .filter(|call| {
+            matches!(callee_name(*call, source), Some("Compare" | "Equals"))
+                && invocation_arguments(*call).len() == 2
+        })
+        .map(|call| {
+            issue(
+                language,
+                "S4058",
+                "Use the 'StringComparison' overload of this comparison.",
+                range_of(call),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S1449 — searches and comparisons need an explicit culture or
+fn check_culture_less_searches(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for call in collect_kinds(root, &["invocation_expression"]) {
+        if is_error_tainted(call) {
+            continue;
+        }
+        let count = invocation_arguments(call).len();
+        let flagged = matches!(callee_name(call, source), Some("CompareTo") if count == 1)
+            || matches!(callee_name(call, source), Some("IndexOf" | "LastIndexOf") if count <= 1);
+        if flagged {
+            issues.push(issue(
+                language,
+                "S1449",
+                "Pass the culture or comparison type to this operation.",
+                range_of(call),
+            ));
+        }
+    }
+    issues
+}
+
+/// The credential value inside a connection-string literal, if present.
+fn embedded_password_value<'a>(literal_text: &'a str, lowered: &str) -> Option<&'a str> {
+    for marker in ["password=", "pwd="] {
+        if let Some(position) = lowered.find(marker) {
+            let value_start = position + marker.len();
+            let value_end = lowered[value_start..]
+                .find(';')
+                .map_or(lowered.len(), |relative| value_start + relative);
+            return Some(literal_text[value_start..value_end].trim_matches('"'));
+        }
+    }
+    None
+}
+
+/// csharpsquid:S2115 — hard-coded database passwords leak with the source.
+fn check_hardcoded_connection_passwords(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for literal in string_literals(root) {
+        if is_error_tainted(literal) {
+            continue;
+        }
+        let inner = literal_inner_text(literal, source);
+        let lowered = inner.to_ascii_lowercase();
+        if !lowered.contains("password=") && !lowered.contains("pwd=") {
+            continue;
+        }
+        if lowered.contains("integrated security") {
+            continue;
+        }
+        if embedded_password_value(inner, &lowered).is_some_and(|value| !value.is_empty()) {
+            issues.push(issue(
+                language,
+                "S2115",
+                "Do not embed credentials in this connection string.",
+                range_of(literal),
+            ));
+        }
+    }
+    issues
+}
+
+/// The guarded expression of a `lock (...)` statement.
+fn lock_guard_expression(lock_statement: Node<'_>) -> Option<Node<'_>> {
+    let mut cursor = lock_statement.walk();
+    let mut after_paren = false;
+    for child in lock_statement.children(&mut cursor) {
+        if child.kind() == "(" {
+            after_paren = true;
+            continue;
+        }
+        if after_paren {
+            return (!child.kind().is_empty()).then_some(child);
+        }
+    }
+    None
+}
+fn check_weak_identity_locks(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &["lock_statement"])
+        .into_iter()
+        .filter(|lock_statement| !is_error_tainted(*lock_statement))
+        .filter(|lock_statement| {
+            lock_guard_expression(*lock_statement).is_some_and(|expression| {
+                matches!(
+                    expression.kind(),
+                    "this" | "string_literal" | "typeof_expression"
+                )
+            })
+        })
+        .map(|lock_statement| {
+            issue(
+                language,
+                "S3998",
+                "Lock on a dedicated private lock object.",
+                range_of(lock_statement),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S6507 — locals are per-call, so locking on them guards
+/// nothing shared.
+fn check_locks_on_locals(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for lock_statement in collect_kinds(root, &["lock_statement"]) {
+        if is_error_tainted(lock_statement) {
+            continue;
+        }
+        let Some(expression) = lock_guard_expression(lock_statement) else {
+            continue;
+        };
+        if expression.kind() != "identifier" {
+            continue;
+        }
+        let name = node_text(expression, source);
+        let local_lock = enclosing_method(lock_statement)
+            .and_then(|method| body_of(method))
+            .is_some_and(|body| {
+                collect_kinds(body, &["variable_declarator"])
+                    .iter()
+                    .any(|declarator| {
+                        declarator
+                            .child_by_field_name("name")
+                            .is_some_and(|declared| node_text(declared, source) == name)
+                    })
+            });
+        if local_lock {
+            issues.push(issue(
+                language,
+                "S6507",
+                "Do not lock on this local variable.",
+                range_of(lock_statement),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2445 — mutable lock fields invite swapped guards.
+fn check_locks_on_mutable_fields(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for lock_statement in collect_kinds(root, &["lock_statement"]) {
+        if is_error_tainted(lock_statement) {
+            continue;
+        }
+        let Some(expression) = lock_guard_expression(lock_statement) else {
+            continue;
+        };
+        if expression.kind() != "identifier" {
+            continue;
+        }
+        let name = node_text(expression, source);
+        let Some(owner) = enclosing_type(lock_statement) else {
+            continue;
+        };
+        let field = type_members(owner)
+            .into_iter()
+            .find(|member| member.kind() == "field_declaration")
+            .filter(|field_declaration| {
+                field_declarator_names(*field_declaration, source).contains(&name)
+            });
+        let Some(field) = field else {
+            continue;
+        };
+        if !has_modifier(&modifiers_of(field, source), "readonly") {
+            issues.push(issue(
+                language,
+                "S2445",
+                "Declare this lock field 'readonly'.",
+                range_of(lock_statement),
+            ));
+        }
+    }
+    issues
+}
+
+/// Key-shaped member names (`Id`, `OrderKey`, ...).
+fn key_shaped(name: &str) -> bool {
+    name == "Id"
+        || name == "Key"
+        || (name.ends_with("Id") && name.len() > 2)
+        || (name.ends_with("Key") && name.len() > 3)
+}
+
+/// csharpsquid:S3363 — date/time values make unstable, ambiguous keys.
+fn check_datetime_key_members(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    const DATETIME_TYPES: [&str; 2] = ["DateTime", "DateTimeOffset"];
+    let mut issues = Vec::new();
+    for property in collect_kinds(root, &["property_declaration"]) {
+        if is_error_tainted(property) {
+            continue;
+        }
+        let named_key = property
+            .child_by_field_name("name")
+            .is_some_and(|name| key_shaped(node_text(name, source)));
+        let typed_datetime = property
+            .child_by_field_name("type")
+            .is_some_and(|type_node| {
+                DATETIME_TYPES.contains(&simple_name(node_text(type_node, source)))
+            });
+        if named_key && typed_datetime {
+            issues.push(issue(
+                language,
+                "S3363",
+                "Do not use date/time types for this key member.",
+                range_of(property),
+            ));
+        }
+    }
+    for field in collect_kinds(root, &["field_declaration"]) {
+        if is_error_tainted(field) {
+            continue;
+        }
+        let named_key = field_declarator_names(field, source)
+            .into_iter()
+            .any(key_shaped);
+        let typed_datetime = collect_kinds(field, &["variable_declaration"])
+            .first()
+            .and_then(|declaration| first_named_child(*declaration))
+            .is_some_and(|type_node| {
+                DATETIME_TYPES.contains(&simple_name(node_text(type_node, source)))
+            });
+        if named_key && typed_datetime {
+            issues.push(issue(
+                language,
+                "S3363",
+                "Do not use date/time types for this key member.",
+                range_of(field),
+            ));
+        }
+    }
+    issues
+}
+
+/// Base types from the pre-generic collections era.
+const OUTDATED_BASE_TYPES: [&str; 8] = [
+    "ArrayList",
+    "Hashtable",
+    "Queue",
+    "Stack",
+    "SortedList",
+    "CollectionBase",
+    "DictionaryBase",
+    "ReadOnlyCollectionBase",
+];
+
+/// csharpsquid:S4052 — pre-generic collection bases lose type safety.
+fn check_outdated_base_types(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &TYPE_DECLARATION_KINDS)
+        .into_iter()
+        .filter(|type_node| !is_error_tainted(*type_node))
+        .filter(|type_node| {
+            base_simple_names(*type_node, source)
+                .iter()
+                .any(|base| OUTDATED_BASE_TYPES.contains(base))
+        })
+        .map(|type_node| {
+            issue(
+                language,
+                "S4052",
+                "Replace this obsolete base type with a generic collection.",
+                range_of(type_node),
+            )
+        })
+        .collect()
+}
+
+/// Whether the invocation reads like an assertion call.
+fn looks_like_assertion(invocation: Node<'_>, source: &str) -> bool {
+    let Some(function) = invocation_function(invocation) else {
+        return false;
+    };
+    let spelled = node_text(function, source).trim();
+    spelled.contains("Assert")
+        || callee_name(invocation, source).is_some_and(|name| {
+            ["Should", "Verify", "Expect", "Check", "That"]
+                .iter()
+                .any(|prefix| name.starts_with(prefix))
+        })
+}
+
+/// csharpsquid:S2699 — test methods without assertions verify nothing.
+fn check_tests_include_assertions(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for method in collect_kinds(root, &["method_declaration"]) {
+        if !is_test_attributed(method, source) {
+            continue;
+        }
+        let Some(body) = body_of(method) else {
+            continue;
+        };
+        let asserts = collect_kinds(body, &["invocation_expression"])
+            .iter()
+            .any(|invocation| looks_like_assertion(*invocation, source));
+        if !asserts {
+            issues.push(issue(
+                language,
+                "S2699",
+                "Add an assertion to this test method.",
+                range_of(method),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2701 — literal assertions pass regardless of the code under
+/// test.
+fn check_literal_assertions(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    const TRUE_ASSERT_METHODS: [&str; 2] = ["IsTrue", "True"];
+    const FALSE_ASSERT_METHODS: [&str; 2] = ["IsFalse", "False"];
+    let mut issues = Vec::new();
+    for call in collect_kinds(root, &["invocation_expression"]) {
+        if is_error_tainted(call) {
+            continue;
+        }
+        let Some(name) = callee_name(call, source) else {
+            continue;
+        };
+        let Some(first) = invocation_arguments(call).first().copied() else {
+            continue;
+        };
+        let expression = argument_expression(first);
+        let literal = if expression.kind() == "boolean_literal" {
+            node_text(expression, source)
+        } else {
+            ""
+        };
+        let mismatched = (TRUE_ASSERT_METHODS.contains(&name) && literal == "true")
+            || (FALSE_ASSERT_METHODS.contains(&name) && literal == "false");
+        if mismatched {
+            issues.push(issue(
+                language,
+                "S2701",
+                "Remove the literal from this assertion.",
+                range_of(call),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2970 — a constraint-less `Assert.That` asserts nothing.
+fn check_unconstrained_assertions(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["invocation_expression"])
+        .into_iter()
+        .filter(|call| !is_error_tainted(*call))
+        .filter(|call| invocation_targets(*call, source, Some("Assert"), &["That"]))
+        .filter(|call| invocation_arguments(*call).len() == 1)
+        .map(|call| {
+            issue(
+                language,
+                "S2970",
+                "Complete this 'Assert.That' with a constraint.",
+                range_of(call),
+            )
+        })
+        .collect()
+}
+
+/// MSTest-style assertion entry points carrying expected/actual pairs.
+const PAIRED_ASSERT_METHODS: [&str; 4] = ["AreEqual", "AreNotEqual", "AreSame", "AreNotSame"];
+
+/// Literal kinds that read as hard-coded expectations.
+fn is_expectation_literal(node: Node<'_>) -> bool {
+    matches!(
+        node.kind(),
+        "integer_literal"
+            | "real_literal"
+            | "string_literal"
+            | "character_literal"
+            | "boolean_literal"
+            | "verbatim_string_literal"
+    )
+}
+
+/// csharpsquid:S3415 — expected values come first in paired assertions.
+fn check_reversed_assertion_arguments(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for call in collect_kinds(root, &["invocation_expression"]) {
+        if is_error_tainted(call) {
+            continue;
+        }
+        if !PAIRED_ASSERT_METHODS.contains(&callee_name(call, source).unwrap_or("")) {
+            continue;
+        }
+        let arguments = invocation_arguments(call);
+        if arguments.len() < 2 {
+            continue;
+        }
+        let first = argument_expression(arguments[0]);
+        let second = argument_expression(arguments[1]);
+        if first.kind() == "identifier" && is_expectation_literal(second) {
+            issues.push(issue(
+                language,
+                "S3415",
+                "Put the expected value first in this assertion.",
+                range_of(call),
+            ));
+        }
+    }
+    issues
+}
+
+/// Attributes marking a type as a test container.
+const TEST_CLASS_ATTRIBUTE_NAMES: [&str; 2] = ["TestClass", "TestFixture"];
+
+/// csharpsquid:S2187 — annotated-but-empty test classes rot quietly.
+fn check_test_classes_contain_tests(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["class_declaration"])
+        .into_iter()
+        .filter(|class_node| !is_error_tainted(*class_node))
+        .filter(|class_node| {
+            attributes_of(*class_node, source)
+                .iter()
+                .any(|name| TEST_CLASS_ATTRIBUTE_NAMES.contains(name))
+        })
+        .filter(|class_node| {
+            member_declarations_of_kind(*class_node, "method_declaration")
+                .iter()
+                .all(|method| !is_test_attributed(*method, source))
+        })
+        .map(|class_node| {
+            issue(
+                language,
+                "S2187",
+                "Add test methods to this test class.",
+                range_of(class_node),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S4586 — non-async `Task` methods must not return null; there
+/// is no completed task to await in null.
+fn check_task_returns_null(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for method in collect_kinds(root, &["method_declaration"]) {
+        if is_error_tainted(method) || has_modifier(&modifiers_of(method, source), "async") {
+            continue;
+        }
+        if simple_name(return_type_text(method, source)) != "Task" {
+            continue;
+        }
+        let Some(body) = body_of(method) else {
+            continue;
+        };
+        for statement in collect_kinds(body, &["return_statement"]) {
+            let returns_null = first_named_child(statement)
+                .is_some_and(|expression| expression.kind() == "null_literal");
+            if returns_null {
+                issues.push(issue(
+                    language,
+                    "S4586",
+                    "Return 'Task.CompletedTask' instead of null.",
+                    range_of(statement),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// Whether the body invokes `Dispose` with a literal argument.
+fn calls_dispose_with_literal(body: Node<'_>, source: &str) -> bool {
+    collect_kinds(body, &["invocation_expression"])
+        .into_iter()
+        .any(|call| {
+            callee_name(call, source) == Some("Dispose") && invocation_arguments(call).len() == 1
+        })
+}
+
+/// Dispose-shaped methods declared directly by a type.
+fn dispose_methods<'t>(type_node: Node<'t>, source: &str) -> Vec<Node<'t>> {
+    member_declarations_of_kind(type_node, "method_declaration")
+        .into_iter()
+        .filter(|method| {
+            method
+                .child_by_field_name("name")
+                .is_some_and(|name| node_text(name, source) == "Dispose")
+        })
+        .collect()
+}
+
+/// csharpsquid:S3881 — the full dispose pattern wires `Dispose`, a virtual
+/// `Dispose(bool)`, and the finalizer together.
+fn check_dispose_pattern(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for type_node in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
+        if is_error_tainted(type_node)
+            || !base_simple_names(type_node, source).contains(&"IDisposable")
+        {
+            continue;
+        }
+        let disposes = dispose_methods(type_node, source);
+        let parameterless = disposes
+            .iter()
+            .copied()
+            .find(|method| parameters_of(*method).is_empty());
+        if disposes
+            .iter()
+            .all(|method| parameters_of(*method).len() != 1)
+        {
+            issues.push(issue(
+                language,
+                "S3881",
+                "Add a 'Dispose(bool)' overload to complete the dispose pattern.",
+                range_of(name_anchor(type_node)),
+            ));
+        }
+        if let Some(dispose) = parameterless {
+            let routes_through_bool =
+                body_of(dispose).is_some_and(|body| calls_dispose_with_literal(body, source));
+            if !routes_through_bool {
+                issues.push(issue(
+                    language,
+                    "S3881",
+                    "Route this 'Dispose' through 'Dispose(bool)'.",
+                    range_of(dispose),
+                ));
+            }
+        }
+        for destructor in member_declarations_of_kind(type_node, "destructor_declaration") {
+            let releases =
+                body_of(destructor).is_some_and(|body| calls_dispose_with_literal(body, source));
+            if !releases {
+                issues.push(issue(
+                    language,
+                    "S3881",
+                    "Call 'Dispose(false)' from this finalizer.",
+                    range_of(destructor),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2953 — a hand-rolled `Dispose` without `IDisposable` is
+/// never called by `using`.
+fn check_dispose_needs_interface(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &TYPE_DECLARATION_KINDS)
+        .into_iter()
+        .filter(|type_node| !is_error_tainted(*type_node))
+        .filter(|type_node| !dispose_methods(*type_node, source).is_empty())
+        .filter(|type_node| !base_simple_names(*type_node, source).contains(&"IDisposable"))
+        .map(|type_node| {
+            issue(
+                language,
+                "S2953",
+                "Implement 'IDisposable' on this type.",
+                range_of(name_anchor(type_node)),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S1118 — utility classes are reached through their static
+/// members, not through instances.
+fn check_utility_class_constructors(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for class_node in collect_kinds(root, &["class_declaration"]) {
+        if is_error_tainted(class_node) {
+            continue;
+        }
+        let methods = member_declarations_of_kind(class_node, "method_declaration");
+        if methods.is_empty()
+            || !methods
+                .iter()
+                .all(|method| has_modifier(&modifiers_of(*method, source), "static"))
+        {
+            continue;
+        }
+        let fields_hold_state = type_members(class_node)
+            .into_iter()
+            .filter(|member| matches!(member.kind(), "field_declaration"))
+            .any(|field| {
+                let modifiers = modifiers_of(field, source);
+                !has_modifier(&modifiers, "static") && !has_modifier(&modifiers, "const")
+            });
+        if fields_hold_state {
+            continue;
+        }
+        for constructor in member_declarations_of_kind(class_node, "constructor_declaration") {
+            let modifiers = modifiers_of(constructor, source);
+            if has_modifier(&modifiers, "public") || has_modifier(&modifiers, "internal") {
+                issues.push(issue(
+                    language,
+                    "S1118",
+                    "Hide this constructor or declare the class 'static'.",
+                    range_of(constructor),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// Reserved exception types that carry no domain meaning.
+const RESERVED_EXCEPTION_TYPES: [&str; 3] =
+    ["Exception", "ApplicationException", "SystemException"];
+
+/// csharpsquid:S112 — reserved exception types say nothing about the
+/// failure and force callers to over-catch.
+fn check_reserved_exception_throws(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["object_creation_expression"])
+        .into_iter()
+        .filter(|creation| !is_error_tainted(*creation))
+        .filter(|creation| {
+            RESERVED_EXCEPTION_TYPES.contains(&simple_name(creation_type_text(*creation, source)))
+        })
+        .map(|creation| {
+            issue(
+                language,
+                "S112",
+                "Throw a more specific exception than this reserved type.",
+                range_of(creation),
+            )
+        })
+        .collect()
+}
+
+/// Comment markers that promise unfinished work.
+fn comment_tag_issues(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> (Vec<Issue>, Vec<Issue>) {
+    let mut fixmes = Vec::new();
+    let mut todos = Vec::new();
+    for comment in collect_kinds(root, &["comment"]) {
+        let upper = node_text(comment, source).to_ascii_uppercase();
+        if upper.contains("FIXME") {
+            fixmes.push(issue(
+                language,
+                "S1134",
+                "Track the work promised by this FIXME tag.",
+                range_of(comment),
+            ));
+        }
+        if upper.contains("TODO") {
+            todos.push(issue(
+                language,
+                "S1135",
+                "Track the work promised by this TODO tag.",
+                range_of(comment),
+            ));
+        }
+    }
+    (fixmes, todos)
+}
+
+/// csharpsquid:S1163 — throwing from `finally` swallows in-flight failures.
+fn check_throws_in_finally(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &["throw_statement"])
+        .into_iter()
+        .filter(|throw| ancestors_of(*throw).any(|ancestor| ancestor.kind() == "finally_clause"))
+        .map(|throw| {
+            issue(
+                language,
+                "S1163",
+                "Do not throw from a finally block.",
+                range_of(throw),
+            )
+        })
+        .collect()
+}
+
+/// The declared exception type name of a catch clause (`ex` of
+/// `catch (Exception ex)`), when present.
+fn catch_type_tail<'a>(clause: Node<'_>, source: &'a str) -> Option<&'a str> {
+    let mut cursor = clause.walk();
+    let declaration = clause
+        .children(&mut cursor)
+        .find(|child| child.kind() == "catch_declaration")?;
+    let type_node = declaration.child_by_field_name("type")?;
+    Some(simple_name(node_text(type_node, source)))
+}
+
+/// csharpsquid:S1696 — catching `NullReferenceException` hides dereference
+/// bugs.
+fn check_null_reference_catches(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &["catch_clause"])
+        .into_iter()
+        .filter(|clause| !is_error_tainted(*clause))
+        .filter(|clause| catch_type_tail(*clause, source) == Some("NullReferenceException"))
+        .map(|clause| {
+            issue(
+                language,
+                "S1696",
+                "Do not catch 'NullReferenceException'.",
+                range_of(clause),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S2139 — logging and rethrowing reports the failure twice.
+fn check_double_reported_catches(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &["catch_clause"])
+        .into_iter()
+        .filter(|clause| !is_error_tainted(*clause))
+        .filter_map(|clause| {
+            let body = clause.child_by_field_name("body")?;
+            Some((
+                clause,
+                !logging_calls(body, source).is_empty(),
+                !collect_kinds(body, &["throw_statement"]).is_empty(),
+            ))
+        })
+        .filter(|(_, logs, rethrows)| *logs && *rethrows)
+        .map(|(clause, _, _)| {
+            issue(
+                language,
+                "S2139",
+                "Choose either logging or rethrowing in this catch clause.",
+                range_of(clause),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S2221 — catching bare `Exception` also swallows unrelated
+/// runtime failures.
+fn check_general_exception_catches(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["catch_clause"])
+        .into_iter()
+        .filter(|clause| !is_error_tainted(*clause))
+        .filter(|clause| catch_type_tail(*clause, source) == Some("Exception"))
+        .map(|clause| {
+            issue(
+                language,
+                "S2221",
+                "Catch a more specific exception than 'Exception'.",
+                range_of(clause),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S2291 — `unchecked` around `Sum` silently truncates.
+fn check_unchecked_sums(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &["checked_statement"])
+        .into_iter()
+        .filter(|statement| !is_error_tainted(*statement))
+        .filter(|statement| first_child_token_text(*statement, source) == "unchecked")
+        .filter(|statement| {
+            collect_kinds(*statement, &["invocation_expression"])
+                .into_iter()
+                .any(|call| callee_name(call, source) == Some("Sum"))
+        })
+        .map(|statement| {
+            issue(
+                language,
+                "S2291",
+                "Do not disable overflow checks around 'Sum'.",
+                range_of(statement),
+            )
+        })
+        .collect()
+}
+
+/// Whether the text parses as a plain identifier usable with `nameof`.
+fn is_identifier_text(text: &str) -> bool {
+    let mut characters = text.chars();
+    match characters.next() {
+        Some(first) if first.is_alphabetic() || first == '_' => {}
+        _ => return false,
+    }
+    characters.all(|rest| rest.is_alphanumeric() || rest == '_')
+}
+
+/// csharpsquid:S2302 — strings that mirror an enclosing parameter name
+/// should travel through `nameof`.
+fn check_strings_matching_parameters(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for literal in string_literals(root) {
+        if is_error_tainted(literal) {
+            continue;
+        }
+        let inner = literal_inner_text(literal, source);
+        if !is_identifier_text(inner) {
+            continue;
+        }
+        let mirrors_parameter = enclosing_method(literal).is_some_and(|method| {
+            parameters_of(method).iter().any(|parameter| {
+                parameter
+                    .child_by_field_name("name")
+                    .is_some_and(|name| node_text(name, source) == inner)
+            })
+        });
+        if mirrors_parameter {
+            issues.push(issue(
+                language,
+                "S2302",
+                format!("Replace this string with 'nameof({inner})'."),
+                range_of(literal),
+            ));
+        }
+    }
+    issues
+}
+
+/// Catch and finally handler signature of a try statement, as written.
+fn try_handler_signature(try_statement: Node<'_>, source: &str) -> (Vec<String>, Option<String>) {
+    let mut cursor = try_statement.walk();
+    let mut catches = Vec::new();
+    let mut fin = None;
+    for child in try_statement.children(&mut cursor) {
+        match child.kind() {
+            "catch_clause" => catches.push(node_text(child, source).trim().to_string()),
+            "finally_clause" => fin = Some(node_text(child, source).trim().to_string()),
+            _ => {}
+        }
+    }
+    (catches, fin)
+}
+
+/// csharpsquid:S2327 — adjacent identical handlers merge into one `try`.
+fn check_mergeable_try_statements(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for block in collect_kinds(root, &["block"]) {
+        for pair in block_statements(block).windows(2) {
+            if pair[0].kind() != "try_statement" || pair[1].kind() != "try_statement" {
+                continue;
+            }
+            if try_handler_signature(pair[0], source) == try_handler_signature(pair[1], source) {
+                issues.push(issue(
+                    language,
+                    "S2327",
+                    "Merge these try statements sharing identical handlers.",
+                    range_of(pair[1]),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2333 — single-part `partial` types and accessors repeating
+/// their property's visibility carry dead modifiers.
+fn check_redundant_modifiers(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    use std::collections::BTreeMap;
+    let declarations = collect_kinds(root, &TYPE_DECLARATION_KINDS);
+    let mut name_counts: BTreeMap<(String, String), u32> = BTreeMap::new();
+    for type_node in &declarations {
+        let key = (
+            (*type_node).kind().to_string(),
+            type_node
+                .child_by_field_name("name")
+                .map(|name| node_text(name, source).to_string())
+                .unwrap_or_default(),
+        );
+        *name_counts.entry(key).or_insert(0) += 1;
+    }
+    let mut issues = Vec::new();
+    for type_node in &declarations {
+        if is_error_tainted(*type_node)
+            || !has_modifier(&modifiers_of(*type_node, source), "partial")
+        {
+            continue;
+        }
+        let key = (
+            (*type_node).kind().to_string(),
+            type_node
+                .child_by_field_name("name")
+                .map(|name| node_text(name, source).to_string())
+                .unwrap_or_default(),
+        );
+        if name_counts.get(&key).copied().unwrap_or(0) == 1 {
+            issues.push(issue(
+                language,
+                "S2333",
+                "Remove this redundant 'partial' modifier.",
+                range_of(name_anchor(*type_node)),
+            ));
+        }
+    }
+    for property in collect_kinds(root, &["property_declaration"]) {
+        let property_rank = accessibility_rank(&modifiers_of(property, source));
+        if property_rank == 0 {
+            continue;
+        }
+        for accessor in accessors_of(property) {
+            if accessibility_rank(&modifiers_of(accessor, source)) == property_rank {
+                issues.push(issue(
+                    language,
+                    "S2333",
+                    "Remove this redundant accessibility modifier.",
+                    range_of(accessor),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// Return shapes valid for test methods.
+const TEST_RETURN_TYPES: [&str; 3] = ["void", "Task", "ValueTask"];
+
+/// csharpsquid:S3433 — runners only invoke public `void`/`Task` test
+/// methods.
+fn check_test_method_signatures(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for method in collect_kinds(root, &["method_declaration"]) {
+        if !is_test_attributed(method, source) {
+            continue;
+        }
+        if !has_modifier(&modifiers_of(method, source), "public") {
+            issues.push(issue(
+                language,
+                "S3433",
+                "Make this test method public.",
+                range_of(method),
+            ));
+        }
+        let returns = simple_name(return_type_text(method, source));
+        if !TEST_RETURN_TYPES.contains(&returns) {
+            issues.push(issue(
+                language,
+                "S3433",
+                "Test methods must not return values.",
+                range_of(method),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2486 — swallowing bare `Exception` hides unrelated bugs.
+fn check_ignored_generic_exceptions(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["catch_clause"])
+        .into_iter()
+        .filter(|clause| !is_error_tainted(*clause))
+        .filter(|clause| catch_type_tail(*clause, source) == Some("Exception"))
+        .filter(|clause| {
+            clause
+                .child_by_field_name("body")
+                .is_some_and(|body| block_statements(body).is_empty())
+        })
+        .map(|clause| {
+            issue(
+                language,
+                "S2486",
+                "Handle this exception or narrow the catch clause.",
+                range_of(clause),
+            )
+        })
+        .collect()
+}
+/// csharpsquid:S2737 — a catch clause that only rethrows adds nothing.
+fn check_rethrow_only_catches(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &["catch_clause"])
+        .into_iter()
+        .filter(|clause| !is_error_tainted(*clause))
+        .filter(|clause| {
+            clause.child_by_field_name("body").is_some_and(|body| {
+                let statements = block_statements(body);
+                statements.len() == 1 && statements[0].kind() == "throw_statement"
+            })
+        })
+        .map(|clause| {
+            issue(
+                language,
+                "S2737",
+                "Handle this exception or remove this catch clause.",
+                range_of(clause),
+            )
+        })
+        .collect()
+}
+
+/// Whether the line carries the transposed `= +` operator pair outside a
+/// comment.
+fn has_transposed_assignment(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("//") || trimmed.starts_with('*') || trimmed.starts_with("/*") {
+        return false;
+    }
+    let bytes = line.as_bytes();
+    for index in 1..bytes.len().saturating_sub(1) {
+        if bytes[index] != b'=' || bytes.get(index + 1) != Some(&b'+') {
+            continue;
+        }
+        let before = bytes[index - 1];
+        let not_other_operator = !matches!(
+            before,
+            b'=' | b'+' | b'-' | b'*' | b'/' | b'%' | b'<' | b'>' | b'!' | b'|' | b'&' | b'^'
+        );
+        if not_other_operator {
+            return true;
+        }
+    }
+    false
+}
+
+/// csharpsquid:S2757 — `= +` is two operators where one was meant.
+fn check_transposed_operators(source: &str, language: CsLanguage) -> Vec<Issue> {
+    source
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| has_transposed_assignment(line))
+        .map(|(index, line)| {
+            issue(
+                language,
+                "S2757",
+                "Fix this mistyped assignment operator.",
+                hoonarqube_ir::Range {
+                    start: hoonarqube_ir::Pos {
+                        line: to_u32(index) + 1,
+                        column: 0,
+                    },
+                    end: hoonarqube_ir::Pos {
+                        line: to_u32(index) + 1,
+                        column: to_u32(line.chars().count()),
+                    },
+                },
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S3217 — casting the iteration variable per body statement
+/// means the sequence should be typed up front.
+fn check_foreach_iteration_casts(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for each in collect_kinds(root, &["foreach_statement"]) {
+        if is_error_tainted(each) {
+            continue;
+        }
+        let Some(loop_variable) = each.child_by_field_name("left") else {
+            continue;
+        };
+        let name = node_text(loop_variable, source);
+        let Some(body) = each.child_by_field_name("body") else {
+            continue;
+        };
+        for cast in collect_kinds(body, &["cast_expression"]) {
+            let casts_variable = cast.child_by_field_name("value").is_some_and(|operand| {
+                operand.kind() == "identifier" && node_text(operand, source) == name
+            });
+            if casts_variable {
+                issues.push(issue(
+                    language,
+                    "S3217",
+                    "Iterate with the correct element type instead of casting.",
+                    range_of(cast),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// Whether the argument subtree computes something (`f()`, `x++`, `a = b`).
+fn argument_has_side_effects(argument: Node<'_>, source: &str) -> bool {
+    !collect_kinds(
+        argument,
+        &["invocation_expression", "assignment_expression"],
+    )
+    .is_empty()
+        || collect_kinds(
+            argument,
+            &["prefix_unary_expression", "postfix_unary_expression"],
+        )
+        .into_iter()
+        .any(|unary| {
+            let mut cursor = unary.walk();
+            unary
+                .children(&mut cursor)
+                .any(|child| !child.is_named() && matches!(node_text(child, source), "++" | "--"))
+        })
+}
+
+/// csharpsquid:S3346 — assertions that compute hide failures when stripped.
+fn check_pure_debug_assertions(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for call in collect_kinds(root, &["invocation_expression"]) {
+        if is_error_tainted(call) || !invocation_targets(call, source, Some("Debug"), &["Assert"]) {
+            continue;
+        }
+        let impure = invocation_arguments(call)
+            .iter()
+            .any(|argument| argument_has_side_effects(*argument, source));
+        if impure {
+            issues.push(issue(
+                language,
+                "S3346",
+                "Keep side effects out of 'Debug.Assert'.",
+                range_of(call),
+            ));
+        }
+    }
+    issues
+}
+
+/// Mandatory and optional parameter counts of a method.
+fn parameter_shape(method: Node<'_>) -> (usize, usize) {
+    let parameters = parameters_of(method);
+    let optional = parameters.iter().filter(|parameter| {
+        let mut cursor = parameter.walk();
+        parameter.named_children(&mut cursor).count() > 2
+    });
+    (parameters.len(), optional.count())
+}
+
+/// csharpsquid:S3427 — overlapping defaults make some call sites ambiguous.
+fn check_overlapping_optional_overloads(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for methods in methods_grouped_by_name(root, source).into_values() {
+        if methods.len() < 2 {
+            continue;
+        }
+        let shapes: Vec<(usize, usize)> = methods
+            .iter()
+            .map(|method| parameter_shape(*method))
+            .collect();
+        for first in 0..methods.len() {
+            for second in (first + 1)..methods.len() {
+                let (params_first, optional_first) = shapes[first];
+                let (params_second, optional_second) = shapes[second];
+                let lower = params_first
+                    .saturating_sub(optional_first)
+                    .max(params_second.saturating_sub(optional_second));
+                let upper = params_first.min(params_second);
+                let ambiguous = lower <= upper
+                    && (params_first != params_second || optional_first > 0 || optional_second > 0);
+                if ambiguous {
+                    issues.push(issue(
+                        language,
+                        "S3427",
+                        "Remove the ambiguity between these overloads.",
+                        range_of(name_anchor(methods[second])),
+                    ));
+                }
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3445 — `throw ex;` restarts the stack trace at the catch.
+fn check_explicit_rethrows(source_root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(source_root, &["throw_statement"])
+        .into_iter()
+        .filter(|throw| !is_error_tainted(*throw))
+        .filter(|throw| {
+            first_named_child(*throw).is_some_and(|expression| expression.kind() == "identifier")
+        })
+        .map(|throw| {
+            issue(
+                language,
+                "S3445",
+                "Use a bare 'throw;' statement to rethrow.",
+                range_of(throw),
+            )
+        })
+        .collect()
+}
+
+/// Types acceptable for indexer parameters.
+const INDEXER_PARAMETER_TYPES: [&str; 12] = [
+    "string", "String", "int", "uint", "long", "ulong", "short", "ushort", "byte", "sbyte", "char",
+    "nint",
+];
+
+/// csharpsquid:S3876 — indexers on other types read as opaque lookups.
+fn check_indexer_parameter_types(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &["indexer_declaration"])
+        .into_iter()
+        .filter(|indexer| !is_error_tainted(*indexer))
+        .filter(|indexer| {
+            indexer
+                .child_by_field_name("parameters")
+                .is_some_and(|list| {
+                    parameters_from_list(list).iter().any(|parameter| {
+                        parameter
+                            .child_by_field_name("type")
+                            .is_some_and(|type_node| {
+                                !INDEXER_PARAMETER_TYPES
+                                    .contains(&simple_name(node_text(type_node, source)))
+                            })
+                    })
+                })
+        })
+        .map(|indexer| {
+            issue(
+                language,
+                "S3876",
+                "Index on a string or integral type.",
+                range_of(indexer),
+            )
+        })
+        .collect()
+}
+
+/// Parameters behind either bracketed or parenthesized lists.
+fn parameters_from_list(list: Node<'_>) -> Vec<Node<'_>> {
+    collect_kinds(list, &["parameter"])
+}
+
+/// csharpsquid:S3878 — arrays built just to feed a `params` call waste an
+/// allocation.
+fn check_array_arguments_for_params_calls(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &["invocation_expression"])
+        .into_iter()
+        .filter(|call| !is_error_tainted(*call))
+        .flat_map(|call| invocation_arguments(call))
+        .filter(|argument| {
+            matches!(
+                argument_expression(*argument).kind(),
+                "array_creation_expression" | "implicit_array_creation_expression"
+            )
+        })
+        .map(|argument| {
+            issue(
+                language,
+                "S3878",
+                "Pass the elements individually to this 'params' call.",
+                range_of(argument),
+            )
+        })
+        .collect()
+}
+
+/// Built-in types whose readonly fields read as constants.
+const PRIMITIVE_FIELD_TYPES: [&str; 13] = [
+    "int", "uint", "long", "ulong", "short", "ushort", "byte", "sbyte", "char", "bool", "double",
+    "float", "decimal",
+];
+
+/// csharpsquid:S3887 — public readonly primitive literals are constants.
+fn check_readonly_primitive_fields(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for field in collect_kinds(root, &["field_declaration"]) {
+        if is_error_tainted(field) {
+            continue;
+        }
+        let modifiers = modifiers_of(field, source);
+        if !has_modifier(&modifiers, "readonly")
+            || has_modifier(&modifiers, "static")
+            || has_modifier(&modifiers, "const")
+            || !has_any_accessibility(&modifiers)
+            || has_modifier(&modifiers, "private")
+        {
+            continue;
+        }
+        let typed_primitive = collect_kinds(field, &["variable_declaration"])
+            .first()
+            .and_then(|declaration| first_named_child(*declaration))
+            .is_some_and(|type_node| {
+                PRIMITIVE_FIELD_TYPES.contains(&simple_name(node_text(type_node, source)))
+            });
+        if !typed_primitive {
+            continue;
+        }
+        let literal_initialized =
+            collect_kinds(field, &["variable_declarator"])
+                .iter()
+                .all(|declarator| {
+                    declarator
+                        .child_by_field_name("name")
+                        .and_then(|name| declarator_initializer(*declarator, name))
+                        .is_some_and(is_literal_node)
+                });
+        if literal_initialized {
+            issues.push(issue(
+                language,
+                "S3887",
+                "Declare this constant field 'const' instead of 'readonly'.",
+                range_of(field),
+            ));
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S3904 — assemblies should state their version.
+fn check_assembly_versions(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let names = assembly_attribute_names(root, source);
+    if names.is_empty()
+        || names
+            .iter()
+            .any(|name| name.to_ascii_lowercase().contains("version"))
+    {
+        return Vec::new();
+    }
+    vec![file_level_issue(
+        language,
+        "S3904",
+        "Add assembly version information ([assembly: AssemblyVersion(\"1.0.0.0\")]).",
+    )]
+}
+
+/// csharpsquid:S3956 — concrete `List<T>` leaks implementation details from
+/// public signatures.
+fn check_public_list_signatures(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    const LIST_MARKER: &str = "List<";
+    let mut issues = Vec::new();
+    for method in collect_kinds(root, &["method_declaration"]) {
+        if is_error_tainted(method) || !has_modifier(&modifiers_of(method, source), "public") {
+            continue;
+        }
+        let exposes_list = return_type_text(method, source).contains(LIST_MARKER)
+            || parameters_of(method).iter().any(|parameter| {
+                parameter
+                    .child_by_field_name("type")
+                    .is_some_and(|type_node| node_text(type_node, source).contains(LIST_MARKER))
+            });
+        if exposes_list {
+            issues.push(issue(
+                language,
+                "S3956",
+                "Expose 'IEnumerable<T>' or 'IList<T>' instead of 'List<T>'.",
+                range_of(name_anchor(method)),
+            ));
+        }
+    }
+    for member_kind in ["property_declaration", "field_declaration"] {
+        for member in collect_kinds(root, &[member_kind]) {
+            if is_error_tainted(member) || !has_modifier(&modifiers_of(member, source), "public") {
+                continue;
+            }
+            let typed_list = match member.kind() {
+                "property_declaration" => member
+                    .child_by_field_name("type")
+                    .is_some_and(|type_node| node_text(type_node, source).contains(LIST_MARKER)),
+                _ => collect_kinds(member, &["variable_declaration"])
+                    .iter()
+                    .any(|declaration| {
+                        first_named_child(*declaration).is_some_and(|type_node| {
+                            node_text(type_node, source).contains(LIST_MARKER)
+                        })
+                    }),
+            };
+            if typed_list {
+                issues.push(issue(
+                    language,
+                    "S3956",
+                    "Expose 'IEnumerable<T>' or 'IList<T>' instead of 'List<T>'.",
+                    range_of(member),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// Collection spellings whose properties should not carry setters.
+const COLLECTION_TYPE_MARKERS: [&str; 4] = ["List<", "Dictionary<", "Collection<", "[]"];
+
+/// csharpsquid:S4004 — callers mutate collections through the property's
+/// value, so setters only invite replacement.
+fn check_collection_property_setters(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["property_declaration"])
+        .into_iter()
+        .filter(|property| !is_error_tainted(*property))
+        .filter(|property| {
+            property
+                .child_by_field_name("type")
+                .is_some_and(|type_node| {
+                    COLLECTION_TYPE_MARKERS
+                        .iter()
+                        .any(|marker| node_text(type_node, source).contains(marker))
+                })
+        })
+        .filter(|property| {
+            accessors_of(*property)
+                .iter()
+                .any(|accessor| accessor_keyword(*accessor, source) == "set")
+        })
+        .map(|property| {
+            issue(
+                language,
+                "S4004",
+                "Make this collection property read-only.",
+                range_of(property),
+            )
+        })
+        .collect()
+}
+
+/// `{Member}` references inside a `DebuggerDisplay` value.
+fn debugger_display_members(value: &str) -> Vec<&str> {
+    let mut members = Vec::new();
+    let mut rest = value;
+    while let Some(open) = rest.find('{') {
+        let after = &rest[open + 1..];
+        match after.find('}') {
+            Some(close) => {
+                let token = &after[..close];
+                let bare = token.split([',', ':', '(']).next().unwrap_or(token).trim();
+                if !bare.is_empty() {
+                    members.push(bare);
+                }
+                rest = &after[close + 1..];
+            }
+            None => break,
+        }
+    }
+    members
+}
+
+/// csharpsquid:S4545 — `DebuggerDisplay` values naming missing members
+/// render blank output.
+fn check_debugger_display_references(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for list in collect_kinds(root, &["attribute_list"]) {
+        if is_error_tainted(list) {
+            continue;
+        }
+        let mut cursor = list.walk();
+        let display = list.children(&mut cursor).find(|attribute| {
+            attribute
+                .child_by_field_name("name")
+                .is_some_and(|name| simple_name(node_text(name, source)) == "DebuggerDisplay")
+        });
+        let Some(display) = display else {
+            continue;
+        };
+        let Some(literal) = collect_kinds(display, &["string_literal"]).first().copied() else {
+            continue;
+        };
+        let Some(owner) = list.parent().filter(|parent| {
+            TYPE_DECLARATION_KINDS.contains(&parent.kind())
+                || CALLABLE_BODY_OWNER_KINDS.contains(&parent.kind())
+        }) else {
+            continue;
+        };
+        let known = declared_member_names(owner, source);
+        for member in debugger_display_members(literal_inner_text(literal, source)) {
+            if !known.contains(member) {
+                issues.push(issue(
+                    language,
+                    "S4545",
+                    format!("'DebuggerDisplay' references missing member '{member}'."),
+                    range_of(list),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// Field, property, and method names declared directly by a declaration.
+fn declared_member_names(declaration: Node<'_>, source: &str) -> std::collections::HashSet<String> {
+    let mut names = declared_method_names(declaration, source);
+    names.extend(field_and_property_names(declaration, source));
+    names
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -14135,5 +17036,746 @@ mod tests {
             "class OrdersController\n{\n    [HttpPost]\n    public void Queue(OrderDto dto) { }\n}\n",
         );
         assert!(with_key(&void_action, "csharpsquid:S6968").is_empty());
+    }
+    #[test]
+    fn s6670_flags_trace_writes() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        Trace.WriteLine(\"m\");\n            System.Diagnostics.Trace.Write(\"x\");\n        logger.Log(\"fine\");\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S6670");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+
+        let clean = analyze_default(
+            "class A\n{\n    void M()\n    {\n        logger.Log(\"fine\");\n    }\n}\n",
+        );
+        assert!(with_key(&clean, "csharpsquid:S6670").is_empty());
+    }
+
+    #[test]
+    fn s6675_flags_trace_switch_gates() {
+        let report = analyze_default(
+            "class A\n{\n    void M(bool enabled)\n    {\n        Trace.WriteLineIf(traceSwitch.TraceInfo, \"m\");\n        Trace.WriteLineIf(enabled, \"m\");\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S6675");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s6664_limits_log_calls_per_method() {
+        let chatty = "class A\n{\n    void M()\n    {\n        logger.LogDebug(\"a\");\n            logger.LogDebug(\"b\");\n        logger.LogDebug(\"c\");\n        logger.LogDebug(\"d\");\n        logger.LogDebug(\"e\");\n    }\n}\n";
+        let report = analyze_default(chatty);
+        let flagged = with_key(&report, "csharpsquid:S6664");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+
+        let at_limit = analyze_default(
+            "class A\n{\n    void M()\n    {\n        logger.LogDebug(\"a\");\n            logger.LogDebug(\"b\");\n        logger.LogDebug(\"c\");\n        logger.LogDebug(\"d\");\n    }\n}\n",
+        );
+        assert!(with_key(&at_limit, "csharpsquid:S6664").is_empty());
+
+        let warnings = analyze_default(
+            "class A\n{\n    void M()\n    {\n        logger.LogWarning(\"one\");\n            logger.LogWarning(\"two\");\n    }\n}\n",
+        );
+        assert_eq!(with_key(&warnings, "csharpsquid:S6664").len(), 1);
+    }
+
+    #[test]
+    fn s6673_flags_swapped_placeholders() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        logger.LogWarning(\"{Y} and {X}\", x, y);\n            logger.LogInformation(\"{X} and {Y}\", x, y);\n        logger.LogError(\"{n} of {m}\", a, b);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S6673");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s6674_flags_malformed_templates() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        logger.LogDebug(\"Broken {Count\");\n            logger.LogInformation(\"oops } done\");\n        logger.LogWarning(\"Fine {Total}\", total);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S6674");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s6677_flags_duplicate_placeholders() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int id)\n    {\n        logger.LogInformation(\"{Id} then {Id}\", id, id);\n        logger.LogDebug(\"{Name} not {Name2}\", name, name2);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S6677");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s6678_flags_placeholder_casing() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        logger.LogDebug(\"User {userName} did {Action}\", user, action);\n            logger.LogError(\"Code {0} fired\", code);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S6678");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(
+            flagged[0].message,
+            "Rename the placeholder {userName} to PascalCase."
+        );
+    }
+
+    #[test]
+    fn s6667_requires_exception_in_catch_logging() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        try { Run(); } catch (System.Exception ex) { logger.LogError(\"Failed\"); }\n            try { Run(); } catch (System.Exception ex) { logger.LogError(\"Failed {Cause}\", ex); }\n        try { Run(); } catch (System.Exception) { logger.LogError(\"Failed again\"); }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S6667");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s2629_requires_constant_templates() {
+        let report = analyze_default(
+            "class A\n{\n    void M(string template)\n    {\n        logger.LogDebug(template);\n            logger.LogInformation($\"Value {Value}\");\n        logger.LogWarning(\"Plain {Name}\", name);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2629");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s1312_shapes_logger_fields() {
+        let flagged_report = analyze_default("class A\n{\n    Logger _logger;\n}\n");
+        assert_eq!(with_key(&flagged_report, "csharpsquid:S1312").len(), 1);
+
+        let clean = analyze_default("class A\n{\n    private static readonly Logger _logger;\n}\n");
+        assert!(with_key(&clean, "csharpsquid:S1312").is_empty());
+
+        let untyped = analyze_default("class A\n{\n    private int count;\n}\n");
+        assert!(with_key(&untyped, "csharpsquid:S1312").is_empty());
+    }
+
+    #[test]
+    fn s3416_names_create_logger_after_type() {
+        let report = analyze_default(
+            "class Order\n{\n    void M()\n    {\n        var wrong = factory.CreateLogger<Customer>();\n            var right = factory.CreateLogger<Order>();\n        var typed = factory.CreateLogger(typeof(Order));\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3416");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s6672_matches_ilogger_generic_to_type() {
+        let report = analyze_default(
+            "class Order\n{\n    private ILogger<Customer> wrong;\n    private ILogger<Order> right;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S6672");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(
+            flagged[0].message,
+            "Use 'ILogger<Order>' for loggers of this type."
+        );
+    }
+
+    #[test]
+    fn s1155_prefers_any_for_emptiness() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        if (items.Count() == 0) return;\n        if (0 == items.Count) return;\n        if (items.Count > 0) return;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1155");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s2275_checks_format_argument_counts() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        text = string.Format(\"{0}-{1}\", one);\n        Console.WriteLine(\"{0}:{1}\", x, y);\n        text = string.Format(CultureInfo.InvariantCulture, \"{0}\", v);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2275");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s3457_validates_composite_formats() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        text = string.Format(\"Malformed {0\", one);\n        text = string.Format(\"No slots here\", one);\n        text = string.Format(\"Ok {0}\", one);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3457");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s3937_flags_irregular_number_patterns() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int code)\n    {\n        if (code == 1 || code == 2 || code == 5) { }\n        if (code == 1 || code == 3 || code == 5) { }\n        if (code == 7) { }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3937");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s4143_flags_double_element_writes() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        data[0] = 1;\n        data[0] = 2;\n        data[1] = 3;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4143");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert!(flagged[0].message.contains("overwritten"));
+    }
+
+    #[test]
+    fn s3994_and_s3995_prefer_uri_overloads() {
+        let report = analyze_default(
+            "class C\n{\n    public string Load(string path) { return path; }\n    public string Load(Uri path) { return \"\"; }\n    public Uri Find(int id) { return null!; }\n    public string Find(string path) { return \"\"; }\n}\n",
+        );
+        let parameters = with_key(&report, "csharpsquid:S3994");
+        assert_eq!(parameters.len(), 1);
+        assert_eq!(parameters[0].range.start.line, 3);
+        let returns = with_key(&report, "csharpsquid:S3995");
+        assert_eq!(returns.len(), 1);
+        assert_eq!(returns[0].range.start.line, 6);
+    }
+
+    #[test]
+    fn s3996_flags_uri_named_string_properties() {
+        let report = analyze_default(
+            "class C\n{\n    public string HomeUri { get; set; }\n    public string Name { get; set; }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3996");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s4005_passes_uris_to_overloads() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        body = client.DownloadString(\"http://example.com\");\n        body = client.DownloadString(address);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4005");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s3257_suggests_var_for_repeated_types() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        List<int> xs = new List<int>();\n        int age = 5;\n        var zs = new List<int>();\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3257");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s3244_rejects_anonymous_unsubscriptions() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        handler -= () => { };\n        handler -= stored;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3244");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s3247_flags_duplicate_casts() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        var a = (Customer)item;\n        var b = (Customer)item;\n        var c = (Order)item;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3247");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 6);
+    }
+
+    #[test]
+    fn s1185_rejects_trivial_base_forwarding_overrides() {
+        let report = analyze_default(
+            "class D : B\n{\n    public override string Name() { return base.Name(); }\n    public override int Size() { var x = base.Size(); return x; }\n    public override void Run() { base.Run(); }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1185");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(flagged[1].range.start.line, 5);
+    }
+
+    #[test]
+    fn s3237_requires_value_in_setters() {
+        let report = analyze_default(
+            "class E\n{\n    int cached;\n    int Cached\n    {\n        set { cached = value; }\n    }\n    int Other\n    {\n        set { cached = backup; }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3237");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 10);
+    }
+
+    #[test]
+    fn s4049_converts_accessor_shaped_methods() {
+        let report = analyze_default(
+            "class F\n{\n    public string GetName() { return name; }\n    public void SetName(string newValue) { this.name = newValue; }\n    public void Reset() { }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4049");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(flagged[1].range.start.line, 4);
+    }
+
+    #[test]
+    fn s4040_flags_lowercase_normalization() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        key = name.ToLower();\n        other = name.ToLowerInvariant();\n        upper = name.ToUpper();\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4040");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s4056_flags_culture_less_conversions() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        text = value.ToString();\n        number = int.Parse(raw);\n        number = double.Parse(raw, culture);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4056");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s4058_requires_comparison_mode() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        same = string.Compare(first, second) == 0;\n        equal = first.Equals(second);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4058");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s1449_requires_culture_for_searches() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        at = text.IndexOf(\"needle\");\n        last = text.LastIndexOf(mark);\n        ordered = text.CompareTo(other);\n        found = text.IndexOf(\"needle\", StringComparison.Ordinal);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1449");
+        assert_eq!(flagged.len(), 3);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[2].range.start.line, 7);
+    }
+
+    #[test]
+    fn s2115_flags_embedded_connection_passwords() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        var leaky = \"Server=s;Database=d;User=u;Password=secret;\";\n        var safe = \"Server=s;Database=d;Integrated Security=true;\";\n        var unset = \"Server=s;Password=;\";\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2115");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s3998_rejects_weak_identity_locks() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        lock (this) { }\n        lock (typeof(A)) { }\n        lock (\"key\") { }\n        lock (gate) { }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3998");
+        assert_eq!(flagged.len(), 3);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[2].range.start.line, 7);
+    }
+
+    #[test]
+    fn s6507_and_s2445_check_lock_guards() {
+        let report = analyze_default(
+            "class A\n{\n    object gate;\n    readonly object frozen = new object();\n    void M()\n    {\n        lock (gate) { }\n        lock (frozen) { }\n        var local = new object();\n        lock (local) { }\n    }\n}\n",
+        );
+        let locals = with_key(&report, "csharpsquid:S6507");
+        assert_eq!(locals.len(), 1);
+        assert_eq!(locals[0].range.start.line, 10);
+        let mutable_fields = with_key(&report, "csharpsquid:S2445");
+        assert_eq!(mutable_fields.len(), 1);
+        assert_eq!(mutable_fields[0].range.start.line, 7);
+    }
+
+    #[test]
+    fn s3363_flags_datetime_key_members() {
+        let report = analyze_default(
+            "class R\n{\n    public DateTime CreatedOn { get; set; }\n    public DateTime OrderKey { get; set; }\n    public DateTimeOffset Id { get; set; }\n    private DateTime stamp;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3363");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 4);
+        assert_eq!(flagged[1].range.start.line, 5);
+    }
+
+    #[test]
+    fn s4052_rejects_outdated_base_types() {
+        let report = analyze_default(
+            "class Bag : ArrayList { }\nclass Map : DictionaryBase { }\nclass Modern : List<int> { }\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4052");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 1);
+        assert_eq!(flagged[1].range.start.line, 2);
+    }
+
+    #[test]
+    fn s2699_requires_test_assertions() {
+        let report = analyze_default(
+            "class T\n{\n    [Test]\n    public void Verifies() { Assert.That(value, Is.EqualTo(1)); }\n    [Test]\n    public void Sleeps() { Thread.Sleep(10); }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2699");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s2701_flags_literal_assertions() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        Assert.IsTrue(true);\n        widget.IsFalse(false);\n        Assert.IsTrue(ready);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2701");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s2970_completes_assert_that() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        Assert.That(actual);\n        Assert.That(actual, Is.EqualTo(1));\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2970");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s3415_puts_expected_first() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        Assert.AreEqual(result, 5);\n        Assert.AreEqual(5, result);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3415");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s2187_requires_tests_in_classes() {
+        let report = analyze_default(
+            "[TestClass]\nclass Empty\n{\n    public void Helper() { }\n}\n\n[TestClass]\nclass Real\n{\n    [TestMethod]\n    public void Works() { Assert.IsTrue(true); }\n}\n\nclass Plain { }\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2187");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s4586_task_methods_do_not_return_null() {
+        let report = analyze_default(
+            "class A\n{\n    Task Work()\n    {\n        if (ready) { return null; }\n        return Task.CompletedTask;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4586");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+
+        let async_safe = analyze_default("class A\n{\n    async Task Go() { return null; }\n}\n");
+        assert!(with_key(&async_safe, "csharpsquid:S4586").is_empty());
+    }
+
+    #[test]
+    fn s3881_and_s2953_check_dispose_contracts() {
+        let complete = analyze_default(
+            "class Good : IDisposable\n{\n    public void Dispose() { Dispose(true); }\n    protected virtual void Dispose(bool disposing) { }\n    ~Good() { Dispose(false); }\n}\n",
+        );
+        assert!(with_key(&complete, "csharpsquid:S3881").is_empty());
+        assert!(with_key(&complete, "csharpsquid:S2953").is_empty());
+
+        let minimal = analyze_default(
+            "class Bad : IDisposable\n{\n    public void Dispose() { done = true; }\n}\n",
+        );
+        assert_eq!(with_key(&minimal, "csharpsquid:S3881").len(), 2);
+
+        let unattributed = analyze_default("class Sloppy\n{\n    public void Dispose() { }\n}\n");
+        let missing = with_key(&unattributed, "csharpsquid:S2953");
+        assert_eq!(missing.len(), 1);
+        assert_eq!(missing[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s1118_hides_utility_constructors() {
+        let report = analyze_default(
+            "class Util\n{\n    public static void Run() { }\n    public Util() { }\n}\n\nclass Mixed\n{\n    public void Run() { }\n}\n\nclass Open\n{\n    public static void Run() { }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1118");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 4);
+    }
+
+    #[test]
+    fn s112_flags_reserved_exception_throws() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        throw new Exception(\"boom\");\n        throw new ApplicationException(\"x\");\n        throw new InvalidOperationException(\"specific\");\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S112");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s1134_and_s1135_track_work_tags() {
+        let report = analyze_default(
+            "// FIXME: rewrite this loop\nclass A\n{\n    void M()\n    {\n        // TODO: extract helper\n        DoIt(); // TODO inline\n    }\n}\n",
+        );
+        let fixmes = with_key(&report, "csharpsquid:S1134");
+        assert_eq!(fixmes.len(), 1);
+        assert_eq!(fixmes[0].range.start.line, 1);
+        let todos = with_key(&report, "csharpsquid:S1135");
+        assert_eq!(todos.len(), 2);
+        assert_eq!(todos[0].range.start.line, 6);
+    }
+
+    #[test]
+    fn s1163_bans_throws_in_finally() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        try { Work(); } finally { throw new IOException(\"late\"); }\n        throw new IOException(\"early\");\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1163");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s1696_and_s2221_require_specific_catches() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        try { } catch (NullReferenceException broken) { Recover(); }\n        try { } catch (System.Exception general) { Recover(); }\n        try { } catch (IOException io) { Recover(); }\n    }\n}\n",
+        );
+        let null_catches = with_key(&report, "csharpsquid:S1696");
+        assert_eq!(null_catches.len(), 1);
+        assert_eq!(null_catches[0].range.start.line, 5);
+        let general_catches = with_key(&report, "csharpsquid:S2221");
+        assert_eq!(general_catches.len(), 1);
+        assert_eq!(general_catches[0].range.start.line, 6);
+    }
+
+    #[test]
+    fn s2139_single_reports_failures() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        try { Run(); } catch (System.Exception ex) { logger.LogError(\"Boom {Code}\", ex); throw; }\n        try { Run(); } catch (System.Exception ex) { logger.LogError(\"Logged {Code}\", ex); }\n        try { Run(); } catch (System.Exception ex) { throw; }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2139");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s2291_keeps_overflow_checks_on_sum() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        unchecked { total = values.Sum(); }\n        checked { total = values.Sum(); }\n        unchecked { total = values.Count; }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2291");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s2302_prefers_nameof_for_parameter_strings() {
+        let report = analyze_default(
+            "class A\n{\n    void Save(string userName)\n    {\n        audit = \"userName\";\n        audit = \"user\";\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2302");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(
+            flagged[0].message,
+            "Replace this string with 'nameof(userName)'."
+        );
+    }
+
+    #[test]
+    fn s2327_merges_identical_try_handlers() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        try { One(); } catch (IOException e) { Heal(); } finally { Clean(); }\n        try { Two(); } catch (IOException e) { Heal(); } finally { Clean(); }\n        try { Three(); } catch (ArgumentException e) { Heal(); }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2327");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 6);
+    }
+
+    #[test]
+    fn s2333_removes_redundant_modifiers() {
+        let report = analyze_default(
+            "class Holder\n{\n    public string Name { public get; set; }\n}\n\npartial class Solo { }\npartial class Duo { }\npartial class Duo { }\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2333");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s3433_checks_test_method_shapes() {
+        let report = analyze_default(
+            "class T\n{\n    [Fact]\n    public void Works() { Assert.True(ok); }\n    [Fact]\n    internal void Hidden() { }\n    [Theory]\n    public int Returns() => 1;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3433");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 7);
+    }
+
+    #[test]
+    fn s2486_and_s2737_require_catch_work() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        try { } catch (System.Exception) { Recover(); }\n        try { } catch (System.Exception) { }\n        try { } catch (System.Exception ex) { throw; }\n        try { } catch (IOException io) { }\n    }\n}\n",
+        );
+        let ignored = with_key(&report, "csharpsquid:S2486");
+        assert_eq!(ignored.len(), 1);
+        assert_eq!(ignored[0].range.start.line, 6);
+        let rethrow_only = with_key(&report, "csharpsquid:S2737");
+        assert_eq!(rethrow_only.len(), 1);
+        assert_eq!(rethrow_only[0].range.start.line, 7);
+    }
+
+    #[test]
+    fn s2757_flags_transposed_operators() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        total =+ amount;\n        sum = a + b;\n        // note: x =+ y in prose\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2757");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s3217_typed_iteration_instead_of_casts() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        foreach (string raw in values)\n            Log(((string)raw).Length);\n        foreach (var other in items)\n            Log(other);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3217");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 6);
+    }
+
+    #[test]
+    fn s3346_keeps_debug_assert_pure() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        Debug.Assert(Fetch() == 2);\n        Debug.Assert(count == 2);\n        Debug.Assert(total == running++);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3346");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 7);
+    }
+
+    #[test]
+    fn s3427_disambiguates_optional_overloads() {
+        let report = analyze_default(
+            "class A\n{\n    public void Fill(int a, int b = 2) { }\n    public void Fill(int a) { }\n    public void Load(int a) { }\n    public void Load(int a, int b, int c = 3) { }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3427");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 4);
+    }
+
+    #[test]
+    fn s3445_uses_bare_rethrow() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        try { Run(); } catch (IOException ex) { throw ex; }\n        try { Run(); } catch (IOException ex) { throw; }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3445");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s3876_indexes_by_string_or_integer() {
+        let report = analyze_default(
+            "class Grid\n{\n    public string this[int x, int y] => \"\";\n    public int this[string key] => 0;\n    public double this[double ratio] => 1.0;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3876");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s3878_passes_elements_to_params_calls() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        Use(new[] { 1, 2 });\n        Use(existing);\n        Use(new int[] { 3 });\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3878");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 7);
+    }
+
+    #[test]
+    fn s3887_consts_readonly_primitive_fields() {
+        let report = analyze_default(
+            "class A\n{\n    public readonly int limit = 10;\n    private readonly int hidden = 1;\n    public readonly string label = \"x\";\n    public static readonly int cached = 2;\n    public readonly Builder built = new Builder();\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3887");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s3904_requires_assembly_version() {
+        let unversioned = analyze_default("[assembly: System.CLSCompliant(false)]\nclass A { }\n");
+        let flagged = with_key(&unversioned, "csharpsquid:S3904");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+
+        let versioned = analyze_default("[assembly: AssemblyVersion(\"1.0.0.0\")]\nclass A { }\n");
+        assert!(with_key(&versioned, "csharpsquid:S3904").is_empty());
+
+        let plain = analyze_default("class A { }\n");
+        assert!(with_key(&plain, "csharpsquid:S3904").is_empty());
+    }
+
+    #[test]
+    fn s3956_hides_list_in_public_signatures() {
+        let report = analyze_default(
+            "class A\n{\n    public List<int> Get() => xs;\n    public void Add(List<int> xs) { }\n    private List<int> secret;\n    public List<int> exposed;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3956");
+        assert_eq!(flagged.len(), 3);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(flagged[1].range.start.line, 4);
+        assert_eq!(flagged[2].range.start.line, 6);
+    }
+
+    #[test]
+    fn s4004_makes_collection_properties_readonly() {
+        let report = analyze_default(
+            "class A\n{\n    public List<int> Items { get; set; }\n    public List<int> Rows { get; }\n    public Dictionary<string, int> Map { get; set; }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4004");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(flagged[1].range.start.line, 5);
+    }
+
+    #[test]
+    fn s4545_references_existing_members_in_debugger_display() {
+        let report = analyze_default(
+            "[DebuggerDisplay(\"{Name}: {Missing}\")]\nclass Card\n{\n    public string Name { get; set; }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4545");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'Missing'"));
+
+        let known = analyze_default(
+            "[DebuggerDisplay(\"{Name}\")]\nclass Card\n{\n    public string Name { get; set; }\n}\n",
+        );
+        assert!(with_key(&known, "csharpsquid:S4545").is_empty());
     }
 }
