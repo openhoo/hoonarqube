@@ -8907,7 +8907,6 @@ impl PatternParser<'_> {
             self.pos = save;
             return Ok(None);
         }
-        self.pos += 1;
         let ClassItem::Char { ch: high, .. } = self.parse_class_item(high_pos, high_ch)? else {
             // `a-\d`: Annex B keeps the dash literal; rewind and let the
             // shorthand be parsed as its own item.
@@ -12110,5 +12109,303 @@ draw(other, more);
 
         let no_global = js_keys("const one = text.match(/ab/);\n");
         assert_eq!(count_key(&no_global, "javascript:S6594"), 0);
+    }
+
+    // ----- Regex-literal family (Batch3, check_regex_family) -----
+
+    #[test]
+    fn invalid_regex_literals_are_flagged() {
+        // Unbalanced parenthesis, unknown group header, and reversed class
+        // range are definite syntax errors for the mini parser.
+        assert_eq!(
+            count_key(&js_keys("const re = /(/;\n"), "javascript:S5856"),
+            1
+        );
+        assert_eq!(
+            count_key(&js_keys("const re = /(?P<name>a)/;\n"), "javascript:S5856"),
+            1
+        );
+        assert_eq!(
+            count_key(&js_keys("const re = /[z-a]/;\n"), "javascript:S5856"),
+            1
+        );
+
+        let clean = js_keys("const re = /ab+/;\n");
+        assert_eq!(count_key(&clean, "javascript:S5856"), 0);
+
+        // Forward class ranges are valid JavaScript; only reversed ones are
+        // definite errors.
+        let ranges = js_keys("const re = /[A-Z][a-z0-9]*/;\n");
+        assert_eq!(count_key(&ranges, "javascript:S5856"), 0);
+
+        // An escape on either side of a dash stays valid: `[a-z\d]` parses
+        // as range plus shorthand, and `[a-\d]` keeps the dash literal
+        // (Annex B) instead of failing.
+        let mixed = js_keys("const re = /[a-z\\d]/;\n");
+        assert_eq!(count_key(&mixed, "javascript:S5856"), 0);
+        let dash_escape = js_keys("const re = /[a-\\d]/;\n");
+        assert_eq!(count_key(&dash_escape, "javascript:S5856"), 0);
+
+        // The family is cataloged for both languages; the prefix follows the
+        // file language.
+        let typescript = findings("const re = /[z-a]/;\n", JstsLanguage::TypeScript);
+        assert_eq!(count_key(&typescript, "typescript:S5856"), 1);
+    }
+
+    #[test]
+    fn constant_regexp_constructor_prefers_literal() {
+        let flagged = js_keys("const re = new RegExp('ab+c');\nRegExp('\\\\d+', 'g');\n");
+        assert_eq!(count_key(&flagged, "javascript:S6325"), 2);
+
+        // A substitution-free template literal also counts as constant.
+        let template = js_keys("const re = new RegExp(`ab+c`);\n");
+        assert_eq!(count_key(&template, "javascript:S6325"), 1);
+
+        let dynamic = js_keys("const re = new RegExp(userPattern);\n");
+        assert_eq!(count_key(&dynamic, "javascript:S6325"), 0);
+
+        let literal_form = js_keys("const re = /ab+c/;\n");
+        assert_eq!(count_key(&literal_form, "javascript:S6325"), 0);
+    }
+
+    #[test]
+    fn empty_character_classes_are_flagged() {
+        let empty = js_keys("const re = /[]/;\n");
+        assert_eq!(count_key(&empty, "javascript:S2639"), 1);
+
+        let negated = js_keys("const re = /[^]/;\n");
+        assert_eq!(count_key(&negated, "javascript:S2639"), 1);
+
+        let clean = js_keys("const re = /[ab]/;\n");
+        assert_eq!(count_key(&clean, "javascript:S2639"), 0);
+    }
+
+    #[test]
+    fn empty_alternation_branches_are_flagged() {
+        let trailing = js_keys("const re = /a|/;\n");
+        assert_eq!(count_key(&trailing, "javascript:S6323"), 1);
+
+        let leading = js_keys("const re = /|b/;\n");
+        assert_eq!(count_key(&leading, "javascript:S6323"), 1);
+
+        // An empty branch inside a group belongs here, not to S6331.
+        let in_group = js_keys("const re = /(a|)/;\n");
+        assert_eq!(count_key(&in_group, "javascript:S6323"), 1);
+
+        let clean = js_keys("const re = /a|b/;\n");
+        assert_eq!(count_key(&clean, "javascript:S6323"), 0);
+    }
+
+    #[test]
+    fn wholly_empty_groups_are_flagged() {
+        let capturing = js_keys("const re = /()/;\n");
+        assert_eq!(count_key(&capturing, "javascript:S6331"), 1);
+        // A wholly empty group is not reported as an empty alternative.
+        assert_eq!(count_key(&capturing, "javascript:S6323"), 0);
+
+        let non_capturing = js_keys("const re = /(?:)/;\n");
+        assert_eq!(count_key(&non_capturing, "javascript:S6331"), 1);
+
+        let clean = js_keys("const re = /(a)/;\n");
+        assert_eq!(count_key(&clean, "javascript:S6331"), 0);
+    }
+
+    #[test]
+    fn duplicate_class_members_are_flagged() {
+        let duplicated = js_keys("const re = /[aa]/;\n");
+        assert_eq!(count_key(&duplicated, "javascript:S5869"), 1);
+        // Duplicate-only classes additionally receive the concise rewrite.
+        assert_eq!(count_key(&duplicated, "javascript:S6353"), 1);
+
+        let twice = js_keys("const re = /[aaa]/;\n");
+        assert_eq!(count_key(&twice, "javascript:S5869"), 2);
+
+        let clean = js_keys("const re = /[ab]/;\n");
+        assert_eq!(count_key(&clean, "javascript:S5869"), 0);
+    }
+
+    #[test]
+    fn single_member_classes_are_flagged() {
+        let single = js_keys("const re = /[a]/;\n");
+        assert_eq!(count_key(&single, "javascript:S6397"), 1);
+
+        // Shorthand escapes are not literal characters and stay out of the
+        // rewrite scope.
+        let escape = js_keys("const re = /[\\d]/;\n");
+        assert_eq!(count_key(&escape, "javascript:S6397"), 0);
+
+        let clean = js_keys("const re = /[ab]/;\n");
+        assert_eq!(count_key(&clean, "javascript:S6397"), 0);
+    }
+
+    #[test]
+    fn redundant_quantifier_shapes_are_flagged() {
+        let exact = js_keys("const re = /a{1}/;\n");
+        assert_eq!(count_key(&exact, "javascript:S6353"), 1);
+
+        let explicit_range = js_keys("const re = /ab{1,1}c/;\n");
+        assert_eq!(count_key(&explicit_range, "javascript:S6353"), 1);
+
+        let clean = js_keys("const re = /a{2}/;\n");
+        assert_eq!(count_key(&clean, "javascript:S6353"), 0);
+    }
+
+    #[test]
+    fn space_runs_in_patterns_are_flagged() {
+        let double = js_keys("const re = /a  b/;\n");
+        assert_eq!(count_key(&double, "javascript:S6326"), 1);
+
+        let triple = js_keys("const re = /a   b/;\n");
+        assert_eq!(count_key(&triple, "javascript:S6326"), 1);
+
+        let clean = js_keys("const re = /a b/;\n");
+        assert_eq!(count_key(&clean, "javascript:S6326"), 0);
+    }
+
+    #[test]
+    fn bare_control_characters_are_flagged() {
+        let control = js_keys("const re = /a\u{0001}b/;\n");
+        assert_eq!(count_key(&control, "javascript:S6324"), 1);
+
+        // Tab/newline conventions are exempt.
+        let tab = js_keys("const re = /a\tb/;\n");
+        assert_eq!(count_key(&tab, "javascript:S6324"), 0);
+    }
+
+    #[test]
+    fn replacement_group_references_are_validated() {
+        let out_of_range = js_keys("'ab'.replace(/(a)(b)/, '$3');\n");
+        assert_eq!(count_key(&out_of_range, "javascript:S6328"), 1);
+
+        let unknown_name = js_keys("'a'.replace(/(?<first>a)/, '$<second>');\n");
+        assert_eq!(count_key(&unknown_name, "javascript:S6328"), 1);
+
+        let clean = js_keys("'ab'.replace(/(a)(b)/, '$2$1');\n'a'.replace(/(?<x>a)/, '$<x>');\n");
+        assert_eq!(count_key(&clean, "javascript:S6328"), 0);
+
+        // `$$` escapes the dollar and never references a group.
+        let escaped = js_keys("'ab'.replace(/(a)/, '$$1');\n");
+        assert_eq!(count_key(&escaped, "javascript:S6328"), 0);
+    }
+
+    #[test]
+    fn empty_string_repetition_is_flagged() {
+        // Bounded repetition over a group that can match empty still loops.
+        let bounded = js_keys("const re = /x(a*){2}y/;\n");
+        assert_eq!(count_key(&bounded, "javascript:S5842"), 1);
+
+        // `(a*)+` trips both this rule and exponential backtracking.
+        let unbounded = js_keys("const re = /(a*)+b/;\n");
+        assert_eq!(count_key(&unbounded, "javascript:S5842"), 1);
+        assert_eq!(count_key(&unbounded, "javascript:S5852"), 1);
+
+        let clean = js_keys("const re = /(a+){2}/;\n");
+        assert_eq!(count_key(&clean, "javascript:S5842"), 0);
+    }
+
+    #[test]
+    fn pointless_reluctant_quantifiers_are_flagged() {
+        let reluctant = js_keys("const re = /a*?b*/;\n");
+        assert_eq!(count_key(&reluctant, "javascript:S6019"), 1);
+
+        let clean = js_keys("const re = /a*?b/;\n");
+        assert_eq!(count_key(&clean, "javascript:S6019"), 0);
+    }
+
+    #[test]
+    fn single_char_alternations_become_classes() {
+        let top_level = js_keys("const re = /a|b|c/;\n");
+        assert_eq!(count_key(&top_level, "javascript:S6035"), 1);
+
+        // Alternations nested inside groups are flagged at the group span.
+        let nested = js_keys("const re = /x(a|b)y/;\n");
+        assert_eq!(count_key(&nested, "javascript:S6035"), 1);
+
+        let clean = js_keys("const re = /(ab)|c/;\n");
+        assert_eq!(count_key(&clean, "javascript:S6035"), 0);
+    }
+
+    #[test]
+    fn anchored_alternations_need_explicit_grouping() {
+        let both_anchors = js_keys("const re = /^a|b$/;\n");
+        assert_eq!(count_key(&both_anchors, "javascript:S5850"), 1);
+
+        let start_only = js_keys("const re = /^a|b/;\n");
+        assert_eq!(count_key(&start_only, "javascript:S5850"), 1);
+
+        let grouped = js_keys("const re = /^(a|b)$/;\n");
+        assert_eq!(count_key(&grouped, "javascript:S5850"), 0);
+
+        let unanchored = js_keys("const re = /a|b/;\n");
+        assert_eq!(count_key(&unanchored, "javascript:S5850"), 0);
+    }
+
+    #[test]
+    fn unicode_constructs_require_the_u_flag() {
+        let property_escape = js_keys("const re = /\\p{L}/;\n");
+        assert_eq!(count_key(&property_escape, "javascript:S5867"), 1);
+
+        let brace_escape = js_keys("const re = /\\u{1F600}/;\n");
+        assert_eq!(count_key(&brace_escape, "javascript:S5867"), 1);
+
+        let with_flag = js_keys("const re = /\\p{L}/u;\n");
+        assert_eq!(count_key(&with_flag, "javascript:S5867"), 0);
+    }
+
+    #[test]
+    fn grapheme_components_inside_classes_are_flagged() {
+        // Combining acute accent after `e` matches one scalar, not `é`.
+        let combining = js_keys("const re = /[e\u{0301}]/u;\n");
+        assert_eq!(count_key(&combining, "javascript:S5868"), 1);
+
+        // Each regional indicator inside a class is its own defect.
+        let regional = js_keys("const flags = /[\u{1F1E6}\u{1F1E7}]/u;\n");
+        assert_eq!(count_key(&regional, "javascript:S5868"), 2);
+
+        let clean = js_keys("const re = /[ab]/u;\n");
+        assert_eq!(count_key(&clean, "javascript:S5868"), 0);
+    }
+    #[test]
+    fn regex_complexity_budget_is_enforced() {
+        // Scores 29 against the budget of 20: three alternation branches
+        // of quantified shorthands and classes.
+        let over = js_keys("const re = /\\d{4}-\\d{2}-\\d{2}|\\d{8}|\\d{2}[A-Z]{4}/;\n");
+        assert_eq!(count_key(&over, "javascript:S5843"), 1);
+
+        let under = js_keys("const re = /\\d{4}-\\d{2}-\\d{2}/;\n");
+        assert_eq!(count_key(&under, "javascript:S5843"), 0);
+    }
+
+    #[test]
+    fn nested_unbounded_quantifiers_risk_backtracking() {
+        let classic = js_keys("const re = /(a+)+$/;\n");
+        assert_eq!(count_key(&classic, "javascript:S5852"), 1);
+        // `(a+)` cannot match empty, so S5842 stays silent here.
+        assert_eq!(count_key(&classic, "javascript:S5842"), 0);
+
+        // Zero-minimum repetition escapes S5842's consuming-quantifier subset.
+        let zero_min = js_keys("const re = /(a*)*b/;\n");
+        assert_eq!(count_key(&zero_min, "javascript:S5852"), 1);
+        assert_eq!(count_key(&zero_min, "javascript:S5842"), 0);
+
+        let flat = js_keys("const re = /a+b+c/;\n");
+        assert_eq!(count_key(&flat, "javascript:S5852"), 0);
+    }
+
+    #[test]
+    fn stateful_global_regexes_inside_loops_are_flagged() {
+        let while_loop =
+            js_keys("while (more) {\n  if (/\\d+/g.test(input)) {\n    more = false;\n  }\n}\n");
+        assert_eq!(count_key(&while_loop, "javascript:S6351"), 1);
+
+        let for_of_loop =
+            js_keys("for (const part of parts) {\n  const m = /[a-z]+/g.exec(part);\n}\n");
+        assert_eq!(count_key(&for_of_loop, "javascript:S6351"), 1);
+
+        let outside_loop = js_keys("const found = /\\d+/g.test(input);\n");
+        assert_eq!(count_key(&outside_loop, "javascript:S6351"), 0);
+
+        let not_global = js_keys("while (more) {\n  found = /\\d+/.test(input);\n}\n");
+        assert_eq!(count_key(&not_global, "javascript:S6351"), 0);
     }
 }
