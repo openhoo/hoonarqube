@@ -11,7 +11,7 @@
 //! reports recoverable errors, and parse errors themselves emit no issues (the
 //! frozen js/ts catalogs contain no `ParsingError` rule).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use hoonarqube_ir::Issue;
@@ -351,6 +351,8 @@ fn analyze_with_rules(
         &index,
         language,
     ));
+    // --- Tier C wiring: operator/literal and function-census rules ---
+    issues.extend(check_tier_c_rules(&parsed.program, &index, language));
     sort_issues(&mut issues);
 
     hoonarqube_ir::FileReport {
@@ -6015,8 +6017,6 @@ fn check_self_assignments(
 // identifier), `S3524` (mixed arrow body styles), `S3525` (prototype method
 // assignment), `S3531` (generator without yield), and `S3626` (redundant
 // trailing jump).
-
-use std::collections::BTreeMap;
 
 use oxc_ast::ast::{
     ArrowFunctionBody, Function, ObjectExpression, ObjectPropertyKind, PropertyKind,
@@ -14389,6 +14389,9 @@ struct SecurityHotspotCollector<'s, 'index> {
     sink: IssueSink<'index>,
 }
 
+/// Modules whose imports `S4818` flags as raw socket surfaces.
+const RAW_SOCKET_MODULES: [&str; 2] = ["net", "dgram"];
+
 impl<'a> Visit<'a> for SecurityHotspotCollector<'_, '_> {
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
         self.check_hash_sink(it);
@@ -14414,18 +14417,24 @@ impl<'a> Visit<'a> for SecurityHotspotCollector<'_, '_> {
         self.check_header_call(it);
         self.check_csrf_disabled(it);
         self.check_archive_extraction(it);
+        self.check_xpath_usage(it);
+        self.check_socket_require(it);
+        self.check_s3_create_bucket(it);
         walk_call_expression(self, it);
     }
 
     fn visit_string_literal(&mut self, it: &StringLiteral<'a>) {
         self.check_tls_protocol_literal(it);
         self.check_cleartext_scheme(it);
+        self.check_vue_v_html_string(&it.value, it.span());
         walk_string_literal(self, it);
     }
 
     fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
         self.check_sensitive_permission(it);
         self.check_forwarded_header_trust(it);
+        self.check_command_line_arguments(it);
+        self.check_standard_input_reads(it);
         walk_member_expression(self, it);
     }
 
@@ -14435,6 +14444,8 @@ impl<'a> Visit<'a> for SecurityHotspotCollector<'_, '_> {
     }
 
     fn visit_import_declaration(&mut self, it: &ImportDeclaration<'a>) {
+        self.check_xpath_module_import(it);
+        self.check_socket_module_import(it);
         if CLEARTEXT_MODULES.contains(&it.source.value.as_str()) {
             self.sink.emit_span(
                 RuleScope::Both,
@@ -14453,7 +14464,15 @@ impl<'a> Visit<'a> for SecurityHotspotCollector<'_, '_> {
 
     fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
         self.check_new_upload(it);
+        self.check_new_xpath_evaluator(it);
+        self.check_new_raw_socket(it);
+        self.check_new_s3_bucket_command(it);
         walk_new_expression(self, it);
+    }
+
+    fn visit_template_literal(&mut self, it: &TemplateLiteral<'a>) {
+        self.check_vue_v_html_template(it);
+        walk_template_literal(self, it);
     }
 }
 
@@ -15232,6 +15251,22 @@ impl SecurityHotspotCollector<'_, '_> {
                     call.span(),
                 );
             }
+            "expect-ct" if lowered_value.contains("max-age=0") => {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S5742",
+                    "Make sure this 'Expect-CT' policy still enforces Certificate Transparency.",
+                    call.span(),
+                );
+            }
+            "x-dns-prefetch-control" if lowered_value == "on" => {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S5743",
+                    "Make sure browsers cannot perform DNS prefetching here.",
+                    call.span(),
+                );
+            }
             _ => {}
         }
     }
@@ -15253,11 +15288,217 @@ impl SecurityHotspotCollector<'_, '_> {
                 "S5732",
                 "Protect against clickjacking with 'frame-ancestors'.",
             )),
+            (Some("expectCt"), Expression::BooleanLiteral(literal)) if !literal.value => Some((
+                "S5742",
+                "Do not disable Certificate Transparency monitoring.",
+            )),
+            (Some("dnsPrefetch"), Expression::BooleanLiteral(literal)) if !literal.value => Some((
+                "S5743",
+                "Make sure browsers cannot perform DNS prefetching here.",
+            )),
+            (Some(key), Expression::StringLiteral(literal))
+                if key.eq_ignore_ascii_case("x-dns-prefetch-control")
+                    && literal.value.eq_ignore_ascii_case("on") =>
+            {
+                Some((
+                    "S5743",
+                    "Make sure browsers cannot perform DNS prefetching here.",
+                ))
+            }
             _ => None,
         };
         if let Some((rule, message)) = finding {
             self.sink
                 .emit_span(RuleScope::Both, rule, message, property.key.span());
+        }
+    }
+
+    /// `S4829`: standard-input reads worth reviewing.
+    fn check_standard_input_reads(&mut self, it: &MemberExpression<'_>) {
+        if member_root_name(it) == Some("process") && static_property_name(it) == Some("stdin") {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S4829",
+                "Make sure reading from the standard input is safe here.",
+                it.span(),
+            );
+        }
+    }
+
+    /// `S4817`: XPath evaluation entry points worth reviewing.
+    fn check_xpath_usage(&mut self, call: &CallExpression<'_>) {
+        let mut flagged = false;
+        if let Expression::StaticMemberExpression(member) = &call.callee
+            && member.property.name == "evaluate"
+            && expression_root_name(&member.object) == Some("document")
+        {
+            flagged = true;
+        }
+        if !flagged
+            && sink_callee_name(&call.callee) == Some("require")
+            && first_string_argument(call) == Some("xpath")
+        {
+            flagged = true;
+        }
+        if flagged {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S4817",
+                "Make sure evaluating this XPath expression is safe here.",
+                call.span(),
+            );
+        }
+    }
+
+    /// `S4817`: `xpath` module imports.
+    fn check_xpath_module_import(&mut self, declaration: &ImportDeclaration<'_>) {
+        if declaration.source.value == "xpath" {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S4817",
+                "Make sure evaluating these XPath expressions is safe here.",
+                declaration.span(),
+            );
+        }
+    }
+
+    /// `S4817`: dedicated XPath evaluator constructions.
+    fn check_new_xpath_evaluator(&mut self, constructor: &NewExpression<'_>) {
+        if identifier_name(&constructor.callee) == Some("XPathEvaluator") {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S4817",
+                "Make sure evaluating XPath expressions with this evaluator is safe here.",
+                constructor.span(),
+            );
+        }
+    }
+
+    /// `S4818`: raw-socket module requires.
+    fn check_socket_require(&mut self, call: &CallExpression<'_>) {
+        if sink_callee_name(&call.callee) == Some("require")
+            && first_string_argument(call)
+                .is_some_and(|module| RAW_SOCKET_MODULES.contains(&module))
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S4818",
+                "Make sure using this raw socket is safe here.",
+                call.span(),
+            );
+        }
+    }
+
+    /// `S4818`: raw-socket module imports.
+    fn check_socket_module_import(&mut self, declaration: &ImportDeclaration<'_>) {
+        if RAW_SOCKET_MODULES.contains(&declaration.source.value.as_str()) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S4818",
+                "Make sure using these raw sockets is safe here.",
+                declaration.span(),
+            );
+        }
+    }
+
+    /// `S4818`: direct socket constructions over `net`/`dgram`.
+    fn check_new_raw_socket(&mut self, constructor: &NewExpression<'_>) {
+        let Expression::StaticMemberExpression(member) = &constructor.callee else {
+            return;
+        };
+        if matches!(expression_root_name(&member.object), Some("net" | "dgram"))
+            && matches!(member.property.name.as_str(), "Socket" | "Server")
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S4818",
+                "Make sure opening this raw socket is safe here.",
+                constructor.span(),
+            );
+        }
+    }
+
+    /// `S4823`: command-line argument accesses worth reviewing.
+    fn check_command_line_arguments(&mut self, it: &MemberExpression<'_>) {
+        if member_root_name(it) == Some("process")
+            && matches!(static_property_name(it), Some("argv" | "execArgv"))
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S4823",
+                "Make sure using command line arguments is safe here.",
+                it.span(),
+            );
+        }
+    }
+
+    /// `S6299`: `v-html` usages inside template strings worth reviewing.
+    fn check_vue_v_html_string(&mut self, value: &str, span: Span) {
+        if value.contains("v-html") {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S6299",
+                "Make sure disabling Vue.js built-in escaping with 'v-html' is safe here.",
+                span,
+            );
+        }
+    }
+
+    /// `S6299`: `v-html` usages inside template literals.
+    fn check_vue_v_html_template(&mut self, literal: &TemplateLiteral<'_>) {
+        if literal
+            .quasis
+            .iter()
+            .any(|element| element.value.raw.contains("v-html"))
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S6299",
+                "Make sure disabling Vue.js built-in escaping with 'v-html' is safe here.",
+                literal.span,
+            );
+        }
+    }
+
+    /// `S6245`: S3 bucket creations without a server-side-encryption option.
+    fn check_s3_create_bucket(&mut self, call: &CallExpression<'_>) {
+        if sink_callee_name(&call.callee) != Some("createBucket") {
+            return;
+        }
+        let Some(argument) = call.arguments.first().and_then(argument_expression) else {
+            return;
+        };
+        let Expression::ObjectExpression(options) = unparenthesized(argument) else {
+            return;
+        };
+        if object_property(options, "ServerSideEncryptionConfiguration").is_none() {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S6245",
+                "Enable server-side encryption for this S3 bucket.",
+                call.span(),
+            );
+        }
+    }
+
+    /// `S6245`: `CreateBucketCommand` inputs without server-side encryption.
+    fn check_new_s3_bucket_command(&mut self, constructor: &NewExpression<'_>) {
+        if identifier_name(&constructor.callee) != Some("CreateBucketCommand") {
+            return;
+        }
+        let Some(argument) = constructor.arguments.first().and_then(argument_expression) else {
+            return;
+        };
+        let Expression::ObjectExpression(options) = unparenthesized(argument) else {
+            return;
+        };
+        if object_property(options, "ServerSideEncryptionConfiguration").is_none() {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S6245",
+                "Enable server-side encryption for this S3 bucket.",
+                constructor.span(),
+            );
         }
     }
 }
@@ -19023,6 +19264,798 @@ fn check_tier_b_rules(
     check_tb_shell_commands(program, &mut sink);
     check_tb_named_groups(program, &mut sink);
     sink.issues
+}
+
+// --- Tier C: operator/literal rules over a shared literal classifier ---
+
+/// Literal classification used by the Tier-C operator checks; `None` means
+/// the operand's type is unknown (identifiers, calls, ...).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum LiteralKind {
+    String,
+    Number,
+    BigInt,
+    Boolean,
+    Null,
+    Undefined,
+    Array,
+    Object,
+    RegExp,
+    Function,
+}
+
+/// Classifies an expression that is a literal (or literal-shaped, such as
+/// `-1` or a template without substitutions).
+fn literal_kind(expression: &Expression<'_>) -> Option<LiteralKind> {
+    match unparenthesized(expression) {
+        Expression::StringLiteral(_) | Expression::TemplateLiteral(_) => Some(LiteralKind::String),
+        Expression::NumericLiteral(_) => Some(LiteralKind::Number),
+        Expression::BigIntLiteral(_) => Some(LiteralKind::BigInt),
+        Expression::BooleanLiteral(_) => Some(LiteralKind::Boolean),
+        Expression::NullLiteral(_) => Some(LiteralKind::Null),
+        Expression::Identifier(identifier) => match identifier.name.as_str() {
+            "undefined" => Some(LiteralKind::Undefined),
+            "NaN" | "Infinity" => Some(LiteralKind::Number),
+            _ => None,
+        },
+        Expression::UnaryExpression(unary) => {
+            let numeric = matches!(
+                unary.operator,
+                UnaryOperator::UnaryNegation | UnaryOperator::UnaryPlus
+            ) && matches!(
+                unparenthesized(&unary.argument),
+                Expression::NumericLiteral(_)
+            );
+            numeric.then_some(LiteralKind::Number)
+        }
+        Expression::ArrayExpression(_) => Some(LiteralKind::Array),
+        Expression::ObjectExpression(_) => Some(LiteralKind::Object),
+        Expression::RegExpLiteral(_) => Some(LiteralKind::RegExp),
+        Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_) => {
+            Some(LiteralKind::Function)
+        }
+        _ => None,
+    }
+}
+
+/// Member names whose call results are arrays (`S3579` receivers).
+const ARRAY_RETURNING_APIS: [&str; 11] = [
+    "split", "slice", "concat", "join", "reverse", "sort", "filter", "map", "splice", "flat",
+    "flatMap",
+];
+
+/// Tier-C collector for operator/literal findings.
+struct TierCLiteralCollector<'index> {
+    sink: IssueSink<'index>,
+}
+
+impl<'a> Visit<'a> for TierCLiteralCollector<'_> {
+    fn visit_binary_expression(&mut self, it: &BinaryExpression<'a>) {
+        self.check_string_addition(it);
+        self.check_dissimilar_strict_equality(it);
+        self.check_in_with_primitive(it);
+        self.check_relational_composite_operand(it);
+        self.check_arithmetic_non_number(it);
+        self.check_nan_fold(it);
+        walk_binary_expression(self, it);
+    }
+
+    fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
+        self.check_array_string_index(it);
+        walk_member_expression(self, it);
+    }
+
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        self.check_nan_parse(it);
+        self.check_builtin_signature(it);
+        walk_call_expression(self, it);
+    }
+}
+
+/// Whether a classified literal behaves numerically (`S3760`).
+fn kind_is_numeric(kind: LiteralKind) -> bool {
+    matches!(kind, LiteralKind::Number | LiteralKind::BigInt)
+}
+
+/// Whether a classified literal coerces to `'[object Object]'` (`S3758`).
+fn kind_is_composite(kind: LiteralKind) -> bool {
+    matches!(
+        kind,
+        LiteralKind::Array | LiteralKind::Object | LiteralKind::RegExp | LiteralKind::Function
+    )
+}
+
+impl TierCLiteralCollector<'_> {
+    /// `S3402`: `'str' + <non-string literal>` operand pairs.
+    fn check_string_addition(&mut self, expression: &BinaryExpression<'_>) {
+        if expression.operator != BinaryOperator::Addition {
+            return;
+        }
+        let mixed = match (
+            literal_kind(&expression.left),
+            literal_kind(&expression.right),
+        ) {
+            (Some(LiteralKind::String), Some(kind)) | (Some(kind), Some(LiteralKind::String))
+                if kind != LiteralKind::String =>
+            {
+                true
+            }
+            _ => false,
+        };
+        if mixed {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3402",
+                "Convert this non-string operand explicitly instead of relying on '+'.",
+                expression.span(),
+            );
+        }
+    }
+
+    /// `S3403`: `===`/`!==` between literals of different categories.
+    fn check_dissimilar_strict_equality(&mut self, expression: &BinaryExpression<'_>) {
+        if !matches!(
+            expression.operator,
+            BinaryOperator::StrictEquality | BinaryOperator::StrictInequality
+        ) {
+            return;
+        }
+        let (Some(left), Some(right)) = (
+            literal_kind(&expression.left),
+            literal_kind(&expression.right),
+        ) else {
+            return;
+        };
+        if left != right {
+            self.sink.emit_span(
+                RuleScope::JsOnly,
+                "S3403",
+                "This strict comparison between dissimilar types is always false.",
+                expression.span(),
+            );
+        }
+    }
+
+    /// `S3785`: `in` used with a primitive-typed right-hand side.
+    fn check_in_with_primitive(&mut self, expression: &BinaryExpression<'_>) {
+        if expression.operator != BinaryOperator::In {
+            return;
+        }
+        if matches!(
+            literal_kind(&expression.right),
+            Some(
+                LiteralKind::String
+                    | LiteralKind::Number
+                    | LiteralKind::BigInt
+                    | LiteralKind::Boolean
+                    | LiteralKind::Null
+                    | LiteralKind::Undefined
+            )
+        ) {
+            self.sink.emit_span(
+                RuleScope::JsOnly,
+                "S3785",
+                "'in' checks object members; this right operand is a primitive.",
+                expression.span(),
+            );
+        }
+    }
+
+    /// `S3579`: string-literal indexes into array-shaped receivers.
+    fn check_array_string_index(&mut self, member: &MemberExpression<'_>) {
+        let MemberExpression::ComputedMemberExpression(computed) = member else {
+            return;
+        };
+        let Expression::StringLiteral(_) = unparenthesized(&computed.expression) else {
+            return;
+        };
+        let array_shaped = match unparenthesized(member_object(member)) {
+            Expression::ArrayExpression(_) => true,
+            Expression::CallExpression(call) => {
+                ARRAY_RETURNING_APIS.contains(&sink_callee_name(&call.callee).unwrap_or_default())
+            }
+            _ => false,
+        };
+        if array_shaped {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3579",
+                "Use a numeric index to access this array element.",
+                member.span(),
+            );
+        }
+    }
+
+    /// `S3758`: relational comparisons over composite literals.
+    fn check_relational_composite_operand(&mut self, expression: &BinaryExpression<'_>) {
+        if !matches!(
+            expression.operator,
+            BinaryOperator::LessThan
+                | BinaryOperator::GreaterThan
+                | BinaryOperator::LessEqualThan
+                | BinaryOperator::GreaterEqualThan
+        ) {
+            return;
+        }
+        let composite = literal_kind(&expression.left).is_some_and(kind_is_composite)
+            || literal_kind(&expression.right).is_some_and(kind_is_composite);
+        if composite {
+            self.sink.emit_span(
+                RuleScope::JsOnly,
+                "S3758",
+                "This comparison coerces the operand to '[object Object]'.",
+                expression.span(),
+            );
+        }
+    }
+
+    /// `S3760`: arithmetic operators over non-numeric operands.
+    fn check_arithmetic_non_number(&mut self, expression: &BinaryExpression<'_>) {
+        let (Some(left), Some(right)) = (
+            literal_kind(&expression.left),
+            literal_kind(&expression.right),
+        ) else {
+            return;
+        };
+        if kind_is_numeric(left) && kind_is_numeric(right) {
+            return;
+        }
+        let flagged = match expression.operator {
+            // `'str' + x` pairs are `S3402`'s territory; plain numeric
+            // additions are fine. Anything else adding up is coercion.
+            BinaryOperator::Addition => {
+                left != LiteralKind::String
+                    && right != LiteralKind::String
+                    && (!kind_is_numeric(left) || !kind_is_numeric(right))
+            }
+            BinaryOperator::Subtraction
+            | BinaryOperator::Multiplication
+            | BinaryOperator::Division
+            | BinaryOperator::Remainder
+            | BinaryOperator::Exponential => true,
+            _ => false,
+        };
+        if flagged {
+            self.sink.emit_span(
+                RuleScope::JsOnly,
+                "S3760",
+                "Arithmetic here relies on implicit coercion and may produce 'NaN'.",
+                expression.span(),
+            );
+        }
+    }
+
+    /// `S3757`: literal folds that always produce 'NaN'.
+    fn check_nan_fold(&mut self, expression: &BinaryExpression<'_>) {
+        let is_zero = |operand: &Expression| {
+            matches!(
+                unparenthesized(operand),
+                Expression::NumericLiteral(literal) if literal.value == 0.0
+            )
+        };
+        let is_infinity = |operand: &Expression| {
+            matches!(
+                unparenthesized(operand),
+                Expression::Identifier(identifier) if identifier.name == "Infinity"
+            )
+        };
+        let nan = match expression.operator {
+            BinaryOperator::Division => is_zero(&expression.left) && is_zero(&expression.right),
+            BinaryOperator::Multiplication => {
+                (is_zero(&expression.left) && is_infinity(&expression.right))
+                    || (is_infinity(&expression.left) && is_zero(&expression.right))
+            }
+            _ => false,
+        };
+        if nan {
+            self.sink.emit_span(
+                RuleScope::JsOnly,
+                "S3757",
+                "This operation always produces 'NaN'.",
+                expression.span(),
+            );
+        }
+    }
+
+    /// `S3757`: parse calls over non-numeric text and `Number(undefined)`.
+    fn check_nan_parse(&mut self, call: &CallExpression<'_>) {
+        let Some(name) = callee_name(call) else {
+            return;
+        };
+        if !matches!(name, "parseInt" | "parseFloat" | "Number") {
+            return;
+        }
+        let Some(argument) = call.arguments.first().and_then(argument_expression) else {
+            return;
+        };
+        let flagged = match name {
+            "parseInt" | "parseFloat" => {
+                let Expression::StringLiteral(literal) = unparenthesized(argument) else {
+                    return;
+                };
+                let text = literal.value.trim_start();
+                let text = text.strip_prefix(['+', '-']).unwrap_or(text);
+                !text.starts_with(|character: char| character.is_ascii_digit() || character == '.')
+            }
+            _ => {
+                matches!(
+                    unparenthesized(argument),
+                    Expression::Identifier(identifier) if identifier.name == "undefined"
+                ) || matches!(
+                    unparenthesized(argument),
+                    Expression::ObjectExpression(_) | Expression::ArrayExpression(_)
+                )
+            }
+        };
+        if flagged {
+            self.sink.emit_span(
+                RuleScope::JsOnly,
+                "S3757",
+                "This expression evaluates to 'NaN'.",
+                call.span(),
+            );
+        }
+    }
+
+    /// `S3782`: literal arguments contradicting the built-ins' documented
+    /// types: parse functions over composite/`null`/`undefined` text, bad
+    /// radixes, and non-numeric `String.fromCharCode` codes.
+    fn check_builtin_signature(&mut self, call: &CallExpression<'_>) {
+        if let Expression::StaticMemberExpression(member) = &call.callee
+            && member.property.name == "fromCharCode"
+            && expression_root_name(&member.object) == Some("String")
+        {
+            for argument in call.arguments.iter().filter_map(argument_expression) {
+                if let Some(kind) = literal_kind(argument)
+                    && !kind_is_numeric(kind)
+                {
+                    self.sink.emit_span(
+                        RuleScope::JsOnly,
+                        "S3782",
+                        "String.fromCharCode expects numeric character codes.",
+                        argument.span(),
+                    );
+                }
+            }
+            return;
+        }
+        let Some(name) = callee_name(call) else {
+            return;
+        };
+        if matches!(name, "parseInt" | "parseFloat") {
+            if let Some(radix_kind) = call
+                .arguments
+                .get(1)
+                .and_then(argument_expression)
+                .and_then(literal_kind)
+                && !kind_is_numeric(radix_kind)
+            {
+                self.sink.emit_span(
+                    RuleScope::JsOnly,
+                    "S3782",
+                    "This parse function expects a numeric radix.",
+                    call.span(),
+                );
+            }
+        }
+        if matches!(
+            name,
+            "parseInt"
+                | "parseFloat"
+                | "isNaN"
+                | "isFinite"
+                | "encodeURI"
+                | "decodeURI"
+                | "encodeURIComponent"
+                | "decodeURIComponent"
+        ) {
+            self.check_string_expecting_builtin(call, name);
+        }
+    }
+
+    /// Flags first arguments that cannot be stringified meaningfully.
+    fn check_string_expecting_builtin(&mut self, call: &CallExpression<'_>, name: &str) {
+        let Some(argument) = call.arguments.first().and_then(argument_expression) else {
+            return;
+        };
+        if let Some(kind) = literal_kind(argument)
+            && matches!(
+                kind,
+                LiteralKind::Object
+                    | LiteralKind::Array
+                    | LiteralKind::Function
+                    | LiteralKind::RegExp
+                    | LiteralKind::Null
+                    | LiteralKind::Undefined
+            )
+        {
+            self.sink.emit_span(
+                RuleScope::JsOnly,
+                "S3782",
+                &format!("'{name}' expects a string argument."),
+                argument.span(),
+            );
+        }
+    }
+}
+
+/// All Tier-C operator/literal and function-census rules in one traversal.
+fn check_tier_c_rules(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut census = FunctionCensus::default();
+    census.visit_program(program);
+    let mut collector = TierCLiteralCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+    };
+    collector.visit_program(program);
+    let mut await_collector = TierCAwaitCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        census: &census,
+    };
+    await_collector.visit_program(program);
+    collector.sink.issues.extend(await_collector.sink.issues);
+    let mut usage_collector = TierCCallUsageCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        census: &census,
+        suppress_span: None,
+    };
+    usage_collector.visit_program(program);
+    collector.sink.issues.extend(usage_collector.sink.issues);
+    // `S3800`: file-local functions whose returns mix literal kinds.
+    for facts in census.functions.values() {
+        let mut kinds = facts.return_kinds.clone();
+        kinds.sort();
+        kinds.dedup();
+        if kinds.len() > 1 {
+            collector.sink.issues.push(span_issue(
+                index,
+                format!("{}:S3800", language.prefix()),
+                "Refactor this function so that it always returns the same type.",
+                facts.span,
+            ));
+        }
+    }
+    // `S2301`: parameters that only select the function's behavior.
+    for facts in census.functions.values() {
+        if let Some(span) = facts.selector_span {
+            collector.sink.issues.push(span_issue(
+                index,
+                format!("{}:S2301", language.prefix()),
+                "This parameter only selects the behavior of this function; split it instead.",
+                span,
+            ));
+        }
+    }
+    collector.sink.issues
+}
+
+/// Per-function facts recorded by [`FunctionCensus`].
+#[derive(Default)]
+struct FnFacts {
+    r#async: bool,
+    generator: bool,
+    return_kinds: Vec<LiteralKind>,
+    /// Span of a parameter that only selects the function's behavior.
+    selector_span: Option<Span>,
+    span: Span,
+}
+
+impl FnFacts {
+    /// Whether calls of this function provably produce no usable value.
+    fn is_void(&self) -> bool {
+        !self.r#async && !self.generator && self.return_kinds.is_empty()
+    }
+}
+
+/// File-local function facts used by the Tier-C call checks: declaration and
+/// `const`-bound function/arrow names with their flags, spans, and the
+/// literal kinds of their valued `return`s.
+#[derive(Default)]
+struct FunctionCensus {
+    functions: BTreeMap<String, FnFacts>,
+}
+
+/// Parameter names treated as behavior selectors by `S2301` (weak subset).
+const SELECTOR_PARAM_NAMES: [&str; 5] = ["type", "kind", "action", "mode", "command"];
+
+/// Scoped scan of one function body: collects valued-return literal kinds
+/// and branch logic driven by named parameters, without descending into
+/// nested function-like nodes.
+#[derive(Default)]
+struct BodyScan {
+    params: Vec<(String, Span)>,
+    return_kinds: Vec<LiteralKind>,
+    selector_comparisons: u32,
+    switches_on_param: bool,
+}
+
+impl<'a> Visit<'a> for BodyScan {
+    fn visit_return_statement(&mut self, it: &ReturnStatement<'a>) {
+        if let Some(argument) = &it.argument
+            && let Some(kind) = literal_kind(argument)
+        {
+            self.return_kinds.push(kind);
+        }
+        walk_return_statement(self, it);
+    }
+
+    fn visit_binary_expression(&mut self, it: &BinaryExpression<'a>) {
+        if matches!(
+            it.operator,
+            BinaryOperator::Equality
+                | BinaryOperator::StrictEquality
+                | BinaryOperator::Inequality
+                | BinaryOperator::StrictInequality
+        ) {
+            let left_is_param = self.param_index(&it.left).is_some();
+            let right_is_param = self.param_index(&it.right).is_some();
+            let other = if left_is_param {
+                Some(&it.right)
+            } else if right_is_param {
+                Some(&it.left)
+            } else {
+                None
+            };
+            if other.is_some_and(|expression| literal_kind(expression).is_some()) {
+                self.selector_comparisons += 1;
+            }
+        }
+        walk_binary_expression(self, it);
+    }
+
+    fn visit_switch_statement(&mut self, it: &SwitchStatement<'a>) {
+        if self.param_index(&it.discriminant).is_some() {
+            self.switches_on_param = true;
+        }
+        walk_switch_statement(self, it);
+    }
+
+    /// Nested function-like subtrees belong to other functions.
+    fn visit_function(&mut self, _it: &Function<'_>, _flags: ScopeFlags) {}
+    fn visit_arrow_function_expression(&mut self, _it: &ArrowFunctionExpression<'_>) {}
+    fn visit_method_definition(&mut self, _it: &MethodDefinition<'_>) {}
+}
+
+impl BodyScan {
+    fn param_index(&self, expression: &Expression<'_>) -> Option<usize> {
+        let name = identifier_name(expression)?;
+        self.params.iter().position(|(param, _)| param == name)
+    }
+
+    /// The span of the first parameter that only selects behavior. A weak
+    /// heuristic: switch over the parameter or at least two equality
+    /// comparisons against literals.
+    fn selector_span(&self) -> Option<Span> {
+        let driven = self.switches_on_param || self.selector_comparisons >= 2;
+        if !driven {
+            return None;
+        }
+        self.params
+            .iter()
+            .find(|(name, _)| SELECTOR_PARAM_NAMES.contains(&name.as_str()))
+            .map(|(_, span)| *span)
+    }
+}
+
+fn scan_body(statements: &[Statement<'_>], params: Vec<(String, Span)>) -> BodyScan {
+    let mut scan = BodyScan {
+        params,
+        ..BodyScan::default()
+    };
+    for statement in statements {
+        scan.visit_statement(statement);
+    }
+    scan
+}
+
+fn parameter_spans(params: &oxc_ast::ast::FormalParameters<'_>) -> Vec<(String, Span)> {
+    params
+        .items
+        .iter()
+        .filter_map(|item| {
+            binding_identifier_name(&item.pattern).map(|name| (name.to_string(), item.span))
+        })
+        .collect()
+}
+
+impl<'a> Visit<'a> for FunctionCensus {
+    fn visit_declaration(&mut self, it: &Declaration<'a>) {
+        if let Declaration::FunctionDeclaration(function) = it
+            && let Some(id) = &function.id
+        {
+            let scan = function
+                .body
+                .as_ref()
+                .map(|body| scan_body(&body.statements, parameter_spans(&function.params)))
+                .unwrap_or_default();
+            let facts = FnFacts {
+                r#async: function.r#async,
+                generator: function.generator,
+                selector_span: scan.selector_span(),
+                return_kinds: scan.return_kinds,
+                span: id.span(),
+            };
+            self.functions.insert(id.name.to_string(), facts);
+        }
+        walk_declaration(self, it);
+    }
+
+    fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+        if let Some(name) = binding_identifier_name(&it.id)
+            && let Some(init) = &it.init
+        {
+            match unparenthesized(init) {
+                Expression::ArrowFunctionExpression(arrow) => {
+                    let scan = if let ArrowFunctionBody::FunctionBody(body) = &arrow.body {
+                        scan_body(&body.statements, parameter_spans(&arrow.params))
+                    } else {
+                        let mut scan = BodyScan::default();
+                        if let Some(kind) = arrow.body.as_expression().and_then(literal_kind) {
+                            scan.return_kinds.push(kind);
+                        }
+                        scan
+                    };
+                    let facts = FnFacts {
+                        r#async: arrow.r#async,
+                        // Arrow functions cannot be generators.
+                        generator: false,
+                        selector_span: scan.selector_span(),
+                        return_kinds: scan.return_kinds,
+                        span: arrow.span,
+                    };
+                    self.functions.insert(name.to_string(), facts);
+                }
+                Expression::FunctionExpression(function) => {
+                    let scan = function
+                        .body
+                        .as_ref()
+                        .map(|body| scan_body(&body.statements, parameter_spans(&function.params)))
+                        .unwrap_or_default();
+                    let facts = FnFacts {
+                        r#async: function.r#async,
+                        generator: function.generator,
+                        selector_span: scan.selector_span(),
+                        return_kinds: scan.return_kinds,
+                        span: function.span,
+                    };
+                    self.functions.insert(name.to_string(), facts);
+                }
+                _ => {}
+            }
+        }
+        walk_variable_declarator(self, it);
+    }
+}
+
+/// Plain globals whose calls are synchronous (`S4123`).
+const SYNC_GLOBAL_APIS: [&str; 9] = [
+    "parseInt",
+    "parseFloat",
+    "isNaN",
+    "isFinite",
+    "btoa",
+    "atob",
+    "String",
+    "Number",
+    "Boolean",
+];
+
+/// Member roots whose calls are synchronous (`S4123`).
+const SYNC_MEMBER_ROOTS: [&str; 7] = [
+    "Math", "Object", "JSON", "Reflect", "Array", "Date", "Number",
+];
+
+/// Tier-C collector for `await` over non-promises.
+struct TierCAwaitCollector<'census, 'index> {
+    sink: IssueSink<'index>,
+    census: &'census FunctionCensus,
+}
+
+impl<'a> Visit<'a> for TierCAwaitCollector<'_, '_> {
+    fn visit_await_expression(&mut self, it: &AwaitExpression<'a>) {
+        self.check_awaited_value(&it.argument);
+        walk_await_expression(self, it);
+    }
+}
+
+impl TierCAwaitCollector<'_, '_> {
+    /// `S4123`: awaited values that are provably not promises.
+    fn check_awaited_value(&mut self, argument: &Expression<'_>) {
+        let flagged = match unparenthesized(argument) {
+            Expression::StringLiteral(_)
+            | Expression::TemplateLiteral(_)
+            | Expression::NumericLiteral(_)
+            | Expression::BigIntLiteral(_)
+            | Expression::BooleanLiteral(_)
+            | Expression::NullLiteral(_)
+            | Expression::ArrayExpression(_)
+            | Expression::ObjectExpression(_) => true,
+            Expression::Identifier(identifier) => identifier.name == "undefined",
+            Expression::CallExpression(call) => match &call.callee {
+                Expression::Identifier(callee) => {
+                    if self.is_known_sync_local(&callee.name) {
+                        true
+                    } else {
+                        SYNC_GLOBAL_APIS.contains(&callee.name.as_str())
+                    }
+                }
+                Expression::StaticMemberExpression(member) => SYNC_MEMBER_ROOTS
+                    .contains(&expression_root_name(&member.object).unwrap_or_default()),
+                _ => false,
+            },
+            _ => false,
+        };
+        if flagged {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S4123",
+                "This value is not a promise; 'await' has no effect here.",
+                argument.span(),
+            );
+        }
+    }
+
+    fn is_known_sync_local(&self, name: &str) -> bool {
+        self.census
+            .functions
+            .get(name)
+            .is_some_and(|facts| !facts.r#async)
+    }
+}
+
+/// Tier-C collector for call-usage checks driven by the function census.
+struct TierCCallUsageCollector<'census, 'index> {
+    sink: IssueSink<'index>,
+    census: &'census FunctionCensus,
+    /// Span of the direct call of the enclosing expression statement, whose
+    // value legitimately goes unused.
+    suppress_span: Option<Span>,
+}
+
+impl<'a> Visit<'a> for TierCCallUsageCollector<'_, '_> {
+    fn visit_expression_statement(&mut self, it: &ExpressionStatement<'a>) {
+        let direct_call = match unparenthesized(&it.expression) {
+            Expression::CallExpression(call) => Some(call.span()),
+            _ => None,
+        };
+        let saved = self.suppress_span;
+        if direct_call.is_some() {
+            self.suppress_span = direct_call;
+        }
+        walk_expression_statement(self, it);
+        self.suppress_span = saved;
+    }
+
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        if self.suppress_span != Some(it.span())
+            && let Some(name) = callee_name(it)
+            && let Some(facts) = self.census.functions.get(name)
+            && facts.is_void()
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3699",
+                "The return value of this void function should not be used.",
+                it.span(),
+            );
+        }
+        walk_call_expression(self, it);
+    }
 }
 #[cfg(test)]
 mod tests {
@@ -22993,6 +24026,87 @@ draw(other, more);
         assert_eq!(count_key(&js_keys(clean), "javascript:S5736"), 0);
     }
 
+    #[test]
+    fn command_line_arguments_are_hotspots() {
+        let indexed: &str = "const first = process.argv[2];\n";
+        assert_eq!(count_key(&js_keys(indexed), "javascript:S4823"), 1);
+
+        let exec_argv: &str = "if (process.execArgv.length > 0) {}\n";
+        assert_eq!(count_key(&js_keys(exec_argv), "javascript:S4823"), 1);
+
+        let clean: &str = "const mode = process.env.NODE_ENV;\n";
+        assert_eq!(count_key(&js_keys(clean), "javascript:S4823"), 0);
+    }
+
+    #[test]
+    fn standard_input_reads_are_hotspots() {
+        let violating: &str = "process.stdin.on('data', handler);\n";
+        assert_eq!(count_key(&js_keys(violating), "javascript:S4829"), 1);
+
+        let clean: &str = "console.log(process.stdout.isTTY);\n";
+        assert_eq!(count_key(&js_keys(clean), "javascript:S4829"), 0);
+    }
+
+    #[test]
+    fn xpath_evaluation_is_a_hotspot() {
+        let evaluate: &str = "const node = document.evaluate(expr, ctx);\n";
+        assert_eq!(count_key(&js_keys(evaluate), "javascript:S4817"), 1);
+
+        let evaluator: &str = "const evaluator = new XPathEvaluator();\n";
+        assert_eq!(count_key(&js_keys(evaluator), "javascript:S4817"), 1);
+
+        let imported: &str = "import { evaluate } from 'xpath';\n";
+        assert_eq!(count_key(&js_keys(imported), "javascript:S4817"), 1);
+
+        let required: &str = "const xpath = require('xpath');\n";
+        assert_eq!(count_key(&js_keys(required), "javascript:S4817"), 1);
+
+        let clean: &str = "const score = evaluateAnswer(answer);\n";
+        assert_eq!(count_key(&js_keys(clean), "javascript:S4817"), 0);
+    }
+
+    #[test]
+    fn raw_sockets_are_hotspots() {
+        let imported: &str = "import * as net from 'net';\n";
+        assert_eq!(count_key(&js_keys(imported), "javascript:S4818"), 1);
+
+        let required: &str = "const dgram = require('dgram');\n";
+        assert_eq!(count_key(&js_keys(required), "javascript:S4818"), 1);
+
+        let constructed: &str = "const socket = new net.Socket();\n";
+        assert_eq!(count_key(&js_keys(constructed), "javascript:S4818"), 1);
+
+        let clean: &str = "import http from 'http';\n";
+        assert_eq!(count_key(&js_keys(clean), "javascript:S4818"), 0);
+    }
+
+    #[test]
+    fn certificate_transparency_disabling_is_flagged() {
+        let header: &str = "res.setHeader('Expect-CT', 'max-age=0');\n";
+        assert_eq!(count_key(&js_keys(header), "javascript:S5742"), 1);
+
+        let helmet: &str = "app.use(helmet({ expectCt: false }));\n";
+        assert_eq!(count_key(&js_keys(helmet), "javascript:S5742"), 1);
+
+        let enforcing: &str = "res.setHeader('Expect-CT', 'max-age=86400, enforce');\n";
+        assert_eq!(count_key(&js_keys(enforcing), "javascript:S5742"), 0);
+    }
+
+    #[test]
+    fn dns_prefetch_control_is_flagged() {
+        let header: &str = "res.setHeader('X-DNS-Prefetch-Control', 'on');\n";
+        assert_eq!(count_key(&js_keys(header), "javascript:S5743"), 1);
+
+        let helmet: &str = "app.use(helmet({ dnsPrefetch: false }));\n";
+        assert_eq!(count_key(&js_keys(helmet), "javascript:S5743"), 1);
+
+        let written: &str = "res.writeHead(200, { 'X-DNS-Prefetch-Control': 'on' });\n";
+        assert_eq!(count_key(&js_keys(written), "javascript:S5743"), 1);
+
+        let clean: &str = "res.setHeader('X-DNS-Prefetch-Control', 'off');\n";
+        assert_eq!(count_key(&js_keys(clean), "javascript:S5743"), 0);
+    }
+
     // ---- Batch-5 test-framework fixtures ----
 
     fn test_file_keys(source: &str) -> Vec<(String, u32)> {
@@ -23124,12 +24238,36 @@ draw(other, more);
 
         let focused: &str = "fit('just this', () => { expect(1).to.equal(1); });\ndescribe.only('solo', () => {});\n";
         let focused = test_file_keys(focused);
+
         assert_eq!(count_key(&focused, "javascript:S6426"), 2);
 
         let normal: &str = "it('runs', () => { expect(1).to.equal(1); });\n";
         let normal = test_file_keys(normal);
         assert_eq!(count_key(&normal, "javascript:S1607"), 0);
         assert_eq!(count_key(&normal, "javascript:S6426"), 0);
+    }
+    #[test]
+    fn vue_v_html_bypasses_escaping() {
+        let violating: &str = "const tpl = `<div v-html=\"userContent\"></div>`;\n";
+        assert_eq!(count_key(&js_keys(violating), "javascript:S6299"), 1);
+
+        let sfc: &str = "const template = '<span v-html=raw></span>';\n";
+        assert_eq!(count_key(&js_keys(sfc), "javascript:S6299"), 1);
+
+        let clean: &str = "const tpl = `<div>{{ userContent }}</div>`;\n";
+        assert_eq!(count_key(&js_keys(clean), "javascript:S6299"), 0);
+    }
+
+    #[test]
+    fn s3_buckets_need_server_side_encryption() {
+        let violating: &str = "const result = await s3.createBucket({ Bucket: 'name' });\n";
+        assert_eq!(count_key(&js_keys(violating), "javascript:S6245"), 1);
+
+        let command: &str = "await client.send(new CreateBucketCommand({ Bucket: 'name' }));\n";
+        assert_eq!(count_key(&js_keys(command), "javascript:S6245"), 1);
+
+        let encrypted: &str = "const r = await s3.createBucket({ Bucket: 'n', ServerSideEncryptionConfiguration: {} });\n";
+        assert_eq!(count_key(&js_keys(encrypted), "javascript:S6245"), 0);
     }
 
     // ---- Batch-5 misc Tier-A fixtures ----
@@ -23631,5 +24769,196 @@ draw(other, more);
             "exec('curl https://example.com/install.sh');\nspawn('npm install lodash@4.17.21');\nexecFile('git', ['status']);\n",
         );
         assert_eq!(filtered(&clean, "S5725").len(), 0);
+    }
+
+    #[test]
+    fn strings_and_non_strings_are_not_added() {
+        let violating: &str = "const mix = 'value' + 42;\n";
+        assert_eq!(count_key(&js_keys(violating), "javascript:S3402"), 1);
+
+        let reversed: &str = "const mix = true + 'value';\n";
+        assert_eq!(count_key(&js_keys(reversed), "javascript:S3402"), 1);
+
+        let array: &str = "const label = 'items: ' + [1, 2];\n";
+        assert_eq!(count_key(&js_keys(array), "javascript:S3402"), 1);
+
+        let clean_concat: &str = "const ok = 'a' + 'b';\n";
+        assert_eq!(count_key(&js_keys(clean_concat), "javascript:S3402"), 0);
+
+        let clean_number: &str = "const sum = 1 + 2;\n";
+        assert_eq!(count_key(&js_keys(clean_number), "javascript:S3402"), 0);
+    }
+
+    #[test]
+    fn strict_equality_between_dissimilar_literals_is_flagged() {
+        let violating: &str = "const same = '1' === 1;\n";
+        assert_eq!(count_key(&js_keys(violating), "javascript:S3403"), 1);
+
+        let inequality: &str = "const diff = true !== 'true';\n";
+        assert_eq!(count_key(&js_keys(inequality), "javascript:S3403"), 1);
+
+        let null_undefined: &str = "const never = null === undefined;\n";
+        assert_eq!(count_key(&js_keys(null_undefined), "javascript:S3403"), 1);
+
+        const clean_string: &str = "const str = 'a' === 'b';\n";
+        assert_eq!(count_key(&js_keys(clean_string), "javascript:S3403"), 0);
+
+        const clean_unknown: &str = "const unknown = input === 'x';\n";
+        assert_eq!(count_key(&js_keys(clean_unknown), "javascript:S3403"), 0);
+
+        // TypeScript's catalog has no S3403; the JsOnly scope suppresses it.
+        assert_eq!(count_key(&ts_keys(violating), "typescript:S3403"), 0);
+    }
+
+    #[test]
+    fn operations_that_always_yield_nan_are_flagged() {
+        let zero_division: &str = "const nan = 0 / 0;\n";
+        assert_eq!(count_key(&js_keys(zero_division), "javascript:S3757"), 1);
+
+        const infinity_times_zero: &str = "const nan = Infinity * 0;\n";
+        assert_eq!(
+            count_key(&js_keys(infinity_times_zero), "javascript:S3757"),
+            1
+        );
+
+        const parse_garbage: &str = "const nan = parseInt('abc');\n";
+        assert_eq!(count_key(&js_keys(parse_garbage), "javascript:S3757"), 1);
+
+        const number_undefined: &str = "const nan = Number(undefined);\n";
+        assert_eq!(count_key(&js_keys(number_undefined), "javascript:S3757"), 1);
+
+        const clean_ratio: &str = "const ratio = width / height;\n";
+        assert_eq!(count_key(&js_keys(clean_ratio), "javascript:S3757"), 0);
+
+        const clean_parse: &str = "const parsed = parseInt('42');\n";
+        assert_eq!(count_key(&js_keys(clean_parse), "javascript:S3757"), 0);
+    }
+
+    #[test]
+    fn in_operator_rejects_primitive_right_hand_sides() {
+        let violating: &str = "const has = 'length' in 'abc';\n";
+        assert_eq!(count_key(&js_keys(violating), "javascript:S3785"), 1);
+
+        let number: &str = "const has = 0 in 42;\n";
+        assert_eq!(count_key(&js_keys(number), "javascript:S3785"), 1);
+
+        const clean: &str = "const has = 'length' in [];\n";
+        assert_eq!(count_key(&js_keys(clean), "javascript:S3785"), 0);
+
+        const clean_object: &str = "const has = 'a' in { a: 1 };\n";
+        assert_eq!(count_key(&js_keys(clean_object), "javascript:S3785"), 0);
+    }
+
+    #[test]
+    fn array_indexes_should_be_numeric() {
+        let violating: &str = "const first = 'a,b'.split(',')[\"0\"];\n";
+        assert_eq!(count_key(&js_keys(violating), "javascript:S3579"), 1);
+
+        let literal: &str = "const second = [10, 20][\"1\"];\n";
+        assert_eq!(count_key(&js_keys(literal), "javascript:S3579"), 1);
+
+        const clean_object: &str = "const value = obj[\"key\"];\n";
+        assert_eq!(count_key(&js_keys(clean_object), "javascript:S3579"), 0);
+
+        const clean_number: &str = "const second = [10, 20][1];\n";
+        assert_eq!(count_key(&js_keys(clean_number), "javascript:S3579"), 0);
+    }
+
+    #[test]
+    fn relational_comparisons_reject_object_operands() {
+        let violating: &str = "const ordered = {} < {};\n";
+        assert_eq!(count_key(&js_keys(violating), "javascript:S3758"), 1);
+
+        let array: &str = "const ordered = [1] >= [2];\n";
+        assert_eq!(count_key(&js_keys(array), "javascript:S3758"), 1);
+
+        const clean: &str = "const ordered = 'a' < 'b';\n";
+        assert_eq!(count_key(&js_keys(clean), "javascript:S3758"), 0);
+    }
+
+    #[test]
+    fn arithmetic_operands_must_be_numbers() {
+        let subtract_string: &str = "const nan = '5' - 3;\n";
+        assert_eq!(count_key(&js_keys(subtract_string), "javascript:S3760"), 1);
+
+        let boolean_addition: &str = "const sum = true + 1;\n";
+        assert_eq!(count_key(&js_keys(boolean_addition), "javascript:S3760"), 1);
+
+        const clean_concat: &str = "const ok = 'a' + 'b';\n";
+        assert_eq!(count_key(&js_keys(clean_concat), "javascript:S3760"), 0);
+
+        const clean_sum: &str = "const ok = 1 + 2;\n";
+        assert_eq!(count_key(&js_keys(clean_sum), "javascript:S3760"), 0);
+    }
+
+    #[test]
+    fn await_should_only_apply_to_promises() {
+        let literal: &str = "async function run() { const value = await 42; }\n";
+        assert_eq!(count_key(&js_keys(literal), "javascript:S4123"), 1);
+
+        const sync_builtin: &str =
+            "async function run() { const data = await JSON.parse('{}'); }\n";
+        assert_eq!(count_key(&js_keys(sync_builtin), "javascript:S4123"), 1);
+
+        const local_sync: &str = "function compute() {\n  return 1;\n}\nasync function main() {\n  const v = await compute();\n}\n";
+        assert_eq!(count_key(&js_keys(local_sync), "javascript:S4123"), 1);
+
+        const clean_async_local: &str = "async function load() {\n  return fetch(url);\n}\nasync function main() {\n  const r = await load();\n}\n";
+        assert_eq!(
+            count_key(&js_keys(clean_async_local), "javascript:S4123"),
+            0
+        );
+
+        const clean_unknown: &str = "async function main() {\n  const r = await mystery();\n}\n";
+        assert_eq!(count_key(&js_keys(clean_unknown), "javascript:S4123"), 0);
+    }
+    #[test]
+    fn builtin_arguments_match_documented_types() {
+        const parse_object: &str = "const n = parseInt({});\n";
+        assert_eq!(count_key(&js_keys(parse_object), "javascript:S3782"), 1);
+
+        const bad_radix: &str = "const n = parseInt('ff', 'hex');\n";
+        assert_eq!(count_key(&js_keys(bad_radix), "javascript:S3782"), 1);
+
+        const charcode_string: &str = "const c = String.fromCharCode('65');\n";
+        assert_eq!(count_key(&js_keys(charcode_string), "javascript:S3782"), 1);
+
+        const clean_radix: &str = "const n = parseInt('ff', 16);\n";
+        assert_eq!(count_key(&js_keys(clean_radix), "javascript:S3782"), 0);
+
+        const clean_parse: &str = "const n = parseInt('42');\n";
+        assert_eq!(count_key(&js_keys(clean_parse), "javascript:S3782"), 0);
+
+        const clean_charcode: &str = "const c = String.fromCharCode(65);\n";
+        assert_eq!(count_key(&js_keys(clean_charcode), "javascript:S3782"), 0);
+    }
+
+    #[test]
+    fn functions_should_return_one_type() {
+        let mixed: &str =
+            "function pick(flag) {\n  if (flag) {\n    return 'yes';\n  }\n  return 0;\n}\n";
+        assert_eq!(count_key(&js_keys(mixed), "javascript:S3800"), 1);
+
+        const consistent: &str = "function pick(flag) {\n  return flag ? 'a' : 'b';\n}\n";
+        assert_eq!(count_key(&js_keys(consistent), "javascript:S3800"), 0);
+
+        const void_fn: &str = "function run() {\n  doWork();\n}\n";
+        assert_eq!(count_key(&js_keys(void_fn), "javascript:S3800"), 0);
+    }
+
+    #[test]
+    fn void_function_results_should_not_be_used() {
+        const used: &str = "function run() {\n  doWork();\n}\nconst total = run();\n";
+        assert_eq!(count_key(&js_keys(used), "javascript:S3699"), 1);
+
+        const returned: &str =
+            "function run() {\n  doWork();\n}\nfunction main() {\n  return run();\n}\n";
+        assert_eq!(count_key(&js_keys(returned), "javascript:S3699"), 1);
+
+        const bare: &str = "function run() {\n  doWork();\n}\nrun();\n";
+        assert_eq!(count_key(&js_keys(bare), "javascript:S3699"), 0);
+
+        const async_fn: &str = "async function load() {}\nconst r = load();\n";
+        assert_eq!(count_key(&js_keys(async_fn), "javascript:S3699"), 0);
     }
 }
