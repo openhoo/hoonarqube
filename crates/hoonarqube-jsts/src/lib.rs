@@ -12473,7 +12473,7 @@ impl Visit<'_> for SubtreeFacts {
                     self.track_captions = true;
                 }
                 "button" | "input" | "meter" | "output" | "progress" | "select" | "textarea" => {
-                    self.labelable_controls += 1
+                    self.labelable_controls += 1;
                 }
                 _ => {}
             }
