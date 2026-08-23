@@ -308,6 +308,8 @@ fn analyze_with_rules(
         &index,
         language,
     ));
+    // --- Batch3 wiring: the regex-literal family ---
+    issues.extend(check_regex_family(&parsed.program, &index, language));
     sort_issues(&mut issues);
 
     hoonarqube_ir::FileReport {
@@ -8281,8 +8283,1739 @@ fn check_es_idioms(
     collector.sink.issues
 }
 
+// ===== Batch3: regex-literal family =====
+//
+// Twenty rules share one mini regex-pattern walker over the literal syntax —
+// `RegExpLiteral` pattern text and constant string arguments to the `RegExp`
+// constructor; nothing is evaluated at runtime: `S5856`, `S6325`, `S2639`,
+// `S6323`, `S6331`, `S5869`, `S6397`, `S6353`, `S6326`, `S6324`, `S6328`,
+// `S5842`, `S6019`, `S6035`, `S5850`, `S5867`, `S5868`, `S5843`, `S5852`,
+// and `S6351`.
+
+/// `S5843`: patterns scoring above this complexity budget are flagged
+/// (subset approximation of the frozen catalog `threshold=20`).
+const REGEX_COMPLEXITY_THRESHOLD: u32 = 20;
+
+/// Character-class shorthand escapes (`\d`, `\w`, `\s` and negations).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShorthandClass {
+    Digit,
+    Word,
+    Space,
+}
+
+/// Zero-width assertions understood by the pattern parser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AnchorKind {
+    Start,
+    End,
+    WordBoundary,
+    NotWordBoundary,
+}
+
+/// Group headers the mini parser understands; anything else (`(?P`, …) is a
+/// definite syntax error for `S5856`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum GroupKind {
+    Capturing,
+    Named(String),
+    NonCapturing,
+    Lookahead { negated: bool },
+    Lookbehind { negated: bool },
+}
+
+impl GroupKind {
+    fn is_lookaround(&self) -> bool {
+        matches!(self, Self::Lookahead { .. } | Self::Lookbehind { .. })
+    }
+}
+
+/// One item inside a `[...]` character class.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ClassItem {
+    Char {
+        ch: char,
+        pos: usize,
+    },
+    Range {
+        low: char,
+        high: char,
+        start: usize,
+    },
+    Shorthand {
+        negated: bool,
+        kind: ShorthandClass,
+        pos: usize,
+    },
+    Property {
+        negated: bool,
+        pos: usize,
+    },
+}
+
+/// One node of the mini regex-pattern tree. Positions are byte offsets into
+/// the pattern text so findings can be anchored at the offending construct.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PatternNode {
+    Literal {
+        ch: char,
+        pos: usize,
+    },
+    Dot,
+    Class {
+        negated: bool,
+        items: Vec<ClassItem>,
+        start: usize,
+        end: usize,
+    },
+    ClassEscape {
+        negated: bool,
+        kind: ShorthandClass,
+        pos: usize,
+    },
+    PropertyEscape {
+        negated: bool,
+        pos: usize,
+    },
+    Anchor {
+        kind: AnchorKind,
+        pos: usize,
+    },
+    Group {
+        kind: GroupKind,
+        alternatives: Vec<Vec<PatternNode>>,
+        start: usize,
+        end: usize,
+    },
+    BackReference {
+        pos: usize,
+    },
+    Quantified {
+        node: Box<PatternNode>,
+        min: u32,
+        max: Option<u32>,
+        greedy: bool,
+        pos: usize,
+        /// Verbatim source text of the quantifier (`{1}` vs `{1,1}`).
+        verbose: String,
+    },
+}
+
+/// Parse result of [`parse_regex_pattern`].
+struct ParsedRegex {
+    alternatives: Vec<Vec<PatternNode>>,
+    /// Byte offsets of empty alternation branches with at least one
+    /// non-empty sibling (`S6323`); wholly empty groups belong to `S6331`.
+    empty_branch_positions: Vec<usize>,
+    capture_count: usize,
+    capture_names: Vec<String>,
+}
+
+/// Parses the literal-syntax subset of ECMAScript regex patterns. Returns
+/// `Err` only for definite syntax errors — unbalanced parentheses,
+/// unterminated character classes, quantifiers with nothing to repeat,
+/// unknown `(?…)` headers, reversed class ranges, and malformed `\u`/`\x`
+/// forms in unicode mode. Anything merely unfamiliar parses conservatively
+/// so the walker never invents findings (tolerant, never panics).
+fn parse_regex_pattern(pattern: &str, unicode_mode: bool) -> Result<ParsedRegex, ()> {
+    let mut parser = PatternParser {
+        source: pattern,
+        chars: pattern.char_indices().collect(),
+        pos: 0,
+        captures: Vec::new(),
+        unicode_mode,
+        empty_branch_positions: Vec::new(),
+    };
+    let alternatives = parser.parse_alternatives(None)?;
+    Ok(ParsedRegex {
+        capture_count: parser.captures.len(),
+        capture_names: parser.captures.iter().flatten().cloned().collect(),
+        alternatives,
+        empty_branch_positions: parser.empty_branch_positions,
+    })
+}
+
+struct PatternParser<'p> {
+    /// The raw pattern text, for verbatim quantifier slices.
+    source: &'p str,
+    chars: Vec<(usize, char)>,
+    pos: usize,
+    captures: Vec<Option<String>>,
+    unicode_mode: bool,
+    empty_branch_positions: Vec<usize>,
+}
+
+impl PatternParser<'_> {
+    fn peek(&self) -> Option<char> {
+        self.chars.get(self.pos).map(|&(_, ch)| ch)
+    }
+
+    fn bump(&mut self) -> Option<char> {
+        let ch = self.peek()?;
+        self.pos += 1;
+        Some(ch)
+    }
+
+    fn current_offset(&self) -> usize {
+        self.chars
+            .get(self.pos)
+            .map_or_else(|| self.end_offset(), |&(off, _)| off)
+    }
+
+    fn end_offset(&self) -> usize {
+        self.chars
+            .last()
+            .map_or(0, |&(off, ch)| off + ch.len_utf8())
+    }
+
+    /// Alternation body of the whole pattern (`terminator: None`) or of one
+    /// group (`terminator: Some(')')`, consumed here).
+    fn parse_alternatives(
+        &mut self,
+        terminator: Option<char>,
+    ) -> Result<Vec<Vec<PatternNode>>, ()> {
+        let mut alternatives = Vec::new();
+        let mut local_empties = Vec::new();
+        loop {
+            let branch_start = self.current_offset();
+            let nodes = self.parse_sequence(terminator)?;
+            if nodes.is_empty() {
+                local_empties.push(branch_start);
+            }
+            alternatives.push(nodes);
+            if self.peek() == Some('|') {
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+        // A single empty branch is either an empty pattern (clean) or a
+        // wholly empty group (`S6331`); neither belongs to `S6323`.
+        if !(alternatives.len() == 1 && alternatives[0].is_empty()) {
+            self.empty_branch_positions.extend(local_empties);
+        }
+        match terminator {
+            None => {
+                if self.pos != self.chars.len() {
+                    return Err(()); // stray `)`
+                }
+            }
+            Some(expected) => {
+                if self.peek() != Some(expected) {
+                    return Err(()); // unclosed group
+                }
+                self.pos += 1;
+            }
+        }
+        Ok(alternatives)
+    }
+
+    fn parse_sequence(&mut self, terminator: Option<char>) -> Result<Vec<PatternNode>, ()> {
+        let mut nodes: Vec<PatternNode> = Vec::new();
+        loop {
+            match self.peek() {
+                None | Some('|') => break,
+                Some(')') => {
+                    if terminator == Some(')') {
+                        break;
+                    }
+                    return Err(()); // unbalanced `)`
+                }
+                // A quantifier here has nothing to repeat: sequence start,
+                // after `|`, after `(`, or stacked onto another quantifier.
+                Some('*' | '+' | '?') => return Err(()),
+                _ => {}
+            }
+            let atom = self.parse_atom()?;
+            let quantifier_pos = self.current_offset();
+            if let Some((min, max)) = self.try_parse_quantifier()? {
+                let mut greedy = true;
+                if self.peek() == Some('?') {
+                    self.pos += 1;
+                    greedy = false;
+                }
+                let verbose = self.source[quantifier_pos..self.current_offset()].to_string();
+                nodes.push(PatternNode::Quantified {
+                    node: Box::new(atom),
+                    min,
+                    max,
+                    greedy,
+                    pos: quantifier_pos,
+                    verbose,
+                });
+            } else {
+                nodes.push(atom);
+            }
+        }
+        Ok(nodes)
+    }
+
+    /// `Ok(None)` when the upcoming text is not a quantifier (malformed
+    /// braces stay literal characters, per Annex B); `Err` for a definite
+    /// `{m,n}` reversal in unicode mode.
+    fn try_parse_quantifier(&mut self) -> Result<Option<(u32, Option<u32>)>, ()> {
+        match self.peek() {
+            Some('*') => {
+                self.pos += 1;
+                Ok(Some((0, None)))
+            }
+            Some('+') => {
+                self.pos += 1;
+                Ok(Some((1, None)))
+            }
+            Some('?') => {
+                self.pos += 1;
+                Ok(Some((0, Some(1))))
+            }
+            Some('{') => self.try_parse_brace_quantifier(),
+            _ => Ok(None),
+        }
+    }
+
+    fn try_parse_brace_quantifier(&mut self) -> Result<Option<(u32, Option<u32>)>, ()> {
+        let save = self.pos;
+        self.pos += 1; // `{`
+        let Some(min) = self.parse_decimal() else {
+            self.pos = save;
+            return Ok(None);
+        };
+        let max = match self.peek() {
+            Some('}') => {
+                self.pos += 1;
+                Some(min)
+            }
+            Some(',') => {
+                self.pos += 1;
+                let max = self.parse_decimal();
+                if self.peek() != Some('}') {
+                    self.pos = save;
+                    return Ok(None);
+                }
+                self.pos += 1;
+                max
+            }
+            _ => {
+                self.pos = save;
+                return Ok(None);
+            }
+        };
+        if let Some(max) = max
+            && max < min
+        {
+            if self.unicode_mode {
+                return Err(());
+            }
+            self.pos = save;
+            return Ok(None);
+        }
+        Ok(Some((min, max)))
+    }
+
+    fn parse_decimal(&mut self) -> Option<u32> {
+        let mut value: Option<u32> = None;
+        while let Some(digit) = self.peek().and_then(|next| next.to_digit(10)) {
+            value = Some(value.unwrap_or(0).saturating_mul(10).saturating_add(digit));
+            self.pos += 1;
+        }
+        value
+    }
+
+    fn parse_atom(&mut self) -> Result<PatternNode, ()> {
+        let Some(&(pos, ch)) = self.chars.get(self.pos) else {
+            return Err(());
+        };
+        self.pos += 1;
+        match ch {
+            '.' => Ok(PatternNode::Dot),
+            '^' => Ok(PatternNode::Anchor {
+                kind: AnchorKind::Start,
+                pos,
+            }),
+            '$' => Ok(PatternNode::Anchor {
+                kind: AnchorKind::End,
+                pos,
+            }),
+            '[' => self.parse_class(pos),
+            '(' => self.parse_group(pos),
+            '\\' => self.parse_escape(pos),
+            _ => Ok(PatternNode::Literal { ch, pos }),
+        }
+    }
+
+    fn parse_group(&mut self, start: usize) -> Result<PatternNode, ()> {
+        let kind = if self.peek() == Some('?') {
+            self.pos += 1;
+            match self.peek() {
+                Some(':') => {
+                    self.pos += 1;
+                    GroupKind::NonCapturing
+                }
+                Some('=') => {
+                    self.pos += 1;
+                    GroupKind::Lookahead { negated: false }
+                }
+                Some('!') => {
+                    self.pos += 1;
+                    GroupKind::Lookahead { negated: true }
+                }
+                Some('<') => {
+                    self.pos += 1;
+                    match self.peek() {
+                        Some('=') => {
+                            self.pos += 1;
+                            GroupKind::Lookbehind { negated: false }
+                        }
+                        Some('!') => {
+                            self.pos += 1;
+                            GroupKind::Lookbehind { negated: true }
+                        }
+                        _ => {
+                            let name = self.parse_group_name()?;
+                            self.captures.push(Some(name.clone()));
+                            GroupKind::Named(name)
+                        }
+                    }
+                }
+                _ => return Err(()), // unknown `(?…)` header
+            }
+        } else {
+            self.captures.push(None);
+            GroupKind::Capturing
+        };
+        let alternatives = self.parse_alternatives(Some(')'))?;
+        Ok(PatternNode::Group {
+            kind,
+            alternatives,
+            start,
+            end: self.end_offset(),
+        })
+    }
+
+    fn parse_group_name(&mut self) -> Result<String, ()> {
+        let mut name = String::new();
+        loop {
+            match self.bump() {
+                None | Some('(' | '|') => return Err(()),
+                Some('>') => break,
+                Some(ch) => name.push(ch),
+            }
+        }
+        if name.is_empty() {
+            return Err(());
+        }
+        Ok(name)
+    }
+
+    fn parse_escape(&mut self, backslash_pos: usize) -> Result<PatternNode, ()> {
+        let Some(&(char_pos, ch)) = self.chars.get(self.pos) else {
+            return Err(()); // trailing backslash
+        };
+        self.pos += 1;
+        match ch {
+            'd' | 'D' | 'w' | 'W' | 's' | 'S' => {
+                let (negated, kind) = match ch {
+                    'D' => (true, ShorthandClass::Digit),
+                    'W' => (true, ShorthandClass::Word),
+                    'S' => (true, ShorthandClass::Space),
+                    'd' => (false, ShorthandClass::Digit),
+                    'w' => (false, ShorthandClass::Word),
+                    _ => (false, ShorthandClass::Space),
+                };
+                Ok(PatternNode::ClassEscape {
+                    negated,
+                    kind,
+                    pos: backslash_pos,
+                })
+            }
+            'p' | 'P' => match self.peek() {
+                Some('{') => {
+                    self.skip_property_body()?;
+                    Ok(PatternNode::PropertyEscape {
+                        negated: ch == 'P',
+                        pos: backslash_pos,
+                    })
+                }
+                None => Err(()),
+                Some(_) if self.unicode_mode => Err(()),
+                Some(_) => Ok(PatternNode::Literal { ch, pos: char_pos }),
+            },
+            'b' => Ok(PatternNode::Anchor {
+                kind: AnchorKind::WordBoundary,
+                pos: backslash_pos,
+            }),
+            'B' => Ok(PatternNode::Anchor {
+                kind: AnchorKind::NotWordBoundary,
+                pos: backslash_pos,
+            }),
+            '1'..='9' => {
+                while self.peek().is_some_and(|next| next.is_ascii_digit()) {
+                    self.pos += 1;
+                }
+                Ok(PatternNode::BackReference { pos: backslash_pos })
+            }
+            'k' if self.peek() == Some('<') => {
+                self.pos += 1;
+                self.parse_group_name()?;
+                Ok(PatternNode::BackReference { pos: backslash_pos })
+            }
+            'n' => Ok(PatternNode::Literal {
+                ch: '\n',
+                pos: char_pos,
+            }),
+            't' => Ok(PatternNode::Literal {
+                ch: '\t',
+                pos: char_pos,
+            }),
+            'r' => Ok(PatternNode::Literal {
+                ch: '\r',
+                pos: char_pos,
+            }),
+            'f' => Ok(PatternNode::Literal {
+                ch: '\u{000C}',
+                pos: char_pos,
+            }),
+            'v' => Ok(PatternNode::Literal {
+                ch: '\u{000B}',
+                pos: char_pos,
+            }),
+            '0' => Ok(PatternNode::Literal {
+                ch: '\0',
+                pos: char_pos,
+            }),
+            'u' if self.unicode_mode => Ok(PatternNode::Literal {
+                ch: self.parse_unicode_escape()?,
+                pos: char_pos,
+            }),
+            'x' if self.unicode_mode => Ok(PatternNode::Literal {
+                ch: self.parse_hex_escape(2)?,
+                pos: char_pos,
+            }),
+            'c' if self.unicode_mode => match self.peek() {
+                Some(letter) if letter.is_ascii_alphabetic() => {
+                    self.pos += 1;
+                    Ok(PatternNode::Literal {
+                        ch: (letter.to_ascii_uppercase() as u8 ^ 0x40) as char,
+                        pos: char_pos,
+                    })
+                }
+                _ => Err(()),
+            },
+            _ => Ok(PatternNode::Literal { ch, pos: char_pos }),
+        }
+    }
+
+    /// `\u{HexDigits}` or `\uHHHH` in unicode mode; `u` already consumed.
+    fn parse_unicode_escape(&mut self) -> Result<char, ()> {
+        if self.peek() == Some('{') {
+            self.pos += 1;
+            let mut value: u32 = 0;
+            let mut digits = 0;
+            while let Some(next) = self.peek()
+                && next != '}'
+            {
+                let Some(nibble) = next.to_digit(16) else {
+                    return Err(());
+                };
+                value = value.saturating_mul(16).saturating_add(nibble);
+                digits += 1;
+                self.pos += 1;
+            }
+            if digits == 0 || digits > 6 || self.bump() != Some('}') {
+                return Err(());
+            }
+            char::from_u32(value).ok_or(())
+        } else {
+            self.parse_hex_escape(4)
+        }
+    }
+
+    /// Exactly `count` hex digits in unicode mode; `x`/`u` already consumed.
+    fn parse_hex_escape(&mut self, count: usize) -> Result<char, ()> {
+        let mut value: u32 = 0;
+        for _ in 0..count {
+            let nibble = self.peek().and_then(|next| next.to_digit(16)).ok_or(())?;
+            value = value.saturating_mul(16).saturating_add(nibble);
+            self.pos += 1;
+        }
+        char::from_u32(value).ok_or(())
+    }
+
+    fn skip_property_body(&mut self) -> Result<(), ()> {
+        self.pos += 1; // `{`
+        loop {
+            match self.bump() {
+                None | Some('(' | '|') => return Err(()),
+                Some('}') => return Ok(()),
+                Some(_) => {}
+            }
+        }
+    }
+
+    fn parse_class(&mut self, start: usize) -> Result<PatternNode, ()> {
+        let negated = if self.peek() == Some('^') {
+            self.pos += 1;
+            true
+        } else {
+            false
+        };
+        let mut items = Vec::new();
+        loop {
+            let Some(&(item_pos, ch)) = self.chars.get(self.pos) else {
+                return Err(()); // unterminated class
+            };
+            if ch == ']' {
+                self.pos += 1;
+                break;
+            }
+            let item = self.parse_class_item(item_pos, ch)?;
+            if let ClassItem::Char {
+                ch: low,
+                pos: low_pos,
+            } = item
+                && let Some(range) = self.try_parse_class_range(low, low_pos)?
+            {
+                items.push(range);
+            } else {
+                items.push(item);
+            }
+        }
+        Ok(PatternNode::Class {
+            negated,
+            items,
+            start,
+            end: self.end_offset(),
+        })
+    }
+
+    /// Extends a lone class char into `low-high` when a dash and a further
+    /// single char follow; otherwise rewinds so `-` stays literal.
+    fn try_parse_class_range(
+        &mut self,
+        low: char,
+        low_pos: usize,
+    ) -> Result<Option<ClassItem>, ()> {
+        if self.peek() != Some('-') {
+            return Ok(None);
+        }
+        let save = self.pos;
+        self.pos += 1; // `-`
+        let Some(&(high_pos, high_ch)) = self.chars.get(self.pos) else {
+            self.pos = save;
+            return Ok(None);
+        };
+        if high_ch == ']' {
+            self.pos = save;
+            return Ok(None);
+        }
+        self.pos += 1;
+        let ClassItem::Char { ch: high, .. } = self.parse_class_item(high_pos, high_ch)? else {
+            // `a-\d`: Annex B keeps the dash literal; rewind and let the
+            // shorthand be parsed as its own item.
+            self.pos = save;
+            return Ok(None);
+        };
+        if high < low {
+            return Err(()); // reversed range
+        }
+        Ok(Some(ClassItem::Range {
+            low,
+            high,
+            start: low_pos,
+        }))
+    }
+
+    fn parse_class_item(&mut self, pos: usize, ch: char) -> Result<ClassItem, ()> {
+        if ch != '\\' {
+            self.pos += 1;
+            return Ok(ClassItem::Char { ch, pos });
+        }
+        self.pos += 1; // backslash
+        let Some(&(char_pos, esc)) = self.chars.get(self.pos) else {
+            return Err(()); // trailing backslash
+        };
+        self.pos += 1;
+        Ok(match esc {
+            'd' => ClassItem::Shorthand {
+                negated: false,
+                kind: ShorthandClass::Digit,
+                pos,
+            },
+            'D' => ClassItem::Shorthand {
+                negated: true,
+                kind: ShorthandClass::Digit,
+                pos,
+            },
+            'w' => ClassItem::Shorthand {
+                negated: false,
+                kind: ShorthandClass::Word,
+                pos,
+            },
+            'W' => ClassItem::Shorthand {
+                negated: true,
+                kind: ShorthandClass::Word,
+                pos,
+            },
+            's' => ClassItem::Shorthand {
+                negated: false,
+                kind: ShorthandClass::Space,
+                pos,
+            },
+            'S' => ClassItem::Shorthand {
+                negated: true,
+                kind: ShorthandClass::Space,
+                pos,
+            },
+            'p' | 'P' => match self.peek() {
+                Some('{') => {
+                    self.skip_property_body()?;
+                    ClassItem::Property {
+                        negated: esc == 'P',
+                        pos,
+                    }
+                }
+                None => return Err(()),
+                Some(_) if self.unicode_mode => return Err(()),
+                Some(_) => ClassItem::Char {
+                    ch: esc,
+                    pos: char_pos,
+                },
+            },
+            'b' => ClassItem::Char {
+                ch: '\u{0008}',
+                pos: char_pos,
+            },
+            'n' => ClassItem::Char {
+                ch: '\n',
+                pos: char_pos,
+            },
+            't' => ClassItem::Char {
+                ch: '\t',
+                pos: char_pos,
+            },
+            'r' => ClassItem::Char {
+                ch: '\r',
+                pos: char_pos,
+            },
+            'f' => ClassItem::Char {
+                ch: '\u{000C}',
+                pos: char_pos,
+            },
+            'v' => ClassItem::Char {
+                ch: '\u{000B}',
+                pos: char_pos,
+            },
+            '0' => ClassItem::Char {
+                ch: '\0',
+                pos: char_pos,
+            },
+            'u' if self.unicode_mode => ClassItem::Char {
+                ch: self.parse_unicode_escape()?,
+                pos: char_pos,
+            },
+            'x' if self.unicode_mode => ClassItem::Char {
+                ch: self.parse_hex_escape(2)?,
+                pos: char_pos,
+            },
+            _ => ClassItem::Char {
+                ch: esc,
+                pos: char_pos,
+            },
+        })
+    }
+}
+
+/// Whether a sequence can match the empty string.
+fn sequence_can_match_empty(sequence: &[PatternNode]) -> bool {
+    sequence.iter().all(node_can_match_empty)
+}
+
+/// Whether one node can match the empty string; lookarounds and anchors are
+/// zero-width, groups when any alternative is empty-capable.
+fn node_can_match_empty(node: &PatternNode) -> bool {
+    match node {
+        PatternNode::Anchor { .. } => true,
+        PatternNode::Group {
+            kind, alternatives, ..
+        } => {
+            kind.is_lookaround()
+                || alternatives
+                    .iter()
+                    .any(|alternative| sequence_can_match_empty(alternative))
+        }
+        PatternNode::Quantified { min, node, .. } => *min == 0 || node_can_match_empty(node),
+        _ => false,
+    }
+}
+
+/// Pre-order traversal of the pattern tree behind `sequence`.
+fn walk_pattern_nodes(sequence: &[PatternNode], visit: &mut dyn FnMut(&PatternNode)) {
+    for node in sequence {
+        visit(node);
+        match node {
+            PatternNode::Group { alternatives, .. } => {
+                for alternative in alternatives {
+                    walk_pattern_nodes(alternative, visit);
+                }
+            }
+            PatternNode::Quantified { node: inner, .. } => {
+                walk_pattern_nodes(std::slice::from_ref(inner.as_ref()), visit);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Documented subset approximation of the `S5843` complexity score:
+/// literals/dots/anchors cost 1, shorthands 2, backreferences 2, property
+/// escapes 3, classes `2 + items`, groups 2 (lookarounds 4) plus their
+/// body, quantifiers 2 plus their target, and each additional alternation
+/// branch costs 1.
+fn pattern_complexity(alternatives: &[Vec<PatternNode>]) -> u32 {
+    let extra_branches = alternatives.len().saturating_sub(1);
+    alternatives
+        .iter()
+        .map(|alternative| alternative.iter().map(node_complexity).sum::<u32>())
+        .sum::<u32>()
+        .saturating_add(to_u32(extra_branches))
+}
+
+fn node_complexity(node: &PatternNode) -> u32 {
+    match node {
+        PatternNode::Literal { .. } | PatternNode::Dot | PatternNode::Anchor { .. } => 1,
+        PatternNode::BackReference { .. } | PatternNode::ClassEscape { .. } => 2,
+        PatternNode::PropertyEscape { .. } => 3,
+        PatternNode::Class { items, .. } => 2u32.saturating_add(to_u32(items.len())),
+        PatternNode::Group {
+            kind, alternatives, ..
+        } => {
+            let base: u32 = if kind.is_lookaround() { 4 } else { 2 };
+            base.saturating_add(pattern_complexity(alternatives))
+        }
+        PatternNode::Quantified { node, .. } => 2u32.saturating_add(node_complexity(node)),
+    }
+}
+
+// ----- Regex-site plumbing -----
+
+/// One constant regex found in the AST: a regex literal or a `RegExp`
+/// constructor call whose arguments are all literals. Pattern rules run the
+/// shared mini walker over the pattern text; nothing is executed.
+struct RegexSite {
+    /// Fallback span for findings whose exact pattern offset is unknown
+    /// (constructor-form offsets hide behind string escapes).
+    span: Span,
+    /// Source byte offset of `pattern[0]`; reliable only when
+    /// [`RegexSite::exact`] holds.
+    pattern_base: u32,
+    /// Whether `pattern_base` maps pattern byte offsets exactly onto source.
+    exact: bool,
+    pattern: String,
+    flags: String,
+}
+
+impl RegexSite {
+    fn sub_span(&self, start: usize, end: usize) -> Span {
+        if self.exact {
+            Span::new(
+                self.pattern_base.saturating_add(to_u32(start)),
+                self.pattern_base.saturating_add(to_u32(end)),
+            )
+        } else {
+            self.span
+        }
+    }
+
+    fn whole_pattern_span(&self) -> Span {
+        self.sub_span(0, self.pattern.len())
+    }
+
+    fn has_flag(&self, flag: char) -> bool {
+        self.flags.contains(flag)
+    }
+}
+
+/// Builds a site from a regex literal; its pattern text sits verbatim
+/// between the slashes, so sub-spans are exact.
+fn regex_site_from_literal(literal: &RegExpLiteral<'_>) -> RegexSite {
+    RegexSite {
+        span: literal.span,
+        pattern_base: literal.span.start.saturating_add(1),
+        exact: true,
+        pattern: literal.regex.pattern.text.as_str().to_string(),
+        flags: regex_flags_text(literal.regex.flags),
+    }
+}
+
+/// Literal-form flags in canonical order; the constructor form keeps its
+/// raw flags string instead.
+fn regex_flags_text(flags: RegExpFlags) -> String {
+    const ORDERED: [(RegExpFlags, char); 8] = [
+        (RegExpFlags::G, 'g'),
+        (RegExpFlags::I, 'i'),
+        (RegExpFlags::M, 'm'),
+        (RegExpFlags::S, 's'),
+        (RegExpFlags::U, 'u'),
+        (RegExpFlags::Y, 'y'),
+        (RegExpFlags::D, 'd'),
+        (RegExpFlags::V, 'v'),
+    ];
+    ORDERED
+        .iter()
+        .filter(|&(flag, _)| flags.contains(*flag))
+        .map(|&(_, ch)| ch)
+        .collect()
+}
+
+/// String value of a constant literal argument: a string literal or a
+/// substitution-free template literal.
+fn literal_string_value(argument: &oxc_ast::ast::Argument<'_>) -> Option<String> {
+    match argument.as_expression()? {
+        Expression::StringLiteral(string) => Some(string.value.as_str().to_string()),
+        Expression::TemplateLiteral(template) if template.expressions.is_empty() => template
+            .quasis
+            .first()
+            .and_then(|element| element.value.cooked.as_ref())
+            .map(|atom| atom.as_str().to_string()),
+        _ => None,
+    }
+}
+
+/// Builds a site from `new RegExp(pattern, flags?)` / `RegExp(pattern,
+/// flags?)` when every argument is a constant literal. Offsets inside
+/// escaped strings are unreliable, so findings anchor at the argument span.
+fn constructor_regex_site(arguments: &[oxc_ast::ast::Argument<'_>]) -> Option<RegexSite> {
+    let values: Vec<Option<String>> = arguments.iter().map(literal_string_value).collect();
+    let pattern = values.first()?.clone()?;
+    let flags = values.get(1).cloned().flatten().unwrap_or_default();
+    Some(RegexSite {
+        span: arguments.first()?.span(),
+        pattern_base: 0,
+        exact: false,
+        pattern,
+        flags,
+    })
+}
+
+/// The regex literal behind an optional call argument, if it is one.
+fn regex_literal_argument<'a>(
+    argument: Option<&'a oxc_ast::ast::Argument<'a>>,
+) -> Option<&'a oxc_ast::ast::RegExpLiteral<'a>> {
+    match argument?.as_expression()? {
+        Expression::RegExpLiteral(literal) => Some(literal),
+        _ => None,
+    }
+}
+
+// ----- Shared-walker rule drivers -----
+
+/// Runs every pattern-text rule over one constant regex site. The raw-text
+/// scans also run on patterns the mini parser rejects; everything
+/// structure-based needs a successful parse.
+fn check_constant_regex_site(sink: &mut IssueSink, site: &RegexSite) {
+    check_control_characters(sink, site);
+    check_unicode_constructs_without_u_flag(sink, site);
+    let unicode_mode = site.has_flag('u') || site.has_flag('v');
+    let Ok(parsed) = parse_regex_pattern(&site.pattern, unicode_mode) else {
+        // Upstream embeds the validator's detail text; the subset reports
+        // statically because the mini parser carries no error messages.
+        sink.emit_span(
+            RuleScope::Both,
+            "S5856",
+            "Invalid regular expression.",
+            site.whole_pattern_span(),
+        );
+        return;
+    };
+    check_empty_character_class(sink, site, &parsed);
+    check_empty_alternatives(sink, site, &parsed);
+    check_empty_groups(sink, site, &parsed);
+    check_duplicate_class_members(sink, site, &parsed);
+    check_single_member_class(sink, site, &parsed);
+    check_concise_shapes(sink, site, &parsed);
+    check_space_runs(sink, site, &parsed);
+    check_empty_string_repetition(sink, site, &parsed);
+    check_pointless_reluctant_quantifier(sink, site, &parsed);
+    check_single_char_alternation(sink, site, &parsed);
+    check_anchor_precedence(sink, site, &parsed);
+    check_misleading_class_characters(sink, site, &parsed);
+    check_regex_complexity(sink, site, &parsed);
+    check_exponential_backtracking(sink, site, &parsed);
+}
+
+/// `S2639`: `[]` never matches anything and `[^]` matches everything —
+/// both are defects.
+fn check_empty_character_class(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+    for alternative in &parsed.alternatives {
+        walk_pattern_nodes(alternative, &mut |node| {
+            if let PatternNode::Class {
+                items, start, end, ..
+            } = node
+                && items.is_empty()
+            {
+                sink.emit_span(
+                    RuleScope::Both,
+                    "S2639",
+                    "Rework this empty character class that doesn't match anything.",
+                    site.sub_span(*start, *end),
+                );
+            }
+        });
+    }
+}
+
+/// `S6323`: an alternation branch that can never participate (`|`, `(a|)`).
+fn check_empty_alternatives(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+    for pos in &parsed.empty_branch_positions {
+        sink.emit_span(
+            RuleScope::Both,
+            "S6323",
+            "Remove this empty alternative.",
+            site.sub_span(*pos, *pos),
+        );
+    }
+}
+
+/// `S6331`: a wholly empty group `()` / `(?:)`.
+fn check_empty_groups(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+    for alternative in &parsed.alternatives {
+        walk_pattern_nodes(alternative, &mut |node| {
+            if let PatternNode::Group {
+                kind,
+                alternatives,
+                start,
+                end,
+            } = node
+                && !kind.is_lookaround()
+                && alternatives.len() == 1
+                && alternatives[0].is_empty()
+            {
+                sink.emit_span(
+                    RuleScope::Both,
+                    "S6331",
+                    "Remove this empty group.",
+                    site.sub_span(*start, *end),
+                );
+            }
+        });
+    }
+}
+
+/// `S5869`: repeated characters inside `[...]`. Case-insensitive folding is
+/// out of subset scope.
+fn check_duplicate_class_members(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+    for alternative in &parsed.alternatives {
+        walk_pattern_nodes(alternative, &mut |node| {
+            let PatternNode::Class { items, .. } = node else {
+                return;
+            };
+            let mut seen: Vec<char> = Vec::new();
+            for item in items {
+                if let ClassItem::Char { ch, pos } = item {
+                    if seen.contains(ch) {
+                        sink.emit_span(
+                            RuleScope::Both,
+                            "S5869",
+                            "Remove duplicates in this character class.",
+                            site.sub_span(*pos, pos + ch.len_utf8()),
+                        );
+                    } else {
+                        seen.push(*ch);
+                    }
+                }
+            }
+        });
+    }
+}
+
+/// `S6397`: `[a]` asserts no more than `a`.
+fn check_single_member_class(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+    for alternative in &parsed.alternatives {
+        walk_pattern_nodes(alternative, &mut |node| {
+            if let PatternNode::Class {
+                items, start, end, ..
+            } = node
+                && items.len() == 1
+                && matches!(items[0], ClassItem::Char { .. })
+            {
+                sink.emit_span(
+                    RuleScope::Both,
+                    "S6397",
+                    "Replace this character class by the character itself.",
+                    site.sub_span(*start, *end),
+                );
+            }
+        });
+    }
+}
+
+/// `S6353`: `{1}` / `{1,1}` quantifiers and duplicate-only classes with a
+/// concise rewrite.
+fn check_concise_shapes(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+    for alternative in &parsed.alternatives {
+        walk_pattern_nodes(alternative, &mut |node| match node {
+            PatternNode::Quantified {
+                min,
+                max,
+                verbose,
+                pos,
+                ..
+            } if *min == 1 && *max == Some(1) => {
+                sink.emit_span(
+                    RuleScope::Both,
+                    "S6353",
+                    &format!("Remove redundant quantifier {verbose}."),
+                    site.sub_span(*pos, *pos),
+                );
+            }
+            PatternNode::Class {
+                items, start, end, ..
+            } => {
+                emit_concise_class_rewrite(sink, site, items, *start, *end);
+            }
+            _ => {}
+        });
+    }
+}
+
+/// Concise-form rewrite for classes made solely of duplicated single chars
+/// (`[aa]` → `[a]`), following the upstream message shape.
+fn emit_concise_class_rewrite(
+    sink: &mut IssueSink,
+    site: &RegexSite,
+    items: &[ClassItem],
+    start: usize,
+    end: usize,
+) {
+    let mut unique: Vec<char> = Vec::new();
+    for item in items {
+        let ClassItem::Char { ch, .. } = item else {
+            return; // mixed shapes have no single concise form in subset scope
+        };
+        if !unique.contains(ch) {
+            unique.push(*ch);
+        }
+    }
+    if unique.len() == items.len() {
+        return; // no duplicates, nothing to rewrite
+    }
+    let expected: String = unique.iter().collect();
+    let actual = &site.pattern[start..end];
+    sink.emit_span(
+        RuleScope::Both,
+        "S6353",
+        &format!("Use concise character class syntax '[{expected}]' instead of '{actual}'."),
+        site.sub_span(start, end),
+    );
+}
+
+/// `S6326`: runs of two or more spaces outside character classes.
+fn check_space_runs(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+    for alternative in &parsed.alternatives {
+        for_every_sequence(alternative, &mut |sequence| {
+            emit_space_runs_in_sequence(sink, site, sequence);
+        });
+    }
+}
+
+fn emit_space_runs_in_sequence(sink: &mut IssueSink, site: &RegexSite, sequence: &[PatternNode]) {
+    let mut run: Option<(usize, u32)> = None; // (start offset, length)
+    for node in sequence {
+        match node {
+            PatternNode::Literal { ch: ' ', pos } => {
+                run = Some(match run {
+                    Some((start, len)) => (start, len + 1),
+                    None => (*pos, 1),
+                });
+            }
+            _ => flush_space_run(sink, site, run.take()),
+        }
+    }
+    flush_space_run(sink, site, run.take());
+}
+
+fn flush_space_run(sink: &mut IssueSink, site: &RegexSite, run: Option<(usize, u32)>) {
+    let Some((start, len)) = run.filter(|&(_, length)| length >= 2) else {
+        return;
+    };
+    let end = start + usize::try_from(len).unwrap_or(usize::MAX);
+    sink.emit_span(
+        RuleScope::Both,
+        "S6326",
+        &format!("If multiple spaces are required here, use number quantifier ({{{len}}})."),
+        site.sub_span(start, end),
+    );
+}
+
+/// `S5842`: a consuming quantifier over an empty-matchable group loops
+/// forever (`(a*)+`). Subset: `min >= 1` over non-lookaround groups.
+fn check_empty_string_repetition(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+    for alternative in &parsed.alternatives {
+        walk_pattern_nodes(alternative, &mut |node| {
+            if let PatternNode::Quantified {
+                min,
+                node: target,
+                pos,
+                ..
+            } = node
+                && *min >= 1
+                && let PatternNode::Group {
+                    kind, alternatives, ..
+                } = target.as_ref()
+                && !kind.is_lookaround()
+                && alternatives
+                    .iter()
+                    .any(|branch| sequence_can_match_empty(branch))
+            {
+                sink.emit_span(
+                    RuleScope::Both,
+                    "S5842",
+                    "Rework this part of the regex to not match the empty string.",
+                    site.sub_span(*pos, *pos),
+                );
+            }
+        });
+    }
+}
+
+/// `S6019`: a reluctant quantifier directly followed by something that can
+/// match empty renders the laziness pointless.
+fn check_pointless_reluctant_quantifier(
+    sink: &mut IssueSink,
+    site: &RegexSite,
+    parsed: &ParsedRegex,
+) {
+    for alternative in &parsed.alternatives {
+        for_every_sequence(alternative, &mut |sequence| {
+            for pair in sequence.windows(2) {
+                if let PatternNode::Quantified {
+                    greedy: false,
+                    min,
+                    pos,
+                    ..
+                } = pair[0]
+                    && node_can_match_empty(&pair[1])
+                {
+                    let plural = if min == 1 { "" } else { "s" };
+                    sink.emit_span(
+                        RuleScope::Both,
+                        "S6019",
+                        &format!(
+                            "Fix this reluctant quantifier that will only ever match {min} repetition{plural}."
+                        ),
+                        site.sub_span(pos, pos),
+                    );
+                }
+            }
+        });
+    }
+}
+
+/// `S6035`: every branch of an alternation being one literal char is a
+/// character class in disguise (`a|b|c`).
+fn check_single_char_alternation(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+    flag_single_char_alternation(sink, &parsed.alternatives, site.whole_pattern_span());
+    for alternative in &parsed.alternatives {
+        walk_pattern_nodes(alternative, &mut |node| {
+            if let PatternNode::Group {
+                alternatives,
+                start,
+                end,
+                ..
+            } = node
+            {
+                flag_single_char_alternation(sink, alternatives, site.sub_span(*start, *end));
+            }
+        });
+    }
+}
+
+fn flag_single_char_alternation(
+    sink: &mut IssueSink,
+    alternatives: &[Vec<PatternNode>],
+    span: Span,
+) {
+    let all_single_char = alternatives.len() > 1
+        && alternatives
+            .iter()
+            .all(|branch| matches!(branch.as_slice(), [PatternNode::Literal { .. }]));
+    if all_single_char {
+        sink.emit_span(
+            RuleScope::Both,
+            "S6035",
+            "Replace this alternation with a character class.",
+            span,
+        );
+    }
+}
+
+/// `S5850`: `^a|b$` — anchors under a top-level alternation bind to one
+/// branch only unless the branches are grouped.
+fn check_anchor_precedence(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+    if parsed.alternatives.len() < 2 {
+        return;
+    }
+    let starts_anchored = matches!(
+        parsed.alternatives[0].first(),
+        Some(PatternNode::Anchor {
+            kind: AnchorKind::Start,
+            ..
+        })
+    );
+    let ends_anchored = matches!(
+        parsed.alternatives.last().and_then(|branch| branch.last()),
+        Some(PatternNode::Anchor {
+            kind: AnchorKind::End,
+            ..
+        })
+    );
+    if !(starts_anchored || ends_anchored) {
+        return;
+    }
+    let pos = if starts_anchored {
+        match parsed.alternatives[0].first() {
+            Some(PatternNode::Anchor { pos, .. }) => *pos,
+            _ => 0,
+        }
+    } else {
+        match parsed.alternatives.last().and_then(|branch| branch.last()) {
+            Some(PatternNode::Anchor { pos, .. }) => *pos,
+            _ => 0,
+        }
+    };
+    sink.emit_span(
+        RuleScope::Both,
+        "S5850",
+        "Group parts of the regex together to make the intended operator precedence explicit.",
+        site.sub_span(pos, pos),
+    );
+}
+
+/// Grapheme components that silently truncate inside a character class.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GraphemeComponentKind {
+    CombiningMark,
+    JoinSequence,
+    ModifiedEmoji,
+    RegionalIndicator,
+}
+
+fn grapheme_component_kind(ch: char) -> Option<GraphemeComponentKind> {
+    let kind = match ch {
+        '\u{0300}'..='\u{036F}'
+        | '\u{1AB0}'..='\u{1AFF}'
+        | '\u{1DC0}'..='\u{1DFF}'
+        | '\u{20D0}'..='\u{20F0}'
+        | '\u{FE20}'..='\u{FE2F}' => GraphemeComponentKind::CombiningMark,
+        '\u{200D}' => GraphemeComponentKind::JoinSequence,
+        '\u{FE00}'..='\u{FE0F}' | '\u{1F3FB}'..='\u{1F3FF}' => GraphemeComponentKind::ModifiedEmoji,
+        '\u{1F1E6}'..='\u{1F1FF}' => GraphemeComponentKind::RegionalIndicator,
+        _ => return None,
+    };
+    Some(kind)
+}
+
+/// `S5868`: combining marks, ZWJ sequences, variation selectors, skin-tone
+/// modifiers, and regional indicators inside `[...]` match one scalar, not
+/// the grapheme the pattern author sees. Subset: UTF-16 surrogate pairs
+/// cannot appear as `char`s and stay out of scope.
+fn check_misleading_class_characters(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+    for alternative in &parsed.alternatives {
+        walk_pattern_nodes(alternative, &mut |node| {
+            let PatternNode::Class { start, end, .. } = node else {
+                return;
+            };
+            let Some(slice) = site.pattern.get(*start..*end) else {
+                return;
+            };
+            // Skip the leading `[`, plus `^` for negated classes.
+            let skip = usize::from(slice.starts_with("[^")) + 1;
+            for (relative, ch) in slice.char_indices().skip(skip) {
+                let Some(kind) = grapheme_component_kind(ch) else {
+                    continue;
+                };
+                let message = match kind {
+                    GraphemeComponentKind::CombiningMark => format!(
+                        "Move this Unicode combined character '{ch}' outside of the character class"
+                    ),
+                    GraphemeComponentKind::JoinSequence => String::from(
+                        "Move this Unicode joined character sequence outside of the character class",
+                    ),
+                    GraphemeComponentKind::ModifiedEmoji => format!(
+                        "Move this Unicode modified Emoji '{ch}' outside of the character class"
+                    ),
+                    GraphemeComponentKind::RegionalIndicator => format!(
+                        "Move this Unicode regional indicator '{ch}' outside of the character class"
+                    ),
+                };
+                let absolute = start + relative;
+                sink.emit_span(
+                    RuleScope::Both,
+                    "S5868",
+                    &message,
+                    site.sub_span(absolute, absolute + ch.len_utf8()),
+                );
+            }
+        });
+    }
+}
+
+/// `S5843`: complexity budget exceeded (subset scoring, see
+/// [`pattern_complexity`]).
+fn check_regex_complexity(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+    let score = pattern_complexity(&parsed.alternatives);
+    if score > REGEX_COMPLEXITY_THRESHOLD {
+        sink.emit_span(
+            RuleScope::Both,
+            "S5843",
+            &format!(
+                "Simplify this regular expression to reduce its complexity from {score} to the {REGEX_COMPLEXITY_THRESHOLD} allowed."
+            ),
+            site.whole_pattern_span(),
+        );
+    }
+}
+
+/// `S5852`: unbounded quantifiers nested inside unbounded quantifiers
+/// (`(a+)+`) risk exponential backtracking. Conservative subset: any
+/// containment counts; disjointness analysis stays out of scope.
+fn check_exponential_backtracking(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+    for alternative in &parsed.alternatives {
+        walk_pattern_nodes(alternative, &mut |node| {
+            if let PatternNode::Quantified {
+                max: None,
+                node: target,
+                pos,
+                ..
+            } = node
+                && contains_unbounded_quantifier(target)
+            {
+                sink.emit_span(
+                    RuleScope::Both,
+                    "S5852",
+                    "Fix this regular expression that is vulnerable to exponential backtracking, as it can lead to denial of service.",
+                    site.sub_span(*pos, *pos),
+                );
+            }
+        });
+    }
+}
+
+fn contains_unbounded_quantifier(node: &PatternNode) -> bool {
+    match node {
+        PatternNode::Quantified { max: None, .. } => true,
+        PatternNode::Quantified { node: inner, .. } => contains_unbounded_quantifier(inner),
+        PatternNode::Group { alternatives, .. } => alternatives
+            .iter()
+            .flatten()
+            .any(contains_unbounded_quantifier),
+        _ => false,
+    }
+}
+
+/// `S6324`: bare C0 control characters other than the tab/newline
+/// conventions.
+fn check_control_characters(sink: &mut IssueSink, site: &RegexSite) {
+    for (offset, ch) in site.pattern.char_indices() {
+        if is_bare_control_character(ch) {
+            sink.emit_span(
+                RuleScope::Both,
+                "S6324",
+                "Remove this control character.",
+                site.sub_span(offset, offset + ch.len_utf8()),
+            );
+        }
+    }
+}
+
+fn is_bare_control_character(ch: char) -> bool {
+    matches!(
+        ch,
+        '\0'..='\u{0008}' | '\u{000B}' | '\u{000C}' | '\u{000E}'..='\u{001F}'
+    )
+}
+
+/// `S5867`: `\p{…}` / `\P{…}` / `\u{…}` without the `u` (or `v`) flag
+/// behave nothing like their intent.
+fn check_unicode_constructs_without_u_flag(sink: &mut IssueSink, site: &RegexSite) {
+    if site.has_flag('u') || site.has_flag('v') {
+        return;
+    }
+    for construct in ["\\p{", "\\P{", "\\u{"] {
+        let mut search_from = 0;
+        while let Some(found) = site.pattern[search_from..].find(construct) {
+            let start = search_from + found;
+            let end = start + construct.len();
+            sink.emit_span(
+                RuleScope::Both,
+                "S5867",
+                "Enable the 'u' flag for this regex using Unicode constructs.",
+                site.sub_span(start, end),
+            );
+            search_from = end;
+        }
+    }
+}
+
+// ----- Context-sensitive family members -----
+
+/// One `$n` / `$<name>` reference found in a replacement string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum GroupReference {
+    Index(u32),
+    Name(String),
+}
+
+/// Scans replacement-string text for group references; `$$` escapes are
+/// skipped and numeric references take up to two digits, like JavaScript.
+fn replacement_group_references(text: &str) -> Vec<GroupReference> {
+    let bytes = text.as_bytes();
+    let mut references = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'$' {
+            i += 1;
+            continue;
+        }
+        if bytes.get(i + 1) == Some(&b'$') {
+            i += 2;
+            continue;
+        }
+        if bytes.get(i + 1) == Some(&b'<')
+            && let Some(close) = text[i + 2..].find('>')
+        {
+            let name = &text[i + 2..i + 2 + close];
+            if !name.is_empty() {
+                references.push(GroupReference::Name(name.to_string()));
+                i += close + 3;
+                continue;
+            }
+        }
+        let digits = bytes[i + 1..]
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count()
+            .min(2);
+        if digits > 0 {
+            references.push(GroupReference::Index(
+                text[i + 1..i + 1 + digits].parse().unwrap_or(u32::MAX),
+            ));
+            i += digits + 1;
+            continue;
+        }
+        i += 1;
+    }
+    references
+}
+
+/// `S6328`: replacement strings referencing groups the paired regex never
+/// captures.
+fn check_replacement_groups(
+    sink: &mut IssueSink,
+    replacement_span: Span,
+    text: &str,
+    parsed: &ParsedRegex,
+) {
+    let invalid: Vec<String> = replacement_group_references(text)
+        .into_iter()
+        .filter(|reference| !reference_exists(reference, parsed))
+        .map(|reference| match reference {
+            GroupReference::Index(index) => format!("${index}"),
+            GroupReference::Name(name) => format!("$<{name}>"),
+        })
+        .collect();
+    if invalid.is_empty() {
+        return;
+    }
+    let plural = if invalid.len() == 1 { "" } else { "s" };
+    sink.emit_span(
+        RuleScope::Both,
+        "S6328",
+        &format!(
+            "Referencing non-existing group{plural}: {}.",
+            invalid.join(", ")
+        ),
+        replacement_span,
+    );
+}
+
+fn reference_exists(reference: &GroupReference, parsed: &ParsedRegex) -> bool {
+    match reference {
+        GroupReference::Index(index) => {
+            *index > 0 && u32::try_from(parsed.capture_count).is_ok_and(|count| *index <= count)
+        }
+        GroupReference::Name(name) => parsed.capture_names.iter().any(|known| known == name),
+    }
+}
+
+/// Calls `f` for every sequence in the tree — groups' alternatives and
+/// quantified targets included; class internals excluded.
+fn for_every_sequence(sequence: &[PatternNode], f: &mut dyn FnMut(&[PatternNode])) {
+    f(sequence);
+    for node in sequence {
+        match node {
+            PatternNode::Group { alternatives, .. } => {
+                for alternative in alternatives {
+                    for_every_sequence(alternative, f);
+                }
+            }
+            PatternNode::Quantified { node: inner, .. } => {
+                for_every_sequence(std::slice::from_ref(inner.as_ref()), f);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Drives [`check_constant_regex_site`] over every constant regex and adds
+/// the context-sensitive rules: `S6325` (constructor preference), `S6328`
+/// (replacement groups), and `S6351` (stateful global regexes in loops).
+struct RegexFamilyCollector<'index> {
+    sink: IssueSink<'index>,
+    loop_depth: u32,
+}
+
+impl RegexFamilyCollector<'_> {
+    /// `S6325`: a fully constant `RegExp` constructor call prefers literal
+    /// notation (upstream `prefer-regex-literals` primary message).
+    fn check_constructor(&mut self, arguments: &[oxc_ast::ast::Argument<'_>], span: Span) {
+        let Some(site) = constructor_regex_site(arguments) else {
+            return;
+        };
+        self.sink.emit_span(
+            RuleScope::Both,
+            "S6325",
+            "Use a regular expression literal instead of the 'RegExp' constructor.",
+            span,
+        );
+        check_constant_regex_site(&mut self.sink, &site);
+    }
+
+    /// `S6328`: `.replace(/…/, "…")` pairs cross-check replacement group
+    /// references against the pattern's captures.
+    fn check_replacement_pair(&mut self, call: &CallExpression<'_>) {
+        let Some(regex) = regex_literal_argument(call.arguments.first()) else {
+            return;
+        };
+        let Some(replacement) = call.arguments.get(1) else {
+            return;
+        };
+        let Some(text) = literal_string_value(replacement) else {
+            return;
+        };
+        let flags = regex_flags_text(regex.regex.flags);
+        let unicode_mode = flags.contains('u') || flags.contains('v');
+        if let Ok(parsed) = parse_regex_pattern(regex.regex.pattern.text.as_str(), unicode_mode) {
+            check_replacement_groups(&mut self.sink, replacement.span(), &text, &parsed);
+        }
+    }
+
+    /// `S6351` subset: a `/g` regex literal feeding `.test()` or `.exec()`
+    /// inside a loop carries hidden `lastIndex` state.
+    fn check_stateful_global_regex(&mut self, object_member: &MemberExpression<'_>, span: Span) {
+        if self.loop_depth == 0 {
+            return;
+        }
+        let Expression::RegExpLiteral(literal) = unparenthesized(member_object(object_member))
+        else {
+            return;
+        };
+        if literal.regex.flags.contains(RegExpFlags::G) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S6351",
+                "Extract this regular expression to avoid infinite loop.",
+                span,
+            );
+        }
+    }
+}
+
+impl Visit<'_> for RegexFamilyCollector<'_> {
+    fn visit_expression(&mut self, it: &Expression<'_>) {
+        if let Expression::RegExpLiteral(literal) = it {
+            let site = regex_site_from_literal(literal);
+            check_constant_regex_site(&mut self.sink, &site);
+        }
+        walk_expression(self, it);
+    }
+
+    fn visit_new_expression(&mut self, it: &NewExpression<'_>) {
+        if constructor_name(it) == Some("RegExp") {
+            self.check_constructor(&it.arguments, it.span());
+        }
+        walk_new_expression(self, it);
+    }
+
+    fn visit_call_expression(&mut self, it: &CallExpression<'_>) {
+        if callee_name(it) == Some("RegExp") {
+            self.check_constructor(&it.arguments, it.span());
+        }
+        if let Some((property, member)) = call_property(it) {
+            match property {
+                "replace" | "replaceAll" => self.check_replacement_pair(it),
+                "test" | "exec" => self.check_stateful_global_regex(member, it.span()),
+                _ => {}
+            }
+        }
+        walk_call_expression(self, it);
+    }
+
+    fn visit_for_statement(&mut self, it: &ForStatement<'_>) {
+        self.loop_depth += 1;
+        walk_for_statement(self, it);
+        self.loop_depth -= 1;
+    }
+
+    fn visit_for_in_statement(&mut self, it: &ForInStatement<'_>) {
+        self.loop_depth += 1;
+        walk_for_in_statement(self, it);
+        self.loop_depth -= 1;
+    }
+
+    fn visit_for_of_statement(&mut self, it: &ForOfStatement<'_>) {
+        self.loop_depth += 1;
+        walk_for_of_statement(self, it);
+        self.loop_depth -= 1;
+    }
+
+    fn visit_while_statement(&mut self, it: &WhileStatement<'_>) {
+        self.loop_depth += 1;
+        walk_while_statement(self, it);
+        self.loop_depth -= 1;
+    }
+
+    fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'_>) {
+        self.loop_depth += 1;
+        walk_do_while_statement(self, it);
+        self.loop_depth -= 1;
+    }
+}
+
+/// All Batch3 regex-family checks in one traversal: the shared pattern
+/// walker over `S5856`, `S2639`, `S6323`, `S6331`, `S5869`, `S6397`,
+/// `S6353`, `S6326`, `S6324`, `S5842`, `S6019`, `S6035`, `S5850`, `S5867`,
+/// `S5868`, `S5843`, and `S5852`, plus context rules `S6325`, `S6328`, and
+/// `S6351`.
+fn check_regex_family(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = RegexFamilyCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        loop_depth: 0,
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
 #[cfg(test)]
 mod tests {
+
     use super::{AnalyzerOptions, JstsLanguage, RuleOptions, analyze, language_for_extension};
     use std::fmt::Write as _;
     use std::path::PathBuf;
