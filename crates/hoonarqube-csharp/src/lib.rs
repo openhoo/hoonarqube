@@ -18636,6 +18636,40 @@ fn tier_c_heuristic_issues(root: Node<'_>, source: &str, language: CsLanguage) -
     issues.extend(check_equality_on_equals_overriders(root, source, language));
     issues.extend(check_array_covariance_assignments(root, source, language));
     issues.extend(check_interface_casts_to_concrete(root, source, language));
+    issues.extend(check_argument_order_mismatches(root, source, language));
+    issues.extend(check_default_value_arguments(root, source, language));
+    issues.extend(check_ambiguous_params_overload_calls(
+        root, source, language,
+    ));
+    issues.extend(check_undisposed_disposable_locals(root, source, language));
+    issues.extend(check_disposable_members_without_interface(
+        root, source, language,
+    ));
+    issues.extend(check_dispose_of_non_members(root, source, language));
+    issues.extend(check_readonly_generic_field_property_writes(
+        root, source, language,
+    ));
+    issues.extend(check_serializable_without_deserialization_validation(
+        root, source, language,
+    ));
+    issues.extend(check_unsupported_query_parameter_types(
+        root, source, language,
+    ));
+    issues.extend(check_route_constraint_parameter_types(
+        root, source, language,
+    ));
+    issues.extend(check_durable_entity_interface_restrictions(
+        root, source, language,
+    ));
+    issues.extend(check_mixed_responsibility_controllers(
+        root, source, language,
+    ));
+    issues.extend(check_first_or_single_on_known_non_empty(
+        root, source, language,
+    ));
+    issues.extend(check_calls_to_explicit_interface_implementations(
+        root, source, language,
+    ));
     issues
 }
 
@@ -20372,6 +20406,1039 @@ fn check_interface_casts_to_concrete(
                 "S3215",
                 "Do not cast this interface instance to a concrete type; use its interface or a generic parameter.",
                 range_of(cast),
+            )
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Tier C — designed-not-landed keys
+//
+// S2234, S3254, S3220, S2930, S2931, S2952, and S2934 — each an explicitly
+// documented single-file heuristic subset, true-positive by construction
+// over the file-local declaration tables.
+// ---------------------------------------------------------------------------
+
+/// File-local method declarations grouped by simple name.
+fn local_method_table<'t>(
+    root: Node<'t>,
+    source: &'t str,
+) -> std::collections::HashMap<&'t str, Vec<Node<'t>>> {
+    let mut table: std::collections::HashMap<&'t str, Vec<Node<'t>>> =
+        std::collections::HashMap::new();
+    for method in collect_kinds(root, &["method_declaration"]) {
+        if is_error_tainted(method) {
+            continue;
+        }
+        if let Some(name) = method.child_by_field_name("name") {
+            table
+                .entry(node_text(name, source))
+                .or_default()
+                .push(method);
+        }
+    }
+    table
+}
+
+/// Whether every argument of the invocation is positional (no `name:` label).
+fn invocation_is_positional(invocation: Node<'_>) -> bool {
+    invocation_arguments(invocation).iter().all(|argument| {
+        let mut cursor = argument.walk();
+        !argument
+            .children(&mut cursor)
+            .any(|child| child.kind() == "name_colon")
+    })
+}
+
+/// Declared-type node of a field or property member.
+fn member_declared_type(member: Node<'_>) -> Option<Node<'_>> {
+    if member.kind() == "property_declaration" {
+        return member.child_by_field_name("type");
+    }
+    let mut cursor = member.walk();
+    member
+        .children(&mut cursor)
+        .find(|child| child.kind() == "variable_declaration")
+        .and_then(|declaration| declaration.child_by_field_name("type"))
+}
+
+/// The plain name a receiver expression denotes: a bare identifier or the
+/// member of a `this.Name` access.
+fn this_or_identifier_name<'a>(expression: Node<'_>, source: &'a str) -> Option<&'a str> {
+    match expression.kind() {
+        "identifier" => Some(node_text(expression, source)),
+        "member_access_expression" => {
+            let object = first_named_child(expression)?;
+            if object.kind() == "this_expression" {
+                expression_name(expression, source)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// csharpsquid:S2234 — arguments passed in a different order than the
+/// parameters they bind to. Subset: fully positional calls against
+/// file-local methods with exactly matching arity and no `params` tail; a
+/// call is flagged when two argument identifiers spell each other's bound
+/// parameter names. Calls into other files stay uncovered.
+fn check_argument_order_mismatches(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let methods = local_method_table(root, source);
+    collect_kinds(root, &["invocation_expression"])
+        .into_iter()
+        .filter(|call| !is_error_tainted(*call))
+        .filter(|call| invocation_is_positional(*call))
+        .filter(|call| {
+            let Some(candidates) = callee_name(*call, source).and_then(|name| methods.get(name))
+            else {
+                return false;
+            };
+            let arguments = invocation_arguments(*call);
+            candidates.iter().any(|method| {
+                let parameters = parameters_of(*method);
+                parameters.len() == arguments.len()
+                    && (0..arguments.len()).any(|first| {
+                        ((first + 1)..arguments.len()).any(|second| {
+                            swapped_argument_pair(&arguments, &parameters, first, second, source)
+                        })
+                    })
+            })
+        })
+        .map(|call| {
+            issue(
+                language,
+                "S2234",
+                "Pass the arguments in the same order as the method's parameters.",
+                range_of(call),
+            )
+        })
+        .collect()
+}
+
+/// Whether the arguments at `first`/`second` spell the parameter names of
+/// each other's positions.
+fn swapped_argument_pair(
+    arguments: &[Node<'_>],
+    parameters: &[Node<'_>],
+    first: usize,
+    second: usize,
+    source: &str,
+) -> bool {
+    let (Some(own), Some(other)) = (parameters.get(first), parameters.get(second)) else {
+        return false;
+    };
+    let (Some(own_name), Some(other_name)) = (
+        own.child_by_field_name("name"),
+        other.child_by_field_name("name"),
+    ) else {
+        return false;
+    };
+    let own_name = node_text(own_name, source);
+    let other_name = node_text(other_name, source);
+    let left = argument_expression(arguments[first]);
+    let right = argument_expression(arguments[second]);
+    left.kind() == "identifier"
+        && right.kind() == "identifier"
+        && node_text(left, source) == other_name
+        && node_text(right, source) == own_name
+        && own_name != other_name
+}
+
+/// csharpsquid:S3254 — explicit arguments duplicating the callee's parameter
+/// default. Subset: fully positional calls against file-local methods; an
+/// argument is flagged when its expression text equals the default spelled
+/// at the same position of some overload.
+fn check_default_value_arguments(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let methods = local_method_table(root, source);
+    collect_kinds(root, &["invocation_expression"])
+        .into_iter()
+        .filter(|call| !is_error_tainted(*call))
+        .filter(|call| invocation_is_positional(*call))
+        .flat_map(|call| {
+            let Some(candidates) = callee_name(call, source).and_then(|name| methods.get(name))
+            else {
+                return Vec::new();
+            };
+            let arguments = invocation_arguments(call);
+            if arguments.is_empty() {
+                return Vec::new();
+            }
+            arguments
+                .into_iter()
+                .enumerate()
+                .filter(|(index, argument)| {
+                    let text = node_text(argument_expression(*argument), source);
+                    candidates.iter().any(|method| {
+                        parameter_units(*method, source)
+                            .get(*index)
+                            .and_then(|unit| unit.default_value)
+                            .is_some_and(|default| node_text(default, source) == text)
+                    })
+                })
+                .map(|(_, argument)| argument)
+                .collect::<Vec<_>>()
+        })
+        .map(|argument| {
+            issue(
+                language,
+                "S3254",
+                "Remove this argument; it duplicates the parameter's default value.",
+                range_of(argument),
+            )
+        })
+        .collect()
+}
+
+/// Whether a proper `parameter` could bind an explicit array argument: an
+/// array-typed spelling, or `object`/`dynamic`.
+fn parameter_binds_arrays(parameter: Node<'_>, source: &str) -> bool {
+    parameter
+        .child_by_field_name("type")
+        .map(|type_node| node_text(type_node, source))
+        .is_some_and(|text| {
+            text.ends_with("[]") || matches!(simple_name(text), "object" | "Object" | "dynamic")
+        })
+}
+
+/// csharpsquid:S3220 — calls resolving ambiguously to a `params` overload.
+/// Subset: invocations whose last argument is an explicit array creation
+/// while the callee name declares both a `params` overload and a
+/// same-arity non-`params` overload whose last parameter is array- or
+/// object-typed. Other ambiguity shapes stay uncovered.
+fn check_ambiguous_params_overload_calls(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let methods = local_method_table(root, source);
+    collect_kinds(root, &["invocation_expression"])
+        .into_iter()
+        .filter(|call| !is_error_tainted(*call))
+        .filter(|call| {
+            let Some(candidates) = callee_name(*call, source).and_then(|name| methods.get(name))
+            else {
+                return false;
+            };
+            let argument_count = invocation_arguments(*call).len();
+            let has_params = candidates.iter().any(|method| {
+                parameter_units(*method, source)
+                    .iter()
+                    .any(|unit| unit.has_params)
+            });
+            let has_plain_candidate = candidates.iter().any(|method| {
+                let parameters = parameters_of(*method);
+                parameters.len() == argument_count
+                    && parameters
+                        .last()
+                        .is_some_and(|last| parameter_binds_arrays(*last, source))
+                    && !parameter_units(*method, source)
+                        .iter()
+                        .any(|unit| unit.has_params)
+            });
+            has_params && has_plain_candidate
+        })
+        .filter(|call| {
+            invocation_arguments(*call).last().is_some_and(|argument| {
+                matches!(
+                    argument_expression(*argument).kind(),
+                    "array_creation_expression" | "implicit_array_creation_expression"
+                )
+            })
+        })
+        .map(|call| {
+            issue(
+                language,
+                "S3220",
+                "This call resolves to the 'params' overload; make the intended overload explicit.",
+                range_of(call),
+            )
+        })
+        .collect()
+}
+
+/// Well-known `IDisposable` API type names backing the disposal subsets.
+/// Types outside the table stay uncovered (no semantic model).
+const DISPOSABLE_TYPES: [&str; 30] = [
+    "BinaryReader",
+    "BinaryWriter",
+    "Bitmap",
+    "Brush",
+    "CancellationTokenSource",
+    "CryptoStream",
+    "DbConnection",
+    "Font",
+    "FileStream",
+    "Graphics",
+    "GZipStream",
+    "HttpClient",
+    "Icon",
+    "Image",
+    "MemoryStream",
+    "Mutex",
+    "MySqlConnection",
+    "NpgsqlConnection",
+    "Pen",
+    "Process",
+    "RegistryKey",
+    "Semaphore",
+    "Socket",
+    "SqlConnection",
+    "SqlTransaction",
+    "Stream",
+    "StreamReader",
+    "StreamWriter",
+    "TcpClient",
+    "WebClient",
+];
+
+/// Names whose `.Dispose()` is invoked inside the block.
+fn disposed_names(block: Node<'_>, source: &str) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    walk_all(block, &mut |node| {
+        if node.kind() != "invocation_expression" || callee_name(node, source) != Some("Dispose") {
+            return;
+        }
+        if let Some(receiver) = invocation_receiver(node)
+            && let Some(name) = this_or_identifier_name(receiver, source)
+        {
+            names.insert(name.to_owned());
+        }
+    });
+    names
+}
+
+/// Names bound as `using` resources inside the block, in both the
+/// declaration and the expression form.
+fn using_resource_names(block: Node<'_>, source: &str) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    for statement in collect_kinds(block, &["using_statement"]) {
+        let mut cursor = statement.walk();
+        for child in statement.children(&mut cursor) {
+            match child.kind() {
+                "variable_declaration" => {
+                    for declarator in collect_kinds(child, &["variable_declarator"]) {
+                        if let Some(name) = declarator.child_by_field_name("name") {
+                            names.insert(node_text(name, source).to_owned());
+                        }
+                    }
+                }
+                "identifier" => {
+                    names.insert(node_text(child, source).to_owned());
+                }
+                _ => {}
+            }
+        }
+    }
+    names
+}
+
+/// Names returned by `return` statements inside the block.
+fn returned_names(block: Node<'_>, source: &str) -> std::collections::HashSet<String> {
+    collect_kinds(block, &["return_statement"])
+        .into_iter()
+        .filter_map(first_named_child)
+        .filter(|expression| expression.kind() == "identifier")
+        .map(|expression| node_text(expression, source).to_owned())
+        .collect()
+}
+
+/// csharpsquid:S2930 — `IDisposable` locals that are never disposed. Subset:
+/// locals whose declared type is in the well-known disposable table, inside
+/// one callable, with no `using` enclosure, no `.Dispose()` call, and no
+/// `return` of the value in that callable; `var` declarations and fields
+/// stay uncovered.
+fn check_undisposed_disposable_locals(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    let mut visited: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    for body in callable_blocks(root) {
+        let disposed = disposed_names(body, source);
+        let enclosed = using_resource_names(body, source);
+        let escaped = returned_names(body, source);
+        for declaration in collect_kinds(body, &["variable_declaration"]) {
+            if !visited.insert(declaration.id()) {
+                continue;
+            }
+            if is_error_tainted(declaration)
+                || declaration
+                    .parent()
+                    .is_none_or(|parent| parent.kind() != "local_declaration_statement")
+            {
+                continue;
+            }
+            let Some(type_node) = declaration.child_by_field_name("type") else {
+                continue;
+            };
+            if !DISPOSABLE_TYPES.contains(&simple_name(node_text(type_node, source))) {
+                continue;
+            }
+            for declarator in collect_kinds(declaration, &["variable_declarator"]) {
+                let Some(name_node) = declarator.child_by_field_name("name") else {
+                    continue;
+                };
+                let name = node_text(name_node, source);
+                if disposed.contains(name) || enclosed.contains(name) || escaped.contains(name) {
+                    continue;
+                }
+                issues.push(issue(
+                    language,
+                    "S2930",
+                    format!("Dispose this '{name}' instance or wrap it in a 'using' statement."),
+                    range_of(name_node),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2931 — classes declaring disposable members without
+/// implementing `IDisposable`. Subset: fields/properties typed by the
+/// well-known disposable table (or `IDisposable` itself) on non-partial
+/// classes whose base list lacks the interface textually; disposable bases
+/// outside the file stay uncovered.
+fn check_disposable_members_without_interface(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["class_declaration"])
+        .into_iter()
+        .filter(|class| !is_error_tainted(*class))
+        .filter(|class| !has_modifier(&modifiers_of(*class, source), "partial"))
+        .filter(|class| {
+            !base_simple_names(*class, source)
+                .iter()
+                .any(|name| *name == "IDisposable" || DISPOSABLE_TYPES.contains(name))
+        })
+        .filter(|class| {
+            type_members(*class).into_iter().any(|member| {
+                matches!(member.kind(), "field_declaration" | "property_declaration")
+                    && member_declared_type(member).is_some_and(|type_node| {
+                        let declared = simple_name(node_text(type_node, source));
+                        declared == "IDisposable" || DISPOSABLE_TYPES.contains(&declared)
+                    })
+            })
+        })
+        .filter_map(|class| class.child_by_field_name("name"))
+        .map(|name| {
+            issue(
+                language,
+                "S2931",
+                "Implement 'IDisposable' on this class; it declares disposable members.",
+                range_of(name),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S2952 — `Dispose` methods disposing objects that are not
+/// members of their class. Subset: `.Dispose()` calls inside any method
+/// named `Dispose` whose receiver is a bare identifier or `this.Name`
+/// access missing from the class's field inventory; inherited members and
+/// other receiver shapes stay uncovered.
+fn check_dispose_of_non_members(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for class in collect_kinds(root, &["class_declaration", "struct_declaration"]) {
+        if is_error_tainted(class) {
+            continue;
+        }
+        let fields: std::collections::HashSet<&str> = type_members(class)
+            .into_iter()
+            .filter(|member| member.kind() == "field_declaration")
+            .flat_map(|field| field_declarator_names(field, source))
+            .collect();
+        for method in member_declarations_of_kind(class, "method_declaration") {
+            if !method
+                .child_by_field_name("name")
+                .is_some_and(|name| node_text(name, source) == "Dispose")
+            {
+                continue;
+            }
+            for call in collect_kinds(method, &["invocation_expression"]) {
+                if is_error_tainted(call) || callee_name(call, source) != Some("Dispose") {
+                    continue;
+                }
+                let Some(receiver) = invocation_receiver(call) else {
+                    continue;
+                };
+                let Some(name) = this_or_identifier_name(receiver, source) else {
+                    continue;
+                };
+                if !fields.contains(name) {
+                    issues.push(issue(
+                        language,
+                        "S2952",
+                        "Only members of this class should be disposed from its 'Dispose' method.",
+                        range_of(call),
+                    ));
+                }
+            }
+        }
+    }
+    issues
+}
+
+/// csharpsquid:S2934 — property writes through `readonly` fields typed by an
+/// unconstrained generic parameter. Subset: assignment expressions whose
+/// left side is a property of such a field, inside the declaring type;
+/// `class`/`struct`/`notnull`-constrained parameters and non-generic
+/// readonly fields stay clean.
+fn check_readonly_generic_field_property_writes(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for declaration in collect_kinds(
+        root,
+        &[
+            "class_declaration",
+            "struct_declaration",
+            "record_declaration",
+        ],
+    ) {
+        if is_error_tainted(declaration) {
+            continue;
+        }
+        let Some(unconstrained) = unconstrained_generic_parameters(declaration, source) else {
+            continue;
+        };
+        let readonly_fields: std::collections::HashSet<&str> = type_members(declaration)
+            .into_iter()
+            .filter(|member| {
+                member.kind() == "field_declaration"
+                    && has_modifier(&modifiers_of(*member, source), "readonly")
+            })
+            .filter(|member| {
+                member_declared_type(*member)
+                    .is_some_and(|type_node| unconstrained.contains(node_text(type_node, source)))
+            })
+            .flat_map(|member| field_declarator_names(member, source))
+            .collect();
+        if readonly_fields.is_empty() {
+            continue;
+        }
+        for assignment in collect_kinds(declaration, &["assignment_expression"]) {
+            if is_error_tainted(assignment) {
+                continue;
+            }
+            let Some(left) = first_named_child(assignment) else {
+                continue;
+            };
+            if left.kind() != "member_access_expression" {
+                continue;
+            }
+            let Some(object) = first_named_child(left) else {
+                continue;
+            };
+            let written = match object.kind() {
+                "identifier" => Some(node_text(object, source)),
+                "member_access_expression" => expression_name(object, source),
+                _ => None,
+            };
+            if written.is_some_and(|name| readonly_fields.contains(name)) {
+                issues.push(issue(
+                    language,
+                    "S2934",
+                    "This property write may mutate a copy; constrain the type parameter to reference types or drop the 'readonly' modifier.",
+                    range_of(assignment),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+// ---------------------------------------------------------------------------
+// Tier C — not-started keys
+//
+// S5766, S6797, S6800, S6424, S6960, S7130, and S4039 — each an explicitly
+// documented single-file heuristic subset, true-positive by construction
+// over attribute shapes, type-text tables, and the file-local declaration
+// tables.
+// ---------------------------------------------------------------------------
+
+/// csharpsquid:S5766 — serializable types without deserialization
+/// validation. Subset: `[Serializable]` classes lacking an
+/// `[OnDeserialized]`/`[OnDeserializing]` method and the
+/// `IDeserializationCallback` interface; binary-formatter hardening outside
+/// these hooks stays uncovered.
+fn check_serializable_without_deserialization_validation(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["class_declaration"])
+        .into_iter()
+        .filter(|class| !is_error_tainted(*class))
+        .filter(|class| {
+            has_any_attribute(*class, source, &["Serializable", "SerializableAttribute"])
+        })
+        .filter(|class| {
+            !base_simple_names(*class, source)
+                .iter()
+                .any(|name| *name == "IDeserializationCallback")
+        })
+        .filter(|class| {
+            !type_members(*class).into_iter().any(|member| {
+                member.kind() == "method_declaration"
+                    && has_any_attribute(
+                        member,
+                        source,
+                        &[
+                            "OnDeserialized",
+                            "OnDeserializedAttribute",
+                            "OnDeserializing",
+                            "OnDeserializingAttribute",
+                        ],
+                    )
+            })
+        })
+        .filter_map(|class| class.child_by_field_name("name"))
+        .map(|name| {
+            issue(
+                language,
+                "S5766",
+                "Validate this type's data during deserialization, e.g. with an '[OnDeserialized]' method or 'IDeserializationCallback'.",
+                range_of(name),
+            )
+        })
+        .collect()
+}
+
+/// Strips nullable and array suffixes, then qualification: `DateTime?` and
+/// `Guid[]` reduce to their bare type names.
+fn normalized_type_name(type_text: &str) -> &str {
+    let mut bare = type_text.trim();
+    loop {
+        if let Some(head) = bare.strip_suffix("[]") {
+            bare = head.trim_end();
+        } else if let Some(head) = bare.strip_suffix('?') {
+            bare = head.trim_end();
+        } else {
+            break;
+        }
+    }
+    simple_name(bare)
+}
+
+/// Property types Blazor binds from query strings (plus their nullable and
+/// array forms).
+const QUERY_PARAMETER_TYPES: [&str; 12] = [
+    "bool", "DateOnly", "DateTime", "TimeOnly", "decimal", "double", "float", "Guid", "int",
+    "long", "short", "string",
+];
+
+/// csharpsquid:S6797 — `[SupplyParameterFromQuery]` properties whose type is
+/// not bindable from a query string. Subset: a closed type-text table of the
+/// supported primitives plus their nullable and array forms; every other
+/// declared type is flagged.
+fn check_unsupported_query_parameter_types(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["property_declaration"])
+        .into_iter()
+        .filter(|property| !is_error_tainted(*property))
+        .filter(|property| {
+            has_any_attribute(
+                *property,
+                source,
+                &[
+                    "SupplyParameterFromQuery",
+                    "SupplyParameterFromQueryAttribute",
+                ],
+            )
+        })
+        .filter(|property| {
+            member_declared_type(*property).is_some_and(|type_node| {
+                !QUERY_PARAMETER_TYPES.contains(&normalized_type_name(node_text(type_node, source)))
+            })
+        })
+        .filter_map(|property| property.child_by_field_name("name"))
+        .map(|name| {
+            issue(
+                language,
+                "S6797",
+                "Use a supported primitive, its nullable form, or an array of those for this query parameter.",
+                range_of(name),
+            )
+        })
+        .collect()
+}
+
+/// Blazor route constraint → parameter type spellings it accepts.
+fn route_constraint_allowed_types(constraint: &str) -> Option<&'static [&'static str]> {
+    match constraint {
+        "bool" => Some(&["bool"]),
+        "datetime" => Some(&["DateTime"]),
+        "decimal" => Some(&["decimal"]),
+        "double" => Some(&["double"]),
+        "float" => Some(&["float"]),
+        "guid" => Some(&["Guid"]),
+        "int" => Some(&["int"]),
+        "long" => Some(&["long"]),
+        _ => None,
+    }
+}
+
+/// `(name, constraint)` pairs of `{name:constraint}` route tokens in one
+/// template literal.
+fn route_tokens(template: &str) -> Vec<(&str, &str)> {
+    let mut tokens = Vec::new();
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        let Some(close) = rest[open..].find('}') else {
+            break;
+        };
+        if let Some((name, constraint)) = rest[open + 1..open + close].split_once(':') {
+            tokens.push((name, constraint));
+        }
+        rest = &rest[open + close + 1..];
+    }
+    tokens
+}
+
+/// csharpsquid:S6800 — component parameters whose declared type contradicts
+/// the route constraint on the same-named token. Subset: `[Parameter]`
+/// properties matched case-insensitively against `{name:constraint}` tokens
+/// of in-file template literals, with a table of constraint-accepted types;
+/// unconstrained tokens and cross-file routes stay uncovered.
+fn check_route_constraint_parameter_types(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let tokens = collect_kinds(root, &["string_literal"])
+        .into_iter()
+        .filter(|literal| !is_error_tainted(*literal))
+        .flat_map(|literal| route_tokens(node_text(literal, source)))
+        .collect::<Vec<_>>();
+    if tokens.is_empty() {
+        return Vec::new();
+    }
+    collect_kinds(root, &["property_declaration"])
+        .into_iter()
+        .filter(|property| !is_error_tainted(*property))
+        .filter(|property| {
+            has_any_attribute(*property, source, &["Parameter", "ParameterAttribute"])
+        })
+        .filter_map(|property| {
+            let name_node = property.child_by_field_name("name")?;
+            let declared = member_declared_type(property)
+                .map(|type_node| normalized_type_name(node_text(type_node, source)))?;
+            tokens
+                .iter()
+                .any(|(token, constraint)| {
+                    token.eq_ignore_ascii_case(node_text(name_node, source))
+                        && route_constraint_allowed_types(constraint)
+                            .is_some_and(|allowed| !allowed.contains(&declared))
+                })
+                .then_some(name_node)
+        })
+        .map(|name| {
+            issue(
+                language,
+                "S6800",
+                "Change this parameter's type so it matches the route constraint.",
+                range_of(name),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S6424 — durable entity interface restrictions. Subset:
+/// interfaces named `I…Entity` or deriving an `IDurableEntity…` interface
+/// whose methods declare `ref`/`out` parameters; the remaining signature
+/// restrictions (return shapes, generics) stay uncovered.
+fn check_durable_entity_interface_restrictions(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["interface_declaration"])
+        .into_iter()
+        .filter(|interface| !is_error_tainted(*interface))
+        .filter(|interface| {
+            let named_entity = interface.child_by_field_name("name").is_some_and(|name| {
+                let text = node_text(name, source);
+                text.starts_with('I') && text.ends_with("Entity")
+            });
+            named_entity
+                || base_simple_names(*interface, source)
+                    .iter()
+                    .any(|base| base.starts_with("IDurableEntity"))
+        })
+        .flat_map(|interface| member_declarations_of_kind(interface, "method_declaration"))
+        .filter(|method| {
+            parameters_of(*method).iter().any(|parameter| {
+                let modifiers = modifiers_of(*parameter, source);
+                has_modifier(&modifiers, "ref") || has_modifier(&modifiers, "out")
+            })
+        })
+        .filter_map(|method| method.child_by_field_name("name"))
+        .map(|name| {
+            issue(
+                language,
+                "S6424",
+                "Durable entity interface methods cannot use 'ref' or 'out' parameters.",
+                range_of(name),
+            )
+        })
+        .collect()
+}
+
+/// Action and service-diversity thresholds of the S6960 heuristic.
+const MIXED_CONTROLLER_ACTION_THRESHOLD: usize = 5;
+const MIXED_CONTROLLER_SERVICE_THRESHOLD: usize = 3;
+
+/// Distinct interface-typed `readonly` fields of a type (the constructor
+/// injection shape).
+fn injected_interface_field_types<'a>(
+    type_node: Node<'_>,
+    source: &'a str,
+) -> std::collections::HashSet<&'a str> {
+    type_members(type_node)
+        .into_iter()
+        .filter(|member| {
+            member.kind() == "field_declaration"
+                && has_modifier(&modifiers_of(*member, source), "readonly")
+        })
+        .filter_map(member_declared_type)
+        .map(|type_node| simple_name(node_text(type_node, source)))
+        .filter(|declared| {
+            declared.len() > 1
+                && declared.starts_with('I')
+                && declared
+                    .chars()
+                    .nth(1)
+                    .is_some_and(|c| c.is_ascii_uppercase())
+        })
+        .collect()
+}
+
+/// csharpsquid:S6960 — controllers mixing many actions with many injected
+/// services. Subset: classes named `…Controller` declaring at least five
+/// public methods and three distinct interface-typed `readonly` fields;
+/// responsibility quality itself stays out of scope.
+fn check_mixed_responsibility_controllers(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    collect_kinds(root, &["class_declaration"])
+        .into_iter()
+        .filter(|class| !is_error_tainted(*class))
+        .filter(|class| {
+            class
+                .child_by_field_name("name")
+                .is_some_and(|name| node_text(name, source).ends_with("Controller"))
+        })
+        .filter(|class| {
+            let actions = member_declarations_of_kind(*class, "method_declaration")
+                .into_iter()
+                .filter(|method| has_modifier(&modifiers_of(*method, source), "public"))
+                .count();
+            let services = injected_interface_field_types(*class, source).len();
+            actions >= MIXED_CONTROLLER_ACTION_THRESHOLD
+                && services >= MIXED_CONTROLLER_SERVICE_THRESHOLD
+        })
+        .filter_map(|class| class.child_by_field_name("name"))
+        .map(|name| {
+            issue(
+                language,
+                "S6960",
+                "Split this controller; it mixes many actions with several injected services.",
+                range_of(name),
+            )
+        })
+        .collect()
+}
+
+/// csharpsquid:S7130 — First/Single on collections proven non-empty.
+/// Subset: same-callable proof in document order — the receiver identifier
+/// was populated by `.Add`/`.AddRange`/`.Insert` or a non-empty collection
+/// initializer and never reassigned or cleared before the call; other
+/// receiver shapes and cross-method flow stay uncovered.
+fn check_first_or_single_on_known_non_empty(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    let mut visited: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    for body in callable_blocks(root) {
+        let mut populated: std::collections::HashSet<String> = std::collections::HashSet::new();
+        walk_all(body, &mut |node| {
+            if !visited.insert(node.id()) {
+                return;
+            }
+            match node.kind() {
+                "invocation_expression" => {
+                    let Some(receiver) = invocation_receiver(node) else {
+                        return;
+                    };
+                    if receiver.kind() != "identifier" {
+                        return;
+                    }
+                    let name = node_text(receiver, source);
+                    match callee_name(node, source) {
+                        Some("Add" | "AddRange" | "Insert") => {
+                            populated.insert(name.to_owned());
+                        }
+                        Some("Clear") => {
+                            populated.remove(name);
+                        }
+                        Some("FirstOrDefault" | "SingleOrDefault") => {
+                            if populated.contains(name) {
+                                issues.push(issue(
+                                    language,
+                                    "S7130",
+                                    "Use 'First' or 'Single' here; this collection is known to be non-empty.",
+                                    range_of(node),
+                                ));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                "variable_declaration" => {
+                    for declarator in collect_kinds(node, &["variable_declarator"]) {
+                        let Some(initializer) =
+                            collect_kinds(declarator, &["initializer_expression"])
+                                .into_iter()
+                                .next()
+                        else {
+                            continue;
+                        };
+                        let mut cursor = initializer.walk();
+                        if !initializer
+                            .children(&mut cursor)
+                            .any(|child| child.is_named())
+                        {
+                            continue;
+                        }
+                        if let Some(name) = declarator.child_by_field_name("name") {
+                            populated.insert(node_text(name, source).to_owned());
+                        }
+                    }
+                }
+                "identifier" if identifier_write(node) == Some(WriteKind::Store) => {
+                    populated.remove(node_text(node, source));
+                }
+                _ => {}
+            }
+        });
+    }
+    issues
+}
+
+/// Whether any file-local base of `start` declares `member` as an explicit
+/// interface implementation.
+fn base_explicitly_implements(
+    graph: &std::collections::HashMap<&str, Vec<&str>>,
+    explicit: &std::collections::HashMap<&str, std::collections::HashSet<&str>>,
+    start: &str,
+    member: &str,
+) -> bool {
+    let mut seen = std::collections::HashSet::new();
+    let mut queue: Vec<&str> = graph.get(start).cloned().unwrap_or_default();
+    while let Some(current) = queue.pop() {
+        if explicit
+            .get(current)
+            .is_some_and(|names| names.contains(member))
+        {
+            return true;
+        }
+        if seen.insert(current)
+            && let Some(successors) = graph.get(current)
+        {
+            queue.extend(successors.iter().copied());
+        }
+    }
+    false
+}
+
+/// csharpsquid:S4039 — calls to members that only exist as explicit
+/// interface implementations on a file-local base. Subset: bare or
+/// `this.`-qualified invocations inside a file-local derived class whose
+/// base chain declares the member only explicitly and which does not
+/// declare the member itself; nested types and cross-file bases stay
+/// uncovered.
+fn check_calls_to_explicit_interface_implementations(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) -> Vec<Issue> {
+    let explicit: std::collections::HashMap<&str, std::collections::HashSet<&str>> =
+        collect_kinds(root, &["class_declaration"])
+            .into_iter()
+            .filter_map(|class| {
+                let names: std::collections::HashSet<&str> =
+                    member_declarations_of_kind(class, "method_declaration")
+                        .into_iter()
+                        .filter(|method| {
+                            collect_kinds(*method, &["explicit_interface_specifier"]).len() == 1
+                        })
+                        .filter_map(|method| method.child_by_field_name("name"))
+                        .map(|name| node_text(name, source))
+                        .collect();
+                let class_name = class.child_by_field_name("name")?;
+                (!names.is_empty()).then_some((node_text(class_name, source), names))
+            })
+            .collect();
+    if explicit.is_empty() {
+        return Vec::new();
+    }
+    let graph = local_inheritance_graph(root, source);
+    collect_kinds(root, &["invocation_expression"])
+        .into_iter()
+        .filter(|call| !is_error_tainted(*call))
+        .filter_map(|call| {
+            let function = invocation_function(call)?;
+            let member = match function.kind() {
+                "identifier" => Some(node_text(function, source)),
+                "member_access_expression" => {
+                    let object = first_named_child(function)?;
+                    if object.kind() == "this_expression" {
+                        expression_name(function, source)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }?;
+            let enclosing = enclosing_type(call)?;
+            let class_name = node_text(enclosing.child_by_field_name("name")?, source);
+            if member_declarations_of_kind(enclosing, "method_declaration")
+                .into_iter()
+                .any(|method| {
+                    method
+                        .child_by_field_name("name")
+                        .is_some_and(|name| node_text(name, source) == member)
+                })
+            {
+                return None;
+            }
+            base_explicitly_implements(&graph, &explicit, class_name, member).then_some(call)
+        })
+        .map(|call| {
+            issue(
+                language,
+                "S4039",
+                "Derived types cannot call this explicit interface implementation; make it protected or implement the interface implicitly.",
+                range_of(call),
             )
         })
         .collect()
@@ -26212,5 +27279,214 @@ mod tests {
             "interface IGreeter\n{\n    void Greet();\n}\nclass Greeter : IGreeter\n{\n    public void Greet() { }\n}\nvoid Make()\n{\n    IGreeter g = null;\n    g.Greet();\n}\n",
         );
         assert!(with_key(&clean, "csharpsquid:S3215").is_empty());
+    }
+
+    #[test]
+    fn s2234_flags_swapped_argument_order() {
+        let violating = analyze_default(
+            "class Calc\n{\n    public double Divide(double dividend, double divisor)\n    {\n        return dividend / divisor;\n    }\n    public void Quotient(double divisor, double dividend)\n    {\n        var ratio = Divide(divisor, dividend);\n    }\n}\n",
+        );
+        let flagged = with_key(&violating, "csharpsquid:S2234");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 9);
+
+        let clean = analyze_default(
+            "class Calc\n{\n    public double Divide(double dividend, double divisor)\n    {\n        return dividend / divisor;\n    }\n    public void Quotient(double divisor, double dividend)\n    {\n        var ratio = Divide(dividend, divisor);\n    }\n}\n",
+        );
+        assert!(with_key(&clean, "csharpsquid:S2234").is_empty());
+    }
+
+    #[test]
+    fn s3254_flags_arguments_duplicating_defaults() {
+        let violating = analyze_default(
+            "class Sender\n{\n    public void Send(string body, int retries = 3)\n    {\n    }\n    public void Deliver()\n    {\n        Send(\"hello\", 3);\n    }\n}\n",
+        );
+        let flagged = with_key(&violating, "csharpsquid:S3254");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 8);
+
+        let clean = analyze_default(
+            "class Sender\n{\n    public void Send(string body, int retries = 3)\n    {\n    }\n    public void Deliver()\n    {\n        Send(\"hello\", 5);\n    }\n}\n",
+        );
+        assert!(with_key(&clean, "csharpsquid:S3254").is_empty());
+    }
+
+    #[test]
+    fn s3220_flags_ambiguous_params_overload_calls() {
+        let violating = analyze_default(
+            "class Writer\n{\n    public void Write(string[] lines)\n    {\n    }\n    public void Write(params string[] lines)\n    {\n    }\n    public void Flush()\n    {\n        Write(new string[] { \"a\" });\n    }\n}\n",
+        );
+        let flagged = with_key(&violating, "csharpsquid:S3220");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 11);
+
+        let clean = analyze_default(
+            "class Writer\n{\n    public void Write(string[] lines)\n    {\n    }\n    public void Write(params string[] lines)\n    {\n    }\n    public void Flush()\n    {\n        Write(\"a\");\n    }\n}\n",
+        );
+        assert!(with_key(&clean, "csharpsquid:S3220").is_empty());
+    }
+
+    #[test]
+    fn s2930_flags_undisposed_disposable_locals() {
+        let violating = analyze_default(
+            "class Importer\n{\n    public int CountRows()\n    {\n        FileStream stream = new FileStream(\"data.bin\", FileMode.Open);\n        return 1;\n    }\n}\n",
+        );
+        let flagged = with_key(&violating, "csharpsquid:S2930");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+
+        let disposed = analyze_default(
+            "class Importer\n{\n    public int CountRows()\n    {\n        FileStream stream = new FileStream(\"data.bin\", FileMode.Open);\n        stream.Dispose();\n        return 1;\n    }\n}\n",
+        );
+        assert!(with_key(&disposed, "csharpsquid:S2930").is_empty());
+
+        let enclosed = analyze_default(
+            "class Importer\n{\n    public int CountRows()\n    {\n        using (var stream = new FileStream(\"data.bin\", FileMode.Open))\n        {\n            return 1;\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&enclosed, "csharpsquid:S2930").is_empty());
+    }
+
+    #[test]
+    fn s2931_flags_disposable_members_without_interface() {
+        let violating = analyze_default("class Cache\n{\n    private FileStream stream;\n}\n");
+        let flagged = with_key(&violating, "csharpsquid:S2931");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+
+        let clean =
+            analyze_default("class Cache : IDisposable\n{\n    private FileStream stream;\n}\n");
+        assert!(with_key(&clean, "csharpsquid:S2931").is_empty());
+    }
+
+    #[test]
+    fn s2952_flags_dispose_of_non_members() {
+        let violating = analyze_default(
+            "class Worker : IDisposable\n{\n    private FileStream stream;\n    public void Dispose()\n    {\n        var temp = new FileStream(\"t\", FileMode.Open);\n        temp.Dispose();\n    }\n}\n",
+        );
+        let flagged = with_key(&violating, "csharpsquid:S2952");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 7);
+
+        let clean = analyze_default(
+            "class Worker : IDisposable\n{\n    private FileStream stream;\n    public void Dispose()\n    {\n        stream.Dispose();\n    }\n}\n",
+        );
+        assert!(with_key(&clean, "csharpsquid:S2952").is_empty());
+    }
+
+    #[test]
+    fn s2934_flags_property_writes_on_readonly_generic_fields() {
+        let violating = analyze_default(
+            "class Box<T>\n{\n    private readonly T value;\n    public void Reset()\n    {\n        value.Count = 0;\n    }\n}\n",
+        );
+        let flagged = with_key(&violating, "csharpsquid:S2934");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 6);
+
+        let clean = analyze_default(
+            "class Box<T>\n    where T : class\n{\n    private readonly T value;\n    public void Reset()\n    {\n        value.Count = 0;\n    }\n}\n",
+        );
+        assert!(with_key(&clean, "csharpsquid:S2934").is_empty());
+    }
+
+    #[test]
+    fn s5766_flags_serializable_without_deserialization_validation() {
+        let violating =
+            analyze_default("[Serializable]\nclass Session\n{\n    public string User;\n}\n");
+        let flagged = with_key(&violating, "csharpsquid:S5766");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 2);
+
+        let clean = analyze_default(
+            "[Serializable]\nclass Session\n{\n    public string User;\n    [OnDeserialized]\n    public void Validate(StreamingContext context)\n    {\n    }\n}\n",
+        );
+        assert!(with_key(&clean, "csharpsquid:S5766").is_empty());
+    }
+
+    #[test]
+    fn s6797_flags_unsupported_query_parameter_types() {
+        let violating = analyze_default(
+            "class Filters\n{\n    [SupplyParameterFromQuery]\n    public List<int> Pages { get; set; }\n}\n",
+        );
+        let flagged = with_key(&violating, "csharpsquid:S6797");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 4);
+
+        let clean = analyze_default(
+            "class Filters\n{\n    [SupplyParameterFromQuery]\n    public int Pages { get; set; }\n    [SupplyParameterFromQuery]\n    public Guid[] Ids { get; set; }\n}\n",
+        );
+        assert!(with_key(&clean, "csharpsquid:S6797").is_empty());
+    }
+
+    #[test]
+    fn s6800_flags_parameter_types_contradicting_route_constraints() {
+        let violating = analyze_default(
+            "class OrderPage\n{\n    [Parameter]\n    public long Id { get; set; }\n    public void Template()\n    {\n        var path = \"/order/{id:int}\";\n    }\n}\n",
+        );
+        let flagged = with_key(&violating, "csharpsquid:S6800");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 4);
+
+        let clean = analyze_default(
+            "class OrderPage\n{\n    [Parameter]\n    public int Id { get; set; }\n    public void Template()\n    {\n        var path = \"/order/{id:int}\";\n    }\n}\n",
+        );
+        assert!(with_key(&clean, "csharpsquid:S6800").is_empty());
+    }
+
+    #[test]
+    fn s6424_flags_ref_out_on_durable_entity_interfaces() {
+        let violating =
+            analyze_default("interface IInventoryEntity\n{\n    void Restock(out int count);\n}\n");
+        let flagged = with_key(&violating, "csharpsquid:S6424");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+
+        let clean =
+            analyze_default("interface IInventoryEntity\n{\n    void Restock(int count);\n}\n");
+        assert!(with_key(&clean, "csharpsquid:S6424").is_empty());
+    }
+
+    #[test]
+    fn s6960_flags_mixed_responsibility_controllers() {
+        let violating = analyze_default(
+            "class DashboardController\n{\n    private readonly IUserService users;\n    private readonly IAuditService audit;\n    private readonly IReportService reports;\n    public void List() { }\n    public void Show() { }\n    public void Create() { }\n    public void Edit() { }\n    public void Remove() { }\n}\n",
+        );
+        let flagged = with_key(&violating, "csharpsquid:S6960");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+
+        let clean = analyze_default(
+            "class DashboardController\n{\n    private readonly IUserService users;\n    private readonly IAuditService audit;\n    private readonly IReportService reports;\n    public void List() { }\n    public void Show() { }\n    public void Create() { }\n    public void Edit() { }\n}\n",
+        );
+        assert!(with_key(&clean, "csharpsquid:S6960").is_empty());
+    }
+
+    #[test]
+    fn s7130_flags_first_or_default_on_known_non_empty_collections() {
+        let violating = analyze_default(
+            "void Register()\n{\n    var ids = new List<int>();\n    ids.Add(1);\n    var first = ids.FirstOrDefault();\n}\n",
+        );
+        let flagged = with_key(&violating, "csharpsquid:S7130");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+
+        let clean = analyze_default(
+            "void Register()\n{\n    var ids = new List<int>();\n    var first = ids.FirstOrDefault();\n}\n",
+        );
+        assert!(with_key(&clean, "csharpsquid:S7130").is_empty());
+    }
+
+    #[test]
+    fn s4039_flags_calls_to_explicit_interface_implementations() {
+        let violating = analyze_default(
+            "interface IGreeter\n{\n    void Greet();\n}\nclass BaseGreeter : IGreeter\n{\n    void IGreeter.Greet()\n    {\n    }\n}\nclass DerivedGreeter : BaseGreeter\n{\n    public void Run()\n    {\n        Greet();\n    }\n}\n",
+        );
+        let flagged = with_key(&violating, "csharpsquid:S4039");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 15);
+
+        let clean = analyze_default(
+            "interface IGreeter\n{\n    void Greet();\n}\nclass BaseGreeter : IGreeter\n{\n    public void Greet()\n    {\n    }\n}\nclass DerivedGreeter : BaseGreeter\n{\n    public void Run()\n    {\n        Greet();\n    }\n}\n",
+        );
+        assert!(with_key(&clean, "csharpsquid:S4039").is_empty());
     }
 }
