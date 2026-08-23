@@ -223,6 +223,12 @@ fn integration_assembles_full_report_sorted() {
             language: "python".to_string(),
             issues: vec![
                 issue(
+                    "python:S1720",
+                    "Add a docstring to this function.",
+                    (3, 4),
+                    (3, 9),
+                ),
+                issue(
                     "python:PrintStatementUsage",
                     "Remove this usage of 'print'.",
                     (5, 4),
@@ -379,7 +385,7 @@ fn license_header_is_enforced_only_when_configured() {
     assert!(
         analyze(
             PathBuf::from("t.py"),
-            "# Copyright 2026\nfor _ in []:\n    pass\n",
+            "# Copyright 2026\nfor _ in []:\n    _ = None\n",
             &options
         )
         .issues
@@ -388,13 +394,17 @@ fn license_header_is_enforced_only_when_configured() {
     assert!(
         analyze(
             PathBuf::from("t.py"),
-            "#!/usr/bin/env python3\n# Copyright 2026\nfor _ in []:\n    pass\n",
+            "#!/usr/bin/env python3\n# Copyright 2026\nfor _ in []:\n    _ = None\n",
             &options
         )
         .issues
         .is_empty()
     );
-    let missing = analyze(PathBuf::from("t.py"), "for _ in []:\n    pass\n", &options);
+    let missing = analyze(
+        PathBuf::from("t.py"),
+        "for _ in []:\n    _ = None\n",
+        &options,
+    );
     assert_eq!(
         missing.issues,
         vec![issue(
@@ -407,7 +417,7 @@ fn license_header_is_enforced_only_when_configured() {
     assert!(
         analyze(
             PathBuf::from("t.py"),
-            "for _ in []:\n    pass\n",
+            "for _ in []:\n    _ = None\n",
             &AnalyzerOptions::default()
         )
         .issues
@@ -4301,4 +4311,351 @@ fn s134_elif_chains_and_nested_units_do_not_inflate_depth() {
             .iter()
             .all(|issue| issue.rule_key != "python:S134")
     );
+}
+
+#[test]
+fn s1066_flags_sole_nested_if_without_clauses() {
+    let flagged = scan("if a:\n    if b:\n        work()\n");
+    assert_eq!(findings(&flagged, "python:S1066").len(), 1);
+    // A chain of three mergeable levels flags both inner ifs.
+    let chain = scan("if a:\n    if b:\n        if c:\n            work()\n");
+    assert_eq!(findings(&chain, "python:S1066").len(), 2);
+}
+
+#[test]
+fn s1066_spares_semantics_changing_shapes() {
+    // Extra statements in the enclosing suite prevent the merge.
+    assert!(
+        findings(
+            &scan("if a:\n    setup()\n    if b:\n        work()\n"),
+            "python:S1066"
+        )
+        .is_empty()
+    );
+    for source in [
+        "if a:\n    if b:\n        work()\n    else:\n        stop()\n",
+        "if a:\n    work()\nelif a:\n    if b:\n        work()\n",
+    ] {
+        assert!(findings(&scan(source), "python:S1066").is_empty());
+    }
+}
+
+#[test]
+fn s108_flags_placeholder_only_non_function_suites() {
+    let flagged = scan(concat!(
+        "class C:\n",
+        "    pass\n",
+        "if a:\n",
+        "    ...\n",
+        "try:\n",
+        "    pass\n",
+        "except ValueError:\n",
+        "    pass\n",
+        "while b:\n",
+        "    pass\n",
+    ));
+    // Class body, if body, try body, handler, and while body: five blocks.
+    assert_eq!(findings(&flagged, "python:S108").len(), 5);
+}
+
+#[test]
+fn s108_treats_docstrings_and_functions_as_content() {
+    for clean in [
+        "class C:\n    \"\"\"Documented.\"\"\"\n",
+        "def f():\n    pass\n",
+        "if a:\n    work()\nelse:\n    other()\n",
+        "for x in xs:\n    step(x)\n",
+    ] {
+        assert!(findings(&scan(clean), "python:S108").is_empty());
+    }
+}
+
+#[test]
+fn s1110_flags_inner_paren_pairs_with_single_content() {
+    let flagged = scan("print((\"Hello\" + name))\nvalue = ((a))\n");
+    let found = findings(&flagged, "python:S1110");
+    assert_eq!(found.len(), 2);
+}
+
+#[test]
+fn s1110_spares_meaningful_and_empty_pairs() {
+    for clean in [
+        // Tuples change arity when the inner pair is removed.
+        "pair = ((a, b))\nreturning = f((a, b))\n",
+        // Empty pairs and string-only interiors are skipped.
+        "unit = ()\nnested = (())\ntext = (\"s\")\n",
+        // Call and grouping parentheses are load-bearing.
+        "plain = (a)\ncalled = f(a)\nsub = table[(a)]\n",
+    ] {
+        assert!(findings(&scan(clean), "python:S1110").is_empty());
+    }
+}
+
+#[test]
+fn s1186_flags_placeholder_only_functions() {
+    let flagged = scan(concat!(
+        "def bare():\n",
+        "    pass\n",
+        "def stub():\n",
+        "    ...\n",
+        "class C:\n",
+        "    def method(self):\n",
+        "        pass\n",
+    ));
+    assert_eq!(findings(&flagged, "python:S1186").len(), 3);
+}
+
+#[test]
+fn s1186_spares_documented_and_contractual_stubs() {
+    for clean in [
+        // A docstring already fills the function.
+        "def documented():\n    \"\"\"Docs.\"\"\"\n",
+        // Protocol-style abstract and overload stubs are empty by contract.
+        "from abc import abstractmethod\nclass P:\n    @abstractmethod\n    def hook(self):\n        pass\n    @overload\n    def build(self):\n        ...\n",
+        // Real bodies are not empty.
+        "def real():\n    return 1\n",
+    ] {
+        assert!(findings(&scan(clean), "python:S1186").is_empty());
+    }
+}
+
+#[test]
+fn s1700_flags_members_named_like_their_class() {
+    let flagged = scan(concat!(
+        "class Sample:\n",
+        "    def sample(self):\n",
+        "        return 1\n",
+        "    Sample = 3\n",
+    ));
+    assert_eq!(findings(&flagged, "python:S1700").len(), 2);
+}
+
+#[test]
+fn s1700_spares_differing_or_foreign_names() {
+    for clean in [
+        // Different member names are fine.
+        "class Sample:\n    def render(self):\n        return 1\n",
+        // Only the immediate class scope counts; the outer class is untouched.
+        "class Outer:\n    class Inner:\n        def outer(self):\n            return 1\n",
+    ] {
+        assert!(findings(&scan(clean), "python:S1700").is_empty());
+    }
+}
+
+#[test]
+fn s1722_flags_classes_without_bases() {
+    assert_eq!(
+        findings(&scan("class Bare:\n    pass\n"), "python:S1722").len(),
+        1
+    );
+    assert_eq!(
+        findings(&scan("class EmptyParens():\n    pass\n"), "python:S1722").len(),
+        1
+    );
+}
+
+#[test]
+fn s1722_spares_explicit_inheritance() {
+    for clean in [
+        "class Object(object):\n    pass\n",
+        "class Base(BaseError):\n    pass\n",
+        "class Keyword(kw=object):\n    pass\n",
+    ] {
+        assert!(findings(&scan(clean), "python:S1722").is_empty());
+    }
+}
+
+#[test]
+fn s1720_flags_public_definitions_without_docstrings() {
+    let flagged =
+        scan("def bare():\n    return 1\nclass C:\n    def method(self):\n        return 2\n");
+    assert_eq!(findings(&flagged, "python:S1720").len(), 2);
+}
+
+#[test]
+fn s1720_spares_private_and_documented_functions() {
+    for clean in [
+        // Underscore-prefixed names are private; dunders are exempt too.
+        "def _helper():\n    return 1\nclass C:\n    def __init__(self):\n        self.x = 1\n",
+        // A docstring fills the contract.
+        "def documented():\n    \"\"\"Docs.\"\"\"\n",
+        "class C:\n    def method(self):\n        \"\"\"Docs.\"\"\"\n",
+    ] {
+        assert!(findings(&scan(clean), "python:S1720").is_empty());
+    }
+}
+
+#[test]
+fn s1845_flags_case_only_collisions_in_scope() {
+    let module = scan("value = 1\nValue = 2\n");
+    assert_eq!(findings(&module, "python:S1845").len(), 1);
+    let class_scope = scan(concat!(
+        "class C:\n",
+        "    def render(self):\n",
+        "        return 1\n",
+        "    RENDER = 2\n",
+    ));
+    assert_eq!(findings(&class_scope, "python:S1845").len(), 1);
+}
+#[test]
+fn s1845_spares_identical_names_and_separate_scopes() {
+    for clean in [
+        // Exact duplicates are redefinitions, not case collisions.
+        "value = 1\nvalue = 2\n",
+        // Members of separate class scopes never collide.
+        "class A:\n    def go(self):\n        return 1\nclass B:\n    def go(self):\n        return 2\n",
+        "def outer():\n    value = 1\nvalue = 2\n",
+    ] {
+        assert!(findings(&scan(clean), "python:S1845").is_empty());
+    }
+}
+
+#[test]
+fn s3776_scores_nesting_weighted_structures() {
+    let source = concat!(
+        "def f(a, b):\n",
+        "    if a:\n",
+        "        if b:\n",
+        "            if a and b:\n",
+        "                pass\n",
+    );
+    // cognitive = if(1) + nested if(2) + nested if(3) + boolop chain(1) = 7.
+    for (threshold, expected) in [(6, 1), (7, 0)] {
+        let options = AnalyzerOptions {
+            maximum_cognitive_complexity: threshold,
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze(PathBuf::from("t.py"), source, &options);
+        assert_eq!(findings(&report, "python:S3776").len(), expected);
+    }
+}
+
+#[test]
+fn s3776_threshold_is_configurable() {
+    let options = AnalyzerOptions {
+        maximum_cognitive_complexity: 1,
+        ..AnalyzerOptions::default()
+    };
+    // Two sequential ifs score 2 cognitive points.
+    let report = analyze(
+        PathBuf::from("t.py"),
+        "def f(a, b):\n    if a:\n        pass\n    if b:\n        pass\n",
+        &options,
+    );
+    let found = findings(&report, "python:S3776");
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].message,
+        "Refactor this function to reduce its Cognitive Complexity from 2 to the 1 allowed."
+    );
+}
+
+#[test]
+fn function_complexity_flags_past_threshold_with_baseline() {
+    // if(1) + elif(1) + for(1) + while(1) + boolop values-1(1) + baseline(1)
+    // = 6, which exceeds the lowered threshold of 4.
+    let source = concat!(
+        "def f(a, b, c):\n",
+        "    if a:\n",
+        "        pass\n",
+        "    elif b:\n",
+        "        pass\n",
+        "    else:\n",
+        "        pass\n",
+        "    for x in []:\n",
+        "        while c or a:\n",
+        "            pass\n",
+    );
+    let options = AnalyzerOptions {
+        maximum_function_complexity: 4,
+        ..AnalyzerOptions::default()
+    };
+    // if(1) + elif(1) + for(1) + while(1) + boolop values-1(1) + baseline(1) = 6
+    let report = analyze(PathBuf::from("t.py"), source, &options);
+    assert_eq!(findings(&report, "python:FunctionComplexity").len(), 1);
+}
+
+#[test]
+fn file_complexity_sums_all_function_units() {
+    let source = concat!(
+        "def f():\n",
+        "    if a:\n",
+        "        pass\n",
+        "\n",
+        "def g():\n",
+        "    if b:\n",
+        "        pass\n",
+    );
+    // Each unit: baseline 1 + one if = 2; total 4 exceeds the lowered bar.
+    let options = AnalyzerOptions {
+        maximum_file_complexity: 3,
+        ..AnalyzerOptions::default()
+    };
+    let report = analyze(PathBuf::from("t.py"), source, &options);
+    assert_eq!(findings(&report, "python:FileComplexity").len(), 1);
+    assert!(findings(&scan(source), "python:FileComplexity").is_empty());
+}
+
+#[test]
+fn class_complexity_sums_direct_methods() {
+    let source = concat!(
+        "class C:\n",
+        "    def m(self):\n",
+        "        if a:\n",
+        "            pass\n",
+        "    def n(self):\n",
+        "        try:\n",
+        "            pass\n",
+        "        except ValueError:\n",
+        "            pass\n",
+    );
+    // Methods: (1 + 1) + (1 + 1 handler) = 4.
+    let options = AnalyzerOptions {
+        maximum_class_complexity: 3,
+        ..AnalyzerOptions::default()
+    };
+    let report = analyze(PathBuf::from("t.py"), source, &options);
+    assert_eq!(findings(&report, "python:ClassComplexity").len(), 1);
+    assert!(findings(&scan(source), "python:ClassComplexity").is_empty());
+}
+
+#[test]
+fn complexity_units_exclude_nested_definitions_and_count_match_cases() {
+    let source = concat!(
+        "def outer(v):\n",
+        "    match v:\n",
+        "        case 1:\n",
+        "            pass\n",
+        "        case _:\n",
+        "            def inner(x):\n",
+        "                if x:\n",
+        "                    pass\n",
+        "                return [y for y in v if y]\n",
+    );
+    // outer: match cases(2) + baseline(1) = 3; the comprehension filter
+    // and the `if` belong to inner's own unit, which also scores 3.
+    let options = AnalyzerOptions {
+        maximum_function_complexity: 2,
+        ..AnalyzerOptions::default()
+    };
+    let report = analyze(PathBuf::from("t.py"), source, &options);
+    assert_eq!(findings(&report, "python:FunctionComplexity").len(), 2);
+    assert!(findings(&scan(source), "python:FunctionComplexity").is_empty());
+}
+
+#[test]
+fn s6799_flags_f_strings_nested_three_levels_deep() {
+    let flagged = scan("deep = f\"{f\"{f\"{x}\"}\"}\"\n");
+    assert_eq!(findings(&flagged, "python:S6799").len(), 1);
+}
+
+#[test]
+fn s6799_spares_single_and_double_level_nesting() {
+    for clean in [
+        "flat = f\"value {x}\"\n",
+        "once = f\"outer {f\"inner {x}\"} end\"\n",
+        "plain = \"no interpolation at all\"\n",
+    ] {
+        assert!(findings(&scan(clean), "python:S6799").is_empty());
+    }
 }

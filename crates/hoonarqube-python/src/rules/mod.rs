@@ -20,6 +20,11 @@ use crate::rules::class_field_names::check_class_field_names;
 use crate::rules::class_names::check_class_names;
 use crate::rules::classmethod_parameter_names::check_classmethod_parameter_names;
 use crate::rules::closure_captures_loop_variable::check_closure_captures_loop_variable;
+use crate::rules::collapsible_ifs::check_collapsible_ifs;
+use crate::rules::complexity::check_class_complexity;
+use crate::rules::complexity::check_cognitive_complexity;
+use crate::rules::complexity::check_file_complexity;
+use crate::rules::complexity::check_function_complexity;
 use crate::rules::confusing_type_checks::check_confusing_type_checks;
 use crate::rules::confusing_walrus_placement::check_confusing_walrus_placement;
 use crate::rules::constant_conditions::check_constant_conditions;
@@ -49,13 +54,16 @@ use crate::rules::duplicate_dict_keys::check_duplicate_dict_keys;
 use crate::rules::duplicate_set_elements::check_duplicate_set_elements;
 use crate::rules::duplicated_string_literals::check_duplicated_string_literals;
 use crate::rules::einops_patterns::check_einops_patterns;
+use crate::rules::empty_blocks::check_empty_blocks;
 use crate::rules::empty_collection_constructors::check_empty_collection_constructors;
+use crate::rules::empty_functions::check_empty_functions;
 use crate::rules::estimator_hyperparameters::check_estimator_hyperparameters;
 use crate::rules::except_star_groups::check_except_star_groups;
 use crate::rules::exception_inheritance::check_exception_inheritance;
 use crate::rules::exit_reraises_argument::check_exit_reraises_argument;
 use crate::rules::exit_signatures::check_exit_signatures;
 use crate::rules::explicit_test_skips::check_explicit_test_skips;
+use crate::rules::f_string_nesting::check_f_string_nesting;
 use crate::rules::float_equality_comparisons::check_float_equality_comparisons;
 use crate::rules::fresh_object_identity_checks::check_fresh_object_identity_checks;
 use crate::rules::function_lengths::check_function_lengths;
@@ -94,8 +102,10 @@ use crate::rules::loop_else_without_break::check_loop_else_without_break;
 use crate::rules::manual_key_iteration::check_manual_key_iteration;
 use crate::rules::map_lambda_calls::check_map_lambda_calls;
 use crate::rules::meaningless_size_comparisons::check_meaningless_size_comparisons;
+use crate::rules::member_name_matches_class::check_member_name_matches_class;
 use crate::rules::method_and_function_names::check_method_and_function_names;
 use crate::rules::methods_missing_parameters::check_methods_missing_parameters;
+use crate::rules::missing_docstrings::check_missing_docstrings;
 use crate::rules::missing_eval_after_load::check_missing_eval_after_load;
 use crate::rules::missing_parameter_annotations::check_missing_parameter_annotations;
 use crate::rules::missing_return_annotations::check_missing_return_annotations;
@@ -113,6 +123,7 @@ use crate::rules::nn_module_super_init::check_nn_module_super_init;
 use crate::rules::no_effect_statements::check_no_effect_statements;
 use crate::rules::notimplemented_raises::check_notimplemented_raises;
 use crate::rules::np_array_generator::check_np_array_generator;
+use crate::rules::old_style_classes::check_old_style_classes;
 use crate::rules::only_reraise_handlers::check_only_reraise_handlers;
 use crate::rules::open_modes::check_open_modes;
 use crate::rules::overwritten_collection_items::check_overwritten_collection_items;
@@ -131,6 +142,7 @@ use crate::rules::random_state_usage::check_random_state_usage;
 use crate::rules::read_without_dtype::check_read_without_dtype;
 use crate::rules::reduction_axis_missing::check_reduction_axis_missing;
 use crate::rules::redundant_jump_statements::check_redundant_jump_statements;
+use crate::rules::redundant_parentheses::check_redundant_parentheses;
 use crate::rules::redundant_typevars::check_redundant_typevars;
 use crate::rules::render_locals::check_render_locals;
 use crate::rules::replacement_references::check_replacement_references;
@@ -210,6 +222,7 @@ use crate::rules::s6663_sequence_index_type::check_s6663_sequence_index_type;
 use crate::rules::s6785_graphql_depth_limiting::check_s6785_graphql_depth_limiting;
 use crate::rules::self_assignment::check_self_assignment;
 use crate::rules::shadowed_builtins::check_shadowed_builtins;
+use crate::rules::similar_names_scope::check_similar_names_scope;
 use crate::rules::single_arg_np_where::check_single_arg_np_where;
 use crate::rules::single_iteration_loops::check_single_iteration_loops;
 use crate::rules::single_task_nurseries::check_single_task_nurseries;
@@ -735,6 +748,34 @@ pub(crate) fn check_naming_convention_battery(
     issues
 }
 
+// ---------------------------------------------------------------------------
+// Battery aggregation: the structural Tier-A gap rules (python:S1066 …
+// python:S6799), each in its own per-rule module.
+// ---------------------------------------------------------------------------
+
+pub(crate) fn check_structural_battery(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_collapsible_ifs(parsed, index, source));
+    issues.extend(check_empty_functions(parsed, index, source));
+    issues.extend(check_missing_docstrings(parsed, index, source));
+    issues.extend(check_similar_names_scope(parsed, index, source));
+    issues.extend(check_empty_blocks(parsed, index, source));
+    issues.extend(check_member_name_matches_class(parsed, index, source));
+    issues.extend(check_old_style_classes(parsed, index, source));
+    issues.extend(check_cognitive_complexity(parsed, index, source, options));
+    issues.extend(check_function_complexity(parsed, index, source, options));
+    issues.extend(check_file_complexity(parsed, index, source, options));
+    issues.extend(check_class_complexity(parsed, index, source, options));
+    issues.extend(check_f_string_nesting(parsed, index, source));
+    issues.extend(check_redundant_parentheses(parsed, index, source));
+    issues
+}
+
 pub(crate) mod all_exports_exist;
 
 pub(crate) mod any_all_list_comprehension;
@@ -765,6 +806,8 @@ pub(crate) mod call_usage;
 
 pub(crate) mod cancellation_scope_checkpoints;
 
+pub(crate) mod collapsible_ifs;
+
 pub(crate) mod class_field_names;
 
 pub(crate) mod class_names;
@@ -774,6 +817,8 @@ pub(crate) mod classmethod_parameter_names;
 pub(crate) mod cleartext_protocols;
 
 pub(crate) mod closure_captures_loop_variable;
+
+pub(crate) mod complexity;
 
 pub(crate) mod commented_code;
 
@@ -834,10 +879,12 @@ pub(crate) mod duplicate_dict_keys;
 pub(crate) mod duplicate_set_elements;
 
 pub(crate) mod duplicated_string_literals;
+pub(crate) mod empty_blocks;
 
 pub(crate) mod einops_patterns;
 
 pub(crate) mod empty_collection_constructors;
+pub(crate) mod empty_functions;
 
 pub(crate) mod ends_with_newline;
 
@@ -861,6 +908,7 @@ pub(crate) mod function_lengths;
 
 pub(crate) mod function_parameter_counts;
 
+pub(crate) mod f_string_nesting;
 pub(crate) mod function_return_counts;
 
 pub(crate) mod gather_validate_indices;
@@ -951,6 +999,7 @@ pub(crate) mod method_and_function_names;
 
 pub(crate) mod methods_missing_parameters;
 
+pub(crate) mod missing_docstrings;
 pub(crate) mod missing_eval_after_load;
 
 pub(crate) mod missing_parameter_annotations;
@@ -970,6 +1019,8 @@ pub(crate) mod named_group_references;
 pub(crate) mod named_steps_bypass;
 
 pub(crate) mod nan_comparisons;
+
+pub(crate) mod member_name_matches_class;
 
 pub(crate) mod needless_pass;
 
@@ -999,6 +1050,7 @@ pub(crate) mod one_statement_per_line;
 
 pub(crate) mod only_reraise_handlers;
 
+pub(crate) mod old_style_classes;
 pub(crate) mod open_modes;
 
 pub(crate) mod overwritten_collection_items;
@@ -1038,12 +1090,14 @@ pub(crate) mod random_state_usage;
 pub(crate) mod read_without_dtype;
 
 pub(crate) mod reduction_axis_missing;
+pub(crate) mod redundant_parentheses;
 
 pub(crate) mod redundant_jump_statements;
 
 pub(crate) mod redundant_typevars;
 
 pub(crate) mod render_locals;
+pub(crate) mod similar_names_scope;
 
 pub(crate) mod replacement_references;
 

@@ -20,6 +20,7 @@ use crate::rules::call_usage::check_call_usage;
 use crate::rules::check_naming_convention_battery;
 use crate::rules::check_regex_battery;
 use crate::rules::check_size_metric_battery;
+use crate::rules::check_structural_battery;
 use crate::rules::check_tier_a_battery;
 use crate::rules::check_tier_a_battery_2;
 use crate::rules::check_tier_b_battery;
@@ -192,6 +193,7 @@ pub fn analyze(
     issues.extend(check_regex_battery(&parsed, &index, source, options));
     issues.extend(check_tier_c_security_battery(&parsed, &index, source));
     issues.extend(check_tier_c_semantic_battery(&parsed, &index, source));
+    issues.extend(check_structural_battery(&parsed, &index, source, options));
     sort_issues(&mut issues);
 
     hoonarqube_ir::FileReport {
