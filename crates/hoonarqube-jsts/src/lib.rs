@@ -18,31 +18,39 @@ use hoonarqube_ir::Issue;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     ArrayExpression, ArrayExpressionElement, ArrowFunctionExpression, AssignmentExpression,
-    AssignmentOperator, BinaryExpression, BinaryOperator, BindingIdentifier, BindingPattern,
-    BlockStatement, CallExpression, Class, ClassElement, ConditionalExpression, ContinueStatement,
-    DebuggerStatement, Declaration, EmptyStatement, ExportDefaultDeclarationKind, ExportSpecifier,
-    Expression, ExpressionStatement, FormalParameter, FunctionBody, IfStatement, ImportDeclaration,
-    ImportDeclarationSpecifier, ImportSpecifier, JSXAttribute, LabeledStatement, LogicalExpression,
-    LogicalOperator, MemberExpression, MethodDefinition, MethodDefinitionKind, ModuleDeclaration,
-    ModuleExportName, NewExpression, NumericLiteral, ObjectProperty, ParenthesizedExpression,
-    PropertyKey, RegExpLiteral, ReturnStatement, SequenceExpression, Statement, StaticBlock,
-    StringLiteral, SwitchCase, SwitchStatement, TSInterfaceDeclaration, TSSignature,
-    TemplateLiteral, ThrowStatement, UnaryExpression, UnaryOperator, VariableDeclaration,
-    VariableDeclarationKind, VariableDeclarator, WithStatement,
+    AssignmentOperator, AwaitExpression, BinaryExpression, BinaryOperator, BindingIdentifier,
+    BindingPattern, BlockStatement, CallExpression, Class, ClassElement, ConditionalExpression,
+    ContinueStatement, DebuggerStatement, Declaration, EmptyStatement,
+    ExportDefaultDeclarationKind, ExportSpecifier, Expression, ExpressionStatement,
+    FormalParameter, FunctionBody, IfStatement, ImportDeclaration, ImportDeclarationSpecifier,
+    ImportSpecifier, JSXAttribute, LabeledStatement, LogicalExpression, LogicalOperator,
+    MemberExpression, MethodDefinition, MethodDefinitionKind, ModuleDeclaration, ModuleExportName,
+    NewExpression, NumericLiteral, ObjectProperty, ParenthesizedExpression, PropertyKey,
+    RegExpLiteral, ReturnStatement, SequenceExpression, Statement, StaticBlock, StringLiteral,
+    SwitchCase, SwitchStatement, TSAccessibility, TSAnyKeyword, TSEnumDeclaration,
+    TSInterfaceDeclaration, TSIntersectionType, TSLiteral, TSNamespaceDeclaration,
+    TSNamespaceDeclarationKind, TSNonNullExpression, TSPropertySignature, TSSignature, TSType,
+    TSTypeAliasDeclaration, TSTypeAnnotation, TSTypeAssertion, TSTypeLiteral, TSTypeName,
+    TSTypeOperatorOperator, TSTypeParameter, TSUnionType, TemplateLiteral, ThrowStatement,
+    UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind,
+    VariableDeclarator, WithStatement,
 };
 use oxc_ast::ast_kind::AstKind;
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_array_expression, walk_arrow_function_expression, walk_assignment_expression,
-    walk_binary_expression, walk_binding_pattern, walk_block_statement, walk_call_expression,
-    walk_class, walk_declaration, walk_export_default_declaration_kind, walk_expression,
-    walk_expression_statement, walk_formal_parameter, walk_function_body, walk_if_statement,
-    walk_import_declaration, walk_labeled_statement, walk_member_expression,
+    walk_await_expression, walk_binary_expression, walk_binding_pattern, walk_block_statement,
+    walk_call_expression, walk_class, walk_declaration, walk_export_default_declaration_kind,
+    walk_expression, walk_expression_statement, walk_formal_parameter, walk_function_body,
+    walk_if_statement, walk_import_declaration, walk_labeled_statement, walk_member_expression,
     walk_method_definition, walk_new_expression, walk_object_property,
     walk_parenthesized_expression, walk_return_statement, walk_sequence_expression,
     walk_static_block, walk_switch_case, walk_switch_statement, walk_template_literal,
-    walk_throw_statement, walk_ts_interface_declaration, walk_unary_expression,
-    walk_variable_declaration, walk_variable_declarator,
+    walk_throw_statement, walk_ts_any_keyword, walk_ts_enum_declaration,
+    walk_ts_interface_declaration, walk_ts_intersection_type, walk_ts_namespace_declaration,
+    walk_ts_non_null_expression, walk_ts_property_signature, walk_ts_type_alias_declaration,
+    walk_ts_type_assertion, walk_ts_type_literal, walk_ts_type_parameter, walk_ts_union_type,
+    walk_unary_expression, walk_variable_declaration, walk_variable_declarator,
 };
 use oxc_parser::Parser;
 use oxc_span::{ContentEq, GetSpan, SourceType, Span};
@@ -322,6 +330,15 @@ fn analyze_with_rules(
     ));
     issues.extend(check_jsx_accessibility_rules(
         &parsed.program,
+        &index,
+        language,
+    ));
+    // --- Batch5 wiring: TypeScript-only AST rules, security hotspots,
+    // --- test-framework rules, and misc Tier A ---
+    issues.extend(check_batch5_rules(
+        &path,
+        &parsed.program,
+        source,
         &index,
         language,
     ));
@@ -13423,6 +13440,763 @@ fn check_jsx_accessibility_rules(
     collector.sink.issues
 }
 
+// --- Batch5: TypeScript-only AST rules, security hotspots, test-framework
+// --- rules, and misc Tier A ---
+
+/// Entry point for all Batch5 rules; fans out into the per-section checks.
+fn check_batch5_rules<'a>(
+    path: &'a Path,
+    program: &'a oxc_ast::ast::Program<'a>,
+    source: &'a str,
+    index: &'a LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_ts_type_rules(program, source, index, language));
+    let _ = path;
+    issues
+}
+
+/// `S4622` catalog parameter `threshold` default: maximum union members.
+const MAX_UNION_TYPE_MEMBERS: usize = 3;
+
+/// Classification of one union/intersection constituent for the redundancy
+/// checks `S6571` (keyword-level subsumption) and `S4621` (structural
+/// equality).
+enum Constituent {
+    /// A keyword type (`string`, `number`, ...) with its canonical name.
+    Keyword(&'static str),
+    /// A literal type (`'a'`, `42`, `true`) with the primitive subsuming it.
+    Literal(&'static str),
+    /// Everything else (type references, object literals, ...).
+    Other,
+}
+
+fn constituent_kind(ts_type: &TSType<'_>) -> Constituent {
+    match ts_type {
+        TSType::TSAnyKeyword(_) => Constituent::Keyword("any"),
+        TSType::TSBigIntKeyword(_) => Constituent::Keyword("bigint"),
+        TSType::TSBooleanKeyword(_) => Constituent::Keyword("boolean"),
+        TSType::TSIntrinsicKeyword(_) => Constituent::Keyword("intrinsic"),
+        TSType::TSNeverKeyword(_) => Constituent::Keyword("never"),
+        TSType::TSNullKeyword(_) => Constituent::Keyword("null"),
+        TSType::TSNumberKeyword(_) => Constituent::Keyword("number"),
+        TSType::TSObjectKeyword(_) => Constituent::Keyword("object"),
+        TSType::TSStringKeyword(_) => Constituent::Keyword("string"),
+        TSType::TSSymbolKeyword(_) => Constituent::Keyword("symbol"),
+        TSType::TSThisType(_) => Constituent::Keyword("this"),
+        TSType::TSUndefinedKeyword(_) => Constituent::Keyword("undefined"),
+        TSType::TSUnknownKeyword(_) => Constituent::Keyword("unknown"),
+        TSType::TSVoidKeyword(_) => Constituent::Keyword("void"),
+        TSType::TSLiteralType(literal) => match &literal.literal {
+            TSLiteral::StringLiteral(_) => Constituent::Literal("string"),
+            TSLiteral::NumericLiteral(_) | TSLiteral::UnaryExpression(_) => {
+                Constituent::Literal("number")
+            }
+            TSLiteral::BooleanLiteral(_) => Constituent::Literal("boolean"),
+            TSLiteral::BigIntLiteral(_) => Constituent::Literal("bigint"),
+            TSLiteral::TemplateLiteral(_) => Constituent::Other,
+        },
+        _ => Constituent::Other,
+    }
+}
+
+fn keyword_name(ts_type: &TSType<'_>) -> Option<&'static str> {
+    match constituent_kind(ts_type) {
+        Constituent::Keyword(name) => Some(name),
+        _ => None,
+    }
+}
+
+fn type_is_primitive_keyword(ts_type: &TSType<'_>) -> bool {
+    matches!(
+        ts_type,
+        TSType::TSStringKeyword(_)
+            | TSType::TSNumberKeyword(_)
+            | TSType::TSBooleanKeyword(_)
+            | TSType::TSBigIntKeyword(_)
+            | TSType::TSSymbolKeyword(_)
+            | TSType::TSUndefinedKeyword(_)
+            | TSType::TSNullKeyword(_)
+            | TSType::TSVoidKeyword(_)
+            | TSType::TSNeverKeyword(_)
+            | TSType::TSIntrinsicKeyword(_)
+    )
+}
+
+fn type_is_objectish(ts_type: &TSType<'_>) -> bool {
+    match ts_type {
+        TSType::TSParenthesizedType(inner) => type_is_objectish(&inner.type_annotation),
+        TSType::TSTypeLiteral(_)
+        | TSType::TSArrayType(_)
+        | TSType::TSTupleType(_)
+        | TSType::TSFunctionType(_)
+        | TSType::TSMappedType(_)
+        | TSType::TSIndexedAccessType(_)
+        | TSType::TSConstructorType(_)
+        | TSType::TSImportType(_)
+        | TSType::TSNamedTupleMember(_) => true,
+        _ => false,
+    }
+}
+
+/// Value of one enum member initializer for the `S6578` duplicate check.
+#[derive(PartialEq)]
+enum EnumMemberValue {
+    Number(f64),
+    Text(String),
+}
+
+fn enum_initializer_is_literal(initializer: &Expression<'_>) -> bool {
+    match unparenthesized(initializer) {
+        Expression::NumericLiteral(_)
+        | Expression::StringLiteral(_)
+        | Expression::BigIntLiteral(_) => true,
+        Expression::TemplateLiteral(template) => template.expressions.is_empty(),
+        Expression::UnaryExpression(unary) => {
+            unary.operator == UnaryOperator::UnaryNegation
+                && matches!(
+                    unparenthesized(&unary.argument),
+                    Expression::NumericLiteral(_)
+                )
+        }
+        _ => false,
+    }
+}
+
+fn enum_member_value(initializer: &Expression<'_>) -> Option<EnumMemberValue> {
+    match unparenthesized(initializer) {
+        Expression::NumericLiteral(literal) => Some(EnumMemberValue::Number(literal.value)),
+        Expression::StringLiteral(literal) => {
+            Some(EnumMemberValue::Text(literal.value.to_string()))
+        }
+        Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::UnaryNegation => {
+            match unparenthesized(&unary.argument) {
+                Expression::NumericLiteral(nested) => Some(EnumMemberValue::Number(-nested.value)),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+struct TsTypeCollector<'s, 'index> {
+    source: &'s str,
+    sink: IssueSink<'index>,
+    /// Enclosing class names, innermost last (`S6565`).
+    class_stack: Vec<String>,
+    /// Constructor nesting depth (`S7059`).
+    constructor_depth: u32,
+}
+
+impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
+    fn visit_ts_enum_declaration(&mut self, it: &TSEnumDeclaration<'a>) {
+        self.check_enum_members(it);
+        walk_ts_enum_declaration(self, it);
+    }
+
+    fn visit_ts_union_type(&mut self, it: &TSUnionType<'a>) {
+        self.check_constituent_redundancy(&it.types, "union");
+        if it.types.len() > MAX_UNION_TYPE_MEMBERS {
+            let message = format!(
+                "Reduce this union type; it currently has {} members.",
+                it.types.len()
+            );
+            self.sink
+                .emit_span(RuleScope::TsOnly, "S4622", &message, it.span());
+        }
+        walk_ts_union_type(self, it);
+    }
+
+    fn visit_ts_intersection_type(&mut self, it: &TSIntersectionType<'a>) {
+        self.check_constituent_redundancy(&it.types, "intersection");
+        if it.types.iter().any(type_is_primitive_keyword) && it.types.iter().any(type_is_objectish)
+        {
+            self.sink.emit_span(
+                RuleScope::TsOnly,
+                "S4335",
+                "Review this intersection type; combining a primitive type with an object type is meaningless.",
+                it.span(),
+            );
+        }
+        walk_ts_intersection_type(self, it);
+    }
+
+    fn visit_ts_type_alias_declaration(&mut self, it: &TSTypeAliasDeclaration<'a>) {
+        if let TSType::TSTypeReference(reference) = &it.type_annotation
+            && reference.type_arguments.is_none()
+        {
+            self.sink.emit_span(
+                RuleScope::TsOnly,
+                "S6564",
+                "Replace this alias with the type it references.",
+                reference.span(),
+            );
+        }
+        walk_ts_type_alias_declaration(self, it);
+    }
+
+    fn visit_ts_type_parameter(&mut self, it: &TSTypeParameter<'a>) {
+        if let Some(constraint) = &it.constraint
+            && matches!(
+                constraint,
+                TSType::TSAnyKeyword(_) | TSType::TSUnknownKeyword(_) | TSType::TSObjectKeyword(_)
+            )
+        {
+            self.sink.emit_span(
+                RuleScope::TsOnly,
+                "S6569",
+                "This constraint does not meaningfully restrict the type parameter; remove it.",
+                constraint.span(),
+            );
+        }
+        if let (Some(constraint), Some(default)) = (&it.constraint, &it.default)
+            && self.source_slice_eq(constraint.span(), default.span())
+        {
+            self.sink.emit_span(
+                RuleScope::TsOnly,
+                "S4157",
+                "Remove this redundant type parameter default; it repeats the constraint.",
+                default.span(),
+            );
+        }
+        walk_ts_type_parameter(self, it);
+    }
+
+    fn visit_ts_non_null_expression(&mut self, it: &TSNonNullExpression<'a>) {
+        self.sink.emit_span(
+            RuleScope::TsOnly,
+            "S2966",
+            "Remove this non-null assertion; it can hide null or undefined values.",
+            it.span(),
+        );
+        walk_ts_non_null_expression(self, it);
+    }
+
+    fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+        if let Some(annotation) = &it.type_annotation
+            && type_is_primitive_keyword(&annotation.type_annotation)
+            && it.init.is_some()
+        {
+            self.sink.emit_span(
+                RuleScope::TsOnly,
+                "S3257",
+                "Remove this redundant type annotation; the initializer already provides the type.",
+                annotation.span(),
+            );
+        }
+        if let Some(init) = &it.init
+            && matches!(unparenthesized(init), Expression::ThisExpression(_))
+        {
+            self.sink.emit_span(
+                RuleScope::TsOnly,
+                "S4327",
+                "Remove this assignment of 'this' to a variable; arrow functions keep the lexical 'this'.",
+                it.span(),
+            );
+        }
+        if let (Some(annotation), Some(init)) = (&it.type_annotation, &it.init)
+            && annotation_is_readonly_shaped(annotation)
+            && is_const_candidate(init)
+        {
+            self.sink.emit_span(
+                RuleScope::TsOnly,
+                "S6590",
+                "Use an as const assertion instead of a readonly annotation.",
+                init.span(),
+            );
+        }
+        walk_variable_declarator(self, it);
+    }
+
+    fn visit_ts_type_assertion(&mut self, it: &TSTypeAssertion<'a>) {
+        self.sink.emit_span(
+            RuleScope::TsOnly,
+            "S4137",
+            "Use an as-prefixed assertion instead of this angle-bracket assertion.",
+            it.span(),
+        );
+        walk_ts_type_assertion(self, it);
+    }
+
+    fn visit_ts_namespace_declaration(&mut self, it: &TSNamespaceDeclaration<'a>) {
+        if it.kind == TSNamespaceDeclarationKind::Module {
+            self.sink.emit_span(
+                RuleScope::TsOnly,
+                "S4156",
+                "Prefer the namespace keyword over module for these declarations.",
+                it.span(),
+            );
+        }
+        walk_ts_namespace_declaration(self, it);
+    }
+
+    fn visit_ts_any_keyword(&mut self, it: &TSAnyKeyword) {
+        self.sink.emit_span(
+            RuleScope::TsOnly,
+            "S4204",
+            "Replace this any type with a more specific type.",
+            it.span(),
+        );
+        walk_ts_any_keyword(self, it);
+    }
+
+    fn visit_ts_property_signature(&mut self, it: &TSPropertySignature<'a>) {
+        if let Some(annotation) = &it.type_annotation
+            && it.optional
+            && union_contains_undefined(&annotation.type_annotation)
+        {
+            self.sink.emit_span(
+                RuleScope::TsOnly,
+                "S4782",
+                "Remove the undefined member from this union; the property is already optional.",
+                it.span(),
+            );
+        }
+        walk_ts_property_signature(self, it);
+    }
+
+    fn visit_formal_parameter(&mut self, it: &FormalParameter<'a>) {
+        if let Some(annotation) = &it.type_annotation
+            && it.optional
+            && it.initializer.is_none()
+            && matches!(annotation.type_annotation, TSType::TSBooleanKeyword(_))
+        {
+            self.sink.emit_span(
+                RuleScope::TsOnly,
+                "S4798",
+                "Provide a default value for this optional boolean parameter.",
+                it.span(),
+            );
+        }
+        walk_formal_parameter(self, it);
+    }
+
+    fn visit_ts_interface_declaration(&mut self, it: &TSInterfaceDeclaration<'a>) {
+        self.check_single_call_signature(&it.body.body, it.span());
+        self.check_overload_grouping(&it.body.body);
+        if let [TSSignature::TSPropertySignature(_)] = it.body.body.as_slice() {
+            self.sink.emit_span(
+                RuleScope::TsOnly,
+                "S4323",
+                "Prefer declaring this single-property interface as a type alias.",
+                it.span(),
+            );
+        }
+        if it.id.name.contains("Props") {
+            for member in &it.body.body {
+                if let TSSignature::TSPropertySignature(property) = member
+                    && !property.readonly
+                {
+                    self.sink.emit_span(
+                        RuleScope::TsOnly,
+                        "S6759",
+                        "Add the readonly modifier to this property.",
+                        property.span(),
+                    );
+                }
+            }
+        }
+        walk_ts_interface_declaration(self, it);
+    }
+
+    fn visit_ts_type_literal(&mut self, it: &TSTypeLiteral<'a>) {
+        self.check_single_call_signature(&it.members, it.span());
+        self.check_overload_grouping(&it.members);
+        walk_ts_type_literal(self, it);
+    }
+
+    fn visit_class(&mut self, it: &Class<'a>) {
+        if let Some(id) = &it.id {
+            self.class_stack.push(id.name.to_string());
+        }
+        walk_class(self, it);
+        if it.id.is_some() {
+            self.class_stack.pop();
+        }
+    }
+
+    fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
+        if it.kind == MethodDefinitionKind::Constructor {
+            self.constructor_depth += 1;
+            walk_method_definition(self, it);
+            self.constructor_depth -= 1;
+        } else {
+            walk_method_definition(self, it);
+        }
+        self.check_return_type_annotations(&it.value.params, it.value.return_type.as_deref());
+    }
+
+    fn visit_statement(&mut self, it: &Statement<'a>) {
+        if let Statement::FunctionDeclaration(function) = it {
+            self.check_return_type_annotations(&function.params, function.return_type.as_deref());
+        }
+        walk_statement(self, it);
+    }
+
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        self.check_return_type_annotations(&it.params, it.return_type.as_deref());
+        walk_arrow_function_expression(self, it);
+    }
+
+    fn visit_logical_expression(&mut self, it: &LogicalExpression<'a>) {
+        if matches!(it.operator, LogicalOperator::Coalesce | LogicalOperator::Or) {
+            for operand in [&it.left, &it.right] {
+                if let Expression::TSNonNullExpression(assertion) = unparenthesized(operand) {
+                    self.sink.emit_span(
+                        RuleScope::TsOnly,
+                        "S6568",
+                        "Remove this unnecessary non-null assertion; the guard already handles null and undefined.",
+                        assertion.span(),
+                    );
+                }
+            }
+        }
+        walk_logical_expression(self, it);
+    }
+
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        if self.constructor_depth > 0 && callee_is_async_function(&it.callee) {
+            self.sink.emit_span(
+                RuleScope::TsOnly,
+                "S7059",
+                "Move this asynchronous work out of the constructor.",
+                it.span(),
+            );
+        }
+        walk_call_expression(self, it);
+    }
+
+    fn visit_property_definition(&mut self, it: &PropertyDefinition<'a>) {
+        if it.r#static
+            && !it.readonly
+            && !matches!(
+                it.accessibility,
+                Some(TSAccessibility::Private | TSAccessibility::Protected)
+            )
+        {
+            self.sink.emit_span(
+                RuleScope::TsOnly,
+                "S1444",
+                "Add the readonly modifier to this static property.",
+                it.span(),
+            );
+        }
+        walk_property_definition(self, it);
+    }
+
+    fn visit_await_expression(&mut self, it: &AwaitExpression<'a>) {
+        if self.constructor_depth > 0 {
+            self.sink.emit_span(
+                RuleScope::TsOnly,
+                "S7059",
+                "Move this asynchronous work out of the constructor.",
+                it.span(),
+            );
+        }
+        if let Expression::AwaitExpression(inner) = unparenthesized(&it.argument) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S4326",
+                "Remove this nested await; awaiting an awaited value is redundant.",
+                inner.span(),
+            );
+        }
+        walk_await_expression(self, it);
+    }
+}
+
+impl TsTypeCollector<'_, '_> {
+    /// `S6550`, `S6572`, `S6578`, and `S6583` over one enum declaration.
+    fn check_enum_members(&mut self, declaration: &TSEnumDeclaration<'_>) {
+        let members = &declaration.body.members;
+        for member in members {
+            if let Some(initializer) = &member.initializer
+                && !enum_initializer_is_literal(initializer)
+            {
+                self.sink.emit_span(
+                    RuleScope::TsOnly,
+                    "S6550",
+                    "Replace this computed enum member value with a constant value.",
+                    member.span(),
+                );
+            }
+        }
+        let initialized = members
+            .iter()
+            .filter(|member| member.initializer.is_some())
+            .count();
+        if initialized > 0 && initialized < members.len() {
+            self.sink.emit_span(
+                RuleScope::TsOnly,
+                "S6572",
+                "Either give every member of this enum an initializer or none of them.",
+                declaration.id.span(),
+            );
+        }
+        let mut seen_values: Vec<EnumMemberValue> = Vec::new();
+        let mut saw_number = false;
+        let mut saw_text = false;
+        for member in members {
+            let Some(value) = member.initializer.as_ref().and_then(enum_member_value) else {
+                continue;
+            };
+            saw_number |= matches!(value, EnumMemberValue::Number(_));
+            saw_text |= matches!(value, EnumMemberValue::Text(_));
+            if seen_values.contains(&value) {
+                self.sink.emit_span(
+                    RuleScope::TsOnly,
+                    "S6578",
+                    "Change or remove this duplicate value.",
+                    member.span(),
+                );
+            } else {
+                seen_values.push(value);
+            }
+        }
+        if saw_number && saw_text {
+            self.sink.emit_span(
+                RuleScope::TsOnly,
+                "S6583",
+                "Mixing number and string values in this enum hurts readability.",
+                declaration.id.span(),
+            );
+        }
+    }
+
+    /// `S6571` keyword-level redundancy and `S4621` structural duplicates.
+    fn check_constituent_redundancy(&mut self, types: &[TSType<'_>], container: &str) {
+        let all_keywords: Vec<&'static str> = types.iter().filter_map(keyword_name).collect();
+        let mut seen_keywords: Vec<&'static str> = Vec::new();
+        let mut seen_slices: Vec<&str> = Vec::new();
+        for ts_type in types {
+            match constituent_kind(ts_type) {
+                Constituent::Keyword(name) => {
+                    if seen_keywords.contains(&name) {
+                        let message =
+                            format!("Remove this redundant member from the {container} type.");
+                        self.sink
+                            .emit_span(RuleScope::TsOnly, "S6571", &message, ts_type.span());
+                    } else {
+                        seen_keywords.push(name);
+                    }
+                }
+                Constituent::Literal(base) => {
+                    if all_keywords.contains(&base) {
+                        let message =
+                            format!("Remove this redundant member from the {container} type.");
+                        self.sink
+                            .emit_span(RuleScope::TsOnly, "S6571", &message, ts_type.span());
+                    }
+                }
+                Constituent::Other => {
+                    let text = source_slice(self.source, ts_type.span());
+                    if seen_slices.contains(&text) {
+                        self.sink.emit_span(
+                            RuleScope::TsOnly,
+                            "S4621",
+                            "Remove this duplicated type member.",
+                            ts_type.span(),
+                        );
+                    } else {
+                        seen_slices.push(text);
+                    }
+                }
+            }
+        }
+    }
+
+    fn source_slice_eq(&self, left: Span, right: Span) -> bool {
+        source_slice(self.source, left) == source_slice(self.source, right)
+    }
+
+    /// `S6598`: an interface or object type holding exactly one call
+    /// signature should be declared as a function type instead.
+    fn check_single_call_signature(&mut self, members: &[TSSignature<'_>], span: Span) {
+        if let [TSSignature::TSCallSignatureDeclaration(_)] = members {
+            self.sink.emit_span(
+                RuleScope::TsOnly,
+                "S6598",
+                "Declare this type as a function type instead of wrapping a call signature.",
+                span,
+            );
+        }
+    }
+
+    /// `S4136`: same-name method-signature overloads separated by unrelated
+    /// signature kinds must be grouped together.
+    fn check_overload_grouping(&mut self, members: &[TSSignature<'_>]) {
+        let mut last_method_positions: Vec<(&str, usize)> = Vec::new();
+        for (position, member) in members.iter().enumerate() {
+            let TSSignature::TSMethodSignature(method) = member else {
+                continue;
+            };
+            let Some(name) = property_key_name(&method.key) else {
+                continue;
+            };
+            if let Some(entry) = last_method_positions
+                .iter_mut()
+                .find(|(seen_name, _)| *seen_name == name)
+            {
+                let previous = entry.1;
+                if members[previous + 1..position]
+                    .iter()
+                    .any(|other| !matches!(other, TSSignature::TSMethodSignature(_)))
+                {
+                    self.sink.emit_span(
+                        RuleScope::TsOnly,
+                        "S4136",
+                        "Group all overloaded signatures of this method together.",
+                        method.span(),
+                    );
+                }
+                entry.1 = position;
+            } else {
+                last_method_positions.push((name, position));
+            }
+        }
+    }
+
+    /// `S4322`, `S4324`, and `S6565` over one function return type.
+    fn check_return_type_annotations(
+        &mut self,
+        params: &FormalParameters<'_>,
+        return_type: Option<&TSTypeAnnotation<'_>>,
+    ) {
+        let Some(return_type) = return_type else {
+            return;
+        };
+        if matches!(return_type.type_annotation, TSType::TSBooleanKeyword(_))
+            && let Some(param_name) = single_reference_parameter(params)
+        {
+            let message = format!(
+                "Use a type predicate ('{param_name} is T') instead of this boolean return type."
+            );
+            self.sink
+                .emit_span(RuleScope::TsOnly, "S4322", &message, return_type.span());
+        }
+        if let TSType::TSTypeReference(reference) = &return_type.type_annotation {
+            if let TSTypeName::IdentifierReference(identifier) = &reference.type_name
+                && WRAPPER_TYPE_NAMES.contains(&identifier.name.as_str())
+            {
+                self.sink.emit_span(
+                    RuleScope::TsOnly,
+                    "S4324",
+                    "Use the primitive type keyword instead of this wrapper object type.",
+                    reference.span(),
+                );
+            }
+            let enclosing_class = self.class_stack.last();
+            if let (Some(class_name), TSTypeName::IdentifierReference(identifier)) =
+                (enclosing_class, &reference.type_name)
+                && class_name.as_str() == identifier.name.as_str()
+            {
+                self.sink.emit_span(
+                    RuleScope::TsOnly,
+                    "S6565",
+                    "Return 'this' instead of the class name type.",
+                    reference.span(),
+                );
+            }
+        }
+    }
+}
+
+/// `S4782` helper: does the type union contain the `undefined` keyword?
+fn union_contains_undefined(ts_type: &TSType<'_>) -> bool {
+    match ts_type {
+        TSType::TSUnionType(union) => union
+            .types
+            .iter()
+            .any(|member| matches!(member, TSType::TSUndefinedKeyword(_))),
+        _ => false,
+    }
+}
+
+/// `S4324`: wrapper object type names that must not appear in return types.
+const WRAPPER_TYPE_NAMES: [&str; 5] = ["String", "Number", "Boolean", "Symbol", "BigInt"];
+
+/// `S4322` helper: name of the single reference-typed parameter, if any.
+fn single_reference_parameter<'a>(params: &FormalParameters<'a>) -> Option<&'a str> {
+    if params.items.len() != 1 {
+        return None;
+    }
+    let annotation = params.items[0].type_annotation.as_ref()?;
+    match &annotation.type_annotation {
+        TSType::TSTypeReference(reference) => match &reference.type_name {
+            TSTypeName::IdentifierReference(identifier) => Some(identifier.name.as_str()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// `S6590` helper: is the annotation a readonly-shaped type?
+fn annotation_is_readonly_shaped(annotation: &TSTypeAnnotation<'_>) -> bool {
+    match &annotation.type_annotation {
+        TSType::TSTypeOperatorType(operator) => {
+            operator.operator == TSTypeOperatorOperator::Readonly
+        }
+        TSType::TSTypeReference(reference) => match &reference.type_name {
+            TSTypeName::IdentifierReference(identifier) => identifier.name.starts_with("Readonly"),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// `S6590` helper: array/object literal built only from literal members.
+fn is_const_candidate(expression: &Expression<'_>) -> bool {
+    let literal_element = |element: &ArrayExpressionElement<'_>| {
+        matches!(
+            element,
+            ArrayExpressionElement::NumericLiteral(_)
+                | ArrayExpressionElement::StringLiteral(_)
+                | ArrayExpressionElement::BooleanLiteral(_)
+        )
+    };
+    match unparenthesized(expression) {
+        Expression::ArrayExpression(array) => array.elements.iter().all(literal_element),
+        Expression::ObjectExpression(object) => {
+            object.properties.iter().all(|property| match property {
+                ObjectPropertyKind::ObjectProperty(prop) => is_literal_expression(&prop.value),
+                ObjectPropertyKind::SpreadProperty(_) => false,
+            })
+        }
+        _ => false,
+    }
+}
+
+/// `S7059` helper: is the callee an async function/arrow expression?
+fn callee_is_async_function(callee: &Expression<'_>) -> bool {
+    match unparenthesized(callee) {
+        Expression::ArrowFunctionExpression(arrow) => arrow.r#async,
+        Expression::FunctionExpression(function) => function.r#async,
+        _ => false,
+    }
+}
+
+/// All Batch5 TypeScript-only type-system rules in one traversal.
+fn check_ts_type_rules(
+    program: &oxc_ast::ast::Program<'_>,
+    source: &str,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = TsTypeCollector {
+        source,
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        class_stack: Vec::new(),
+        constructor_depth: 0,
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -13659,7 +14433,10 @@ new window.Function('also ignored');
 
     #[test]
     fn typescript_input_parses_and_carries_typescript_prefix() {
-        let report = ts("const x: number = 1;\ninterface Y { z: string }\n");
+        // `const x: number = 1;` would now legitimately raise `S3257`
+        // (primitive annotation with initializer), so the smoke input keeps
+        // its annotation without an initializer.
+        let report = ts("let x: number;\ninterface Y { z: string; w: number }\n");
         assert_eq!(report.language, "typescript");
         assert!(report.issues.is_empty());
     }
@@ -13770,6 +14547,23 @@ new window.Function('also ignored');
 
     fn js_keys(source: &str) -> Vec<(String, u32)> {
         findings(source, JstsLanguage::JavaScript)
+    }
+
+    fn ts_keys(source: &str) -> Vec<(String, u32)> {
+        findings_ts(source)
+    }
+
+    fn findings_ts(source: &str) -> Vec<(String, u32)> {
+        analyze(
+            PathBuf::from("test.ts"),
+            source,
+            JstsLanguage::TypeScript,
+            &AnalyzerOptions::default(),
+        )
+        .issues
+        .into_iter()
+        .map(|issue| (issue.rule_key, issue.range.start.line))
+        .collect()
     }
 
     fn js_with_rules(source: &str, rules: &RuleOptions) -> hoonarqube_ir::FileReport {
@@ -16711,5 +17505,329 @@ draw(other, more);
 
         let nested_control = jsx_keys("const el = <label>Name<input/></label>;\n");
         assert_eq!(count_key(&nested_control, "javascript:S6853"), 0);
+    }
+
+    #[test]
+    fn computed_enum_members_are_flagged() {
+        let violating = ts_keys("enum E { A = getValue(), B = 1 }\n");
+        assert_eq!(count_key(&violating, "typescript:S6550"), 1);
+
+        let clean = ts_keys("enum E { A = 1, B = -2, C = 'x', D }\n");
+        assert_eq!(count_key(&clean, "typescript:S6550"), 0);
+    }
+
+    #[test]
+    fn enums_mixing_initialized_members_are_flagged() {
+        let mixed = ts_keys("enum E { A = 1, B, C = 3 }\n");
+        assert_eq!(count_key(&mixed, "typescript:S6572"), 1);
+
+        let uniform_initialized = ts_keys("enum E { A = 1, B = 2 }\n");
+        assert_eq!(count_key(&uniform_initialized, "typescript:S6572"), 0);
+
+        let uniform_implicit = ts_keys("enum E { A, B }\n");
+        assert_eq!(count_key(&uniform_implicit, "typescript:S6572"), 0);
+    }
+
+    #[test]
+    fn duplicate_enum_values_are_flagged() {
+        let duplicates = ts_keys("enum E { A = 1, B = 1, C = 'x', D = 'x' }\n");
+        assert_eq!(count_key(&duplicates, "typescript:S6578"), 2);
+
+        let unique = ts_keys("enum E { A = 1, B = 2, C = 'x' }\n");
+        assert_eq!(count_key(&unique, "typescript:S6578"), 0);
+    }
+
+    #[test]
+    fn enums_mixing_value_kinds_are_flagged() {
+        let mixed = ts_keys("enum E { A = 1, B = 'x' }\n");
+        assert_eq!(count_key(&mixed, "typescript:S6583"), 1);
+
+        let numeric_only = ts_keys("enum E { A = 1, B = 2 }\n");
+        assert_eq!(count_key(&numeric_only, "typescript:S6583"), 0);
+
+        let text_only = ts_keys("enum E { A = 'x', B = 'y' }\n");
+        assert_eq!(count_key(&text_only, "typescript:S6583"), 0);
+    }
+
+    #[test]
+    fn redundant_union_and_intersection_members_are_flagged() {
+        let keywords = ts_keys("type T = string | number | string;\n");
+        assert_eq!(count_key(&keywords, "typescript:S6571"), 1);
+
+        let subsumed = ts_keys("type T = string | 'literal';\n");
+        assert_eq!(count_key(&subsumed, "typescript:S6571"), 1);
+
+        let clean = ts_keys("type T = string | number;\n");
+        assert_eq!(count_key(&clean, "typescript:S6571"), 0);
+    }
+
+    #[test]
+    fn structurally_equal_type_members_are_flagged() {
+        let duplicate_objects = ts_keys("type T = { a: string } | { a: string };\n");
+        assert_eq!(count_key(&duplicate_objects, "typescript:S4621"), 1);
+
+        let distinct_objects = ts_keys("type T = { a: string } | { b: string };\n");
+        assert_eq!(count_key(&distinct_objects, "typescript:S4621"), 0);
+    }
+
+    #[test]
+    fn oversized_unions_are_flagged() {
+        let oversized = ts_keys("type T = 'a' | 'b' | 'c' | 'd';\n");
+        assert_eq!(count_key(&oversized, "typescript:S4622"), 1);
+
+        let compact = ts_keys("type T = 'a' | 'b' | 'c';\n");
+        assert_eq!(count_key(&compact, "typescript:S4622"), 0);
+    }
+
+    #[test]
+    fn meaningless_intersections_are_flagged() {
+        let meaningless = ts_keys("type T = string & { a: number };\n");
+        assert_eq!(count_key(&meaningless, "typescript:S4335"), 1);
+
+        let branded =
+            ts_keys("type Brand = { brand: 'id' };\ntype Tagged = Brand & { v: number };\n");
+        assert_eq!(count_key(&branded, "typescript:S4335"), 0);
+    }
+
+    #[test]
+    fn alias_to_bare_reference_is_flagged() {
+        let alias_chain = ts_keys("type A = { x: number };\ntype B = A;\n");
+        assert_eq!(count_key(&alias_chain, "typescript:S6564"), 1);
+
+        let concrete = ts_keys("type B = { x: number };\n");
+        assert_eq!(count_key(&concrete, "typescript:S6564"), 0);
+
+        let generic_reference = ts_keys("type Mapping = Record<string, number>;\n");
+        assert_eq!(count_key(&generic_reference, "typescript:S6564"), 0);
+    }
+
+    #[test]
+    fn useless_generic_constraints_are_flagged() {
+        let constrained = ts_keys("function f<T extends unknown>(x: T) { return x; }\n");
+        assert_eq!(count_key(&constrained, "typescript:S6569"), 1);
+
+        let unconstrained = ts_keys("function f<T>(x: T) { return x; }\n");
+        assert_eq!(count_key(&unconstrained, "typescript:S6569"), 0);
+
+        let meaningful = ts_keys("function f<T extends { id: number }>(x: T) { return x; }\n");
+        assert_eq!(count_key(&meaningful, "typescript:S6569"), 0);
+    }
+
+    #[test]
+    fn typescript_only_type_rules_never_fire_for_javascript() {
+        let findings = js_keys("type T = string | number | string;\nenum E { A = 1, B = 1 }\n");
+        for key in ["javascript:S6550", "javascript:S6571", "javascript:S6578"] {
+            assert_eq!(count_key(&findings, key), 0, "{key}");
+        }
+    }
+
+    #[test]
+    fn non_null_assertions_are_flagged() {
+        let violating = ts_keys("const x = value!;\n");
+        assert_eq!(count_key(&violating, "typescript:S2966"), 1);
+
+        let clean = ts_keys("const x = value;\n");
+        assert_eq!(count_key(&clean, "typescript:S2966"), 0);
+    }
+
+    #[test]
+    fn primitive_annotations_with_initializers_are_flagged() {
+        let violating = ts_keys("const x: number = 1;\nlet y: string = 'a';\n");
+        assert_eq!(count_key(&violating, "typescript:S3257"), 2);
+
+        let without_initializer = ts_keys("let y: string;\n");
+        assert_eq!(count_key(&without_initializer, "typescript:S3257"), 0);
+
+        let non_primitive = ts_keys("const p: Point = { x: 1, y: 2 };\n");
+        assert_eq!(count_key(&non_primitive, "typescript:S3257"), 0);
+    }
+
+    #[test]
+    fn angle_bracket_assertions_are_flagged() {
+        let violating = ts_keys("const x = <string>value;\n");
+        assert_eq!(count_key(&violating, "typescript:S4137"), 1);
+
+        let clean = ts_keys("const x = value as string;\n");
+        assert_eq!(count_key(&clean, "typescript:S4137"), 0);
+    }
+
+    #[test]
+    fn module_keyword_is_flagged_over_namespace() {
+        let violating = ts_keys("module Legacy { export const x = 1; }\n");
+        assert_eq!(count_key(&violating, "typescript:S4156"), 1);
+
+        let clean = ts_keys("namespace Modern { export const x = 1; }\n");
+        assert_eq!(count_key(&clean, "typescript:S4156"), 0);
+    }
+
+    #[test]
+    fn redundant_type_parameter_defaults_are_flagged() {
+        let violating = ts_keys("function f<T extends string = string>(x: T) { return x; }\n");
+        assert_eq!(count_key(&violating, "typescript:S4157"), 1);
+
+        let distinct_default =
+            ts_keys("function f<T extends object = { id: number }>(x: T) { return x; }\n");
+        assert_eq!(count_key(&distinct_default, "typescript:S4157"), 0);
+    }
+
+    #[test]
+    fn any_keywords_are_flagged() {
+        let violating = ts_keys("let loose: any;\nfunction f(x: any) { return x; }\n");
+        assert_eq!(count_key(&violating, "typescript:S4204"), 2);
+
+        let clean = ts_keys("let tight: string;\n");
+        assert_eq!(count_key(&clean, "typescript:S4204"), 0);
+    }
+
+    #[test]
+    fn optional_properties_with_undefined_in_union_are_flagged() {
+        let violating = ts_keys("interface P { name?: string | undefined; }\n");
+        assert_eq!(count_key(&violating, "typescript:S4782"), 1);
+
+        let required_property = ts_keys("interface P { name: string | undefined; }\n");
+        assert_eq!(count_key(&required_property, "typescript:S4782"), 0);
+
+        let optional_without_undefined = ts_keys("interface P { name?: string; }\n");
+        assert_eq!(
+            count_key(&optional_without_undefined, "typescript:S4782"),
+            0
+        );
+    }
+
+    #[test]
+    fn optional_booleans_without_defaults_are_flagged() {
+        let violating = ts_keys("function f(verbose?: boolean) { return verbose; }\n");
+        assert_eq!(count_key(&violating, "typescript:S4798"), 1);
+
+        let with_default = ts_keys("function f(verbose: boolean = false) { return verbose; }\n");
+        assert_eq!(count_key(&with_default, "typescript:S4798"), 0);
+
+        let optional_string = ts_keys("function f(label?: string) { return label; }\n");
+        assert_eq!(count_key(&optional_string, "typescript:S4798"), 0);
+    }
+
+    #[test]
+    fn single_call_signatures_become_function_types() {
+        let interface_form = ts_keys("interface Handler { (event: string): void; }\n");
+        assert_eq!(count_key(&interface_form, "typescript:S6598"), 1);
+
+        let alias_form = ts_keys("type Handler = { (event: string): void };\n");
+        assert_eq!(count_key(&alias_form, "typescript:S6598"), 1);
+
+        let multi_member = ts_keys("interface Handler { (event: string): void; done: boolean; }\n");
+        assert_eq!(count_key(&multi_member, "typescript:S6598"), 0);
+    }
+
+    #[test]
+    fn separated_overloads_are_flagged() {
+        let separated = ts_keys(
+            "interface Api {\n  load(): void;\n  ready: boolean;\n  load(url: string): void;\n}\n",
+        );
+        assert_eq!(count_key(&separated, "typescript:S4136"), 1);
+
+        let grouped = ts_keys(
+            "interface Api {\n  load(): void;\n  load(url: string): void;\n  ready: boolean;\n}\n",
+        );
+        assert_eq!(count_key(&grouped, "typescript:S4136"), 0);
+    }
+
+    #[test]
+    fn typescript_node_rules_never_fire_for_javascript() {
+        let findings = js_keys("const x = <string>value;\nmodule M { }\nlet loose: any;\n");
+        for key in ["javascript:S4137", "javascript:S4156", "javascript:S4204"] {
+            assert_eq!(count_key(&findings, key), 0, "{key}");
+        }
+    }
+
+    #[test]
+    fn boolean_returns_suggest_type_predicates() {
+        let violating = ts_keys("function isFoo(x: Foo): boolean { return true; }\n");
+        assert_eq!(count_key(&violating, "typescript:S4322"), 1);
+
+        let clean = ts_keys("function score(x: number): boolean { return x > 0; }\n");
+        assert_eq!(count_key(&clean, "typescript:S4322"), 0);
+    }
+
+    #[test]
+    fn wrapper_return_types_are_flagged() {
+        let violating = ts_keys("function f(): Number { return 1; }\n");
+        assert_eq!(count_key(&violating, "typescript:S4324"), 1);
+
+        let clean = ts_keys("function f(): number { return 1; }\n");
+        assert_eq!(count_key(&clean, "typescript:S4324"), 0);
+    }
+
+    #[test]
+    fn class_typed_returns_prefer_this() {
+        let violating = ts_keys("class Builder {\n  self(): Builder { return this; }\n}\n");
+        assert_eq!(count_key(&violating, "typescript:S6565"), 1);
+
+        let clean = ts_keys("class Builder {\n  build(): this { return this; }\n}\n");
+        assert_eq!(count_key(&clean, "typescript:S6565"), 0);
+    }
+
+    #[test]
+    fn non_null_after_guards_are_flagged() {
+        let violating = ts_keys("const x = a ?? b!;\n");
+        assert_eq!(count_key(&violating, "typescript:S6568"), 1);
+
+        let clean = ts_keys("const x = a.b!;\n");
+        assert_eq!(count_key(&clean, "typescript:S6568"), 0);
+    }
+
+    #[test]
+    fn readonly_annotations_suggest_as_const() {
+        let violating = ts_keys("const colors: readonly string[] = ['a', 'b'];\n");
+        assert_eq!(count_key(&violating, "typescript:S6590"), 1);
+
+        let clean = ts_keys("const mutable: string[] = ['a', 'b'];\n");
+        assert_eq!(count_key(&clean, "typescript:S6590"), 0);
+    }
+
+    #[test]
+    fn props_interfaces_require_readonly_fields() {
+        let violating = ts_keys("interface ButtonProps { label: string; size: number; }\n");
+        assert_eq!(count_key(&violating, "typescript:S6759"), 2);
+
+        let readonly = ts_keys("interface ButtonProps { readonly label: string; }\n");
+        assert_eq!(count_key(&readonly, "typescript:S6759"), 0);
+
+        let not_props = ts_keys("interface Config { label: string; }\n");
+        assert_eq!(count_key(&not_props, "typescript:S6759"), 0);
+    }
+
+    #[test]
+    fn static_properties_need_readonly_or_be_excluded() {
+        let violating = ts_keys("class Registry { static instance = new Registry(); }\n");
+        assert_eq!(count_key(&violating, "typescript:S1444"), 1);
+
+        let readonly = ts_keys("class Registry { static readonly kind = 'reg'; }\n");
+        assert_eq!(count_key(&readonly, "typescript:S1444"), 0);
+
+        let private = ts_keys("class Registry { private static secret = 1; }\n");
+        assert_eq!(count_key(&private, "typescript:S1444"), 0);
+    }
+
+    #[test]
+    fn constructor_async_work_is_flagged() {
+        let awaiting = ts_keys(
+            "class Server {\n  constructor() {\n    const data = load();\n    void data;\n  }\n}\nasync function load() { return 1; }\n",
+        );
+        assert_eq!(count_key(&awaiting, "typescript:S7059"), 0);
+
+        let direct = ts_keys(
+            "class Server {\n  async load() {}\n  constructor() {\n    const p = (async () => 1)();\n    void p;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&direct, "typescript:S7059"), 1);
+    }
+
+    #[test]
+    fn nested_awaits_are_flagged_for_both_languages() {
+        let typescript_findings =
+            ts_keys("async function f(p: Promise<number>) { return await await p; }\n");
+        assert_eq!(count_key(&typescript_findings, "typescript:S4326"), 1);
+
+        let javascript_findings = js_keys("async function f(p) { return await await p; }\n");
+        assert_eq!(count_key(&javascript_findings, "javascript:S4326"), 1);
     }
 }
