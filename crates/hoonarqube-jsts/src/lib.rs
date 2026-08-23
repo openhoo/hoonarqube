@@ -1672,10 +1672,10 @@ fn constructor_name<'a>(new: &'a NewExpression<'_>) -> Option<&'a str> {
 }
 
 /// Property name of a static member access (`a.b`), if any.
-fn static_property_name<'a>(member: &'a MemberExpression<'_>) -> Option<&'a str> {
+fn static_property_name<'data>(member: &MemberExpression<'data>) -> Option<&'data str> {
     match member {
         MemberExpression::StaticMemberExpression(static_member) => {
-            Some(&static_member.property.name)
+            Some(static_member.property.name.as_str())
         }
         _ => None,
     }
@@ -7841,9 +7841,9 @@ impl DuplicationCollector<'_> {
 
 /// Normalized key name for duplicate detection: static identifiers plus
 /// their quoted-string spellings (`{a: 1, "a": 2}` collide).
-fn duplicated_key_name<'a>(key: &'a PropertyKey<'a>) -> Option<&'a str> {
+fn duplicated_key_name<'data>(key: &PropertyKey<'data>) -> Option<&'data str> {
     match key {
-        PropertyKey::StaticIdentifier(identifier) => Some(&identifier.name),
+        PropertyKey::StaticIdentifier(identifier) => Some(identifier.name.as_str()),
         PropertyKey::StringLiteral(literal) => Some(literal.value.as_str()),
         _ => None,
     }
@@ -16647,14 +16647,6 @@ fn check_tb_duplicates(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
 
 /// S3500 (JS only) — reassignments of `const` bindings.
 fn check_tb_const_reassigned(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
-    eprintln!(
-        "TB-C: {:?}",
-        model
-            .bindings
-            .iter()
-            .map(|b| (b.name, b.kind, b.reads.len(), b.writes.len()))
-            .collect::<Vec<_>>()
-    );
     for binding in &model.bindings {
         if binding.kind == TbKind::Const {
             let name = binding.name;
@@ -17161,10 +17153,1828 @@ fn defined_group_names(pattern: &str) -> Vec<&str> {
     names
 }
 
+// ===== Tier B remainder group 1: dataflow-lite flow core =====
+// `S1854` dead stores, `S2123` misleading increments, `S1226` initial-value
+// overwrites, and `S4165` redundant same-value writes share one straight-line
+use std::collections::{HashMap, HashSet};
+
+/// Reachability of the code following the current point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TbHalt {
+    Live,
+    /// `break`/`continue`: only the innermost loop body ends here.
+    Jumped,
+    /// `return`/`throw`: everything after is unreachable.
+    Exited,
+}
+
+/// One tracked value: where it was written and what it came from.
+#[derive(Debug, Clone, Copy)]
+struct TbPending {
+    /// Identifier that received this value.
+    site: Span,
+    /// Value expression; `None` for compound writes and updates.
+    value: Option<Span>,
+    /// Value arrived from a parameter or loop variable (`S1226`).
+    initial: bool,
+}
+
+type TbEnv<'a> = HashMap<&'a str, TbPending>;
+
+/// Straight-line per-function value tracker feeding `S1854`, `S2123`,
+/// `S1226`, and `S4165`. Writes inside a branch are recorded but never
+/// reported there; branch joins keep an entry only when both paths hold the
+/// same write, so conditionally-live values are never flagged.
+struct TbFlow<'p, 's, 'i> {
+    source: &'s str,
+    sink: &'s mut IssueSink<'i>,
+    env: TbEnv<'p>,
+    status: TbHalt,
+    /// Branch nesting depth; findings emit only at depth 0.
+    depth: u32,
+    mutable_decl: bool,
+}
+
+impl<'p> TbFlow<'p, '_, '_> {
+    fn read(&mut self, name: &'p str) {
+        self.env.remove(name);
+    }
+
+    fn write(&mut self, name: &'p str, site: Span, value: Option<Span>, initial: bool) {
+        let previous = self.env.get(name).copied();
+        if self.depth == 0
+            && let Some(previous) = previous
+            && !initial
+        {
+            if previous.initial {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S1226",
+                    &format!(
+                        "Assign '{name}' to a new variable instead of overwriting its incoming value."
+                    ),
+                    site,
+                );
+            } else {
+                let same_value = matches!(
+                    (previous.value, value),
+                    (Some(old), Some(new))
+                        if source_slice(self.source, old) == source_slice(self.source, new)
+                );
+                if same_value {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S4165",
+                        &format!("Remove this redundant assignment of the same value to '{name}'."),
+                        site,
+                    );
+                } else {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S1854",
+                        &format!("Remove this unused assignment of '{name}'."),
+                        previous.site,
+                    );
+                }
+            }
+        }
+        self.env.insert(
+            name,
+            TbPending {
+                site,
+                value,
+                initial,
+            },
+        );
+    }
+
+    fn seed_parameter(&mut self, pattern: Option<&BindingPattern<'p>>) {
+        if let Some(BindingPattern::BindingIdentifier(identifier)) = pattern {
+            let name = identifier.name.as_str();
+            self.env.insert(
+                name,
+                TbPending {
+                    site: identifier.span,
+                    value: None,
+                    initial: true,
+                },
+            );
+        }
+    }
+
+    fn enter_function(&mut self, parameters: &FormalParameters<'p>) {
+        self.env.clear();
+        self.status = TbHalt::Live;
+        for parameter in &parameters.items {
+            self.seed_parameter(Some(&parameter.pattern));
+        }
+        if let Some(rest) = &parameters.rest {
+            self.seed_parameter(Some(&rest.rest.argument));
+        }
+    }
+
+    fn process_statements(&mut self, statements: &[Statement<'p>]) {
+        for statement in statements {
+            if self.status != TbHalt::Live {
+                return;
+            }
+            self.visit_statement(statement);
+        }
+    }
+
+    /// Merges two branch outcomes; `pre` is the environment before branching.
+    fn join(
+        &mut self,
+        then_state: (TbEnv<'p>, TbHalt),
+        else_state: (TbEnv<'p>, TbHalt),
+        pre: TbEnv<'p>,
+    ) {
+        match (then_state.1, else_state.1) {
+            (TbHalt::Live, TbHalt::Live) => {
+                self.env = intersect_envs(then_state.0, &else_state.0);
+                self.status = TbHalt::Live;
+            }
+            (TbHalt::Live, _) => {
+                self.env = then_state.0;
+                self.status = TbHalt::Live;
+            }
+            (_, TbHalt::Live) => {
+                self.env = else_state.0;
+                self.status = TbHalt::Live;
+            }
+            (_, TbHalt::Exited) | (TbHalt::Exited, _) => {
+                self.env = pre;
+                self.status = TbHalt::Exited;
+            }
+            _ => {
+                self.env = pre;
+                self.status = TbHalt::Jumped;
+            }
+        }
+    }
+
+    /// Loop bodies may re-read every value on the next iteration, and values
+    /// written inside may be read by the test or update expressions, so all
+    /// tracking is dropped at the loop boundary.
+    fn end_loop(&mut self) {
+        self.env.clear();
+        if self.status != TbHalt::Exited {
+            self.status = TbHalt::Live;
+        }
+    }
+}
+
+impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
+    fn visit_program(&mut self, program: &oxc_ast::ast::Program<'p>) {
+        self.process_statements(&program.body);
+    }
+
+    fn visit_block_statement(&mut self, block: &BlockStatement<'p>) {
+        self.process_statements(&block.body);
+    }
+
+    fn visit_static_block(&mut self, block: &StaticBlock<'p>) {
+        let saved = (std::mem::take(&mut self.env), self.status, self.depth);
+        self.status = TbHalt::Live;
+        self.process_statements(&block.body);
+        self.env = saved.0;
+        self.status = saved.1;
+        self.depth = saved.2;
+    }
+
+    fn visit_function(&mut self, function: &Function<'p>, _flags: ScopeFlags) {
+        let saved = (std::mem::take(&mut self.env), self.status, self.depth);
+        self.enter_function(&function.params);
+        if let Some(body) = &function.body {
+            self.process_statements(&body.statements);
+        }
+        self.env = saved.0;
+        self.status = saved.1;
+        self.depth = saved.2;
+    }
+
+    fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'p>) {
+        let saved = (std::mem::take(&mut self.env), self.status, self.depth);
+        self.enter_function(&arrow.params);
+        if let ArrowFunctionBody::FunctionBody(body) = &arrow.body {
+            self.process_statements(&body.statements);
+        } else if let Some(expression) = arrow.body.as_expression() {
+            self.visit_expression(expression);
+        }
+        self.env = saved.0;
+        self.status = saved.1;
+        self.depth = saved.2;
+    }
+
+    fn visit_catch_clause(&mut self, clause: &CatchClause<'p>) {
+        let saved = (std::mem::take(&mut self.env), self.status, self.depth);
+        self.seed_parameter(clause.param.as_ref().map(|param| &param.pattern));
+        self.process_statements(&clause.body.body);
+        self.env = saved.0;
+        self.status = saved.1;
+        self.depth = saved.2;
+    }
+
+    fn visit_if_statement(&mut self, node: &IfStatement<'p>) {
+        self.visit_expression(&node.test);
+        let pre = self.env.clone();
+        let pre_join = self.env.clone();
+        let saved_depth = self.depth;
+        self.depth += 1;
+        self.visit_statement(&node.consequent);
+        let then_state = (std::mem::replace(&mut self.env, pre.clone()), self.status);
+        let else_state = match &node.alternate {
+            Some(alternate) => {
+                self.status = TbHalt::Live;
+                self.visit_statement(alternate);
+                (std::mem::replace(&mut self.env, pre_join), self.status)
+            }
+            None => (pre.clone(), TbHalt::Live),
+        };
+        self.depth = saved_depth;
+        self.join(then_state, else_state, pre);
+    }
+
+    fn visit_conditional_expression(&mut self, node: &ConditionalExpression<'p>) {
+        self.visit_expression(&node.test);
+        let pre = self.env.clone();
+        let pre_join = self.env.clone();
+        let saved_depth = self.depth;
+        self.depth += 1;
+        self.visit_expression(&node.consequent);
+        let then_state = (std::mem::replace(&mut self.env, pre.clone()), self.status);
+        self.status = TbHalt::Live;
+        self.visit_expression(&node.alternate);
+        let else_state = (std::mem::replace(&mut self.env, pre_join), self.status);
+        self.depth = saved_depth;
+        self.join(then_state, else_state, pre);
+    }
+
+    fn visit_switch_statement(&mut self, node: &SwitchStatement<'p>) {
+        self.visit_expression(&node.discriminant);
+        let pre = self.env.clone();
+        let pre_fallback = self.env.clone();
+        let saved_depth = self.depth;
+        self.depth += 1;
+        let mut joined: Option<TbEnv<'p>> = None;
+        for case in &node.cases {
+            self.env = pre.clone();
+            self.status = TbHalt::Live;
+            if let Some(test) = &case.test {
+                self.visit_expression(test);
+            }
+            self.process_statements(&case.consequent);
+            if self.status == TbHalt::Live {
+                let current = std::mem::replace(&mut self.env, pre.clone());
+                joined = Some(match joined {
+                    None => current,
+                    Some(existing) => intersect_envs(existing, &current),
+                });
+            }
+        }
+        self.depth = saved_depth;
+        // A default-less switch or a final break keeps executing after the
+        // switch, so treat the join point as live regardless.
+        self.status = TbHalt::Live;
+        self.env = joined.unwrap_or(pre_fallback);
+    }
+
+    fn visit_try_statement(&mut self, node: &TryStatement<'p>) {
+        let pre = self.env.clone();
+        let pre_join = self.env.clone();
+        let saved_depth = self.depth;
+        self.depth += 1;
+        self.process_statements(&node.block.body);
+        let try_state = (std::mem::replace(&mut self.env, pre.clone()), self.status);
+        let handler_state = match &node.handler {
+            Some(handler) => {
+                self.status = TbHalt::Live;
+                // The catch body runs on its own straight-line path, so its
+                // writes are reportable even though the try block is not.
+                let handler_depth = std::mem::replace(&mut self.depth, 0);
+                self.visit_catch_clause(handler);
+                self.depth = handler_depth;
+                (std::mem::replace(&mut self.env, pre_join), self.status)
+            }
+            None => (pre.clone(), TbHalt::Live),
+        };
+        self.depth = saved_depth;
+        self.join(try_state, handler_state, pre);
+        if let Some(finalizer) = &node.finalizer {
+            self.visit_block_statement(finalizer);
+        }
+    }
+
+    fn visit_while_statement(&mut self, node: &WhileStatement<'p>) {
+        for name in subtree_names(&[&node.test], &[&node.body]) {
+            self.env.remove(name);
+        }
+        self.visit_expression(&node.test);
+        self.visit_statement(&node.body);
+        self.end_loop();
+    }
+
+    fn visit_do_while_statement(&mut self, node: &DoWhileStatement<'p>) {
+        for name in subtree_names(&[&node.test], &[&node.body]) {
+            self.env.remove(name);
+        }
+        self.visit_statement(&node.body);
+        self.visit_expression(&node.test);
+        self.end_loop();
+    }
+
+    fn visit_for_statement(&mut self, node: &ForStatement<'p>) {
+        let mut parts: Vec<&Expression<'p>> = Vec::new();
+        if let Some(test) = &node.test {
+            parts.push(test);
+        }
+        if let Some(update) = &node.update {
+            parts.push(update);
+        }
+        for name in subtree_names(&parts, &[&node.body]) {
+            self.env.remove(name);
+        }
+        walk_for_statement(self, node);
+        self.end_loop();
+    }
+
+    fn visit_for_in_statement(&mut self, node: &ForInStatement<'p>) {
+        for name in subtree_names(&[&node.right], &[&node.body]) {
+            self.env.remove(name);
+        }
+        walk_for_in_statement(self, node);
+        self.end_loop();
+    }
+
+    fn visit_for_of_statement(&mut self, node: &ForOfStatement<'p>) {
+        for name in subtree_names(&[&node.right], &[&node.body]) {
+            self.env.remove(name);
+        }
+        walk_for_of_statement(self, node);
+        self.end_loop();
+    }
+
+    fn visit_break_statement(&mut self, _: &BreakStatement<'p>) {
+        self.status = TbHalt::Jumped;
+    }
+
+    fn visit_continue_statement(&mut self, _: &ContinueStatement<'p>) {
+        self.status = TbHalt::Jumped;
+    }
+
+    fn visit_return_statement(&mut self, node: &ReturnStatement<'p>) {
+        if let Some(argument) = &node.argument {
+            self.visit_expression(argument);
+        }
+        self.status = TbHalt::Exited;
+    }
+
+    fn visit_throw_statement(&mut self, node: &ThrowStatement<'p>) {
+        self.visit_expression(&node.argument);
+        self.status = TbHalt::Exited;
+    }
+
+    fn visit_assignment_expression(&mut self, assign: &AssignmentExpression<'p>) {
+        if let Some(update_span) = self_overwrite_target(assign) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S2123",
+                "This increment/decrement result is unused; the variable is overwritten immediately.",
+                update_span,
+            );
+            if let Some((name, _)) = tb_assignment_target(&assign.left) {
+                self.read(name);
+            }
+            return;
+        }
+        self.visit_expression(&assign.right);
+        if let Some((name, span)) = tb_assignment_target(&assign.left) {
+            if assign.operator != AssignmentOperator::Assign {
+                self.read(name);
+            }
+            self.write(name, span, Some(assign.right.span()), false);
+        } else {
+            self.visit_assignment_target(&assign.left);
+        }
+    }
+
+    fn visit_update_expression(&mut self, update: &UpdateExpression<'p>) {
+        match &update.argument {
+            SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+                let name = identifier.name.as_str();
+                self.read(name);
+                self.write(name, identifier.span, None, false);
+            }
+            other => self.visit_simple_assignment_target(other),
+        }
+    }
+
+    fn visit_variable_declaration(&mut self, declaration: &VariableDeclaration<'p>) {
+        let saved = self.mutable_decl;
+        self.mutable_decl = declaration.kind != VariableDeclarationKind::Const;
+        for declarator in &declaration.declarations {
+            self.visit_variable_declarator(declarator);
+        }
+        self.mutable_decl = saved;
+    }
+
+    fn visit_variable_declarator(&mut self, declarator: &VariableDeclarator<'p>) {
+        if let Some(init) = &declarator.init {
+            self.visit_expression(init);
+        }
+        match &declarator.id {
+            BindingPattern::BindingIdentifier(identifier) => {
+                let name = identifier.name.as_str();
+                if self.mutable_decl {
+                    let value = declarator.init.as_ref().map(GetSpan::span);
+                    self.write(name, identifier.span, value, false);
+                } else {
+                    self.env.remove(name);
+                }
+            }
+            pattern => {
+                for name in bound_names(pattern) {
+                    self.env.remove(name);
+                }
+            }
+        }
+    }
+}
+
+fn intersect_envs<'p>(left: TbEnv<'p>, right: &TbEnv<'p>) -> TbEnv<'p> {
+    left.into_iter()
+        .filter(|(name, pending)| {
+            right
+                .get(name)
+                .is_some_and(|other| other.site == pending.site)
+        })
+        .collect()
+}
+
+fn tb_assignment_target<'data>(target: &AssignmentTarget<'data>) -> Option<(&'data str, Span)> {
+    match target {
+        AssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+            Some((identifier.name.as_str(), identifier.span))
+        }
+        _ => None,
+    }
+}
+
+/// Span of the `++`/`--` when an assignment overwrites its own updated
+/// operand (`x = x++`, `x += x--`): the update's effect is discarded (`S2123`).
+fn self_overwrite_target(assign: &AssignmentExpression<'_>) -> Option<Span> {
+    let (target_name, _) = tb_assignment_target(&assign.left)?;
+    let Expression::UpdateExpression(update) = unparenthesized(&assign.right) else {
+        return None;
+    };
+    let SimpleAssignmentTarget::AssignmentTargetIdentifier(operand) = &update.argument else {
+        return None;
+    };
+    (operand.name.as_str() == target_name).then_some(update.span)
+}
+
+#[derive(Default)]
+struct TbReferenceNames<'a> {
+    names: Vec<&'a str>,
+}
+
+impl<'a> Visit<'a> for TbReferenceNames<'a> {
+    fn visit_identifier_reference(&mut self, reference: &oxc_ast::ast::IdentifierReference<'a>) {
+        self.names.push(reference.name.as_str());
+    }
+}
+
+#[derive(Default)]
+struct TbBoundNames<'a> {
+    names: Vec<&'a str>,
+}
+
+impl<'a> Visit<'a> for TbBoundNames<'a> {
+    fn visit_binding_identifier(&mut self, identifier: &BindingIdentifier<'a>) {
+        self.names.push(identifier.name.as_str());
+    }
+}
+
+fn bound_names<'a>(pattern: &'a BindingPattern<'a>) -> Vec<&'a str> {
+    let mut collector = TbBoundNames::default();
+    collector.visit_binding_pattern(pattern);
+    collector.names
+}
+
+/// Names read or written anywhere in the given expression/statement parts.
+fn subtree_names<'a>(
+    expressions: &[&Expression<'a>],
+    statements: &[&Statement<'a>],
+) -> Vec<&'a str> {
+    let mut collector = TbReferenceNames::default();
+    for expression in expressions {
+        collector.visit_expression(expression);
+    }
+    for statement in statements {
+        collector.visit_statement(statement);
+    }
+    collector.names
+}
+
+/// `S1854` / `S2123` / `S1226` / `S4165` over the straight-line tracker.
+fn check_tb_flow_rules<'p>(
+    program: &'p oxc_ast::ast::Program<'p>,
+    source: &str,
+    sink: &mut IssueSink<'_>,
+) {
+    let mut flow = TbFlow {
+        source,
+        sink,
+        env: HashMap::new(),
+        status: TbHalt::Live,
+        depth: 0,
+        mutable_decl: false,
+    };
+    flow.visit_program(program);
+}
+
+/// Collects literal boolean conditions (`S2589`).
+#[derive(Default)]
+struct ConstantConditionCollector {
+    sites: Vec<(Span, bool)>,
+}
+
+impl ConstantConditionCollector {
+    fn note_test(&mut self, test: &Expression<'_>) {
+        if let Expression::BooleanLiteral(literal) = unparenthesized(test) {
+            self.sites.push((literal.span, literal.value));
+        }
+    }
+}
+
+impl<'a> Visit<'a> for ConstantConditionCollector {
+    fn visit_if_statement(&mut self, node: &IfStatement<'a>) {
+        self.note_test(&node.test);
+        walk_if_statement(self, node);
+    }
+
+    fn visit_while_statement(&mut self, node: &WhileStatement<'a>) {
+        self.note_test(&node.test);
+        walk_while_statement(self, node);
+    }
+
+    fn visit_do_while_statement(&mut self, node: &DoWhileStatement<'a>) {
+        self.note_test(&node.test);
+        walk_do_while_statement(self, node);
+    }
+
+    fn visit_conditional_expression(&mut self, node: &ConditionalExpression<'a>) {
+        self.note_test(&node.test);
+        walk_conditional_expression(self, node);
+    }
+
+    fn visit_switch_statement(&mut self, node: &SwitchStatement<'a>) {
+        self.note_test(&node.discriminant);
+        walk_switch_statement(self, node);
+    }
+}
+
+/// `S2589`: conditions that are literal booleans.
+fn check_tb_constant_conditions(program: &oxc_ast::ast::Program<'_>, sink: &mut IssueSink<'_>) {
+    let mut collector = ConstantConditionCollector::default();
+    collector.visit_program(program);
+    for (span, value) in collector.sites {
+        sink.emit_span(
+            RuleScope::Both,
+            "S2589",
+            &format!("This condition always evaluates to {value}; consider removing it."),
+            span,
+        );
+    }
+}
+
+/// Member accesses whose base is `null`/`undefined` (`S2259`).
+#[derive(Default)]
+struct NullAccessCollector {
+    sites: Vec<(&'static str, Span)>,
+    undefined_shadowed: bool,
+}
+
+impl<'a> Visit<'a> for NullAccessCollector {
+    fn visit_member_expression(&mut self, member: &MemberExpression<'a>) {
+        let base = member_object(member);
+        if !member_optional(member) {
+            let kind = match unparenthesized(base) {
+                Expression::NullLiteral(_) => Some("null"),
+                Expression::Identifier(identifier)
+                    if !self.undefined_shadowed && identifier.name == "undefined" =>
+                {
+                    Some("undefined")
+                }
+                _ => None,
+            };
+            if let Some(kind) = kind {
+                self.sites.push((kind, base.span()));
+            }
+        }
+        walk_member_expression(self, member);
+    }
+}
+
+fn member_optional(member: &MemberExpression<'_>) -> bool {
+    match member {
+        MemberExpression::StaticMemberExpression(expression) => expression.optional,
+        MemberExpression::ComputedMemberExpression(expression) => expression.optional,
+        MemberExpression::PrivateFieldExpression(expression) => expression.optional,
+    }
+}
+
+/// `S2259` (JavaScript only): property access on `null`/`undefined`.
+fn check_tb_null_accesses(
+    program: &oxc_ast::ast::Program<'_>,
+    sink: &mut IssueSink<'_>,
+    undefined_shadowed: bool,
+) {
+    let mut collector = NullAccessCollector {
+        undefined_shadowed,
+        sites: Vec::new(),
+    };
+    collector.visit_program(program);
+    for (kind, span) in collector.sites {
+        sink.emit_span(
+            RuleScope::JsOnly,
+            "S2259",
+            &format!("This property access on '{kind}' will throw a TypeError."),
+            span,
+        );
+    }
+}
+
+/// Plain `let` declarators plus exclusions for `S3353`.
+#[derive(Default)]
+struct LetToConstCollector<'a> {
+    candidates: Vec<(&'a str, Span)>,
+    excluded: HashSet<u32>,
+    exported: HashSet<u32>,
+    in_let: bool,
+    in_export: bool,
+}
+
+impl<'a> LetToConstCollector<'a> {
+    fn note_for_head(&mut self, left: &ForStatementLeft<'a>) {
+        if let ForStatementLeft::VariableDeclaration(declaration) = left {
+            for declarator in &declaration.declarations {
+                if let BindingPattern::BindingIdentifier(identifier) = &declarator.id {
+                    self.excluded.insert(identifier.span.start);
+                }
+            }
+        }
+    }
+}
+
+impl<'a> Visit<'a> for LetToConstCollector<'a> {
+    fn visit_variable_declaration(&mut self, declaration: &VariableDeclaration<'a>) {
+        let saved = self.in_let;
+        self.in_let = declaration.kind == VariableDeclarationKind::Let;
+        for declarator in &declaration.declarations {
+            self.visit_variable_declarator(declarator);
+        }
+        self.in_let = saved;
+    }
+
+    fn visit_variable_declarator(&mut self, declarator: &VariableDeclarator<'a>) {
+        if self.in_let
+            && !self.in_export
+            && declarator.init.is_some()
+            && let BindingPattern::BindingIdentifier(identifier) = &declarator.id
+        {
+            self.candidates
+                .push((identifier.name.as_str(), identifier.span));
+        }
+    }
+
+    fn visit_for_of_statement(&mut self, node: &ForOfStatement<'a>) {
+        self.note_for_head(&node.left);
+        walk_for_of_statement(self, node);
+    }
+
+    fn visit_for_in_statement(&mut self, node: &ForInStatement<'a>) {
+        self.note_for_head(&node.left);
+        walk_for_in_statement(self, node);
+    }
+
+    fn visit_export_declaration(&mut self, declaration: &ExportDeclaration<'a>) {
+        let saved = self.in_export;
+        self.in_export = true;
+        if let Declaration::VariableDeclaration(inner) = &declaration.declaration {
+            for declarator in &inner.declarations {
+                if let BindingPattern::BindingIdentifier(identifier) = &declarator.id {
+                    self.exported.insert(identifier.span.start);
+                }
+            }
+        }
+        walk_declaration(self, &declaration.declaration);
+        self.in_export = saved;
+    }
+}
+
+/// `S3353`: `let` variables that are never reassigned become `const`.
+fn check_tb_let_to_const(
+    model: &TbModel<'_>,
+    program: &oxc_ast::ast::Program<'_>,
+    sink: &mut IssueSink<'_>,
+) {
+    let mut collector = LetToConstCollector::default();
+    collector.visit_program(program);
+    let candidates: HashMap<u32, &str> = collector
+        .candidates
+        .into_iter()
+        .map(|(name, span)| (span.start, name))
+        .collect();
+    for binding in &model.bindings {
+        if binding.kind != TbKind::Let
+            || !binding.writes.is_empty()
+            || binding.reads.is_empty()
+            || collector.excluded.contains(&binding.decl.start)
+            || collector.exported.contains(&binding.decl.start)
+        {
+            continue;
+        }
+        if let Some(name) = candidates.get(&binding.decl.start) {
+            sink.emit_span(
+                RuleScope::Both,
+                "S3353",
+                &format!("Change this 'let' declaration to 'const'; '{name}' is never reassigned."),
+                binding.decl,
+            );
+        }
+    }
+}
+
+// ===== Tier B remainder group 2: targeted dataflow queries =====
+
+use oxc_ast_visit::walk::walk_update_expression;
+
+/// All Tier-B checks that run over the scope model.
+const SQL_SINK_METHODS: [&str; 3] = ["query", "execute", "exec"];
+const WRITE_ONLY_METHODS: [&str; 4] = ["push", "unshift", "set", "add"];
+const IN_PLACE_ARRAY_METHODS: [&str; 4] = ["sort", "reverse", "splice", "fill"];
+const FS_WRITE_FUNCTIONS: [&str; 7] = [
+    "open",
+    "openSync",
+    "writeFile",
+    "writeFileSync",
+    "appendFile",
+    "appendFileSync",
+    "mkdir",
+];
+
+/// Collects SQL sink calls receiving dynamically built strings (`S2077`).
+#[derive(Default)]
+struct SqlInjectionCollector {
+    sites: Vec<Span>,
+}
+
+impl<'p> Visit<'p> for SqlInjectionCollector {
+    fn visit_call_expression(&mut self, call: &CallExpression<'p>) {
+        if let Some(name) = callee_member_name(call)
+            && SQL_SINK_METHODS.contains(&name)
+            && let Some(argument) = call.arguments.first()
+            && let Some(expression) = argument.as_expression()
+            && is_dynamic_sql(unparenthesized(expression))
+        {
+            self.sites.push(expression.span());
+        }
+        walk_call_expression(self, call);
+    }
+}
+
+fn is_dynamic_sql(expression: &Expression<'_>) -> bool {
+    match expression {
+        Expression::TemplateLiteral(template) => !template.expressions.is_empty(),
+        Expression::BinaryExpression(binary) if binary.operator == BinaryOperator::Addition => {
+            sql_operand_is_untrusted(&binary.left) || sql_operand_is_untrusted(&binary.right)
+        }
+        _ => false,
+    }
+}
+
+fn sql_operand_is_untrusted(expression: &Expression<'_>) -> bool {
+    !matches!(
+        unparenthesized(expression),
+        Expression::StringLiteral(_) | Expression::NumericLiteral(_)
+    )
+}
+
+/// `S2077`: SQL sinks fed interpolated or concatenated strings.
+fn check_tb_sql_injection(program: &oxc_ast::ast::Program<'_>, sink: &mut IssueSink<'_>) {
+    let mut collector = SqlInjectionCollector::default();
+    collector.visit_program(program);
+    for span in collector.sites {
+        sink.emit_span(
+            RuleScope::Both,
+            "S2077",
+            "Use parameterized queries instead of building SQL with interpolation.",
+            span,
+        );
+    }
+}
+
+/// Collects collections that are only ever written to (`S4030`).
+#[derive(Default)]
+struct UselessCollectionCollector<'p> {
+    candidates: Vec<(&'p str, Span)>,
+    references: Vec<(&'p str, Span)>,
+    /// Receiver spans of `push`/`set`/`add`-family calls.
+    write_receivers: HashSet<u32>,
+}
+
+impl<'p> Visit<'p> for UselessCollectionCollector<'p> {
+    fn visit_variable_declarator(&mut self, declarator: &VariableDeclarator<'p>) {
+        if let (BindingPattern::BindingIdentifier(identifier), Some(init)) =
+            (&declarator.id, declarator.init.as_ref())
+            && is_empty_collection_init(init)
+        {
+            self.candidates
+                .push((identifier.name.as_str(), identifier.span));
+        }
+        walk_variable_declarator(self, declarator);
+    }
+
+    fn visit_call_expression(&mut self, call: &CallExpression<'p>) {
+        if let Some(member) = call.callee.as_member_expression()
+            && let Some(name) = static_property_name(member)
+            && WRITE_ONLY_METHODS.contains(&name)
+            && let Expression::Identifier(object) = member_object(member)
+        {
+            self.write_receivers.insert(object.span().start);
+        }
+        walk_call_expression(self, call);
+    }
+
+    fn visit_identifier_reference(&mut self, reference: &oxc_ast::ast::IdentifierReference<'p>) {
+        self.references
+            .push((reference.name.as_str(), reference.span));
+    }
+}
+
+fn is_empty_collection_init(init: &Expression<'_>) -> bool {
+    match init {
+        Expression::ArrayExpression(array) => array.elements.is_empty(),
+        Expression::ObjectExpression(object) => object.properties.is_empty(),
+        Expression::NewExpression(new_expression) => {
+            new_expression.arguments.is_empty()
+                && matches!(
+                    &new_expression.callee,
+                    Expression::Identifier(callee)
+                        if callee.name == "Map" || callee.name == "Set"
+                )
+        }
+        _ => false,
+    }
+}
+
+/// `S4030`: collections only ever mutated through write methods.
+fn check_tb_useless_collections(program: &oxc_ast::ast::Program<'_>, sink: &mut IssueSink<'_>) {
+    let mut collector = UselessCollectionCollector::default();
+    collector.visit_program(program);
+    for (name, decl_span) in &collector.candidates {
+        let mut uses = 0;
+        let mut all_writes = true;
+        for (reference_name, reference_span) in &collector.references {
+            if *reference_name != *name {
+                continue;
+            }
+            uses += 1;
+            all_writes &= collector.write_receivers.contains(&reference_span.start);
+        }
+        if uses > 0 && all_writes {
+            sink.emit_span(
+                RuleScope::Both,
+                "S4030",
+                &format!("'{name}' is written to but never read; remove this collection."),
+                *decl_span,
+            );
+        }
+    }
+}
+
+/// Captured results of in-place array methods whose base is reused (`S4043`).
+#[derive(Default)]
+struct InPlaceCaptureCollector<'p> {
+    /// `(base name, method, call span)` of captured in-place calls.
+    captures: Vec<(&'p str, &'p str, Span)>,
+    references: Vec<(&'p str, Span)>,
+}
+
+impl<'p> Visit<'p> for InPlaceCaptureCollector<'p> {
+    fn visit_variable_declarator(&mut self, declarator: &VariableDeclarator<'p>) {
+        if let BindingPattern::BindingIdentifier(target) = &declarator.id
+            && let Some(init) = declarator.init.as_ref()
+            && let Expression::CallExpression(call) = unparenthesized(init)
+            && let Some((base, _, method)) = in_place_array_call(call)
+            && base != target.name.as_str()
+        {
+            self.captures.push((base, method, call.span));
+        }
+        walk_variable_declarator(self, declarator);
+    }
+
+    fn visit_assignment_expression(&mut self, assign: &AssignmentExpression<'p>) {
+        if assign.operator == AssignmentOperator::Assign
+            && let Some((target_name, _)) = tb_assignment_target(&assign.left)
+            && let Expression::CallExpression(call) = unparenthesized(&assign.right)
+            && let Some((base, _, method)) = in_place_array_call(call)
+            && base != target_name
+        {
+            self.captures.push((base, method, call.span));
+        }
+        walk_assignment_expression(self, assign);
+    }
+
+    fn visit_identifier_reference(&mut self, reference: &oxc_ast::ast::IdentifierReference<'p>) {
+        self.references
+            .push((reference.name.as_str(), reference.span));
+    }
+}
+
+/// `(receiver name, receiver span, method)` of `x.sort()`-style calls.
+fn in_place_array_call<'data>(
+    call: &CallExpression<'data>,
+) -> Option<(&'data str, Span, &'data str)> {
+    let member = call.callee.as_member_expression()?;
+    let name = static_property_name(member)?;
+    if !IN_PLACE_ARRAY_METHODS.contains(&name) {
+        return None;
+    }
+    match member_object(member) {
+        Expression::Identifier(base) => Some((base.name.as_str(), base.span(), name)),
+        _ => None,
+    }
+}
+
+/// `S4043`: in-place method result captured while the original is reused.
+fn check_tb_in_place_captures(program: &oxc_ast::ast::Program<'_>, sink: &mut IssueSink<'_>) {
+    let mut collector = InPlaceCaptureCollector::default();
+    collector.visit_program(program);
+    for (base_name, method, call_span) in &collector.captures {
+        let original_reused_later = collector
+            .references
+            .iter()
+            .any(|(name, span)| *name == *base_name && span.start > call_span.end);
+        if original_reused_later {
+            sink.emit_span(
+                RuleScope::Both,
+                "S4043",
+                &format!(
+                    "'{method}()' mutates '{base_name}' in place; the captured value aliases it."
+                ),
+                *call_span,
+            );
+        }
+    }
+}
+
+/// `m.get(k)` results immediately stored back via `m.set(k, v)` (`S4143`).
+#[derive(Default)]
+struct MapRoundTripCollector<'p> {
+    /// `(variable, map name, key span, get-call span)`.
+    gets: Vec<(&'p str, &'p str, Span, Span)>,
+    /// `(map name, key span, value variable, set-call span)`.
+    sets: Vec<(&'p str, Span, Option<&'p str>, Span)>,
+    /// Other mutations (`delete`, `clear`, any other `set`) on a map name.
+    mutations: Vec<(&'p str, Span)>,
+    /// Writes to variables, used to detect re-binding between get and set.
+    variable_writes: Vec<(&'p str, Span)>,
+}
+
+impl<'p> MapRoundTripCollector<'p> {
+    fn note_get(&mut self, call: &CallExpression<'p>, bound_to: &'p str) {
+        if let Some(member) = call.callee.as_member_expression()
+            && static_property_name(member) == Some("get")
+            && call.arguments.len() == 1
+            && let Some(argument) = call.arguments.first()
+            && let Some(key) = argument.as_expression()
+            && let Expression::Identifier(map) = member_object(member)
+        {
+            self.gets
+                .push((bound_to, map.name.as_str(), key.span(), call.span));
+        }
+    }
+}
+
+impl<'p> Visit<'p> for MapRoundTripCollector<'p> {
+    fn visit_variable_declarator(&mut self, declarator: &VariableDeclarator<'p>) {
+        if let BindingPattern::BindingIdentifier(identifier) = &declarator.id {
+            self.variable_writes
+                .push((identifier.name.as_str(), identifier.span));
+            if let Some(init) = declarator.init.as_ref()
+                && let Expression::CallExpression(call) = unparenthesized(init)
+            {
+                self.note_get(call, identifier.name.as_str());
+            }
+        }
+        walk_variable_declarator(self, declarator);
+    }
+
+    fn visit_assignment_expression(&mut self, assign: &AssignmentExpression<'p>) {
+        if let Some((name, site)) = tb_assignment_target(&assign.left) {
+            self.variable_writes.push((name, site));
+            if let Expression::CallExpression(call) = unparenthesized(&assign.right) {
+                self.note_get(call, name);
+            }
+        }
+        walk_assignment_expression(self, assign);
+    }
+
+    fn visit_call_expression(&mut self, call: &CallExpression<'p>) {
+        if let Some(member) = call.callee.as_member_expression()
+            && let Some(name) = static_property_name(member)
+            && let Expression::Identifier(map) = member_object(member)
+        {
+            let map_name = map.name.as_str();
+            if name == "set" && call.arguments.len() == 2 {
+                let key = call.arguments.first().and_then(Argument::as_expression);
+                let value = call.arguments.last().and_then(Argument::as_expression);
+                let value_variable = value.and_then(|value| match unparenthesized(value) {
+                    Expression::Identifier(identifier) => Some(identifier.name.as_str()),
+                    _ => None,
+                });
+                if let Some(key) = key {
+                    self.sets
+                        .push((map_name, key.span(), value_variable, call.span));
+                }
+            } else if matches!(name, "delete" | "clear") {
+                self.mutations.push((map_name, call.span));
+            }
+        }
+        walk_call_expression(self, call);
+    }
+}
+
+/// `S4143`: values read from a map and written straight back into it.
+fn check_tb_map_round_trips(
+    program: &oxc_ast::ast::Program<'_>,
+    source: &str,
+    sink: &mut IssueSink<'_>,
+) {
+    let mut collector = MapRoundTripCollector::default();
+    collector.visit_program(program);
+    // Any `set` on the same map invalidates earlier reads of its keys.
+    let mut mutations: Vec<(&str, Span)> = collector.mutations.clone();
+    mutations.extend(collector.sets.iter().map(|(map, _, _, span)| (*map, *span)));
+    for (map_name, key_span, value_variable, set_span) in &collector.sets {
+        let Some(variable) = value_variable else {
+            continue;
+        };
+        let matching_get = collector
+            .gets
+            .iter()
+            .rev()
+            .find(|(var, get_map, key, call)| {
+                var == variable
+                    && get_map == map_name
+                    && call.end <= set_span.start
+                    && source_slice(source, *key) == source_slice(source, *key_span)
+            });
+        let Some((_, _, _, get_call)) = matching_get else {
+            continue;
+        };
+        let interrupted = mutations.iter().any(|(name, span)| {
+            *name == *map_name && span.start > get_call.end && span.end < set_span.start
+        }) || collector.variable_writes.iter().any(|(name, span)| {
+            *name == *variable && span.start > get_call.end && span.end < set_span.start
+        });
+        if !interrupted {
+            sink.emit_span(
+                RuleScope::Both,
+                "S4143",
+                "This 'set' stores the value just read from the same key; drop the round trip.",
+                *set_span,
+            );
+        }
+    }
+}
+
+/// Permissive file modes and unprotected temp-dir writes (`S5443`).
+#[derive(Default)]
+struct PermissiveAccessCollector {
+    sites: Vec<(Span, &'static str)>,
+}
+
+impl<'p> Visit<'p> for PermissiveAccessCollector {
+    fn visit_call_expression(&mut self, call: &CallExpression<'p>) {
+        let function_name = callee_member_name(call).or_else(|| callee_name(call));
+        if let Some(name) = function_name
+            && FS_WRITE_FUNCTIONS.contains(&name)
+        {
+            for argument in &call.arguments {
+                let Some(expression) = argument.as_expression() else {
+                    continue;
+                };
+                if let Expression::NumericLiteral(literal) = unparenthesized(expression)
+                    && literal
+                        .raw
+                        .as_ref()
+                        .is_some_and(|raw| permissive_mode(raw.as_str()))
+                {
+                    self.sites.push((literal.span, "mode"));
+                }
+            }
+            let path = call.arguments.first().and_then(Argument::as_expression);
+            if let Some(path_expression) = path
+                && tmpdir_path(unparenthesized(path_expression))
+                && !has_exclusive_flag(call)
+            {
+                self.sites.push((path_expression.span(), "tmp"));
+            }
+        }
+        walk_call_expression(self, call);
+    }
+}
+
+fn permissive_mode(raw: &str) -> bool {
+    let parsed = if let Some(octal) = raw.strip_prefix("0o") {
+        u32::from_str_radix(octal, 8).ok()
+    } else if raw.starts_with("0x") {
+        u32::from_str_radix(raw.trim_start_matches("0x"), 16).ok()
+    } else {
+        raw.parse::<u32>().ok()
+    };
+    matches!(parsed, Some(value) if value <= 0o777 && value & 0o022 != 0)
+}
+
+fn tmpdir_path(expression: &Expression<'_>) -> bool {
+    match expression {
+        Expression::StringLiteral(literal) => literal.value.contains("/tmp"),
+        Expression::TemplateLiteral(template) => {
+            template
+                .quasis
+                .iter()
+                .any(|quasi| quasi.value.raw.contains("/tmp"))
+                || template.expressions.iter().any(tmpdir_path)
+        }
+        Expression::BinaryExpression(binary) if binary.operator == BinaryOperator::Addition => {
+            tmpdir_path(&binary.left) || tmpdir_path(&binary.right)
+        }
+        Expression::CallExpression(call) => {
+            callee_member_name(call) == Some("tmpdir")
+                && matches!(
+                    call.callee.as_member_expression().map(member_object),
+                    Some(Expression::Identifier(object)) if object.name == "os"
+                )
+        }
+        _ => false,
+    }
+}
+
+fn has_exclusive_flag(call: &CallExpression<'_>) -> bool {
+    call.arguments.iter().skip(1).any(|argument| {
+        argument
+            .as_expression()
+            .is_some_and(|expression| flag_grants_exclusive(unparenthesized(expression)))
+    })
+}
+
+fn flag_grants_exclusive(expression: &Expression<'_>) -> bool {
+    match expression {
+        Expression::StringLiteral(literal) => literal.value.contains('x'),
+        Expression::ObjectExpression(object) => object.properties.iter().any(|property| {
+            matches!(
+                property,
+                ObjectPropertyKind::ObjectProperty(prop)
+                    if duplicated_key_name(&prop.key) == Some("flag")
+                        && matches!(
+                            unparenthesized(&prop.value),
+                            Expression::StringLiteral(literal) if literal.value.contains('x')
+                        )
+            )
+        }),
+        _ => false,
+    }
+}
+
+/// `S5443`: permissive file modes or temp paths without exclusive flags.
+fn check_tb_permissive_file_access(program: &oxc_ast::ast::Program<'_>, sink: &mut IssueSink<'_>) {
+    let mut collector = PermissiveAccessCollector::default();
+    collector.visit_program(program);
+    for (span, kind) in collector.sites {
+        let message = match kind {
+            "mode" => {
+                "This file mode grants group/other write permission; tighten it (e.g. '0o644')."
+            }
+            _ => {
+                "Writing into a world-writable temp path needs an exclusive flag against symlink attacks."
+            }
+        };
+        sink.emit_span(RuleScope::Both, "S5443", message, span);
+    }
+}
+
+/// Class fields assigned only inside constructors (`S2933`, TS only).
+#[derive(Default)]
+struct ReadonlyFieldCollector<'p> {
+    stack: Vec<Vec<(&'p str, Span)>>,
+    findings: Vec<Span>,
+    writes: Vec<(&'p str, Span, bool)>,
+    constructor_depth: u32,
+}
+
+impl<'p> ReadonlyFieldCollector<'p> {
+    fn note_this_write(&mut self, name: &'p str, span: Span) {
+        self.writes.push((name, span, self.constructor_depth > 0));
+    }
+}
+
+impl<'p> Visit<'p> for ReadonlyFieldCollector<'p> {
+    fn visit_class(&mut self, class: &Class<'p>) {
+        let write_start = self.writes.len();
+        self.stack.push(Vec::new());
+        walk_class(self, class);
+        let fields = self.stack.pop().unwrap_or_default();
+        let class_writes = &self.writes[write_start..];
+        for (field_name, field_span) in fields {
+            let field_writes: Vec<_> = class_writes
+                .iter()
+                .filter(|(name, _, _)| *name == field_name)
+                .collect();
+            let ctor_only =
+                !field_writes.is_empty() && field_writes.iter().all(|(_, _, in_ctor)| *in_ctor);
+            if ctor_only {
+                self.findings.push(field_span);
+            }
+        }
+        self.writes.truncate(write_start);
+    }
+
+    fn visit_property_definition(&mut self, definition: &PropertyDefinition<'p>) {
+        if !definition.r#static
+            && !definition.readonly
+            && !definition.computed
+            && definition.value.is_none()
+            && let Some(name) = duplicated_key_name(&definition.key)
+            && let Some(fields) = self.stack.last_mut()
+        {
+            fields.push((name, definition.key.span()));
+        }
+        walk_property_definition(self, definition);
+    }
+
+    fn visit_method_definition(&mut self, method: &MethodDefinition<'p>) {
+        let saved = self.constructor_depth;
+        if method.kind == MethodDefinitionKind::Constructor {
+            self.constructor_depth += 1;
+        }
+        walk_method_definition(self, method);
+        self.constructor_depth = saved;
+    }
+
+    fn visit_assignment_expression(&mut self, assign: &AssignmentExpression<'p>) {
+        if let Some(member) = this_member_target(&assign.left) {
+            self.note_this_write(member.0, member.1);
+        }
+        walk_assignment_expression(self, assign);
+    }
+
+    fn visit_update_expression(&mut self, update: &UpdateExpression<'p>) {
+        if let SimpleAssignmentTarget::StaticMemberExpression(member) = &update.argument
+            && matches!(&member.object, Expression::ThisExpression(_))
+        {
+            self.note_this_write(member.property.name.as_str(), member.property.span());
+        }
+        walk_update_expression(self, update);
+    }
+}
+
+/// `(property name, property span)` when an assignment targets `this.X`.
+fn this_member_target<'d>(target: &AssignmentTarget<'d>) -> Option<(&'d str, Span)> {
+    let AssignmentTarget::StaticMemberExpression(member) = target else {
+        return None;
+    };
+    if !matches!(&member.object, Expression::ThisExpression(_)) {
+        return None;
+    }
+    Some((member.property.name.as_str(), member.property.span()))
+}
+
+/// `S2933` (TypeScript only): constructor-assigned fields become readonly.
+fn check_tb_readonly_candidate_fields(
+    program: &oxc_ast::ast::Program<'_>,
+    sink: &mut IssueSink<'_>,
+) {
+    let mut collector = ReadonlyFieldCollector::default();
+    collector.visit_program(program);
+    for span in collector.findings {
+        sink.emit_span(
+            RuleScope::TsOnly,
+            "S2933",
+            "This field is assigned only in the constructor; declare it 'readonly'.",
+            span,
+        );
+    }
+}
+
+/// Dynamically built `new RegExp(...)` patterns (`S4784`).
+#[derive(Default)]
+struct DynamicRegexCollector<'p> {
+    sites: Vec<Span>,
+    /// Identifier arguments awaiting binding resolution: `(new span, name)`.
+    unresolved: Vec<(Span, &'p str)>,
+    static_bindings: HashSet<&'p str>,
+    dynamic_bindings: HashSet<&'p str>,
+}
+
+impl<'p> Visit<'p> for DynamicRegexCollector<'p> {
+    fn visit_new_expression(&mut self, new_expression: &NewExpression<'p>) {
+        if matches!(&new_expression.callee, Expression::Identifier(callee)
+            if callee.name == "RegExp")
+            && let Some(argument) = new_expression.arguments.first()
+            && let Some(expression) = argument.as_expression()
+        {
+            match unparenthesized(expression) {
+                Expression::Identifier(identifier) => {
+                    self.unresolved
+                        .push((new_expression.span, identifier.name.as_str()));
+                }
+                expression if !is_static_regex_source(expression) => {
+                    self.sites.push(new_expression.span);
+                }
+                _ => {}
+            }
+        }
+        walk_new_expression(self, new_expression);
+    }
+
+    fn visit_variable_declarator(&mut self, declarator: &VariableDeclarator<'p>) {
+        if let BindingPattern::BindingIdentifier(identifier) = &declarator.id {
+            let static_init = declarator
+                .init
+                .as_ref()
+                .is_some_and(|init| is_static_regex_source(unparenthesized(init)));
+            if static_init {
+                self.static_bindings.insert(identifier.name.as_str());
+            } else {
+                self.dynamic_bindings.insert(identifier.name.as_str());
+            }
+        }
+        walk_variable_declarator(self, declarator);
+    }
+}
+
+fn is_static_regex_source(expression: &Expression<'_>) -> bool {
+    match expression {
+        Expression::StringLiteral(_)
+        | Expression::RegExpLiteral(_)
+        | Expression::NumericLiteral(_) => true,
+        Expression::TemplateLiteral(template) => template.expressions.is_empty(),
+        Expression::BinaryExpression(binary) if binary.operator == BinaryOperator::Addition => {
+            is_static_regex_source(&binary.left) && is_static_regex_source(&binary.right)
+        }
+        _ => false,
+    }
+}
+
+/// `S4784`: regular expressions built from non-static sources.
+fn check_tb_dynamic_regexps(program: &oxc_ast::ast::Program<'_>, sink: &mut IssueSink<'_>) {
+    let mut collector = DynamicRegexCollector::default();
+    collector.visit_program(program);
+    for span in collector.sites {
+        sink.emit_span(
+            RuleScope::Both,
+            "S4784",
+            "Do not build this regular expression dynamically; use a static pattern.",
+            span,
+        );
+    }
+    for (span, name) in collector.unresolved {
+        let statically_bound =
+            collector.static_bindings.contains(name) && !collector.dynamic_bindings.contains(name);
+        if !statically_bound {
+            sink.emit_span(
+                RuleScope::Both,
+                "S4784",
+                "Do not build this regular expression dynamically; use a static pattern.",
+                span,
+            );
+        }
+    }
+}
+
+// ===== Tier B remainder group 3: CFG-lite checks =====
+
+/// Login endpoints whose handler never regenerates the session (`S5876`).
+#[derive(Default)]
+struct SessionRegenerationCollector {
+    sites: Vec<Span>,
+}
+
+impl<'p> Visit<'p> for SessionRegenerationCollector {
+    fn visit_call_expression(&mut self, call: &CallExpression<'p>) {
+        if callee_member_name(call) == Some("post")
+            && expression_root_name(&call.callee) == Some("app")
+            && let Some(path) = call.arguments.first().and_then(|a| a.as_expression())
+            && is_login_path(unparenthesized(path))
+            && let Some(handler) = call.arguments.get(1).and_then(|a| a.as_expression())
+        {
+            // Handler details need source text; resolved in the rule query.
+            self.sites.push(handler.span());
+        }
+        walk_call_expression(self, call);
+    }
+}
+
+fn is_login_path(expression: &Expression<'_>) -> bool {
+    match expression {
+        Expression::StringLiteral(literal) => {
+            let path = literal.value.to_ascii_lowercase();
+            path.contains("login")
+                || path.contains("signin")
+                || path.contains("sign-in")
+                || path.contains("auth")
+        }
+        _ => false,
+    }
+}
+
+/// `S5876`: login handlers that keep the pre-authentication session.
+fn check_tb_session_regeneration(
+    program: &oxc_ast::ast::Program<'_>,
+    source: &str,
+    sink: &mut IssueSink<'_>,
+) {
+    let mut collector = SessionRegenerationCollector::default();
+    collector.visit_program(program);
+    for handler_span in collector.sites {
+        let touches_session = span_text_contains(source, handler_span, "session");
+        let regenerates = span_text_contains(source, handler_span, ".regenerate(");
+        if touches_session && !regenerates {
+            sink.emit_span(
+                RuleScope::Both,
+                "S5876",
+                "Regenerate the session after login to prevent session fixation.",
+                handler_span,
+            );
+        }
+    }
+}
+
+/// Unstable values used as list keys (`S6486`).
+#[derive(Default)]
+struct UnstableKeyCollector {
+    sites: Vec<Span>,
+}
+
+impl<'p> Visit<'p> for UnstableKeyCollector {
+    fn visit_jsx_attribute(&mut self, attribute: &JSXAttribute<'p>) {
+        if let JSXAttributeName::Identifier(name) = &attribute.name
+            && name.name == "key"
+            && let Some(JSXAttributeValue::ExpressionContainer(container)) = &attribute.value
+            && let Some(expression) = container.expression.as_expression()
+            && let Expression::CallExpression(call) = unparenthesized(expression)
+            && unstable_key_call(call)
+        {
+            self.sites.push(attribute.span);
+        }
+    }
+}
+
+fn unstable_key_call(call: &CallExpression<'_>) -> bool {
+    let Some(member) = call.callee.as_member_expression() else {
+        return false;
+    };
+    match (member_object(member), static_property_name(member)) {
+        (Expression::Identifier(object), Some(property)) => {
+            (object.name == "Math" && property == "random")
+                || (object.name == "Date" && property == "now")
+        }
+        _ => false,
+    }
+}
+
+/// `S6486`: `key={Math.random()}` / `key={Date.now()}`.
+fn check_tb_unstable_keys(program: &oxc_ast::ast::Program<'_>, sink: &mut IssueSink<'_>) {
+    let mut collector = UnstableKeyCollector::default();
+    collector.visit_program(program);
+    for span in collector.sites {
+        sink.emit_span(
+            RuleScope::Both,
+            "S6486",
+            "Use a stable identifier as the key; random values recreate elements on every render.",
+            span,
+        );
+    }
+}
+
+/// `.then(callback)` results consumed without a returned value (`S6544`).
+#[derive(Default)]
+struct PromiseChainCollector {
+    sites: Vec<Span>,
+}
+
+impl<'p> Visit<'p> for PromiseChainCollector {
+    fn visit_call_expression(&mut self, call: &CallExpression<'p>) {
+        if let Some(link) = call.callee.as_member_expression()
+            && let Expression::CallExpression(receiver) = unparenthesized(member_object(link))
+            && let Some(then_member) = receiver.callee.as_member_expression()
+            && static_property_name(then_member) == Some("then")
+            && then_callback_returns_nothing(receiver)
+        {
+            self.sites.push(receiver.span());
+        }
+        walk_call_expression(self, call);
+    }
+}
+
+/// Whether the first argument of a `.then(...)` call yields no value.
+fn then_callback_returns_nothing(call: &CallExpression<'_>) -> bool {
+    let Some(argument) = call.arguments.first().and_then(|a| a.as_expression()) else {
+        return false;
+    };
+    let statements = match unparenthesized(argument) {
+        Expression::ArrowFunctionExpression(arrow) => {
+            if let ArrowFunctionBody::FunctionBody(body) = &arrow.body {
+                Some(&body.statements)
+            } else {
+                None
+            }
+        }
+        Expression::FunctionExpression(function) => {
+            function.body.as_ref().map(|body| &body.statements)
+        }
+        _ => None,
+    };
+    match statements {
+        Some(statements) => !statements.iter().any(|statement| {
+            matches!(
+                statement,
+                Statement::ReturnStatement(return_statement)
+                    if return_statement.argument.is_some()
+            )
+        }),
+        None => false,
+    }
+}
+
+/// `S6544`: value-less `.then()` callbacks inside longer chains.
+fn check_tb_promise_chains(program: &oxc_ast::ast::Program<'_>, sink: &mut IssueSink<'_>) {
+    let mut collector = PromiseChainCollector::default();
+    collector.visit_program(program);
+    for span in collector.sites {
+        sink.emit_span(
+            RuleScope::Both,
+            "S6544",
+            "This '.then()' callback returns nothing although its result is chained further.",
+            span,
+        );
+    }
+}
+
+// ===== Tier B remainder group 4: trivia checks =====
+
+use oxc_ast::ast::Argument;
+
+/// `S1438` (skipped): automatic semicolon insertion cannot be reconstructed
+/// from a tolerant parse — hazard continuations merge into one statement, so
+/// any sibling-gap heuristic only fires on legitimate semicolon-free style.
+/// Last non-whitespace byte inside `source[start..end]`, ignoring comment text.
+/// (The skipped `S1438` rule is why no semicolon findings exist.)
+fn last_significant_char(
+    source: &str,
+    start: u32,
+    end: u32,
+    comments: &[ScannedComment],
+) -> Option<(u32, u8)> {
+    let bytes = source.as_bytes();
+    let scan = |from: u32, to: u32| -> Option<(u32, u8)> {
+        bytes
+            .get(from as usize..to as usize)?
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, byte)| !byte.is_ascii_whitespace())
+            .map(|(offset, byte)| (from + to_u32(offset), *byte))
+    };
+    let mut best = None;
+    let mut cursor = start;
+    for comment in comments {
+        if comment.token.start >= end {
+            break;
+        }
+        if comment.token.end <= cursor {
+            continue;
+        }
+        if comment.token.start > cursor {
+            best = scan(cursor, comment.token.start.min(end));
+        }
+        cursor = cursor.max(comment.token.end);
+        if cursor >= end {
+            return best;
+        }
+    }
+    if end > cursor {
+        best = scan(cursor, end);
+    }
+    best
+}
+
+/// Element/container shapes examined for trailing commas.
+struct TrailingCommaList {
+    /// Full container span, ending in `'('`, `'['`, or `'{'`.
+    container: Span,
+    /// Last element span, when the list has elements and no rest.
+    last_element: Option<Span>,
+}
+
+fn collect_trailing_comma_lists(program: &oxc_ast::ast::Program<'_>) -> Vec<TrailingCommaList> {
+    let mut collector = TrailingCommaListCollector::default();
+    collector.visit_program(program);
+    collector.lists
+}
+#[derive(Default)]
+struct TrailingCommaListCollector {
+    lists: Vec<TrailingCommaList>,
+}
+
+impl<'p> Visit<'p> for TrailingCommaListCollector {
+    fn visit_array_expression(&mut self, array: &ArrayExpression<'p>) {
+        let spread_last = matches!(
+            array.elements.last(),
+            Some(ArrayExpressionElement::SpreadElement(_))
+        );
+        let last = (!spread_last)
+            .then(|| array.elements.last())
+            .flatten()
+            .map(GetSpan::span);
+        self.lists.push(TrailingCommaList {
+            container: array.span,
+            last_element: last,
+        });
+        walk_array_expression(self, array);
+    }
+
+    fn visit_object_expression(&mut self, object: &ObjectExpression<'p>) {
+        self.lists.push(TrailingCommaList {
+            container: object.span,
+            last_element: object.properties.last().map(GetSpan::span),
+        });
+        walk_object_expression(self, object);
+    }
+
+    fn visit_call_expression(&mut self, call: &CallExpression<'p>) {
+        self.note_arguments(call.span, &call.arguments);
+        walk_call_expression(self, call);
+    }
+
+    fn visit_new_expression(&mut self, new_expression: &NewExpression<'p>) {
+        self.note_arguments(new_expression.span, &new_expression.arguments);
+        walk_new_expression(self, new_expression);
+    }
+
+    fn visit_formal_parameters(&mut self, parameters: &FormalParameters<'p>) {
+        if parameters.rest.is_none() {
+            self.lists.push(TrailingCommaList {
+                container: parameters.span,
+                last_element: parameters.items.last().map(GetSpan::span),
+            });
+        }
+        walk_formal_parameters(self, parameters);
+    }
+}
+
+/// The `S1438` skip note above explains why no semicolon findings are emitted;
+/// this collector only feeds the trailing-comma checks.
+impl TrailingCommaListCollector {
+    fn note_arguments(&mut self, container: Span, arguments: &[Argument<'_>]) {
+        let spread_last = matches!(arguments.last(), Some(Argument::SpreadElement(_)));
+        let last = (!spread_last)
+            .then(|| arguments.last())
+            .flatten()
+            .and_then(Argument::as_expression)
+            .map(GetSpan::span);
+        self.lists.push(TrailingCommaList {
+            container,
+            last_element: last,
+        });
+    }
+}
+
+/// `S1537` / `S3723`: trailing commas only where the line breaks allow them.
+fn check_tb_trailing_commas(
+    program: &oxc_ast::ast::Program<'_>,
+    source: &str,
+    index: &LineIndex,
+    sink: &mut IssueSink<'_>,
+) {
+    let comments = scan_comments(source);
+    for list in collect_trailing_comma_lists(program) {
+        let closer = list.container.end - 1;
+        let Some(last_element) = list.last_element else {
+            continue;
+        };
+        if !matches!(
+            source.as_bytes().get(closer as usize),
+            Some(b')' | b']' | b'}')
+        ) {
+            continue;
+        }
+        let single_line = index.pos(last_element.end).line == index.pos(closer).line;
+        let trailing_comma = last_significant_char(source, last_element.end, closer, &comments)
+            .filter(|&(_, byte)| byte == b',');
+        if single_line {
+            if let Some((comma_offset, _)) = trailing_comma {
+                sink.emit_span(
+                    RuleScope::Both,
+                    "S1537",
+                    "Remove this unneeded trailing comma.",
+                    Span::new(comma_offset, comma_offset + 1),
+                );
+            }
+        } else if trailing_comma.is_none() {
+            sink.emit_span(
+                RuleScope::Both,
+                "S3723",
+                "Add a trailing comma after the last element.",
+                Span::new(closer, closer + 1),
+            );
+        }
+    }
+}
+
+// ===== Tier B remainder group 5: library shape =====
+
+const SHELL_EXEC_FUNCTIONS: [&str; 5] = ["exec", "execSync", "spawn", "spawnSync", "execFile"];
+
+/// Insecure commands passed to shell-execution functions (`S5725`).
+#[derive(Default)]
+struct ShellCommandCollector {
+    sites: Vec<(Span, &'static str)>,
+}
+
+impl<'p> Visit<'p> for ShellCommandCollector {
+    fn visit_call_expression(&mut self, call: &CallExpression<'p>) {
+        let name = callee_name(call).or_else(|| callee_member_name(call));
+        if let Some(name) = name
+            && SHELL_EXEC_FUNCTIONS.contains(&name)
+            && let Some(command) = call
+                .arguments
+                .first()
+                .and_then(|argument| argument.as_expression())
+                .and_then(static_command_text)
+        {
+            if command.starts_with("curl ")
+                && command
+                    .split_whitespace()
+                    .any(|token| token.starts_with("http://"))
+            {
+                self.sites.push((call.span, "http"));
+            } else if is_unpinned_npm_install(&command) {
+                self.sites.push((call.span, "npm"));
+            }
+        }
+        walk_call_expression(self, call);
+    }
+}
+
+fn static_command_text(expression: &Expression<'_>) -> Option<String> {
+    match expression {
+        Expression::StringLiteral(literal) => Some(literal.value.to_string()),
+        Expression::TemplateLiteral(template) if template.expressions.is_empty() => Some(
+            template
+                .quasis
+                .iter()
+                .map(|quasi| quasi.value.raw.to_string())
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
+fn is_unpinned_npm_install(command: &str) -> bool {
+    let tokens: Vec<&str> = command.split_whitespace().collect();
+    if tokens.first() != Some(&"npm") || !matches!(tokens.get(1), Some(&"install" | &"i" | &"add"))
+    {
+        return false;
+    }
+    tokens[2..]
+        .iter()
+        .filter(|token| !token.starts_with('-'))
+        .any(|token| !token.contains('@') && !token.contains('#') && !token.contains("://"))
+}
+
+/// `S5725`: `http://` downloads and unpinned installs in shell commands.
+fn check_tb_shell_commands(program: &oxc_ast::ast::Program<'_>, sink: &mut IssueSink<'_>) {
+    let mut collector = ShellCommandCollector::default();
+    collector.visit_program(program);
+    for (span, kind) in collector.sites {
+        let message = match kind {
+            "http" => {
+                "Download over 'http://' allows tampering; use 'https://' and verify checksums."
+            }
+            _ => "Pin dependency versions in install commands to make builds reproducible.",
+        };
+        sink.emit_span(RuleScope::Both, "S5725", message, span);
+    }
+}
+
 /// All Tier-B checks that run over the scope model.
 fn check_tier_b_rules(
     program: &oxc_ast::ast::Program<'_>,
-    _source: &str,
+    source: &str,
     index: &LineIndex,
     language: JstsLanguage,
 ) -> Vec<Issue> {
@@ -17185,12 +18995,32 @@ fn check_tier_b_rules(
     check_tb_import_reassigned(&model, &mut sink);
     check_tb_var_hoisting_order(&model, &mut sink);
     check_tb_block_leaks(&model, &mut sink);
+    let undefined_shadowed = model
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "undefined");
+    check_tb_let_to_const(&model, program, &mut sink);
+    check_tb_flow_rules(program, source, &mut sink);
+    check_tb_null_accesses(program, &mut sink, undefined_shadowed);
+    check_tb_constant_conditions(program, &mut sink);
     check_tb_arity(&model, &mut sink);
     check_tb_constructor_resolution(&model, &mut sink);
     check_tb_mixed_construction(&model, &mut sink);
     check_tb_delete_array_element(&model, &mut sink);
     check_tb_explicit_undefined(&model, &mut sink);
     check_tb_class_rules(program, &mut sink);
+    check_tb_sql_injection(program, &mut sink);
+    check_tb_useless_collections(program, &mut sink);
+    check_tb_in_place_captures(program, &mut sink);
+    check_tb_map_round_trips(program, source, &mut sink);
+    check_tb_permissive_file_access(program, &mut sink);
+    check_tb_readonly_candidate_fields(program, &mut sink);
+    check_tb_dynamic_regexps(program, &mut sink);
+    check_tb_session_regeneration(program, source, &mut sink);
+    check_tb_unstable_keys(program, &mut sink);
+    check_tb_promise_chains(program, &mut sink);
+    check_tb_trailing_commas(program, source, index, &mut sink);
+    check_tb_shell_commands(program, &mut sink);
     check_tb_named_groups(program, &mut sink);
     sink.issues
 }
@@ -21542,5 +23372,264 @@ draw(other, more);
                 .iter()
                 .any(|issue| issue.rule_key == "typescript:S6522")
         );
+    }
+
+    // --- Tier B remainder group 1: dataflow-lite ---
+
+    #[test]
+    fn dead_store_flagged_but_conditional_overwrite_kept_clean() {
+        let flagged = js("function f() {\n  let x = compute();\n  x = 2;\n  return x;\n}\nf();\n");
+        assert_eq!(filtered(&flagged, "S1854").len(), 1);
+        let clean = js("function f() {\n  let x = compute();\n  return x;\n}\nf();\n");
+        assert_eq!(filtered(&clean, "S1854").len(), 0);
+        let conditional = js(
+            "function g(c) {\n  let x = a();\n  if (c) {\n    x = b();\n  }\n  return x;\n}\ng(true);\n",
+        );
+        assert_eq!(filtered(&conditional, "S1854").len(), 0);
+    }
+
+    #[test]
+    fn dead_store_survives_branches_only_when_both_paths_agree() {
+        let source = js(
+            "function f(c) {\n  let x = a();\n  if (c) {\n    x = b();\n  } else {\n    x = b();\n  }\n  return x;\n}\nf(1);\n",
+        );
+        // The two overwrites live at different offsets, so the value may be
+        // read from either path: nothing is reported.
+        assert_eq!(filtered(&source, "S1854").len(), 0);
+    }
+
+    #[test]
+    fn misleading_self_increment_flagged() {
+        let flagged = js("function f() {\n  let i = 0;\n  i = i++;\n  return i;\n}\nf();\n");
+        assert_eq!(filtered(&flagged, "S2123").len(), 1);
+        assert_eq!(filtered(&flagged, "S1854").len(), 0);
+        let clean = js("let i = 0;\ni += 1;\nuse(i);\n");
+        assert_eq!(filtered(&clean, "S2123").len(), 0);
+    }
+
+    #[test]
+    fn initial_value_overwrite_flagged_for_params_and_catch() {
+        let param = js("function f(a) {\n  a = 1;\n  return a;\n}\nf(2);\n");
+        assert_eq!(filtered(&param, "S1226").len(), 1);
+        let caught =
+            js("try {\n  risky();\n} catch (error) {\n  error = null;\n  log(error);\n}\n");
+        assert_eq!(filtered(&caught, "S1226").len(), 1);
+        let clean = js("function f(c) {\n  if (c) {\n    c = 1;\n  }\n  return c;\n}\nf(2);\n");
+        assert_eq!(filtered(&clean, "S1226").len(), 0);
+    }
+
+    #[test]
+    fn constant_boolean_conditions_flagged() {
+        let flagged = js("if (true) {\n  work();\n}\nwhile (false) {\n  skip();\n}\n");
+        assert_eq!(filtered(&flagged, "S2589").len(), 2);
+        let clean = js("if (cond) {\n  work();\n}\nwhile (running) {\n  skip();\n}\n");
+        assert_eq!(filtered(&clean, "S2589").len(), 0);
+    }
+
+    #[test]
+    fn null_member_access_is_javascript_only() {
+        let sources = ["null.foo();\n", "undefined.bar;\n", "value(null.x);\n"];
+        for source in sources {
+            assert_eq!(filtered(&js(source), "S2259").len(), 1, "{source}");
+            assert_eq!(filtered(&ts(source), "S2259").len(), 0, "{source}");
+        }
+        assert_eq!(filtered(&js("null?.foo;\n"), "S2259").len(), 0);
+    }
+
+    #[test]
+    fn never_reassigned_let_suggested_as_const() {
+        let flagged = js("let fixed = compute();\nuse(fixed);\n");
+        assert_eq!(filtered(&flagged, "S3353").len(), 1);
+        let reassigned = js("let moving = 1;\nmoving = 2;\nuse(moving);\n");
+        assert_eq!(filtered(&reassigned, "S3353").len(), 0);
+        let for_head = js("for (let item of list) {\n  use(item);\n}\n");
+        assert_eq!(filtered(&for_head, "S3353").len(), 0);
+        let exported = js("export let exportedValue = compute();\nuse(exportedValue);\n");
+        assert_eq!(filtered(&exported, "S3353").len(), 0);
+        let late_init = js("let late;\nlate = 1;\nuse(late);\n");
+        assert_eq!(filtered(&late_init, "S3353").len(), 0);
+    }
+
+    #[test]
+    fn identical_repeated_write_prefers_redundant_assignment_key() {
+        let flagged = js(
+            "function f() {\n  let size = width();\n  size = width();\n  return size;\n}\nf();\n",
+        );
+        assert_eq!(filtered(&flagged, "S4165").len(), 1);
+        assert_eq!(filtered(&flagged, "S1854").len(), 0);
+    }
+
+    // --- Tier B remainder group 2: targeted dataflow queries ---
+
+    #[test]
+    fn sql_sinks_reject_dynamic_strings_only() {
+        let flagged = js(
+            "db.query(`SELECT * FROM users WHERE name = ${name}`);\ndb.execute('SELECT ' + column);\n",
+        );
+        assert_eq!(filtered(&flagged, "S2077").len(), 2);
+        let clean = js("db.query('SELECT 1');\ndb.query(staticQuery);\n");
+        assert_eq!(filtered(&clean, "S2077").len(), 0);
+    }
+
+    #[test]
+    fn write_only_collections_flagged() {
+        let map = js("const cache = new Map();\ncache.set('a', 1);\n");
+        assert_eq!(filtered(&map, "S4030").len(), 1);
+        let array = js("const out = [];\nout.push(2);\nout.unshift(3);\n");
+        assert_eq!(filtered(&array, "S4030").len(), 1);
+        let read = js("const kept = [];\nkept.push(1);\nuse(kept);\n");
+        assert_eq!(filtered(&read, "S4030").len(), 0);
+        let indexed = js("const mixed = [];\nmixed[0] = 1;\n");
+        assert_eq!(filtered(&indexed, "S4030").len(), 0);
+    }
+
+    #[test]
+    fn in_place_capture_needs_later_original_use() {
+        let flagged = js(
+            "function f(list) {\n  const sorted = list.sort();\n  return list.length + sorted.length;\n}\nf(items);\n",
+        );
+        assert_eq!(filtered(&flagged, "S4043").len(), 1);
+        let clean = js("const ordered = items.sort();\nreturn ordered;\n");
+        assert_eq!(filtered(&clean, "S4043").len(), 0);
+    }
+
+    #[test]
+    fn map_set_after_get_round_trip_flagged() {
+        let flagged = js(
+            "function f(map) {\n  const current = map.get('key');\n  map.set('key', current);\n}\nf(m);\n",
+        );
+        assert_eq!(filtered(&flagged, "S4143").len(), 1);
+        let other_key = js("const v = map.get('a');\nmap.set('b', v);\n");
+        assert_eq!(filtered(&other_key, "S4143").len(), 0);
+        let deleted_between = js("const v = map.get('k');\nmap.delete('k');\nmap.set('k', v);\n");
+        assert_eq!(filtered(&deleted_between, "S4143").len(), 0);
+    }
+
+    #[test]
+    fn permissive_modes_and_tmp_paths_flagged() {
+        let modes = js("fs.open(path, 'w', 0o777);\nfs.writeFile(file, data, 511);\n");
+        assert_eq!(filtered(&modes, "S5443").len(), 2);
+        let safe_mode = js("fs.open(path, 'w', 0o644);\n");
+        assert_eq!(filtered(&safe_mode, "S5443").len(), 0);
+        let tmp = js("fs.writeFile(os.tmpdir() + '/out.txt', data);\n");
+        assert_eq!(filtered(&tmp, "S5443").len(), 1);
+        let exclusive =
+            js("fs.writeFile('/tmp/out.txt', data, { flag: 'wx' });\nfs.open('/tmp/x', 'ax');\n");
+        assert_eq!(filtered(&exclusive, "S5443").len(), 0);
+    }
+
+    #[test]
+    fn constructor_only_fields_suggested_readonly_in_typescript() {
+        let source = "class C {\n  name;\n  constructor(value) {\n    this.name = value;\n  }\n}\n";
+        assert_eq!(filtered(&ts(source), "S2933").len(), 1);
+        assert_eq!(filtered(&js(source), "S2933").len(), 0);
+        let method_written = "class C {\n  count;\n  tick() {\n    this.count = 1;\n  }\n}\n";
+        assert_eq!(filtered(&ts(method_written), "S2933").len(), 0);
+        let already_readonly =
+            "class C {\n  readonly id;\n  constructor() {\n    this.id = 1;\n  }\n}\n";
+        assert_eq!(filtered(&ts(already_readonly), "S2933").len(), 0);
+        let initialized =
+            "class C {\n  preset = 1;\n  constructor() {\n    this.preset = 2;\n  }\n}\n";
+        assert_eq!(filtered(&ts(initialized), "S2933").len(), 0);
+    }
+
+    #[test]
+    fn dynamic_regex_construction_flagged() {
+        let flagged = js(
+            "new RegExp('a' + userInput);\nnew RegExp(`^${prefix}`);\nconst p = buildPattern();\nnew RegExp(p);\n",
+        );
+        assert_eq!(filtered(&flagged, "S4784").len(), 3);
+        let static_binding = js("const digits = '\\\\d+';\nnew RegExp(digits);\n");
+        assert_eq!(filtered(&static_binding, "S4784").len(), 0);
+        let literal = js("new RegExp('abc');\n");
+        assert_eq!(filtered(&literal, "S4784").len(), 0);
+    }
+
+    // --- Tier B remainder group 3: CFG-lite ---
+
+    fn jsx(source: &str) -> hoonarqube_ir::FileReport {
+        analyze(
+            PathBuf::from("test.jsx"),
+            source,
+            JstsLanguage::JavaScript,
+            &AnalyzerOptions::default(),
+        )
+    }
+
+    #[test]
+    fn login_without_session_regeneration_flagged() {
+        let flagged = js(
+            "app.post('/login', (req, res) => {\n  req.session.user = req.body.user;\n  res.redirect('/');\n});\n",
+        );
+        assert_eq!(filtered(&flagged, "S5876").len(), 1);
+        let regenerated = js(
+            "app.post('/login', (req, res) => {\n  req.session.regenerate(() => {});\n  res.redirect('/');\n});\n",
+        );
+        assert_eq!(filtered(&regenerated, "S5876").len(), 0);
+        let other_path = js("app.post('/profile', (req, res) => {\n  res.send('ok');\n});\n");
+        assert_eq!(filtered(&other_path, "S5876").len(), 0);
+    }
+
+    #[test]
+    fn unstable_jsx_keys_flagged() {
+        let flagged =
+            jsx("const rows = items.map((item) => (\n  <li key={Math.random()}>{item}</li>\n));\n");
+        assert_eq!(filtered(&flagged, "S6486").len(), 1);
+        let date_key = jsx("<li key={Date.now()}>{item}</li>\n");
+        assert_eq!(filtered(&date_key, "S6486").len(), 1);
+        let stable =
+            jsx("const rows = items.map((item) => (\n  <li key={item.id}>{item}</li>\n));\n");
+        assert_eq!(filtered(&stable, "S6486").len(), 0);
+    }
+
+    #[test]
+    fn valueless_then_callback_in_chain_flagged() {
+        let flagged =
+            js("fetchData().then((response) => {\n  console.log(response);\n}).catch(fail);\n");
+        assert_eq!(filtered(&flagged, "S6544").len(), 1);
+        let returns_value =
+            js("fetchData().then((response) => {\n  return response.json();\n}).catch(fail);\n");
+        assert_eq!(filtered(&returns_value, "S6544").len(), 0);
+        let unchained = js("fetchData().then((response) => {\n  console.log(response);\n});\n");
+        assert_eq!(filtered(&unchained, "S6544").len(), 0);
+    }
+
+    // --- Tier B remainder group 4: trivia ---
+
+    #[test]
+    fn single_line_trailing_commas_flagged_but_multiline_kept() {
+        let flagged = js("const colors = ['red', 'blue',];\nconst pair = {a: 1, b: 2,};\n");
+        assert_eq!(filtered(&flagged, "S1537").len(), 2);
+        assert_eq!(filtered(&flagged, "S3723").len(), 0);
+        let clean_single = js("const colors = ['red', 'blue'];\n");
+        assert_eq!(filtered(&clean_single, "S1537").len(), 0);
+    }
+
+    #[test]
+    fn multiline_lists_require_trailing_commas() {
+        let flagged =
+            js("const sizes = [\n  'small',\n  'medium'\n];\nfunction tune(\n  a,\n  b\n) {}\n");
+        assert_eq!(filtered(&flagged, "S3723").len(), 2);
+        assert_eq!(filtered(&flagged, "S1537").len(), 0);
+        let clean_multi = js("const sizes = [\n  'small',\n  'medium',\n];\n");
+        assert_eq!(filtered(&clean_multi, "S3723").len(), 0);
+    }
+
+    #[test]
+    fn call_and_new_argument_lists_follow_the_same_comma_contract() {
+        let flagged = js("send(a, b,);\nnew Widget(x, y\n);\n");
+        assert_eq!(filtered(&flagged, "S1537").len(), 1);
+        assert_eq!(filtered(&flagged, "S3723").len(), 1);
+    }
+
+    #[test]
+    fn shell_commands_flag_http_downloads_and_unpinned_installs() {
+        let flagged =
+            js("exec('curl http://example.com/install.sh');\nspawn('npm install lodash');\n");
+        assert_eq!(filtered(&flagged, "S5725").len(), 2);
+        let clean = js(
+            "exec('curl https://example.com/install.sh');\nspawn('npm install lodash@4.17.21');\nexecFile('git', ['status']);\n",
+        );
+        assert_eq!(filtered(&clean, "S5725").len(), 0);
     }
 }
