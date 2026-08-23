@@ -2,7 +2,8 @@
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::engine::scope_model::{
-    FunctionCensus, LiteralKind, kind_is_composite, kind_is_numeric, literal_kind,
+    ClassCensus, FunctionCensus, LiteralKind, kind_is_composite, kind_is_numeric, literal_kind,
+    member_optional,
 };
 use crate::rules::expression::s1528_constructor_calls::argument_expression;
 use crate::support::{
@@ -12,12 +13,12 @@ use crate::support::{
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     AwaitExpression, BinaryExpression, BinaryOperator, CallExpression, Expression,
-    ExpressionStatement, MemberExpression,
+    ExpressionStatement, MemberExpression, TemplateLiteral,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_await_expression, walk_binary_expression, walk_call_expression, walk_expression_statement,
-    walk_member_expression,
+    walk_member_expression, walk_template_literal,
 };
 use oxc_span::{GetSpan, Span};
 
@@ -58,6 +59,36 @@ pub(crate) fn check_tier_c_rules(
     };
     usage_collector.visit_program(program);
     collector.sink.issues.extend(usage_collector.sink.issues);
+    let mut chain_collector = TierCOptionalChainCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        mixed_chains: Vec::new(),
+    };
+    chain_collector.visit_program(program);
+    for span in maximal_spans(std::mem::take(&mut chain_collector.mixed_chains)) {
+        chain_collector.sink.emit_span(
+            RuleScope::Both,
+            "S6523",
+            "This chain mixes optional and non-optional accesses; an intermediate 'undefined' will throw.",
+            span,
+        );
+    }
+    let mut class_census = ClassCensus::default();
+    class_census.visit_program(program);
+    let mut coercion_collector = TierCCoercionCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        census: &class_census,
+    };
+    coercion_collector.visit_program(program);
+    collector.sink.issues.extend(coercion_collector.sink.issues);
+    collector.sink.issues.extend(chain_collector.sink.issues);
     // `S3800`: file-local functions whose returns mix literal kinds.
     for facts in census.functions.values() {
         let mut kinds = facts.return_kinds.clone();
@@ -538,6 +569,133 @@ impl TierCLiteralCollector<'_> {
             );
         }
     }
+}
+/// Tier-C collector for mixed optional chains (`S6523`): an optional `?.`
+/// access followed, toward the result side, by a plain member or index
+/// access of the same chain.
+pub(crate) struct TierCOptionalChainCollector<'index> {
+    pub(crate) sink: IssueSink<'index>,
+    /// Spans of every analyzed suffix whose optional flags mix; reduced to
+    /// the maximal chains once traversal finishes.
+    pub(crate) mixed_chains: Vec<Span>,
+}
+
+impl<'a> Visit<'a> for TierCOptionalChainCollector<'_> {
+    fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
+        if chain_mixes_optional(it) {
+            self.mixed_chains.push(it.span());
+        }
+        walk_member_expression(self, it);
+    }
+}
+
+/// Whether the member chain rooted at `member` performs a plain access
+/// above an optional one. Parenthesized objects end the analyzed chain:
+/// `(a?.b).c` re-introduces a value boundary that this structural subset
+/// deliberately does not cross.
+pub(crate) fn chain_mixes_optional(member: &MemberExpression<'_>) -> bool {
+    let mut seen_plain = false;
+    let mut current = Some(member);
+    while let Some(node) = current {
+        if member_optional(node) {
+            if seen_plain {
+                return true;
+            }
+        } else {
+            seen_plain = true;
+        }
+        current = unparenthesized(member_object(node)).as_member_expression();
+    }
+    false
+}
+
+/// Keeps only spans not contained in another candidate: whenever a chain
+/// suffix mixes optionality, its enclosing head chain mixes too, so the
+/// maximal spans correspond exactly to the reported chains.
+pub(crate) fn maximal_spans(mut spans: Vec<Span>) -> Vec<Span> {
+    spans.sort_by(|left, right| {
+        left.start
+            .cmp(&right.start)
+            .then_with(|| right.end.cmp(&left.end))
+    });
+    let mut kept: Vec<Span> = Vec::new();
+    for span in spans {
+        if !kept
+            .iter()
+            .any(|kept_span| kept_span.start <= span.start && span.end <= kept_span.end)
+        {
+            kept.push(span);
+        }
+    }
+    kept
+}
+
+/// Tier-C collector for implicit string coercions (`S6551`): template
+/// interpolation or string concatenation over file-local instances whose
+/// class declares no `toString` member. Explicit conversions such as
+/// `String(x)` are outside this subset.
+pub(crate) struct TierCCoercionCollector<'census, 'index> {
+    pub(crate) sink: IssueSink<'index>,
+    pub(crate) census: &'census ClassCensus,
+}
+
+impl<'a> Visit<'a> for TierCCoercionCollector<'_, '_> {
+    fn visit_template_literal(&mut self, it: &TemplateLiteral<'a>) {
+        for expression in &it.expressions {
+            if let Some(span) = self.tracked_instance(expression) {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S6551",
+                    "Provide a 'toString()' method for this class or convert it explicitly.",
+                    span,
+                );
+            }
+        }
+        walk_template_literal(self, it);
+    }
+
+    fn visit_binary_expression(&mut self, it: &BinaryExpression<'a>) {
+        if it.operator == BinaryOperator::Addition {
+            let instance_span = if is_string_operand(&it.left) {
+                self.tracked_instance(&it.right)
+            } else if is_string_operand(&it.right) {
+                self.tracked_instance(&it.left)
+            } else {
+                None
+            };
+            if let Some(span) = instance_span {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S6551",
+                    "Provide a 'toString()' method for this class or convert it explicitly.",
+                    span,
+                );
+            }
+        }
+        walk_binary_expression(self, it);
+    }
+}
+
+impl TierCCoercionCollector<'_, '_> {
+    /// Span of an identifier bound to a file-local class lacking `toString`.
+    pub(crate) fn tracked_instance(&self, expression: &Expression<'_>) -> Option<Span> {
+        match unparenthesized(expression) {
+            Expression::Identifier(identifier)
+                if self.census.instances.contains_key(identifier.name.as_str()) =>
+            {
+                Some(identifier.span)
+            }
+            _ => None,
+        }
+    }
+}
+
+/// Whether the operand is textual, so `+` coerces its other side to string.
+pub(crate) fn is_string_operand(expression: &Expression<'_>) -> bool {
+    matches!(
+        unparenthesized(expression),
+        Expression::StringLiteral(_) | Expression::TemplateLiteral(_)
+    )
 }
 
 /// Member names whose call results are arrays (`S3579` receivers).

@@ -4866,3 +4866,80 @@ fn void_function_results_should_not_be_used() {
 
     assert_eq!(count_key(&js_keys(ASYNC_FN), "javascript:S3699"), 0);
 }
+
+#[test]
+fn mixed_optional_chains_are_flagged() {
+    const CLEAN_ALL_OPTIONAL: &str = "const value = a?.b?.c;\n";
+    const CLEAN_OPTIONAL_LAST: &str = "const value = a.b.c?.d;\n";
+    let violating: &str = "const value = a?.b.c;\n";
+    assert_eq!(count_key(&js_keys(violating), "javascript:S6523"), 1);
+
+    let deep: &str = "const value = a.b?.c.d;\n";
+    assert_eq!(count_key(&js_keys(deep), "javascript:S6523"), 1);
+
+    let computed: &str = "const value = a?.b[0].c;\n";
+    assert_eq!(count_key(&js_keys(computed), "javascript:S6523"), 1);
+
+    assert_eq!(
+        count_key(&js_keys(CLEAN_ALL_OPTIONAL), "javascript:S6523"),
+        0
+    );
+
+    assert_eq!(
+        count_key(&js_keys(CLEAN_OPTIONAL_LAST), "javascript:S6523"),
+        0
+    );
+
+    // Both catalog scopes carry S6523.
+    assert_eq!(count_key(&ts_keys(violating), "typescript:S6523"), 1);
+}
+
+#[test]
+fn instances_of_classes_without_to_string_are_flagged_when_coerced() {
+    const WITH_TOSTRING: &str = "class Point {\n  toString() {\n    return 'p';\n  }\n}\nconst p = new Point();\nconst label = `at ${p}`;\n";
+    const UNRELATED: &str = "class Point {}\nconst label = `at ${other}`;\n";
+
+    let template: &str = "class Point {}\nconst p = new Point();\nconst label = `at ${p}`;\n";
+    assert_eq!(count_key(&js_keys(template), "javascript:S6551"), 1);
+
+    let concat: &str = "class Point {}\nconst p = new Point();\nconst label = 'at ' + p;\n";
+    assert_eq!(count_key(&js_keys(concat), "javascript:S6551"), 1);
+
+    let concat_left: &str = "class Point {}\nconst p = new Point();\nconst label = p + '!';\n";
+    assert_eq!(count_key(&js_keys(concat_left), "javascript:S6551"), 1);
+
+    assert_eq!(count_key(&js_keys(WITH_TOSTRING), "javascript:S6551"), 0);
+
+    assert_eq!(count_key(&js_keys(UNRELATED), "javascript:S6551"), 0);
+
+    // Both catalog scopes carry S6551.
+    assert_eq!(count_key(&ts_keys(template), "typescript:S6551"), 1);
+}
+
+#[test]
+fn selector_parameters_are_flagged_when_driving_branches() {
+    const SWITCH_VIOLATION: &str = "function render(type) {\n  switch (type) {\n    case 'a':\n      return 'A';\n    case 'b':\n      return 'B';\n    default:\n      return '?';\n  }\n}\n";
+    const COMPARISON_VIOLATION: &str = "function move(mode) {\n  if (mode === 'fast') {\n    return 1;\n  }\n  return mode === 'slow' ? 2 : 0;\n}\n";
+    const CLEAN_NON_SELECTOR: &str = "function pick(flag) {\n  switch (flag) {\n    case true:\n      return 'yes';\n    default:\n      return 'no';\n  }\n}\n";
+    const CLEAN_UNUSED_SELECTOR: &str = "function describe(kind) {\n  return kind;\n}\n";
+
+    assert_eq!(count_key(&js_keys(SWITCH_VIOLATION), "javascript:S2301"), 1);
+
+    assert_eq!(
+        count_key(&js_keys(COMPARISON_VIOLATION), "javascript:S2301"),
+        1
+    );
+
+    assert_eq!(
+        count_key(&js_keys(CLEAN_NON_SELECTOR), "javascript:S2301"),
+        0
+    );
+
+    assert_eq!(
+        count_key(&js_keys(CLEAN_UNUSED_SELECTOR), "javascript:S2301"),
+        0
+    );
+
+    // Both catalog scopes carry S2301.
+    assert_eq!(count_key(&ts_keys(SWITCH_VIOLATION), "typescript:S2301"), 1);
+}
