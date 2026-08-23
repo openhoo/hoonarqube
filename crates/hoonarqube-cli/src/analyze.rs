@@ -73,6 +73,7 @@ pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundl
     let python = match maximum_line_length("python:LineLength") {
         Some(maximum_line_length) => hoonarqube_python::AnalyzerOptions {
             maximum_line_length,
+            ..hoonarqube_python::AnalyzerOptions::default()
         },
         None => hoonarqube_python::AnalyzerOptions::default(),
     };
@@ -80,12 +81,14 @@ pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundl
         match maximum_line_length("javascript:S103").or(maximum_line_length("typescript:S103")) {
             Some(maximum_line_length) => hoonarqube_jsts::AnalyzerOptions {
                 maximum_line_length,
+                ..hoonarqube_jsts::AnalyzerOptions::default()
             },
             None => hoonarqube_jsts::AnalyzerOptions::default(),
         };
     let csharp = match maximum_line_length("csharpsquid:S103") {
         Some(maximum_line_length) => hoonarqube_csharp::AnalyzerOptions {
             maximum_line_length,
+            ..hoonarqube_csharp::AnalyzerOptions::default()
         },
         None => hoonarqube_csharp::AnalyzerOptions::default(),
     };
