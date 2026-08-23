@@ -12038,13 +12038,14 @@ const GLOBAL_ARIA_PROPERTIES: [&str; 18] = [
 ];
 
 /// Strictly boolean-valued ARIA attributes (`S6793`).
-const BOOLEAN_ARIA_PROPERTIES: [&str; 12] = [
+const BOOLEAN_ARIA_PROPERTIES: [&str; 13] = [
     "aria-atomic",
     "aria-busy",
     "aria-checked",
     "aria-disabled",
     "aria-expanded",
     "aria-grabbed",
+    "aria-hidden",
     "aria-modal",
     "aria-multiline",
     "aria-multiselectable",
@@ -12200,6 +12201,207 @@ const KNOWN_ARIA_PROPERTIES: [&str; 24] = [
     "aria-sort",
 ];
 
+/// Roles a list container (`ol`/`ul`) may take (`S6824`).
+const LIST_CONTAINER_ROLES: [&str; 9] = [
+    "group",
+    "list",
+    "menu",
+    "menubar",
+    "none",
+    "presentation",
+    "tablist",
+    "toolbar",
+    "tree",
+];
+
+/// Roles each restrictive element permits (`S6824`); elements outside this
+/// table accept any explicit role.
+const ALLOWED_ROLES_BY_ELEMENT: &[(&str, &[&str])] = &[
+    ("article", &["article", "feed", "none", "presentation"]),
+    (
+        "aside",
+        &["complementary", "feed", "none", "presentation", "search"],
+    ),
+    ("caption", &["none", "presentation"]),
+    ("code", &["none", "presentation"]),
+    ("dd", &["none", "presentation"]),
+    ("dfn", &["none", "presentation"]),
+    ("dialog", &["alertdialog", "dialog"]),
+    ("dt", &["listitem", "none", "presentation"]),
+    ("footer", &["contentinfo", "group", "none", "presentation"]),
+    ("form", &["form", "none", "presentation", "search"]),
+    ("header", &["banner", "group", "none", "presentation"]),
+    ("h1", &["heading", "none", "presentation"]),
+    ("h2", &["heading", "none", "presentation"]),
+    ("h3", &["heading", "none", "presentation"]),
+    ("h4", &["heading", "none", "presentation"]),
+    ("h5", &["heading", "none", "presentation"]),
+    ("h6", &["heading", "none", "presentation"]),
+    (
+        "li",
+        &[
+            "listitem",
+            "menuitem",
+            "menuitemcheckbox",
+            "menuitemradio",
+            "none",
+            "option",
+            "presentation",
+            "row",
+            "tab",
+            "treeitem",
+        ],
+    ),
+    ("main", &["main", "none", "presentation"]),
+    (
+        "nav",
+        &[
+            "menu",
+            "menubar",
+            "navigation",
+            "none",
+            "presentation",
+            "tablist",
+        ],
+    ),
+    ("ol", &LIST_CONTAINER_ROLES),
+    (
+        "section",
+        &[
+            "alert",
+            "alertdialog",
+            "application",
+            "banner",
+            "complementary",
+            "contentinfo",
+            "dialog",
+            "document",
+            "feed",
+            "form",
+            "main",
+            "marquee",
+            "navigation",
+            "none",
+            "note",
+            "presentation",
+            "region",
+            "search",
+            "status",
+        ],
+    ),
+    ("tbody", &["rowgroup"]),
+    ("td", &["cell", "gridcell", "none", "presentation"]),
+    ("tfoot", &["rowgroup"]),
+    ("th", &["columnheader", "none", "presentation", "rowheader"]),
+    ("thead", &["rowgroup"]),
+    ("tr", &["none", "presentation", "row"]),
+    ("ul", &LIST_CONTAINER_ROLES),
+];
+
+/// Roles that make an element interactive (matrix groups `S6842`, `S6843`,
+/// `S6845`, and `S6852`).
+const INTERACTIVE_ROLES: [&str; 29] = [
+    "button",
+    "checkbox",
+    "columnheader",
+    "combobox",
+    "grid",
+    "gridcell",
+    "link",
+    "listbox",
+    "menu",
+    "menubar",
+    "menuitem",
+    "menuitemcheckbox",
+    "menuitemradio",
+    "option",
+    "progressbar",
+    "radio",
+    "radiogroup",
+    "row",
+    "rowheader",
+    "scrollbar",
+    "searchbox",
+    "slider",
+    "spinbutton",
+    "switch",
+    "tab",
+    "textbox",
+    "tree",
+    "treegrid",
+    "treeitem",
+];
+/// Roles that never make an element interactive (`S6843`); interactive
+/// elements must not take them.
+const NON_INTERACTIVE_ROLES: [&str; 28] = [
+    "alert",
+    "article",
+    "banner",
+    "complementary",
+    "contentinfo",
+    "definition",
+    "document",
+    "feed",
+    "figure",
+    "form",
+    "img",
+    "list",
+    "listitem",
+    "log",
+    "main",
+    "math",
+    "navigation",
+    "none",
+    "note",
+    "presentation",
+    "region",
+    "rowgroup",
+    "search",
+    "status",
+    "table",
+    "term",
+    "time",
+    "tooltip",
+];
+
+/// Interaction handler props the matrix rules consider (`S6847`).
+const INTERACTION_HANDLERS: [&str; 8] = [
+    "onChange",
+    "onClick",
+    "onDoubleClick",
+    "onKeyDown",
+    "onKeyPress",
+    "onKeyUp",
+    "onMouseDown",
+    "onMouseUp",
+];
+
+/// Keyboard handlers that pair with `onClick` for `S6848`.
+const KEYBOARD_HANDLERS: [&str; 3] = ["onKeyDown", "onKeyPress", "onKeyUp"];
+
+/// Autocomplete tokens valid on every autofill-capable element (`S6840`).
+const AUTOCOMPLETE_GENERAL_TOKENS: [&str; 14] = [
+    "address-line1",
+    "address-line2",
+    "country",
+    "country-name",
+    "current-password",
+    "given-name",
+    "new-password",
+    "off",
+    "on",
+    "one-time-code",
+    "organization",
+    "postal-code",
+    "street-address",
+    "username",
+];
+
+/// Input types whose autocomplete accepts their matching contact token
+/// (`S6840`).
+const AUTOCOMPLETE_TYPE_TOKENS: &[(&str, &str)] =
+    &[("email", "email"), ("tel", "tel"), ("url", "url")];
+
 /// Which header affordances a table subtree provides.
 #[derive(Clone, Copy, Default, PartialEq)]
 enum TableMarkers {
@@ -12218,6 +12420,7 @@ struct SubtreeFacts {
     header_ids: BTreeSet<String>,
     header_references: Vec<(Span, Vec<String>)>,
     descendant_roles: BTreeSet<String>,
+    labelable_controls: u32,
 }
 
 /// Implicit ARIA role of an intrinsic tag, refined by `a[href]` and
@@ -12268,6 +12471,9 @@ impl Visit<'_> for SubtreeFacts {
                         == Some("captions") =>
                 {
                     self.track_captions = true;
+                }
+                "button" | "input" | "meter" | "output" | "progress" | "select" | "textarea" => {
+                    self.labelable_controls += 1
                 }
                 _ => {}
             }
@@ -12326,6 +12532,17 @@ impl Visit<'_> for A11yCollector<'_> {
         self.check_required_owned(it);
         self.check_supported_properties(it);
         self.check_activedescendant_focusable(it);
+        self.check_allowed_roles(it);
+        self.check_aria_hidden_focusable(it);
+        self.check_autocomplete_value(it);
+        self.check_noninteractive_with_interactive_role(it);
+        self.check_interactive_with_noninteractive_role(it);
+        self.check_interactive_role_focusable(it);
+        self.check_anchor_click_without_href(it);
+        self.check_noninteractive_tab_index(it);
+        self.check_noninteractive_handlers(it);
+        self.check_click_keyboard_pair(it);
+        self.check_label_association(it);
         walk_jsx_element(self, it);
     }
 }
@@ -12778,6 +12995,320 @@ impl A11yCollector<'_> {
             active_attribute.span(),
         );
     }
+
+    /// `S6824`: explicit roles must be permitted on the carrying element.
+    fn check_allowed_roles(&mut self, element: &JSXElement<'_>) {
+        let Some(tag) = jsx_element_tag(&element.opening_element.name) else {
+            return;
+        };
+        if !jsx_tag_is_intrinsic(tag) || jsx_has_spread_attribute(&element.opening_element) {
+            return;
+        }
+        let Some(role) = explicit_role(&element.opening_element) else {
+            return;
+        };
+        let Some((_, allowed)) = ALLOWED_ROLES_BY_ELEMENT
+            .iter()
+            .find(|(name, _)| *name == tag)
+        else {
+            return;
+        };
+        if !allowed.contains(&role) {
+            let message = format!("'{role}' is not an allowed role for <{tag}> elements.");
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S6824",
+                &message,
+                element.opening_element.span(),
+            );
+        }
+    }
+
+    /// `S6825`: focusable elements cannot be hidden from assistive tech.
+    fn check_aria_hidden_focusable(&mut self, element: &JSXElement<'_>) {
+        if jsx_has_spread_attribute(&element.opening_element) {
+            return;
+        }
+        let Some(hidden_attribute) = jsx_find_attribute(&element.opening_element, "aria-hidden")
+        else {
+            return;
+        };
+        if attribute_static_value(hidden_attribute) != Some("true") {
+            return;
+        }
+        let intrinsically_focusable = match jsx_element_tag(&element.opening_element.name) {
+            Some(tag) if jsx_tag_is_intrinsic(tag) => {
+                is_interactive_element(tag, &element.opening_element)
+            }
+            _ => false,
+        };
+        let tabbable = ["tabIndex", "tabindex"].iter().any(|name| {
+            jsx_find_attribute(&element.opening_element, name)
+                .and_then(attribute_integer_value)
+                .is_some_and(|value| value >= 0)
+        });
+        if intrinsically_focusable || tabbable {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S6825",
+                "Do not hide this focusable element with 'aria-hidden=\"true\"'.",
+                hidden_attribute.span(),
+            );
+        }
+    }
+
+    /// `S6840`: autocomplete values must fit the element's input type.
+    fn check_autocomplete_value(&mut self, element: &JSXElement<'_>) {
+        let Some(tag) = jsx_element_tag(&element.opening_element.name) else {
+            return;
+        };
+        if !matches!(tag, "input" | "select" | "textarea")
+            || jsx_has_spread_attribute(&element.opening_element)
+        {
+            return;
+        }
+        let Some(autocomplete_attribute) = ["autocomplete", "autoComplete"]
+            .iter()
+            .find_map(|name| jsx_find_attribute(&element.opening_element, name))
+        else {
+            return;
+        };
+        let Some(value) = attribute_static_value(autocomplete_attribute) else {
+            return;
+        };
+        let token = value.trim().to_lowercase();
+        let input_type = attribute_named_static_value(&element.opening_element, "type");
+        let valid = AUTOCOMPLETE_GENERAL_TOKENS.contains(&token.as_str())
+            || AUTOCOMPLETE_TYPE_TOKENS
+                .iter()
+                .any(|(scoped_type, scoped_token)| {
+                    input_type == Some(*scoped_type) && token == *scoped_token
+                });
+        if !valid {
+            let message = format!("\"{value}\" is not a valid 'autocomplete' value here.");
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S6840",
+                &message,
+                autocomplete_attribute.span(),
+            );
+        }
+    }
+
+    /// `S6842`: interactive roles belong on natively interactive elements.
+    fn check_noninteractive_with_interactive_role(&mut self, element: &JSXElement<'_>) {
+        let Some(tag) = jsx_element_tag(&element.opening_element.name) else {
+            return;
+        };
+        if !jsx_tag_is_intrinsic(tag)
+            || jsx_has_spread_attribute(&element.opening_element)
+            || is_interactive_element(tag, &element.opening_element)
+        {
+            return;
+        }
+        let Some(role) = explicit_role(&element.opening_element) else {
+            return;
+        };
+        if is_interactive_role(role) {
+            let message = format!(
+                "Replace this <{tag}> with an interactive element or remove the '{role}' role."
+            );
+            let role_attribute = jsx_find_attribute(&element.opening_element, "role");
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S6842",
+                &message,
+                role_attribute.map_or(element.span(), GetSpan::span),
+            );
+        }
+    }
+
+    /// `S6843`: interactive elements must not take structural roles.
+    fn check_interactive_with_noninteractive_role(&mut self, element: &JSXElement<'_>) {
+        let Some(tag) = jsx_element_tag(&element.opening_element.name) else {
+            return;
+        };
+        if !jsx_tag_is_intrinsic(tag)
+            || jsx_has_spread_attribute(&element.opening_element)
+            || !is_interactive_element(tag, &element.opening_element)
+        {
+            return;
+        }
+        let Some(role) = explicit_role(&element.opening_element) else {
+            return;
+        };
+        if is_non_interactive_role(role) {
+            let message = format!("Interactive <{tag}> elements cannot take the '{role}' role.");
+            let role_attribute = jsx_find_attribute(&element.opening_element, "role");
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S6843",
+                &message,
+                role_attribute.map_or(element.span(), GetSpan::span),
+            );
+        }
+    }
+
+    /// `S6852`: elements with an interactive role must be focusable.
+    fn check_interactive_role_focusable(&mut self, element: &JSXElement<'_>) {
+        let Some(tag) = jsx_element_tag(&element.opening_element.name) else {
+            return;
+        };
+        if !jsx_tag_is_intrinsic(tag) || jsx_has_spread_attribute(&element.opening_element) {
+            return;
+        }
+        let Some(role) = explicit_role(&element.opening_element) else {
+            return;
+        };
+        if !is_interactive_role(role)
+            || is_interactive_element(tag, &element.opening_element)
+            || ["tabIndex", "tabindex"]
+                .iter()
+                .any(|name| jsx_find_attribute(&element.opening_element, name).is_some())
+        {
+            return;
+        }
+        let message =
+            format!("Elements with the '{role}' role must be focusable; add a 'tabIndex'.");
+        let role_attribute = jsx_find_attribute(&element.opening_element, "role");
+        self.sink.emit_span(
+            RuleScope::Both,
+            "S6852",
+            &message,
+            role_attribute.map_or(element.span(), GetSpan::span),
+        );
+    }
+
+    /// `S6844`: click handlers on anchors without `href`.
+    fn check_anchor_click_without_href(&mut self, element: &JSXElement<'_>) {
+        if jsx_element_tag(&element.opening_element.name) != Some("a")
+            || jsx_has_spread_attribute(&element.opening_element)
+            || jsx_find_attribute(&element.opening_element, "href").is_some()
+        {
+            return;
+        }
+        if jsx_find_attribute(&element.opening_element, "onClick").is_some() {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S6844",
+                "Add an 'href' to this <a> or use a <button> for this action.",
+                element.opening_element.span(),
+            );
+        }
+    }
+
+    /// `S6845`: positive tab indices belong on interactive elements.
+    fn check_noninteractive_tab_index(&mut self, element: &JSXElement<'_>) {
+        let Some(tag) = jsx_element_tag(&element.opening_element.name) else {
+            return;
+        };
+        if !jsx_tag_is_intrinsic(tag)
+            || jsx_has_spread_attribute(&element.opening_element)
+            || is_interactive_element(tag, &element.opening_element)
+            || jsx_find_attribute(&element.opening_element, "aria-activedescendant").is_some()
+        {
+            return;
+        }
+        let Some(index_attribute) = ["tabIndex", "tabindex"]
+            .iter()
+            .find_map(|name| jsx_find_attribute(&element.opening_element, name))
+        else {
+            return;
+        };
+        let focusable_by_role =
+            explicit_role(&element.opening_element).is_some_and(is_interactive_role);
+        if !focusable_by_role
+            && attribute_integer_value(index_attribute).is_some_and(|value| value >= 0)
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S6845",
+                "Remove this positive 'tabIndex'; make the element properly interactive instead.",
+                index_attribute.span(),
+            );
+        }
+    }
+
+    /// `S6847`: interaction handlers belong on interactive elements.
+    fn check_noninteractive_handlers(&mut self, element: &JSXElement<'_>) {
+        let Some(tag) = jsx_element_tag(&element.opening_element.name) else {
+            return;
+        };
+        if !jsx_tag_is_intrinsic(tag)
+            || jsx_has_spread_attribute(&element.opening_element)
+            || is_interactive_element(tag, &element.opening_element)
+            || explicit_role(&element.opening_element).is_some_and(is_interactive_role)
+        {
+            return;
+        }
+        for item in &element.opening_element.attributes {
+            let JSXAttributeItem::Attribute(attribute) = item else {
+                continue;
+            };
+            let Some(name) = jsx_attribute_name(attribute) else {
+                continue;
+            };
+            if INTERACTION_HANDLERS.contains(&name) {
+                let message = format!("Move this '{name}' handler to an interactive element.");
+                self.sink
+                    .emit_span(RuleScope::Both, "S6847", &message, attribute.span());
+            }
+        }
+    }
+
+    /// `S6848`: click handlers need keyboard counterparts on
+    /// non-interactive elements.
+    fn check_click_keyboard_pair(&mut self, element: &JSXElement<'_>) {
+        let Some(tag) = jsx_element_tag(&element.opening_element.name) else {
+            return;
+        };
+        if !jsx_tag_is_intrinsic(tag)
+            || jsx_has_spread_attribute(&element.opening_element)
+            || is_interactive_element(tag, &element.opening_element)
+            || explicit_role(&element.opening_element).is_some_and(is_interactive_role)
+        {
+            return;
+        }
+        let Some(click_attribute) = jsx_find_attribute(&element.opening_element, "onClick") else {
+            return;
+        };
+        if KEYBOARD_HANDLERS
+            .iter()
+            .any(|name| jsx_find_attribute(&element.opening_element, name).is_some())
+        {
+            return;
+        }
+        self.sink.emit_span(
+            RuleScope::Both,
+            "S6848",
+            "Add a keyboard handler ('onKeyDown', 'onKeyPress', or 'onKeyUp') to pair with this 'onClick'.",
+            click_attribute.span(),
+        );
+    }
+
+    /// `S6853`: labels need text and a control association.
+    fn check_label_association(&mut self, element: &JSXElement<'_>) {
+        if jsx_element_tag(&element.opening_element.name) != Some("label")
+            || jsx_has_spread_attribute(&element.opening_element)
+        {
+            return;
+        }
+        let mut facts = SubtreeFacts::default();
+        facts.visit_jsx_element(element);
+        let labeled = ["aria-label", "aria-labelledby"]
+            .iter()
+            .any(|name| jsx_find_attribute(&element.opening_element, name).is_some());
+        let associated = jsx_find_attribute(&element.opening_element, "htmlFor").is_some()
+            || facts.labelable_controls > 0;
+        if (!facts.has_visible_text && !labeled) || !associated {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S6853",
+                "Associate this <label> with a form control and give it text content.",
+                element.opening_element.span(),
+            );
+        }
+    }
 }
 
 /// Static string content of an attribute value, if it is a string literal
@@ -12816,6 +13347,45 @@ fn attribute_integer_value(attribute: &JSXAttribute<'_>) -> Option<i64> {
 fn explicit_role<'x>(opening: &'x JSXOpeningElement<'x>) -> Option<&'x str> {
     let value = attribute_static_value(jsx_find_attribute(opening, "role")?)?;
     value.split_whitespace().last()
+}
+
+/// Whether the opening tag carries the named attribute at all.
+fn jsx_has_attribute(opening: &JSXOpeningElement<'_>, name: &str) -> bool {
+    opening.attributes.iter().any(|item| {
+        matches!(item, JSXAttributeItem::Attribute(attribute) if jsx_attribute_name(attribute) == Some(name))
+    })
+}
+
+/// Static string value of the named attribute, if it carries one.
+fn attribute_named_static_value<'x>(
+    opening: &'x JSXOpeningElement<'x>,
+    name: &str,
+) -> Option<&'x str> {
+    jsx_find_attribute(opening, name).and_then(attribute_static_value)
+}
+
+/// Whether an intrinsic element is natively interactive (interaction-matrix
+/// rules).
+fn is_interactive_element(tag: &str, opening: &JSXOpeningElement<'_>) -> bool {
+    match tag {
+        "a" | "area" => jsx_find_attribute(opening, "href").is_some(),
+        "audio" | "video" => jsx_has_attribute(opening, "controls"),
+        "img" | "object" => jsx_has_attribute(opening, "usemap"),
+        "input" => attribute_named_static_value(opening, "type") != Some("hidden"),
+        "button" | "details" | "embed" | "iframe" | "label" | "menu" | "menuitem" | "select"
+        | "summary" | "textarea" => true,
+        _ => false,
+    }
+}
+
+/// Whether an explicit role makes an element interactive.
+fn is_interactive_role(role: &str) -> bool {
+    INTERACTIVE_ROLES.contains(&role)
+}
+
+/// Whether an explicit role is a purely structural or document role.
+fn is_non_interactive_role(role: &str) -> bool {
+    NON_INTERACTIVE_ROLES.contains(&role)
 }
 
 /// Whether a language tag looks like a BCP-47 subset form (`en`, `pt-BR`).
@@ -15791,5 +16361,355 @@ draw(other, more);
 
         let dynamic = jsx_keys("let t = 0;\nconst el = <div tabIndex={t}/>\n;\n");
         assert_eq!(count_key(&dynamic, "javascript:S6841"), 0);
+    }
+    // ===== Batch4 group A2 tests: role and value accessibility rules =====
+
+    #[test]
+    fn headings_need_text_content_or_labels() {
+        let bare = jsx_keys("const el = <h1/>;\n");
+        assert_eq!(count_key(&bare, "javascript:S6850"), 1);
+
+        let textual = jsx_keys("const el = <h2>Quarterly results</h2>;\n");
+        assert_eq!(count_key(&textual, "javascript:S6850"), 0);
+
+        let aria_labeled = jsx_keys("const el = <h3 aria-label=\"Summary\"/>;\n");
+        assert_eq!(count_key(&aria_labeled, "javascript:S6850"), 0);
+
+        let titled = jsx_keys("const el = <h4 title=\"Status\"/>;\n");
+        assert_eq!(count_key(&titled, "javascript:S6850"), 0);
+
+        let nested_text = jsx_keys("const el = <h5><span>Total</span></h5>;\n");
+        assert_eq!(count_key(&nested_text, "javascript:S6850"), 0);
+
+        let not_heading = jsx_keys("const el = <p>text</p>;\n");
+        assert_eq!(count_key(&not_heading, "javascript:S6850"), 0);
+    }
+
+    #[test]
+    fn redundant_alt_texts_are_flagged() {
+        let filler_word = jsx_keys("const el = <img src=\"report.pdf\" alt=\"Image\"/>;\n");
+        assert_eq!(count_key(&filler_word, "javascript:S6851"), 1);
+
+        let file_name = jsx_keys("const el = <img src=\"chart.png\" alt=\"Chart\"/>;\n");
+        assert_eq!(count_key(&file_name, "javascript:S6851"), 1);
+
+        let trimmed_and_cased = jsx_keys("const el = <img src=\"LOGO.png\" alt=\"  Logo \"/>;\n");
+        assert_eq!(count_key(&trimmed_and_cased, "javascript:S6851"), 1);
+
+        let descriptive =
+            jsx_keys("const el = <img src=\"chart.png\" alt=\"Sales by region\"/>;\n");
+        assert_eq!(count_key(&descriptive, "javascript:S6851"), 0);
+
+        let different_stem = jsx_keys("const el = <img src=\"team.jpg\" alt=\"Office\"/>;\n");
+        assert_eq!(count_key(&different_stem, "javascript:S6851"), 0);
+    }
+
+    #[test]
+    fn anchors_need_href_or_accessible_text() {
+        let bare_anchor = jsx_keys("const el = <a/>;\n");
+        assert_eq!(count_key(&bare_anchor, "javascript:S6827"), 1);
+
+        let linked = jsx_keys("const el = <a href=\"/docs\"/>;\n");
+        assert_eq!(count_key(&linked, "javascript:S6827"), 0);
+
+        let unlabeled_named = jsx_keys("const el = <a aria-label=\"Open docs\"/>;\n");
+        assert_eq!(count_key(&unlabeled_named, "javascript:S6827"), 1);
+
+        let textual = jsx_keys("const el = <a>Documentation</a>;\n");
+        assert_eq!(count_key(&textual, "javascript:S6827"), 0);
+
+        let other_tag = jsx_keys("const el = <span/>;\n");
+        assert_eq!(count_key(&other_tag, "javascript:S6827"), 0);
+    }
+
+    #[test]
+    fn duplicate_implicit_roles_are_flagged() {
+        let list_role = jsx_keys("const el = <ul role=\"list\"><li>Item</li></ul>;\n");
+        assert_eq!(count_key(&list_role, "javascript:S6822"), 1);
+        assert_eq!(count_key(&list_role, "javascript:S6819"), 1);
+
+        let nav_role = jsx_keys("const el = <nav role=\"navigation\"/>;\n");
+        assert_eq!(count_key(&nav_role, "javascript:S6822"), 1);
+        assert_eq!(count_key(&nav_role, "javascript:S6819"), 1);
+
+        let changed_role = jsx_keys("const el = <ul role=\"toolbar\"><li>Item</li></ul>;\n");
+        assert_eq!(count_key(&changed_role, "javascript:S6822"), 0);
+        assert_eq!(count_key(&changed_role, "javascript:S6819"), 0);
+
+        let plain_list = jsx_keys("const el = <ul><li>Item</li></ul>;\n");
+        assert_eq!(count_key(&plain_list, "javascript:S6822"), 0);
+        assert_eq!(count_key(&plain_list, "javascript:S6819"), 0);
+    }
+
+    #[test]
+    fn abstract_roles_are_flagged() {
+        let select_role = jsx_keys("const el = <div role=\"select\"/>;\n");
+        assert_eq!(count_key(&select_role, "javascript:S6821"), 1);
+
+        let composite_role = jsx_keys("const el = <div role=\"composite\"/>;\n");
+        assert_eq!(count_key(&composite_role, "javascript:S6821"), 1);
+
+        let concrete_role = jsx_keys("const el = <div role=\"note\"/>;\n");
+        assert_eq!(count_key(&concrete_role, "javascript:S6821"), 0);
+    }
+    #[test]
+    fn aria_values_are_validated_against_tables() {
+        let bad_boolean = jsx_keys("const el = <div aria-hidden=\"yes\"/>;\n");
+        assert_eq!(count_key(&bad_boolean, "javascript:S6793"), 1);
+
+        let good_boolean = jsx_keys("const el = <div aria-hidden=\"true\"/>;\n");
+        assert_eq!(count_key(&good_boolean, "javascript:S6793"), 0);
+
+        let bad_token = jsx_keys("const el = <div aria-live=\"fast\"/>;\n");
+        assert_eq!(count_key(&bad_token, "javascript:S6793"), 1);
+
+        let good_token = jsx_keys("const el = <div aria-live=\"polite\"/>;\n");
+        assert_eq!(count_key(&good_token, "javascript:S6793"), 0);
+
+        let bad_numeric = jsx_keys("const el = <div aria-level=\"two\"/>;\n");
+        assert_eq!(count_key(&bad_numeric, "javascript:S6793"), 1);
+
+        let good_numeric = jsx_keys("const el = <div aria-level=\"2\"/>;\n");
+        assert_eq!(count_key(&good_numeric, "javascript:S6793"), 0);
+
+        let dynamic_value = jsx_keys("let mode = 'polite';\nconst el = <div aria-live={mode}/>;\n");
+        assert_eq!(count_key(&dynamic_value, "javascript:S6793"), 0);
+    }
+
+    #[test]
+    fn list_roles_require_owned_listitems() {
+        let bare = jsx_keys("const el = <div role=\"list\"/>;\n");
+        assert_eq!(count_key(&bare, "javascript:S6807"), 1);
+
+        let implicit_owned = jsx_keys("const el = <div role=\"list\"><li>Item</li></div>;\n");
+        assert_eq!(count_key(&implicit_owned, "javascript:S6807"), 0);
+
+        let explicit_owned =
+            jsx_keys("const el = <div role=\"list\"><div role=\"listitem\">Item</div></div>;\n");
+        assert_eq!(count_key(&explicit_owned, "javascript:S6807"), 0);
+    }
+
+    #[test]
+    fn unsupported_aria_properties_are_flagged_per_role() {
+        let unsupported = jsx_keys("const el = <div role=\"heading\" aria-selected=\"true\"/>;\n");
+        assert_eq!(count_key(&unsupported, "javascript:S6811"), 1);
+
+        let supported = jsx_keys("const el = <div role=\"heading\" aria-level=\"2\"/>;\n");
+        assert_eq!(count_key(&supported, "javascript:S6811"), 0);
+
+        let global_property =
+            jsx_keys("const el = <div role=\"heading\" aria-hidden=\"true\"/>;\n");
+        assert_eq!(count_key(&global_property, "javascript:S6811"), 0);
+    }
+
+    #[test]
+    fn activedescendant_requires_tab_index() {
+        let missing = jsx_keys("const el = <div aria-activedescendant=\"opt-1\"/>;\n");
+        assert_eq!(count_key(&missing, "javascript:S6823"), 1);
+
+        let camel_case =
+            jsx_keys("const el = <div aria-activedescendant=\"opt-1\" tabIndex={0}/>;\n");
+        assert_eq!(count_key(&camel_case, "javascript:S6823"), 0);
+
+        let lower_case =
+            jsx_keys("const el = <div aria-activedescendant=\"opt-1\" tabindex=\"0\"/>;\n");
+        assert_eq!(count_key(&lower_case, "javascript:S6823"), 0);
+
+        let spread_props =
+            jsx_keys("const el = <div {...rest} aria-activedescendant=\"opt-1\"/>;\n");
+        assert_eq!(count_key(&spread_props, "javascript:S6823"), 0);
+    }
+    // ===== Batch4 group A3 tests: interaction-matrix accessibility rules =====
+
+    #[test]
+    fn roles_must_be_allowed_on_their_elements() {
+        let heading_role = jsx_keys("const el = <h1 role=\"button\">Title</h1>;\n");
+        assert_eq!(count_key(&heading_role, "javascript:S6824"), 1);
+
+        let cell_role = jsx_keys("const el = <td role=\"link\">x</td>;\n");
+        assert_eq!(count_key(&cell_role, "javascript:S6824"), 1);
+
+        let allowed_cell = jsx_keys("const el = <td role=\"cell\">x</td>;\n");
+        assert_eq!(count_key(&allowed_cell, "javascript:S6824"), 0);
+
+        let unrestricted_tag = jsx_keys("const el = <div role=\"button\"/>;\n");
+        assert_eq!(count_key(&unrestricted_tag, "javascript:S6824"), 0);
+
+        let list_toolbar = jsx_keys("const el = <ul role=\"toolbar\"><li>x</li></ul>;\n");
+        assert_eq!(count_key(&list_toolbar, "javascript:S6824"), 0);
+    }
+
+    #[test]
+    fn aria_hidden_must_not_hide_focusable_elements() {
+        let hidden_button = jsx_keys("const el = <button aria-hidden=\"true\">Go</button>;\n");
+        assert_eq!(count_key(&hidden_button, "javascript:S6825"), 1);
+
+        let hidden_tabbable = jsx_keys("const el = <div aria-hidden=\"true\" tabIndex={0}/>;\n");
+        assert_eq!(count_key(&hidden_tabbable, "javascript:S6825"), 1);
+
+        let hidden_static = jsx_keys("const el = <div aria-hidden=\"true\">text</div>;\n");
+        assert_eq!(count_key(&hidden_static, "javascript:S6825"), 0);
+
+        let negative_index = jsx_keys("const el = <div aria-hidden=\"true\" tabIndex={-1}/>;\n");
+        assert_eq!(count_key(&negative_index, "javascript:S6825"), 0);
+
+        let visible_button = jsx_keys("const el = <button>Go</button>;\n");
+        assert_eq!(count_key(&visible_button, "javascript:S6825"), 0);
+    }
+
+    #[test]
+    fn autocomplete_values_must_match_input_types() {
+        let mismatched_scope =
+            jsx_keys("const el = <input type=\"text\" autoComplete=\"email\"/>;\n");
+        assert_eq!(count_key(&mismatched_scope, "javascript:S6840"), 1);
+
+        let unknown_token =
+            jsx_keys("const el = <input type=\"text\" autoComplete=\"banana\"/>;\n");
+        assert_eq!(count_key(&unknown_token, "javascript:S6840"), 1);
+
+        let matching_scope =
+            jsx_keys("const el = <input type=\"email\" autoComplete=\"email\"/>;\n");
+        assert_eq!(count_key(&matching_scope, "javascript:S6840"), 0);
+
+        let general_token = jsx_keys("const el = <input autoComplete=\"on\"/>;\n");
+        assert_eq!(count_key(&general_token, "javascript:S6840"), 0);
+
+        let select_field = jsx_keys("const el = <select autoComplete=\"postal-code\"/>;\n");
+        assert_eq!(count_key(&select_field, "javascript:S6840"), 0);
+
+        let textarea_field = jsx_keys("const el = <textarea autoComplete=\"street-address\"/>;\n");
+        assert_eq!(count_key(&textarea_field, "javascript:S6840"), 0);
+
+        let other_tag = jsx_keys("const el = <div autoComplete=\"banana\"/>;\n");
+        assert_eq!(count_key(&other_tag, "javascript:S6840"), 0);
+    }
+    #[test]
+    fn noninteractive_elements_reject_interactive_roles() {
+        let div_button = jsx_keys("const el = <div role=\"button\" tabIndex={0}>OK</div>;\n");
+        assert_eq!(count_key(&div_button, "javascript:S6842"), 1);
+
+        let span_link = jsx_keys("const el = <span role=\"link\">x</span>;\n");
+        assert_eq!(count_key(&span_link, "javascript:S6842"), 1);
+
+        let native_button = jsx_keys("const el = <button>OK</button>;\n");
+        assert_eq!(count_key(&native_button, "javascript:S6842"), 0);
+
+        let structural_div = jsx_keys("const el = <div role=\"note\">x</div>;\n");
+        assert_eq!(count_key(&structural_div, "javascript:S6842"), 0);
+    }
+
+    #[test]
+    fn interactive_elements_reject_structural_roles() {
+        let button_list = jsx_keys("const el = <button role=\"list\">x</button>;\n");
+        assert_eq!(count_key(&button_list, "javascript:S6843"), 1);
+
+        let link_article = jsx_keys("const el = <a href=\"/docs\" role=\"article\">x</a>;\n");
+        assert_eq!(count_key(&link_article, "javascript:S6843"), 1);
+
+        let matching_button = jsx_keys("const el = <button role=\"checkbox\"/>;\n");
+        assert_eq!(count_key(&matching_button, "javascript:S6843"), 0);
+
+        let plain_button = jsx_keys("const el = <button/>;\n");
+        assert_eq!(count_key(&plain_button, "javascript:S6843"), 0);
+    }
+
+    #[test]
+    fn interactive_roles_require_focusable_elements() {
+        let unfocusable = jsx_keys("const el = <div role=\"button\"/>;\n");
+        assert_eq!(count_key(&unfocusable, "javascript:S6852"), 1);
+
+        let tabbable = jsx_keys("const el = <div role=\"button\" tabIndex={0}/>;\n");
+        assert_eq!(count_key(&tabbable, "javascript:S6852"), 0);
+
+        let negative_index = jsx_keys("const el = <div role=\"button\" tabIndex={-1}/>;\n");
+        assert_eq!(count_key(&negative_index, "javascript:S6852"), 0);
+
+        let native_control = jsx_keys("const el = <button/>;\n");
+        assert_eq!(count_key(&native_control, "javascript:S6852"), 0);
+
+        let anchor = jsx_keys("const el = <a href=\"/docs\">docs</a>;\n");
+        assert_eq!(count_key(&anchor, "javascript:S6852"), 0);
+    }
+    #[test]
+    fn anchor_clicks_require_href_or_buttons() {
+        let click_only = jsx_keys("const el = <a onClick={openMenu}>Menu</a>;\n");
+        assert_eq!(count_key(&click_only, "javascript:S6844"), 1);
+
+        let with_href = jsx_keys("const el = <a href=\"/menu\" onClick={openMenu}>Menu</a>;\n");
+        assert_eq!(count_key(&with_href, "javascript:S6844"), 0);
+
+        let plain_anchor = jsx_keys("const el = <a href=\"/docs\">docs</a>;\n");
+        assert_eq!(count_key(&plain_anchor, "javascript:S6844"), 0);
+
+        let button_click = jsx_keys("const el = <button onClick={openMenu}>Menu</button>;\n");
+        assert_eq!(count_key(&button_click, "javascript:S6844"), 0);
+    }
+
+    #[test]
+    fn positive_tab_indices_need_interactive_elements() {
+        let static_div = jsx_keys("const el = <div tabIndex={0}/>;\n");
+        assert_eq!(count_key(&static_div, "javascript:S6845"), 1);
+
+        let interactive_button = jsx_keys("const el = <button tabIndex={0}/>;\n");
+        assert_eq!(count_key(&interactive_button, "javascript:S6845"), 0);
+
+        let programmatic = jsx_keys("const el = <div tabIndex={-1}/>;\n");
+        assert_eq!(count_key(&programmatic, "javascript:S6845"), 0);
+
+        let interactive_role = jsx_keys("const el = <div role=\"button\" tabIndex={0}/>;\n");
+        assert_eq!(count_key(&interactive_role, "javascript:S6845"), 0);
+
+        let listbox_container = jsx_keys(
+            "const el = <div role=\"listbox\" aria-activedescendant=\"o1\" tabIndex={0}/>;\n",
+        );
+        assert_eq!(count_key(&listbox_container, "javascript:S6845"), 0);
+    }
+
+    #[test]
+    fn interaction_handlers_belong_on_interactive_elements() {
+        let div_click = jsx_keys("const el = <div onClick={f}/>;\n");
+        assert_eq!(count_key(&div_click, "javascript:S6847"), 1);
+
+        let div_change = jsx_keys("const el = <div onChange={f}/>;\n");
+        assert_eq!(count_key(&div_change, "javascript:S6847"), 1);
+
+        let two_handlers = jsx_keys("const el = <div onClick={f} onMouseDown={g}/>;\n");
+        assert_eq!(count_key(&two_handlers, "javascript:S6847"), 2);
+
+        let button_click = jsx_keys("const el = <button onClick={f}/>;\n");
+        assert_eq!(count_key(&button_click, "javascript:S6847"), 0);
+
+        let role_button = jsx_keys("const el = <div role=\"button\" onClick={f}/>;\n");
+        assert_eq!(count_key(&role_button, "javascript:S6847"), 0);
+    }
+
+    #[test]
+    fn click_handlers_need_keyboard_counterparts() {
+        let click_only = jsx_keys("const el = <div onClick={f}/>;\n");
+        assert_eq!(count_key(&click_only, "javascript:S6848"), 1);
+
+        let with_key = jsx_keys("const el = <div onClick={f} onKeyDown={k}/>;\n");
+        assert_eq!(count_key(&with_key, "javascript:S6848"), 0);
+
+        let interactive_button = jsx_keys("const el = <button onClick={f}/>;\n");
+        assert_eq!(count_key(&interactive_button, "javascript:S6848"), 0);
+    }
+
+    #[test]
+    fn labels_need_text_and_control_association() {
+        let orphan_label = jsx_keys("const el = <label>Surname</label>;\n");
+        assert_eq!(count_key(&orphan_label, "javascript:S6853"), 1);
+
+        let empty_label = jsx_keys("const el = <label htmlFor=\"q\"/>;\n");
+        assert_eq!(count_key(&empty_label, "javascript:S6853"), 1);
+
+        let bare_label = jsx_keys("const el = <label/>;\n");
+        assert_eq!(count_key(&bare_label, "javascript:S6853"), 1);
+
+        let for_attribute = jsx_keys("const el = <label htmlFor=\"q\">Query</label>;\n");
+        assert_eq!(count_key(&for_attribute, "javascript:S6853"), 0);
+
+        let nested_control = jsx_keys("const el = <label>Name<input/></label>;\n");
+        assert_eq!(count_key(&nested_control, "javascript:S6853"), 0);
     }
 }
