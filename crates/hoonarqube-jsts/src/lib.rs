@@ -40,9 +40,10 @@ use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_array_expression, walk_arrow_function_expression, walk_assignment_expression,
     walk_await_expression, walk_binary_expression, walk_binding_pattern, walk_block_statement,
-    walk_call_expression, walk_class, walk_declaration, walk_export_default_declaration_kind,
-    walk_expression, walk_expression_statement, walk_formal_parameter, walk_function_body,
-    walk_if_statement, walk_import_declaration, walk_labeled_statement, walk_member_expression,
+    walk_call_expression, walk_class, walk_declaration, walk_export_default_declaration,
+    walk_export_default_declaration_kind, walk_expression, walk_expression_statement,
+    walk_formal_parameter, walk_function, walk_function_body, walk_if_statement,
+    walk_import_declaration, walk_labeled_statement, walk_member_expression,
     walk_method_definition, walk_new_expression, walk_object_property,
     walk_parenthesized_expression, walk_return_statement, walk_sequence_expression,
     walk_static_block, walk_switch_case, walk_switch_statement, walk_template_literal,
@@ -54,6 +55,7 @@ use oxc_ast_visit::walk::{
 };
 use oxc_parser::Parser;
 use oxc_span::{ContentEq, GetSpan, SourceType, Span};
+use oxc_syntax::scope::ScopeFlags;
 
 /// Language of one analyzed file; selects the issue `rule_key` prefix and the
 /// parser's source type.
@@ -337,6 +339,13 @@ fn analyze_with_rules(
     // --- test-framework rules, and misc Tier A ---
     issues.extend(check_batch5_rules(
         &path,
+        &parsed.program,
+        source,
+        &index,
+        language,
+    ));
+    // --- Tier B wiring: scope/symbol table, dataflow-lite, trivia rules ---
+    issues.extend(check_tier_b_rules(
         &parsed.program,
         source,
         &index,
@@ -15867,6 +15876,1324 @@ fn check_misc_rules(
     issues.extend(check_self_imports(program, path, index, language));
     issues
 }
+// ===========================================================================
+// Tier B — file-local scope/symbol table
+//
+// One traversal records declarations plus every identifier event together
+// with a snapshot of the active scope chain. Resolution is deferred until the
+// walk finishes: lexical scoping ignores textual order, so a reference that
+// precedes its declaration must still resolve to it (use-before-definition
+// rules depend on exactly that).
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TbKind {
+    Var,
+    Let,
+    Const,
+    Function,
+    Class,
+    Param,
+    CatchParam,
+    Import,
+}
+
+impl TbKind {
+    /// Bindings `javascript:S1481` may flag as unused locals.
+    fn is_local_value(self) -> bool {
+        matches!(
+            self,
+            Self::Var | Self::Let | Self::Const | Self::Function | Self::Class
+        )
+    }
+}
+
+struct TbBinding<'a> {
+    name: &'a str,
+    kind: TbKind,
+    /// Span of the declared name (declarator id, parameter, import local).
+    decl: Span,
+    reads: Vec<Span>,
+    writes: Vec<Span>,
+    /// For `var` declared inside a nested block: the innermost enclosing
+    /// block span (`javascript:S2392`).
+    home_block: Option<Span>,
+    /// Signature shape when this binding names a function declaration
+    /// (`javascript:S930` / `S4623`).
+    arity: Option<TbSignature>,
+    /// Declared at program/module top level (`S1481` exempts globals).
+    global: bool,
+    /// Initialized from an array literal (`javascript:S2870`).
+    array_like: bool,
+}
+
+/// Aggregated shape of one function signature.
+struct TbSignature {
+    minimum: usize,
+    maximum: Option<usize>,
+    optional: Vec<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TbScopeKind {
+    Program,
+    Function,
+    Block,
+}
+
+struct TbScope {
+    parent: Option<usize>,
+    kind: TbScopeKind,
+    span: Span,
+    bindings: Vec<usize>,
+}
+
+/// One identifier occurrence awaiting resolution.
+struct TbEvent<'a> {
+    name: &'a str,
+    span: Span,
+    write: bool,
+    /// Compound assignments (`+=`) and updates read as well as write.
+    compound: bool,
+    chain: Vec<usize>,
+}
+
+/// A resolved callee position (`call`/`new` of a file-local binding).
+struct TbCallee<'a> {
+    name: &'a str,
+    span: Span,
+    arity: usize,
+    constructor: bool,
+    chain: Vec<usize>,
+    /// Argument positions spelled as bare `undefined` (`S4623`).
+    explicit_undefined: Vec<usize>,
+    /// Any spread argument disables positional matching.
+    spread: bool,
+}
+
+/// A name occurrence awaiting lexical resolution (`delete X…`, `S2870`).
+struct TbSite<'a> {
+    name: &'a str,
+    span: Span,
+    chain: Vec<usize>,
+}
+
+struct TbCallSite {
+    binding: usize,
+    span: Span,
+    arity: usize,
+    explicit_undefined: Vec<usize>,
+    spread: bool,
+}
+
+/// Model produced by [`build_tb_model`]; indexes are stable for the run.
+struct TbModel<'a> {
+    scopes: Vec<TbScope>,
+    bindings: Vec<TbBinding<'a>>,
+    events: Vec<TbEvent<'a>>,
+    callees: Vec<TbCallee<'a>>,
+    delete_sites: Vec<TbSite<'a>>,
+    /// `(outer binding, inner declaration)` shadow chains (`S1117`).
+    shadows: Vec<(usize, usize)>,
+    /// `(first declaration, second declaration, name)` same-scope
+    /// `var`/function duplicates (`S2814`, JS only).
+    duplicates: Vec<(Span, Span, &'a str)>,
+    /// Writes to names never declared anywhere (`S2703`, JS only).
+    implicit_globals: Vec<(&'a str, Span)>,
+    calls: Vec<TbCallSite>,
+    /// `(binding, span)` of `new` sites resolving file-locally (`S3686`).
+    news: Vec<(usize, Span)>,
+    /// Resolved `delete` targets whose base is array-like.
+    array_deletes: Vec<(usize, Span)>,
+}
+
+impl TbModel<'_> {
+    fn shallow(&self, scope: usize, name: &str) -> Option<usize> {
+        self.scopes[scope]
+            .bindings
+            .iter()
+            .copied()
+            .find(|id| self.bindings[*id].name == name)
+    }
+
+    fn resolve_chain(&self, chain: &[usize], name: &str) -> Option<usize> {
+        chain
+            .iter()
+            .rev()
+            .find_map(|scope| self.shallow(*scope, name))
+    }
+}
+
+/// Distributes recorded events onto bindings once all declarations exist,
+/// then derives shadow chains and same-scope duplicates.
+fn finish_model(mut model: TbModel<'_>) -> TbModel<'_> {
+    for event in std::mem::take(&mut model.events) {
+        if let Some(id) = model.resolve_chain(&event.chain, event.name) {
+            let binding = &mut model.bindings[id];
+            if event.write {
+                binding.writes.push(event.span);
+            }
+            if !event.write || event.compound {
+                binding.reads.push(event.span);
+            }
+        } else if event.write {
+            model.implicit_globals.push((event.name, event.span));
+        }
+    }
+    for callee in std::mem::take(&mut model.callees) {
+        if let Some(id) = model.resolve_chain(&callee.chain, callee.name) {
+            let site = TbCallSite {
+                binding: id,
+                span: callee.span,
+                arity: callee.arity,
+                explicit_undefined: callee.explicit_undefined,
+                spread: callee.spread,
+            };
+            if callee.constructor {
+                model.news.push((id, callee.span));
+            } else {
+                model.calls.push(site);
+            }
+        }
+    }
+    for site in std::mem::take(&mut model.delete_sites) {
+        if let Some(id) = model.resolve_chain(&site.chain, site.name)
+            && model.bindings[id].array_like
+        {
+            model.array_deletes.push((id, site.span));
+        }
+    }
+    for scope in 0..model.scopes.len() {
+        let ids = model.scopes[scope].bindings.clone();
+        for &id in &ids {
+            let mut cursor = model.scopes[scope].parent;
+            let mut shadowed = None;
+            while let Some(ancestor) = cursor {
+                if let Some(outer) = model.shallow(ancestor, model.bindings[id].name) {
+                    shadowed = Some(outer);
+                    break;
+                }
+                cursor = model.scopes[ancestor].parent;
+            }
+            if let Some(outer) = shadowed {
+                model.shadows.push((outer, id));
+            }
+        }
+        for (i, &left) in ids.iter().enumerate() {
+            for &right in ids.iter().skip(i + 1) {
+                let (a, b) = (&model.bindings[left], &model.bindings[right]);
+                let duplicate_kinds = |kind| matches!(kind, TbKind::Var | TbKind::Function);
+                if a.name == b.name && duplicate_kinds(a.kind) && duplicate_kinds(b.kind) {
+                    model.duplicates.push((a.decl, b.decl, a.name));
+                }
+            }
+        }
+    }
+    model
+}
+
+/// Builds the [`TbModel`] in one `Visit` pass. Writes versus reads are told
+/// apart by an assignment/update depth guard: the default walk funnels both
+/// assignment-target identifiers and ordinary references through
+/// `visit_identifier_reference`.
+struct TbBuilder<'a, 'm> {
+    model: &'m mut TbModel<'a>,
+    stack: Vec<usize>,
+    write_depth: u32,
+    compound: bool,
+    skip_parameters: bool,
+    /// Kind of the variable declaration currently being walked.
+    pending_kind: TbKind,
+}
+
+impl<'a> TbBuilder<'a, '_> {
+    fn push_scope(&mut self, kind: TbScopeKind, span: Span) {
+        let parent = self.stack.last().copied();
+        self.model.scopes.push(TbScope {
+            parent,
+            kind,
+            span,
+            bindings: Vec::new(),
+        });
+        self.stack.push(self.model.scopes.len() - 1);
+    }
+
+    fn pop_scope(&mut self) {
+        self.stack.pop();
+    }
+
+    fn declare(&mut self, name: &'a str, kind: TbKind, decl: Span) -> usize {
+        let target = match kind {
+            // `var` hoists to the nearest function/program boundary; imports
+            // always live at module top level.
+            TbKind::Var => self.nearest_function_scope(),
+            TbKind::Import => 0,
+            _ => *self.stack.last().expect("scope stack is never empty"),
+        };
+        let home_block = match kind {
+            TbKind::Var => self.home_block(),
+            _ => None,
+        };
+        let global = self.model.scopes[target].kind == TbScopeKind::Program;
+        let id = self.model.bindings.len();
+        self.model.bindings.push(TbBinding {
+            name,
+            kind,
+            decl,
+            reads: Vec::new(),
+            writes: Vec::new(),
+            home_block,
+            arity: None,
+            global,
+            array_like: false,
+        });
+        self.model.scopes[target].bindings.push(id);
+        id
+    }
+
+    fn nearest_function_scope(&self) -> usize {
+        self.stack
+            .iter()
+            .rev()
+            .find(|s| self.model.scopes[**s].kind != TbScopeKind::Block)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// Innermost enclosing block above the nearest function boundary — the
+    /// home of a hoisted `var`, used by `S2392`.
+    fn home_block(&self) -> Option<Span> {
+        self.stack.iter().rev().find_map(|scope| {
+            let scope = &self.model.scopes[*scope];
+            match scope.kind {
+                TbScopeKind::Block => Some(scope.span),
+                TbScopeKind::Program | TbScopeKind::Function => None,
+            }
+        })
+    }
+
+    fn record_reference(&mut self, name: &'a str, span: Span) {
+        self.model.events.push(TbEvent {
+            name,
+            span,
+            write: self.write_depth > 0,
+            compound: self.compound,
+            chain: self.stack.clone(),
+        });
+    }
+
+    fn record_callee(
+        &mut self,
+        expression: &Expression<'a>,
+        arguments: &[oxc_ast::ast::Argument<'a>],
+        constructor: bool,
+    ) {
+        let Expression::Identifier(reference) = unparenthesized(expression) else {
+            return;
+        };
+        let mut explicit_undefined = Vec::new();
+        let mut spread = false;
+        for (position, argument) in arguments.iter().enumerate() {
+            match argument.as_expression() {
+                None => spread = true,
+                Some(expression) => {
+                    if let Expression::Identifier(name) = unparenthesized(expression)
+                        && name.name == "undefined"
+                    {
+                        explicit_undefined.push(position);
+                    }
+                }
+            }
+        }
+        self.model.callees.push(TbCallee {
+            name: reference.name.as_str(),
+            span: reference.span,
+            arity: arguments.len(),
+            constructor,
+            chain: self.stack.clone(),
+            explicit_undefined,
+            spread,
+        });
+    }
+
+    /// `delete x[i]` on an array-like binding (`S2870`).
+    fn record_delete(&mut self, unary: &UnaryExpression<'a>) {
+        if unary.operator != UnaryOperator::Delete {
+            return;
+        }
+        if let Some(member) = unary.argument.as_member_expression()
+            && let Expression::Identifier(object) = member_object(member)
+        {
+            self.model.delete_sites.push(TbSite {
+                name: object.name.as_str(),
+                span: unary.span,
+                chain: self.stack.clone(),
+            });
+        }
+    }
+
+    fn declare_pattern(&mut self, pattern: &BindingPattern<'a>, kind: TbKind) {
+        match pattern {
+            BindingPattern::BindingIdentifier(identifier) => {
+                self.declare(identifier.name.as_str(), kind, identifier.span);
+            }
+            BindingPattern::ObjectPattern(object) => {
+                for property in &object.properties {
+                    self.declare_pattern(&property.value, kind);
+                }
+                if let Some(rest) = &object.rest {
+                    self.declare_pattern(&rest.argument, kind);
+                }
+            }
+            BindingPattern::ArrayPattern(array) => {
+                for element in array.elements.iter().flatten() {
+                    self.declare_pattern(element, kind);
+                }
+                if let Some(rest) = &array.rest {
+                    self.declare_pattern(&rest.argument, kind);
+                }
+            }
+            BindingPattern::AssignmentPattern(assignment) => {
+                self.declare_pattern(&assignment.left, kind);
+            }
+        }
+    }
+
+    fn declare_parameters(&mut self, parameters: &oxc_ast::ast::FormalParameters<'a>) {
+        if self.skip_parameters {
+            return;
+        }
+        for parameter in &parameters.items {
+            // TypeScript parameter properties assign `this.x` implicitly;
+            // they are never plain local parameters.
+            if parameter.accessibility.is_none() && !parameter.readonly {
+                self.declare_pattern(&parameter.pattern, TbKind::Param);
+            }
+        }
+    }
+
+    /// `for (let v of xs)` assigns `v` although no assignment node exists.
+    fn mark_loop_bindings(&mut self, declaration: &VariableDeclaration<'a>, span: Span) {
+        let kind = match declaration.kind {
+            VariableDeclarationKind::Const => return,
+            VariableDeclarationKind::Let => TbKind::Let,
+            _ => TbKind::Var,
+        };
+        let _ = kind;
+        for declarator in &declaration.declarations {
+            if let BindingPattern::BindingIdentifier(identifier) = &declarator.id {
+                self.model.events.push(TbEvent {
+                    name: identifier.name.as_str(),
+                    span,
+                    write: true,
+                    compound: false,
+                    chain: self.stack.clone(),
+                });
+            }
+        }
+    }
+}
+
+impl<'a> Visit<'a> for TbBuilder<'a, '_> {
+    fn visit_program(&mut self, program: &oxc_ast::ast::Program<'a>) {
+        self.push_scope(TbScopeKind::Program, program.span);
+        walk_program(self, program);
+        self.pop_scope();
+    }
+
+    fn visit_block_statement(&mut self, statement: &BlockStatement<'a>) {
+        self.push_scope(TbScopeKind::Block, statement.span);
+        walk_block_statement(self, statement);
+        self.pop_scope();
+    }
+
+    fn visit_switch_statement(&mut self, statement: &SwitchStatement<'a>) {
+        self.push_scope(TbScopeKind::Block, statement.span);
+        walk_switch_statement(self, statement);
+        self.pop_scope();
+    }
+
+    fn visit_static_block(&mut self, block: &StaticBlock<'a>) {
+        self.push_scope(TbScopeKind::Function, block.span);
+        walk_static_block(self, block);
+        self.pop_scope();
+    }
+
+    fn visit_for_statement(&mut self, statement: &oxc_ast::ast::ForStatement<'a>) {
+        self.push_scope(TbScopeKind::Block, statement.span);
+        walk_for_statement(self, statement);
+        self.pop_scope();
+    }
+
+    fn visit_for_in_statement(&mut self, statement: &oxc_ast::ast::ForInStatement<'a>) {
+        self.push_scope(TbScopeKind::Block, statement.span);
+        walk_for_in_statement(self, statement);
+        self.pop_scope();
+        if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) = &statement.left {
+            self.mark_loop_bindings(declaration, statement.span);
+        }
+    }
+
+    fn visit_for_of_statement(&mut self, statement: &oxc_ast::ast::ForOfStatement<'a>) {
+        self.push_scope(TbScopeKind::Block, statement.span);
+        walk_for_of_statement(self, statement);
+        self.pop_scope();
+        if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) = &statement.left {
+            self.mark_loop_bindings(declaration, statement.span);
+        }
+    }
+
+    fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
+        self.push_scope(TbScopeKind::Block, clause.span);
+        if let Some(param) = &clause.param {
+            self.declare_pattern(&param.pattern, TbKind::CatchParam);
+        }
+        walk_catch_clause(self, clause);
+        self.pop_scope();
+    }
+
+    fn visit_function(&mut self, function: &oxc_ast::ast::Function<'a>, flags: ScopeFlags) {
+        let declaration = function.r#type == oxc_ast::ast::FunctionType::FunctionDeclaration;
+        let mut name_binding = None;
+        if declaration && let Some(id) = &function.id {
+            name_binding = Some(self.declare(id.name.as_str(), TbKind::Function, id.span));
+        }
+        self.push_scope(TbScopeKind::Function, function.span);
+        if !declaration && let Some(id) = &function.id {
+            self.declare(id.name.as_str(), TbKind::Function, id.span);
+        }
+        self.declare_parameters(&function.params);
+        self.skip_parameters = false;
+        let arity = signature_arity(&function.params);
+        if let Some(binding) = name_binding {
+            self.model.bindings[binding].arity = Some(arity);
+        }
+        walk_function(self, function, flags);
+        self.pop_scope();
+    }
+
+    fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'a>) {
+        self.push_scope(TbScopeKind::Function, arrow.span);
+        self.declare_parameters(&arrow.params);
+        walk_arrow_function_expression(self, arrow);
+        self.pop_scope();
+    }
+
+    fn visit_method_definition(&mut self, method: &MethodDefinition<'a>) {
+        // Setters legitimately leave their parameter unread (`S1172`); the
+        // flag is consumed and cleared by the method's own `visit_function`.
+        if method.kind == MethodDefinitionKind::Set {
+            self.skip_parameters = true;
+        }
+        walk_method_definition(self, method);
+        self.skip_parameters = false;
+    }
+
+    fn visit_class(&mut self, class: &Class<'a>) {
+        let declaration = class.r#type == oxc_ast::ast::ClassType::ClassDeclaration;
+        if declaration && let Some(id) = &class.id {
+            self.declare(id.name.as_str(), TbKind::Class, id.span);
+        }
+        self.push_scope(TbScopeKind::Block, class.span);
+        if !declaration && let Some(id) = &class.id {
+            self.declare(id.name.as_str(), TbKind::Class, id.span);
+        }
+        walk_class(self, class);
+        self.pop_scope();
+    }
+
+    fn visit_unary_expression(&mut self, unary: &UnaryExpression<'a>) {
+        self.record_delete(unary);
+        walk_unary_expression(self, unary);
+    }
+
+    fn visit_variable_declaration(&mut self, declaration: &VariableDeclaration<'a>) {
+        let saved = self.pending_kind;
+        self.pending_kind = match declaration.kind {
+            VariableDeclarationKind::Var => TbKind::Var,
+            VariableDeclarationKind::Let => TbKind::Let,
+            _ => TbKind::Const,
+        };
+        walk_variable_declaration(self, declaration);
+        self.pending_kind = saved;
+    }
+
+    fn visit_variable_declarator(&mut self, declarator: &VariableDeclarator<'a>) {
+        let before = self.model.bindings.len();
+        self.declare_pattern(&declarator.id, self.pending_kind);
+        if before < self.model.bindings.len()
+            && matches!(declarator.id, BindingPattern::BindingIdentifier(_))
+            && matches!(declarator.init, Some(Expression::ArrayExpression(_)))
+        {
+            self.model.bindings[before].array_like = true;
+        }
+        walk_variable_declarator(self, declarator);
+    }
+
+    fn visit_import_declaration(&mut self, declaration: &ImportDeclaration<'a>) {
+        let Some(specifiers) = &declaration.specifiers else {
+            return;
+        };
+        for specifier in specifiers {
+            let local = match specifier {
+                ImportDeclarationSpecifier::ImportSpecifier(specifier) => &specifier.local,
+                ImportDeclarationSpecifier::ImportDefaultSpecifier(specifier) => &specifier.local,
+                ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier) => &specifier.local,
+            };
+            self.declare(local.name.as_str(), TbKind::Import, local.span);
+        }
+    }
+
+    fn visit_export_specifier(&mut self, specifier: &ExportSpecifier<'a>) {
+        // `export { local }` keeps the local binding alive.
+        if let ModuleExportName::IdentifierReference(reference) = &specifier.local {
+            self.record_reference(reference.name.as_str(), reference.span);
+        }
+    }
+
+    fn visit_export_default_declaration(
+        &mut self,
+        declaration: &oxc_ast::ast::ExportDefaultDeclaration<'a>,
+    ) {
+        // `export default function name() {}` uses `name`.
+        if let ExportDefaultDeclarationKind::FunctionDeclaration(function) =
+            &declaration.declaration
+            && let Some(id) = &function.id
+        {
+            self.record_reference(id.name.as_str(), id.span);
+        }
+        walk_export_default_declaration(self, declaration);
+    }
+
+    fn visit_assignment_expression(&mut self, assignment: &AssignmentExpression<'a>) {
+        self.compound |= assignment.operator != AssignmentOperator::Assign;
+        self.write_depth += 1;
+        self.visit_assignment_target(&assignment.left);
+        self.write_depth -= 1;
+        self.compound = false;
+        walk_expression(self, &assignment.right);
+    }
+
+    fn visit_update_expression(&mut self, update: &oxc_ast::ast::UpdateExpression<'a>) {
+        self.compound = true;
+        self.write_depth += 1;
+        self.visit_simple_assignment_target(&update.argument);
+        self.write_depth -= 1;
+        self.compound = false;
+    }
+
+    fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+        self.record_callee(&call.callee, &call.arguments, false);
+        walk_call_expression(self, call);
+    }
+
+    fn visit_new_expression(&mut self, new: &NewExpression<'a>) {
+        self.record_callee(&new.callee, &new.arguments, true);
+        walk_new_expression(self, new);
+    }
+
+    fn visit_identifier_reference(&mut self, reference: &oxc_ast::ast::IdentifierReference<'a>) {
+        self.record_reference(reference.name.as_str(), reference.span);
+    }
+}
+
+/// `(minimum, hard maximum, optional positions)` of one signature; a rest
+/// parameter removes the maximum.
+fn signature_arity(parameters: &oxc_ast::ast::FormalParameters<'_>) -> TbSignature {
+    let optional = parameters
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(_, parameter)| parameter.initializer.is_some() || parameter.optional)
+        .map(|(position, _)| position)
+        .collect();
+    let minimum = parameters
+        .items
+        .iter()
+        .filter(|parameter| parameter.initializer.is_none() && !parameter.optional)
+        .count();
+    let maximum = parameters.rest.is_none().then(|| parameters.items.len());
+    TbSignature {
+        minimum,
+        maximum,
+        optional,
+    }
+}
+
+fn build_tb_model<'a>(program: &'a oxc_ast::ast::Program<'a>) -> TbModel<'a> {
+    let mut model = TbModel {
+        scopes: Vec::new(),
+        bindings: Vec::new(),
+        events: Vec::new(),
+        callees: Vec::new(),
+        shadows: Vec::new(),
+        duplicates: Vec::new(),
+        implicit_globals: Vec::new(),
+        calls: Vec::new(),
+        news: Vec::new(),
+        delete_sites: Vec::new(),
+        array_deletes: Vec::new(),
+    };
+    let mut builder = TbBuilder {
+        model: &mut model,
+        stack: Vec::new(),
+        write_depth: 0,
+        compound: false,
+        skip_parameters: false,
+        pending_kind: TbKind::Let,
+    };
+    builder.visit_program(program);
+    finish_model(model)
+}
+
+// ---------------------------------------------------------------------------
+// Tier B rule queries over the scope model.
+
+/// S1117 — an inner declaration shadowing an outer binding that is still
+/// referenced later.
+fn check_tb_shadowing(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
+    for &(outer, inner) in &model.shadows {
+        let outer_binding = &model.bindings[outer];
+        let decl = model.bindings[inner].decl;
+        let used_after = outer_binding
+            .reads
+            .iter()
+            .any(|read| read.start > decl.start);
+        if used_after {
+            let name = outer_binding.name;
+            sink.emit_span(
+                RuleScope::Both,
+                "S1117",
+                &format!("Rename this '{name}' declaration; it shadows one from an outer scope."),
+                decl,
+            );
+        }
+    }
+}
+
+/// S1128 (JS only) — imported bindings never referenced anywhere.
+fn check_tb_unused_imports(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
+    for binding in &model.bindings {
+        if binding.kind == TbKind::Import && binding.reads.is_empty() && binding.writes.is_empty() {
+            let name = binding.name;
+            sink.emit_span(
+                RuleScope::JsOnly,
+                "S1128",
+                &format!("Remove this unused import of '{name}'."),
+                binding.decl,
+            );
+        }
+    }
+}
+
+/// S1481 (JS only) — local variables/functions/classes without any reference.
+fn check_tb_unused_locals(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
+    for binding in &model.bindings {
+        let unreferenced = binding.reads.is_empty() && binding.writes.is_empty();
+        if binding.kind.is_local_value() && !binding.global && unreferenced {
+            let noun = match binding.kind {
+                TbKind::Function => "function",
+                TbKind::Class => "class",
+                _ => "local variable",
+            };
+            let name = binding.name;
+            sink.emit_span(
+                RuleScope::JsOnly,
+                "S1481",
+                &format!("Remove this unused {noun} '{name}'."),
+                binding.decl,
+            );
+        }
+    }
+}
+
+/// S1172 — function parameters that are never read.
+fn check_tb_unused_parameters(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
+    for binding in &model.bindings {
+        if binding.kind == TbKind::Param && binding.reads.is_empty() {
+            let name = binding.name;
+            sink.emit_span(
+                RuleScope::Both,
+                "S1172",
+                &format!("Remove this unused function parameter '{name}'."),
+                binding.decl,
+            );
+        }
+    }
+}
+
+/// S2703 (JS only) — assignments to names declared nowhere in the file.
+fn check_tb_implicit_globals(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
+    for (name, span) in &model.implicit_globals {
+        sink.emit_span(
+            RuleScope::JsOnly,
+            "S2703",
+            &format!("Declare '{name}' explicitly; this assignment creates an implicit global."),
+            *span,
+        );
+    }
+}
+
+/// S2814 (JS only) — `var`/function declared twice in the same scope.
+fn check_tb_duplicates(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
+    for (_, second, name) in &model.duplicates {
+        sink.emit_span(
+            RuleScope::JsOnly,
+            "S2814",
+            &format!("'{name}' is declared more than once in this scope."),
+            *second,
+        );
+    }
+}
+
+/// S3500 (JS only) — reassignments of `const` bindings.
+fn check_tb_const_reassigned(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
+    eprintln!(
+        "TB-C: {:?}",
+        model
+            .bindings
+            .iter()
+            .map(|b| (b.name, b.kind, b.reads.len(), b.writes.len()))
+            .collect::<Vec<_>>()
+    );
+    for binding in &model.bindings {
+        if binding.kind == TbKind::Const {
+            let name = binding.name;
+            for write in &binding.writes {
+                sink.emit_span(
+                    RuleScope::JsOnly,
+                    "S3500",
+                    &format!("Remove this reassignment of the constant '{name}'."),
+                    *write,
+                );
+            }
+        }
+    }
+}
+
+/// S3827 (JS only) — `let`/`const`/class/function used before declaration.
+fn check_tb_use_before_declaration(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
+    for binding in &model.bindings {
+        let ordered = matches!(
+            binding.kind,
+            TbKind::Let | TbKind::Const | TbKind::Class | TbKind::Function
+        );
+        if !ordered {
+            continue;
+        }
+        let name = binding.name;
+        let reads = binding
+            .reads
+            .iter()
+            .filter(|read| read.start < binding.decl.start)
+            .copied();
+        let writes = match binding.kind {
+            // Function bodies hoist; only textual call order is style noise.
+            TbKind::Function => Vec::new(),
+            _ => binding
+                .writes
+                .iter()
+                .filter(|write| write.start < binding.decl.start)
+                .copied()
+                .collect(),
+        };
+        for site in reads.into_iter().chain(writes) {
+            sink.emit_span(
+                RuleScope::JsOnly,
+                "S3827",
+                &format!("Move the declaration of '{name}' above this usage."),
+                site,
+            );
+        }
+    }
+}
+
+/// S6522 — assignments targeting import-declared bindings.
+fn check_tb_import_reassigned(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
+    for binding in &model.bindings {
+        if binding.kind != TbKind::Import {
+            continue;
+        }
+        let name = binding.name;
+        for write in &binding.writes {
+            sink.emit_span(
+                RuleScope::Both,
+                "S6522",
+                &format!(
+                    "Remove this reassignment of the imported '{name}'; imports are read-only."
+                ),
+                *write,
+            );
+        }
+    }
+}
+
+/// S1526 (JS only) — identifiers read textually before their `var`
+/// declarator (hoisting order).
+fn check_tb_var_hoisting_order(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
+    for binding in &model.bindings {
+        if binding.kind != TbKind::Var {
+            continue;
+        }
+        let name = binding.name;
+        for read in binding
+            .reads
+            .iter()
+            .filter(|read| read.end < binding.decl.start)
+            .copied()
+        {
+            sink.emit_span(
+                RuleScope::JsOnly,
+                "S1526",
+                &format!("Move the declaration of '{name}' above this usage; 'var' is hoisted."),
+                read,
+            );
+        }
+    }
+}
+
+/// S2392 — `var` leaking out of its declaring block and used beyond it.
+fn check_tb_block_leaks(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
+    for binding in &model.bindings {
+        let Some(home) = binding.home_block else {
+            continue;
+        };
+        let leaks = binding
+            .reads
+            .iter()
+            .find(|read| read.start < home.start || read.end > home.end);
+        if let Some(read) = leaks {
+            let name = binding.name;
+            sink.emit_span(
+                RuleScope::Both,
+                "S2392",
+                &format!("Narrow the scope of '{name}'; it is used outside its declaring block."),
+                *read,
+            );
+        }
+    }
+}
+
+/// S930 (JS only) — call-site arity against file-local function signatures.
+fn check_tb_arity(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
+    for call in &model.calls {
+        let binding = &model.bindings[call.binding];
+        let Some(signature) = &binding.arity else {
+            continue;
+        };
+        let wrong =
+            call.arity < signature.minimum || signature.maximum.is_some_and(|max| call.arity > max);
+        if !wrong {
+            continue;
+        }
+        let expected = match (signature.minimum, signature.maximum) {
+            (min, Some(max)) if min == max => format!("{min}"),
+            (min, Some(max)) => format!("{min} to {max}"),
+            (min, None) => format!("at least {min}"),
+        };
+        let name = binding.name;
+        sink.emit_span(
+            RuleScope::JsOnly,
+            "S930",
+            &format!(
+                "'{name}' expects {expected} arguments, but {} were provided.",
+                call.arity
+            ),
+            call.span,
+        );
+    }
+}
+
+/// S2999 — `new` applied to something that does not resolve to a
+/// file-local function/class declaration.
+fn check_tb_constructor_resolution(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
+    for &(binding, span) in &model.news {
+        let constructed = matches!(
+            model.bindings[binding].kind,
+            TbKind::Function | TbKind::Class
+        );
+        if !constructed {
+            let name = model.bindings[binding].name;
+            sink.emit_span(
+                RuleScope::Both,
+                "S2999",
+                &format!("Make sure '{name}' holds a constructor before using 'new' on it."),
+                span,
+            );
+        }
+    }
+}
+
+/// S3686 (JS only) — the same file-local function both called and
+/// constructed; the minority form is flagged (ties flag the plain calls).
+fn check_tb_mixed_construction(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
+    for id in 0..model.bindings.len() {
+        if model.bindings[id].kind != TbKind::Function {
+            continue;
+        }
+        let news: Vec<Span> = model
+            .news
+            .iter()
+            .filter(|(owner, _)| *owner == id)
+            .map(|(_, span)| *span)
+            .collect();
+        let calls: Vec<Span> = model
+            .calls
+            .iter()
+            .filter(|site| site.binding == id)
+            .map(|site| site.span)
+            .collect();
+        if news.is_empty() || calls.is_empty() {
+            continue;
+        }
+        let (flagged, message) = if news.len() >= calls.len() {
+            (calls, "invoked")
+        } else {
+            (news, "constructed with 'new'")
+        };
+        let name = model.bindings[id].name;
+        for span in flagged {
+            sink.emit_span(
+                RuleScope::JsOnly,
+                "S3686",
+                &format!("'{name}' is also {message} elsewhere; pick one form."),
+                span,
+            );
+        }
+    }
+}
+
+/// S2870 — `delete` on an element of an array-initialized binding.
+fn check_tb_delete_array_element(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
+    for &(binding, span) in &model.array_deletes {
+        let name = model.bindings[binding].name;
+        sink.emit_span(
+            RuleScope::Both,
+            "S2870",
+            &format!("Remove this 'delete'; it targets an element of the array '{name}'."),
+            span,
+        );
+    }
+}
+
+/// S4623 (TS only) — an explicit `undefined` at an optional-parameter
+/// position of a file-local signature.
+fn check_tb_explicit_undefined(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
+    for call in &model.calls {
+        if call.spread {
+            continue;
+        }
+        let Some(signature) = &model.bindings[call.binding].arity else {
+            continue;
+        };
+        for position in &call.explicit_undefined {
+            if signature.optional.contains(position) {
+                sink.emit_span(
+                    RuleScope::TsOnly,
+                    "S4623",
+                    "Remove this 'undefined'; the parameter is optional.",
+                    call.span,
+                );
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tier B class-shape and regex-group rules (single dedicated visits).
+
+/// React lifecycle names invoked by the framework itself (`S6441`).
+const LIFECYCLE_METHODS: &[&str] = &[
+    "constructor",
+    "render",
+    "componentDidMount",
+    "componentDidUpdate",
+    "componentWillUnmount",
+    "componentDidCatch",
+    "getDerivedStateFromProps",
+    "getSnapshotBeforeUpdate",
+    "shouldComponentUpdate",
+];
+
+#[derive(Default)]
+struct ClassFrame {
+    super_name: Option<String>,
+    /// Instance methods declared on the class (`S6441`).
+    methods: Vec<(String, Span)>,
+    /// `#field` / `private` members (`S1068`).
+    private_members: Vec<(String, Span)>,
+    /// Keys of a static `propTypes = {…}` object (`S6767`).
+    prop_type_keys: Vec<(String, Span)>,
+}
+
+/// One file-wide pass collecting private members, component methods, and
+/// `propTypes` keys together with every member-property name used anywhere.
+struct ClassRuleCollector<'index> {
+    sink: IssueSink<'index>,
+    frames: Vec<ClassFrame>,
+    used_properties: Vec<String>,
+    props_accessed: Vec<String>,
+}
+
+impl<'a> Visit<'a> for ClassRuleCollector<'_> {
+    fn visit_class(&mut self, class: &Class<'a>) {
+        let super_name = class
+            .heritage
+            .as_ref()
+            .and_then(|heritage| match &heritage.expression {
+                Expression::Identifier(name) => Some(name.name.to_string()),
+                _ => None,
+            });
+        self.frames.push(ClassFrame {
+            super_name,
+            ..ClassFrame::default()
+        });
+        oxc_ast_visit::walk::walk_class(self, class);
+        let frame = self.frames.pop().expect("class frame pushed above");
+        self.finish_class_frame(&frame);
+    }
+
+    fn visit_method_definition(&mut self, method: &MethodDefinition<'a>) {
+        if let Some(name) = property_key_name(&method.key)
+            && let Some(frame) = self.frames.last_mut()
+        {
+            if !method.r#static && method.kind == MethodDefinitionKind::Method {
+                frame.methods.push((name.to_string(), method.span));
+            }
+            if method.accessibility == Some(TSAccessibility::Private) {
+                frame.private_members.push((name.to_string(), method.span));
+            }
+        }
+        oxc_ast_visit::walk::walk_method_definition(self, method);
+    }
+
+    fn visit_property_definition(&mut self, definition: &oxc_ast::ast::PropertyDefinition<'a>) {
+        let name = property_key_name(&definition.key);
+        if let Some(frame) = self.frames.last_mut() {
+            match &definition.key {
+                PropertyKey::PrivateIdentifier(_) => {
+                    if let Some(name) = name {
+                        frame
+                            .private_members
+                            .push((name.to_string(), definition.span));
+                    }
+                }
+                _ => {
+                    if definition.accessibility == Some(TSAccessibility::Private)
+                        && let Some(name) = name
+                    {
+                        frame
+                            .private_members
+                            .push((name.to_string(), definition.span));
+                    }
+                }
+            }
+            if definition.r#static
+                && name.is_some_and(|key| key == "propTypes")
+                && let Some(Expression::ObjectExpression(object)) =
+                    definition.value.as_ref().map(unparenthesized)
+            {
+                for property in &object.properties {
+                    if let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(property) = property
+                        && let Some(key) = property_key_name(&property.key)
+                    {
+                        frame
+                            .prop_type_keys
+                            .push((key.to_string(), property.key.span()));
+                    }
+                }
+            }
+        }
+        oxc_ast_visit::walk::walk_property_definition(self, definition);
+    }
+
+    fn visit_member_expression(&mut self, member: &MemberExpression<'a>) {
+        if let Some(name) = static_property_name(member) {
+            self.used_properties.push(name.to_string());
+            if expression_through_this_link(member.object(), "props") {
+                self.props_accessed.push(name.to_string());
+            }
+        }
+        if let MemberExpression::PrivateFieldExpression(field) = member {
+            self.used_properties.push(field.field.name.to_string());
+        }
+        oxc_ast_visit::walk::walk_member_expression(self, member);
+    }
+}
+
+impl ClassRuleCollector<'_> {
+    fn finish_class_frame(&mut self, frame: &ClassFrame) {
+        let component = frame
+            .super_name
+            .as_deref()
+            .is_some_and(|base| base == "Component" || base == "PureComponent")
+            || frame.methods.iter().any(|(name, _)| name == "render");
+        for (name, span) in &frame.private_members {
+            if !self.used_properties.iter().any(|used| used == name) {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S1068",
+                    &format!("Remove this unused private class member '{name}'."),
+                    *span,
+                );
+            }
+        }
+        if !component {
+            return;
+        }
+        for (name, span) in &frame.methods {
+            if LIFECYCLE_METHODS.contains(&name.as_str()) {
+                continue;
+            }
+            if !self.used_properties.iter().any(|used| used == name) {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S6441",
+                    &format!("The component method '{name}' is never referenced."),
+                    *span,
+                );
+            }
+        }
+        for (name, span) in &frame.prop_type_keys {
+            if !self.props_accessed.iter().any(|used| used == name) {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S6767",
+                    &format!("Remove the unused prop type entry '{name}'."),
+                    *span,
+                );
+            }
+        }
+    }
+}
+
+/// S1068 + S6441 + S6767 entry point; findings land directly in `sink`.
+fn check_tb_class_rules<'a>(program: &'a oxc_ast::ast::Program<'a>, sink: &mut IssueSink<'a>) {
+    let mut collector = ClassRuleCollector {
+        sink: IssueSink {
+            index: sink.index,
+            language: sink.language,
+            issues: Vec::new(),
+        },
+        frames: Vec::new(),
+        used_properties: Vec::new(),
+        props_accessed: Vec::new(),
+    };
+    collector.visit_program(program);
+    sink.issues.append(&mut collector.sink.issues);
+}
+
+/// S5860 — named capture groups never referenced by `\k<name>` in the same
+/// pattern and not matched through a result object exposing `groups`.
+fn check_tb_named_groups(program: &oxc_ast::ast::Program<'_>, sink: &mut IssueSink<'_>) {
+    let mut collector = NamedGroupCollector::default();
+    collector.visit_program(program);
+    for (span, pattern) in &collector.literals {
+        for name in defined_group_names(pattern) {
+            let exposed = pattern.contains(&format!(r"\k<{name}>"))
+                || collector.grouped_literals.contains(span);
+            if !exposed {
+                sink.emit_span(
+                    RuleScope::Both,
+                    "S5860",
+                    &format!("The named capture group '{name}' is defined but never referenced."),
+                    *span,
+                );
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct NamedGroupCollector {
+    literals: Vec<(Span, String)>,
+    /// Regex literals passed to `.match`/`.matchAll`/`.exec`, whose result
+    /// object exposes `groups`.
+    grouped_literals: Vec<Span>,
+}
+
+impl<'a> Visit<'a> for NamedGroupCollector {
+    fn visit_reg_exp_literal(&mut self, literal: &RegExpLiteral<'a>) {
+        self.literals
+            .push((literal.span, regex_pattern_text(literal).to_string()));
+    }
+
+    fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+        if let Some(name) = callee_member_name(call)
+            && matches!(name, "match" | "matchAll" | "exec")
+            && let Some(argument) = call.arguments.first()
+            && let Some(expression) = argument.as_expression()
+            && let Expression::RegExpLiteral(regexp) = unparenthesized(expression)
+        {
+            self.grouped_literals.push(regexp.span);
+        }
+        oxc_ast_visit::walk::walk_call_expression(self, call);
+    }
+}
+
+fn callee_member_name<'a>(call: &'a CallExpression<'a>) -> Option<&'a str> {
+    call.callee
+        .as_member_expression()
+        .and_then(static_property_name)
+}
+
+/// `(?<name>…)` definitions inside one pattern; lookbehind `(?<=`/`(?<!`
+/// does not define a group.
+fn defined_group_names(pattern: &str) -> Vec<&str> {
+    let mut names = Vec::new();
+    let mut cursor = 0;
+    while let Some(offset) = pattern[cursor..].find("(?<") {
+        let begin = cursor + offset + 3;
+        let Some(next) = pattern[begin..].chars().next() else {
+            break;
+        };
+        if next == '=' || next == '!' {
+            cursor = begin;
+            continue;
+        }
+        match pattern[begin..].find('>') {
+            Some(end) => {
+                names.push(&pattern[begin..begin + end]);
+                cursor = begin + end + 1;
+            }
+            None => break,
+        }
+    }
+    names
+}
+
+/// All Tier-B checks that run over the scope model.
+fn check_tier_b_rules(
+    program: &oxc_ast::ast::Program<'_>,
+    _source: &str,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut sink = IssueSink {
+        index,
+        language,
+        issues: Vec::new(),
+    };
+    let model = build_tb_model(program);
+    check_tb_shadowing(&model, &mut sink);
+    check_tb_unused_imports(&model, &mut sink);
+    check_tb_unused_locals(&model, &mut sink);
+    check_tb_unused_parameters(&model, &mut sink);
+    check_tb_implicit_globals(&model, &mut sink);
+    check_tb_duplicates(&model, &mut sink);
+    check_tb_const_reassigned(&model, &mut sink);
+    check_tb_use_before_declaration(&model, &mut sink);
+    check_tb_import_reassigned(&model, &mut sink);
+    check_tb_var_hoisting_order(&model, &mut sink);
+    check_tb_block_leaks(&model, &mut sink);
+    check_tb_arity(&model, &mut sink);
+    check_tb_constructor_resolution(&model, &mut sink);
+    check_tb_mixed_construction(&model, &mut sink);
+    check_tb_delete_array_element(&model, &mut sink);
+    check_tb_explicit_undefined(&model, &mut sink);
+    check_tb_class_rules(program, &mut sink);
+    check_tb_named_groups(program, &mut sink);
+    sink.issues
+}
 #[cfg(test)]
 mod tests {
 
@@ -20070,6 +21397,150 @@ draw(other, more);
                 .issues
                 .iter()
                 .all(|issue| issue.rule_key != "javascript:S7060")
+        );
+    }
+
+    // --- Tier B: scope/symbol table rules ---
+
+    fn filtered(report: &hoonarqube_ir::FileReport, rule: &str) -> Vec<String> {
+        report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(rule))
+            .map(|issue| {
+                format!(
+                    "{}:{}:{}",
+                    issue.rule_key, issue.range.start.line, issue.message
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn shadowing_flagged_only_when_outer_used_after_inner_declaration() {
+        let flagged = js("let x = 1;\nfunction g() {\n  let x = 2;\n}\ng(x);\n");
+        assert_eq!(filtered(&flagged, "S1117").len(), 1);
+
+        let clean = js("let x = 1;\nfunction g() {\n  let x = 2;\n}\ng();\n");
+        assert_eq!(filtered(&clean, "S1117").len(), 0);
+    }
+
+    #[test]
+    fn unused_imports_flagged_in_javascript_only() {
+        let source = "import { helper } from './helper';\n";
+        assert_eq!(filtered(&js(source), "S1128").len(), 1);
+        assert_eq!(filtered(&ts(source), "S1128").len(), 0);
+        let used = "import { helper } from './helper';\nhelper();\n";
+        assert_eq!(filtered(&js(used), "S1128").len(), 0);
+    }
+
+    #[test]
+    fn unused_locals_flagged_inside_functions_but_not_at_top_level() {
+        let source = "const kept = 1;\nfunction f() {\n  const orphan = 2;\n}\nf();\n";
+        let issues = filtered(&js(source), "S1481");
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].contains("orphan"));
+    }
+
+    #[test]
+    fn unused_parameters_flagged_but_setters_exempt() {
+        let flagged = js("function f(unused) {\n  return 1;\n}\nf(2);\n");
+        assert_eq!(filtered(&flagged, "S1172").len(), 1);
+        let clean =
+            js("const obj = { set value(next) { this.stored = next; } };\nobj.value = 3;\n");
+        assert_eq!(filtered(&clean, "S1172").len(), 0);
+    }
+
+    #[test]
+    fn implicit_global_assignment_flagged_in_javascript_only() {
+        let source = "function f() {\n  leaked = 1;\n}\nf();\n";
+        assert_eq!(filtered(&js(source), "S2703").len(), 1);
+        assert_eq!(
+            filtered(&ts("function f() {\n  leaked = 1;\n}\nf();\n"), "S2703").len(),
+            0
+        );
+    }
+
+    #[test]
+    fn duplicate_var_declarations_in_same_scope_flagged() {
+        let flagged = js("var dup = 1;\nvar dup = 2;\n");
+        assert_eq!(filtered(&flagged, "S2814").len(), 1);
+        let clean = js("var first = 1;\nvar second = 2;\n");
+        assert_eq!(filtered(&clean, "S2814").len(), 0);
+    }
+
+    #[test]
+    fn const_reassignment_flagged() {
+        let flagged = js("const fixed = 1;\nfixed = 2;\n");
+        assert_eq!(filtered(&flagged, "S3500").len(), 1);
+        let clean = js("const fixed = 1;\nconsole.log(fixed);\n");
+        assert_eq!(filtered(&clean, "S3500").len(), 0);
+    }
+
+    #[test]
+    fn use_before_declaration_flagged_for_let_and_function_calls() {
+        let source = "function f() {\n  early = 1;\n  let early = 2;\n}\nf();\n";
+        assert_eq!(filtered(&js(source), "S3827").len(), 1);
+        let calls = js("later();\nfunction later() {}\n");
+        assert_eq!(filtered(&calls, "S3827").len(), 1);
+    }
+
+    #[test]
+    fn import_reassignment_flagged() {
+        let flagged = js("import { helper } from './helper';\nhelper = null;\n");
+        assert_eq!(filtered(&flagged, "S6522").len(), 1);
+    }
+
+    #[test]
+    fn var_read_before_its_declarator_flagged() {
+        let flagged = js("function f() {\n  console.log(hoisted);\n  var hoisted = 1;\n}\nf();\n");
+        assert_eq!(filtered(&flagged, "S1526").len(), 1);
+        let clean = js("function f() {\n  var hoisted = 1;\n  console.log(hoisted);\n}\nf();\n");
+        assert_eq!(filtered(&clean, "S1526").len(), 0);
+    }
+
+    #[test]
+    fn var_leaking_out_of_its_block_flagged_once() {
+        let flagged = js("if (cond) {\n  var leaky = 1;\n}\nuse(leaky);\n");
+        assert_eq!(filtered(&flagged, "S2392").len(), 1);
+        let clean = js("if (cond) {\n  let scoped = 1;\n  use(scoped);\n}\n");
+        assert_eq!(filtered(&clean, "S2392").len(), 0);
+    }
+
+    #[test]
+    fn arity_mismatch_against_local_function_flagged() {
+        let flagged = js("function add(a, b) { return a + b; }\nadd(1);\nadd(1, 2, 3);\n");
+        assert_eq!(filtered(&flagged, "S930").len(), 2);
+        let rest_clean =
+            js("function pick(first, ...rest) { return rest; }\npick(1);\npick(1, 2, 3);\n");
+        assert_eq!(filtered(&rest_clean, "S930").len(), 0);
+    }
+
+    #[test]
+    fn new_on_non_constructor_binding_flagged() {
+        let flagged = js("const make = () => 1;\nnew make();\n");
+        assert_eq!(filtered(&flagged, "S2999").len(), 1);
+        let clean = js("class Box {}\nnew Box();\nfunction Factory() {}\nnew Factory();\n");
+        assert_eq!(filtered(&clean, "S2999").len(), 0);
+    }
+
+    #[test]
+    fn mixed_call_and_new_sites_flag_minority_form() {
+        let flagged = js("function Thing() {}\nnew Thing();\nThing();\n");
+        assert_eq!(filtered(&flagged, "S3686").len(), 1);
+        let clean = js("function plain() {}\nplain();\nplain();\n");
+        assert_eq!(filtered(&clean, "S3686").len(), 0);
+    }
+
+    #[test]
+    fn typescript_files_receive_tier_b_keys_with_typescript_prefix() {
+        let source = "import { helper } from './helper';\nhelper = null;\n";
+        let report = ts(source);
+        assert!(
+            report
+                .issues
+                .iter()
+                .any(|issue| issue.rule_key == "typescript:S6522")
         );
     }
 }
