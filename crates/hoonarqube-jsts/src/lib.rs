@@ -248,6 +248,41 @@ fn analyze_with_rules(
     // --- Batch2b wiring: statement-shape and control-flow walks ---
     issues.extend(check_switch_flow(&parsed.program, &index, language));
     issues.extend(check_loop_rules(&parsed.program, source, &index, language));
+    issues.extend(check_flow_nesting_rules(&parsed.program, &index, language));
+    issues.extend(check_embedded_effects(&parsed.program, &index, language));
+    issues.extend(check_brace_style(&parsed.program, source, &index, language));
+    issues.extend(check_label_usage(&parsed.program, &index, language));
+    issues.extend(check_statement_sequences(&parsed.program, &index, language));
+    issues.extend(check_function_contexts(&parsed.program, &index, language));
+    issues.extend(check_call_argument_lines(&parsed.program, &index, language));
+    issues.extend(check_self_assignments(
+        &parsed.program,
+        source,
+        &index,
+        language,
+    ));
+    issues.extend(check_exception_handling(
+        &parsed.program,
+        source,
+        &index,
+        language,
+    ));
+    issues.extend(check_function_structures(
+        &parsed.program,
+        source,
+        &index,
+        language,
+    ));
+    issues.extend(check_swapped_call_arguments(
+        &parsed.program,
+        &index,
+        language,
+    ));
+    issues.extend(check_arrow_body_consistency(
+        &parsed.program,
+        &index,
+        language,
+    ));
     sort_issues(&mut issues);
 
     hoonarqube_ir::FileReport {
@@ -4859,6 +4894,1688 @@ fn is_literal_expression(expression: &Expression<'_>) -> bool {
     )
 }
 
+// ===== Batch2c group A: statement-shape and control-flow walks =====
+//
+// `S107` (too many parameters), `S134` (control-flow nesting), `S881`
+// (standalone update expressions), `S905` (pointless expression statements),
+// `S1105` (1tbs opening-brace placement), `S1121` (embedded assignments),
+// and `S1143` (jumps out of `finally` blocks).
+
+use oxc_ast::ast::{CatchClause, ClassBody, FormalParameters, TryStatement};
+use oxc_ast_visit::walk::{walk_catch_clause, walk_class_body};
+
+/// `S107`: functions carrying more parameters than this are flagged (frozen
+/// catalog default of `maximumFunctionParameters`).
+const MAX_FUNCTION_PARAMETERS: usize = 7;
+
+/// `S134`: control-flow statements nested deeper than this are flagged
+/// (frozen catalog default of `maximumNestingLevel`).
+const MAX_CONTROL_FLOW_NESTING: u32 = 3;
+
+/// `S107`, `S134`, and `S1143` in one traversal. Tracks control-flow nesting
+/// depth and `finally` membership, both reset at every function boundary.
+struct ControlFlowNestingCollector<'index> {
+    sink: IssueSink<'index>,
+    /// Number of control-flow constructs enclosing the current node (`S134`).
+    flow_depth: u32,
+    /// > 0 while walking inside a `finally` clause (`S1143`).
+    finally_depth: u32,
+}
+
+impl ControlFlowNestingCollector<'_> {
+    fn check_parameter_count(&mut self, params: &FormalParameters<'_>) {
+        let count = params.items.len() + usize::from(params.rest.is_some());
+        if count > MAX_FUNCTION_PARAMETERS {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S107",
+                &format!(
+                    "This function has {count} parameters, which is greater \
+                     than the {MAX_FUNCTION_PARAMETERS} authorized."
+                ),
+                params.span(),
+            );
+        }
+    }
+
+    /// Zeroes the per-function state; returns the saved values for
+    /// [`Self::leave_function`].
+    fn enter_function(&mut self) -> (u32, u32) {
+        let saved = (self.flow_depth, self.finally_depth);
+        self.flow_depth = 0;
+        self.finally_depth = 0;
+        saved
+    }
+
+    fn leave_function(&mut self, saved: (u32, u32)) {
+        self.flow_depth = saved.0;
+        self.finally_depth = saved.1;
+    }
+
+    /// `S134`: flags a construct entered while already `MAX` deep, i.e. one
+    /// whose own nesting level exceeds `MAX_CONTROL_FLOW_NESTING`.
+    fn check_nesting(&mut self, span: Span) {
+        if self.flow_depth >= MAX_CONTROL_FLOW_NESTING {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S134",
+                &format!(
+                    "Refactor this code to not nest more than \
+                     {MAX_CONTROL_FLOW_NESTING} control flow statements."
+                ),
+                span,
+            );
+        }
+    }
+
+    fn check_finally_jump(&mut self, span: Span) {
+        if self.finally_depth > 0 {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1143",
+                "Remove this jump statement from this finally block.",
+                span,
+            );
+        }
+    }
+
+    /// Counts parameters and resets nesting around one whole function-like
+    /// subtree.
+    fn function_scope(
+        &mut self,
+        params: Option<&FormalParameters<'_>>,
+        walk_children: impl FnOnce(&mut Self),
+    ) {
+        if let Some(params) = params {
+            self.check_parameter_count(params);
+        }
+        let saved = self.enter_function();
+        walk_children(self);
+        self.leave_function(saved);
+    }
+}
+
+impl<'a> Visit<'a> for ControlFlowNestingCollector<'_> {
+    fn visit_expression(&mut self, it: &Expression<'a>) {
+        if let Expression::FunctionExpression(function) = it {
+            self.function_scope(Some(&function.params), |collector| {
+                walk_expression(collector, it);
+            });
+        } else {
+            walk_expression(self, it);
+        }
+    }
+
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        self.function_scope(Some(&it.params), |collector| {
+            walk_arrow_function_expression(collector, it);
+        });
+    }
+
+    fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
+        self.function_scope(Some(&it.value.params), |collector| {
+            walk_method_definition(collector, it);
+        });
+    }
+
+    fn visit_static_block(&mut self, it: &StaticBlock<'a>) {
+        self.function_scope(None, |collector| {
+            walk_static_block(collector, it);
+        });
+    }
+
+    fn visit_declaration(&mut self, it: &Declaration<'a>) {
+        if let Declaration::FunctionDeclaration(function) = it {
+            self.function_scope(Some(&function.params), |collector| {
+                walk_declaration(collector, it);
+            });
+        } else {
+            walk_declaration(self, it);
+        }
+    }
+
+    fn visit_export_default_declaration_kind(&mut self, it: &ExportDefaultDeclarationKind<'a>) {
+        if let ExportDefaultDeclarationKind::FunctionDeclaration(function) = it {
+            self.function_scope(Some(&function.params), |collector| {
+                walk_export_default_declaration_kind(collector, it);
+            });
+        } else {
+            walk_export_default_declaration_kind(self, it);
+        }
+    }
+
+    fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
+        self.nested_flow(it.span(), |collector| walk_if_statement(collector, it));
+    }
+
+    fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
+        self.nested_flow(it.span(), |collector| {
+            if let Some(init) = &it.init {
+                collector.visit_for_statement_init(init);
+            }
+            if let Some(test) = &it.test {
+                collector.visit_expression(test);
+            }
+            if let Some(update) = &it.update {
+                collector.visit_expression(update);
+            }
+            collector.visit_statement(&it.body);
+        });
+    }
+
+    fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
+        self.nested_flow(it.span(), |collector| walk_for_in_statement(collector, it));
+    }
+
+    fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
+        self.nested_flow(it.span(), |collector| walk_for_of_statement(collector, it));
+    }
+
+    fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
+        self.nested_flow(it.span(), |collector| walk_while_statement(collector, it));
+    }
+
+    fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
+        self.nested_flow(it.span(), |collector| {
+            walk_do_while_statement(collector, it);
+        });
+    }
+
+    fn visit_switch_statement(&mut self, it: &SwitchStatement<'a>) {
+        self.nested_flow(it.span(), |collector| walk_switch_statement(collector, it));
+    }
+
+    fn visit_catch_clause(&mut self, it: &CatchClause<'_>) {
+        self.nested_flow(it.span(), |collector| walk_catch_clause(collector, it));
+    }
+
+    /// `S1143` handling: the `try` header itself nests like other
+    /// constructs, while the optional `finally` additionally enables jump
+    /// detection for its subtree.
+    fn visit_try_statement(&mut self, it: &TryStatement<'a>) {
+        self.check_nesting(it.span());
+        self.flow_depth += 1;
+        self.visit_block_statement(&it.block);
+        if let Some(handler) = &it.handler {
+            self.visit_catch_clause(handler);
+        }
+        self.flow_depth -= 1;
+        if let Some(finalizer) = &it.finalizer {
+            self.finally_depth += 1;
+            self.visit_block_statement(finalizer);
+            self.finally_depth -= 1;
+        }
+    }
+
+    fn visit_return_statement(&mut self, it: &ReturnStatement<'a>) {
+        self.check_finally_jump(it.span());
+        walk_return_statement(self, it);
+    }
+
+    fn visit_throw_statement(&mut self, it: &ThrowStatement<'a>) {
+        self.check_finally_jump(it.span());
+        walk_throw_statement(self, it);
+    }
+
+    fn visit_break_statement(&mut self, it: &BreakStatement<'a>) {
+        self.check_finally_jump(it.span());
+    }
+
+    fn visit_continue_statement(&mut self, it: &ContinueStatement<'a>) {
+        self.check_finally_jump(it.span());
+    }
+}
+
+impl ControlFlowNestingCollector<'_> {
+    fn nested_flow(&mut self, span: Span, walk_children: impl FnOnce(&mut Self)) {
+        self.check_nesting(span);
+        self.flow_depth += 1;
+        walk_children(self);
+        self.flow_depth -= 1;
+    }
+}
+
+fn check_flow_nesting_rules(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = ControlFlowNestingCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        flow_depth: 0,
+        finally_depth: 0,
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
+/// `S881` (standalone `++`/`--`), `S1121` (standalone assignments), and
+/// `S905` (pointless expression statements) in one traversal.
+///
+/// Updates and assignments are only tolerated as the direct root expression
+/// of an `ExpressionStatement` or in a `for` header init/update slot; the
+/// `expr_depth` counter distinguishes those roots from deeper embedding.
+struct EmbeddedEffectCollector<'index> {
+    sink: IssueSink<'index>,
+    /// Distance of the current expression below its statement root: `1` for
+    /// the root itself, increasing per nesting level, `0` outside
+    /// statement-root contexts (initializers, conditions, arguments, ...).
+    expr_depth: u32,
+}
+
+impl<'a> Visit<'a> for EmbeddedEffectCollector<'_> {
+    fn visit_expression_statement(&mut self, it: &ExpressionStatement<'a>) {
+        if is_pointless_expression(&it.expression) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S905",
+                "Remove this expression; it has no effect.",
+                it.expression.span(),
+            );
+        }
+        let saved = self.expr_depth;
+        self.expr_depth = 1;
+        walk_expression_statement(self, it);
+        self.expr_depth = saved;
+    }
+
+    fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
+        if let Some(init) = &it.init {
+            // Only the expression form of the init slot is an embedded
+            // statement root; `for (let i = ...)` declarations walk with
+            // their own (non-root) initializer context.
+            if init.as_expression().is_some() {
+                let saved = self.expr_depth;
+                self.expr_depth = 1;
+                self.visit_for_statement_init(init);
+                self.expr_depth = saved;
+            } else {
+                self.visit_for_statement_init(init);
+            }
+        }
+        if let Some(test) = &it.test {
+            self.visit_expression(test);
+        }
+        if let Some(update) = &it.update {
+            let saved = self.expr_depth;
+            self.expr_depth = 1;
+            self.visit_expression(update);
+            self.expr_depth = saved;
+        }
+        self.visit_statement(&it.body);
+    }
+
+    fn visit_expression(&mut self, it: &Expression<'a>) {
+        match it {
+            Expression::UpdateExpression(update) => {
+                if self.expr_depth != 1 {
+                    let operator = match update.operator {
+                        UpdateOperator::Increment => "++",
+                        UpdateOperator::Decrement => "--",
+                    };
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S881",
+                        &format!("Remove this use of the operator '{operator}'."),
+                        update.span(),
+                    );
+                }
+            }
+            Expression::AssignmentExpression(assign) if self.expr_depth != 1 => {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S1121",
+                    "Extract this assignment out of this expression.",
+                    assign.span(),
+                );
+            }
+            _ => {}
+        }
+        if self.expr_depth > 0 {
+            self.expr_depth += 1;
+            walk_expression(self, it);
+            self.expr_depth -= 1;
+        } else {
+            walk_expression(self, it);
+        }
+    }
+}
+
+/// Whether an expression statement provably has no effect: literals,
+/// identifiers, templates without substitutions, and pure operators over
+/// such operands. Calls, assignments, `delete`, tagged templates, and any
+/// unrecognized shape are treated as effectful.
+fn is_pointless_expression(expression: &Expression<'_>) -> bool {
+    match expression {
+        Expression::BooleanLiteral(_)
+        | Expression::NullLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::RegExpLiteral(_)
+        | Expression::StringLiteral(_)
+        | Expression::Identifier(_)
+        | Expression::ThisExpression(_) => true,
+        Expression::TemplateLiteral(template) => template.expressions.is_empty(),
+        Expression::ParenthesizedExpression(parens) => is_pointless_expression(&parens.expression),
+        Expression::UnaryExpression(unary) => {
+            unary.operator != UnaryOperator::Delete && is_pointless_expression(&unary.argument)
+        }
+        Expression::BinaryExpression(binary) => {
+            is_pointless_expression(&binary.left) && is_pointless_expression(&binary.right)
+        }
+        Expression::LogicalExpression(logical) => {
+            is_pointless_expression(&logical.left) && is_pointless_expression(&logical.right)
+        }
+        Expression::SequenceExpression(sequence) => sequence
+            .expressions
+            .iter()
+            .all(|expression| is_pointless_expression(expression)),
+        _ => false,
+    }
+}
+
+fn check_embedded_effects(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = EmbeddedEffectCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        expr_depth: 0,
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
+/// Byte offset of the last character before `offset` that is neither
+/// whitespace nor part of a comment; `None` when only trivia precedes.
+/// `//` comment lines and `/* … */` comments are skipped in full so the scan
+/// lands on the token before the trivia run.
+fn previous_non_trivia_offset(source: &str, offset: u32) -> Option<u32> {
+    let bytes = source.as_bytes();
+    let mut i = usize::try_from(offset)
+        .unwrap_or(bytes.len())
+        .min(bytes.len());
+    while i > 0 {
+        i -= 1;
+        match bytes[i] {
+            b'\n' => {
+                if line_is_comment_only(bytes, i) {
+                    i = line_start(bytes, i);
+                }
+            }
+            b' ' | b'\t' | b'\r' => {}
+            b'/' if i > 0 && bytes[i - 1] == b'*' => {
+                // Tail of a block comment: resume before its head.
+                let mut j = i - 1;
+                while j > 0 && !(bytes[j] == b'*' && bytes[j - 1] == b'/') {
+                    j -= 1;
+                }
+                if j == 0 {
+                    return None;
+                }
+                i = j - 1;
+            }
+            _ => return Some(to_u32(i)),
+        }
+    }
+    None
+}
+
+/// Start offset of the line whose newline sits at `newline_index`.
+fn line_start(bytes: &[u8], newline_index: usize) -> usize {
+    let mut j = newline_index;
+    while j > 0 && bytes[j - 1] != b'\n' {
+        j -= 1;
+    }
+    j
+}
+
+/// Whether the line ending at `newline_index` carries nothing but a `//`
+/// comment (leading whitespace allowed).
+fn line_is_comment_only(bytes: &[u8], newline_index: usize) -> bool {
+    let start = line_start(bytes, newline_index);
+    let mut k = start;
+    while k < newline_index && (bytes[k] == b' ' || bytes[k] == b'\t') {
+        k += 1;
+    }
+    k + 1 < bytes.len() && bytes[k] == b'/' && bytes[k + 1] == b'/'
+}
+
+/// First non-trivia byte offset at or after `start`, skipping whitespace and
+/// comments; `None` at end of input.
+fn next_non_trivia_offset(source: &str, start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut i = start;
+    while i < bytes.len() {
+        match bytes[i] {
+            b' ' | b'\t' | b'\r' | b'\n' => i += 1,
+            b'/' if bytes.get(i + 1) == Some(&b'/') => {
+                while i < bytes.len() && bytes[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'/' if bytes.get(i + 1) == Some(&b'*') => {
+                i += 2;
+                while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 2.min(bytes.len() - i);
+            }
+            _ => return Some(i),
+        }
+    }
+    None
+}
+
+/// `S1105` (1tbs opening-brace placement) over block bodies, function
+/// bodies, class bodies, and switch headers.
+struct BraceStyleCollector<'a, 'index> {
+    sink: IssueSink<'index>,
+    source: &'a str,
+}
+
+impl BraceStyleCollector<'_, '_> {
+    /// Flags `brace_offset` (the `{`) when the nearest preceding token ends
+    /// on an earlier line.
+    fn check_opening_brace(&mut self, brace_offset: u32) {
+        let Some(previous) = previous_non_trivia_offset(self.source, brace_offset) else {
+            return;
+        };
+        let brace_line = self.sink.index.pos(brace_offset).line;
+        let previous_line = self.sink.index.pos(previous).line;
+        if previous_line != brace_line {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1105",
+                "Move the opening curly brace to the end of the previous line.",
+                Span::new(brace_offset, brace_offset.saturating_add(1)),
+            );
+        }
+    }
+
+    /// The switch header's `{`: the first non-trivia byte after the
+    /// discriminant, skipping the header's closing parenthesis group(s)
+    /// (`switch (x)`, `switch ((x))`) — nothing else may sit between them.
+    fn switch_opening_brace_offset(&self, it: &SwitchStatement<'_>) -> Option<u32> {
+        let bytes = self.source.as_bytes();
+        let mut i = usize::try_from(it.discriminant.span().end)
+            .ok()?
+            .min(bytes.len());
+        while i < bytes.len() && matches!(bytes[i], b' ' | b'\t' | b'\r' | b'\n' | b')') {
+            i += 1;
+        }
+        let offset = next_non_trivia_offset(self.source, i)?;
+        (bytes.get(offset) == Some(&b'{')).then_some(to_u32(offset))
+    }
+}
+impl<'a> Visit<'a> for BraceStyleCollector<'a, '_> {
+    fn visit_block_statement(&mut self, it: &BlockStatement<'a>) {
+        self.check_opening_brace(it.span.start);
+        walk_block_statement(self, it);
+    }
+
+    fn visit_function_body(&mut self, it: &FunctionBody<'a>) {
+        self.check_opening_brace(it.span.start);
+        walk_function_body(self, it);
+    }
+
+    fn visit_class_body(&mut self, it: &ClassBody<'a>) {
+        self.check_opening_brace(it.span.start);
+        walk_class_body(self, it);
+    }
+
+    fn visit_switch_statement(&mut self, it: &SwitchStatement<'a>) {
+        if let Some(offset) = self.switch_opening_brace_offset(it) {
+            self.check_opening_brace(offset);
+        }
+        walk_switch_statement(self, it);
+    }
+}
+
+fn check_brace_style(
+    program: &oxc_ast::ast::Program<'_>,
+    source: &str,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = BraceStyleCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        source,
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
+// ===== Batch2c group B: labels, statement sequences, function context =====
+//
+// `S1219` (labels on switch clauses), `S1439` (labels on non-loops),
+// `S1472` (call arguments split across lines), `S1488`
+// (declare-then-return/throw), `S1515` (functions created in loops),
+// `S1530` (function declarations in nested blocks), `S1656`
+// (self-assignments), `S1763` (unreachable statements), `S1788` (default
+// parameter before a regular one), and `S2004` (function nesting depth).
+
+use oxc_ast::ast::ForStatementLeft;
+use oxc_ast_visit::walk::walk_program;
+
+/// `S2004`: functions nested deeper than this many levels are flagged
+/// (frozen catalog default of `max`).
+const MAX_FUNCTION_NESTING: u32 = 4;
+
+/// Whether the labeled statement body is a loop or a switch (`S1439`
+/// tolerance set).
+fn label_target_is_loop_or_switch(statement: &Statement<'_>) -> bool {
+    matches!(
+        statement,
+        Statement::WhileStatement(_)
+            | Statement::DoWhileStatement(_)
+            | Statement::ForStatement(_)
+            | Statement::ForInStatement(_)
+            | Statement::ForOfStatement(_)
+            | Statement::SwitchStatement(_)
+    )
+}
+
+/// `S1219` and `S1439` in one traversal.
+struct LabelUsageCollector<'index> {
+    sink: IssueSink<'index>,
+    /// > 0 while walking inside a switch clause (`S1219`).
+    switch_case_depth: u32,
+}
+
+impl<'a> Visit<'a> for LabelUsageCollector<'_> {
+    fn visit_switch_case(&mut self, it: &SwitchCase<'a>) {
+        self.switch_case_depth += 1;
+        walk_switch_case(self, it);
+        self.switch_case_depth -= 1;
+    }
+
+    fn visit_labeled_statement(&mut self, it: &LabeledStatement<'a>) {
+        if self.switch_case_depth > 0 {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1219",
+                "Remove this unnecessary label.",
+                it.label.span(),
+            );
+        }
+        if !label_target_is_loop_or_switch(&it.body) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1439",
+                "Only loops and switch statements should be labeled.",
+                it.label.span(),
+            );
+        }
+        walk_labeled_statement(self, it);
+    }
+}
+
+fn check_label_usage(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = LabelUsageCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        switch_case_depth: 0,
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
+/// Scans one statement list for `S1763` (the first statement after an
+/// unconditional jump is unreachable) and `S1488` (a sole variable declarator
+/// immediately returned or thrown under its own name).
+fn scan_statement_sequence(sink: &mut IssueSink<'_>, statements: &[Statement<'_>]) {
+    let mut jumped = false;
+    for statement in statements {
+        if jumped {
+            sink.emit_span(
+                RuleScope::Both,
+                "S1763",
+                "Remove this unreachable code.",
+                statement.span(),
+            );
+            break;
+        }
+        jumped = statement_ends_with_jump(statement);
+    }
+
+    for pair in statements.windows(2) {
+        let Some(Declaration::VariableDeclaration(variables)) = pair[0].as_declaration() else {
+            continue;
+        };
+        if variables.declarations.len() != 1 || variables.declarations[0].init.is_none() {
+            continue;
+        }
+        let declarator = &variables.declarations[0];
+        let Some(name) = binding_identifier_name(&declarator.id) else {
+            continue;
+        };
+        let message = match &pair[1] {
+            Statement::ReturnStatement(returned) => {
+                let returned_name = returned.argument.as_ref().and_then(identifier_name);
+                (returned_name == Some(name)).then(|| {
+                    format!(
+                        "Immediately return this expression instead of assigning it to '{name}'."
+                    )
+                })
+            }
+            Statement::ThrowStatement(thrown) => (identifier_name(&thrown.argument) == Some(name))
+                .then(|| {
+                    format!(
+                        "Immediately throw this expression instead of assigning it to '{name}'."
+                    )
+                }),
+            _ => None,
+        };
+        if let Some(message) = message {
+            sink.emit_span(RuleScope::Both, "S1488", &message, declarator.span());
+        }
+    }
+}
+
+/// `S1488` and `S1763` over program bodies, block bodies, and function
+/// bodies.
+struct StatementSequenceCollector<'index> {
+    sink: IssueSink<'index>,
+}
+
+impl<'a> Visit<'a> for StatementSequenceCollector<'_> {
+    fn visit_program(&mut self, it: &oxc_ast::ast::Program<'a>) {
+        scan_statement_sequence(&mut self.sink, &it.body);
+        walk_program(self, it);
+    }
+
+    fn visit_block_statement(&mut self, it: &BlockStatement<'a>) {
+        scan_statement_sequence(&mut self.sink, &it.body);
+        walk_block_statement(self, it);
+    }
+
+    fn visit_function_body(&mut self, it: &FunctionBody<'a>) {
+        scan_statement_sequence(&mut self.sink, &it.statements);
+        walk_function_body(self, it);
+    }
+}
+
+fn check_statement_sequences(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = StatementSequenceCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
+/// Whether the parameter carries a default value (`= expr`) or a
+/// destructuring default at its top level.
+fn param_has_default(item: &FormalParameter<'_>) -> bool {
+    item.initializer.is_some() || matches!(item.pattern, BindingPattern::AssignmentPattern(_))
+}
+
+/// `S1515` (functions created inside loop bodies), `S1530` (function
+/// declarations placed in nested blocks), `S1788` (default parameter before
+/// a regular one), and `S2004` (function nesting beyond
+/// [`MAX_FUNCTION_NESTING`] levels) in one traversal.
+struct FunctionContextCollector<'index> {
+    sink: IssueSink<'index>,
+    /// Depth of `BlockStatement`s below the nearest function or program
+    /// root (`S1530`); reset per function.
+    block_depth: u32,
+    /// > 0 while walking inside a loop *body* (`S1515`); reset per function.
+    loop_body_depth: u32,
+    /// Number of enclosing functions (`S2004`).
+    function_depth: u32,
+}
+
+impl FunctionContextCollector<'_> {
+    fn check_parameter_order(&mut self, params: &FormalParameters<'_>) {
+        let mut defaulted = false;
+        for item in &params.items {
+            if param_has_default(item) {
+                defaulted = true;
+            } else if defaulted {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S1788",
+                    "Move this default parameter after the other parameters.",
+                    item.span(),
+                );
+            }
+        }
+    }
+
+    /// Walks the shared `for-in`/`for-of` header left side: either a target
+    /// declaration or an assignment/expression target.
+    fn visit_for_header_left(&mut self, left: &ForStatementLeft<'_>) {
+        match left {
+            ForStatementLeft::VariableDeclaration(declaration) => {
+                self.visit_variable_declaration(declaration);
+            }
+            other => {
+                if let Some(target) = other.as_assignment_target() {
+                    self.visit_assignment_target(target);
+                }
+            }
+        }
+    }
+
+    /// Shared entry for every function-like node: flags creation context
+    /// (`S1515`, `S2004`), checks parameter order (`S1788`), then resets
+    /// block/loop state for the subtree.
+    fn enter_function(
+        &mut self,
+        span: Span,
+        params: Option<&FormalParameters<'_>>,
+        walk_children: impl FnOnce(&mut Self),
+    ) {
+        if self.function_depth >= MAX_FUNCTION_NESTING {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S2004",
+                &format!(
+                    "Refactor this code to not nest functions more than \
+                     {MAX_FUNCTION_NESTING} levels deep."
+                ),
+                span,
+            );
+        }
+        if self.loop_body_depth > 0 {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1515",
+                "Functions should not be created within loops.",
+                span,
+            );
+        }
+        if let Some(params) = params {
+            self.check_parameter_order(params);
+        }
+
+        let saved_block = self.block_depth;
+        let saved_loop = self.loop_body_depth;
+        let saved_function = self.function_depth;
+        self.block_depth = 0;
+        self.loop_body_depth = 0;
+        self.function_depth += 1;
+        walk_children(self);
+        self.function_depth = saved_function;
+        self.block_depth = saved_block;
+        self.loop_body_depth = saved_loop;
+    }
+}
+
+impl<'a> Visit<'a> for FunctionContextCollector<'_> {
+    fn visit_expression(&mut self, it: &Expression<'a>) {
+        if let Expression::FunctionExpression(function) = it {
+            self.enter_function(function.span(), Some(&function.params), |collector| {
+                walk_expression(collector, it);
+            });
+        } else {
+            walk_expression(self, it);
+        }
+    }
+
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        self.enter_function(it.span(), Some(&it.params), |collector| {
+            walk_arrow_function_expression(collector, it);
+        });
+    }
+
+    fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
+        self.enter_function(it.span(), Some(&it.value.params), |collector| {
+            walk_method_definition(collector, it);
+        });
+    }
+
+    fn visit_static_block(&mut self, it: &StaticBlock<'a>) {
+        self.enter_function(it.span(), None, |collector| {
+            walk_static_block(collector, it);
+        });
+    }
+
+    fn visit_declaration(&mut self, it: &Declaration<'a>) {
+        if let Declaration::FunctionDeclaration(function) = it {
+            // Flag before entering: the *enclosing* block decides `S1530`.
+            if self.block_depth > 0 {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S1530",
+                    "Function declarations should not be placed in blocks.",
+                    function.span(),
+                );
+            }
+            self.enter_function(function.span(), Some(&function.params), |collector| {
+                walk_declaration(collector, it);
+            });
+        } else {
+            walk_declaration(self, it);
+        }
+    }
+
+    fn visit_block_statement(&mut self, it: &BlockStatement<'a>) {
+        self.block_depth += 1;
+        walk_block_statement(self, it);
+        self.block_depth -= 1;
+    }
+
+    fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
+        if let Some(init) = &it.init {
+            self.visit_for_statement_init(init);
+        }
+        if let Some(test) = &it.test {
+            self.visit_expression(test);
+        }
+        if let Some(update) = &it.update {
+            self.visit_expression(update);
+        }
+        self.loop_body_depth += 1;
+        self.visit_statement(&it.body);
+        self.loop_body_depth -= 1;
+    }
+
+    fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
+        self.visit_for_header_left(&it.left);
+        self.visit_expression(&it.right);
+        self.loop_body_depth += 1;
+        self.visit_statement(&it.body);
+        self.loop_body_depth -= 1;
+    }
+
+    fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
+        self.visit_for_header_left(&it.left);
+        self.visit_expression(&it.right);
+        self.loop_body_depth += 1;
+        self.visit_statement(&it.body);
+        self.loop_body_depth -= 1;
+    }
+
+    fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
+        self.visit_expression(&it.test);
+        self.loop_body_depth += 1;
+        self.visit_statement(&it.body);
+        self.loop_body_depth -= 1;
+    }
+
+    fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
+        self.loop_body_depth += 1;
+        self.visit_statement(&it.body);
+        self.loop_body_depth -= 1;
+        self.visit_expression(&it.test);
+    }
+}
+
+fn check_function_contexts(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = FunctionContextCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        block_depth: 0,
+        loop_body_depth: 0,
+        function_depth: 0,
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
+/// `S1472`: calls whose first argument starts on a later line than the call.
+struct CallArgumentCollector<'index> {
+    sink: IssueSink<'index>,
+}
+
+impl<'a> Visit<'a> for CallArgumentCollector<'_> {
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        if let Some(first) = it.arguments.first().and_then(argument_expression) {
+            let call_line = self.sink.index.pos(it.span.start).line;
+            let argument_line = self.sink.index.pos(first.span().start).line;
+            if call_line != argument_line {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S1472",
+                    "Move the arguments of this call onto the same line as the call.",
+                    first.span(),
+                );
+            }
+        }
+        walk_call_expression(self, it);
+    }
+}
+
+fn check_call_argument_lines(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = CallArgumentCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
+/// `S1656`: assignments whose both sides are identical.
+struct SelfAssignmentCollector<'a, 'index> {
+    sink: IssueSink<'index>,
+    source: &'a str,
+}
+
+impl<'a> Visit<'a> for SelfAssignmentCollector<'a, '_> {
+    fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
+        if it.operator == AssignmentOperator::Assign {
+            let names_match = assignment_target_name(&it.left)
+                .is_some_and(|target| identifier_name(&it.right) == Some(target));
+            let text_matches = source_slice(self.source, it.left.span())
+                == source_slice(self.source, it.right.span());
+            if names_match || text_matches {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S1656",
+                    "Remove this self-assignment.",
+                    it.span(),
+                );
+            }
+        }
+        walk_assignment_expression(self, it);
+    }
+}
+
+fn check_self_assignments(
+    program: &oxc_ast::ast::Program<'_>,
+    source: &str,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = SelfAssignmentCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        source,
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
+// ===== Batch2c group C: exceptions, structure, and call shapes =====
+//
+// `S2234` (swapped call arguments by name match), `S2376` (getter without
+// setter), `S2432` (setter returning a value, JS-only), `S2486` (empty catch),
+// `S2737` (catch that only rethrows), `S3001` (`delete` on a plain
+// identifier), `S3524` (mixed arrow body styles), `S3525` (prototype method
+// assignment), `S3531` (generator without yield), and `S3626` (redundant
+// trailing jump).
+
+use std::collections::BTreeMap;
+
+use oxc_ast::ast::{
+    ArrowFunctionBody, Function, ObjectExpression, ObjectPropertyKind, PropertyKind,
+};
+use oxc_ast_visit::walk::walk_object_expression;
+
+/// Whether any scanned comment lies inside `span` (overlap counts).
+fn span_contains_comment(comments: &[ScannedComment], span: Span) -> bool {
+    comments
+        .iter()
+        .any(|comment| comment.token.start < span.end && span.start < comment.token.end)
+}
+
+/// Finds `return <value>` statements outside nested functions; used to skip
+/// function subtrees while scanning setter bodies.
+#[derive(Default)]
+struct ReturnValueScanner {
+    found: bool,
+}
+
+impl<'a> Visit<'a> for ReturnValueScanner {
+    fn visit_return_statement(&mut self, it: &ReturnStatement<'a>) {
+        if it.argument.is_some() {
+            self.found = true;
+        }
+    }
+
+    fn visit_expression(&mut self, it: &Expression<'a>) {
+        if !matches!(
+            it,
+            Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
+        ) {
+            walk_expression(self, it);
+        }
+    }
+
+    fn visit_declaration(&mut self, it: &Declaration<'a>) {
+        if !matches!(it, Declaration::FunctionDeclaration(_)) {
+            walk_declaration(self, it);
+        }
+    }
+}
+
+/// Finds `yield` expressions outside nested functions; used for `S3531`.
+#[derive(Default)]
+struct YieldScanner {
+    found: bool,
+}
+
+impl<'a> Visit<'a> for YieldScanner {
+    fn visit_expression(&mut self, it: &Expression<'a>) {
+        if matches!(it, Expression::YieldExpression(_)) {
+            self.found = true;
+        }
+        if !matches!(
+            it,
+            Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
+        ) {
+            walk_expression(self, it);
+        }
+    }
+
+    fn visit_declaration(&mut self, it: &Declaration<'a>) {
+        if !matches!(it, Declaration::FunctionDeclaration(_)) {
+            walk_declaration(self, it);
+        }
+    }
+
+    fn visit_method_definition(&mut self, _it: &MethodDefinition<'a>) {}
+
+    fn visit_static_block(&mut self, _it: &StaticBlock<'a>) {}
+}
+
+/// `S2486`, `S2737`, and `S2432` in one traversal.
+struct ExceptionHandlingCollector<'index> {
+    sink: IssueSink<'index>,
+    comments: Vec<ScannedComment>,
+}
+
+impl<'a> Visit<'a> for ExceptionHandlingCollector<'a> {
+    fn visit_catch_clause(&mut self, it: &CatchClause<'a>) {
+        // `S2737`: exactly one statement rethrowing the caught binding.
+        if it.body.body.len() == 1
+            && let Statement::ThrowStatement(thrown) = &it.body.body[0]
+        {
+            let caught = it
+                .param
+                .as_ref()
+                .and_then(|param| binding_identifier_name(&param.pattern));
+            if caught.is_some() && identifier_name(&thrown.argument) == caught {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S2737",
+                    "This catch clause does nothing but rethrow the caught exception.",
+                    thrown.span(),
+                );
+            }
+        }
+        // `S2486`: an empty catch is flagged unless it carries a comment
+        // explaining why the exception is ignored.
+        if it.body.body.is_empty() {
+            let inner = Span::new(it.body.span.start + 1, it.body.span.end.saturating_sub(1));
+            if !span_contains_comment(&self.comments, inner) {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S2486",
+                    "Handle this exception or remove this empty catch clause.",
+                    it.body.span(),
+                );
+            }
+        }
+        walk_catch_clause(self, it);
+    }
+
+    fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
+        // `S2432`: setters returning a value.
+        if it.kind == MethodDefinitionKind::Set {
+            let mut scanner = ReturnValueScanner::default();
+            if let Some(body) = &it.value.body {
+                scanner.visit_function_body(body);
+            }
+            if scanner.found {
+                self.sink.emit_span(
+                    RuleScope::JsOnly,
+                    "S2432",
+                    "Setters should not return values.",
+                    it.key.span(),
+                );
+            }
+        }
+        walk_method_definition(self, it);
+    }
+}
+
+fn check_exception_handling(
+    program: &oxc_ast::ast::Program<'_>,
+    source: &str,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = ExceptionHandlingCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        comments: scan_comments(source),
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
+/// Whether any class element is a getter whose name has no matching setter;
+/// flags each unmatched getter (`S2376`, `getWithoutSet=false` mode).
+fn check_class_getter_pairing(sink: &mut IssueSink<'_>, elements: &[ClassElement<'_>]) {
+    let getter_names: Vec<(Option<&str>, Span)> = elements
+        .iter()
+        .filter_map(|element| match element {
+            ClassElement::MethodDefinition(method) if method.kind == MethodDefinitionKind::Get => {
+                Some((property_key_name(&method.key), method.key.span()))
+            }
+            _ => None,
+        })
+        .collect();
+    let setter_names: Vec<Option<&str>> = elements
+        .iter()
+        .filter_map(|element| match element {
+            ClassElement::MethodDefinition(method) if method.kind == MethodDefinitionKind::Set => {
+                Some(property_key_name(&method.key))
+            }
+            _ => None,
+        })
+        .collect();
+    for (name, span) in getter_names {
+        if !setter_names.contains(&name) {
+            sink.emit_span(
+                RuleScope::Both,
+                "S2376",
+                "Add a setter matching this getter.",
+                span,
+            );
+        }
+    }
+}
+
+/// `S3001`, `S3525`, `S3531`, `S3626`, and `S2376` in one traversal.
+struct FunctionStructureCollector<'a, 'index> {
+    sink: IssueSink<'index>,
+    source: &'a str,
+    /// Set while visiting a block that sits directly in a statement list
+    /// (`S3626` bare-block case).
+    next_block_is_bare: bool,
+}
+
+impl<'a> FunctionStructureCollector<'a, '_> {
+    /// Enters a function-like node: checks its generator body (`S3531`) and
+    /// resets bare-block tracking for the subtree.
+    fn enter_function(&mut self, function: &Function<'_>, walk_children: impl FnOnce(&mut Self)) {
+        if function.generator {
+            let mut scanner = YieldScanner::default();
+            if let Some(body) = &function.body {
+                scanner.visit_function_body(body);
+            }
+            if !scanner.found {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S3531",
+                    "Add a \"yield\" statement to this generator.",
+                    function.span(),
+                );
+            }
+        }
+        let saved_bare = self.next_block_is_bare;
+        self.next_block_is_bare = false;
+        walk_children(self);
+        self.next_block_is_bare = saved_bare;
+    }
+
+    /// Flags the last statement of a statement list when it is an
+    /// unconditional jump (`S3626`).
+    fn flag_trailing_jump(&mut self, statements: &[Statement<'_>]) {
+        let Some(last) = statements.last() else {
+            return;
+        };
+        if matches!(
+            last,
+            Statement::BreakStatement(_)
+                | Statement::ContinueStatement(_)
+                | Statement::ReturnStatement(_)
+                | Statement::ThrowStatement(_)
+        ) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3626",
+                "Remove this redundant jump statement.",
+                last.span(),
+            );
+        }
+    }
+
+    /// Walks a loop body: trailing-jump check plus non-bare traversal of its
+    /// block statements.
+    fn visit_loop_body(&mut self, body: &Statement<'a>) {
+        if let Statement::BlockStatement(block) = body {
+            self.flag_trailing_jump(&block.body);
+            for statement in &block.body {
+                self.next_block_is_bare = true;
+                self.visit_statement(statement);
+            }
+        } else {
+            self.next_block_is_bare = false;
+            self.visit_statement(body);
+        }
+    }
+}
+
+impl<'a> Visit<'a> for FunctionStructureCollector<'a, '_> {
+    fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
+        // `S3001`: `delete x` on a plain identifier.
+        if it.operator == UnaryOperator::Delete && identifier_name(&it.argument).is_some() {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3001",
+                "Remove this delete of a plain identifier.",
+                it.argument.span(),
+            );
+        }
+        walk_unary_expression(self, it);
+    }
+
+    fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
+        // `S3525`: `X.prototype.member = function ...`.
+        if it.operator == AssignmentOperator::Assign
+            && span_text_contains(self.source, it.left.span(), ".prototype.")
+            && matches!(
+                it.right,
+                Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
+            )
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3525",
+                "Assign methods directly instead of adding them to a prototype.",
+                it.left.span(),
+            );
+        }
+        walk_assignment_expression(self, it);
+    }
+
+    fn visit_expression(&mut self, it: &Expression<'a>) {
+        if let Expression::FunctionExpression(function) = it {
+            self.enter_function(function, |collector| {
+                walk_expression(collector, it);
+            });
+        } else {
+            walk_expression(self, it);
+        }
+    }
+
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        // Arrows cannot be generators; only reset bare-block tracking.
+        let saved_bare = self.next_block_is_bare;
+        self.next_block_is_bare = false;
+        walk_arrow_function_expression(self, it);
+        self.next_block_is_bare = saved_bare;
+    }
+
+    fn visit_static_block(&mut self, it: &StaticBlock<'a>) {
+        let saved_bare = self.next_block_is_bare;
+        self.next_block_is_bare = false;
+        walk_static_block(self, it);
+        self.next_block_is_bare = saved_bare;
+    }
+
+    fn visit_declaration(&mut self, it: &Declaration<'a>) {
+        if let Declaration::FunctionDeclaration(function) = it {
+            self.enter_function(function, |collector| {
+                walk_declaration(collector, it);
+            });
+        } else {
+            walk_declaration(self, it);
+        }
+    }
+
+    fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
+        self.enter_function(&it.value, |collector| {
+            walk_method_definition(collector, it);
+        });
+    }
+
+    fn visit_class(&mut self, it: &Class<'a>) {
+        check_class_getter_pairing(&mut self.sink, &it.body.body);
+        walk_class(self, it);
+    }
+
+    fn visit_object_expression(&mut self, it: &ObjectExpression<'a>) {
+        // `S2376` over object-literal accessors.
+        let getters: Vec<(Option<&str>, Span)> = it
+            .properties
+            .iter()
+            .filter_map(|property| match property {
+                ObjectPropertyKind::ObjectProperty(inner) if inner.kind == PropertyKind::Get => {
+                    Some((property_key_name(&inner.key), inner.key.span()))
+                }
+                _ => None,
+            })
+            .collect();
+        let setters: Vec<Option<&str>> = it
+            .properties
+            .iter()
+            .filter_map(|property| match property {
+                ObjectPropertyKind::ObjectProperty(inner) if inner.kind == PropertyKind::Set => {
+                    Some(property_key_name(&inner.key))
+                }
+                _ => None,
+            })
+            .collect();
+        for (name, span) in getters {
+            if !setters.contains(&name) {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S2376",
+                    "Add a setter matching this getter.",
+                    span,
+                );
+            }
+        }
+        walk_object_expression(self, it);
+    }
+
+    fn visit_function_body(&mut self, it: &FunctionBody<'a>) {
+        for statement in &it.statements {
+            self.next_block_is_bare = true;
+            self.visit_statement(statement);
+        }
+    }
+    fn visit_program(&mut self, it: &oxc_ast::ast::Program<'a>) {
+        for statement in &it.body {
+            self.next_block_is_bare = true;
+            self.visit_statement(statement);
+        }
+    }
+
+    fn visit_block_statement(&mut self, it: &BlockStatement<'a>) {
+        if self.next_block_is_bare {
+            self.flag_trailing_jump(&it.body);
+        }
+        for statement in &it.body {
+            self.next_block_is_bare = true;
+            self.visit_statement(statement);
+        }
+    }
+
+    fn visit_labeled_statement(&mut self, it: &LabeledStatement<'a>) {
+        self.next_block_is_bare = false;
+        walk_labeled_statement(self, it);
+    }
+
+    fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
+        self.visit_expression(&it.test);
+        self.next_block_is_bare = false;
+        self.visit_statement(&it.consequent);
+        if let Some(alternate) = &it.alternate {
+            self.next_block_is_bare = false;
+            self.visit_statement(alternate);
+        }
+    }
+
+    fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
+        if let Some(init) = &it.init {
+            self.visit_for_statement_init(init);
+        }
+        if let Some(test) = &it.test {
+            self.visit_expression(test);
+        }
+        if let Some(update) = &it.update {
+            self.visit_expression(update);
+        }
+        self.visit_loop_body(&it.body);
+    }
+
+    fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
+        self.visit_expression(&it.test);
+        self.visit_loop_body(&it.body);
+    }
+
+    fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
+        self.visit_loop_body(&it.body);
+        self.visit_expression(&it.test);
+    }
+
+    fn visit_switch_case(&mut self, it: &SwitchCase<'a>) {
+        // Case bodies end conventionally with `break`; not an `S3626` case.
+        for statement in &it.consequent {
+            self.next_block_is_bare = true;
+            self.visit_statement(statement);
+        }
+    }
+
+    fn visit_try_statement(&mut self, it: &TryStatement<'a>) {
+        self.flag_trailing_jump(&it.block.body);
+        for statement in &it.block.body {
+            self.next_block_is_bare = true;
+            self.visit_statement(statement);
+        }
+        if let Some(handler) = &it.handler {
+            self.flag_trailing_jump(&handler.body.body);
+            for statement in &handler.body.body {
+                self.next_block_is_bare = true;
+                self.visit_statement(statement);
+            }
+        }
+        if let Some(finalizer) = &it.finalizer {
+            self.flag_trailing_jump(&finalizer.body);
+            for statement in &finalizer.body {
+                self.next_block_is_bare = true;
+                self.visit_statement(statement);
+            }
+        }
+    }
+}
+
+fn check_function_structures(
+    program: &oxc_ast::ast::Program<'_>,
+    source: &str,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = FunctionStructureCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        source,
+        next_block_is_bare: false,
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
+/// Parameter names of named function declarations, for the `S2234` name
+/// heuristic.
+#[derive(Default)]
+struct FunctionParamMapCollector {
+    params_by_name: BTreeMap<String, Vec<String>>,
+}
+
+impl<'a> Visit<'a> for FunctionParamMapCollector {
+    fn visit_declaration(&mut self, it: &Declaration<'a>) {
+        if let Declaration::FunctionDeclaration(function) = it
+            && let Some(id) = &function.id
+        {
+            let names: Vec<String> = function
+                .params
+                .items
+                .iter()
+                .filter_map(|item| binding_identifier_name(&item.pattern))
+                .map(str::to_string)
+                .collect();
+            self.params_by_name.insert(id.name.to_string(), names);
+        }
+        walk_declaration(self, it);
+    }
+}
+
+/// `S2234`: calls of same-file functions where one adjacent swap increases
+/// the number of argument names matching parameter names.
+struct CallArgumentOrderCollector<'index> {
+    sink: IssueSink<'index>,
+    params_by_name: BTreeMap<String, Vec<String>>,
+}
+
+impl<'a> Visit<'a> for CallArgumentOrderCollector<'_> {
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        let mut checked_callee = false;
+        if let Some(callee) = callee_name(it)
+            && let Some(parameters) = self.params_by_name.get(callee)
+        {
+            checked_callee = true;
+            let argument_names: Vec<Option<&str>> = it
+                .arguments
+                .iter()
+                .map(|argument| argument_expression(argument).and_then(identifier_name))
+                .collect();
+            let count = argument_names.len();
+            if count >= 2 && count == parameters.len() && argument_names.iter().all(Option::is_some)
+            {
+                let matched = |order: &[usize]| -> usize {
+                    order
+                        .iter()
+                        .enumerate()
+                        .filter(|(position, argument)| {
+                            argument_names[**argument] == Some(parameters[*position].as_str())
+                        })
+                        .count()
+                };
+                let identity: Vec<usize> = (0..count).collect();
+                let baseline = matched(&identity);
+                let improved = (0..count - 1).any(|position| {
+                    let mut swapped = identity.clone();
+                    swapped.swap(position, position + 1);
+                    matched(&swapped) > baseline
+                });
+                if improved {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S2234",
+                        "Check this argument order; the arguments look swapped.",
+                        it.span(),
+                    );
+                }
+            }
+        }
+        if !checked_callee {
+            walk_call_expression(self, it);
+        }
+    }
+}
+
+fn check_swapped_call_arguments(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut map_collector = FunctionParamMapCollector::default();
+    map_collector.visit_program(program);
+    let mut collector = CallArgumentOrderCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        params_by_name: map_collector.params_by_name,
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
+/// `S3524`: arrow functions mixing concise-expression and block bodies
+/// within one file; each arrow of the minority style is flagged (ties favor
+/// block bodies).
+struct ArrowStyleCollector<'index> {
+    sink: IssueSink<'index>,
+    arrows: Vec<(Span, bool)>,
+}
+
+impl<'a> Visit<'a> for ArrowStyleCollector<'_> {
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        let uses_block_body = matches!(it.body, ArrowFunctionBody::FunctionBody(_));
+        self.arrows.push((it.span(), uses_block_body));
+        walk_arrow_function_expression(self, it);
+    }
+}
+
+fn check_arrow_body_consistency(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = ArrowStyleCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        arrows: Vec::new(),
+    };
+    collector.visit_program(program);
+    let block_bodies = collector.arrows.iter().filter(|(_, block)| *block).count();
+    let expression_bodies = collector.arrows.len() - block_bodies;
+    // Flag whichever style is the minority; on ties flag expression bodies.
+    let minority_is_block = block_bodies < expression_bodies;
+    let tie = block_bodies == expression_bodies;
+    let flagged_arrows: Vec<Span> = collector
+        .arrows
+        .iter()
+        .filter(|(span, uses_block_body)| {
+            let _ = span;
+            *uses_block_body == minority_is_block || (tie && !*uses_block_body)
+        })
+        .map(|(span, _)| *span)
+        .collect();
+    for span in flagged_arrows {
+        collector.sink.emit_span(
+            RuleScope::Both,
+            "S3524",
+            "Use a consistent arrow function body style in this file.",
+            span,
+        );
+    }
+    collector.sink.issues
+}
+
 #[cfg(test)]
 mod tests {
     use super::{AnalyzerOptions, JstsLanguage, RuleOptions, analyze, language_for_extension};
@@ -6036,5 +7753,561 @@ arr.map(function () {});
 
         let array = js_keys("for (const v of [1, 2]) {\n  f(v);\n}\n");
         assert_eq!(count_key(&array, "javascript:S4138"), 0);
+    }
+
+    #[test]
+    fn too_many_parameters_flags_eighth_and_counts_rest() {
+        assert_eq!(
+            count_key(
+                &js_keys("function f(a, b, c, d, e, g, h) { return a; }\n"),
+                "javascript:S107"
+            ),
+            0
+        );
+
+        let over = js("function f(a, b, c, d, e, g, h, i) { return a; }\n");
+        let s107: Vec<_> = over
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S107"))
+            .collect();
+        assert_eq!(s107.len(), 1);
+        assert_eq!(
+            s107[0].message,
+            "This function has 8 parameters, which is greater than the 7 authorized."
+        );
+        assert_eq!(s107[0].range.start, pos(1, 10));
+
+        // A rest parameter counts as one parameter toward the limit.
+        assert_eq!(
+            count_key(
+                &js_keys("const f = (a, b, c, d, e, g, ...rest) => a;\n"),
+                "javascript:S107"
+            ),
+            0
+        );
+        assert_eq!(
+            count_key(
+                &js_keys("const f = (a, b, c, d, e, g, h, ...rest) => a;\n"),
+                "javascript:S107"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn control_flow_nesting_flags_fourth_level_and_resets_per_function() {
+        let deep = js("if (a) { for (;;) { while (b) { if (c) { d(); } } } }\n");
+        let s134: Vec<_> = deep
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S134"))
+            .collect();
+        assert_eq!(s134.len(), 1);
+        assert_eq!(s134[0].range.start, pos(1, 32));
+
+        // Three levels of nesting are exactly at the allowed maximum.
+        assert_eq!(
+            count_key(
+                &js_keys("if (a) {\n  for (;;) {\n    while (b) {\n      c();\n    }\n  }\n}\n"),
+                "javascript:S134"
+            ),
+            0
+        );
+
+        // Function boundaries reset the depth: without the reset, `if (c)`
+        // would sit at depth four.
+        assert_eq!(
+            count_key(
+                &js_keys(
+                    "function outer() {\n  if (a) {\n    function inner() {\n      if (b) {\n        if (c) {\n          e();\n        }\n      }\n    }\n  }\n}\n"
+                ),
+                "javascript:S134"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn jumps_in_finally_flagged_but_catch_return_allowed() {
+        let source = "\
+function withReturn() {
+  try {
+    a();
+  } finally {
+    return 1;
+  }
+}
+function catchReturn() {
+  try {
+    b();
+  } catch (e) {
+    return e;
+  } finally {
+    c();
+  }
+}
+function withThrow() {
+  try {
+    d();
+  } finally {
+    throw 'x';
+  }
+}
+function loopJump() {
+  for (;;) {
+    try {
+      e();
+    } finally {
+      continue;
+    }
+  }
+}
+";
+        assert_eq!(count_key(&js_keys(source), "javascript:S1143"), 3);
+
+        // A `return` in the catch clause is fine when there is no jump of
+        // its own anywhere in the try statement.
+        assert_eq!(
+            count_key(
+                &js_keys(
+                    "function f() {\n  try {\n    a();\n  } catch (err) {\n    return err;\n  }\n}\n"
+                ),
+                "javascript:S1143"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn embedded_updates_and_assignments_require_statement_roots() {
+        let source = "\
+let i = 0;
+i++;
+for (i = 0; i < 3; i++) {
+  foo(i++);
+}
+let j = i++;
+foo(k = 1);
+if (k = 1) {}
+m = n = 1;
+";
+        let report = js(source);
+        let embedded: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| {
+                matches!(
+                    issue.rule_key.as_str(),
+                    "javascript:S881" | "javascript:S1121"
+                )
+            })
+            .map(|issue| {
+                (
+                    issue.rule_key.clone(),
+                    (
+                        issue.range.start.line,
+                        issue.range.start.column,
+                        issue.range.end.line,
+                        issue.range.end.column,
+                    ),
+                )
+            })
+            .collect();
+        // Standalone `i++`, the assignment in the `for` header, and the
+        // statement-root assignment are clean; everything embedded deeper
+        // than a statement root is flagged once per construct.
+        let hit = |rule: &str, line: u32, start: u32, end: u32| {
+            (rule.to_string(), (line, start, line, end))
+        };
+        assert_eq!(
+            embedded,
+            vec![
+                hit("javascript:S881", 4, 6, 9),
+                hit("javascript:S881", 6, 8, 11),
+                hit("javascript:S1121", 7, 4, 9),
+                hit("javascript:S1121", 8, 4, 9),
+                hit("javascript:S1121", 9, 4, 9),
+            ]
+        );
+    }
+
+    #[test]
+    fn pointless_expression_statements_flagged_directives_exempt() {
+        let source = "\
+\"use strict\";
+42;
+foo;
+-1;
+`plain`;
+void 0;
+foo();
+`tpl${x}`;
+delete obj.a;
+";
+        let report = js(source);
+        let pointless_lines: Vec<u32> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S905"))
+            .map(|issue| issue.range.start.line)
+            .collect();
+        // The `"use strict"` directive prologue stays exempt; calls, template
+        // substitutions, and `delete` have effects.
+        assert_eq!(pointless_lines, vec![2, 3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn opening_brace_must_share_head_token_line() {
+        let bad =
+            js("function bad()\n{\n  if (a)\n  {\n    b();\n  }\n  else\n  {\n    c();\n  }\n}\n");
+        let braces: Vec<_> = bad
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S1105"))
+            .map(|issue| (issue.range.start.line, issue.range.start.column))
+            .collect();
+        assert_eq!(braces, vec![(2, 0), (4, 2), (8, 2)]);
+
+        let mixed = js(
+            "class A\n{ m() { n(); } }\nswitch (x)\n{ case 1: p(); break; }\nconst f = () =>\n{ q(); };\n",
+        );
+        let braces: Vec<_> = mixed
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S1105"))
+            .map(|issue| (issue.range.start.line, issue.range.start.column))
+            .collect();
+        assert_eq!(braces, vec![(2, 0), (4, 0), (6, 0)]);
+    }
+
+    #[test]
+    fn brace_style_tolerates_comments_between_head_and_brace() {
+        // The trailing comment shares the head's line; the brace on the next
+        // line is still flagged against it.
+        let trailing = js("if (a) // note\n{\n  b();\n}\n");
+        let braces: Vec<_> = trailing
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S1105"))
+            .map(|issue| (issue.range.start.line, issue.range.start.column))
+            .collect();
+        assert_eq!(braces, vec![(2, 0)]);
+
+        // A comment-only line between head and brace is skipped entirely.
+        let separated = js("if (a)\n// note\n{\n  b();\n}\n");
+        let braces: Vec<_> = separated
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S1105"))
+            .map(|issue| (issue.range.start.line, issue.range.start.column))
+            .collect();
+        assert_eq!(braces, vec![(3, 0)]);
+
+        // Fully 1tbs code stays clean across constructs.
+        assert_eq!(
+            count_key(
+                &js_keys(
+                    "function good() {\n  if (a) {\n    b();\n  } else {\n    c();\n  }\n  try {\n    d();\n  } catch (e) {\n    f();\n  } finally {\n    g();\n  }\n  while (a) {\n    h();\n  }\n}\n"
+                ),
+                "javascript:S1105"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn labels_on_switch_cases_and_non_loops_are_flagged() {
+        assert_eq!(
+            count_key(
+                &js_keys("switch (x) {\n  case 1:\n    outer: break;\n}\n"),
+                "javascript:S1219"
+            ),
+            1
+        );
+
+        assert_eq!(
+            count_key(
+                &js_keys("outer: for (;;) {\n  break outer;\n}\n"),
+                "javascript:S1439"
+            ),
+            0
+        );
+
+        assert_eq!(
+            count_key(&js_keys("outer: {\n  f();\n}\n"), "javascript:S1439"),
+            1
+        );
+    }
+
+    #[test]
+    fn declare_then_return_and_throw_pairs_are_flagged() {
+        let source = "\
+function f() {
+  const value = compute();
+  return value;
+}
+function g() {
+  let failure = build();
+  throw failure;
+}
+function clean() {
+  const kept = compute();
+  return other;
+}
+";
+        let report = js(source);
+        let s1488: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S1488"))
+            .map(|issue| issue.range.start.line)
+            .collect();
+        assert_eq!(s1488, vec![2, 6]);
+    }
+
+    #[test]
+    fn statements_after_jumps_are_unreachable() {
+        let source = "\
+function f() {
+  return 1;
+  g();
+}
+function clean() {
+  if (a) {
+    return 1;
+  }
+  g();
+}
+";
+        let report = js(source);
+        let s1763: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S1763"))
+            .map(|issue| issue.range.start.line)
+            .collect();
+        assert_eq!(s1763, vec![3]);
+    }
+
+    #[test]
+    fn functions_in_loops_blocks_and_depths_are_flagged() {
+        // S1515: a closure created inside a loop body.
+        let in_loop = js_keys("for (const v of items) {\n  setTimeout(() => v);\n}\n");
+        assert_eq!(count_key(&in_loop, "javascript:S1515"), 1);
+
+        let in_header = js_keys("for (const f of makers) {\n  f();\n}\n");
+        assert_eq!(count_key(&in_header, "javascript:S1515"), 0);
+
+        // S1530: function declaration nested in a block; top level is fine.
+        let in_block = js_keys("{\n  function inner() {}\n}\n");
+        assert_eq!(count_key(&in_block, "javascript:S1530"), 1);
+        let top_level = js_keys("function outer() {}\n");
+        assert_eq!(count_key(&top_level, "javascript:S1530"), 0);
+
+        // S2004: five levels of nesting exceed the maximum of four.
+        let deep_keys = js_keys(
+            "function a() {\n  const b = () => {\n    const c = () => {\n      const d = () => {\n        const e = () => {};\n      };\n    };\n  };\n}\n",
+        );
+        assert_eq!(count_key(&deep_keys, "javascript:S2004"), 1);
+        assert_eq!(count_key(&deep_keys, "javascript:S1515"), 0);
+
+        // Four levels are exactly at the allowed maximum.
+        assert_eq!(
+            count_key(
+                &js_keys(
+                    "function a() {\n  const b = () => {\n    const c = () => {\n      const d = () => {};\n    };\n  };\n}\n"
+                ),
+                "javascript:S2004"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn default_parameters_must_come_last() {
+        let ordered = js_keys("function f(a, b = 1, c = 2) { return a; }\n");
+        assert_eq!(count_key(&ordered, "javascript:S1788"), 0);
+
+        let unordered = js_keys("function f(a = 1, b) { return b; }\n");
+        assert_eq!(count_key(&unordered, "javascript:S1788"), 1);
+    }
+
+    #[test]
+    fn call_arguments_split_across_lines_are_flagged() {
+        let split = js("foo(\n  bar);\n");
+        let s1472: Vec<_> = split
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S1472"))
+            .collect();
+        assert_eq!(s1472.len(), 1);
+        assert_eq!(
+            s1472[0].range,
+            hoonarqube_ir::Range {
+                start: pos(2, 2),
+                end: pos(2, 5),
+            }
+        );
+
+        assert_eq!(count_key(&js_keys("foo(bar);\n"), "javascript:S1472"), 0);
+    }
+
+    #[test]
+    fn self_assignments_are_flagged_for_names_and_chains() {
+        let source = "\
+a = a;
+obj.x = obj.x;
+b = c;
+";
+        let report = js(source);
+        let s1656_lines: Vec<u32> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S1656"))
+            .map(|issue| issue.range.start.line)
+            .collect();
+        assert_eq!(s1656_lines, vec![1, 2]);
+    }
+    #[test]
+    fn exception_handling_rules_flag_empty_rethrow_and_setter_returns() {
+        let source = "\
+function rethrowOnly() {
+  try {
+    a();
+  } catch (e) {
+    throw e;
+  }
+}
+function meaningful() {
+  try {
+    b();
+  } catch (e) {
+    log(e);
+    throw e;
+  }
+}
+function silent() {
+  try {
+    c();
+  } catch {
+  }
+}
+";
+        let keys = js_keys(source);
+        assert_eq!(count_key(&keys, "javascript:S2737"), 1);
+        // The comment-only catch is tolerated by `S2486`.
+        let with_comment = js_keys(
+            "function f() {\n  try {\n    d();\n  } catch {\n    // ignored on purpose\n  }\n}\n",
+        );
+        assert_eq!(count_key(&with_comment, "javascript:S2486"), 0);
+        assert_eq!(count_key(&keys, "javascript:S2486"), 1);
+
+        // A setter returning a value is flagged only for JavaScript files.
+        let setter_source = "class A {\n  set value(next) {\n    return next;\n  }\n}\n";
+        assert_eq!(
+            js(setter_source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S2432"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            ts(setter_source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S2432"))
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn delete_prototype_and_generator_rules_flag_expected_shapes() {
+        let delete_plain = js_keys("delete variable;\n");
+        assert_eq!(count_key(&delete_plain, "javascript:S3001"), 1);
+        let delete_member = js_keys("delete obj.field;\n");
+        assert_eq!(count_key(&delete_member, "javascript:S3001"), 0);
+
+        let prototype_assignment = js_keys("Type.prototype.method = function () {};\n");
+        assert_eq!(count_key(&prototype_assignment, "javascript:S3525"), 1);
+        let plain_assignment = js_keys("obj.handler = function () {};\n");
+        assert_eq!(count_key(&plain_assignment, "javascript:S3525"), 0);
+
+        let empty_generator = js_keys("function* generate() {}\n");
+        assert_eq!(count_key(&empty_generator, "javascript:S3531"), 1);
+        let yielding_generator = js_keys("function* generate() {\n  yield 1;\n}\n");
+        assert_eq!(count_key(&yielding_generator, "javascript:S3531"), 0);
+        // A yield inside a nested generator belongs to that nested function.
+        let nested_yield_only =
+            js_keys("function* outer() {\n  function* inner() {\n    yield 1;\n  }\n}\n");
+        assert_eq!(count_key(&nested_yield_only, "javascript:S3531"), 1);
+    }
+
+    #[test]
+    fn trailing_jumps_flagged_only_in_redundant_positions() {
+        let loop_break = js_keys("while (a) {\n  break;\n}\n");
+        assert_eq!(count_key(&loop_break, "javascript:S3626"), 1);
+
+        let bare_block = js("function f() {\n  {\n    return 1;\n  }\n}\n");
+        let s3626_lines: Vec<u32> = bare_block
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S3626"))
+            .map(|issue| issue.range.start.line)
+            .collect();
+        assert_eq!(s3626_lines, vec![3]);
+
+        // Function bodies and case bodies end with jumps conventionally.
+        let conventional = js_keys("switch (x) {\n  case 1:\n    break;\n}\n");
+        assert_eq!(count_key(&conventional, "javascript:S3626"), 0);
+        let fn_tail = js_keys("function f() {\n  return 1;\n}\n");
+        assert_eq!(count_key(&fn_tail, "javascript:S3626"), 0);
+    }
+
+    #[test]
+    fn getters_without_setters_are_flagged_on_classes_and_objects() {
+        let class_unpaired = js_keys("class A {\n  get value() {\n    return 1;\n  }\n}\n");
+        assert_eq!(count_key(&class_unpaired, "javascript:S2376"), 1);
+        let class_paired =
+            js_keys("class A {\n  get value() {\n    return 1;\n  }\n  set value(next) {}\n}\n");
+        assert_eq!(count_key(&class_paired, "javascript:S2376"), 0);
+
+        let object_unpaired =
+            js_keys("const obj = {\n  get count() {\n    return this.n;\n  }\n};\n");
+        assert_eq!(count_key(&object_unpaired, "javascript:S2376"), 1);
+    }
+
+    #[test]
+    fn swapped_call_arguments_detected_by_name_match() {
+        let source = "\
+function draw(width, height) {}
+draw(height, width);
+draw(width, height);
+draw(other, more);
+";
+        let report = js(source);
+        let s2234_lines: Vec<u32> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S2234"))
+            .map(|issue| issue.range.start.line)
+            .collect();
+        assert_eq!(s2234_lines, vec![2]);
+    }
+
+    #[test]
+    fn mixed_arrow_body_styles_flag_the_minority() {
+        let minority_block =
+            js_keys("const a = () => 1;\nconst b = () => 2;\nconst c = () => {\n  return 3;\n};\n");
+        assert_eq!(count_key(&minority_block, "javascript:S3524"), 1);
+
+        let consistent = js_keys("const a = () => 1;\nconst b = () => 2;\n");
+        assert_eq!(count_key(&consistent, "javascript:S3524"), 0);
+
+        // On ties the expression-bodied arrows are flagged.
+        let tie = js_keys("const a = () => {\n  return 1;\n};\nconst b = () => 2;\n");
+        assert_eq!(count_key(&tie, "javascript:S3524"), 1);
     }
 }
