@@ -1,11 +1,8 @@
 // Rule module s1442_plain_calls (generated).
-use hoonarqube_ir::{Issue};
-use oxc_ast::ast::{CallExpression, Expression, Function, StringLiteral, TemplateLiteral};
-use oxc_span::{GetSpan};
-use crate::context::{AnalysisContext};
+use super::walker::call_property;
 use crate::support::{IssueSink, RuleScope, callee_name, member_rooted_at};
-use super::walker::{call_property};
-
+use oxc_ast::ast::{CallExpression, Expression};
+use oxc_span::GetSpan;
 
 /// Plain-callee rules: `S1442`, `S2427`, `S3533`, `S2817`, `S6958`, and the
 /// prototype-mutation calls of `S6643`.
@@ -69,19 +66,9 @@ pub(crate) fn check_plain_calls(sink: &mut IssueSink, it: &CallExpression<'_>) {
     }
 }
 
-
 /// Built-in globals whose prototypes `S6643` protects and whose surfaces
 /// `S2424` treats as read-only.
 pub(crate) const BUILTIN_GLOBALS: [&str; 16] = [
     "Array", "Object", "Function", "String", "Number", "Boolean", "Symbol", "BigInt", "Map", "Set",
     "Promise", "Date", "RegExp", "Error", "Math", "JSON",
 ];
-
-pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
-    const KEYS: &[&str] = &["S1442"];
-    let mut issues = super::walker::run(ctx);
-    issues.retain(|i| {
-        i.rule_key.rsplit(':').next().is_some_and(|k| KEYS.contains(&k))
-    });
-    issues
-}

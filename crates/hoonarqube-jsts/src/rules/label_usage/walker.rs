@@ -1,0 +1,79 @@
+// Family walker for 'label_usage' (generated).
+use crate::JstsLanguage;
+use crate::context::AnalysisContext;
+use crate::support::{IssueSink, LineIndex, RuleScope};
+use hoonarqube_ir::Issue;
+use oxc_ast::ast::{LabeledStatement, Statement, SwitchCase};
+use oxc_ast_visit::Visit;
+use oxc_ast_visit::walk::{walk_labeled_statement, walk_switch_case};
+use oxc_span::GetSpan;
+
+pub(crate) fn check_label_usage(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = LabelUsageCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        switch_case_depth: 0,
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
+/// `S1219` and `S1439` in one traversal.
+pub(crate) struct LabelUsageCollector<'index> {
+    pub(crate) sink: IssueSink<'index>,
+    /// > 0 while walking inside a switch clause (`S1219`).
+    pub(crate) switch_case_depth: u32,
+}
+
+impl<'a> Visit<'a> for LabelUsageCollector<'_> {
+    fn visit_switch_case(&mut self, it: &SwitchCase<'a>) {
+        self.switch_case_depth += 1;
+        walk_switch_case(self, it);
+        self.switch_case_depth -= 1;
+    }
+
+    fn visit_labeled_statement(&mut self, it: &LabeledStatement<'a>) {
+        if self.switch_case_depth > 0 {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1219",
+                "Remove this unnecessary label.",
+                it.label.span(),
+            );
+        }
+        if !label_target_is_loop_or_switch(&it.body) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1439",
+                "Only loops and switch statements should be labeled.",
+                it.label.span(),
+            );
+        }
+        walk_labeled_statement(self, it);
+    }
+}
+
+/// Whether the labeled statement body is a loop or a switch (`S1439`
+/// tolerance set).
+pub(crate) fn label_target_is_loop_or_switch(statement: &Statement<'_>) -> bool {
+    matches!(
+        statement,
+        Statement::WhileStatement(_)
+            | Statement::DoWhileStatement(_)
+            | Statement::ForStatement(_)
+            | Statement::ForInStatement(_)
+            | Statement::ForOfStatement(_)
+            | Statement::SwitchStatement(_)
+    )
+}
+
+pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
+    check_label_usage(ctx.program, ctx.index, ctx.language)
+}

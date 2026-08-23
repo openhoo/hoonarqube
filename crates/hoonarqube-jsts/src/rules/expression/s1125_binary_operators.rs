@@ -1,11 +1,8 @@
 // Rule module s1125_binary_operators (generated).
-use hoonarqube_ir::{Issue};
-use oxc_ast::ast::{BinaryExpression, BinaryOperator, Expression};
-use oxc_span::{GetSpan};
-use crate::context::{AnalysisContext};
+use super::walker::is_equality_operator;
 use crate::support::{IssueSink, RuleScope, identifier_name};
-use super::walker::{is_equality_operator};
-
+use oxc_ast::ast::{BinaryExpression, BinaryOperator, Expression};
+use oxc_span::GetSpan;
 
 /// Shared checks over one binary expression.
 pub(crate) fn check_binary_operators(sink: &mut IssueSink, it: &BinaryExpression<'_>) {
@@ -52,13 +49,4 @@ pub(crate) fn check_binary_operators(sink: &mut IssueSink, it: &BinaryExpression
             it.span(),
         );
     }
-}
-
-pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
-    const KEYS: &[&str] = &["S1125", "S1440"];
-    let mut issues = super::walker::run(ctx);
-    issues.retain(|i| {
-        i.rule_key.rsplit(':').next().is_some_and(|k| KEYS.contains(&k))
-    });
-    issues
 }

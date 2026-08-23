@@ -1,10 +1,7 @@
 // Rule module s1528_constructor_calls (generated).
-use hoonarqube_ir::{Issue};
-use oxc_ast::ast::{Argument, Expression, NewExpression, NumericLiteral};
-use oxc_span::{GetSpan};
-use crate::context::{AnalysisContext};
 use crate::support::{IssueSink, RuleScope, constructor_name};
-
+use oxc_ast::ast::{Expression, NewExpression};
+use oxc_span::GetSpan;
 
 /// Constructor-call rules: `S1528`, `S1533`, `S2428`, and `S3834`.
 pub(crate) fn check_constructor_calls(sink: &mut IssueSink, it: &NewExpression<'_>) {
@@ -51,18 +48,8 @@ pub(crate) fn check_constructor_calls(sink: &mut IssueSink, it: &NewExpression<'
     }
 }
 
-
 pub(crate) fn argument_expression<'r, 'a>(
     argument: &'r oxc_ast::ast::Argument<'a>,
 ) -> Option<&'r Expression<'a>> {
     argument.as_expression()
-}
-
-pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
-    const KEYS: &[&str] = &["S1528"];
-    let mut issues = super::walker::run(ctx);
-    issues.retain(|i| {
-        i.rule_key.rsplit(':').next().is_some_and(|k| KEYS.contains(&k))
-    });
-    issues
 }

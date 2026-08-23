@@ -1,15 +1,12 @@
 // Family 'one_stmt' (generated).
-pub(crate) mod walker;
+pub(crate) mod collectors;
 pub(crate) mod s122_suite;
+pub(crate) mod walker;
 
-use crate::context::AnalysisContext;
 use crate::Issue;
+use crate::context::AnalysisContext;
 
 /// Runs every rule of this family.
 pub(crate) fn run_all(ctx: &AnalysisContext) -> Vec<Issue> {
-    let mut issues = Vec::new();
-    issues.extend(s122_suite::check(ctx));
-    issues
+    walker::run(ctx)
 }
-
-

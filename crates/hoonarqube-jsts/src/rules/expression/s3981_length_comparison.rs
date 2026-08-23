@@ -1,11 +1,8 @@
 // Rule module s3981_length_comparison (generated).
-use hoonarqube_ir::{Issue};
-use oxc_ast::ast::{BinaryExpression, BinaryOperator};
-use oxc_span::{GetSpan};
-use crate::context::{AnalysisContext};
+use super::walker::numeric_literal_value;
 use crate::support::{IssueSink, RuleScope, static_property_name};
-use super::walker::{numeric_literal_value};
-
+use oxc_ast::ast::{BinaryExpression, BinaryOperator};
+use oxc_span::GetSpan;
 
 /// `S3981`: `.length` comparisons that are always true or false.
 pub(crate) fn check_length_comparison(sink: &mut IssueSink, it: &BinaryExpression<'_>) {
@@ -36,13 +33,4 @@ pub(crate) fn check_length_comparison(sink: &mut IssueSink, it: &BinaryExpressio
             it.span(),
         );
     }
-}
-
-pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
-    const KEYS: &[&str] = &["S3981"];
-    let mut issues = super::walker::run(ctx);
-    issues.retain(|i| {
-        i.rule_key.rsplit(':').next().is_some_and(|k| KEYS.contains(&k))
-    });
-    issues
 }

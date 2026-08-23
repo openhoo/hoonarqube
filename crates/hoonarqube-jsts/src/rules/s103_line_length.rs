@@ -1,10 +1,9 @@
 // Rule module s103_line_length (generated).
 
-use hoonarqube_ir::{Issue};
+use crate::context::AnalysisContext;
+use crate::support::to_u32;
 use crate::{AnalyzerOptions, JstsLanguage};
-use crate::context::{AnalysisContext};
-use crate::support::{to_u32};
-
+use hoonarqube_ir::Issue;
 
 pub(crate) fn check_line_length(
     source: &str,

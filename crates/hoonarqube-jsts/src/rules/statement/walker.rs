@@ -1,13 +1,24 @@
 // Family walker for 'statement' (generated).
-use hoonarqube_ir::{Issue};
-use oxc_ast::ast::{BlockStatement, CallExpression, ConditionalExpression, ContinueStatement, DebuggerStatement, EmptyStatement, Expression, ExpressionStatement, FunctionBody, IfStatement, ImportDeclaration, ImportDeclarationSpecifier, LabeledStatement, NewExpression, NumericLiteral, ReturnStatement, Statement, StaticBlock, StringLiteral, SwitchCase, TemplateLiteral, ThrowStatement, VariableDeclaration, VariableDeclarationKind, WithStatement};
-use oxc_ast_visit::{Visit};
-use oxc_ast_visit::walk::{walk_block_statement, walk_expression_statement, walk_function_body, walk_if_statement, walk_import_declaration, walk_labeled_statement, walk_return_statement, walk_static_block, walk_switch_case, walk_throw_statement, walk_variable_declaration};
-use oxc_span::{GetSpan, Span};
+use crate::context::AnalysisContext;
+use crate::support::{
+    IssueSink, LineIndex, RuleScope, constructor_name, source_slice, static_property_name,
+};
 use crate::{JstsLanguage, is_error_type_name};
-use crate::context::{AnalysisContext};
-use crate::support::{IssueSink, LineIndex, RuleScope, constructor_name, source_slice, static_property_name};
-
+use hoonarqube_ir::Issue;
+use oxc_ast::ast::{
+    BlockStatement, CallExpression, ContinueStatement, DebuggerStatement, EmptyStatement,
+    Expression, ExpressionStatement, FunctionBody, IfStatement, ImportDeclaration,
+    ImportDeclarationSpecifier, LabeledStatement, NewExpression, ReturnStatement, Statement,
+    StaticBlock, SwitchCase, ThrowStatement, VariableDeclaration, VariableDeclarationKind,
+    WithStatement,
+};
+use oxc_ast_visit::Visit;
+use oxc_ast_visit::walk::{
+    walk_block_statement, walk_expression_statement, walk_function_body, walk_if_statement,
+    walk_import_declaration, walk_labeled_statement, walk_return_statement, walk_static_block,
+    walk_switch_case, walk_throw_statement, walk_variable_declaration,
+};
+use oxc_span::{GetSpan, Span};
 
 pub(crate) fn check_statement_rules(
     program: &oxc_ast::ast::Program<'_>,
@@ -29,7 +40,6 @@ pub(crate) fn check_statement_rules(
     collector.sink.issues
 }
 
-
 /// Statement-level batch rules in one traversal: `S909`, `S1119`, `S1321`,
 /// `S1525`, `S108`, `S1199`, `S121`, `S2681`, `S6660`, `S1066`, `S6836`,
 /// `S1116`, `S3696`, `S3984`, `S1848`, `S1154`, `S2201`, `S1126`, `S3504`,
@@ -42,7 +52,6 @@ pub(crate) struct StatementCollector<'a, 'index> {
     pub(crate) bare_block_depth: u32,
     pub(crate) last_import: Option<(String, u32)>,
 }
-
 
 impl<'a> Visit<'a> for StatementCollector<'a, '_> {
     fn visit_continue_statement(&mut self, it: &ContinueStatement<'a>) {
@@ -208,7 +217,6 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
         walk_import_declaration(self, it);
     }
 }
-
 
 impl StatementCollector<'_, '_> {
     /// `S108`: empty blocks are flagged unless their span interior still
@@ -390,7 +398,6 @@ impl StatementCollector<'_, '_> {
     }
 }
 
-
 /// Known side-effect-free array/string APIs whose bare statement call `S2201`
 /// flags (callbacks are assumed pure in this subset).
 pub(crate) const SIDE_EFFECT_FREE_APIS: [&str; 20] = [
@@ -416,7 +423,6 @@ pub(crate) const SIDE_EFFECT_FREE_APIS: [&str; 20] = [
     "at",
 ];
 
-
 /// Known-pure string methods whose bare statement call `S1154` flags.
 pub(crate) const PURE_STRING_METHODS: [&str; 15] = [
     "toUpperCase",
@@ -437,10 +443,5 @@ pub(crate) const PURE_STRING_METHODS: [&str; 15] = [
 ];
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_statement_rules(
-        ctx.program,
-        ctx.source,
-        ctx.index,
-        ctx.language,
-    )
+    check_statement_rules(ctx.program, ctx.source, ctx.index, ctx.language)
 }

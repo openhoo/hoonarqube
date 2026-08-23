@@ -1,10 +1,9 @@
 // Rule module s139_disallowed_comment_pattern (generated).
 
-use hoonarqube_ir::{Issue};
 use crate::context::{AnalysisContext, RuleOptions};
-use crate::engine::pattern_parser::{regex_search};
-use crate::support::{IssueSink, RuleScope, ScannedComment, line_start, scan_comments, source_slice};
-
+use crate::engine::pattern_parser::regex_search;
+use crate::support::{IssueSink, RuleScope, ScannedComment, scan_comments, source_slice};
+use hoonarqube_ir::Issue;
 
 /// `S139`: a comment on a line that also carries code, matching the
 /// configured `pattern` (default `^\s*[^\s]+$`).

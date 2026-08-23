@@ -1,14 +1,25 @@
 // Family walker for 'binding' (generated).
-use hoonarqube_ir::{Issue};
-use oxc_ast::ast::{AssignmentExpression, BindingPattern, CallExpression, Class, ExportSpecifier, Expression, FormalParameter, FunctionBody, ImportSpecifier, MethodDefinition, MethodDefinitionKind, ObjectProperty, SimpleAssignmentTarget, Statement, StringLiteral, TSInterfaceDeclaration, TSSignature, UnaryExpression, UnaryOperator, VariableDeclarator};
-use oxc_ast_visit::{Visit};
-use oxc_ast_visit::walk::{walk_assignment_expression, walk_call_expression, walk_class, walk_formal_parameter, walk_function_body, walk_method_definition, walk_ts_interface_declaration, walk_variable_declarator};
-use oxc_span::{GetSpan, Span};
-use crate::{JstsLanguage};
+use crate::JstsLanguage;
 use crate::context::{AnalysisContext, RuleOptions};
-use crate::engine::pattern_parser::{regex_search};
-use crate::support::{IssueSink, LineIndex, RuleScope, binding_identifier_name, module_export_name_name, property_key_name, shannon_entropy_per_char, span_text_contains};
-
+use crate::engine::pattern_parser::regex_search;
+use crate::support::{
+    IssueSink, LineIndex, RuleScope, binding_identifier_name, module_export_name_name,
+    property_key_name, shannon_entropy_per_char, span_text_contains,
+};
+use hoonarqube_ir::Issue;
+use oxc_ast::ast::{
+    AssignmentExpression, BindingPattern, CallExpression, Class, ExportSpecifier, Expression,
+    FormalParameter, FunctionBody, ImportSpecifier, MethodDefinition, MethodDefinitionKind,
+    ObjectProperty, Statement, TSInterfaceDeclaration, TSSignature, UnaryOperator,
+    VariableDeclarator,
+};
+use oxc_ast_visit::Visit;
+use oxc_ast_visit::walk::{
+    walk_assignment_expression, walk_call_expression, walk_class, walk_formal_parameter,
+    walk_function_body, walk_method_definition, walk_ts_interface_declaration,
+    walk_variable_declarator,
+};
+use oxc_span::{GetSpan, Span};
 
 pub(crate) fn check_binding_rules(
     program: &oxc_ast::ast::Program<'_>,
@@ -32,7 +43,6 @@ pub(crate) fn check_binding_rules(
     collector.visit_program(program);
     collector.sink.issues
 }
-
 
 /// Binding, pattern, class, and interface batch rules in one traversal:
 /// `S2137`, `S2138`, `S6645`, `S6650`, `S1527`, `S3799`, `S2094`, `S4023`,
@@ -206,7 +216,6 @@ impl<'a> Visit<'a> for BindingCollector<'a, '_> {
     }
 }
 
-
 impl BindingCollector<'_, '_> {
     /// `S2137` bindings and `S1527` future reserved words.
     pub(crate) fn check_binding_name(&mut self, pattern: &BindingPattern<'_>, span: Span) {
@@ -356,7 +365,6 @@ impl BindingCollector<'_, '_> {
     }
 }
 
-
 /// ECMAScript 3 future reserved words flagged by `S1527` (JavaScript-only).
 pub(crate) const FUTURE_RESERVED_WORDS: [&str; 17] = [
     "abstract",
@@ -378,10 +386,9 @@ pub(crate) const FUTURE_RESERVED_WORDS: [&str; 17] = [
     "enum",
 ];
 
-
 /// Names whose binding or assignment `S2137` forbids.
-pub(crate) const RESERVED_BINDING_NAMES: [&str; 5] = ["undefined", "NaN", "Infinity", "eval", "arguments"];
-
+pub(crate) const RESERVED_BINDING_NAMES: [&str; 5] =
+    ["undefined", "NaN", "Infinity", "eval", "arguments"];
 
 /// Whether a binding name matches one of the configured words
 /// (case-insensitively).
@@ -391,11 +398,5 @@ pub(crate) fn name_contains_any(name: &str, words: &[String]) -> bool {
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_binding_rules(
-        ctx.program,
-        ctx.source,
-        ctx.index,
-        ctx.language,
-        ctx.rules,
-    )
+    check_binding_rules(ctx.program, ctx.source, ctx.index, ctx.language, ctx.rules)
 }

@@ -1,10 +1,9 @@
 // Rule module s113_newline_at_eof (generated).
 
-use hoonarqube_ir::{Issue};
-use crate::{JstsLanguage};
-use crate::context::{AnalysisContext};
+use crate::JstsLanguage;
+use crate::context::AnalysisContext;
 use crate::support::{LineIndex, to_u32};
-
+use hoonarqube_ir::Issue;
 
 pub(crate) fn check_missing_newline_at_eof(
     source: &str,

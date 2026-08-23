@@ -1,10 +1,9 @@
 // Rule module s105_tab_characters (generated).
 
-use hoonarqube_ir::{Issue};
-use crate::{JstsLanguage};
-use crate::context::{AnalysisContext};
-use crate::support::{to_u32};
-
+use crate::JstsLanguage;
+use crate::context::AnalysisContext;
+use crate::support::to_u32;
+use hoonarqube_ir::Issue;
 
 pub(crate) fn check_tab_characters(source: &str, language: JstsLanguage) -> Vec<Issue> {
     let rule_key = format!("{}:S105", language.prefix());

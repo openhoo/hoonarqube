@@ -1,13 +1,12 @@
 // Rule module s104_lines_of_code (generated).
 
-use hoonarqube_ir::{Issue};
-use oxc_ast::ast::{Statement};
-use oxc_span::{GetSpan};
-use std::collections::{BTreeSet};
-use crate::{JstsLanguage};
+use crate::JstsLanguage;
 use crate::context::{AnalysisContext, RuleOptions};
-use crate::support::{LineIndex, file_metrics};
-
+use crate::support::LineIndex;
+use hoonarqube_ir::Issue;
+use oxc_ast::ast::Statement;
+use oxc_span::GetSpan;
+use std::collections::BTreeSet;
 
 pub(crate) fn check_too_many_lines_of_code(
     body: &[Statement<'_>],
@@ -41,5 +40,10 @@ pub(crate) fn check_too_many_lines_of_code(
 }
 
 pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_too_many_lines_of_code(ctx.program.body.as_slice(), ctx.index, ctx.language, ctx.rules)
+    check_too_many_lines_of_code(
+        ctx.program.body.as_slice(),
+        ctx.index,
+        ctx.language,
+        ctx.rules,
+    )
 }

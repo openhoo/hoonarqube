@@ -1,11 +1,8 @@
 // Rule module s2692_index_of_comparisons (generated).
-use hoonarqube_ir::{Issue};
-use oxc_ast::ast::{BinaryExpression, BinaryOperator, CallExpression, Expression};
-use oxc_span::{GetSpan};
-use crate::context::{AnalysisContext};
-use crate::support::{IssueSink, RuleScope};
 use super::walker::{call_property, numeric_literal_value};
-
+use crate::support::{IssueSink, RuleScope};
+use oxc_ast::ast::{BinaryExpression, BinaryOperator, Expression};
+use oxc_span::GetSpan;
 
 /// `S2692` (`indexOf(...) > 0`) and `S6557`
 /// (`indexOf(...)[=|==|===] 0` / `lastIndexOf` equality shapes).
@@ -41,13 +38,4 @@ pub(crate) fn check_index_of_comparisons(sink: &mut IssueSink, it: &BinaryExpres
             it.span(),
         );
     }
-}
-
-pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
-    const KEYS: &[&str] = &["S2692"];
-    let mut issues = super::walker::run(ctx);
-    issues.retain(|i| {
-        i.rule_key.rsplit(':').next().is_some_and(|k| KEYS.contains(&k))
-    });
-    issues
 }

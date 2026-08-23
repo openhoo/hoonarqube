@@ -1,14 +1,15 @@
 // Family walker for 'duplicate' (generated).
-use hoonarqube_ir::{Issue};
-use oxc_ast::ast::{BinaryExpression, BlockStatement, ConditionalExpression, Expression, FunctionBody, IfStatement, ReturnStatement, Statement, SwitchStatement};
-use oxc_ast::ast_kind::{AstKind};
-use oxc_ast_visit::{Visit};
-use oxc_span::{ContentEq, GetSpan, Span};
-use std::collections::{BTreeSet};
-use crate::{JstsLanguage, is_literal_expression};
-use crate::context::{AnalysisContext};
+use crate::context::AnalysisContext;
 use crate::support::{IssueSink, LineIndex, RuleScope};
-
+use crate::{JstsLanguage, is_literal_expression};
+use hoonarqube_ir::Issue;
+use oxc_ast::ast::{
+    Expression, FunctionBody, IfStatement, ReturnStatement, Statement, SwitchStatement,
+};
+use oxc_ast::ast_kind::AstKind;
+use oxc_ast_visit::Visit;
+use oxc_span::{ContentEq, GetSpan, Span};
+use std::collections::BTreeSet;
 
 pub(crate) fn check_duplicate_rules(
     program: &oxc_ast::ast::Program<'_>,
@@ -34,7 +35,6 @@ pub(crate) fn check_duplicate_rules(
     collector.sink.issues
 }
 
-
 // ===== Batch2a: structural duplicate/identity checks (S1764 S1871 S3923 S1862 S4144 S3516) =====
 
 /// `S1764` (identical binary operands), `S1871`/`S3923`/`S1862` (duplicated
@@ -49,7 +49,6 @@ pub(crate) struct DuplicateCollector<'a, 'index> {
     pub(crate) current_return_group: Option<usize>,
     pub(crate) group_stack: Vec<Option<usize>>,
 }
-
 
 impl<'a> Visit<'a> for DuplicateCollector<'a, '_> {
     fn enter_node(&mut self, kind: AstKind<'a>) {
@@ -98,7 +97,6 @@ impl<'a> Visit<'a> for DuplicateCollector<'a, '_> {
         }
     }
 }
-
 
 impl<'a> DuplicateCollector<'a, '_> {
     pub(crate) fn check_switch_cases(&mut self, it: &SwitchStatement<'a>) {
@@ -305,7 +303,6 @@ impl<'a> DuplicateCollector<'a, '_> {
     }
 }
 
-
 /// Elementwise span-free equality of two statement lists.
 pub(crate) fn statements_equal(left: &[Statement<'_>], right: &[Statement<'_>]) -> bool {
     left.len() == right.len()
@@ -315,15 +312,10 @@ pub(crate) fn statements_equal(left: &[Statement<'_>], right: &[Statement<'_>]) 
             .all(|(left_item, right_item)| left_item.content_eq(right_item))
 }
 
-
 pub(crate) fn is_empty_block(statement: &Statement<'_>) -> bool {
     matches!(statement, Statement::BlockStatement(block) if block.body.is_empty())
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_duplicate_rules(
-        ctx.program,
-        ctx.index,
-        ctx.language,
-    )
+    check_duplicate_rules(ctx.program, ctx.index, ctx.language)
 }

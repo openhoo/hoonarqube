@@ -1,14 +1,25 @@
 // Family walker for 'naming' (generated).
-use hoonarqube_ir::{Issue};
-use oxc_ast::ast::{BindingIdentifier, Declaration, ExportDefaultDeclarationKind, Expression, FormalParameter, JSXAttribute, MemberExpression, MethodDefinition, MethodDefinitionKind, NewExpression, NumericLiteral, ObjectProperty, StringLiteral, TSInterfaceDeclaration, UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind, VariableDeclarator};
-use oxc_ast_visit::{Visit};
-use oxc_ast_visit::walk::{walk_binding_pattern, walk_declaration, walk_export_default_declaration_kind, walk_expression, walk_formal_parameter, walk_member_expression, walk_method_definition, walk_new_expression, walk_object_property, walk_unary_expression, walk_variable_declaration, walk_variable_declarator};
-use oxc_span::{GetSpan, Span};
-use crate::{JstsLanguage};
+use crate::JstsLanguage;
 use crate::context::{AnalysisContext, RuleOptions};
-use crate::engine::pattern_parser::{regex_search};
-use crate::support::{IssueSink, LineIndex, RuleScope, binding_identifier_name, constructor_name, property_key_name};
-
+use crate::engine::pattern_parser::regex_search;
+use crate::support::{
+    IssueSink, LineIndex, RuleScope, binding_identifier_name, constructor_name, property_key_name,
+};
+use hoonarqube_ir::Issue;
+use oxc_ast::ast::{
+    BindingIdentifier, Declaration, ExportDefaultDeclarationKind, Expression, FormalParameter,
+    JSXAttribute, MemberExpression, MethodDefinition, MethodDefinitionKind, NewExpression,
+    NumericLiteral, ObjectProperty, StringLiteral, UnaryExpression, UnaryOperator,
+    VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
+};
+use oxc_ast_visit::Visit;
+use oxc_ast_visit::walk::{
+    walk_binding_pattern, walk_declaration, walk_export_default_declaration_kind, walk_expression,
+    walk_formal_parameter, walk_member_expression, walk_method_definition, walk_new_expression,
+    walk_object_property, walk_unary_expression, walk_variable_declaration,
+    walk_variable_declarator,
+};
+use oxc_span::{GetSpan, Span};
 
 pub(crate) fn check_naming_rules(
     program: &oxc_ast::ast::Program<'_>,
@@ -56,7 +67,6 @@ pub(crate) fn check_naming_rules(
     issues
 }
 
-
 /// `S1441` (quote style per `singleQuotes`) and `S1192` (duplicated string
 /// literals, aggregated after the traversal).
 pub(crate) struct StringStyleCollector<'index> {
@@ -66,7 +76,6 @@ pub(crate) struct StringStyleCollector<'index> {
     pub(crate) ignored_strings: Vec<String>,
     pub(crate) string_occurrences: Vec<(String, Span)>,
 }
-
 
 impl<'a> Visit<'a> for StringStyleCollector<'_> {
     fn visit_string_literal(&mut self, it: &StringLiteral<'a>) {
@@ -79,7 +88,6 @@ impl<'a> Visit<'a> for StringStyleCollector<'_> {
         // duplication checks.
     }
 }
-
 
 impl StringStyleCollector<'_> {
     pub(crate) fn check_quote_style(&mut self, literal: &StringLiteral<'_>) {
@@ -142,7 +150,6 @@ impl StringStyleCollector<'_> {
     }
 }
 
-
 /// `S109`: numeric literals outside the catalog-allowed contexts — const
 /// initializers, computed array indexes, and `-1..=2` parameter defaults.
 pub(crate) struct MagicNumberCollector<'index> {
@@ -152,7 +159,6 @@ pub(crate) struct MagicNumberCollector<'index> {
     pub(crate) default_depth: u32,
     pub(crate) negation_depth: u32,
 }
-
 
 impl<'a> Visit<'a> for MagicNumberCollector<'_> {
     fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
@@ -213,7 +219,6 @@ impl<'a> Visit<'a> for MagicNumberCollector<'_> {
     }
 }
 
-
 // ===== Batch2a: name/format convention rules (S100 S101 S117 S109 S1192 S1441 S2430) =====
 
 /// `S100` (function names), `S101` (class and interface names), `S117`
@@ -224,7 +229,6 @@ pub(crate) struct NameFormatCollector<'a, 'index> {
     pub(crate) sink: IssueSink<'index>,
     pub(crate) rules: &'a RuleOptions,
 }
-
 
 impl<'a> Visit<'a> for NameFormatCollector<'a, '_> {
     fn visit_declaration(&mut self, it: &Declaration<'a>) {
@@ -344,7 +348,6 @@ impl<'a> Visit<'a> for NameFormatCollector<'a, '_> {
     }
 }
 
-
 impl NameFormatCollector<'_, '_> {
     pub(crate) fn check_function_name(&mut self, id: Option<&BindingIdentifier<'_>>) {
         let Some(id) = id else {
@@ -366,7 +369,14 @@ impl NameFormatCollector<'_, '_> {
         self.check_name("S101", kind, &id.name, id.span, &self.rules.format_classes);
     }
 
-    pub(crate) fn check_name(&mut self, rule: &str, kind: &str, name: &str, span: Span, format: &str) {
+    pub(crate) fn check_name(
+        &mut self,
+        rule: &str,
+        kind: &str,
+        name: &str,
+        span: Span,
+        format: &str,
+    ) {
         if !regex_search(format, name) {
             self.sink.emit_span(
                 RuleScope::Both,
@@ -377,7 +387,6 @@ impl NameFormatCollector<'_, '_> {
         }
     }
 }
-
 
 /// Whether `raw` contains a backslash escaping `delimiter`, which makes a
 /// quote-style switch unsafe (`S1441` tolerance).
@@ -392,10 +401,5 @@ pub(crate) fn escapes_delimiter(raw: &str, delimiter: char) -> bool {
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_naming_rules(
-        ctx.program,
-        ctx.index,
-        ctx.language,
-        ctx.rules,
-    )
+    check_naming_rules(ctx.program, ctx.index, ctx.language, ctx.rules)
 }

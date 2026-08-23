@@ -1,9 +1,6 @@
 // Rule module s1314_numeric_literal (generated).
-use hoonarqube_ir::{Issue};
-use oxc_ast::ast::{NumericLiteral};
-use crate::context::{AnalysisContext};
 use crate::support::{IssueSink, RuleScope};
-
+use oxc_ast::ast::NumericLiteral;
 
 /// `S1314` (legacy octal integer literals) and `S6534` (precision loss).
 pub(crate) fn check_numeric_literal(sink: &mut IssueSink, it: &NumericLiteral<'_>) {
@@ -33,7 +30,6 @@ pub(crate) fn check_numeric_literal(sink: &mut IssueSink, it: &NumericLiteral<'_
     }
 }
 
-
 pub(crate) fn loses_precision(digits: &str) -> bool {
     if digits.contains('.') || digits.contains('e') || digits.contains('E') {
         let significant = digits.chars().filter(char::is_ascii_digit).count();
@@ -45,13 +41,4 @@ pub(crate) fn loses_precision(digits: &str) -> bool {
             .parse::<i128>()
             .is_ok_and(|value| value.abs() > 9_007_199_254_740_991)
     })
-}
-
-pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
-    const KEYS: &[&str] = &["S1314"];
-    let mut issues = super::walker::run(ctx);
-    issues.retain(|i| {
-        i.rule_key.rsplit(':').next().is_some_and(|k| KEYS.contains(&k))
-    });
-    issues
 }

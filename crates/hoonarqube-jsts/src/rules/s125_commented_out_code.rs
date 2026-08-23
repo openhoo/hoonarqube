@@ -1,9 +1,8 @@
 // Rule module s125_commented_out_code (generated).
 
-use hoonarqube_ir::{Issue};
-use crate::context::{AnalysisContext};
+use crate::context::AnalysisContext;
 use crate::support::{IssueSink, RuleScope, ScannedComment, scan_comments, source_slice};
-
+use hoonarqube_ir::Issue;
 
 /// `S125`: heuristics for comments that look like commented-out code:
 /// statement keyword starts, a trailing `;` with an assignment or call, or
@@ -19,7 +18,6 @@ pub(crate) fn check_commented_out_code(sink: &mut IssueSink, comment: ScannedCom
         comment.token,
     );
 }
-
 
 pub(crate) fn looks_like_code(body: &str) -> bool {
     let trimmed = body.trim();
@@ -43,7 +41,6 @@ pub(crate) fn looks_like_code(body: &str) -> bool {
         && trimmed.contains('{')
         && trimmed.contains(';')
 }
-
 
 /// Keywords whose comment prefix suggests commented-out code for `S125`.
 pub(crate) const CODE_START_KEYWORDS: [&str; 11] = [

@@ -1,10 +1,7 @@
 // Rule module s3003_relational_strings (generated).
-use hoonarqube_ir::{Issue};
-use oxc_ast::ast::{BinaryExpression, BinaryOperator, Expression, StringLiteral};
-use oxc_span::{GetSpan};
-use crate::context::{AnalysisContext};
 use crate::support::{IssueSink, RuleScope};
-
+use oxc_ast::ast::{BinaryExpression, BinaryOperator, Expression};
+use oxc_span::GetSpan;
 
 /// `S3003`: relational operators on two string literals.
 pub(crate) fn check_relational_strings(sink: &mut IssueSink, it: &BinaryExpression<'_>) {
@@ -24,13 +21,4 @@ pub(crate) fn check_relational_strings(sink: &mut IssueSink, it: &BinaryExpressi
             it.span(),
         );
     }
-}
-
-pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
-    const KEYS: &[&str] = &["S3003"];
-    let mut issues = super::walker::run(ctx);
-    issues.retain(|i| {
-        i.rule_key.rsplit(':').next().is_some_and(|k| KEYS.contains(&k))
-    });
-    issues
 }

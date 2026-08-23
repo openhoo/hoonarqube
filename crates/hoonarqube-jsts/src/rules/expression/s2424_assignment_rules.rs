@@ -1,11 +1,8 @@
 // Rule module s2424_assignment_rules (generated).
-use hoonarqube_ir::{Issue};
-use oxc_ast::ast::{AssignmentExpression, AssignmentOperator, Expression, SimpleAssignmentTarget, UnaryExpression, UnaryOperator};
-use oxc_span::{GetSpan};
-use super::s1442_plain_calls::{BUILTIN_GLOBALS};
-use crate::context::{AnalysisContext};
+use super::s1442_plain_calls::BUILTIN_GLOBALS;
 use crate::support::{IssueSink, RuleScope};
-
+use oxc_ast::ast::{AssignmentExpression, AssignmentOperator, Expression, UnaryOperator};
+use oxc_span::GetSpan;
 
 /// `S2757` (the `x =+ 1` typo), `S6643`/`S2424` (writes into built-ins).
 pub(crate) fn check_assignment_rules(sink: &mut IssueSink, it: &AssignmentExpression<'_>) {
@@ -51,7 +48,6 @@ pub(crate) fn check_assignment_rules(sink: &mut IssueSink, it: &AssignmentExpres
     }
 }
 
-
 /// Walks a member chain: is its root a built-in global (or `prototype`),
 /// and does any link assign through `.prototype`?
 pub(crate) fn member_builtin_conflict(expression: &Expression<'_>) -> (bool, bool) {
@@ -70,13 +66,4 @@ pub(crate) fn member_builtin_conflict(expression: &Expression<'_>) -> (bool, boo
         Expression::ComputedMemberExpression(member) => member_builtin_conflict(&member.object),
         _ => (false, false),
     }
-}
-
-pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
-    const KEYS: &[&str] = &["S2424"];
-    let mut issues = super::walker::run(ctx);
-    issues.retain(|i| {
-        i.rule_key.rsplit(':').next().is_some_and(|k| KEYS.contains(&k))
-    });
-    issues
 }

@@ -1,24 +1,35 @@
 // Family walker for 'expression' (generated).
-use hoonarqube_ir::{Issue};
-use oxc_ast::ast::{ArrayExpression, ArrayExpressionElement, AssignmentExpression, BinaryExpression, BinaryOperator, CallExpression, ConditionalExpression, Expression, IfStatement, LogicalExpression, LogicalOperator, MemberExpression, NewExpression, NumericLiteral, ParenthesizedExpression, RegExpLiteral, SequenceExpression, StringLiteral, TemplateLiteral, UnaryExpression, UnaryOperator};
-use oxc_ast_visit::{Visit};
-use oxc_ast_visit::walk::{walk_array_expression, walk_assignment_expression, walk_binary_expression, walk_call_expression, walk_new_expression, walk_parenthesized_expression, walk_sequence_expression, walk_template_literal, walk_unary_expression};
-use oxc_span::{GetSpan};
+use super::s1125_binary_operators::check_binary_operators;
+use super::s1313_string_literal_raw::check_string_literal_raw;
+use super::s1314_numeric_literal::check_numeric_literal;
+use super::s1442_plain_calls::check_plain_calls;
+use super::s1528_constructor_calls::check_constructor_calls;
+use super::s2424_assignment_rules::check_assignment_rules;
+use super::s2692_index_of_comparisons::check_index_of_comparisons;
+use super::s3003_relational_strings::check_relational_strings;
+use super::s3981_length_comparison::check_length_comparison;
+use super::s4125_typeof_literal::check_typeof_literal;
+use super::s6644_redundant_ternary::check_redundant_ternary;
+use crate::context::AnalysisContext;
+use crate::support::{
+    IssueSink, LineIndex, RuleScope, callee_name, identifier_name, static_property_name,
+};
 use crate::{JstsLanguage, check_collection_and_object_calls, check_logging_and_binding_calls};
-use crate::context::{AnalysisContext};
-use crate::support::{IssueSink, LineIndex, RuleScope, callee_name, identifier_name, static_property_name};
-use super::s1125_binary_operators::{check_binary_operators};
-use super::s1313_string_literal_raw::{check_string_literal_raw};
-use super::s1314_numeric_literal::{check_numeric_literal};
-use super::s1442_plain_calls::{check_plain_calls};
-use super::s1528_constructor_calls::{check_constructor_calls};
-use super::s2424_assignment_rules::{check_assignment_rules};
-use super::s2692_index_of_comparisons::{check_index_of_comparisons};
-use super::s3003_relational_strings::{check_relational_strings};
-use super::s3981_length_comparison::{check_length_comparison};
-use super::s4125_typeof_literal::{check_typeof_literal};
-use super::s6644_redundant_ternary::{check_redundant_ternary};
-
+use hoonarqube_ir::Issue;
+use oxc_ast::ast::{
+    ArrayExpression, ArrayExpressionElement, AssignmentExpression, BinaryExpression,
+    BinaryOperator, CallExpression, ConditionalExpression, Expression, IfStatement,
+    LogicalExpression, LogicalOperator, MemberExpression, NewExpression, NumericLiteral,
+    ParenthesizedExpression, RegExpLiteral, SequenceExpression, StringLiteral, TemplateLiteral,
+    UnaryExpression, UnaryOperator,
+};
+use oxc_ast_visit::Visit;
+use oxc_ast_visit::walk::{
+    walk_array_expression, walk_assignment_expression, walk_binary_expression,
+    walk_call_expression, walk_new_expression, walk_parenthesized_expression,
+    walk_sequence_expression, walk_template_literal, walk_unary_expression,
+};
+use oxc_span::GetSpan;
 
 pub(crate) fn check_expression_rules(
     program: &oxc_ast::ast::Program<'_>,
@@ -39,7 +50,6 @@ pub(crate) fn check_expression_rules(
     collector.sink.issues
 }
 
-
 /// Expression-level batch rules in one traversal: `S1774`, `S3735`, `S878`,
 /// `S2688`, `S6679`, `S2757`, `S1440`, `S1125`, `S1529`, `S1940`, `S6638`,
 /// `S2692`, `S6557`, `S3981`, `S6676`, `S6637`, `S6509`, `S1529`, `S6958`,
@@ -55,7 +65,6 @@ pub(crate) struct ExpressionCollector<'index> {
     /// Nesting depth of template literals for `S4624`.
     pub(crate) template_depth: u32,
 }
-
 
 impl<'a> Visit<'a> for ExpressionCollector<'_> {
     fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
@@ -294,7 +303,6 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
     }
 }
 
-
 /// Boolean-context stack for the condition-sensitive rules (`S1529`,
 /// `S6509`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -304,7 +312,6 @@ pub(crate) enum ExpressionContext {
     /// Operand of a `!` operator.
     Negation,
 }
-
 
 pub(crate) fn is_bitwise_operator(operator: BinaryOperator) -> bool {
     matches!(
@@ -318,7 +325,6 @@ pub(crate) fn is_bitwise_operator(operator: BinaryOperator) -> bool {
     )
 }
 
-
 pub(crate) fn is_equality_operator(operator: BinaryOperator) -> bool {
     matches!(
         operator,
@@ -328,7 +334,6 @@ pub(crate) fn is_equality_operator(operator: BinaryOperator) -> bool {
             | BinaryOperator::StrictInequality
     )
 }
-
 
 /// Member-call rules: `S106`, `S1442`, `S6637`, `S6676`, `S6666`, `S6959`,
 /// `S2871`, `S6653`, `S2685`, `S6654`, and `S6661`.
@@ -340,7 +345,6 @@ pub(crate) fn check_member_calls(sink: &mut IssueSink, it: &CallExpression<'_>) 
     check_collection_and_object_calls(sink, it, property, member);
 }
 
-
 /// Legacy octal escapes (`\101`), including `\0`-prefixed forms.
 pub(crate) fn has_octal_escape(text: &str) -> bool {
     let chars: Vec<char> = text.chars().collect();
@@ -349,11 +353,9 @@ pub(crate) fn has_octal_escape(text: &str) -> bool {
         .any(|window| window[0] == '\\' && ('1'..='7').contains(&window[1]))
 }
 
-
 pub(crate) fn regex_pattern_text<'a>(literal: &'a RegExpLiteral<'a>) -> &'a str {
     literal.regex.pattern.text.as_str()
 }
-
 
 pub(crate) fn numeric_literal_value(expression: &Expression<'_>) -> Option<f64> {
     match expression {
@@ -361,7 +363,6 @@ pub(crate) fn numeric_literal_value(expression: &Expression<'_>) -> Option<f64> 
         _ => None,
     }
 }
-
 
 pub(crate) fn call_property<'r, 'a>(
     call: &'r CallExpression<'a>,
@@ -372,9 +373,5 @@ pub(crate) fn call_property<'r, 'a>(
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_expression_rules(
-        ctx.program,
-        ctx.index,
-        ctx.language,
-    )
+    check_expression_rules(ctx.program, ctx.index, ctx.language)
 }

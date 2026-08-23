@@ -1,9 +1,6 @@
 // Rule module s1313_string_literal_raw (generated).
-use hoonarqube_ir::{Issue};
-use oxc_ast::ast::{StringLiteral};
-use crate::context::{AnalysisContext};
 use crate::support::{IssueSink, RuleScope};
-
+use oxc_ast::ast::StringLiteral;
 
 /// Raw-text rules on string literals: `S1516` (multi-line), `S3786`
 /// (`${…}` inside a regular string), and `S6535` (unnecessary escapes).
@@ -46,7 +43,6 @@ pub(crate) fn check_string_literal_raw(sink: &mut IssueSink, it: &StringLiteral<
     }
 }
 
-
 /// Whether `text` is exactly a dotted-quad IPv4 address (no octal-style
 /// leading zeros, each octet at most 255).
 pub(crate) fn is_ipv4_like(text: &str) -> bool {
@@ -61,7 +57,6 @@ pub(crate) fn is_ipv4_like(text: &str) -> bool {
         })
 }
 
-
 /// A backslash followed by a character that does not need escaping.
 pub(crate) fn has_unnecessary_escape(raw: &str) -> bool {
     let chars: Vec<char> = raw.chars().collect();
@@ -73,13 +68,4 @@ pub(crate) fn has_unnecessary_escape(raw: &str) -> bool {
             && window[1].is_ascii_alphanumeric()
             && !meaningful.contains(&(window[1] as u8))
     })
-}
-
-pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
-    const KEYS: &[&str] = &["S1313"];
-    let mut issues = super::walker::run(ctx);
-    issues.retain(|i| {
-        i.rule_key.rsplit(':').next().is_some_and(|k| KEYS.contains(&k))
-    });
-    issues
 }

@@ -1,9 +1,8 @@
 // Rule module s1291_nosonar (generated).
 
-use hoonarqube_ir::{Issue};
-use crate::context::{AnalysisContext};
+use crate::context::AnalysisContext;
 use crate::support::{IssueSink, RuleScope, ScannedComment, scan_comments, source_slice};
-
+use hoonarqube_ir::Issue;
 
 /// `S1291`: the `NOSONAR` suppression marker.
 pub(crate) fn check_nosonar(sink: &mut IssueSink, comment: ScannedComment, body: &str) {

@@ -1,10 +1,7 @@
 // Rule module s4125_typeof_literal (generated).
-use hoonarqube_ir::{Issue};
-use oxc_ast::ast::{BinaryExpression, BinaryOperator, Expression, StringLiteral, UnaryExpression, UnaryOperator};
-use oxc_span::{GetSpan};
-use crate::context::{AnalysisContext};
 use crate::support::{IssueSink, RuleScope};
-
+use oxc_ast::ast::{BinaryExpression, BinaryOperator, Expression, UnaryOperator};
+use oxc_span::GetSpan;
 
 /// `S4125`: `typeof x === 'literal'` with a value outside the typeof set.
 pub(crate) fn check_typeof_literal(sink: &mut IssueSink, it: &BinaryExpression<'_>) {
@@ -38,7 +35,6 @@ pub(crate) fn check_typeof_literal(sink: &mut IssueSink, it: &BinaryExpression<'
     }
 }
 
-
 /// The only values `typeof` may yield; `S4125` flags comparisons outside it.
 pub(crate) const TYPEOF_VALUES: [&str; 8] = [
     "undefined",
@@ -50,12 +46,3 @@ pub(crate) const TYPEOF_VALUES: [&str; 8] = [
     "bigint",
     "function",
 ];
-
-pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
-    const KEYS: &[&str] = &["S4125"];
-    let mut issues = super::walker::run(ctx);
-    issues.retain(|i| {
-        i.rule_key.rsplit(':').next().is_some_and(|k| KEYS.contains(&k))
-    });
-    issues
-}

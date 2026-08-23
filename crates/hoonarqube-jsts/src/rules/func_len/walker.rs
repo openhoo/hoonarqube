@@ -1,13 +1,18 @@
 // Family walker for 'func_len' (generated).
-use hoonarqube_ir::{Issue};
-use oxc_ast::ast::{ArrowFunctionExpression, Declaration, ExportDefaultDeclarationKind, Expression, MethodDefinition};
-use oxc_ast_visit::{Visit};
-use oxc_ast_visit::walk::{walk_arrow_function_expression, walk_declaration, walk_export_default_declaration_kind, walk_expression, walk_method_definition};
-use oxc_span::{GetSpan, Span};
-use crate::{JstsLanguage};
+use crate::JstsLanguage;
 use crate::context::{AnalysisContext, RuleOptions};
 use crate::support::{IssueSink, LineIndex, RuleScope};
-
+use hoonarqube_ir::Issue;
+use oxc_ast::ast::{
+    ArrowFunctionExpression, Declaration, ExportDefaultDeclarationKind, Expression,
+    MethodDefinition,
+};
+use oxc_ast_visit::Visit;
+use oxc_ast_visit::walk::{
+    walk_arrow_function_expression, walk_declaration, walk_export_default_declaration_kind,
+    walk_expression, walk_method_definition,
+};
+use oxc_span::{GetSpan, Span};
 
 pub(crate) fn check_function_lengths(
     program: &oxc_ast::ast::Program<'_>,
@@ -27,7 +32,6 @@ pub(crate) fn check_function_lengths(
     collector.sink.issues
 }
 
-
 /// `S138`: functions whose span covers more than `max` physical lines
 /// (`end_line - start_line`, blank/comment trimming approximate per the
 /// classification artifact).
@@ -35,7 +39,6 @@ pub(crate) struct FunctionLengthCollector<'index> {
     pub(crate) sink: IssueSink<'index>,
     pub(crate) maximum_function_lines: u32,
 }
-
 
 impl FunctionLengthCollector<'_> {
     pub(crate) fn check_length(&mut self, span: Span) {
@@ -57,7 +60,6 @@ impl FunctionLengthCollector<'_> {
         }
     }
 }
-
 
 impl<'a> Visit<'a> for FunctionLengthCollector<'_> {
     fn visit_expression(&mut self, it: &Expression<'a>) {
@@ -93,10 +95,5 @@ impl<'a> Visit<'a> for FunctionLengthCollector<'_> {
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_function_lengths(
-        ctx.program,
-        ctx.index,
-        ctx.language,
-        ctx.rules,
-    )
+    check_function_lengths(ctx.program, ctx.index, ctx.language, ctx.rules)
 }

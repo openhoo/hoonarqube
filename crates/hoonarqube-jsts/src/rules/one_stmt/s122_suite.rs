@@ -1,11 +1,9 @@
 // Rule module s122_suite (generated).
-use hoonarqube_ir::{Issue};
-use oxc_ast::ast::{BlockStatement, Declaration, DoWhileStatement, ExportDefaultDeclarationKind, ForInStatement, ForOfStatement, ForStatement, IfStatement, LabeledStatement, ModuleDeclaration, Statement, SwitchStatement, TryStatement, WhileStatement, WithStatement};
-use oxc_span::{GetSpan};
+use crate::support::LineIndex;
 use crate::{JstsLanguage, check_class_methods, check_one};
-use crate::context::{AnalysisContext};
-use crate::support::{LineIndex};
-
+use hoonarqube_ir::Issue;
+use oxc_ast::ast::{Declaration, ExportDefaultDeclarationKind, ModuleDeclaration, Statement};
+use oxc_span::GetSpan;
 
 /// Groups consecutive statements sharing a start line; every additional
 /// statement on that line gets one issue, then nesting is walked.
@@ -37,7 +35,6 @@ pub(crate) fn check_suite(
         start = end;
     }
 }
-
 
 pub(crate) fn check_nested_bodies(
     stmt: &Statement<'_>,
@@ -123,13 +120,4 @@ pub(crate) fn check_nested_bodies(
             }
         }
     }
-}
-
-pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
-    const KEYS: &[&str] = &["S122"];
-    let mut issues = super::walker::run(ctx);
-    issues.retain(|i| {
-        i.rule_key.rsplit(':').next().is_some_and(|k| KEYS.contains(&k))
-    });
-    issues
 }

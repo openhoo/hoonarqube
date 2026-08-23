@@ -1,10 +1,9 @@
 // Rule module s1134_s1135_task_tags (generated).
 
-use hoonarqube_ir::{Issue};
-use oxc_span::{Span};
-use crate::context::{AnalysisContext};
+use crate::context::AnalysisContext;
 use crate::support::{IssueSink, RuleScope, ScannedComment, scan_comments, source_slice, to_u32};
-
+use hoonarqube_ir::Issue;
+use oxc_span::Span;
 
 /// `S1134` (FIXME) and `S1135` (TODO) task tags.
 pub(crate) fn check_flagged_tags(sink: &mut IssueSink, comment: ScannedComment, body: &str) {
@@ -31,7 +30,6 @@ pub(crate) fn check_flagged_tags(sink: &mut IssueSink, comment: ScannedComment, 
         }
     }
 }
-
 
 /// First whole-word occurrence of `tag` in a comment body.
 pub(crate) fn find_tag(body: &str, tag: &str) -> Option<usize> {
