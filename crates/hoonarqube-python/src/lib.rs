@@ -149,6 +149,7 @@ pub fn analyze(
     issues.extend(check_tier_a_battery_2(&parsed, &index, source, options));
     issues.extend(check_tier_b_battery(&parsed, &index, source, options));
     issues.extend(check_regex_battery(&parsed, &index, source, options));
+    issues.extend(check_tier_c_security_battery(&parsed, &index, source));
     sort_issues(&mut issues);
 
     hoonarqube_ir::FileReport {
@@ -13495,6 +13496,2481 @@ fn check_tier_b_battery(
     issues.extend(check_swallowed_cancellations(parsed, index, source));
     issues
 }
+// ---------------------------------------------------------------------------
+// Tier C — feasible-heuristic security-sensitive rules.
+//
+// Every finding below is a true positive by construction: detection rests on
+// API name tables, literal argument shapes, or structural patterns confined
+// to the analyzed file. Framework-specific subsets are documented per rule.
+// ---------------------------------------------------------------------------
+
+/// Last-segment callee match (`a.b(...)` matches `"b"`).
+fn is_call_method(call: &ruff_python_ast::ExprCall, method: &str) -> bool {
+    called_name(&call.func) == Some(method)
+}
+
+/// Exact dotted-path callee match (`a.b.c(...)` matches `"a.b.c"`).
+fn is_call_path(call: &ruff_python_ast::ExprCall, path: &str) -> bool {
+    dotted_name(&call.func).is_some_and(|p| p == path)
+}
+
+/// Dotted-path match against exact entries or prefix families (import-style
+/// tolerance: `from Crypto.Cipher import AES; AES.new(k)` resolves through
+/// the leading-segment table instead of the full path).
+fn call_path_matches(
+    call: &ruff_python_ast::ExprCall,
+    exact: &[&str],
+    prefixes: &[&str],
+    heads: &[&str],
+) -> bool {
+    dotted_name(&call.func).is_some_and(|p| {
+        let path = p.as_str();
+        exact.contains(&path)
+            || prefixes.iter().any(|prefix| path.starts_with(prefix))
+            || path
+                .split('.')
+                .next()
+                .is_some_and(|head| heads.contains(&head))
+    })
+}
+
+/// Loads of `<receiver>.<attr>` attribute expressions.
+fn for_each_attr_load(
+    stmts: &[Stmt],
+    attr: &str,
+    mut visit: impl FnMut(&ruff_python_ast::ExprAttribute),
+) {
+    for_each_stmt_expr(stmts, &mut |expr| {
+        if let Expr::Attribute(candidate) = expr
+            && candidate.attr.as_str() == attr
+        {
+            visit(candidate);
+        }
+    });
+}
+
+// --- python:S4792 — configuring loggers is security-sensitive ----------------
+
+fn check_s4792_logger_configuration(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    const LOGGER_CONFIG_APIS: [&str; 3] = [
+        "logging.config.dictConfig",
+        "logging.config.fileConfig",
+        "logging.config.listen",
+    ];
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let configured = call_path_matches(call, &LOGGER_CONFIG_APIS, &[], &[])
+            || (is_call_method(call, "basicConfig") && has_keyword(&call.arguments, "handlers"));
+        if configured {
+            issues.push(issue_at(
+                "python:S4792",
+                "Make sure that configuring loggers is safe here.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S4823 — using command line arguments is security-sensitive -------
+
+fn check_s4823_command_line_arguments(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_attr_load(parsed.syntax().body.as_slice(), "argv", |attr| {
+        if matches!(attr.value.as_ref(), Expr::Name(name) if name.id.as_str() == "sys") {
+            issues.push(issue_at(
+                "python:S4823",
+                "Make sure that using command line arguments is safe here.",
+                attr.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::ImportFrom(import) = stmt {
+            let from_sys = import.module.as_ref().is_some_and(|m| m.as_str() == "sys");
+            if from_sys
+                && import
+                    .names
+                    .iter()
+                    .any(|alias| alias.name.as_str() == "argv")
+            {
+                issues.push(issue_at(
+                    "python:S4823",
+                    "Make sure that using command line arguments is safe here.",
+                    stmt.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S4829 — reading the Standard Input is security-sensitive ---------
+
+fn check_s4829_standard_input(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    const STDIN_READERS: [&str; 6] = [
+        "sys.stdin.read",
+        "sys.stdin.readline",
+        "sys.stdin.readlines",
+        "sys.stdin.buffer.read",
+        "sys.stdin.buffer.readline",
+        "sys.stdin.buffer.readlines",
+    ];
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let reads_input = is_call_method(call, "input")
+            && matches!(call.func.as_ref(), Expr::Name(_))
+            || call_path_matches(call, &STDIN_READERS, &[], &[]);
+        if reads_input {
+            issues.push(issue_at(
+                "python:S4829",
+                "Make sure that reading the standard input is safe here.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S4787 — encrypting data is security-sensitive --------------------
+
+fn check_s4787_encrypting_data(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    const ENCRYPTION_APIS: [&str; 4] = [
+        "cryptography.fernet.Fernet",
+        "cryptography.hazmat.primitives.ciphers.Cipher",
+        "nacl.secret.SecretBox",
+        "nacl.public.PrivateKey",
+    ];
+    const PYCRYPTO_CIPHERS: [&str; 8] = [
+        "AES",
+        "DES",
+        "DES3",
+        "Blowfish",
+        "ARC2",
+        "ARC4",
+        "ChaCha20",
+        "PKCS1_v1_5",
+    ];
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let encrypts = is_call_method(call, "Fernet")
+            || call_path_matches(call, &ENCRYPTION_APIS, &["Crypto.Cipher."], &[])
+            || (is_call_method(call, "new")
+                && dotted_name(&call.func).is_some_and(|p| {
+                    p.rsplit_once('.')
+                        .is_some_and(|(head, _)| PYCRYPTO_CIPHERS.contains(&head))
+                }));
+        if encrypts {
+            issues.push(issue_at(
+                "python:S4787",
+                "Make sure that encrypting data is safe here.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S5300 — sending emails is security-sensitive ---------------------
+
+fn check_s5300_sending_emails(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let sends = is_call_path(call, "smtplib.SMTP")
+            || is_call_method(call, "SMTP")
+            || is_call_method(call, "sendmail")
+            || is_call_method(call, "send_message");
+        if sends {
+            issues.push(issue_at(
+                "python:S5300",
+                "Make sure that sending emails is safe here.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S4721 — OS commands should not run through a shell interpreter ---
+
+fn check_s4721_shell_commands(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    const SHELL_RUNNERS: [&str; 2] = ["os.system", "os.popen"];
+    const SUBPROCESS_LAUNCHERS: [&str; 6] = [
+        "run",
+        "Popen",
+        "call",
+        "check_call",
+        "check_output",
+        "getoutput",
+    ];
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let shells_out = call_path_matches(call, &SHELL_RUNNERS, &[], &[]);
+        let forces_shell = is_call_method(call, "getoutput")
+            || (SUBPROCESS_LAUNCHERS.contains(&called_name(&call.func).unwrap_or_default())
+                && keyword_value(&call.arguments, "shell").is_some_and(is_true_literal));
+        if shells_out || forces_shell {
+            issues.push(issue_at(
+                "python:S4721",
+                "Remove this use of a shell interpreter.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+/// HTTP-client request methods whose TLS verification was disabled with the
+/// `verify=False` keyword argument.
+fn http_verify_disabled(call: &ruff_python_ast::ExprCall) -> bool {
+    const HTTP_METHODS: [&str; 8] = [
+        "get", "post", "put", "patch", "delete", "head", "options", "request",
+    ];
+    HTTP_METHODS.contains(&called_name(&call.func).unwrap_or_default())
+        && keyword_value(&call.arguments, "verify").is_some_and(is_false_literal)
+}
+
+// --- python:S4830 — server certificates verified during SSL/TLS --------------
+
+fn check_s4830_certificate_verification(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let unverified =
+            http_verify_disabled(call) || is_call_path(call, "ssl._create_unverified_context");
+        if unverified {
+            issues.push(issue_at(
+                "python:S4830",
+                "Enable certificate verification for this SSL/TLS connection.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    for_each_attr_load(parsed.syntax().body.as_slice(), "CERT_NONE", |attr| {
+        if matches!(attr.value.as_ref(), Expr::Name(name) if name.id.as_str() == "ssl") {
+            issues.push(issue_at(
+                "python:S4830",
+                "Enable certificate verification for this SSL/TLS connection.",
+                attr.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S5527 — server hostnames verified during SSL/TLS -----------------
+
+fn check_s5527_hostname_verification(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let hostname_off = http_verify_disabled(call)
+            || keyword_value(&call.arguments, "check_hostname").is_some_and(is_false_literal);
+        if hostname_off {
+            issues.push(issue_at(
+                "python:S5527",
+                "Enable hostname verification for this SSL/TLS connection.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::Assign(assign) = stmt {
+            let sets_false = is_false_literal(&assign.value);
+            for target in &assign.targets {
+                if let Expr::Attribute(attr) = target
+                    && attr.attr.as_str() == "check_hostname"
+                    && sets_false
+                {
+                    issues.push(issue_at(
+                        "python:S5527",
+                        "Enable hostname verification for this SSL/TLS connection.",
+                        assign.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S4423 — weak SSL/TLS protocols ------------------------------------
+
+const WEAK_PROTOCOL_CONSTANTS: [&str; 4] = [
+    "PROTOCOL_SSLv2",
+    "PROTOCOL_SSLv3",
+    "PROTOCOL_TLSv1",
+    "PROTOCOL_TLSv1_1",
+];
+
+fn check_s4423_weak_ssl_protocols(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for protocol in WEAK_PROTOCOL_CONSTANTS {
+        for_each_attr_load(parsed.syntax().body.as_slice(), protocol, |attr| {
+            issues.push(issue_at(
+                "python:S4423",
+                "Replace this weak SSL/TLS protocol with a modern alternative.",
+                attr.range(),
+                index,
+                source,
+            ));
+        });
+    }
+    issues
+}
+
+// --- python:S4426 — cryptographic key generation based on strong parameters --
+
+const STRONG_MINIMUM_KEY_BITS: i64 = 2048;
+const WEAK_ELLIPTIC_CURVES: [&str; 2] = ["SECP192R1", "SECP224R1"];
+
+fn check_s4426_weak_key_generation(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    const KEY_GENERATORS: [&str; 2] = ["RSA", "DSA"];
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let small_key = is_call_method(call, "generate")
+            && dotted_name(&call.func).is_some_and(|p| {
+                p.rsplit_once('.')
+                    .is_some_and(|(head, _)| KEY_GENERATORS.contains(&head))
+            })
+            && call
+                .arguments
+                .args
+                .first()
+                .and_then(int_literal_value)
+                .is_some_and(|bits| bits < STRONG_MINIMUM_KEY_BITS);
+        if small_key {
+            issues.push(issue_at(
+                "python:S4426",
+                "Use a key size of 2048 bits or larger for this key generation.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    for curve in WEAK_ELLIPTIC_CURVES {
+        for_each_attr_load(parsed.syntax().body.as_slice(), curve, |attr| {
+            issues.push(issue_at(
+                "python:S4426",
+                "Replace this weak elliptic curve with a stronger one.",
+                attr.range(),
+                index,
+                source,
+            ));
+        });
+    }
+    issues
+}
+
+// --- python:S2092 / S3330 — cookie "secure" and "HttpOnly" flags --------------
+
+/// `set_cookie` calls that do not pass `<flag>=True` (missing or literal
+/// `False`); both Flask and Django expose this exact API shape.
+fn cookie_flag_missing(call: &ruff_python_ast::ExprCall, flag: &str) -> bool {
+    is_call_method(call, "set_cookie")
+        && !keyword_value(&call.arguments, flag).is_some_and(is_true_literal)
+}
+
+fn check_cookie_flag(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    rule_key: &str,
+    message: &str,
+    flag: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if cookie_flag_missing(call, flag) {
+            issues.push(issue_at(rule_key, message, call.range(), index, source));
+        }
+    });
+    issues
+}
+
+// --- python:S4502 — CSRF protections should not be disabled -------------------
+
+fn check_s4502_csrf_disabled(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::FunctionDef(function) = stmt {
+            for decorator in &function.decorator_list {
+                if matches!(&decorator.expression, Expr::Name(name) if name.id.as_str() == "csrf_exempt")
+                {
+                    issues.push(issue_at(
+                        "python:S4502",
+                        "Make sure that disabling CSRF protection is safe here.",
+                        decorator.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S5122 — CORS policy restricted to trusted origins -----------------
+
+const CORS_WILDCARD_HEADER: &str = "Access-Control-Allow-Origin";
+
+fn check_s5122_cors_wildcard(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    let wildcard = |expr: &Expr| string_literal_text(expr).as_deref() == Some("*");
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        if let Expr::Dict(dict) = expr {
+            for item in &dict.items {
+                let Some(key) = item.key.as_ref() else {
+                    continue;
+                };
+                if string_literal_text(key).as_deref() == Some(CORS_WILDCARD_HEADER)
+                    && wildcard(&item.value)
+                {
+                    issues.push(issue_at(
+                        "python:S5122",
+                        "Restrict the CORS \"Access-Control-Allow-Origin\" value to trusted origins.",
+                        dict.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        }
+    });
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if is_call_method(call, "CORS")
+            && keyword_value(&call.arguments, "origins").is_some_and(&wildcard)
+        {
+            issues.push(issue_at(
+                "python:S5122",
+                "Restrict the CORS \"Access-Control-Allow-Origin\" value to trusted origins.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::Assign(assign) = stmt {
+            let sets_wildcard = wildcard(&assign.value);
+            for target in &assign.targets {
+                if let Expr::Subscript(subscript) = target {
+                    let header = subscript.slice.as_ref();
+                    if sets_wildcard
+                        && string_literal_text(header).as_deref() == Some(CORS_WILDCARD_HEADER)
+                    {
+                        issues.push(issue_at(
+                            "python:S5122",
+                            "Restrict the CORS \"Access-Control-Allow-Origin\" value to trusted origins.",
+                            assign.range(),
+                            index,
+                            source,
+                        ));
+                    }
+                }
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S5247 / S5439 — HTML autoescaping disabled ------------------------
+
+/// Jinja shapes that switch autoescaping off.
+fn autoescape_off(call: &ruff_python_ast::ExprCall) -> bool {
+    const AUTOESCAPE_ENGINES: [&str; 2] = ["Environment", "select_autoescape"];
+    AUTOESCAPE_ENGINES.contains(&called_name(&call.func).unwrap_or_default())
+        && (keyword_value(&call.arguments, "autoescape").is_some_and(is_false_literal)
+            || keyword_value(&call.arguments, "enabled").is_some_and(is_false_literal))
+}
+
+fn check_s5247_autoescaping_disabled(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if autoescape_off(call) {
+            issues.push(issue_at(
+                "python:S5247",
+                "Do not disable HTML auto-escaping in this template engine configuration.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+/// Module/global scope only: `Environment(autoescape=False)` at import scope.
+fn check_s5439_global_autoescape_disabled(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_in_scope(parsed.syntax().body.as_slice(), &mut |stmt| {
+        for expr in stmt_exprs(stmt) {
+            for_each_expr(expr, &mut |candidate| {
+                if let Expr::Call(call) = candidate
+                    && autoescape_off(call)
+                {
+                    issues.push(issue_at(
+                        "python:S5439",
+                        "Enable auto-escaping globally in this template engine environment.",
+                        call.range(),
+                        index,
+                        source,
+                    ));
+                }
+            });
+        }
+    });
+    issues
+}
+
+/// Aggregates every Tier-C security-sensitive check over one file.
+fn check_tier_c_security_battery(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_s4792_logger_configuration(parsed, index, source));
+    issues.extend(check_s4823_command_line_arguments(parsed, index, source));
+    issues.extend(check_s4829_standard_input(parsed, index, source));
+    issues.extend(check_s4787_encrypting_data(parsed, index, source));
+    issues.extend(check_s5300_sending_emails(parsed, index, source));
+    issues.extend(check_s4721_shell_commands(parsed, index, source));
+    issues.extend(check_s4830_certificate_verification(parsed, index, source));
+    issues.extend(check_s5527_hostname_verification(parsed, index, source));
+    issues.extend(check_s4423_weak_ssl_protocols(parsed, index, source));
+    issues.extend(check_s4426_weak_key_generation(parsed, index, source));
+    issues.extend(check_cookie_flag(
+        parsed,
+        index,
+        source,
+        "python:S2092",
+        "Add the \"secure\" flag to this cookie.",
+        "secure",
+    ));
+    issues.extend(check_cookie_flag(
+        parsed,
+        index,
+        source,
+        "python:S3330",
+        "Add the \"HttpOnly\" flag to this cookie.",
+        "httponly",
+    ));
+    issues.extend(check_s4502_csrf_disabled(parsed, index, source));
+    issues.extend(check_s5122_cors_wildcard(parsed, index, source));
+    issues.extend(check_s5247_autoescaping_disabled(parsed, index, source));
+    issues.extend(check_s5439_global_autoescape_disabled(
+        parsed, index, source,
+    ));
+    issues.extend(check_s4433_ldap_unauthenticated(parsed, index, source));
+    issues.extend(check_s2115_empty_database_password(parsed, index, source));
+    issues.extend(check_s2077_sql_formatting(parsed, index, source));
+    issues.extend(check_s2053_static_salt(parsed, index, source));
+    issues.extend(check_s3329_static_cbc_iv(parsed, index, source));
+    issues.extend(check_s5542_weak_modes_and_paddings(parsed, index, source));
+    issues.extend(check_s5547_weak_ciphers(parsed, index, source));
+    issues.extend(check_s5659_jwt_signing(parsed, index, source));
+    issues.extend(check_s5344_plaintext_passwords(parsed, index, source));
+    issues.extend(check_s2245_prng_security_contexts(parsed, index, source));
+    issues.extend(check_s5443_public_temp_files(parsed, index, source));
+    issues.extend(check_s2755_xxe_parsers(parsed, index, source));
+    issues.extend(check_s6377_weak_xml_signature_transforms(
+        parsed, index, source,
+    ));
+    issues.extend(check_s4828_signal_parameters(parsed, index, source));
+    issues.extend(check_s1523_dynamic_code_execution(parsed, index, source));
+    issues.extend(check_s2257_custom_cryptography(parsed, index, source));
+    issues.extend(check_s6785_graphql_depth_limiting(parsed, index, source));
+    issues.extend(check_s6245_s3_encryption_configuration(
+        parsed, index, source,
+    ));
+    issues.extend(check_s6252_s3_versioning(parsed, index, source));
+    issues.extend(check_s6265_s3_public_acl(parsed, index, source));
+    issues.extend(check_s6270_public_resource_policy(parsed, index, source));
+    issues.extend(check_s6275_ebs_encryption(parsed, index, source));
+    issues.extend(check_s6281_s3_public_access_block(parsed, index, source));
+    issues.extend(check_s6302_all_privileges_policy(parsed, index, source));
+    issues.extend(check_s6304_all_resources_policy(parsed, index, source));
+    issues.extend(check_s6303_rds_encryption(parsed, index, source));
+    issues.extend(check_s6308_opensearch_encryption(parsed, index, source));
+    issues.extend(check_s6317_wildcard_action_scope(parsed, index, source));
+    issues.extend(check_s6319_sagemaker_encryption(parsed, index, source));
+    issues.extend(check_s6321_admin_ports_open_world(parsed, index, source));
+    issues.extend(check_s6327_sns_encryption(parsed, index, source));
+    issues.extend(check_s6329_public_network_access(parsed, index, source));
+    issues.extend(check_s6330_sqs_encryption(parsed, index, source));
+    issues.extend(check_s6332_efs_encryption(parsed, index, source));
+    issues.extend(check_s6333_api_gateway_authorization(parsed, index, source));
+    issues.extend(check_s6463_unrestricted_egress(parsed, index, source));
+    issues.extend(check_s3752_route_methods(parsed, index, source));
+    issues.extend(check_s5795_identity_cached_types(parsed, index, source));
+    issues.extend(check_s3403_identity_dissimilar_types(parsed, index, source));
+    issues.extend(check_s6663_sequence_index_type(parsed, index, source));
+    issues.extend(check_s5642_membership_operands(parsed, index, source));
+    issues.extend(check_s5644_literal_item_operations(parsed, index, source));
+    issues.extend(check_s3862_iterating_non_iterables(parsed, index, source));
+    issues.extend(check_s5607_incompatible_operator_pairs(
+        parsed, index, source,
+    ));
+    issues.extend(check_s6662_unhashable_collection_literals(
+        parsed, index, source,
+    ));
+    issues.extend(check_s5707_raise_from_non_exception(parsed, index, source));
+    issues.extend(check_s5632_raising_non_exceptions(parsed, index, source));
+    issues.extend(check_s5708_excepting_non_exceptions(parsed, index, source));
+    issues
+}
+// --- shared literal helpers ---------------------------------------------------
+
+/// Whether `expr` is a plain string or bytes literal (static by construction).
+fn is_static_text_literal(expr: &Expr) -> bool {
+    matches!(expr, Expr::StringLiteral(_) | Expr::BytesLiteral(_))
+}
+
+/// Approximate byte length of a string/bytes literal's payload, derived from
+/// the raw source slice (escape sequences count as written; good enough for
+/// "short static secret" heuristics).
+fn static_literal_payload_len(expr: &Expr, source: &str) -> Option<usize> {
+    let range = expr.range();
+    let raw = source.get(range.start().to_usize()..range.end().to_usize())?;
+    let quote = raw.find(['"', '\''])?;
+    let closing = raw.rfind(['"', '\''])?;
+    Some(closing.saturating_sub(quote).saturating_sub(1))
+}
+
+/// Whether the lowercase text carries an SQL statement shape.
+fn sql_statement_shape(lowercased: &str) -> bool {
+    (lowercased.contains("select") && lowercased.contains(" from "))
+        || lowercased.contains("insert into")
+        || (lowercased.contains("update ") && lowercased.contains(" set "))
+        || lowercased.contains("delete from")
+        || lowercased.contains("drop table")
+}
+
+// --- python:S4433 — LDAP connections should be authenticated -------------------
+
+const LDAP_BIND_METHODS: [&str; 4] = ["simple_bind", "simple_bind_s", "bind", "bind_s"];
+const LDAP_SEARCH_METHODS: [&str; 3] = ["search_s", "search_ext_s", "search_st"];
+
+fn check_s4433_ldap_unauthenticated(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    let mut has_bind = false;
+    let mut pending: Vec<(bool, TextRange)> = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let method = called_name(&call.func).unwrap_or_default();
+        if LDAP_BIND_METHODS.contains(&method) {
+            has_bind = true;
+            let empty_credentials = call.arguments.args.iter().take(2).count() == 2
+                && call
+                    .arguments
+                    .args
+                    .iter()
+                    .take(2)
+                    .all(|arg| string_literal_text(arg).is_some_and(|text| text.is_empty()));
+            pending.push((empty_credentials, call.range()));
+        } else if LDAP_SEARCH_METHODS.contains(&method) {
+            pending.push((false, call.range()));
+        }
+    });
+    for (empty_credentials, range) in pending {
+        let method = source
+            .get(range.start().to_usize()..range.end().to_usize())
+            .unwrap_or_default();
+        let unbound_search = LDAP_SEARCH_METHODS.iter().any(|m| method.contains(m)) && !has_bind;
+        if empty_credentials || unbound_search {
+            issues.push(issue_at(
+                "python:S4433",
+                "Bind this LDAP connection with credentials before searching.",
+                range,
+                index,
+                source,
+            ));
+        }
+    }
+    issues
+}
+
+// --- python:S2115 — secure database password ----------------------------------
+
+fn check_s2115_empty_database_password(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    const PASSWORD_KWARGS: [&str; 3] = ["password", "passwd", "pwd"];
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let empty_password = PASSWORD_KWARGS.iter().any(|flag| {
+            keyword_value(&call.arguments, flag)
+                .and_then(string_literal_text)
+                .is_some_and(|text| text.is_empty())
+        });
+        if empty_password {
+            issues.push(issue_at(
+                "python:S2115",
+                "Replace this empty database password with a secure one.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S2077 — SQL queries built through string formatting ----------------
+
+fn check_s2077_sql_formatting(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    let sql_shape = |text: &str| sql_statement_shape(&text.to_lowercase());
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| match expr {
+        Expr::BinOp(binop) => {
+            let sql_left = match binop.left.as_ref() {
+                Expr::StringLiteral(literal) => sql_shape(&string_value_text(&literal.value)),
+                _ => false,
+            };
+            if matches!(binop.op, ruff_python_ast::Operator::Mod) && sql_left {
+                issues.push(issue_at(
+                    "python:S2077",
+                    "Use parameterized queries instead of formatting SQL strings.",
+                    expr.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+        Expr::Call(call) => {
+            let format_receiver = match call.func.as_ref() {
+                Expr::Attribute(attribute) => match attribute.value.as_ref() {
+                    Expr::StringLiteral(literal) => Some(string_value_text(&literal.value)),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if !call.arguments.args.is_empty()
+                && format_receiver.is_some_and(|text| sql_shape(&text))
+            {
+                issues.push(issue_at(
+                    "python:S2077",
+                    "Use parameterized queries instead of formatting SQL strings.",
+                    call.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+        Expr::FString(_) => {
+            let range = expr.range();
+            let raw = source
+                .get(range.start().to_usize()..range.end().to_usize())
+                .unwrap_or_default();
+            if raw.contains('{') && raw.contains('}') && sql_shape(&raw.to_lowercase()) {
+                issues.push(issue_at(
+                    "python:S2077",
+                    "Use parameterized queries instead of formatting SQL strings.",
+                    range,
+                    index,
+                    source,
+                ));
+            }
+        }
+        _ => {}
+    });
+    issues
+}
+
+// --- python:S2053 — unpredictable password-hashing salt ------------------------
+
+fn check_s2053_static_salt(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    const KDF_NAMES: [&str; 3] = ["pbkdf2_hmac", "pbkdf2_hmac_sha256", "scrypt"];
+    const MINIMUM_SALT_BYTES: usize = 16;
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if !KDF_NAMES.contains(&called_name(&call.func).unwrap_or_default()) {
+            return;
+        }
+        let positional_salt = call.arguments.args.get(2);
+        let salt_expr = positional_salt.or_else(|| keyword_value(&call.arguments, "salt"));
+        let short_salt = salt_expr.is_some_and(|salt| {
+            is_static_text_literal(salt)
+                && static_literal_payload_len(salt, source)
+                    .is_some_and(|len| len < MINIMUM_SALT_BYTES)
+        });
+        if short_salt {
+            issues.push(issue_at(
+                "python:S2053",
+                "Use a randomly generated salt of at least 16 bytes for this hash.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S3329 — unpredictable CBC IVs --------------------------------------
+
+fn check_s3329_static_cbc_iv(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    const BLOCK_CIPHERS: [&str; 5] = ["AES", "DES", "DES3", "ARC2", "Blowfish"];
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let block_cipher_new = is_call_method(call, "new")
+            && dotted_name(&call.func).is_some_and(|p| {
+                p.rsplit_once('.')
+                    .is_some_and(|(head, _)| BLOCK_CIPHERS.contains(&head))
+            });
+        let cbc_mode = is_call_method(call, "CBC");
+        let static_iv = keyword_value(&call.arguments, "iv")
+            .or_else(|| call.arguments.args.first().filter(|_| cbc_mode))
+            .is_some_and(is_static_text_literal);
+        if (block_cipher_new || cbc_mode) && static_iv {
+            issues.push(issue_at(
+                "python:S3329",
+                "Generate this cipher IV randomly for every encryption.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S5542 — weak cipher modes and paddings -----------------------------
+
+const WEAK_MODE_OR_PADDING_NAMES: [&str; 2] = ["MODE_ECB", "PKCS1v15"];
+
+fn check_s5542_weak_modes_and_paddings(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for name in WEAK_MODE_OR_PADDING_NAMES {
+        for_each_attr_load(parsed.syntax().body.as_slice(), name, |attr| {
+            issues.push(issue_at(
+                "python:S5542",
+                "Replace this weak cipher mode or padding scheme.",
+                attr.range(),
+                index,
+                source,
+            ));
+        });
+    }
+    issues
+}
+
+// --- python:S5547 — robust cipher algorithms ------------------------------------
+
+const WEAK_CIPHER_ALGORITHMS: [&str; 6] = ["DES", "DES3", "ARC2", "ARC4", "Blowfish", "IDEA"];
+
+fn check_s5547_weak_ciphers(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::ImportFrom(import) = stmt {
+            let crypto_module = import.module.as_ref().is_some_and(|module| {
+                module.as_str() == "Crypto.Cipher" || module.as_str().ends_with(".Crypto.Cipher")
+            });
+            if crypto_module
+                && import
+                    .names
+                    .iter()
+                    .any(|alias| WEAK_CIPHER_ALGORITHMS.contains(&alias.name.as_str()))
+            {
+                issues.push(issue_at(
+                    "python:S5547",
+                    "Replace this weak cipher algorithm with a robust one.",
+                    stmt.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let weak_construction = is_call_method(call, "new")
+            && dotted_name(&call.func).is_some_and(|p| {
+                p.rsplit_once('.')
+                    .is_some_and(|(head, _)| WEAK_CIPHER_ALGORITHMS.contains(&head))
+            });
+        if weak_construction {
+            issues.push(issue_at(
+                "python:S5547",
+                "Replace this weak cipher algorithm with a robust one.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S5659 — JWT signed and verified -------------------------------------
+
+fn check_s5659_jwt_signing(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let unsigned = is_call_method(call, "encode")
+            && keyword_value(&call.arguments, "algorithm")
+                .and_then(string_literal_text)
+                .is_some_and(|algorithm| algorithm == "none");
+        let unverified =
+            is_call_method(call, "decode") && !has_keyword(&call.arguments, "algorithms");
+        if unsigned || unverified {
+            issues.push(issue_at(
+                "python:S5659",
+                "Sign this JWT with a strong algorithm and verify it on decode.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+// --- python:S5344 — passwords not stored in plaintext or fast-hashed ----------
+
+const FAST_HASH_NAMES: [&str; 3] = ["md5", "sha1", "sha"];
+
+fn is_credential_name(name: &str) -> bool {
+    name_words(name).any(|word| CREDENTIAL_WORDS.contains(&word))
+}
+
+fn check_s5344_plaintext_passwords(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let hashes_password = FAST_HASH_NAMES
+            .contains(&called_name(&call.func).unwrap_or_default())
+            && call
+                .arguments
+                .args
+                .iter()
+                .chain(call.arguments.keywords.iter().map(|keyword| &keyword.value))
+                .any(|arg| matches!(arg, Expr::Name(name) if is_credential_name(name.id.as_str())));
+        if hashes_password {
+            issues.push(issue_at(
+                "python:S5344",
+                "Use a slow salted hash such as Argon2 or bcrypt for this password.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::Assign(assign) = stmt {
+            let plaintext = string_literal_text(&assign.value).is_some();
+            for target in &assign.targets {
+                if let Expr::Name(name) = target
+                    && plaintext
+                    && is_credential_name(name.id.as_str())
+                {
+                    issues.push(issue_at(
+                        "python:S5344",
+                        "Store this password through a secure derivation instead of plaintext.",
+                        assign.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S2245 — PRNGs in security contexts ---------------------------------
+
+const SECURITY_CONTEXT_WORDS: [&str; 8] = [
+    "token", "password", "secret", "key", "nonce", "salt", "cert", "auth",
+];
+const PRNG_FUNCTIONS: [&str; 8] = [
+    "random",
+    "randint",
+    "randrange",
+    "choice",
+    "choices",
+    "uniform",
+    "shuffle",
+    "sample",
+];
+
+fn check_s2245_prng_security_contexts(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::FunctionDef(function) = stmt {
+            let security_named = function
+                .name
+                .as_str()
+                .to_lowercase()
+                .split('_')
+                .any(|word| SECURITY_CONTEXT_WORDS.contains(&word));
+            if !security_named {
+                return;
+            }
+            for_each_call(function.body.as_slice(), &mut |call| {
+                let uses_prng = PRNG_FUNCTIONS
+                    .contains(&called_name(&call.func).unwrap_or_default())
+                    || dotted_name(&call.func).is_some_and(|path| path.starts_with("random."));
+                if uses_prng {
+                    issues.push(issue_at(
+                        "python:S2245",
+                        "Use a cryptographically secure random generator in this security context.",
+                        call.range(),
+                        index,
+                        source,
+                    ));
+                }
+            });
+        }
+    });
+    issues
+}
+
+// --- python:S5443 — temporary files in publicly writable directories -----------
+
+const PUBLIC_TEMP_PREFIXES: [&str; 3] = ["/tmp/", "/var/tmp/", "/dev/shm"];
+
+fn check_s5443_public_temp_files(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let public_temp = called_name(&call.func) == Some("open")
+            && call
+                .arguments
+                .args
+                .first()
+                .and_then(string_literal_text)
+                .is_some_and(|path| {
+                    PUBLIC_TEMP_PREFIXES
+                        .iter()
+                        .any(|prefix| path.starts_with(prefix))
+                });
+        if public_temp {
+            issues.push(issue_at(
+                "python:S5443",
+                "Create this temporary file in a directory with restricted permissions.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S2755 — XML parsers vulnerable to XXE -------------------------------
+
+const XXE_PARSER_CALLS: [&str; 12] = [
+    "xml.etree.ElementTree.parse",
+    "xml.etree.ElementTree.fromstring",
+    "xml.etree.ElementTree.XMLParser",
+    "lxml.etree.parse",
+    "lxml.etree.fromstring",
+    "xml.dom.minidom.parse",
+    "xml.dom.minidom.parseString",
+    "xml.sax.parse",
+    "xml.sax.parseString",
+    "ET.parse",
+    "ET.fromstring",
+    "ET.XMLParser",
+];
+
+fn check_s2755_xxe_parsers(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    const XXE_ALIASES: [&str; 6] = [
+        ("etree.parse"),
+        ("etree.fromstring"),
+        ("minidom.parse"),
+        ("minidom.parseString"),
+        ("sax.parse"),
+        ("sax.parseString"),
+    ];
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let unsafe_parser = dotted_name(&call.func).is_some_and(|path| {
+            XXE_PARSER_CALLS.contains(&path.as_str())
+                || XXE_ALIASES.iter().any(|alias| path.ends_with(alias))
+        });
+        if unsafe_parser {
+            issues.push(issue_at(
+                "python:S2755",
+                "Disable external entity resolution or use a defused XML parser here.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6377 — XML signatures validated securely ---------------------------
+
+const WEAK_XML_DIGEST_URI: &str = "http://www.w3.org/2001/04/xmldsig-more#md5";
+
+fn check_s6377_weak_xml_signature_transforms(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_attr_load(parsed.syntax().body.as_slice(), "TransformMd5", |attr| {
+        issues.push(issue_at(
+            "python:S6377",
+            "Validate this XML signature with a strong digest algorithm.",
+            attr.range(),
+            index,
+            source,
+        ));
+    });
+    for (text, range) in collect_string_contents(parsed.syntax().body.as_slice()) {
+        if text == WEAK_XML_DIGEST_URI {
+            issues.push(issue_at(
+                "python:S6377",
+                "Validate this XML signature with a strong digest algorithm.",
+                range,
+                index,
+                source,
+            ));
+        }
+    }
+    issues
+}
+
+// --- python:S4828 — OS process signal parameters validated ----------------------
+
+fn check_s4828_signal_parameters(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let raw_signal = match called_name(&call.func) {
+            Some("signal") => call.arguments.args.first().and_then(int_literal_value),
+            Some("kill") => call.arguments.args.get(1).and_then(int_literal_value),
+            _ => None,
+        }
+        .is_some();
+        if raw_signal {
+            issues.push(issue_at(
+                "python:S4828",
+                "Validate this signal parameter against the symbolic SIG constants.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S1523 — dynamic code execution with user-controlled data -----------
+
+fn check_s1523_dynamic_code_execution(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let dynamic_exec = matches!(called_name(&call.func), Some("eval" | "exec"))
+            && !call
+                .arguments
+                .args
+                .first()
+                .is_some_and(is_static_text_literal);
+        if dynamic_exec {
+            issues.push(issue_at(
+                "python:S1523",
+                "Make sure that this dynamically executed code cannot be attacker-controlled.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S2257 — custom cryptographic algorithms -----------------------------
+
+const CUSTOM_CRYPTO_NAME_WORDS: [&str; 7] =
+    ["encrypt", "decrypt", "cipher", "xor", "crypt", "rc4", "des"];
+
+fn contains_bitwise_xor(suite: &[Stmt]) -> bool {
+    let mut found = false;
+    for_each_stmt_expr(suite, &mut |expr| {
+        if let Expr::BinOp(binop) = expr
+            && matches!(binop.op, ruff_python_ast::Operator::BitXor)
+        {
+            found = true;
+        }
+    });
+    found
+}
+
+fn check_s2257_custom_cryptography(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::FunctionDef(function) = stmt {
+            let crypto_named = function
+                .name
+                .as_str()
+                .to_lowercase()
+                .split('_')
+                .any(|word| {
+                    CUSTOM_CRYPTO_NAME_WORDS
+                        .iter()
+                        .any(|candidate| word.contains(candidate))
+                });
+            if crypto_named && contains_bitwise_xor(function.body.as_slice()) {
+                issues.push(issue_at(
+                    "python:S2257",
+                    "Use a standard cryptographic library implementation instead of this hand-rolled cipher.",
+                    stmt.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+// --- AWS call-shape helpers ----------------------------------------------------
+
+/// Source slice of a whole call expression (name-table text searches).
+fn call_source_text<'a>(call: &ruff_python_ast::ExprCall, source: &'a str) -> &'a str {
+    let range = call.range();
+    source
+        .get(range.start().to_usize()..range.end().to_usize())
+        .unwrap_or_default()
+}
+
+fn for_each_dict_literal(stmts: &[Stmt], visit: &mut dyn FnMut(&ruff_python_ast::ExprDict)) {
+    for_each_stmt_expr(stmts, &mut |expr| {
+        if let Expr::Dict(dict) = expr {
+            visit(dict);
+        }
+    });
+}
+
+fn dict_string_entry<'a>(dict: &'a ruff_python_ast::ExprDict, key: &str) -> Option<&'a Expr> {
+    dict.items.iter().find_map(|item| {
+        item.key
+            .as_ref()
+            .and_then(string_literal_text)
+            .filter(|text| text == key)
+            .map(|_| &item.value)
+    })
+}
+
+fn is_wildcard_string(expr: &Expr) -> bool {
+    string_literal_text(expr).as_deref() == Some("*")
+}
+
+/// Whether the value is `"*"` or a mapping whose `"AWS"` entry is `"*"`.
+fn grants_to_all_principals(expr: &Expr) -> bool {
+    match expr {
+        Expr::Dict(dict) => dict_string_entry(dict, "AWS").is_some_and(is_wildcard_string),
+        _ => is_wildcard_string(expr),
+    }
+}
+
+/// Whether the value is `"*"` or a list containing `"*"`.
+fn includes_wildcard(expr: &Expr) -> bool {
+    match expr {
+        Expr::List(list) => list.elts.iter().any(is_wildcard_string),
+        _ => is_wildcard_string(expr),
+    }
+}
+
+// --- python:S6785 — GraphQL queries vulnerable to DoS ---------------------------
+//
+// Honest subset: GraphQL `Schema(...)` constructions (recognized through their
+// `query`/`mutation` keyword arguments) that nowhere reference a depth-limiting
+// extension such as `QueryDepthLimiter`.
+
+fn check_s6785_graphql_depth_limiting(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if called_name(&call.func) != Some("Schema") {
+            return;
+        }
+        let graphql_schema =
+            has_keyword(&call.arguments, "query") || has_keyword(&call.arguments, "mutation");
+        let depth_limited = call_source_text(call, source).contains("DepthLimiter");
+        if graphql_schema && !depth_limited {
+            issues.push(issue_at(
+                "python:S6785",
+                "Add depth limiting to this GraphQL schema construction.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6245 — S3 buckets should have server-side encryption ---------------
+
+fn check_s6245_s3_encryption_configuration(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if called_name(&call.func) == Some("create_bucket")
+            && !has_keyword(&call.arguments, "ServerSideEncryptionConfiguration")
+        {
+            issues.push(issue_at(
+                "python:S6245",
+                "Enable server-side encryption for this S3 bucket.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6252 — S3 buckets should have versioning enabled -------------------
+
+fn check_s6252_s3_versioning(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if called_name(&call.func) == Some("put_bucket_versioning")
+            && !has_keyword(&call.arguments, "VersioningConfiguration")
+        {
+            issues.push(issue_at(
+                "python:S6252",
+                "Enable versioning for this S3 bucket.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6265 — S3 buckets not granted to all users -------------------------
+
+const ALL_USERS_GRANT_URI: &str = "http://acs.amazonaws.com/groups/global/AllUsers";
+
+fn check_s6265_s3_public_acl(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let public_acl = keyword_value(&call.arguments, "ACL")
+            .and_then(string_literal_text)
+            .is_some_and(|acl| acl.starts_with("public-"))
+            || call.arguments.keywords.iter().any(|keyword| {
+                matches!(
+                    keyword
+                        .arg
+                        .as_ref()
+                        .map(ruff_python_ast::Identifier::as_str),
+                    Some("GrantFullControl" | "GrantRead")
+                ) && string_literal_text(&keyword.value)
+                    .is_some_and(|grant| grant.contains(ALL_USERS_GRANT_URI))
+            });
+        if public_acl {
+            issues.push(issue_at(
+                "python:S6265",
+                "Do not grant this S3 bucket access to all users.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6270 — resource-based policies granting public access --------------
+
+fn check_s6270_public_resource_policy(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_dict_literal(parsed.syntax().body.as_slice(), &mut |dict| {
+        if dict_string_entry(dict, "Principal").is_some_and(grants_to_all_principals) {
+            issues.push(issue_at(
+                "python:S6270",
+                "Restrict this resource policy instead of granting public access.",
+                dict.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6302 — policies granting all privileges -----------------------------
+
+fn check_s6302_all_privileges_policy(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_dict_literal(parsed.syntax().body.as_slice(), &mut |dict| {
+        if dict_string_entry(dict, "Action").is_some_and(includes_wildcard) {
+            issues.push(issue_at(
+                "python:S6302",
+                "Scope this policy's actions instead of granting all privileges.",
+                dict.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6275 — EBS volumes encrypted ----------------------------------------
+
+fn check_s6275_ebs_encryption(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let unencrypted_volume = match called_name(&call.func) {
+            Some("create_volume") => {
+                !has_keyword(&call.arguments, "Encrypted")
+                    || keyword_value(&call.arguments, "Encrypted").is_some_and(is_false_literal)
+            }
+            Some("run_instances") => {
+                has_keyword(&call.arguments, "BlockDeviceMappings")
+                    && !call_source_text(call, source).contains("Encrypted")
+            }
+            _ => false,
+        };
+        if unencrypted_volume {
+            issues.push(issue_at(
+                "python:S6275",
+                "Encrypt this EBS volume at rest.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6281 — S3 public access fully blocked --------------------------------
+
+const PUBLIC_ACCESS_BLOCK_KEYS: [&str; 4] = [
+    "BlockPublicAcls",
+    "BlockPublicPolicy",
+    "IgnorePublicAcls",
+    "RestrictPublicBuckets",
+];
+
+fn check_s6281_s3_public_access_block(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if called_name(&call.func) != Some("put_public_access_block") {
+            return;
+        }
+        let call_text = call_source_text(call, source);
+        let fully_blocked = PUBLIC_ACCESS_BLOCK_KEYS
+            .iter()
+            .all(|key| call_text.contains(key));
+        if !fully_blocked {
+            issues.push(issue_at(
+                "python:S6281",
+                "Block all four public access settings for this S3 bucket.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+// --- AWS policy-dict subtree helpers --------------------------------------------
+
+fn call_subtree_dicts(call: &ruff_python_ast::ExprCall) -> Vec<&ruff_python_ast::ExprDict> {
+    let mut found = Vec::new();
+    let mut stack: Vec<&Expr> = call.arguments.args.iter().collect();
+    stack.extend(call.arguments.keywords.iter().map(|keyword| &keyword.value));
+    while let Some(expr) = stack.pop() {
+        if let Expr::Dict(dict) = expr {
+            found.push(dict);
+        }
+        stack.extend(child_exprs(expr));
+    }
+    found
+}
+
+/// Whether any call-subtree dict maps `key` to the given integer.
+fn call_subtree_has_port(call: &ruff_python_ast::ExprCall, ports: &[i64]) -> bool {
+    call_subtree_dicts(call).iter().any(|dict| {
+        ["FromPort", "ToPort"].iter().any(|key| {
+            dict_string_entry(dict, key)
+                .and_then(int_literal_value)
+                .is_some_and(|value| ports.contains(&value))
+        })
+    })
+}
+
+/// Whether any call-subtree dict maps `CidrIp` to `"0.0.0.0/0"`.
+fn call_subtree_open_world(call: &ruff_python_ast::ExprCall) -> bool {
+    call_subtree_dicts(call).iter().any(|dict| {
+        dict_string_entry(dict, "CidrIp")
+            .and_then(string_literal_text)
+            .as_deref()
+            == Some("0.0.0.0/0")
+    })
+}
+
+/// Calls carrying `<name>=True` as a keyword or inside a subtree dict.
+fn sets_true_flag(call: &ruff_python_ast::ExprCall, name: &str) -> bool {
+    if keyword_value(&call.arguments, name).is_some_and(is_true_literal) {
+        return true;
+    }
+    call_subtree_dicts(call)
+        .iter()
+        .any(|dict| dict_string_entry(dict, name).is_some_and(is_true_literal))
+}
+
+// --- python:S6304 — IAM policies scoped away from all resources -----------------
+
+fn check_s6304_all_resources_policy(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_dict_literal(parsed.syntax().body.as_slice(), &mut |dict| {
+        if dict_string_entry(dict, "Resource").is_some_and(includes_wildcard) {
+            issues.push(issue_at(
+                "python:S6304",
+                "Scope this policy to specific resources instead of all resources.",
+                dict.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6303 — RDS resources encrypted at rest ------------------------------
+
+fn check_s6303_rds_encryption(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    const RDS_CREATORS: [&str; 2] = ["create_db_instance", "create_db_cluster"];
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let unencrypted = RDS_CREATORS.contains(&called_name(&call.func).unwrap_or_default())
+            && (!has_keyword(&call.arguments, "StorageEncrypted")
+                || keyword_value(&call.arguments, "StorageEncrypted")
+                    .is_some_and(is_false_literal));
+        if unencrypted {
+            issues.push(issue_at(
+                "python:S6303",
+                "Encrypt this RDS resource at rest.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6308 — OpenSearch domains encrypted at rest --------------------------
+
+fn check_s6308_opensearch_encryption(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    const DOMAIN_CREATORS: [&str; 2] = ["create_domain", "create_elasticsearch_domain"];
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if DOMAIN_CREATORS.contains(&called_name(&call.func).unwrap_or_default())
+            && !has_keyword(&call.arguments, "EncryptionAtRestOptions")
+        {
+            issues.push(issue_at(
+                "python:S6308",
+                "Enable encryption at rest for this OpenSearch domain.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6317 — wildcard-scoped actions in policies ---------------------------
+
+fn action_scope_wildcards(value: &Expr) -> bool {
+    match value {
+        Expr::List(list) => list.elts.iter().any(action_scope_wildcards),
+        Expr::StringLiteral(_) => {
+            string_literal_text(value).is_some_and(|action| action.ends_with(":*"))
+        }
+        _ => false,
+    }
+}
+
+fn check_s6317_wildcard_action_scope(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_dict_literal(parsed.syntax().body.as_slice(), &mut |dict| {
+        if dict_string_entry(dict, "Action").is_some_and(action_scope_wildcards) {
+            issues.push(issue_at(
+                "python:S6317",
+                "Limit the scope of these IAM permissions.",
+                dict.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6319 — SageMaker notebook instances encrypted at rest ----------------
+
+fn check_s6319_sagemaker_encryption(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if called_name(&call.func) == Some("create_notebook_instance")
+            && !has_keyword(&call.arguments, "VolumeKmsKeyId")
+        {
+            issues.push(issue_at(
+                "python:S6319",
+                "Encrypt this SageMaker notebook instance at rest.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6321 — administration services restricted by IP ----------------------
+
+const ADMIN_PORTS: [i64; 2] = [22, 3389];
+
+fn check_s6321_admin_ports_open_world(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if called_name(&call.func) == Some("authorize_security_group_ingress")
+            && call_subtree_open_world(call)
+            && call_subtree_has_port(call, &ADMIN_PORTS)
+        {
+            issues.push(issue_at(
+                "python:S6321",
+                "Restrict this administrative port instead of opening it to the whole internet.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6327 — SNS topics encrypted at rest -----------------------------------
+
+fn check_s6327_sns_encryption(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if called_name(&call.func) == Some("create_topic")
+            && !has_keyword(&call.arguments, "KmsMasterKeyId")
+        {
+            issues.push(issue_at(
+                "python:S6327",
+                "Encrypt this SNS topic with a KMS key.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6329 — public network access disabled ----------------------------------
+
+const PUBLIC_NETWORK_FLAGS: [&str; 3] = [
+    "PubliclyAccessible",
+    "MapPublicIpOnLaunch",
+    "AssociatePublicIpAddress",
+];
+
+fn check_s6329_public_network_access(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if PUBLIC_NETWORK_FLAGS
+            .iter()
+            .any(|flag| sets_true_flag(call, flag))
+        {
+            issues.push(issue_at(
+                "python:S6329",
+                "Disable public network access for this resource.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+// --- python:S6330 — SQS queues encrypted ----------------------------------------
+
+fn check_s6330_sqs_encryption(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if called_name(&call.func) == Some("create_queue")
+            && !has_keyword(&call.arguments, "KmsMasterQueueId")
+        {
+            issues.push(issue_at(
+                "python:S6330",
+                "Encrypt this SQS queue with a KMS key.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6332 — EFS file systems encrypted -----------------------------------
+
+fn check_s6332_efs_encryption(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if called_name(&call.func) == Some("create_file_system")
+            && (!has_keyword(&call.arguments, "Encrypted")
+                || keyword_value(&call.arguments, "Encrypted").is_some_and(is_false_literal))
+        {
+            issues.push(issue_at(
+                "python:S6332",
+                "Encrypt this EFS file system at rest.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6333 — API Gateway requests authenticated ----------------------------
+
+fn check_s6333_api_gateway_authorization(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let open_auth = ["AuthorizationType", "authorizationType"]
+            .iter()
+            .find_map(|name| keyword_value(&call.arguments, name))
+            .and_then(string_literal_text)
+            .is_some_and(|value| value == "NONE");
+        if open_auth {
+            issues.push(issue_at(
+                "python:S6333",
+                "Require authentication for this API Gateway method.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S6463 — security groups unrestricted egress ----------------------------
+
+fn check_s6463_unrestricted_egress(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        if called_name(&call.func) == Some("authorize_security_group_egress")
+            && call_subtree_open_world(call)
+        {
+            issues.push(issue_at(
+                "python:S6463",
+                "Restrict this security group's egress traffic.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S3752 — HTTP routes restrict allowed methods ---------------------------
+
+fn check_s3752_route_methods(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        let wildcard_method = called_name(&call.func) == Some("add_route")
+            && call
+                .arguments
+                .args
+                .first()
+                .and_then(string_literal_text)
+                .is_some_and(|method| method == "*");
+        let kitchen_sink = matches!(called_name(&call.func), Some("route" | "add_url_rule"))
+            && keyword_value(&call.arguments, "methods").is_some_and(|methods| match methods {
+                Expr::List(list) => list.elts.len() >= 5,
+                _ => false,
+            });
+        if wildcard_method || kitchen_sink {
+            issues.push(issue_at(
+                "python:S3752",
+                "Restrict this HTTP route to the methods it actually supports.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- literal-kind classification for operator rules --------------------------------
+
+/// Coarse builtin kind of an expression when it is a plain literal; `bool`
+/// and `None` are distinct because identity against them is idiomatic.
+fn literal_kind(expr: &Expr) -> Option<&'static str> {
+    match expr {
+        Expr::NumberLiteral(_) => Some("number"),
+        Expr::StringLiteral(_) | Expr::FString(_) => Some("string"),
+        Expr::BytesLiteral(_) => Some("bytes"),
+        Expr::List(_) => Some("list"),
+        Expr::Tuple(_) => Some("tuple"),
+        Expr::Set(_) => Some("set"),
+        Expr::Dict(_) => Some("dict"),
+        Expr::BooleanLiteral(_) => Some("boolean"),
+        Expr::NoneLiteral(_) => Some("none"),
+        _ => None,
+    }
+}
+
+fn is_identity_op(op: ruff_python_ast::CmpOp) -> bool {
+    matches!(
+        op,
+        ruff_python_ast::CmpOp::Is | ruff_python_ast::CmpOp::IsNot
+    )
+}
+
+/// `(op, lhs, rhs)` pairs of a comparison expression.
+fn comparison_pairs(
+    compare: &ruff_python_ast::ExprCompare,
+) -> Vec<(ruff_python_ast::CmpOp, &Expr, &Expr)> {
+    let mut pairs = Vec::new();
+    let mut lhs = compare.left.as_ref();
+    for (op, rhs) in compare.ops.iter().zip(compare.comparators.iter()) {
+        pairs.push((*op, lhs, rhs));
+        lhs = rhs;
+    }
+    pairs
+}
+
+// --- python:S5795 — identity comparisons with cached types -------------------------
+
+const IDENTITY_UNSAFE_KINDS: [&str; 3] = ["number", "string", "bytes"];
+
+fn check_s5795_identity_cached_types(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        if let Expr::Compare(compare) = expr {
+            for (op, lhs, rhs) in comparison_pairs(compare) {
+                let unsafe_side = |e: &Expr| {
+                    literal_kind(e).is_some_and(|kind| IDENTITY_UNSAFE_KINDS.contains(&kind))
+                };
+                if is_identity_op(op) && (unsafe_side(lhs) || unsafe_side(rhs)) {
+                    issues.push(issue_at(
+                        "python:S5795",
+                        "Compare these values with `==` instead of identity operators.",
+                        expr.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S3403 — identity comparisons of dissimilar types -----------------------
+
+fn check_s3403_identity_dissimilar_types(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        if let Expr::Compare(compare) = expr {
+            for (op, lhs, rhs) in comparison_pairs(compare) {
+                let mismatch = match (literal_kind(lhs), literal_kind(rhs)) {
+                    (Some(left), Some(right)) => left != right,
+                    _ => false,
+                };
+                if is_identity_op(op) && mismatch {
+                    issues.push(issue_at(
+                        "python:S3403",
+                        "These literals have different types and can never be identical.",
+                        expr.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S6663 — sequence indexes must provide __index__ ------------------------
+
+fn is_float_literal(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::NumberLiteral(number)
+            if matches!(number.value, ruff_python_ast::Number::Float(_))
+    )
+}
+
+fn check_s6663_sequence_index_type(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    const SEQUENCE_LITERALS: [&str; 3] = ["list", "tuple", "string"];
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        if let Expr::Subscript(subscript) = expr {
+            let sequence_kind = literal_kind(subscript.value.as_ref());
+            let index_kind = literal_kind(subscript.slice.as_ref());
+            let bad_index = matches!(index_kind, Some("string" | "bytes"))
+                || is_float_literal(subscript.slice.as_ref());
+            if SEQUENCE_LITERALS.contains(&sequence_kind.unwrap_or_default()) && bad_index {
+                issues.push(issue_at(
+                    "python:S6663",
+                    "Use an integer index into this sequence.",
+                    expr.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+// --- literal-kind helpers for the operator/exception family ---------------------
+
+/// Kinds that support neither membership, item access, nor iteration.
+const NON_SUPPORTING_KINDS: [&str; 2] = ["number", "boolean"];
+
+fn is_non_supporting_kind(kind: &str) -> bool {
+    NON_SUPPORTING_KINDS.contains(&kind)
+}
+
+/// Whether `raise <expr>` / `from <expr>` / `except <expr>` is a plain literal
+/// that cannot behave like an exception (tuples excluded for legacy forms).
+fn is_non_exception_literal(expr: &Expr) -> bool {
+    literal_kind(expr).is_some_and(|kind| {
+        matches!(
+            kind,
+            "number" | "string" | "bytes" | "boolean" | "list" | "set" | "dict"
+        )
+    })
+}
+
+fn is_arithmetic_op(op: ruff_python_ast::Operator) -> bool {
+    matches!(
+        op,
+        ruff_python_ast::Operator::Add
+            | ruff_python_ast::Operator::Sub
+            | ruff_python_ast::Operator::Mult
+            | ruff_python_ast::Operator::Div
+            | ruff_python_ast::Operator::FloorDiv
+            | ruff_python_ast::Operator::Mod
+            | ruff_python_ast::Operator::Pow
+            | ruff_python_ast::Operator::LShift
+            | ruff_python_ast::Operator::RShift
+            | ruff_python_ast::Operator::BitAnd
+            | ruff_python_ast::Operator::BitOr
+            | ruff_python_ast::Operator::BitXor
+    )
+}
+
+/// Conservative invalidity table for arithmetic between two plain literals.
+fn binop_literal_invalid(op: ruff_python_ast::Operator, left: &str, right: &str) -> bool {
+    let sequence_like = |kind: &str| matches!(kind, "string" | "bytes" | "list" | "tuple");
+    if left == "none"
+        || right == "none"
+        || left == "dict"
+        || right == "dict"
+        || left == "set"
+        || right == "set"
+    {
+        return true;
+    }
+    if left == right && matches!(left, "string" | "bytes") {
+        return !matches!(op, ruff_python_ast::Operator::Add);
+    }
+    if left == right && matches!(left, "list" | "tuple") {
+        return !matches!(op, ruff_python_ast::Operator::Add);
+    }
+    let seq_num =
+        sequence_like(left) && right == "number" || sequence_like(right) && left == "number";
+    if seq_num {
+        return !matches!(op, ruff_python_ast::Operator::Mult);
+    }
+    // Remaining cross-kind pairs (e.g. string with list) are always invalid.
+    left != right
+}
+
+// --- python:S5642 — membership tests on unsupported operands ---------------------
+
+fn check_s5642_membership_operands(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        if let Expr::Compare(compare) = expr {
+            for (op, _, rhs) in comparison_pairs(compare) {
+                let unsupported = matches!(
+                    op,
+                    ruff_python_ast::CmpOp::In | ruff_python_ast::CmpOp::NotIn
+                ) && literal_kind(rhs).is_some_and(is_non_supporting_kind);
+                if unsupported {
+                    issues.push(issue_at(
+                        "python:S5642",
+                        "The right operand of this membership test does not support it.",
+                        expr.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S5644 — item operations on literals -----------------------------------
+
+fn check_s5644_literal_item_operations(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        if let Expr::Subscript(subscript) = expr
+            && literal_kind(subscript.value.as_ref()).is_some_and(is_non_supporting_kind)
+        {
+            issues.push(issue_at(
+                "python:S5644",
+                "This value does not support item access.",
+                expr.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S3862 — iterating non-iterables ---------------------------------------
+
+fn check_s3862_iterating_non_iterables(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let bad_iter = match stmt {
+            Stmt::For(loop_) => Some(loop_.iter.as_ref()),
+            _ => None,
+        };
+        let bad_yield = stmt_exprs(stmt).into_iter().any(|expr| {
+            matches!(expr, Expr::YieldFrom(yield_from)
+                if literal_kind(yield_from.value.as_ref()).is_some_and(is_non_supporting_kind))
+        });
+        let non_iterable = bad_yield
+            || bad_iter.is_some_and(|iter| {
+                literal_kind(iter).is_some_and(is_non_supporting_kind)
+                    || matches!(iter, Expr::Call(call) if called_name(&call.func).is_some_and(|name| matches!(name, "len" | "int")))
+            });
+        if non_iterable {
+            issues.push(issue_at(
+                "python:S3862",
+                "Iterate over an object that supports iteration.",
+                stmt.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S5607 — operators between incompatible literal types -------------------
+
+fn check_s5607_incompatible_operator_pairs(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+        if let Expr::BinOp(binop) = expr {
+            if !is_arithmetic_op(binop.op) {
+                return;
+            }
+            if let (Some(left), Some(right)) = (
+                literal_kind(binop.left.as_ref()),
+                literal_kind(binop.right.as_ref()),
+            ) && binop_literal_invalid(binop.op, left, right)
+            {
+                issues.push(issue_at(
+                    "python:S5607",
+                    "These operand types do not support this operator.",
+                    expr.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+    });
+    issues
+}
+
+// --- python:S6662 — unhashable set members and dict keys ---------------------------
+
+const UNHASHABLE_KINDS: [&str; 3] = ["list", "set", "dict"];
+
+fn check_s6662_unhashable_collection_literals(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let unhashable =
+        |expr: &Expr| literal_kind(expr).is_some_and(|kind| UNHASHABLE_KINDS.contains(&kind));
+    let mut issues = Vec::new();
+    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| match expr {
+        Expr::Set(set) => {
+            for element in set.elts.iter().filter(|element| unhashable(element)) {
+                issues.push(issue_at(
+                    "python:S6662",
+                    "This set member is not hashable.",
+                    element.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+        Expr::Dict(dict) => {
+            for item in &dict.items {
+                if let Some(key) = item.key.as_ref()
+                    && unhashable(key)
+                {
+                    issues.push(issue_at(
+                        "python:S6662",
+                        "This dictionary key is not hashable.",
+                        key.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        }
+        _ => {}
+    });
+    issues
+}
+
+// --- python:S5707 — "__cause__" must be an exception or None -----------------------
+
+fn check_s5707_raise_from_non_exception(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::Raise(raise) = stmt
+            && let Some(cause) = raise.cause.as_ref()
+            && is_non_exception_literal(cause)
+        {
+            issues.push(issue_at(
+                "python:S5707",
+                "Raise from an exception instance or None instead of this value.",
+                cause.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S5632 — raised values derive from BaseException ------------------------
+
+fn check_s5632_raising_non_exceptions(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::Raise(raise) = stmt
+            && let Some(exc) = raise.exc.as_ref()
+            && is_non_exception_literal(exc)
+        {
+            issues.push(issue_at(
+                "python:S5632",
+                "Raise an exception derived from BaseException.",
+                exc.range(),
+                index,
+                source,
+            ));
+        }
+    });
+    issues
+}
+
+// --- python:S5708 — caught values derive from BaseException ------------------------
+
+fn check_s5708_excepting_non_exceptions(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::Try(try_) = stmt {
+            for handler in &try_.handlers {
+                let ExceptHandler::ExceptHandler(inner) = handler;
+                if let Some(handled) = inner.type_.as_ref()
+                    && is_non_exception_literal(handled)
+                {
+                    issues.push(issue_at(
+                        "python:S5708",
+                        "Catch an exception derived from BaseException.",
+                        handled.range(),
+                        index,
+                        source,
+                    ));
+                }
+            }
+        }
+    });
+    issues
+}
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -16396,5 +18872,779 @@ mod tests {
         assert!(!regex_finds(compliant, "python:S5860"));
         // Without any named groups in the file there is no signal.
         assert!(!regex_finds("matches.group('anything')\n", "python:S5860"));
+    }
+
+    #[test]
+    fn s4792_flags_logger_configuration_apis() {
+        let flagged = concat!(
+            "import logging.config\n",
+            "logging.config.dictConfig({})\n",
+            "logging.config.fileConfig(\"log.ini\")\n",
+            "logging.basicConfig(handlers=[h])\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S4792").len(), 3);
+        let clean = concat!(
+            "import logging\n",
+            "logging.basicConfig(level=\"INFO\")\n",
+            "logging.info(\"hello\")\n"
+        );
+        assert!(findings(&scan(clean), "python:S4792").is_empty());
+    }
+
+    #[test]
+    fn s4823_flags_command_line_argument_access() {
+        let flagged = "import sys\nprint(sys.argv[1])\nfrom sys import argv\n";
+        assert_eq!(findings(&scan(flagged), "python:S4823").len(), 2);
+        assert!(findings(&scan("print(sys.version)\n"), "python:S4823").is_empty());
+    }
+
+    #[test]
+    fn s4829_flags_standard_input_reads() {
+        let flagged = "name = input()\ndata = sys.stdin.read()\n";
+        assert_eq!(findings(&scan(flagged), "python:S4829").len(), 2);
+        assert!(
+            findings(
+                &scan("sys.stdout.write(\"x\")\nsys.stderr.flush()\n"),
+                "python:S4829"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s4787_flags_encryption_api_constructions() {
+        let flagged = concat!(
+            "aes = AES.new(key)\n",
+            "f = Fernet(secret)\n",
+            "c = cryptography.hazmat.primitives.ciphers.Cipher(a, b)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S4787").len(), 3);
+        assert!(
+            findings(
+                &scan("digest = hashlib.sha256(b\"data\")\n"),
+                "python:S4787"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s5300_flags_email_sending_apis() {
+        let flagged = concat!(
+            "client = smtplib.SMTP(host)\n",
+            "client.sendmail(sender, to, msg)\n",
+            "server.send_message(msg)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S5300").len(), 3);
+        assert!(findings(&scan("sock.sendall(b\"x\")\n"), "python:S5300").is_empty());
+    }
+
+    #[test]
+    fn s4721_flags_shell_interpreter_usage() {
+        let flagged = concat!(
+            "subprocess.run(cmd, shell=True)\n",
+            "os.system(cmd)\n",
+            "os.popen(cmd)\n",
+            "subprocess.Popen(cmd, shell=True)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S4721").len(), 4);
+        assert!(
+            findings(
+                &scan(concat!(
+                    "subprocess.run([\"ls\"], shell=False)\n",
+                    "os.getcwd()\n"
+                )),
+                "python:S4721"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s4830_flags_disabled_certificate_verification() {
+        let flagged = concat!(
+            "requests.get(url, verify=False)\n",
+            "ctx = ssl._create_unverified_context()\n",
+            "ctx.verify_mode = ssl.CERT_NONE\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S4830").len(), 3);
+        assert!(findings(&scan("requests.get(url)\n"), "python:S4830").is_empty());
+    }
+
+    #[test]
+    fn s5527_flags_disabled_hostname_verification() {
+        let flagged = concat!(
+            "ctx.check_hostname = False\n",
+            "http.post(url, verify=False)\n",
+            "wrap(sock, check_hostname=False)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S5527").len(), 3);
+        let clean = concat!("ctx.check_hostname = True\n", "http.post(url)\n");
+        assert!(findings(&scan(clean), "python:S5527").is_empty());
+    }
+
+    #[test]
+    fn s4423_flags_weak_ssl_protocol_constants() {
+        let flagged = concat!(
+            "ctx = ssl.SSLContext(ssl.PROTOCOL_SSLv3)\n",
+            "wrap(sock, ssl_version=ssl.PROTOCOL_TLSv1)\n",
+            "v = ssl.PROTOCOL_SSLv2\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S4423").len(), 3);
+        let clean = concat!(
+            "ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)\n",
+            "v2 = ssl.PROTOCOL_TLSv1_2\n"
+        );
+        assert!(findings(&scan(clean), "python:S4423").is_empty());
+    }
+
+    #[test]
+    fn s4426_flags_weak_key_generation_parameters() {
+        let flagged = concat!(
+            "RSA.generate(1024)\n",
+            "DSA.generate(1024)\n",
+            "ec.generate_private_key(ec.SECP192R1())\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S4426").len(), 3);
+        let clean = concat!(
+            "RSA.generate(4096)\n",
+            "ec.generate_private_key(ec.SECP384R1())\n"
+        );
+        assert!(findings(&scan(clean), "python:S4426").is_empty());
+    }
+
+    #[test]
+    fn s2092_requires_secure_cookie_flag() {
+        let flagged = concat!(
+            "resp.set_cookie(\"k\", \"v\")\n",
+            "resp.set_cookie(\"k\", \"v\", secure=False)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S2092").len(), 2);
+        assert!(
+            findings(
+                &scan("resp.set_cookie(\"k\", \"v\", secure=True)\n"),
+                "python:S2092"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s3330_requires_httponly_cookie_flag() {
+        let flagged =
+            "resp.set_cookie(\"k\", \"v\")\nresp.set_cookie(\"k\", \"v\", httponly=False)\n";
+        assert_eq!(findings(&scan(flagged), "python:S3330").len(), 2);
+        assert!(
+            findings(
+                &scan("resp.set_cookie(\"k\", \"v\", httponly=True)\n"),
+                "python:S3330"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s4502_flags_csrf_exempt_decorators() {
+        let flagged = "@csrf_exempt\ndef view(request):\n    return None\n";
+        assert_eq!(findings(&scan(flagged), "python:S4502").len(), 1);
+        let clean = "@login_required\ndef view(request):\n    return None\n";
+        assert!(findings(&scan(clean), "python:S4502").is_empty());
+    }
+
+    #[test]
+    fn s5122_flags_wildcard_cors_origins() {
+        let flagged = concat!(
+            "CORS(app, origins=\"*\")\n",
+            "headers = {\"Access-Control-Allow-Origin\": \"*\"}\n",
+            "resp.headers[\"Access-Control-Allow-Origin\"] = \"*\"\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S5122").len(), 3);
+        let clean = concat!(
+            "CORS(app, origins=\"https://example.com\")\n",
+            "headers = {\"Access-Control-Allow-Origin\": \"https://example.com\"}\n"
+        );
+        assert!(findings(&scan(clean), "python:S5122").is_empty());
+    }
+
+    #[test]
+    fn s5247_flags_autoescaping_disabled_calls() {
+        let flagged = concat!(
+            "env = Environment(autoescape=False)\n",
+            "sa = select_autoescape(enabled=False)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S5247").len(), 2);
+        let clean = concat!(
+            "env = Environment(autoescape=True)\n",
+            "env2 = Environment(loader=loader)\n"
+        );
+        assert!(findings(&scan(clean), "python:S5247").is_empty());
+    }
+
+    #[test]
+    fn s5439_flags_only_global_autoescape_disable() {
+        let module_level = "env = Environment(autoescape=False)\n";
+        assert_eq!(findings(&scan(module_level), "python:S5439").len(), 1);
+        let nested = "def build():\n    return Environment(autoescape=False)\n";
+        assert!(findings(&scan(nested), "python:S5439").is_empty());
+    }
+
+    #[test]
+    fn s4433_flags_unauthenticated_ldap_searches() {
+        let flagged = "con = ldap.initialize(url)\ncon.search_s(base, scope)\n";
+        assert_eq!(findings(&scan(flagged), "python:S4433").len(), 1);
+        let clean = concat!(
+            "con = ldap.initialize(url)\n",
+            "con.simple_bind_s(\"user\", \"secret\")\n",
+            "con.search_s(base, scope)\n"
+        );
+        assert!(findings(&scan(clean), "python:S4433").is_empty());
+        assert_eq!(
+            findings(&scan("ldap.simple_bind(\"\", \"\")\n"), "python:S4433").len(),
+            1
+        );
+    }
+
+    #[test]
+    fn s2115_flags_empty_database_passwords() {
+        let flagged = concat!(
+            "psycopg2.connect(dsn, password=\"\")\n",
+            "mysql.connector.connect(passwd=\"\")\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S2115").len(), 2);
+        assert!(
+            findings(
+                &scan("psycopg2.connect(dsn, password=\"s3cret\")\n"),
+                "python:S2115"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s2077_flags_formatted_sql_queries() {
+        let flagged = concat!(
+            "q = \"SELECT * FROM t WHERE id=%s\" % uid\n",
+            "q2 = \"SELECT * FROM u WHERE n='{}'\".format(name)\n",
+            "q3 = f\"SELECT * FROM t WHERE id={uid}\"\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S2077").len(), 3);
+        let clean = concat!(
+            "cursor.execute(\"SELECT * FROM t\")\n",
+            "msg = \"hi %s\" % name\n"
+        );
+        assert!(findings(&scan(clean), "python:S2077").is_empty());
+    }
+
+    #[test]
+    fn s2053_flags_short_static_salts() {
+        let flagged = concat!(
+            "hashlib.pbkdf2_hmac(\"sha256\", pw, b\"salt\", 100000)\n",
+            "hashlib.scrypt(pw, salt=b\"staticsalt\")\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S2053").len(), 2);
+        let clean = concat!(
+            "hashlib.pbkdf2_hmac(\"sha256\", pw, os.urandom(16), 100000)\n",
+            "hashlib.pbkdf2_hmac(\"sha256\", pw, b\"a-32-byte-salt-of-random-data!!\", 100000)\n"
+        );
+        assert!(findings(&scan(clean), "python:S2053").is_empty());
+    }
+
+    #[test]
+    fn s3329_flags_static_cbc_ivs() {
+        let flagged = concat!(
+            "AES.new(k, AES.MODE_CBC, iv=b\"0123456789abcdef\")\n",
+            "c = Cipher(a, modes.CBC(b\"staticiv12345\"))\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S3329").len(), 2);
+        assert!(
+            findings(
+                &scan("AES.new(k, AES.MODE_CBC, iv=os.urandom(16))\n"),
+                "python:S3329"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s5542_flags_ecb_mode_and_weak_padding() {
+        let flagged = "c = AES.new(k, AES.MODE_ECB)\np = padding.PKCS1v15()\n";
+        assert_eq!(findings(&scan(flagged), "python:S5542").len(), 2);
+        let clean = "g = AES.new(k, AES.MODE_GCM)\no = padding.OAEP(mgf=mgf1)\n";
+        assert!(findings(&scan(clean), "python:S5542").is_empty());
+    }
+
+    #[test]
+    fn s5547_flags_weak_cipher_imports_and_constructors() {
+        let flagged = concat!(
+            "from Crypto.Cipher import DES\n",
+            "c = DES.new(key, mode)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S5547").len(), 2);
+        let clean = concat!(
+            "from Crypto.Cipher import AES\n",
+            "c = AES.new(key, mode)\n"
+        );
+        assert!(findings(&scan(clean), "python:S5547").is_empty());
+    }
+
+    #[test]
+    fn s5659_flags_unsigned_and_unverified_jwt() {
+        let flagged = concat!(
+            "t = jwt.encode(p, k, algorithm=\"none\")\n",
+            "c = jwt.decode(t, k)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S5659").len(), 2);
+        let clean = concat!(
+            "t = jwt.encode(p, k, algorithm=\"HS256\")\n",
+            "c = jwt.decode(t, k, algorithms=[\"HS256\"])\n"
+        );
+        assert!(findings(&scan(clean), "python:S5659").is_empty());
+    }
+
+    #[test]
+    fn s5344_flags_plaintext_and_fast_hashed_passwords() {
+        let flagged = concat!(
+            "password = \"hunter2\"\n",
+            "digest = md5(password_bytes)\n",
+            "h = hashlib.sha1(user_password)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S5344").len(), 3);
+        let clean = concat!(
+            "digest = hashlib.sha256(data)\n",
+            "token = secrets.token_hex(32)\n"
+        );
+        assert!(findings(&scan(clean), "python:S5344").is_empty());
+    }
+
+    #[test]
+    fn s2245_flags_prng_in_security_named_functions() {
+        let flagged = concat!(
+            "def make_token(user):\n",
+            "    return random.randint(0, 999999)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S2245").len(), 1);
+        let clean = concat!(
+            "def make_token(user):\n",
+            "    return secrets.token_hex(32)\n",
+            "def stats(sample):\n",
+            "    return random.randint(0, 10)\n"
+        );
+        assert!(findings(&scan(clean), "python:S2245").is_empty());
+    }
+
+    #[test]
+    fn s5443_flags_temp_files_in_public_directories() {
+        let flagged = concat!(
+            "open(\"/tmp/app.log\", \"w\")\n",
+            "open(\"/var/tmp/data.csv\")\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S5443").len(), 2);
+        let clean = concat!("open(\"app.log\")\n", "tempfile.NamedTemporaryFile()\n");
+        assert!(findings(&scan(clean), "python:S5443").is_empty());
+    }
+
+    #[test]
+    fn s2755_flags_unsafe_xml_parsers() {
+        let flagged = concat!(
+            "doc = ET.parse(path)\n",
+            "node = lxml.etree.fromstring(text)\n",
+            "xml.sax.parse(file, handler)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S2755").len(), 3);
+        let clean = concat!(
+            "doc = defusedxml.ElementTree.parse(path)\n",
+            "data = json.load(file)\n"
+        );
+        assert!(findings(&scan(clean), "python:S2755").is_empty());
+    }
+
+    #[test]
+    fn s6377_flags_weak_xml_signature_digests() {
+        let flagged = concat!(
+            "t = xmlsec.constants.TransformMd5\n",
+            "uri = \"http://www.w3.org/2001/04/xmldsig-more#md5\"\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S6377").len(), 2);
+        let clean = concat!(
+            "t2 = xmlsec.constants.TransformSha256\n",
+            "uri2 = \"http://www.w3.org/2001/04/xmlenc#sha256\"\n"
+        );
+        assert!(findings(&scan(clean), "python:S6377").is_empty());
+    }
+
+    #[test]
+    fn s4828_flags_raw_numeric_signal_parameters() {
+        let flagged = "signal.signal(9, handler)\nos.kill(pid, 15)\n";
+        assert_eq!(findings(&scan(flagged), "python:S4828").len(), 2);
+        let clean = "signal.signal(signal.SIGTERM, handler)\nos.kill(pid, signal.SIGKILL)\n";
+        assert!(findings(&scan(clean), "python:S4828").is_empty());
+    }
+
+    #[test]
+    fn s1523_flags_dynamic_code_execution_on_variables() {
+        let flagged = "result = eval(user_input)\nexec(code_var)\n";
+        assert_eq!(findings(&scan(flagged), "python:S1523").len(), 2);
+        assert!(findings(&scan("value = eval(\"2 + 2\")\n"), "python:S1523").is_empty());
+    }
+
+    #[test]
+    fn s2257_flags_hand_rolled_cipher_functions() {
+        let flagged = concat!(
+            "def xor_encrypt(data, key):\n",
+            "    return bytes(b ^ key[i % len(key)] for i, b in enumerate(data))\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S2257").len(), 1);
+        let clean = "def hash_password(pw):\n    return sha256(pw).hexdigest()\n";
+        assert!(findings(&scan(clean), "python:S2257").is_empty());
+    }
+
+    #[test]
+    fn s6785_flags_graphql_schemas_without_depth_limiting() {
+        let flagged = "schema = Schema(query=Query, mutation=Mutation)\n";
+        assert_eq!(findings(&scan(flagged), "python:S6785").len(), 1);
+        let clean = concat!(
+            "schema = Schema(\n",
+            "    query=Query,\n",
+            "    extensions=[QueryDepthLimiter(max_depth=10)],\n",
+            ")\n"
+        );
+        assert!(findings(&scan(clean), "python:S6785").is_empty());
+        assert!(
+            findings(
+                &scan("class ColorSchema(Schema):\n    name = fields.Str()\n"),
+                "python:S6785"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s6245_requires_s3_server_side_encryption_configuration() {
+        let flagged = "s3.create_bucket(Bucket=\"b\")\n";
+        assert_eq!(findings(&scan(flagged), "python:S6245").len(), 1);
+        assert!(findings(
+            &scan("s3.create_bucket(Bucket=\"b\", ServerSideEncryptionConfiguration={\"Rules\": []})\n"),
+            "python:S6245"
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn s6252_requires_s3_versioning_configuration() {
+        let flagged = "s3.put_bucket_versioning(Bucket=\"b\")\n";
+        assert_eq!(findings(&scan(flagged), "python:S6252").len(), 1);
+        assert!(findings(
+            &scan("s3.put_bucket_versioning(Bucket=\"b\", VersioningConfiguration={\"Status\": \"Enabled\"})\n"),
+            "python:S6252"
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn s6265_flags_public_acl_and_all_users_grants() {
+        let flagged = concat!(
+            "s3.put_object_acl(Bucket=\"b\", Key=\"k\", ACL=\"public-read\")\n",
+            "s3.put_bucket_acl(Bucket=\"b\", GrantFullControl='uri=\"http://acs.amazonaws.com/groups/global/AllUsers\"')\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S6265").len(), 2);
+        assert!(
+            findings(
+                &scan("s3.put_object_acl(Bucket=\"b\", Key=\"k\", ACL=\"private\")\n"),
+                "python:S6265"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s6270_flags_wildcard_principal_policies() {
+        let flagged = concat!(
+            "policy = {\"Statement\": [{\"Effect\": \"Allow\", \"Principal\": \"*\",\n",
+            "    \"Action\": \"s3:GetObject\"}]}\n",
+            "policy2 = {\"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"AWS\": \"*\"}}]}\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S6270").len(), 2);
+        assert!(findings(
+            &scan("policy = {\"Statement\": [{\"Principal\": {\"AWS\": \"arn:aws:iam::123:root\"}}]}\n"),
+            "python:S6270"
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn s6302_flags_wildcard_action_policies() {
+        let flagged = concat!(
+            "p1 = {\"Action\": \"*\"}\n",
+            "p2 = {\"Action\": [\"s3:*\", \"ec2:RunInstances\"]}\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S6302").len(), 1);
+        assert!(
+            findings(
+                &scan("p3 = {\"Action\": [\"s3:GetObject\"]}\n"),
+                "python:S6302"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s6275_flags_unencrypted_ebs_volumes() {
+        let flagged = concat!(
+            "ec2.create_volume(Size=8, AvailabilityZone=\"us-east-1a\")\n",
+            "ec2.create_volume(Size=8, Encrypted=False)\n",
+            "ec2.run_instances(ImageId=\"ami\", BlockDeviceMappings=[{\"DeviceName\": \"/dev/sda\"}])\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S6275").len(), 3);
+        assert!(
+            findings(
+                &scan(
+                    "ec2.create_volume(Size=8, AvailabilityZone=\"us-east-1a\", Encrypted=True)\n"
+                ),
+                "python:S6275"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s6281_requires_full_s3_public_access_block() {
+        let flagged = concat!(
+            "s3.put_public_access_block(\n",
+            "    Bucket=\"b\",\n",
+            "    PublicAccessBlockConfiguration={\"BlockPublicAcls\": True},\n",
+            ")\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S6281").len(), 1);
+        let clean = concat!(
+            "s3.put_public_access_block(\n",
+            "    Bucket=\"b\",\n",
+            "    PublicAccessBlockConfiguration={\n",
+            "        \"BlockPublicAcls\": True, \"BlockPublicPolicy\": True,\n",
+            "        \"IgnorePublicAcls\": True, \"RestrictPublicBuckets\": True,\n",
+            "    },\n",
+            ")\n"
+        );
+        assert!(findings(&scan(clean), "python:S6281").is_empty());
+    }
+
+    #[test]
+    fn s6304_flags_all_resources_policies() {
+        let flagged = concat!(
+            "p1 = {\"Effect\": \"Allow\", \"Resource\": \"*\"}\n",
+            "p2 = {\"Effect\": \"Allow\", \"Resource\": [\"*\"]}\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S6304").len(), 2);
+        assert!(
+            findings(
+                &scan("p3 = {\"Effect\": \"Allow\", \"Resource\": \"arn:aws:s3:::bucket/*\"}\n"),
+                "python:S6304"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s6303_requires_rds_storage_encryption() {
+        let flagged = concat!(
+            "rds.create_db_instance(DBInstanceIdentifier=\"db\")\n",
+            "rds.create_db_cluster(DBClusterIdentifier=\"c\", StorageEncrypted=False)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S6303").len(), 2);
+        assert!(
+            findings(
+                &scan(
+                    "rds.create_db_instance(DBInstanceIdentifier=\"db\", StorageEncrypted=True)\n"
+                ),
+                "python:S6303"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s6308_requires_opensearch_encryption_options() {
+        let flagged = concat!(
+            "client.create_domain(DomainName=\"d\")\n",
+            "es.create_elasticsearch_domain(DomainName=\"e\")\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S6308").len(), 2);
+        assert!(findings(
+            &scan("client.create_domain(DomainName=\"d\", EncryptionAtRestOptions={\"Enabled\": True})\n"),
+            "python:S6308"
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn s6317_flags_wildcard_scoped_actions() {
+        let flagged = "p = {\"Action\": [\"s3:*\", \"ec2:DescribeInstances\"]}\n";
+        assert_eq!(findings(&scan(flagged), "python:S6317").len(), 1);
+        assert!(
+            findings(
+                &scan("p = {\"Action\": [\"s3:GetObject\", \"ec2:DescribeInstances\"]}\n"),
+                "python:S6317"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s6319_requires_sagemaker_volume_kms_key() {
+        let flagged = "sm.create_notebook_instance(NotebookInstanceName=\"n\", RoleArn=\"r\")\n";
+        assert_eq!(findings(&scan(flagged), "python:S6319").len(), 1);
+        assert!(findings(
+            &scan("sm.create_notebook_instance(NotebookInstanceName=\"n\", RoleArn=\"r\", VolumeKmsKeyId=\"k\")\n"),
+            "python:S6319"
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn s6321_flags_admin_ports_open_to_world() {
+        let flagged = concat!(
+            "ec2.authorize_security_group_ingress(GroupId=\"g\", IpPermissions=[\n",
+            "    {\"FromPort\": 22, \"ToPort\": 22, \"IpRanges\": [{\"CidrIp\": \"0.0.0.0/0\"}]},\n",
+            "])\n",
+            "ec2.authorize_security_group_ingress(GroupId=\"g\", IpPermissions=[\n",
+            "    {\"FromPort\": 3389, \"ToPort\": 3389, \"IpRanges\": [{\"CidrIp\": \"0.0.0.0/0\"}]},\n",
+            "])\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S6321").len(), 2);
+        let clean = concat!(
+            "ec2.authorize_security_group_ingress(GroupId=\"g\", IpPermissions=[\n",
+            "    {\"FromPort\": 443, \"ToPort\": 443, \"IpRanges\": [{\"CidrIp\": \"10.0.0.0/16\"}]},\n",
+            "])\n"
+        );
+        assert!(findings(&scan(clean), "python:S6321").is_empty());
+    }
+
+    #[test]
+    fn s6327_requires_sns_kms_master_key() {
+        assert_eq!(
+            findings(&scan("sns.create_topic(Name=\"t\")\n"), "python:S6327").len(),
+            1
+        );
+        assert!(
+            findings(
+                &scan("sns.create_topic(Name=\"t\", KmsMasterKeyId=\"key\")\n"),
+                "python:S6327"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s6329_flags_public_network_access_flags() {
+        let flagged = concat!(
+            "rds.create_db_instance(DBInstanceIdentifier=\"d\", PubliclyAccessible=True)\n",
+            "ec2.modify_subnet_attribute(SubnetId=\"s\", MapPublicIpOnLaunch=True)\n",
+            "ec2.run_instances(NetworkInterfaces=[{\"AssociatePublicIpAddress\": True}])\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S6329").len(), 3);
+        assert!(
+            findings(
+                &scan(
+                    "rds.create_db_instance(DBInstanceIdentifier=\"d\", PubliclyAccessible=False)\n"
+                ),
+                "python:S6329"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s6330_requires_sqs_kms_master_queue_id() {
+        assert_eq!(
+            findings(&scan("sqs.create_queue(QueueName=\"q\")\n"), "python:S6330").len(),
+            1
+        );
+        assert!(
+            findings(
+                &scan("sqs.create_queue(QueueName=\"q\", KmsMasterQueueId=\"key\")\n"),
+                "python:S6330"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s6332_requires_efs_encryption() {
+        let flagged = concat!(
+            "efs.create_file_system(CreationToken=\"t\")\n",
+            "efs.create_file_system(CreationToken=\"t\", Encrypted=False)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S6332").len(), 2);
+        assert!(
+            findings(
+                &scan("efs.create_file_system(CreationToken=\"t\", Encrypted=True)\n"),
+                "python:S6332"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s6333_flags_api_gateway_open_authorization() {
+        let flagged = "apigw.put_method(restApiId=\"a\", resourceId=\"r\", httpMethod=\"GET\", authorizationType=\"NONE\")\n";
+        assert_eq!(findings(&scan(flagged), "python:S6333").len(), 1);
+        assert!(findings(
+            &scan("apigw.put_method(restApiId=\"a\", resourceId=\"r\", httpMethod=\"GET\", authorizationType=\"AWS_IAM\")\n"),
+            "python:S6333"
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn s6463_flags_unrestricted_security_group_egress() {
+        let flagged = concat!(
+            "ec2.authorize_security_group_egress(GroupId=\"g\", IpPermissions=[\n",
+            "    {\"IpProtocol\": \"-1\", \"IpRanges\": [{\"CidrIp\": \"0.0.0.0/0\"}]},\n",
+            "])\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S6463").len(), 1);
+        let clean = concat!(
+            "ec2.authorize_security_group_egress(GroupId=\"g\", IpPermissions=[\n",
+            "    {\"IpProtocol\": \"tcp\", \"IpRanges\": [{\"CidrIp\": \"10.0.0.0/16\"}]},\n",
+            "])\n"
+        );
+        assert!(findings(&scan(clean), "python:S6463").is_empty());
+    }
+
+    #[test]
+    fn s3752_flags_overbroad_http_routes() {
+        let flagged = concat!(
+            "@app.route(\"/x\", methods=[\"GET\", \"POST\", \"PUT\", \"DELETE\", \"PATCH\"])\n",
+            "router.add_route(\"*\", \"/y\", handler)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S3752").len(), 2);
+        let clean = concat!(
+            "@app.route(\"/x\", methods=[\"GET\", \"POST\"])\n",
+            "router.add_route(\"GET\", \"/y\", handler)\n"
+        );
+        assert!(findings(&scan(clean), "python:S3752").is_empty());
+    }
+
+    #[test]
+    fn s5795_flags_identity_comparisons_with_cached_types() {
+        let flagged = "if x is 5:\n    pass\nif y is not \"v\":\n    pass\n";
+        assert_eq!(findings(&scan(flagged), "python:S5795").len(), 2);
+        let clean = "if z is None:\n    pass\nif a == 5:\n    pass\n";
+        assert!(findings(&scan(clean), "python:S5795").is_empty());
+    }
+
+    #[test]
+    fn s3403_flags_identity_between_dissimilar_literals() {
+        let flagged = "if 5 is \"a\":\n    pass\nif [1] is {\"k\": 1}:\n    pass\n";
+        assert_eq!(findings(&scan(flagged), "python:S3403").len(), 2);
+        let clean = "if b is None:\n    pass\n";
+        assert!(findings(&scan(clean), "python:S3403").is_empty());
+    }
+
+    #[test]
+    fn s6663_flags_non_integer_sequence_indexes() {
+        let flagged = "[1, 2][\"0\"]\n(1, 2)[0.5]\n\"abc\"[\"x\"]\n";
+        assert_eq!(findings(&scan(flagged), "python:S6663").len(), 3);
+        let clean = "{\"a\": 1}[\"a\"]\n[1, 2][0]\n";
+        assert!(findings(&scan(clean), "python:S6663").is_empty());
     }
 }
