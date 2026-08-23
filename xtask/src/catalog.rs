@@ -444,10 +444,23 @@ impl LanguageCoverage {
 }
 
 fn coverage_language(name: &'static str, language_id: &str) -> Result<LanguageCoverage> {
-    let source_path = coverage_source_path(name)
+    let source_dir = coverage_source_dir(name)
         .with_context(|| format!("no analyzer crate maps language {name}"))?;
-    let source = fs::read_to_string(source_path)
-        .with_context(|| format!("failed to read analyzer source {source_path}"))?;
+    let mut source = String::new();
+    let mut sources = Vec::new();
+    collect_rust_sources(Path::new(source_dir), &mut sources);
+    for path in &sources {
+        source.push_str(
+            &fs::read_to_string(path)
+                .with_context(|| format!("failed to read analyzer source {}", path.display()))?,
+        );
+        source.push('\n');
+    }
+    if sources.is_empty() {
+        return Err(anyhow::anyhow!(
+            "no Rust sources under analyzer directory {source_dir}"
+        ));
+    }
     let keys = coverage_keys(name, language_id)?;
     let missing = missing_rules(&keys, &source);
     let implemented = keys.len() - missing.len();
@@ -458,14 +471,30 @@ fn coverage_language(name: &'static str, language_id: &str) -> Result<LanguageCo
     })
 }
 
-/// Analyzer crate source scanned for rule markers, by catalog name.
+/// Recursively collects `*.rs` paths under one analyzer crate's `src` tree.
+fn collect_rust_sources(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_rust_sources(&path, out);
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            out.push(path);
+        }
+    }
+}
+
+/// Analyzer crate source tree scanned for rule markers, by catalog name.
 ///
 /// `javascript` and `typescript` share the single `hoonarqube-jsts` crate.
-fn coverage_source_path(name: &str) -> Option<&'static str> {
+fn coverage_source_dir(name: &str) -> Option<&'static str> {
     match name {
-        "csharp" => Some("crates/hoonarqube-csharp/src/lib.rs"),
-        "javascript" | "typescript" => Some("crates/hoonarqube-jsts/src/lib.rs"),
-        "python" => Some("crates/hoonarqube-python/src/lib.rs"),
+        "csharp" => Some("crates/hoonarqube-csharp/src"),
+        "javascript" | "typescript" => Some("crates/hoonarqube-jsts/src"),
+        "python" => Some("crates/hoonarqube-python/src"),
         _ => None,
     }
 }
@@ -1014,9 +1043,9 @@ mod tests {
     #[test]
     fn every_catalog_language_maps_to_analyzer_source() {
         for (name, _) in LANGUAGES {
-            assert!(coverage_source_path(name).is_some());
+            assert!(coverage_source_dir(name).is_some());
         }
-        assert_eq!(coverage_source_path("unknown"), None);
+        assert_eq!(coverage_source_dir("unknown"), None);
     }
 
     #[test]
