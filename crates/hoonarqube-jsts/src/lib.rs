@@ -18,32 +18,34 @@ use hoonarqube_ir::Issue;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     ArrayExpression, ArrayExpressionElement, ArrowFunctionExpression, AssignmentExpression,
-    AssignmentOperator, BinaryExpression, BinaryOperator, BindingPattern, BlockStatement,
-    CallExpression, Class, ClassElement, ConditionalExpression, ContinueStatement,
+    AssignmentOperator, BinaryExpression, BinaryOperator, BindingIdentifier, BindingPattern,
+    BlockStatement, CallExpression, Class, ClassElement, ConditionalExpression, ContinueStatement,
     DebuggerStatement, Declaration, EmptyStatement, ExportDefaultDeclarationKind, ExportSpecifier,
     Expression, ExpressionStatement, FormalParameter, FunctionBody, IfStatement, ImportDeclaration,
-    ImportDeclarationSpecifier, ImportSpecifier, LabeledStatement, LogicalExpression,
+    ImportDeclarationSpecifier, ImportSpecifier, JSXAttribute, LabeledStatement, LogicalExpression,
     LogicalOperator, MemberExpression, MethodDefinition, MethodDefinitionKind, ModuleDeclaration,
     ModuleExportName, NewExpression, NumericLiteral, ObjectProperty, ParenthesizedExpression,
     PropertyKey, RegExpLiteral, ReturnStatement, SequenceExpression, Statement, StaticBlock,
-    StringLiteral, SwitchCase, TSInterfaceDeclaration, TSSignature, TemplateLiteral,
-    ThrowStatement, UnaryExpression, UnaryOperator, VariableDeclaration, VariableDeclarationKind,
-    VariableDeclarator, WithStatement,
+    StringLiteral, SwitchCase, SwitchStatement, TSInterfaceDeclaration, TSSignature,
+    TemplateLiteral, ThrowStatement, UnaryExpression, UnaryOperator, VariableDeclaration,
+    VariableDeclarationKind, VariableDeclarator, WithStatement,
 };
+use oxc_ast::ast_kind::AstKind;
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_array_expression, walk_arrow_function_expression, walk_assignment_expression,
-    walk_binary_expression, walk_block_statement, walk_call_expression, walk_class,
-    walk_declaration, walk_export_default_declaration_kind, walk_expression,
+    walk_binary_expression, walk_binding_pattern, walk_block_statement, walk_call_expression,
+    walk_class, walk_declaration, walk_export_default_declaration_kind, walk_expression,
     walk_expression_statement, walk_formal_parameter, walk_function_body, walk_if_statement,
-    walk_import_declaration, walk_labeled_statement, walk_method_definition, walk_new_expression,
+    walk_import_declaration, walk_labeled_statement, walk_member_expression,
+    walk_method_definition, walk_new_expression, walk_object_property,
     walk_parenthesized_expression, walk_return_statement, walk_sequence_expression,
-    walk_static_block, walk_switch_case, walk_template_literal, walk_throw_statement,
-    walk_ts_interface_declaration, walk_unary_expression, walk_variable_declaration,
-    walk_variable_declarator,
+    walk_static_block, walk_switch_case, walk_switch_statement, walk_template_literal,
+    walk_throw_statement, walk_ts_interface_declaration, walk_unary_expression,
+    walk_variable_declaration, walk_variable_declarator,
 };
 use oxc_parser::Parser;
-use oxc_span::{GetSpan, SourceType, Span};
+use oxc_span::{ContentEq, GetSpan, SourceType, Span};
 
 /// Language of one analyzed file; selects the issue `rule_key` prefix and the
 /// parser's source type.
@@ -123,8 +125,11 @@ impl Default for AnalyzerOptions {
 /// `headerFormat=<empty>` / `isRegularExpression=false`, `S139`
 /// `pattern="^\s*[^\s]+$"`, `S2068`
 /// `passwordWords="password,pwd,passwd,passphrase"`, `S6418`
-/// `randomnessSensibility=5.0` and
-/// `secretWords="api[_.-]?key,auth,credential,secret,token"`.
+/// `randomnessSensibility=5.0`,
+/// `secretWords="api[_.-]?key,auth,credential,secret,token"`, `S100`/`S101`/
+/// `S117` naming `format` regular expressions, `S1192`
+/// `threshold=3` / `ignoreStrings="application/json"`, and `S1441`
+/// `singleQuotes=true`.
 #[derive(Debug, Clone, PartialEq)]
 struct RuleOptions {
     maximum_lines_of_code: u32,
@@ -135,6 +140,12 @@ struct RuleOptions {
     password_words: Vec<String>,
     secret_entropy_sensibility: f64,
     secret_words: Vec<String>,
+    format_functions: String,
+    format_classes: String,
+    format_variables: String,
+    duplicate_string_threshold: usize,
+    ignored_strings: Vec<String>,
+    single_quotes: bool,
 }
 
 impl Default for RuleOptions {
@@ -155,6 +166,12 @@ impl Default for RuleOptions {
             password_words: split_words("password,pwd,passwd,passphrase"),
             secret_entropy_sensibility: 5.0,
             secret_words: split_words("api[_.-]?key,auth,credential,secret,token"),
+            format_functions: r"^[_a-z][a-zA-Z0-9]*$".to_string(),
+            format_classes: r"^[A-Z][a-zA-Z0-9]*$".to_string(),
+            format_variables: r"^[_$A-Za-z][$A-Za-z0-9]*$|^[_$A-Z][_$A-Z0-9]+$".to_string(),
+            duplicate_string_threshold: 3,
+            ignored_strings: split_words("application/json"),
+            single_quotes: true,
         }
     }
 }
@@ -224,6 +241,13 @@ fn analyze_with_rules(
         rules,
     ));
     issues.extend(check_eval_usage(&parsed.program, &index, language));
+    // --- Batch2a: name/format convention rules ---
+    issues.extend(check_naming_rules(&parsed.program, &index, language, rules));
+    // --- Batch2a: structural duplicate/identity rules ---
+    issues.extend(check_duplicate_rules(&parsed.program, &index, language));
+    // --- Batch2b wiring: statement-shape and control-flow walks ---
+    issues.extend(check_switch_flow(&parsed.program, &index, language));
+    issues.extend(check_loop_rules(&parsed.program, source, &index, language));
     sort_issues(&mut issues);
 
     hoonarqube_ir::FileReport {
@@ -3503,6 +3527,631 @@ fn check_binding_rules(
     collector.sink.issues
 }
 
+// ===== Batch2b: statement-shape and control-flow walks =====
+//
+// Family A — switch/if-chain flow: `S126`, `S128`, `S131`, `S4524`,
+// `S3616`, `S1479`, `S1301`, and `S1821`. Catalog parameters used by
+// this section are kept as local constants mirroring the frozen
+// catalog defaults.
+
+/// `S1479`: switch statements carrying more cases than this are flagged
+/// (frozen catalog default of the `maximum` parameter).
+const MAX_SWITCH_CASES: usize = 30;
+
+/// `S1301`: switches with at most this many tested cases are flagged as
+/// convertible to `if` (frozen catalog default).
+const MAX_TINY_SWITCH_CASES: usize = 2;
+
+/// Peels parenthesized wrappers; this parser preserves parentheses, so
+/// `case (a(), b):` surfaces its sequence expression behind one.
+fn unparenthesized<'a, 'b>(expression: &'a Expression<'b>) -> &'a Expression<'b> {
+    let mut current = expression;
+    while let Expression::ParenthesizedExpression(parenthesized) = current {
+        current = &parenthesized.expression;
+    }
+    current
+}
+
+/// Whether a case test uses a sequence expression or a logical OR
+/// (`S3616`).
+fn case_test_is_sequence_or_or(test: &Expression<'_>) -> bool {
+    match unparenthesized(test) {
+        Expression::SequenceExpression(_) => true,
+        Expression::LogicalExpression(logical) => logical.operator == LogicalOperator::Or,
+        _ => false,
+    }
+}
+
+/// Whether a statement terminates unconditionally for `S128`: a direct
+/// jump, a block whose last statement jumps, or an `if/else` where both
+/// branches jump.
+fn statement_ends_with_jump(stmt: &Statement<'_>) -> bool {
+    match stmt {
+        Statement::BreakStatement(_)
+        | Statement::ContinueStatement(_)
+        | Statement::ReturnStatement(_)
+        | Statement::ThrowStatement(_) => true,
+        Statement::BlockStatement(block) => block.body.last().is_some_and(statement_ends_with_jump),
+        Statement::IfStatement(if_statement) => {
+            statement_ends_with_jump(&if_statement.consequent)
+                && if_statement
+                    .alternate
+                    .as_ref()
+                    .is_some_and(statement_ends_with_jump)
+        }
+        _ => false,
+    }
+}
+
+/// Switch-statement and if-chain flow rules in one traversal: `S126`
+/// (chain without final `else`), `S128` (case fall-through), `S131`
+/// (missing `default`), `S4524` (default not last), `S3616` (sequence or
+/// logical-OR case test), `S1479` (too many cases), `S1301` (switch
+/// convertible to `if`), and `S1821` (switch nested inside a case).
+struct SwitchFlowCollector<'index> {
+    sink: IssueSink<'index>,
+    /// Set while visiting the `alternate` of an enclosing `if`; detects
+    /// chains whose last link lacks a final `else` (`S126`).
+    in_else_if_chain: bool,
+    /// Number of enclosing `SwitchCase` consequents (`S1821`).
+    case_depth: u32,
+}
+
+impl<'a> Visit<'a> for SwitchFlowCollector<'_> {
+    fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
+        if self.in_else_if_chain && it.alternate.is_none() {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S126",
+                "Add a final \"else\" clause to this if/else-if chain.",
+                it.span(),
+            );
+        }
+        let saved_in_chain = self.in_else_if_chain;
+        self.in_else_if_chain = false;
+        self.visit_statement(&it.consequent);
+        self.in_else_if_chain = matches!(&it.alternate, Some(Statement::IfStatement(_)));
+        if let Some(alternate) = &it.alternate {
+            self.visit_statement(alternate);
+        }
+        self.in_else_if_chain = saved_in_chain;
+    }
+
+    fn visit_switch_statement(&mut self, it: &SwitchStatement<'a>) {
+        if self.case_depth > 0 {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1821",
+                "Extract this nested switch statement from its parent case.",
+                it.span(),
+            );
+        }
+        if it.cases.iter().all(|case| case.test.is_some()) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S131",
+                "Add a \"default\" case to this switch statement.",
+                it.span(),
+            );
+        }
+        let last_case_index = it.cases.len().saturating_sub(1);
+        for (case_index, case) in it.cases.iter().enumerate() {
+            if case.test.is_none() && case_index != last_case_index {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S4524",
+                    "Move this default case to the end of this switch statement.",
+                    case.span(),
+                );
+            }
+        }
+        if it.cases.len() > MAX_SWITCH_CASES {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1479",
+                &format!(
+                    "Reduce the number of switch cases from {} to at most {}.",
+                    it.cases.len(),
+                    MAX_SWITCH_CASES
+                ),
+                it.span(),
+            );
+        }
+        let tested_cases = it.cases.iter().filter(|case| case.test.is_some()).count();
+        if (1..=MAX_TINY_SWITCH_CASES).contains(&tested_cases) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1301",
+                "Replace this switch statement with an if statement.",
+                it.span(),
+            );
+        }
+        walk_switch_statement(self, it);
+    }
+
+    fn visit_switch_case(&mut self, it: &SwitchCase<'a>) {
+        if let Some(test) = &it.test
+            && case_test_is_sequence_or_or(test)
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3616",
+                "Remove this sequence expression or logical OR from the case test.",
+                test.span(),
+            );
+        }
+        if let Some(last) = it.consequent.last()
+            && !statement_ends_with_jump(last)
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S128",
+                "End this case with an unconditional break, return, throw, or continue statement.",
+                it.span(),
+            );
+        }
+        self.case_depth += 1;
+        walk_switch_case(self, it);
+        self.case_depth -= 1;
+    }
+}
+
+fn check_switch_flow(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = SwitchFlowCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        in_else_if_chain: false,
+        case_depth: 0,
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
+// ----- Batch2b Family B - loop shape: `S888`, `S1264`, `S2251`, `S1994`,
+// ----- `S2310`, `S135`, `S1751`, `S2189` (JS-only), `S1535`, `S4139`, and
+// ----- `S4138`.
+
+use oxc_ast::ast::{
+    AssignmentTarget, BreakStatement, DoWhileStatement, ForInStatement, ForOfStatement,
+    ForStatement, ForStatementInit, SimpleAssignmentTarget, UpdateExpression, UpdateOperator,
+    WhileStatement,
+};
+use oxc_ast_visit::walk::{
+    walk_do_while_statement, walk_for_in_statement, walk_for_of_statement, walk_while_statement,
+};
+
+/// Detects any `continue` below a loop body for the `S1751` exemption.
+#[derive(Default)]
+struct ContinueScanner {
+    found: bool,
+}
+
+impl<'a> Visit<'a> for ContinueScanner {
+    fn visit_continue_statement(&mut self, _it: &ContinueStatement<'a>) {
+        self.found = true;
+    }
+}
+
+/// Per-loop state collected while [`LoopFlowCollector`] walks one loop.
+#[derive(Default)]
+struct LoopFrame {
+    /// Break/continue statements seen directly in this loop (`S135`).
+    jumps: u32,
+    /// Any break/return/throw seen anywhere below (`S2189`).
+    terminators: bool,
+    /// A `hasOwnProperty` reference was seen (`S1535`).
+    has_own_guard: bool,
+    /// Names of counters declared by this loop's init clause (`S2310`).
+    counters: Vec<String>,
+}
+
+/// Loop-shape rules in one traversal.
+struct LoopFlowCollector<'a, 'index> {
+    sink: IssueSink<'index>,
+    source: &'a str,
+    /// One frame per lexically enclosing visited loop.
+    frames: Vec<LoopFrame>,
+}
+
+/// Name bound by an assignment target, if it is a plain identifier.
+fn assignment_target_name<'a>(target: &'a AssignmentTarget<'a>) -> Option<&'a str> {
+    match target {
+        AssignmentTarget::AssignmentTargetIdentifier(identifier) => Some(&identifier.name),
+        _ => None,
+    }
+}
+
+/// Name modified by an update expression (`++`/`--`), if plain.
+fn update_target_name<'a>(update: &'a UpdateExpression<'a>) -> Option<&'a str> {
+    match &update.argument {
+        SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) => Some(&identifier.name),
+        _ => None,
+    }
+}
+
+/// Whether the expression is the boolean literal `true`.
+fn is_constant_true(expression: Option<&Expression<'_>>) -> bool {
+    match expression.map(unparenthesized) {
+        Some(Expression::BooleanLiteral(literal)) => literal.value,
+        _ => false,
+    }
+}
+
+/// Whether the expression is the boolean literal `false`.
+fn is_constant_false(expression: Option<&Expression<'_>>) -> bool {
+    matches!(
+        expression.map(unparenthesized),
+        Some(Expression::BooleanLiteral(literal)) if !literal.value
+    )
+}
+
+/// Whether `span`'s raw text contains `word` delimited by non-identifier
+/// characters (used where the AST shape alone cannot tell which names an
+/// arbitrary update expression references).
+fn span_contains_word(source: &str, span: Span, word: &str) -> bool {
+    let text = source_slice(source, span);
+    let bytes = text.as_bytes();
+    let mut search_from = 0;
+    while let Some(offset) = text[search_from..].find(word) {
+        let begin = search_from + offset;
+        let end = begin + word.len();
+        let before_ok = begin == 0 || !is_identifier_byte(bytes[begin - 1]);
+        let after_ok = end == bytes.len() || !is_identifier_byte(bytes[end]);
+        if before_ok && after_ok {
+            return true;
+        }
+        search_from = begin + 1;
+    }
+    false
+}
+
+fn is_identifier_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_' || byte >= 0x80
+}
+
+impl<'a> LoopFlowCollector<'a, '_> {
+    fn push_frame(&mut self) {
+        self.frames.push(LoopFrame::default());
+    }
+
+    fn pop_frame(&mut self) -> LoopFrame {
+        self.frames.pop().unwrap_or_default()
+    }
+
+    /// Whether any enclosing loop declares `name` as its counter.
+    fn inside_counter_scope(&self, name: &str) -> bool {
+        self.frames
+            .iter()
+            .any(|frame| frame.counters.iter().any(|counter| counter == name))
+    }
+
+    fn note_jump(&mut self, terminator: bool) {
+        if let Some(frame) = self.frames.last_mut() {
+            frame.jumps += 1;
+            frame.terminators |= terminator;
+        }
+    }
+
+    fn flag_many_jumps(&mut self, jumps: u32, span: Span) {
+        if jumps > 1 {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S135",
+                "Reduce the number of break and continue statements in this loop to at most one.",
+                span,
+            );
+        }
+    }
+
+    /// Loop-exit checks shared by counted loops (`for`, `while`, `do`).
+    fn finish_loop(&mut self, span: Span, endless: bool) {
+        let frame = self.pop_frame();
+        self.flag_many_jumps(frame.jumps, span);
+        if endless && !frame.terminators {
+            self.sink.emit_span(
+                RuleScope::JsOnly,
+                "S2189",
+                "Refactor this loop; it currently loops forever.",
+                span,
+            );
+        }
+    }
+
+    /// Name of the counter declared by the loop's init clause (`let i = 0`).
+    fn counter_name(it: &ForStatement<'a>) -> Option<String> {
+        match it.init.as_ref()? {
+            ForStatementInit::VariableDeclaration(declaration) => {
+                let declarator = declaration.declarations.first()?;
+                binding_identifier_name(&declarator.id).map(str::to_string)
+            }
+            _ => None,
+        }
+    }
+
+    /// Operator relating the counter to a bound in the loop test.
+    fn test_bound_operator(test: Option<&Expression<'_>>, counter: &str) -> Option<BinaryOperator> {
+        let Expression::BinaryExpression(binary) = unparenthesized(test?) else {
+            return None;
+        };
+        let involves_counter = identifier_name(&binary.left) == Some(counter)
+            || identifier_name(&binary.right) == Some(counter);
+        involves_counter.then_some(binary.operator)
+    }
+
+    /// `S2251`: the update moves the counter away from the tested bound.
+    fn check_counter_direction(
+        &mut self,
+        it: &ForStatement<'a>,
+        counter: &str,
+        operator: BinaryOperator,
+    ) {
+        let Some(Expression::UpdateExpression(update)) = it.update.as_ref().map(unparenthesized)
+        else {
+            return;
+        };
+        if update_target_name(update) != Some(counter) {
+            return;
+        }
+        let conflicts = if update.operator == UpdateOperator::Increment {
+            operator == BinaryOperator::GreaterThan
+        } else {
+            operator == BinaryOperator::LessThan
+        };
+        if conflicts {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S2251",
+                "The loop counter moves away from the bound tested by this loop condition.",
+                update.span(),
+            );
+        }
+    }
+
+    /// `S1994`: the update clause never mentions the declared counter.
+    fn check_counter_updated(&mut self, it: &ForStatement<'a>, counter: &str) {
+        if let Some(update) = &it.update
+            && !span_contains_word(self.source, update.span(), counter)
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1994",
+                "Modify the loop counter in the update clause or remove the clause.",
+                update.span(),
+            );
+        }
+    }
+
+    /// `S1751` constant-false form.
+    fn check_constant_test(&mut self, test: Option<&Expression<'_>>, span: Span) {
+        if is_constant_false(test) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1751",
+                "This loop runs at most once; replace it with a conditional statement.",
+                span,
+            );
+        }
+    }
+
+    /// `S1751` terminal-break form: a block body whose last statement is a
+    /// bare break, provided no continue anywhere in the body can loop back
+    /// to another iteration.
+    fn check_single_iteration_body(&mut self, body: &Statement<'a>) {
+        let Statement::BlockStatement(block) = body else {
+            return;
+        };
+        if !matches!(block.body.last(), Some(Statement::BreakStatement(_))) {
+            return;
+        }
+        let mut scanner = ContinueScanner::default();
+        scanner.visit_statement(body);
+        if scanner.found {
+            return;
+        }
+        self.sink.emit_span(
+            RuleScope::Both,
+            "S1751",
+            "This loop runs at most once; replace it with a conditional statement.",
+            body.span(),
+        );
+    }
+}
+
+impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
+    fn visit_break_statement(&mut self, _it: &BreakStatement) {
+        self.note_jump(true);
+    }
+
+    fn visit_continue_statement(&mut self, _it: &ContinueStatement) {
+        self.note_jump(false);
+    }
+
+    fn visit_return_statement(&mut self, _it: &ReturnStatement) {
+        if let Some(frame) = self.frames.last_mut() {
+            frame.terminators = true;
+        }
+    }
+
+    fn visit_throw_statement(&mut self, _it: &ThrowStatement) {
+        if let Some(frame) = self.frames.last_mut() {
+            frame.terminators = true;
+        }
+    }
+
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        let guard = callee_name(it).is_some_and(|name| name == "hasOwnProperty")
+            || call_property(it).is_some_and(|(property, _)| property == "hasOwnProperty");
+        if guard && let Some(frame) = self.frames.last_mut() {
+            frame.has_own_guard = true;
+        }
+        walk_call_expression(self, it);
+    }
+
+    fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
+        if let Some(name) = assignment_target_name(&it.left)
+            && self.inside_counter_scope(name)
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S2310",
+                "Remove this assignment of the loop counter inside the loop body.",
+                it.span(),
+            );
+        }
+        walk_assignment_expression(self, it);
+    }
+
+    fn visit_update_expression(&mut self, it: &UpdateExpression<'a>) {
+        if let Some(name) = update_target_name(it)
+            && self.inside_counter_scope(name)
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S2310",
+                "Remove this modification of the loop counter inside the loop body.",
+                it.span(),
+            );
+        }
+    }
+
+    fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
+        if let Some(test) = &it.test
+            && let Expression::BinaryExpression(binary) = unparenthesized(test)
+            && matches!(
+                binary.operator,
+                BinaryOperator::Equality | BinaryOperator::Inequality
+            )
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S888",
+                "Use a strict comparison in this loop condition.",
+                test.span(),
+            );
+        }
+        if it.init.is_none() && it.update.is_none() {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1264",
+                "This for loop lacks init and update clauses; use a while loop instead.",
+                it.span(),
+            );
+        }
+        let counter = Self::counter_name(it);
+        if let Some(counter_name) = counter.as_deref() {
+            if let Some(operator) = Self::test_bound_operator(it.test.as_ref(), counter_name) {
+                self.check_counter_direction(it, counter_name, operator);
+            }
+            self.check_counter_updated(it, counter_name);
+        }
+        let endless = it.test.is_none();
+        self.push_frame();
+        if let Some(counter_name) = &counter
+            && let Some(frame) = self.frames.last_mut()
+        {
+            frame.counters.push(counter_name.clone());
+        }
+        self.visit_statement(&it.body);
+        self.finish_loop(it.span(), endless);
+    }
+
+    fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
+        self.check_constant_test(Some(&it.test), it.span());
+        self.check_single_iteration_body(&it.body);
+        let endless = is_constant_true(Some(&it.test));
+        self.push_frame();
+        walk_while_statement(self, it);
+        self.finish_loop(it.span(), endless);
+    }
+
+    fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
+        self.check_constant_test(Some(&it.test), it.span());
+        self.check_single_iteration_body(&it.body);
+        let endless = is_constant_true(Some(&it.test));
+        self.push_frame();
+        walk_do_while_statement(self, it);
+        self.finish_loop(it.span(), endless);
+    }
+
+    fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
+        match unparenthesized(&it.right) {
+            Expression::ArrayExpression(_) => self.sink.emit_span(
+                RuleScope::Both,
+                "S4139",
+                "Do not use for-in to iterate over an array.",
+                it.right.span(),
+            ),
+            Expression::StringLiteral(_) => self.sink.emit_span(
+                RuleScope::Both,
+                "S4139",
+                "Do not use for-in to iterate over a string.",
+                it.right.span(),
+            ),
+            _ => {}
+        }
+        self.push_frame();
+        walk_for_in_statement(self, it);
+        let frame = self.pop_frame();
+        if !frame.has_own_guard {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1535",
+                "Guard this for-in loop with a hasOwnProperty check.",
+                it.span(),
+            );
+        }
+        self.flag_many_jumps(frame.jumps, it.span());
+    }
+
+    fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
+        match unparenthesized(&it.right) {
+            Expression::NumericLiteral(_) => self.sink.emit_span(
+                RuleScope::Both,
+                "S4138",
+                "Do not use for-of to iterate over a number.",
+                it.right.span(),
+            ),
+            Expression::ObjectExpression(_) => self.sink.emit_span(
+                RuleScope::Both,
+                "S4138",
+                "Do not use for-of to iterate over an object literal.",
+                it.right.span(),
+            ),
+            _ => {}
+        }
+        self.push_frame();
+        walk_for_of_statement(self, it);
+        let frame = self.pop_frame();
+        self.flag_many_jumps(frame.jumps, it.span());
+    }
+}
+
+fn check_loop_rules(
+    program: &oxc_ast::ast::Program<'_>,
+    source: &str,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = LoopFlowCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        source,
+        frames: Vec::new(),
+    };
+    collector.visit_program(program);
+    collector.sink.issues
+}
+
 fn check_function_lengths(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
@@ -3521,9 +4170,699 @@ fn check_function_lengths(
     collector.sink.issues
 }
 
+// ===== Batch2a: name/format convention rules (S100 S101 S117 S109 S1192 S1441 S2430) =====
+
+/// `S100` (function names), `S101` (class and interface names), `S117`
+/// (variable, parameter, and property-key names), and `S2430` (lowercase
+/// constructor callees). The first three compare against the catalog
+/// `format` regular expressions.
+struct NameFormatCollector<'a, 'index> {
+    sink: IssueSink<'index>,
+    rules: &'a RuleOptions,
+}
+
+impl<'a> Visit<'a> for NameFormatCollector<'a, '_> {
+    fn visit_declaration(&mut self, it: &Declaration<'a>) {
+        match it {
+            Declaration::FunctionDeclaration(function) => {
+                self.check_function_name(function.id.as_ref());
+            }
+            Declaration::ClassDeclaration(class) => {
+                self.check_type_name("class", class.id.as_ref());
+            }
+            Declaration::TSInterfaceDeclaration(interface) => {
+                self.check_type_name("interface", Some(&interface.id));
+            }
+            _ => {}
+        }
+        walk_declaration(self, it);
+    }
+
+    fn visit_export_default_declaration_kind(&mut self, it: &ExportDefaultDeclarationKind<'a>) {
+        match it {
+            ExportDefaultDeclarationKind::FunctionDeclaration(function) => {
+                self.check_function_name(function.id.as_ref());
+            }
+            ExportDefaultDeclarationKind::ClassDeclaration(class) => {
+                self.check_type_name("class", class.id.as_ref());
+            }
+            _ => {}
+        }
+        walk_export_default_declaration_kind(self, it);
+    }
+
+    fn visit_expression(&mut self, it: &Expression<'a>) {
+        match it {
+            Expression::FunctionExpression(function) => {
+                self.check_function_name(function.id.as_ref());
+            }
+            Expression::ClassExpression(class) => {
+                self.check_type_name("class", class.id.as_ref());
+            }
+            _ => {}
+        }
+        walk_expression(self, it);
+    }
+
+    fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
+        if !matches!(it.kind, MethodDefinitionKind::Constructor)
+            && let Some(name) = property_key_name(&it.key)
+        {
+            self.check_name(
+                "S100",
+                "function",
+                name,
+                it.key.span(),
+                &self.rules.format_functions,
+            );
+        }
+        walk_method_definition(self, it);
+    }
+
+    fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+        if let Some(name) = binding_identifier_name(&it.id) {
+            self.check_name(
+                "S117",
+                "variable",
+                name,
+                it.id.span(),
+                &self.rules.format_variables,
+            );
+        }
+        walk_variable_declarator(self, it);
+    }
+
+    fn visit_formal_parameter(&mut self, it: &FormalParameter<'a>) {
+        if let Some(name) = binding_identifier_name(&it.pattern) {
+            self.check_name(
+                "S117",
+                "parameter",
+                name,
+                it.pattern.span(),
+                &self.rules.format_variables,
+            );
+        }
+        walk_formal_parameter(self, it);
+    }
+
+    fn visit_object_property(&mut self, it: &ObjectProperty<'a>) {
+        if !it.computed
+            && let Some(name) = property_key_name(&it.key)
+        {
+            self.check_name(
+                "S117",
+                "property",
+                name,
+                it.key.span(),
+                &self.rules.format_variables,
+            );
+        }
+        walk_object_property(self, it);
+    }
+
+    fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
+        if let Some(name) = constructor_name(it)
+            && name.starts_with(|first: char| first.is_ascii_lowercase())
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S2430",
+                "Rename this constructor to start with an uppercase letter.",
+                it.callee.span(),
+            );
+        }
+        walk_new_expression(self, it);
+    }
+
+    fn visit_jsx_attribute(&mut self, _it: &JSXAttribute<'a>) {
+        // JSX attribute names/values are exempt from naming checks.
+    }
+}
+
+impl NameFormatCollector<'_, '_> {
+    fn check_function_name(&mut self, id: Option<&BindingIdentifier<'_>>) {
+        let Some(id) = id else {
+            return;
+        };
+        self.check_name(
+            "S100",
+            "function",
+            &id.name,
+            id.span,
+            &self.rules.format_functions,
+        );
+    }
+
+    fn check_type_name(&mut self, kind: &str, id: Option<&BindingIdentifier<'_>>) {
+        let Some(id) = id else {
+            return;
+        };
+        self.check_name("S101", kind, &id.name, id.span, &self.rules.format_classes);
+    }
+
+    fn check_name(&mut self, rule: &str, kind: &str, name: &str, span: Span, format: &str) {
+        if !regex_search(format, name) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                rule,
+                &format!("Rename this {kind} to match the regular expression '{format}'."),
+                span,
+            );
+        }
+    }
+}
+
+/// `S109`: numeric literals outside the catalog-allowed contexts — const
+/// initializers, computed array indexes, and `-1..=2` parameter defaults.
+struct MagicNumberCollector<'index> {
+    sink: IssueSink<'index>,
+    const_initializer_depth: u32,
+    index_depth: u32,
+    default_depth: u32,
+    negation_depth: u32,
+}
+
+impl<'a> Visit<'a> for MagicNumberCollector<'_> {
+    fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
+        let in_const = matches!(it.kind, VariableDeclarationKind::Const);
+        self.const_initializer_depth += u32::from(in_const);
+        walk_variable_declaration(self, it);
+        self.const_initializer_depth -= u32::from(in_const);
+    }
+
+    fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
+        if let MemberExpression::ComputedMemberExpression(member) = it {
+            walk_expression(self, &member.object);
+            self.index_depth += 1;
+            walk_expression(self, &member.expression);
+            self.index_depth -= 1;
+        } else {
+            walk_member_expression(self, it);
+        }
+    }
+
+    fn visit_formal_parameter(&mut self, it: &FormalParameter<'a>) {
+        walk_binding_pattern(self, &it.pattern);
+        if let Some(initializer) = &it.initializer {
+            self.default_depth += 1;
+            walk_expression(self, initializer);
+            self.default_depth -= 1;
+        }
+    }
+
+    fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
+        let negated = matches!(it.operator, UnaryOperator::UnaryNegation);
+        self.negation_depth += u32::from(negated);
+        walk_unary_expression(self, it);
+        self.negation_depth -= u32::from(negated);
+    }
+
+    fn visit_numeric_literal(&mut self, it: &NumericLiteral<'a>) {
+        let value = if self.negation_depth % 2 == 1 {
+            -it.value
+        } else {
+            it.value
+        };
+        let allowed = self.const_initializer_depth > 0
+            || self.index_depth > 0
+            || (self.default_depth > 0 && (-2.0..=2.0).contains(&value));
+        if !allowed {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S109",
+                "This numeric literal should be replaced by a named constant.",
+                it.span,
+            );
+        }
+    }
+
+    fn visit_jsx_attribute(&mut self, _it: &JSXAttribute<'a>) {
+        // Numeric JSX attribute values are exempt from magic-number checks.
+    }
+}
+
+/// `S1441` (quote style per `singleQuotes`) and `S1192` (duplicated string
+/// literals, aggregated after the traversal).
+struct StringStyleCollector<'index> {
+    sink: IssueSink<'index>,
+    single_quotes: bool,
+    duplicate_threshold: usize,
+    ignored_strings: Vec<String>,
+    string_occurrences: Vec<(String, Span)>,
+}
+
+impl<'a> Visit<'a> for StringStyleCollector<'_> {
+    fn visit_string_literal(&mut self, it: &StringLiteral<'a>) {
+        self.check_quote_style(it);
+        self.record_occurrence(it);
+    }
+
+    fn visit_jsx_attribute(&mut self, _it: &JSXAttribute<'a>) {
+        // JSX attribute strings are exempt from quote-style and
+        // duplication checks.
+    }
+}
+
+impl StringStyleCollector<'_> {
+    fn check_quote_style(&mut self, literal: &StringLiteral<'_>) {
+        let Some(raw) = literal.raw.as_ref().map(oxc_ast::ast::Str::as_str) else {
+            return;
+        };
+        let Some(delimiter) = raw.chars().next() else {
+            return;
+        };
+        let disallowed = if self.single_quotes { '"' } else { '\'' };
+        if delimiter != disallowed || escapes_delimiter(raw, delimiter) {
+            return;
+        }
+        let preferred = if self.single_quotes {
+            "single"
+        } else {
+            "double"
+        };
+        self.sink.emit_span(
+            RuleScope::Both,
+            "S1441",
+            &format!("Use {preferred} quotes for this string literal."),
+            literal.span,
+        );
+    }
+
+    fn record_occurrence(&mut self, literal: &StringLiteral<'_>) {
+        let value = literal.value.as_str();
+        if value.chars().count() < 2 || self.ignored_strings.iter().any(|word| word == value) {
+            return;
+        }
+        self.string_occurrences
+            .push((value.to_string(), literal.span));
+    }
+
+    /// One `S1192` issue per over-duplicated value, anchored at the first
+    /// occurrence.
+    fn report_duplicates(&mut self) {
+        let mut groups: Vec<(String, Vec<Span>)> = Vec::new();
+        for (value, span) in &self.string_occurrences {
+            match groups.iter_mut().find(|(known, _)| known == value) {
+                Some((_, spans)) => spans.push(*span),
+                None => groups.push((value.clone(), vec![*span])),
+            }
+        }
+        for (value, spans) in groups {
+            if spans.len() >= self.duplicate_threshold {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S1192",
+                    &format!(
+                        "Define a constant instead of duplicating this literal \
+                         \"{value}\" {} times.",
+                        spans.len()
+                    ),
+                    spans[0],
+                );
+            }
+        }
+    }
+}
+
+/// Whether `raw` contains a backslash escaping `delimiter`, which makes a
+/// quote-style switch unsafe (`S1441` tolerance).
+fn escapes_delimiter(raw: &str, delimiter: char) -> bool {
+    let mut chars = raw.chars();
+    while let Some(current) = chars.next() {
+        if current == '\\' && chars.next() == Some(delimiter) {
+            return true;
+        }
+    }
+    false
+}
+
+fn check_naming_rules(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+    rules: &RuleOptions,
+) -> Vec<Issue> {
+    let mut names = NameFormatCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        rules,
+    };
+    names.visit_program(program);
+    let mut magic = MagicNumberCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        const_initializer_depth: 0,
+        index_depth: 0,
+        default_depth: 0,
+        negation_depth: 0,
+    };
+    magic.visit_program(program);
+    let mut strings = StringStyleCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        single_quotes: rules.single_quotes,
+        duplicate_threshold: rules.duplicate_string_threshold,
+        ignored_strings: rules.ignored_strings.clone(),
+        string_occurrences: Vec::new(),
+    };
+    strings.visit_program(program);
+    strings.report_duplicates();
+    let mut issues = names.sink.issues;
+    issues.extend(magic.sink.issues);
+    issues.extend(strings.sink.issues);
+    issues
+}
+
+// ===== Batch2a: structural duplicate/identity checks (S1764 S1871 S3923 S1862 S4144 S3516) =====
+
+/// `S1764` (identical binary operands), `S1871`/`S3923`/`S1862` (duplicated
+/// branches and conditions), and `S3516` (invariant literal returns),
+/// collected in one traversal; `S4144` (identical function bodies) is
+/// resolved afterwards through span-free subtree equality (`ContentEq`).
+struct DuplicateCollector<'a, 'index> {
+    sink: IssueSink<'index>,
+    if_statements: Vec<&'a IfStatement<'a>>,
+    function_bodies: Vec<&'a FunctionBody<'a>>,
+    return_groups: Vec<Vec<&'a ReturnStatement<'a>>>,
+    current_return_group: Option<usize>,
+    group_stack: Vec<Option<usize>>,
+}
+
+impl<'a> Visit<'a> for DuplicateCollector<'a, '_> {
+    fn enter_node(&mut self, kind: AstKind<'a>) {
+        match kind {
+            AstKind::IfStatement(statement) => self.if_statements.push(statement),
+            AstKind::BinaryExpression(expression) => {
+                if expression.left.content_eq(&expression.right) {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S1764",
+                        "Identical sub-expressions on both sides of this operator.",
+                        expression.span,
+                    );
+                }
+            }
+            AstKind::ConditionalExpression(expression) => {
+                if expression.consequent.content_eq(&expression.alternate) {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S3923",
+                        "Either remove this branch or refactor the code to avoid duplication.",
+                        expression.span,
+                    );
+                }
+            }
+            AstKind::SwitchStatement(statement) => self.check_switch_cases(statement),
+            AstKind::FunctionBody(body) => {
+                let group = self.return_groups.len();
+                self.return_groups.push(Vec::new());
+                self.function_bodies.push(body);
+                self.group_stack.push(self.current_return_group);
+                self.current_return_group = Some(group);
+            }
+            AstKind::ReturnStatement(statement) => {
+                if let Some(group) = self.current_return_group {
+                    self.return_groups[group].push(statement);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn leave_node(&mut self, kind: AstKind<'a>) {
+        if matches!(kind, AstKind::FunctionBody(_)) {
+            self.current_return_group = self.group_stack.pop().flatten();
+        }
+    }
+}
+
+impl<'a> DuplicateCollector<'a, '_> {
+    fn check_switch_cases(&mut self, it: &SwitchStatement<'a>) {
+        let cases = &it.cases;
+        if cases.len() < 2 {
+            return;
+        }
+        // `S1862`: a case test duplicating an earlier one.
+        for (position, case) in cases.iter().enumerate().skip(1) {
+            let Some(test) = &case.test else {
+                continue;
+            };
+            let duplicated = cases[..position].iter().any(|earlier| {
+                earlier
+                    .test
+                    .as_ref()
+                    .is_some_and(|previous| test.content_eq(previous))
+            });
+            if duplicated {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S1862",
+                    "This case duplicates an earlier case; merge the clauses.",
+                    test.span(),
+                );
+            }
+        }
+        // `S1871`: consecutive cases with identical bodies (fallthrough
+        // placeholders without statements do not count).
+        for pair in cases.windows(2) {
+            if let Some(first) = pair[1].consequent.first()
+                && statements_equal(&pair[0].consequent, &pair[1].consequent)
+            {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S1871",
+                    "This branch's code is identical to the previous branch's.",
+                    first.span(),
+                );
+            }
+        }
+        // `S3923`: every case carrying the same non-empty body.
+        let all_populated = cases.iter().all(|case| !case.consequent.is_empty());
+        let all_identical = cases.first().is_some_and(|first| {
+            cases
+                .iter()
+                .all(|case| statements_equal(&first.consequent, &case.consequent))
+        });
+        if all_populated && all_identical {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3923",
+                "Either remove this branch or refactor the code to avoid duplication.",
+                it.span,
+            );
+        }
+    }
+
+    /// Resolves the deferred if-chain rules once every `IfStatement` has
+    /// been collected; chains are processed from their heads only so no
+    /// link is reported twice.
+    fn check_if_chains(&mut self) {
+        let statements = std::mem::take(&mut self.if_statements);
+        let chained_starts: BTreeSet<u32> = statements
+            .iter()
+            .filter_map(|statement| match statement.alternate.as_ref() {
+                Some(Statement::IfStatement(next)) => Some(next.span.start),
+                _ => None,
+            })
+            .collect();
+        for head in statements {
+            if !chained_starts.contains(&head.span.start) {
+                self.check_single_chain(head);
+            }
+        }
+    }
+    fn check_single_chain(&mut self, head: &'a IfStatement<'a>) {
+        // `S1871`: any link whose own branches are structurally equal.
+        let mut current = head;
+        loop {
+            if let Some(alternate) = current.alternate.as_ref()
+                && current.consequent.content_eq(alternate)
+            {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S1871",
+                    "This branch's code is identical to the previous branch's.",
+                    alternate.span(),
+                );
+            }
+            match current.alternate.as_ref() {
+                Some(Statement::IfStatement(next)) => current = next,
+                _ => break,
+            }
+        }
+        let mut tests: Vec<&Expression<'a>> = vec![&head.test];
+        let mut branches: Vec<&Statement<'a>> = vec![&head.consequent];
+        current = head;
+        while let Some(alternate) = current.alternate.as_ref() {
+            match alternate {
+                Statement::IfStatement(next) => {
+                    tests.push(&next.test);
+                    branches.push(&next.consequent);
+                    current = next;
+                }
+                other => {
+                    branches.push(other);
+                    break;
+                }
+            }
+        }
+        // `S1862`: repeated conditions within the same chain.
+        for (position, test) in tests.iter().enumerate().skip(1) {
+            if tests[..position]
+                .iter()
+                .any(|earlier| test.content_eq(earlier))
+            {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S1862",
+                    "This condition duplicates an earlier condition in the same chain; \
+                     merge the branches.",
+                    test.span(),
+                );
+            }
+        }
+        // `S3923`: every branch carrying the same non-empty code.
+        let all_identical = branches.windows(2).all(|pair| pair[0].content_eq(pair[1]));
+        let all_populated = branches.iter().all(|branch| !is_empty_block(branch));
+        if branches.len() >= 2 && all_identical && all_populated {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3923",
+                "Either remove this branch or refactor the code to avoid duplication.",
+                head.span,
+            );
+        }
+    }
+
+    /// `S4144`: function bodies identical to an earlier body in the same
+    /// file; single-line bodies count as trivial and are skipped.
+    fn check_similar_functions(&mut self) {
+        let bodies = std::mem::take(&mut self.function_bodies);
+        for (position, body) in bodies.iter().enumerate() {
+            if !self.spans_multiple_lines(body.span) {
+                continue;
+            }
+            let matches_earlier = bodies[..position]
+                .iter()
+                .any(|other| self.spans_multiple_lines(other.span) && other.content_eq(body));
+            if matches_earlier {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S4144",
+                    "This function body is identical to another function's body; \
+                     factor it out into a shared function.",
+                    body.span,
+                );
+            }
+        }
+    }
+
+    /// `S3516`: functions whose returns all yield the same literal.
+    fn check_invariant_returns(&mut self) {
+        let groups = std::mem::take(&mut self.return_groups);
+        for returns in groups {
+            let Some(second) = returns.get(1) else {
+                continue;
+            };
+            let all_literals = returns.iter().all(|statement| {
+                statement
+                    .argument
+                    .as_ref()
+                    .is_some_and(is_literal_expression)
+            });
+            if !all_literals {
+                continue;
+            }
+            let Some(baseline) = returns[0].argument.as_ref() else {
+                continue;
+            };
+            let invariant = returns[1..].iter().all(|statement| {
+                statement
+                    .argument
+                    .as_ref()
+                    .is_some_and(|argument| argument.content_eq(baseline))
+            });
+            if invariant {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S3516",
+                    "All return statements of this function return the same value; \
+                     simplify them.",
+                    second.span(),
+                );
+            }
+        }
+    }
+
+    fn spans_multiple_lines(&self, span: Span) -> bool {
+        let start = self.sink.index.pos(span.start).line;
+        let end = self.sink.index.pos(span.end).line;
+        start != end
+    }
+}
+
+fn check_duplicate_rules(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
+    let mut collector = DuplicateCollector {
+        sink: IssueSink {
+            index,
+            language,
+            issues: Vec::new(),
+        },
+        if_statements: Vec::new(),
+        function_bodies: Vec::new(),
+        return_groups: Vec::new(),
+        current_return_group: None,
+        group_stack: Vec::new(),
+    };
+    collector.visit_program(program);
+    collector.check_if_chains();
+    collector.check_similar_functions();
+    collector.check_invariant_returns();
+    collector.sink.issues
+}
+
+/// Elementwise span-free equality of two statement lists.
+fn statements_equal(left: &[Statement<'_>], right: &[Statement<'_>]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(left_item, right_item)| left_item.content_eq(right_item))
+}
+
+fn is_empty_block(statement: &Statement<'_>) -> bool {
+    matches!(statement, Statement::BlockStatement(block) if block.body.is_empty())
+}
+
+fn is_literal_expression(expression: &Expression<'_>) -> bool {
+    matches!(
+        expression,
+        Expression::BigIntLiteral(_)
+            | Expression::BooleanLiteral(_)
+            | Expression::NullLiteral(_)
+            | Expression::NumericLiteral(_)
+            | Expression::RegExpLiteral(_)
+            | Expression::StringLiteral(_)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::{AnalyzerOptions, JstsLanguage, RuleOptions, analyze, language_for_extension};
+    use std::fmt::Write as _;
     use std::path::PathBuf;
 
     fn pos(line: u32, column: u32) -> hoonarqube_ir::Pos {
@@ -3662,8 +5001,8 @@ try { k(); l(); } catch { m(); n(); }
     #[test]
     fn issues_are_sorted_by_position() {
         let source = "\
-eval(\"a\");
-let b = 1; let c = 2;
+eval('a');
+let b = x; let c = y;
 ";
         let report = js(source);
         let starts: Vec<_> = report
@@ -3708,11 +5047,11 @@ with (obj) { u(); v(); }
     #[test]
     fn eval_usage_is_flagged_at_callee_span_across_the_tree() {
         let source = "\
-eval(\"x\");
-const f = new Function(\"return 1\");
+eval('x');
+const f = new Function('return 1');
 foo(eval(nested));
-window.eval(\"not plain identifier\");
-new window.Function(\"also ignored\");
+window.eval('not plain identifier');
+new window.Function('also ignored');
 
 ";
         let report = js(source);
@@ -3860,6 +5199,284 @@ new window.Function(\"also ignored\");
 
     fn js_keys(source: &str) -> Vec<(String, u32)> {
         findings(source, JstsLanguage::JavaScript)
+    }
+
+    fn js_with_rules(source: &str, rules: &RuleOptions) -> hoonarqube_ir::FileReport {
+        super::analyze_with_rules(
+            PathBuf::from("test.js"),
+            source,
+            JstsLanguage::JavaScript,
+            &AnalyzerOptions::default(),
+            rules,
+        )
+    }
+
+    fn keys_with_rules(source: &str, rules: &RuleOptions) -> Vec<(String, u32)> {
+        report_keys(&js_with_rules(source, rules))
+    }
+
+    // ===== Batch2a naming/format rule tests =====
+
+    #[test]
+    fn function_class_and_interface_names_follow_catalog_formats() {
+        let report = js(
+            "function goodName() {}\nfunction BadName() {}\nfunction _underscoreOk() {}\nclass GoodClass {}\nclass badClass {}\n",
+        );
+        assert_eq!(count_key(&report_keys(&report), "javascript:S100"), 1);
+        assert_eq!(count_key(&report_keys(&report), "javascript:S101"), 1);
+        let bad_function: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|found| found.rule_key == "javascript:S100")
+            .collect();
+        assert_eq!(
+            bad_function,
+            vec![&issue(
+                "javascript:S100",
+                "Rename this function to match the regular expression '^[_a-z][a-zA-Z0-9]*$'.",
+                (2, 9),
+                (2, 16),
+            )]
+        );
+
+        let ts_report = ts("interface goodInterface {}\ninterface GoodInterface {}\n");
+        assert_eq!(count_key(&report_keys(&ts_report), "typescript:S101"), 1);
+        assert_eq!(count_key(&report_keys(&ts_report), "typescript:S100"), 0);
+    }
+
+    #[test]
+    fn method_names_are_checked_but_constructors_are_exempt() {
+        let rules = RuleOptions {
+            format_functions: "^doRe$".to_string(),
+            ..RuleOptions::default()
+        };
+        let flagged = keys_with_rules("class C { constructor() {} doIt() {} doRe() {} }\n", &rules);
+        assert_eq!(count_key(&flagged, "javascript:S100"), 1);
+    }
+
+    #[test]
+    fn variables_parameters_and_properties_honor_format() {
+        let defaults_clean = js_keys(
+            "function f(goodParam) { let goodVar = 1; const UPPER_SNAKE = 2; const opts = { anyKey: 3 }; }\n",
+        );
+        assert_eq!(count_key(&defaults_clean, "javascript:S117"), 0);
+
+        let rules = RuleOptions {
+            format_variables: "^[a-z][a-zA-Z0-9]*$".to_string(),
+            ..RuleOptions::default()
+        };
+        let strict = keys_with_rules(
+            "function f(BadParam) { let BadVar = 1; let okVar = 2; }\n",
+            &rules,
+        );
+        assert_eq!(count_key(&strict, "javascript:S117"), 2);
+    }
+
+    #[test]
+    fn magic_numbers_flagged_only_outside_allowed_contexts() {
+        let report = js(
+            "const LIMIT = 42;\nlet retries = 3;\nitems[0] = LIMIT;\nfunction g(x = 1, y = 5) { return x; }\nfunction h(z = -1) { return z; }\nlet offset = -7;\ng(2);\n",
+        );
+        let magic: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|found| found.rule_key == "javascript:S109")
+            .collect();
+        let message = "This numeric literal should be replaced by a named constant.";
+        assert_eq!(
+            magic,
+            vec![
+                &issue("javascript:S109", message, (2, 14), (2, 15)),
+                &issue("javascript:S109", message, (4, 22), (4, 23)),
+                &issue("javascript:S109", message, (6, 14), (6, 15)),
+                &issue("javascript:S109", message, (7, 2), (7, 3)),
+            ]
+        );
+
+        // Boundary: `-1..=2` parameter defaults are allowed, larger ones are not.
+        let boundary = js("function k(a = 2, b = 3) {}\n");
+        assert_eq!(count_key(&report_keys(&boundary), "javascript:S109"), 1);
+    }
+
+    #[test]
+    fn duplicate_string_literals_report_once_at_first_occurrence() {
+        let report = js(
+            "log('application/json');\nlog('application/json');\nlog('application/json');\nwarn('dup');\nwarn('dup');\nwarn('dup');\ntag('x');\ntag('x');\n",
+        );
+        let duplicates: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|found| found.rule_key == "javascript:S1192")
+            .collect();
+        // The configured `ignoreStrings` entry never fires; single-character
+        // literals are excluded; the third occurrence reaches the threshold.
+        assert_eq!(
+            duplicates,
+            vec![&issue(
+                "javascript:S1192",
+                "Define a constant instead of duplicating this literal \"dup\" 3 times.",
+                (4, 5),
+                (4, 10),
+            )]
+        );
+
+        let eager = RuleOptions {
+            duplicate_string_threshold: 2,
+            ..RuleOptions::default()
+        };
+        let flagged = keys_with_rules("a('aa');\nb('aa');\nc('bb');\n", &eager);
+        assert_eq!(count_key(&flagged, "javascript:S1192"), 1);
+    }
+
+    #[test]
+    fn string_quote_style_follows_single_quotes_param() {
+        let report = js(
+            "const a = \"double\";\nconst b = 'single';\nconst c = \"escaped \\\"quote\\\"\";\nconst d = `template`;\n",
+        );
+        let quotes: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|found| found.rule_key == "javascript:S1441")
+            .collect();
+        assert_eq!(
+            quotes,
+            vec![&issue(
+                "javascript:S1441",
+                "Use single quotes for this string literal.",
+                (1, 10),
+                (1, 18),
+            )]
+        );
+
+        let double = RuleOptions {
+            single_quotes: false,
+            ..RuleOptions::default()
+        };
+        let relaxed = keys_with_rules("const a = 'quoted';\nconst b = \"doubled\";\n", &double);
+        assert_eq!(count_key(&relaxed, "javascript:S1441"), 1);
+    }
+
+    #[test]
+    fn lowercase_constructor_callees_flagged() {
+        let report = js("new foo();\nnew Foo();\nnew lib.Bar();\n");
+        let constructors: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|found| found.rule_key == "javascript:S2430")
+            .collect();
+        assert_eq!(
+            constructors,
+            vec![&issue(
+                "javascript:S2430",
+                "Rename this constructor to start with an uppercase letter.",
+                (1, 4),
+                (1, 7),
+            )]
+        );
+    }
+
+    // ===== Batch2a structural duplicate/identity rule tests =====
+
+    #[test]
+    fn identical_binary_operands_flagged() {
+        let report =
+            js("if (a === a) {}\nif (b + c === b + c) {}\nif (x == y) {}\nlet t = p && p;\n");
+        assert_eq!(count_key(&report_keys(&report), "javascript:S1764"), 2);
+        let first: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|found| found.rule_key == "javascript:S1764")
+            .collect();
+        assert_eq!(
+            first[0].range,
+            hoonarqube_ir::Range {
+                start: pos(1, 4),
+                end: pos(1, 11),
+            }
+        );
+    }
+
+    #[test]
+    fn identical_if_branches_and_switch_cases_flagged() {
+        let report = js(
+            "function f(cond) {\n  if (cond) { work(); cleanup(); } else { work(); cleanup(); }\n}\n",
+        );
+        // The identical if/else pair is reported by both rule keys.
+        assert_eq!(count_key(&report_keys(&report), "javascript:S1871"), 1);
+        assert_eq!(count_key(&report_keys(&report), "javascript:S3923"), 1);
+
+        let switch = js(
+            "function g(v) {\nswitch (v) { case 1: a(); break; case 2: a(); break; case 3: b(); break; }\n}\n",
+        );
+        assert_eq!(count_key(&report_keys(&switch), "javascript:S1871"), 1);
+
+        // Fallthrough placeholders are not duplicated bodies.
+        let fallthrough = js("switch (v) { case 1: case 2: a(); break; }\n");
+        assert_eq!(count_key(&report_keys(&fallthrough), "javascript:S1871"), 0);
+    }
+
+    #[test]
+    fn all_identical_branch_structures_flagged_once() {
+        let ternary = js("const r = flag ? 1 : 1;\n");
+        assert_eq!(count_key(&report_keys(&ternary), "javascript:S3923"), 1);
+
+        let chain =
+            js("function f(a, b) {\n  if (a) { x(); } else if (b) { x(); } else { x(); }\n}\n");
+        assert_eq!(count_key(&report_keys(&chain), "javascript:S3923"), 1);
+        // Only the last link's branches are identical.
+        assert_eq!(count_key(&report_keys(&chain), "javascript:S1871"), 1);
+    }
+
+    #[test]
+    fn duplicated_conditions_in_chains_and_switches_flagged() {
+        let chain = js("function f(a) {\n  if (a === 1) { x(); } else if (a === 1) { y(); }\n}\n");
+        assert_eq!(count_key(&report_keys(&chain), "javascript:S1862"), 1);
+
+        let distinct =
+            js("function f(a, b) {\n  if (a === 1) { x(); } else if (b === 1) { y(); }\n}\n");
+        assert_eq!(count_key(&report_keys(&distinct), "javascript:S1862"), 0);
+
+        let switch = js("switch (v) { case 1: r(); break; case 1: s(); break; }\n");
+        assert_eq!(count_key(&report_keys(&switch), "javascript:S1862"), 1);
+    }
+
+    #[test]
+    fn identical_function_bodies_flagged_but_trivial_ones_skipped() {
+        let source = "\
+function alpha() {
+  setup();
+  run();
+}
+function beta() {
+  setup();
+  run();
+}
+function gamma() {
+  other();
+}
+";
+        let report = js(source);
+        assert_eq!(count_key(&report_keys(&report), "javascript:S4144"), 1);
+
+        let trivial = js("function d1() { x(); }\nfunction d2() { x(); }\n");
+        assert_eq!(count_key(&report_keys(&trivial), "javascript:S4144"), 0);
+    }
+
+    #[test]
+    fn invariant_literal_returns_flagged_once_per_function() {
+        let same = js("function f(n) {\n  if (n) { return 'same'; }\n  return 'same';\n}\n");
+        assert_eq!(count_key(&report_keys(&same), "javascript:S3516"), 1);
+
+        let differing = js("function f(n) {\n  if (n) { return 'a'; }\n  return 'b';\n}\n");
+        assert_eq!(count_key(&report_keys(&differing), "javascript:S3516"), 0);
+
+        // A bare `return` means the returns are not all literal values.
+        let bare_mixed = js("function f(n) {\n  if (n) { return; }\n  return 'x';\n}\n");
+        assert_eq!(count_key(&report_keys(&bare_mixed), "javascript:S3516"), 0);
+
+        // Non-literal returns never count as invariant duplicates.
+        let identifiers = js("function f(n, m) {\n  if (n) { return m; }\n  return m;\n}\n");
+        assert_eq!(count_key(&report_keys(&identifiers), "javascript:S3516"), 0);
     }
 
     #[test]
@@ -4143,5 +5760,281 @@ arr.map(function () {});
     fn parse_errors_never_surface_as_issues() {
         let broken = js_keys("function {(:\n    ???\n");
         assert!(broken.iter().all(|(key, _)| !key.ends_with(":S2260")));
+    }
+
+    // ===== Batch2b tests: statement-shape and control-flow walks =====
+
+    #[test]
+    fn s126_flags_else_if_chain_without_final_else() {
+        let chained =
+            js_keys("if (a) {\n  f();\n} else if (b) {\n  g();\n} else if (c) {\n  h();\n}\n");
+        assert_eq!(count_key(&chained, "javascript:S126"), 1);
+        let tail_line = chained
+            .iter()
+            .find(|(key, _)| key == "javascript:S126")
+            .map(|(_, line)| *line);
+        assert_eq!(tail_line, Some(5));
+
+        let with_final_else =
+            js_keys("if (a) {\n  f();\n} else if (b) {\n  g();\n} else {\n  h();\n}\n");
+        assert_eq!(count_key(&with_final_else, "javascript:S126"), 0);
+
+        // A lone `if` is not a chain.
+        let plain_if = js_keys("if (a) {\n  f();\n}\n");
+        assert_eq!(count_key(&plain_if, "javascript:S126"), 0);
+    }
+
+    #[test]
+    fn s128_requires_unconditional_case_termination() {
+        let falling_through = js_keys("switch (x) {\n  case 1:\n    f();\n}\n");
+        assert_eq!(count_key(&falling_through, "javascript:S128"), 1);
+
+        let with_break = js_keys("switch (x) {\n  case 1:\n    f();\n    break;\n}\n");
+        assert_eq!(count_key(&with_break, "javascript:S128"), 0);
+
+        // Empty consequents (case grouping) and block-wrapped jumps stay
+        // clean.
+        let grouped = js_keys("switch (x) {\n  case 1:\n  case 2:\n    f();\n    break;\n}\n");
+        assert_eq!(count_key(&grouped, "javascript:S128"), 0);
+
+        let via_block_return = js_keys(
+            "function f(x) {\n  switch (x) {\n    case 1:\n      { g(); return; }\n  }\n}\n",
+        );
+        assert_eq!(count_key(&via_block_return, "javascript:S128"), 0);
+    }
+
+    #[test]
+    fn s131_flags_switch_without_default_case() {
+        let source = "switch (x) {\n  case 1:\n    break;\n}\n";
+        let missing = js_keys(source);
+        assert_eq!(count_key(&missing, "javascript:S131"), 1);
+
+        let with_default =
+            js_keys("switch (x) {\n  case 1:\n    break;\n  default:\n    break;\n}\n");
+        assert_eq!(count_key(&with_default, "javascript:S131"), 0);
+
+        let typescript = findings(source, JstsLanguage::TypeScript);
+        assert_eq!(count_key(&typescript, "typescript:S131"), 1);
+        assert_eq!(count_key(&typescript, "javascript:S131"), 0);
+    }
+
+    #[test]
+    fn s4524_flags_default_case_not_in_last_position() {
+        let misplaced = js_keys("switch (x) {\n  default:\n    break;\n  case 1:\n    break;\n}\n");
+        assert_eq!(count_key(&misplaced, "javascript:S4524"), 1);
+
+        let last = js_keys("switch (x) {\n  case 1:\n    break;\n  default:\n    break;\n}\n");
+        assert_eq!(count_key(&last, "javascript:S4524"), 0);
+    }
+
+    #[test]
+    fn s3616_flags_sequence_and_logical_or_case_tests() {
+        let sequence = js_keys("switch (x) {\n  case (a(), b):\n    break;\n}\n");
+        assert_eq!(count_key(&sequence, "javascript:S3616"), 1);
+
+        let logical_or = js_keys("switch (x) {\n  case a || b:\n    break;\n}\n");
+        assert_eq!(count_key(&logical_or, "javascript:S3616"), 1);
+
+        // Logical AND tests are ordinary expressions.
+        let logical_and = js_keys("switch (x) {\n  case a && b:\n    break;\n}\n");
+        assert_eq!(count_key(&logical_and, "javascript:S3616"), 0);
+    }
+
+    #[test]
+    fn s1479_flags_switches_with_more_than_thirty_cases() {
+        let build = |case_count: usize| {
+            let mut source = String::from("switch (x) {\n");
+            for case_number in 0..case_count {
+                let _ = write!(source, "  case {case_number}:\n    break;\n");
+            }
+            source.push_str("}\n");
+            source
+        };
+
+        let at_limit = js_keys(&build(super::MAX_SWITCH_CASES));
+        assert_eq!(count_key(&at_limit, "javascript:S1479"), 0);
+
+        let over_limit = js_keys(&build(super::MAX_SWITCH_CASES + 1));
+        assert_eq!(count_key(&over_limit, "javascript:S1479"), 1);
+    }
+
+    #[test]
+    fn s1301_flags_switches_convertible_to_if() {
+        let two_cases = js_keys(
+            "switch (x) {\n  case 1:\n    f();\n    break;\n  case 2:\n    g();\n    break;\n  default:\n    break;\n}\n",
+        );
+        assert_eq!(count_key(&two_cases, "javascript:S1301"), 1);
+
+        let one_case =
+            js_keys("switch (x) {\n  case 1:\n    f();\n    break;\n  default:\n    break;\n}\n");
+        assert_eq!(count_key(&one_case, "javascript:S1301"), 1);
+
+        let mut three_cases_source = String::from("switch (x) {\n  default:\n    break;\n");
+        for case_number in 0..3 {
+            let _ = write!(three_cases_source, "  case {case_number}:\n    break;\n");
+        }
+        three_cases_source.push_str("}\n");
+        let three_cases = js_keys(&three_cases_source);
+        assert_eq!(count_key(&three_cases, "javascript:S1301"), 0);
+    }
+
+    #[test]
+    fn s1821_flags_switch_nested_inside_case_consequent() {
+        let nested = js_keys(
+            "switch (x) {\n  case 1:\n    switch (y) {\n      case 2:\n        break;\n    }\n    break;\n}\n",
+        );
+        assert_eq!(count_key(&nested, "javascript:S1821"), 1);
+        let inner_line = nested
+            .iter()
+            .find(|(key, _)| key == "javascript:S1821")
+            .map(|(_, line)| *line);
+        assert_eq!(inner_line, Some(3));
+
+        // Sibling switches at the top level stay clean.
+        let sibling = js_keys(
+            "switch (x) {\n  case 1:\n    break;\n}\nswitch (y) {\n  default:\n    break;\n}\n",
+        );
+        assert_eq!(count_key(&sibling, "javascript:S1821"), 0);
+    }
+
+    #[test]
+    fn s888_flags_loose_equality_in_for_test() {
+        let loose = js_keys("for (let i = 0; i == n; i++) {}\n");
+        assert_eq!(count_key(&loose, "javascript:S888"), 1);
+
+        let strict = js_keys("for (let i = 0; i === n; i++) {}\n");
+        assert_eq!(count_key(&strict, "javascript:S888"), 0);
+    }
+
+    #[test]
+    fn s1264_flags_init_and_update_less_for_loops() {
+        let bare = js_keys("for (;;) {\n  break;\n}\n");
+        assert_eq!(count_key(&bare, "javascript:S1264"), 1);
+
+        let counted = js_keys("for (let i = 0; i < n; i++) {\n  f(i);\n}\n");
+        assert_eq!(count_key(&counted, "javascript:S1264"), 0);
+    }
+
+    #[test]
+    fn s2251_flags_counter_moving_away_from_bound() {
+        let away = js_keys("for (let i = 0; i < n; i--) {}\n");
+        assert_eq!(count_key(&away, "javascript:S2251"), 1);
+
+        let towards = js_keys("for (let i = 0; i > n; i--) {}\n");
+        assert_eq!(count_key(&towards, "javascript:S2251"), 0);
+
+        let incrementing_up = js_keys("for (let i = 0; i < n; i++) {}\n");
+        assert_eq!(count_key(&incrementing_up, "javascript:S2251"), 0);
+    }
+
+    #[test]
+    fn s1994_flags_update_clause_not_touching_counter() {
+        let other_counter = js_keys("let j = 0;\nfor (let i = 0; i < n; j++) {}\n");
+        assert_eq!(count_key(&other_counter, "javascript:S1994"), 1);
+
+        let compound_update = js_keys("for (let i = 0; i < n; i += 2) {}\n");
+        assert_eq!(count_key(&compound_update, "javascript:S1994"), 0);
+    }
+
+    #[test]
+    fn s2310_flags_counter_writes_inside_loop_body() {
+        let assigned = js_keys("for (let i = 0; i < n; i++) {\n  i = 5;\n}\n");
+        assert_eq!(count_key(&assigned, "javascript:S2310"), 1);
+
+        let updated = js_keys("for (let i = 0; i < n; i++) {\n  i++;\n}\n");
+        assert_eq!(count_key(&updated, "javascript:S2310"), 1);
+
+        let other_variable = js_keys("for (let i = 0; i < n; i++) {\n  j = 5;\n}\n");
+        assert_eq!(count_key(&other_variable, "javascript:S2310"), 0);
+    }
+
+    #[test]
+    fn s135_flags_more_than_one_direct_exit_point() {
+        let two_breaks =
+            js_keys("while (a) {\n  if (b) {\n    break;\n  }\n  if (c) {\n    break;\n  }\n}\n");
+        assert_eq!(count_key(&two_breaks, "javascript:S135"), 1);
+
+        let one_break = js_keys("while (a) {\n  if (b) {\n    break;\n  }\n  f();\n}\n");
+        assert_eq!(count_key(&one_break, "javascript:S135"), 0);
+
+        // Breaks inside a nested loop count for the inner loop only.
+        let nested = js_keys(
+            "while (a) {\n  if (b) {\n    break;\n  }\n  while (c) {\n    if (d) {\n      break;\n    }\n    break;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&nested, "javascript:S135"), 1);
+        let inner_line = nested
+            .iter()
+            .find(|(key, _)| key == "javascript:S135")
+            .map(|(_, line)| *line);
+        assert_eq!(inner_line, Some(5));
+    }
+
+    #[test]
+    fn s1751_flags_single_iteration_loops() {
+        let constant_false = js_keys("while (false) {\n  f();\n}\n");
+        assert_eq!(count_key(&constant_false, "javascript:S1751"), 1);
+
+        let terminal_break = js_keys("while (x) {\n  f();\n  break;\n}\n");
+        assert_eq!(count_key(&terminal_break, "javascript:S1751"), 1);
+
+        let continue_keeps_iterations =
+            js_keys("while (x) {\n  if (y) {\n    continue;\n  }\n  break;\n}\n");
+        assert_eq!(count_key(&continue_keeps_iterations, "javascript:S1751"), 0);
+
+        let ordinary = js_keys("while (x) {\n  f();\n}\n");
+        assert_eq!(count_key(&ordinary, "javascript:S1751"), 0);
+    }
+
+    #[test]
+    fn s2189_flags_endless_loops_without_terminators() {
+        let forever = js_keys("while (true) {\n  f();\n}\n");
+        assert_eq!(count_key(&forever, "javascript:S2189"), 1);
+
+        let do_forever = js_keys("do {\n  f();\n} while (true);\n");
+        assert_eq!(count_key(&do_forever, "javascript:S2189"), 1);
+
+        let with_break = js_keys("while (true) {\n  break;\n}\n");
+        assert_eq!(count_key(&with_break, "javascript:S2189"), 0);
+
+        let with_return = js_keys("function f() {\n  for (;;) {\n    return 1;\n  }\n}\n");
+        assert_eq!(count_key(&with_return, "javascript:S2189"), 0);
+
+        // JS-only rule: TypeScript files are never flagged.
+        let typescript = findings("while (true) {\n  f();\n}\n", JstsLanguage::TypeScript);
+        assert_eq!(count_key(&typescript, "typescript:S2189"), 0);
+    }
+
+    #[test]
+    fn s1535_requires_hasownproperty_guard_in_for_in() {
+        let bare = js_keys("for (const k in obj) {\n  f(k);\n}\n");
+        assert_eq!(count_key(&bare, "javascript:S1535"), 1);
+
+        let guarded =
+            js_keys("for (const k in obj) {\n  if (obj.hasOwnProperty(k)) {\n    f(k);\n  }\n}\n");
+        assert_eq!(count_key(&guarded, "javascript:S1535"), 0);
+    }
+
+    #[test]
+    fn s4139_flags_for_in_over_arrays_and_strings() {
+        let array = js_keys("for (const v in [\"a\", \"b\"]) {\n  f(v);\n}\n");
+        assert_eq!(count_key(&array, "javascript:S4139"), 1);
+
+        let string = js_keys("for (const v in \"ab\") {\n  f(v);\n}\n");
+        assert_eq!(count_key(&string, "javascript:S4139"), 1);
+
+        let object = js_keys("for (const v in obj) {\n  f(v);\n}\n");
+        assert_eq!(count_key(&object, "javascript:S4139"), 0);
+    }
+
+    #[test]
+    fn s4138_flags_for_of_over_non_iterables() {
+        let object = js_keys("for (const v of { a: 1 }) {\n  f(v);\n}\n");
+        assert_eq!(count_key(&object, "javascript:S4138"), 1);
+
+        let number = js_keys("for (const v of 5) {\n  f(v);\n}\n");
+        assert_eq!(count_key(&number, "javascript:S4138"), 1);
+
+        let array = js_keys("for (const v of [1, 2]) {\n  f(v);\n}\n");
+        assert_eq!(count_key(&array, "javascript:S4138"), 0);
     }
 }
