@@ -3,6 +3,7 @@
 //! Every subcommand reads exclusively from
 //! [`hoonarqube_catalog::embedded`]; no files are read at runtime.
 
+use std::fmt::Write as _;
 use std::io::Write as _;
 use std::process::ExitCode;
 
@@ -37,11 +38,15 @@ enum Command {
         #[command(subcommand)]
         cmd: RulesCommand,
     },
-    /// Analyze Python sources under the given files or directories.
+    /// Analyze supported sources under the given files or directories.
     Analyze {
         /// Files or directories to analyze.
         #[arg(required = true)]
         paths: Vec<std::path::PathBuf>,
+        /// Output format: `text` (default), `json`, or `sonar`
+        /// (`SonarQube` Generic Issue Import).
+        #[arg(long)]
+        format: Option<String>,
     },
 }
 
@@ -64,13 +69,41 @@ enum RulesCommand {
     Info { external_key: String },
 }
 
+/// Output format of the `analyze` subcommand.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AnalyzeFormat {
+    /// Human-readable text lines (default).
+    Text,
+    /// Compact [`hoonarqube_ir::AnalysisReport`] JSON; also selected by the
+    /// legacy global `--json` flag.
+    Json,
+    /// `SonarQube` Generic Issue Import JSON.
+    Sonar,
+}
+
+/// Resolves the analyze output format: an explicit `--format` value wins over
+/// the legacy global `--json` flag; without either, text is emitted. Unknown
+/// `--format` values are returned as `Err`.
+fn analyze_format(format: Option<&str>, json_flag: bool) -> Result<AnalyzeFormat, String> {
+    match format {
+        Some("text") => Ok(AnalyzeFormat::Text),
+        Some("json") => Ok(AnalyzeFormat::Json),
+        Some("sonar") => Ok(AnalyzeFormat::Sonar),
+        Some(value) => Err(value.to_string()),
+        None if json_flag => Ok(AnalyzeFormat::Json),
+        None => Ok(AnalyzeFormat::Text),
+    }
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let catalog = embedded();
     match &cli.command {
         Command::Snapshot => print_snapshot(catalog, cli.json),
         Command::Rules { cmd } => run_rules(catalog, cmd, cli.json),
-        Command::Analyze { paths } => run_analyze(catalog, paths, cli.json),
+        Command::Analyze { paths, format } => {
+            run_analyze(catalog, paths, format.as_deref(), cli.json)
+        }
     }
 }
 
@@ -214,9 +247,92 @@ fn unknown_language(value: &str) -> ExitCode {
     ExitCode::from(2)
 }
 
-/// Validates input paths, then walks and analyzes them; issues found are not
-/// failures (scanner-style), only missing paths exit nonzero.
-fn run_analyze(catalog: &Catalog, paths: &[std::path::PathBuf], json: bool) -> ExitCode {
+/// Strips the `repository:` prefix from a catalog external key for the
+/// `SonarQube` Generic Issue Import `ruleId` field (e.g. `python:S103` becomes
+/// `S103`); keys without a prefix pass through unchanged.
+fn sonar_rule_id(rule_key: &str) -> &str {
+    match rule_key.split_once(':') {
+        Some((_, rule_id)) => rule_id,
+        None => rule_key,
+    }
+}
+
+/// Renders the human-readable analyze report: one line per finding, then a
+/// summary line. Byte-identical to the historical inline printing.
+fn render_text_report(reports: &[hoonarqube_ir::FileReport]) -> String {
+    let total_issues: usize = reports.iter().map(|report| report.issues.len()).sum();
+    let mut out = String::new();
+    for report in reports {
+        for issue in &report.issues {
+            let _ = writeln!(
+                out,
+                "{}:{}:{}: {}: {}",
+                report.path.display(),
+                issue.range.start.line,
+                issue.range.start.column,
+                issue.rule_key,
+                issue.message
+            );
+        }
+    }
+    let _ = writeln!(
+        out,
+        "analyzed {} file(s), {} finding(s)",
+        reports.len(),
+        total_issues
+    );
+    out
+}
+
+/// Builds a `SonarQube` Generic Issue Import document: every finding becomes one
+/// issue with `engineId`/`ruleId`/`severity`/`type` and a single
+/// `primaryLocation`. Positions reuse the IR convention (1-based lines,
+/// 0-based columns); optional fields are omitted rather than emitted as null.
+fn sonar_import_value(reports: &[hoonarqube_ir::FileReport]) -> serde_json::Value {
+    let issues: Vec<serde_json::Value> = reports
+        .iter()
+        .flat_map(|report| {
+            let file_path = report.path.display().to_string();
+            report.issues.iter().map(move |issue| {
+                serde_json::json!({
+                    "engineId": "hoonarqube",
+                    "ruleId": sonar_rule_id(&issue.rule_key),
+                    "severity": "INFO",
+                    "type": "CODE_SMELL",
+                    "primaryLocation": {
+                        "message": &issue.message,
+                        "filePath": file_path,
+                        "textRange": {
+                            "startLine": issue.range.start.line,
+                            "startColumn": issue.range.start.column,
+                            "endLine": issue.range.end.line,
+                            "endColumn": issue.range.end.column,
+                        },
+                    },
+                })
+            })
+        })
+        .collect();
+    serde_json::json!({ "issues": issues })
+}
+
+/// Validates input paths and the requested output format, then walks and
+/// analyzes them; issues found are not failures (scanner-style); only missing
+/// paths or an unknown format exit nonzero.
+fn run_analyze(
+    catalog: &Catalog,
+    paths: &[std::path::PathBuf],
+    format: Option<&str>,
+    json_flag: bool,
+) -> ExitCode {
+    let format = match analyze_format(format, json_flag) {
+        Ok(format) => format,
+        Err(value) => {
+            eprintln!("unknown format: {value}");
+            return ExitCode::from(2);
+        }
+    };
+
     let mut valid = true;
     for path in paths {
         if !path.exists() {
@@ -235,28 +351,177 @@ fn run_analyze(catalog: &Catalog, paths: &[std::path::PathBuf], json: bool) -> E
         eprintln!("{warning}");
     }
 
-    if json {
-        print_json(&hoonarqube_ir::AnalysisReport { files: reports });
-        return ExitCode::SUCCESS;
+    match format {
+        AnalyzeFormat::Json => {
+            print_json(&hoonarqube_ir::AnalysisReport { files: reports });
+        }
+        AnalyzeFormat::Sonar => print_json(&sonar_import_value(&reports)),
+        AnalyzeFormat::Text => print!("{}", render_text_report(&reports)),
     }
+    ExitCode::SUCCESS
+}
 
-    let total_issues: usize = reports.iter().map(|report| report.issues.len()).sum();
-    for report in &reports {
-        for issue in &report.issues {
-            println!(
-                "{}:{}:{}: {}: {}",
-                report.path.display(),
-                issue.range.start.line,
-                issue.range.start.column,
-                issue.rule_key,
-                issue.message
-            );
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use hoonarqube_ir::{FileMetrics, FileReport, Issue, Pos, Range};
+
+    fn sample_report(path: &str, language: &str, issues: Vec<Issue>) -> FileReport {
+        FileReport {
+            path: std::path::PathBuf::from(path),
+            language: language.to_string(),
+            issues,
+            metrics: FileMetrics {
+                lines: 2,
+                code_lines: 2,
+                comment_lines: 0,
+            },
         }
     }
-    println!(
-        "analyzed {} file(s), {} finding(s)",
-        reports.len(),
-        total_issues
-    );
-    ExitCode::SUCCESS
+
+    #[test]
+    fn sonar_import_maps_findings_to_generic_schema() {
+        let reports = vec![
+            sample_report(
+                "src/bad.js",
+                "javascript",
+                vec![Issue {
+                    rule_key: "javascript:S1523".to_string(),
+                    message: "Remove this usage of 'eval'.".to_string(),
+                    range: Range {
+                        start: Pos { line: 1, column: 0 },
+                        end: Pos { line: 1, column: 4 },
+                    },
+                }],
+            ),
+            sample_report(
+                "src/long.py",
+                "python",
+                vec![Issue {
+                    rule_key: "python:LineLength".to_string(),
+                    message: "This line exceeds the maximum allowed length of 120 characters."
+                        .to_string(),
+                    range: Range {
+                        start: Pos { line: 3, column: 0 },
+                        end: Pos {
+                            line: 3,
+                            column: 140,
+                        },
+                    },
+                }],
+            ),
+        ];
+
+        let value = sonar_import_value(&reports);
+        let issues = value["issues"].as_array().expect("issues array");
+        assert_eq!(issues.len(), 2);
+
+        let first = &issues[0];
+        assert_eq!(first["engineId"], "hoonarqube");
+        assert_eq!(first["ruleId"], "S1523");
+        assert_eq!(first["severity"], "INFO");
+        assert_eq!(first["type"], "CODE_SMELL");
+        assert_eq!(
+            first["primaryLocation"]["message"],
+            "Remove this usage of 'eval'."
+        );
+        assert_eq!(first["primaryLocation"]["filePath"], "src/bad.js");
+        assert_eq!(first["primaryLocation"]["textRange"]["startLine"], 1);
+        assert_eq!(first["primaryLocation"]["textRange"]["startColumn"], 0);
+        assert_eq!(first["primaryLocation"]["textRange"]["endLine"], 1);
+        assert_eq!(first["primaryLocation"]["textRange"]["endColumn"], 4);
+
+        assert_eq!(issues[1]["ruleId"], "LineLength");
+        assert_eq!(issues[1]["primaryLocation"]["filePath"], "src/long.py");
+
+        // Generic-import optional fields are omitted, never emitted as null.
+        assert!(!value.to_string().contains("null"));
+    }
+
+    #[test]
+    fn sonar_import_of_clean_report_has_empty_issue_list() {
+        let value = sonar_import_value(&[]);
+        assert_eq!(value["issues"].as_array().map(Vec::len), Some(0));
+    }
+
+    #[test]
+    fn sonar_rule_id_strips_repository_prefix() {
+        assert_eq!(sonar_rule_id("typescript:S122"), "S122");
+        assert_eq!(sonar_rule_id("python:LineLength"), "LineLength");
+        assert_eq!(sonar_rule_id("S103"), "S103");
+    }
+
+    #[test]
+    fn text_rendering_keeps_historical_line_format() {
+        let reports = vec![sample_report(
+            "a.js",
+            "javascript",
+            vec![Issue {
+                rule_key: "javascript:S1523".to_string(),
+                message: "Remove this usage of 'eval'.".to_string(),
+                range: Range {
+                    start: Pos {
+                        line: 2,
+                        column: 10,
+                    },
+                    end: Pos {
+                        line: 2,
+                        column: 14,
+                    },
+                },
+            }],
+        )];
+
+        assert_eq!(
+            render_text_report(&reports),
+            "a.js:2:10: javascript:S1523: Remove this usage of 'eval'.\n\
+             analyzed 1 file(s), 1 finding(s)\n"
+        );
+    }
+
+    #[test]
+    fn json_rendering_keeps_the_ir_serialization() {
+        let report = hoonarqube_ir::AnalysisReport {
+            files: vec![sample_report(
+                "a.py",
+                "python",
+                vec![Issue {
+                    rule_key: "python:S103".to_string(),
+                    message: "Line is too long".to_string(),
+                    range: Range {
+                        start: Pos { line: 1, column: 0 },
+                        end: Pos {
+                            line: 1,
+                            column: 80,
+                        },
+                    },
+                }],
+            )],
+        };
+
+        assert_eq!(
+            serde_json::to_string(&report).expect("serialize report"),
+            "{\"files\":[{\"path\":\"a.py\",\"language\":\"python\",\"issues\":[{\"rule_key\":\"python:S103\",\"message\":\"Line is too long\",\"range\":{\"start\":{\"line\":1,\"column\":0},\"end\":{\"line\":1,\"column\":80}}}],\"metrics\":{\"lines\":2,\"code_lines\":2,\"comment_lines\":0}}]}"
+        );
+    }
+
+    #[test]
+    fn analyze_format_prefers_explicit_format_over_json_flag() {
+        assert_eq!(
+            analyze_format(Some("sonar"), false),
+            Ok(AnalyzeFormat::Sonar)
+        );
+        assert_eq!(analyze_format(Some("json"), false), Ok(AnalyzeFormat::Json));
+        assert_eq!(analyze_format(Some("text"), false), Ok(AnalyzeFormat::Text));
+        // The legacy global `--json` flag stays an alias of `json`.
+        assert_eq!(analyze_format(None, true), Ok(AnalyzeFormat::Json));
+        assert_eq!(analyze_format(None, false), Ok(AnalyzeFormat::Text));
+        assert_eq!(analyze_format(Some("text"), true), Ok(AnalyzeFormat::Text));
+        assert_eq!(
+            analyze_format(Some("sonar"), true),
+            Ok(AnalyzeFormat::Sonar)
+        );
+        assert_eq!(analyze_format(Some("xml"), true), Err("xml".to_string()));
+    }
 }

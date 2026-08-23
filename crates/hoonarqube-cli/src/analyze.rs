@@ -81,7 +81,6 @@ pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundl
         match maximum_line_length("javascript:S103").or(maximum_line_length("typescript:S103")) {
             Some(maximum_line_length) => hoonarqube_jsts::AnalyzerOptions {
                 maximum_line_length,
-                ..hoonarqube_jsts::AnalyzerOptions::default()
             },
             None => hoonarqube_jsts::AnalyzerOptions::default(),
         };
