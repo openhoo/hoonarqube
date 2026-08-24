@@ -8,6 +8,11 @@ repository.workspace = true
 
 [lib]
 path = "src/lib.rs"
+[dependencies]
+hoonarqube-csharp = { path = "../hoonarqube-csharp" }
+hoonarqube-ir = { path = "../hoonarqube-ir" }
+hoonarqube-jsts = { path = "../hoonarqube-jsts" }
+hoonarqube-python = { path = "../hoonarqube-python" }
 
 [lints]
 workspace = true
