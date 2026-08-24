@@ -4943,3 +4943,863 @@ fn selector_parameters_are_flagged_when_driving_branches() {
     // Both catalog scopes carry S2301.
     assert_eq!(count_key(&ts_keys(SWITCH_VIOLATION), "typescript:S2301"), 1);
 }
+
+#[test]
+fn s6249_requires_enforce_ssl_on_cdk_s3_buckets() {
+    let count = |source: &str| -> usize {
+        js(source)
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S6249"))
+            .count()
+    };
+
+    // Namespace import, props argument absent: `enforceSSL` provably missing.
+    assert_eq!(
+        count("import * as s3 from 'aws-cdk-lib/aws-s3';\nnew s3.Bucket(this, 'Bucket');\n"),
+        1
+    );
+
+    // Named import, `enforceSSL: false` authorizes HTTP.
+    assert_eq!(
+        count(
+            "import { Bucket } from 'aws-cdk-lib/aws-s3';\n\
+             new Bucket(this, 'Bucket', { enforceSSL: false });\n"
+        ),
+        1
+    );
+
+    // Require form, props object bound to a unique variable.
+    assert_eq!(
+        count(
+            "const s3 = require('aws-cdk-lib/aws-s3');\n\
+             const props = {};\n\
+             new s3.Bucket(this, 'Bucket', props);\n"
+        ),
+        1
+    );
+
+    // Clean: HTTPS enforced.
+    assert_eq!(
+        count(
+            "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             new s3.Bucket(this, 'Bucket', { enforceSSL: true });\n"
+        ),
+        0
+    );
+
+    // Clean: non-CDK constructor with the same shape.
+    assert_eq!(
+        count("import * as s3 from 'other-lib';\nnew s3.Bucket(this, 'Bucket');\n"),
+        0
+    );
+
+    // Clean: opaque props value cannot prove the setting is missing.
+    assert_eq!(
+        count(
+            "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             new s3.Bucket(this, 'Bucket', unknownProps);\n"
+        ),
+        0
+    );
+}
+
+#[test]
+fn s6249_reports_enforce_ssl_for_typescript_files_too() {
+    let report = ts("import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+         new s3.Bucket(this, 'Bucket', { versioned: true });\n");
+    let issues: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key == "typescript:S6249")
+        .collect();
+    assert_eq!(issues.len(), 1);
+    assert_eq!(
+        issues[0].message,
+        "Omitting 'enforceSSL' authorizes HTTP requests. Make sure it is safe here."
+    );
+}
+
+#[test]
+fn s6252_requires_versioning_on_cdk_s3_buckets() {
+    let count = |source: &str| -> usize {
+        js(source)
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S6252"))
+            .count()
+    };
+
+    // Props argument absent: `versioned` provably missing.
+    assert_eq!(
+        count("import * as s3 from 'aws-cdk-lib/aws-s3';\nnew s3.Bucket(this, 'Bucket');\n"),
+        1
+    );
+
+    // Explicit `versioned: false`.
+    assert_eq!(
+        count(
+            "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             new s3.Bucket(this, 'Bucket', { versioned: false });\n"
+        ),
+        1
+    );
+
+    // `versioned` routed through a unique const binding.
+    assert_eq!(
+        count(
+            "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             const unversioned = false;\n\
+             new s3.Bucket(this, 'Bucket', { versioned: unversioned });\n"
+        ),
+        1
+    );
+
+    // Clean: versioning enabled.
+    assert_eq!(
+        count(
+            "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             new s3.Bucket(this, 'Bucket', { versioned: true });\n"
+        ),
+        0
+    );
+}
+
+#[test]
+fn s6265_flags_public_s3_access_grants() {
+    let count = |source: &str| -> usize {
+        js(source)
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S6265"))
+            .count()
+    };
+
+    // `publicReadAccess: true` on a bucket.
+    assert_eq!(
+        count(
+            "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             new s3.Bucket(this, 'B', { publicReadAccess: true });\n"
+        ),
+        1
+    );
+
+    // Public `accessControl` level.
+    assert_eq!(
+        count(
+            "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             new s3.Bucket(this, 'B', {\n\
+             \x20 accessControl: s3.BucketAccessControl.PUBLIC_READ,\n\
+             });\n"
+        ),
+        1
+    );
+
+    // `grantPublicAccess()` on a bucket variable.
+    assert_eq!(
+        count(
+            "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             const bucket = new s3.Bucket(this, 'B', {});\n\
+             bucket.grantPublicAccess();\n"
+        ),
+        1
+    );
+
+    // Clean: private access control and no grants.
+    assert_eq!(
+        count(
+            "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             new s3.Bucket(this, 'B', {\n\
+             \x20 accessControl: s3.BucketAccessControl.PRIVATE,\n\
+             \x20 publicReadAccess: false,\n\
+             });\n"
+        ),
+        0
+    );
+}
+
+#[test]
+fn s6275_requires_encrypted_ebs_volumes() {
+    let count = |source: &str| -> usize {
+        js(source)
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S6275"))
+            .count()
+    };
+
+    assert_eq!(
+        count("import * as ec2 from 'aws-cdk-lib/aws-ec2';\nnew ec2.Volume(this, 'V');\n"),
+        1
+    );
+    assert_eq!(
+        count(
+            "import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             new ec2.Volume(this, 'V', { encrypted: false });\n"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            "import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             new ec2.Volume(this, 'V', { encrypted: true });\n"
+        ),
+        0
+    );
+}
+
+#[test]
+fn s6281_flags_incomplete_s3_public_access_blocks() {
+    let count = |source: &str| -> usize {
+        js(source)
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S6281"))
+            .count()
+    };
+
+    // BLOCK_ACLS_ONLY still lets bucket policies grant public access.
+    assert_eq!(
+        count(
+            "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             new s3.Bucket(this, 'B', {\n\
+             \x20 blockPublicAccess: s3.BlockPublicAccess.BLOCK_ACLS_ONLY,\n\
+             });\n"
+        ),
+        1
+    );
+
+    // One disabled flag inside the BlockPublicAccess configuration.
+    assert_eq!(
+        count(
+            "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             new s3.Bucket(this, 'B', {\n\
+             \x20 blockPublicAccess: new s3.BlockPublicAccess({ blockPublicPolicy: false }),\n\
+             });\n"
+        ),
+        1
+    );
+
+    // Clean: all four flags enabled.
+    assert_eq!(
+        count(
+            "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             new s3.Bucket(this, 'B', {\n\
+             \x20 blockPublicAccess: new s3.BlockPublicAccess({\n\
+             \x20   blockPublicAcls: true,\n\
+             \x20   blockPublicPolicy: true,\n\
+             \x20   ignorePublicAcls: true,\n\
+             \x20   restrictPublicBuckets: true,\n\
+             \x20 }),\n\
+             });\n"
+        ),
+        0
+    );
+}
+
+#[test]
+fn s6270_flags_public_iam_principals() {
+    let count = |source: &str| -> usize {
+        js(source)
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S6270"))
+            .count()
+    };
+
+    // CDK style: StarPrincipal with default (allow) effect.
+    assert_eq!(
+        count(
+            "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 actions: ['s3:*'],\n\
+             \x20 resources: ['*'],\n\
+             \x20 principals: [new iam.StarPrincipal()],\n\
+             });\n"
+        ),
+        1
+    );
+
+    // CDK style: explicit ALLOW effect.
+    assert_eq!(
+        count(
+            "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 effect: iam.Effect.ALLOW,\n\
+             \x20 principals: [new iam.AnyPrincipal()],\n\
+             });\n"
+        ),
+        1
+    );
+
+    // JSON style via PolicyStatement.fromJson with wildcard principal.
+    assert_eq!(
+        count(
+            "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             iam.PolicyStatement.fromJson({\n\
+             \x20 Effect: 'Allow',\n\
+             \x20 Principal: '*',\n\
+             });\n"
+        ),
+        1
+    );
+
+    // Clean: DENY effect and concrete principal.
+    assert_eq!(
+        count(
+            "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 effect: iam.Effect.DENY,\n\
+             \x20 principals: [new iam.ArnPrincipal('arn:aws:iam::123:root')],\n\
+             });\n"
+        ),
+        0
+    );
+}
+
+#[test]
+fn s6302_flags_wildcard_action_policies() {
+    let count = |source: &str| -> usize {
+        js(source)
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S6302"))
+            .count()
+    };
+
+    assert_eq!(
+        count(
+            "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 effect: iam.Effect.ALLOW,\n\
+             \x20 actions: ['s3:*', '*'],\n\
+             \x20 resources: ['arn:aws:s3:::bucket/*'],\n\
+             });\n"
+        ),
+        1
+    );
+
+    // JSON style via PolicyDocument.fromJson.
+    assert_eq!(
+        count(
+            "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             iam.PolicyDocument.fromJson({\n\
+             \x20 Statement: [{ Effect: 'Allow', Action: '*', Resource: '*' }],\n\
+             });\n"
+        ),
+        1
+    );
+
+    // Clean: concrete actions.
+    assert_eq!(
+        count(
+            "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 effect: iam.Effect.ALLOW,\n\
+             \x20 actions: ['s3:GetObject'],\n\
+             \x20 resources: ['*'],\n\
+             });\n"
+        ),
+        0
+    );
+}
+
+#[test]
+fn s6304_flags_wildcard_resource_policies() {
+    let count = |source: &str| -> usize {
+        js(source)
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S6304"))
+            .count()
+    };
+
+    assert_eq!(
+        count(
+            "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 effect: iam.Effect.ALLOW,\n\
+             \x20 actions: ['s3:GetObject'],\n\
+             \x20 resources: ['*'],\n\
+             });\n"
+        ),
+        1
+    );
+
+    // KMS key policies are exempt from the wildcard-resource flag.
+    assert_eq!(
+        count(
+            "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 effect: iam.Effect.ALLOW,\n\
+             \x20 actions: ['kms:Decrypt'],\n\
+             \x20 resources: ['*'],\n\
+             });\n"
+        ),
+        0
+    );
+
+    // Clean: scoped resource.
+    assert_eq!(
+        count(
+            "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 actions: ['s3:GetObject'],\n\
+             \x20 resources: ['arn:aws:s3:::bucket/*'],\n\
+             });\n"
+        ),
+        0
+    );
+}
+
+#[test]
+fn s6317_flags_privilege_escalation_wildcards() {
+    let count = |source: &str| -> usize {
+        js(source)
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S6317"))
+            .count()
+    };
+
+    // iam:PassRole on all roles.
+    assert_eq!(
+        count(
+            "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 effect: iam.Effect.ALLOW,\n\
+             \x20 actions: ['iam:PassRole'],\n\
+             \x20 resources: ['*'],\n\
+             \x20 principals: [new iam.ServicePrincipal('ec2.amazonaws.com')],\n\
+             });\n"
+        ),
+        1
+    );
+
+    // Account-scoped wildcard role resource.
+    assert_eq!(
+        count(
+            "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 actions: ['sts:AssumeRole'],\n\
+             \x20 resources: ['*:*:*:*:role/*'],\n\
+             \x20 principals: [new iam.ServicePrincipal('ec2.amazonaws.com')],\n\
+             });\n"
+        ),
+        1
+    );
+
+    // Clean: concrete role resource.
+    assert_eq!(
+        count(
+            "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 actions: ['sts:AssumeRole'],\n\
+             \x20 resources: ['arn:aws:iam::123456789012:role/deploy'],\n\
+             \x20 principals: [new iam.ServicePrincipal('ec2.amazonaws.com')],\n\
+             });\n"
+        ),
+        0
+    );
+}
+
+#[test]
+fn s6303_requires_rds_storage_encryption() {
+    let count = |source: &str| -> usize {
+        js(source)
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S6303"))
+            .count()
+    };
+
+    assert_eq!(
+        count(
+            "import * as rds from 'aws-cdk-lib/aws-rds';\nnew rds.DatabaseInstance(this, 'DB');\n"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            "import * as rds from 'aws-cdk-lib/aws-rds';\n\
+             new rds.DatabaseInstance(this, 'DB', { storageEncrypted: false });\n"
+        ),
+        1
+    );
+    // L2 exception: explicit KMS storage encryption key.
+    assert_eq!(
+        count(
+            "import * as rds from 'aws-cdk-lib/aws-rds';\n\
+             import * as kms from 'aws-cdk-lib/aws-kms';\n\
+             new rds.DatabaseInstance(this, 'DB', {\n\
+             \x20 storageEncryptionKey: new kms.Key(this, 'Key'),\n\
+             });\n"
+        ),
+        0
+    );
+    // Clean: encrypted.
+    assert_eq!(
+        count(
+            "import * as rds from 'aws-cdk-lib/aws-rds';\n\
+             new rds.DatabaseCluster(this, 'DB', { storageEncrypted: true });\n"
+        ),
+        0
+    );
+}
+
+#[test]
+fn s6319_requires_sagemaker_kms_key() {
+    let count = |source: &str| -> usize {
+        js(source)
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S6319"))
+            .count()
+    };
+
+    assert_eq!(
+        count(
+            "import * as sagemaker from 'aws-cdk-lib/aws-sagemaker';\n\
+             new sagemaker.CfnNotebookInstance(this, 'NB');\n"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            "import * as sagemaker from 'aws-cdk-lib/aws-sagemaker';\n\
+             new sagemaker.CfnNotebookInstance(this, 'NB', { kmsKeyId: 'k' });\n"
+        ),
+        0
+    );
+}
+
+#[test]
+fn s6327_requires_sns_kms_keys() {
+    let count = |source: &str| -> usize {
+        js(source)
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S6327"))
+            .count()
+    };
+
+    assert_eq!(
+        count("import * as sns from 'aws-cdk-lib/aws-sns';\nnew sns.Topic(this, 'T');\n"),
+        1
+    );
+    assert_eq!(
+        count(
+            "import * as sns from 'aws-cdk-lib/aws-sns';\n\
+             new sns.CfnTopic(this, 'T', { kmsMasterKeyId: 'k' });\n"
+        ),
+        0
+    );
+    assert_eq!(
+        count(
+            "import * as sns from 'aws-cdk-lib/aws-sns';\n\
+             new sns.Topic(this, 'T', { masterKey: 'k' });\n"
+        ),
+        0
+    );
+}
+
+#[test]
+fn s6330_requires_sqs_encryption() {
+    let count = |source: &str| -> usize {
+        js(source)
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S6330"))
+            .count()
+    };
+
+    assert_eq!(
+        count("import * as sqs from 'aws-cdk-lib/aws-sqs';\nnew sqs.Queue(this, 'Q');\n"),
+        1
+    );
+    assert_eq!(
+        count(
+            "import * as sqs from 'aws-cdk-lib/aws-sqs';\n\
+             new sqs.Queue(this, 'Q', { encryption: sqs.QueueEncryption.UNENCRYPTED });\n"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            "import * as sqs from 'aws-cdk-lib/aws-sqs';\n\
+             new sqs.CfnQueue(this, 'Q', { kmsMasterKeyId: 'k' });\n"
+        ),
+        0
+    );
+    assert_eq!(
+        count(
+            "import * as sqs from 'aws-cdk-lib/aws-sqs';\n\
+             new sqs.Queue(this, 'Q', { encryption: sqs.QueueEncryption.KMS_MANAGED });\n"
+        ),
+        0
+    );
+}
+
+#[test]
+fn s6332_requires_efs_encryption() {
+    let count = |source: &str| -> usize {
+        js(source)
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S6332"))
+            .count()
+    };
+
+    // L2: only explicit false is flagged (omission defaults to encrypted).
+    assert_eq!(
+        count(
+            "import * as efs from 'aws-cdk-lib/aws-efs';\n\
+             new efs.FileSystem(this, 'FS', { encrypted: false });\n"
+        ),
+        1
+    );
+    assert_eq!(
+        count("import * as efs from 'aws-cdk-lib/aws-efs';\nnew efs.FileSystem(this, 'FS');\n"),
+        0
+    );
+    // L1: omission is flagged.
+    assert_eq!(
+        count("import * as efs from 'aws-cdk-lib/aws-efs';\nnew efs.CfnFileSystem(this, 'FS');\n"),
+        1
+    );
+    assert_eq!(
+        count(
+            "import * as efs from 'aws-cdk-lib/aws-efs';\n\
+             new efs.CfnFileSystem(this, 'FS', { encrypted: true });\n"
+        ),
+        0
+    );
+}
+
+#[test]
+fn s6308_requires_opensearch_encryption_at_rest() {
+    let count = |source: &str| -> usize {
+        js(source)
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S6308"))
+            .count()
+    };
+
+    // L2 OpenSearch domain without encryptionAtRestOptions.
+    assert_eq!(
+        count(
+            "import * as opensearch from 'aws-cdk-lib/aws-opensearchservice';\n\
+             new opensearch.Domain(this, 'D', { version: opensearch.EngineVersion.OPENSEARCH_1_0 });\n"
+        ),
+        1
+    );
+
+    // Explicitly disabled encryption.
+    assert_eq!(
+        count(
+            "import * as opensearch from 'aws-cdk-lib/aws-opensearchservice';\n\
+             new opensearch.Domain(this, 'D', {\n\
+             \x20 encryptionAtRestOptions: { enabled: false },\n\
+             });\n"
+        ),
+        1
+    );
+
+    // L1 CfnDomain with an Elasticsearch engine version string.
+    assert_eq!(
+        count(
+            "import * as elasticsearch from 'aws-cdk-lib/aws-elasticsearch';\n\
+             new elasticsearch.CfnDomain(this, 'D', { engineVersion: 'Elasticsearch_7.10' });\n"
+        ),
+        1
+    );
+
+    // Clean: encryption enabled.
+    assert_eq!(
+        count(
+            "import * as opensearch from 'aws-cdk-lib/aws-opensearchservice';\n\
+             new opensearch.Domain(this, 'D', {\n\
+             \x20 encryptionAtRestOptions: { enabled: true },\n\
+             });\n"
+        ),
+        0
+    );
+}
+
+#[test]
+fn s6329_flags_public_network_exposure() {
+    let count = |source: &str| -> usize {
+        js(source)
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S6329"))
+            .count()
+    };
+
+    // EC2 instance on a public subnet.
+    assert_eq!(
+        count(
+            "import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             new ec2.Instance(this, 'I', {\n\
+             \x20 vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },\n\
+             });\n"
+        ),
+        1
+    );
+
+    // RDS instance on a public subnet without publiclyAccessible.
+    assert_eq!(
+        count(
+            "import * as rds from 'aws-cdk-lib/aws-rds';\n\
+             import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             new rds.DatabaseInstance(this, 'DB', {\n\
+             \x20 vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },\n\
+             });\n"
+        ),
+        1
+    );
+
+    // Clean: private subnet.
+    assert_eq!(
+        count(
+            "import * as rds from 'aws-cdk-lib/aws-rds';\n\
+             import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             new rds.DatabaseInstance(this, 'DB', {\n\
+             \x20 vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },\n\
+             });\n"
+        ),
+        0
+    );
+
+    // DMS replication instance with publiclyAccessible.
+    assert_eq!(
+        count(
+            "import * as dms from 'aws-cdk-lib/aws-dms';\n\
+             new dms.CfnReplicationInstance(this, 'D', { publiclyAccessible: true });\n"
+        ),
+        1
+    );
+}
+
+#[test]
+fn s6333_flags_public_api_gateway_methods() {
+    let count = |source: &str| -> usize {
+        js(source)
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S6333"))
+            .count()
+    };
+
+    // CfnMethod with NONE authorization.
+    assert_eq!(
+        count(
+            "import * as apigateway from 'aws-cdk-lib/aws-apigateway';\n\
+             new apigateway.CfnMethod(this, 'M', { authorizationType: 'NONE' });\n"
+        ),
+        1
+    );
+
+    // CfnMethod without authorizationType.
+    assert_eq!(
+        count(
+            "import * as apigateway from 'aws-cdk-lib/aws-apigateway';\n\
+             new apigateway.CfnMethod(this, 'M', { httpMethod: 'GET' });\n"
+        ),
+        1
+    );
+
+    // root.addMethod without authorization and without API default.
+    assert_eq!(
+        count(
+            "import * as apigateway from 'aws-cdk-lib/aws-apigateway';\n\
+             const api = new apigateway.RestApi(this, 'Api');\n\
+             api.root.addMethod('GET');\n"
+        ),
+        1
+    );
+
+    // root.addMethod inheriting a NONE default.
+    assert_eq!(
+        count(
+            "import * as apigateway from 'aws-cdk-lib/aws-apigateway';\n\
+             const api = new apigateway.RestApi(this, 'Api', {\n\
+             \x20 defaultMethodOptions: { authorizationType: 'NONE' },\n\
+             });\n\
+             api.root.addMethod('GET', {});\n"
+        ),
+        1
+    );
+
+    // Clean: explicit IAM authorization.
+    assert_eq!(
+        count(
+            "import * as apigateway from 'aws-cdk-lib/aws-apigateway';\n\
+             const api = new apigateway.RestApi(this, 'Api');\n\
+             api.root.addMethod('GET', { authorizationType: 'IAM' });\n"
+        ),
+        0
+    );
+}
+
+#[test]
+fn s6321_flags_admin_ports_open_to_world() {
+    let count = |source: &str| -> usize {
+        js(source)
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S6321"))
+            .count()
+    };
+
+    // SSH opened to any IPv4 via allowFromAnyIpv4.
+    assert_eq!(
+        count(
+            "import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             sg.connections.allowFromAnyIpv4(ec2.Port.tcp(22));\n"
+        ),
+        1
+    );
+
+    // allowFrom with open peer and admin port.
+    assert_eq!(
+        count(
+            "import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             sg.connections.allowFrom(ec2.Peer.ipv4('0.0.0.0/0'), ec2.Port.tcp(3389));\n"
+        ),
+        1
+    );
+
+    // CfnSecurityGroupIngress opening RDP to the world.
+    assert_eq!(
+        count(
+            "import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             new ec2.CfnSecurityGroupIngress(this, 'Ingress', {\n\
+             \x20 cidrIp: '0.0.0.0/0',\n\
+             \x20 ipProtocol: 'tcp',\n\
+             \x20 fromPort: 22,\n\
+             \x20 toPort: 22,\n\
+             });\n"
+        ),
+        1
+    );
+
+    // Clean: restricted peer and port.
+    assert_eq!(
+        count(
+            "import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             sg.connections.allowFrom(ec2.Peer.ipv4('10.0.0.0/8'), ec2.Port.tcp(22));\n"
+        ),
+        0
+    );
+
+    // Clean: open world but a non-admin port.
+    assert_eq!(
+        count(
+            "import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             sg.connections.allowFrom(ec2.Peer.anyIpv4(), ec2.Port.tcp(8443));\n"
+        ),
+        0
+    );
+}

@@ -10,6 +10,21 @@
 //! Parsing is tolerant: a partial `Program` is analyzed even when the parser
 //! reports recoverable errors, and parse errors themselves emit no issues (the
 //! frozen js/ts catalogs contain no `ParsingError` rule).
+//!
+//! # Documented coverage gaps (INFRA skips)
+//!
+//! Two rules of the frozen js/ts catalogs are intentionally not implemented
+//! because the analysis infrastructure they require does not exist in this
+//! crate; the coverage audit gaps are explained here in code:
+//!
+//! - `javascript:S1874` / `typescript:S1874` (usage of deprecated APIs):
+//!   detection needs a deprecated-API database (browser/ECMAScript
+//!   compatibility dataset) that is not bundled with the analyzer. Without
+//!   that data, any single-file approximation would be guesswork.
+//! - `javascript:S6627` / `typescript:S6627` (imports of internal APIs):
+//!   detection needs cross-file module resolution to prove whether the
+//!   imported `_`-prefixed internal module path exists; file-local analysis
+//!   cannot decide this without false positives.
 
 // --- split:generated imports ---
 use crate::context::{AnalysisContext, RuleOptions};
