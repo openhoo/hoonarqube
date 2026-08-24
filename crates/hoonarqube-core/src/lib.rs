@@ -169,7 +169,7 @@ mod tests {
     fn python_analyzer_runs_through_the_registry() {
         let report = analyze(
             Path::new("app.py"),
-            "print('hi')\n",
+            "x = 1  # NOSONAR\n",
             &AnalyzerOptions::default(),
         )
         .unwrap();

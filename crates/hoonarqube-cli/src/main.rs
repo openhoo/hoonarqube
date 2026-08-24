@@ -127,7 +127,7 @@ fn fix_file(path: &std::path::Path) -> usize {
 
     let trimmed: String = fixed
         .lines()
-        .map(|l| l.trim_end())
+        .map(str::trim_end)
         .collect::<Vec<_>>()
         .join("\n");
     if trimmed != fixed {
