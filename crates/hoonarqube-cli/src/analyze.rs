@@ -11,8 +11,8 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use hoonarqube_catalog::Catalog;
+use hoonarqube_core::{self, AnalyzerOptions as CoreOptions};
 use hoonarqube_ir::FileReport;
-use hoonarqube_jsts::{JstsLanguage, language_for_extension};
 
 /// Result of analyzing one input file.
 pub(crate) struct FileOutcome {
@@ -20,12 +20,7 @@ pub(crate) struct FileOutcome {
 }
 
 /// Per-language analyzer knobs threaded through the walker.
-#[derive(Default)]
-pub(crate) struct AnalyzerOptionsBundle {
-    pub python: hoonarqube_python::AnalyzerOptions,
-    pub jsts: hoonarqube_jsts::AnalyzerOptions,
-    pub csharp: hoonarqube_csharp::AnalyzerOptions,
-}
+pub(crate) use hoonarqube_core::AnalyzerOptions as AnalyzerOptionsBundle;
 
 /// Walks `paths`, analyzes each selected file, returns reports sorted by path.
 ///
@@ -71,27 +66,27 @@ pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundl
             .and_then(|value| value.parse::<u32>().ok())
     };
     let python = match maximum_line_length("python:LineLength") {
-        Some(maximum_line_length) => hoonarqube_python::AnalyzerOptions {
+        Some(maximum_line_length) => hoonarqube_core::PythonAnalyzerOptions {
             maximum_line_length,
-            ..hoonarqube_python::AnalyzerOptions::default()
+            ..hoonarqube_core::PythonAnalyzerOptions::default()
         },
-        None => hoonarqube_python::AnalyzerOptions::default(),
+        None => hoonarqube_core::PythonAnalyzerOptions::default(),
     };
     let jsts =
         match maximum_line_length("javascript:S103").or(maximum_line_length("typescript:S103")) {
-            Some(maximum_line_length) => hoonarqube_jsts::AnalyzerOptions {
+            Some(maximum_line_length) => hoonarqube_core::JstsAnalyzerOptions {
                 maximum_line_length,
             },
-            None => hoonarqube_jsts::AnalyzerOptions::default(),
+            None => hoonarqube_core::JstsAnalyzerOptions::default(),
         };
     let csharp = match maximum_line_length("csharpsquid:S103") {
-        Some(maximum_line_length) => hoonarqube_csharp::AnalyzerOptions {
+        Some(maximum_line_length) => hoonarqube_core::CSharpAnalyzerOptions {
             maximum_line_length,
-            ..hoonarqube_csharp::AnalyzerOptions::default()
+            ..hoonarqube_core::CSharpAnalyzerOptions::default()
         },
-        None => hoonarqube_csharp::AnalyzerOptions::default(),
+        None => hoonarqube_core::CSharpAnalyzerOptions::default(),
     };
-    AnalyzerOptionsBundle {
+    CoreOptions {
         python,
         jsts,
         csharp,
@@ -145,11 +140,7 @@ fn walk_directory(
 /// One source of truth for extension dispatch:
 /// [`hoonarqube_jsts::language_for_extension`] for JS/TS, `.cs` for C#.
 fn is_analyzable_file(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            extension == "py" || extension == "cs" || language_for_extension(extension).is_some()
-        })
+    hoonarqube_core::language_for_path(path).is_some()
 }
 
 fn read_and_analyze(
@@ -160,22 +151,8 @@ fn read_and_analyze(
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
-            let extension = path.extension().and_then(|ext| ext.to_str());
-            let report = match extension {
-                Some("py") => {
-                    hoonarqube_python::analyze(path.to_path_buf(), &source, &options.python)
-                }
-                Some("cs") => hoonarqube_csharp::analyze(
-                    path.to_path_buf(),
-                    &source,
-                    hoonarqube_csharp::CsLanguage::CSharp,
-                    &options.csharp,
-                ),
-                Some(ext) => match language_for_extension(ext) {
-                    Some(language) => analyze_jsts(path, &source, language, &options.jsts),
-                    None => return,
-                },
-                None => return,
+            let Some(report) = hoonarqube_core::analyze(path, &source, options) else {
+                return;
             };
             reports.push(report);
         }
@@ -186,15 +163,6 @@ fn read_and_analyze(
             warnings.push(format!("cannot read file: {}: {error}", path.display()));
         }
     }
-}
-
-fn analyze_jsts(
-    path: &Path,
-    source: &str,
-    language: JstsLanguage,
-    options: &hoonarqube_jsts::AnalyzerOptions,
-) -> FileReport {
-    hoonarqube_jsts::analyze(path.to_path_buf(), source, language, options)
 }
 
 #[cfg(test)]

@@ -657,6 +657,11 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 [[package]]
 name = "hoonarqube"
 version = "0.0.0"
+dependencies = [
+ "hoonarqube-catalog",
+ "hoonarqube-core",
+ "hoonarqube-ir",
+]
 
 [[package]]
 name = "hoonarqube-bench"
@@ -684,10 +689,8 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "hoonarqube-catalog",
- "hoonarqube-csharp",
+ "hoonarqube-core",
  "hoonarqube-ir",
- "hoonarqube-jsts",
- "hoonarqube-python",
  "serde",
  "serde_json",
 ]
@@ -695,6 +698,12 @@ dependencies = [
 [[package]]
 name = "hoonarqube-core"
 version = "0.0.0"
+dependencies = [
+ "hoonarqube-csharp",
+ "hoonarqube-ir",
+ "hoonarqube-jsts",
+ "hoonarqube-python",
+]
 
 [[package]]
 name = "hoonarqube-csharp"
