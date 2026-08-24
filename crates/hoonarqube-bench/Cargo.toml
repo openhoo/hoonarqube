@@ -10,5 +10,10 @@ repository.workspace = true
 name = "hoonarqube-bench"
 path = "src/main.rs"
 
+[dependencies]
+hoonarqube-csharp = { path = "../hoonarqube-csharp" }
+hoonarqube-jsts = { path = "../hoonarqube-jsts" }
+hoonarqube-python = { path = "../hoonarqube-python" }
+
 [lints]
 workspace = true

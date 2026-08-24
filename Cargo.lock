@@ -661,6 +661,11 @@ version = "0.0.0"
 [[package]]
 name = "hoonarqube-bench"
 version = "0.0.0"
+dependencies = [
+ "hoonarqube-csharp",
+ "hoonarqube-jsts",
+ "hoonarqube-python",
+]
 
 [[package]]
 name = "hoonarqube-catalog"
@@ -722,6 +727,7 @@ dependencies = [
  "oxc_ast_visit",
  "oxc_parser",
  "oxc_span",
+ "oxc_syntax",
 ]
 
 [[package]]
