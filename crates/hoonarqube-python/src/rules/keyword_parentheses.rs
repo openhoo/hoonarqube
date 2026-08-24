@@ -20,7 +20,16 @@ pub(crate) fn check_keyword_parentheses(
     significant
         .windows(2)
         .filter(|pair| {
-            pair[0].kind() == TokenKind::Name
+            // ruff lexes these as dedicated keyword tokens, not Name.
+            let keyword_kind = matches!(
+                pair[0].kind(),
+                TokenKind::Name
+                    | TokenKind::Return
+                    | TokenKind::Yield
+                    | TokenKind::Assert
+                    | TokenKind::Del
+            );
+            keyword_kind
                 && PAREN_KEYWORDS.contains(&&source[pair[0].range()])
                 && pair[1].kind() == TokenKind::Lpar
                 && pair[1].range().start() == pair[0].range().end()
