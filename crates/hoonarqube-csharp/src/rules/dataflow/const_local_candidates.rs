@@ -78,3 +78,60 @@ const CONST_CANDIDATE_TYPES: [&str; 14] = [
     "bool", "byte", "char", "decimal", "double", "float", "int", "long", "sbyte", "short",
     "string", "uint", "ulong", "ushort",
 ];
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    const KEY: &str = "csharpsquid:S3353";
+
+    #[test]
+    fn empty_callable_is_clean() {
+        let report = analyze_default("class C {\n    void M() {\n    }\n}\n");
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn non_literal_initializer_and_var_type_stay_exempt() {
+        let report = analyze_default(
+            "class C {\n    int Compute() {\n        return 1;\n    }\n    void M() {\n        int retries;\n        retries = Compute();\n        Use(retries);\n        var width = 42;\n        Use(width);\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn lambda_captured_literal_stays_exempt() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        int retries = 3;\n        System.Action run = () => Use(retries);\n        run();\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn explicit_const_declaration_is_skipped() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        const int retries = 3;\n        Log(retries);\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn candidates_across_literal_types_flag_at_distinct_lines() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        bool flag = true;\n        char grade = 'a';\n        string title = \"t\";\n        double ratio = 0.5;\n        Use(flag, grade, title, ratio);\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 4);
+        assert_eq!(found[0].range.start.line, 3);
+        assert_eq!(found[3].range.start.line, 6);
+        assert_ne!(found[1].range.start.line, found[2].range.start.line);
+    }
+
+    #[test]
+    fn single_extra_rewrite_crosses_one_write_threshold() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        int attempts = 1;\n        attempts++;\n        Log(attempts);\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+}

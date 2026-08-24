@@ -172,3 +172,66 @@ fn update_sql_taint(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    const KEY: &str = "csharpsquid:S2077";
+
+    #[test]
+    fn s2077_minimal_empty_body_is_clean() {
+        let report = analyze_default("class C {\n    void M() {\n    }\n}\n");
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2077_interpolated_text_into_execute_reader_flags() {
+        let report = analyze_default(
+            "class C {\n    void M(string table) {\n        var sql = $\"SELECT * FROM {table}\";\n        cmd.ExecuteReader(sql);\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 4);
+    }
+
+    #[test]
+    fn s2077_concatenated_text_into_command_constructor_flags() {
+        let report = analyze_default(
+            "class C {\n    void M(string user) {\n        var c = new SqlCommand(\"SELECT \" + user);\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, KEY).len(), 1);
+    }
+
+    #[test]
+    fn s2077_literal_only_local_stays_clean() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        var sql = \"SELECT COUNT(*) FROM users\";\n        cmd.ExecuteScalar(sql);\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2077_parameter_provenance_counts_as_dynamic() {
+        let report = analyze_default(
+            "class C {\n    void M(string filter) {\n        cmd.ExecuteNonQuery(filter);\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, KEY).len(), 1);
+    }
+
+    #[test]
+    fn s2077_dynamic_command_text_assignment_flags() {
+        let report = analyze_default(
+            "class C {\n    void M(string name) {\n        c.CommandText = $\"DELETE FROM t WHERE n = {name}\";\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, KEY).len(), 1);
+    }
+
+    #[test]
+    fn s2077_non_sql_callee_with_interpolation_is_ignored() {
+        let report = analyze_default(
+            "class C {\n    void M(string name) {\n        Log($\"hello {name}\");\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+}

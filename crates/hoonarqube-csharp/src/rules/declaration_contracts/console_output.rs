@@ -29,3 +29,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s106_flags_error_and_out_streams_and_plain_write() {
+        let report = analyze_default(
+            "class C\n{\n    void Talk()\n    {\n        Console.Error.WriteLine(\"boom\");\n        Console.Out.Write(\"partial\");\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S106").len(), 2);
+    }
+
+    #[test]
+    fn s106_non_console_writers_stay_unflagged() {
+        let report = analyze_default(
+            "class C\n{\n    void Talk()\n    {\n        Debug.WriteLine(\"trace\");\n        writer.WriteLine(\"entry\");\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S106").is_empty());
+    }
+}

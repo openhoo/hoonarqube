@@ -85,3 +85,67 @@ fn unconstrained_generic_value_names(
     }
     values
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2955_ignores_non_generic_null_comparison() {
+        let report = analyze_default(
+            "class C\n{\n    void M(int x)\n    {\n        if (x == null)\n        {\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2955").is_empty());
+    }
+
+    #[test]
+    fn s2955_flags_not_equal_operator() {
+        let report = analyze_default(
+            "class C\n{\n    bool Ne<T>(T value)\n    {\n        return value != null;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2955");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s2955_flags_reversed_null_operand() {
+        let report = analyze_default(
+            "class C\n{\n    bool Reversed<T>(T value)\n    {\n        return null == value;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2955");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s2955_ignores_double_null_comparison() {
+        let report = analyze_default(
+            "class C\n{\n    bool Both()\n    {\n        return null == null;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2955").is_empty());
+    }
+
+    #[test]
+    fn s2955_reports_each_unconstrained_comparison_distinctly() {
+        let report = analyze_default(
+            "class C\n{\n    bool Two<T>(T first, T second)\n    {\n        if (first == null)\n        {\n            return true;\n        }\n\n        return second != null;\n    }\n}\n",
+        );
+        let mut lines: Vec<u32> = with_key(&report, "csharpsquid:S2955")
+            .iter()
+            .map(|issue| issue.range.start.line)
+            .collect();
+        lines.sort_unstable();
+        assert_eq!(lines, vec![5, 10]);
+    }
+
+    #[test]
+    fn s2955_tracks_generic_typed_locals() {
+        let report = analyze_default(
+            "class C\n{\n    void M<T>(T parameter)\n    {\n        T local = default(T);\n        if (local == null)\n        {\n        }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2955");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 6);
+    }
+}

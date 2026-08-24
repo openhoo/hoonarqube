@@ -39,3 +39,27 @@ fn format_slot_index(name: &str) -> Option<u32> {
     }
     name.parse().ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2275_flags_only_when_highest_slot_exceeds_budget() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        text = string.Format(\"{1}\", one, two);\n        text = string.Format(\"{2}\", one, two);\n        builder.AppendFormat(\"{0}-{1}\", one);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2275");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 6); // document line 5
+        assert_eq!(flagged[1].range.start.line, 7); // document line 6
+    }
+
+    #[test]
+    fn s2275_ignores_escaped_and_nonnumeric_slots() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        text = string.Format(\"{{0}}\", one);\n        text = string.Format(\"{name}\");\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2275").is_empty());
+    }
+}

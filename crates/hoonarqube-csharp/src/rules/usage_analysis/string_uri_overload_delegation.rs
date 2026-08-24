@@ -63,3 +63,59 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3997_minimal_single_overload_produces_no_findings() {
+        let report = analyze_default(
+            "class C\n{\n    public System.Uri Load(System.Uri value)\n    {\n        return value;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3997").is_empty());
+    }
+
+    #[test]
+    fn s3997_requires_a_uri_taking_sibling_overload() {
+        let report = analyze_default(
+            "class C\n{\n    public System.Uri Load(string value)\n    {\n        return System.Text.RegularExpressions.Regex.Unescape(value);\n    }\n\n    public System.Uri Save(string value)\n    {\n        return System.Text.RegularExpressions.Regex.Unescape(value);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3997").is_empty());
+    }
+
+    #[test]
+    fn s3997_flags_each_group_regardless_of_hash_order() {
+        let report = analyze_default(
+            "class C\n{\n    public System.Uri Load(System.Uri value)\n    {\n        return value;\n    }\n\n    public System.Uri Load(string text)\n    {\n        return System.Text.RegularExpressions.Regex.Unescape(text);\n    }\n\n    public System.Uri Save(System.Uri value)\n    {\n        return value;\n    }\n\n    public System.Uri Save(string text)\n    {\n        return System.Text.RegularExpressions.Regex.Unescape(text);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3997");
+        assert_eq!(flagged.len(), 2);
+        let mut lines: Vec<_> = flagged.iter().map(|found| found.range.start.line).collect();
+        lines.sort_unstable();
+        assert_eq!(lines, [8, 18]);
+        assert!(flagged.iter().any(|found| found.message.contains("'Load'")));
+        assert!(flagged.iter().any(|found| found.message.contains("'Save'")));
+    }
+
+    #[test]
+    fn s3997_ignores_groups_where_every_overload_takes_uri() {
+        let report = analyze_default(
+            "class C\n{\n    public System.Uri Load(System.Uri value)\n    {\n        return value;\n    }\n\n    public System.Uri Load(System.Uri value, int mode)\n    {\n        return value;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3997").is_empty());
+    }
+
+    #[test]
+    fn s3997_honors_contract_modifiers_and_local_delegation() {
+        let virtual_overload = analyze_default(
+            "class C\n{\n    public System.Uri Load(System.Uri value)\n    {\n        return value;\n    }\n\n    public virtual System.Uri Load(string text)\n    {\n        return System.Text.RegularExpressions.Regex.Unescape(text);\n    }\n}\n",
+        );
+        assert!(with_key(&virtual_overload, "csharpsquid:S3997").is_empty());
+
+        let via_local = analyze_default(
+            "class C\n{\n    public System.Uri Load(System.Uri value)\n    {\n        return value;\n    }\n\n    public System.Uri Load(string text)\n    {\n        var parsed = new System.Uri(text);\n        return parsed;\n    }\n}\n",
+        );
+        assert!(with_key(&via_local, "csharpsquid:S3997").is_empty());
+    }
+}

@@ -44,3 +44,50 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s6424_idurable_entity_base_gate_flags_ref_params_without_entity_name() {
+        let report = analyze_default(
+            "interface IRepository : IDurableEntity\n{\n    void Reload(ref int key);\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S6424");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s6424_plain_interfaces_with_ref_params_stay_out_of_scope() {
+        let report =
+            analyze_default("interface IRepository\n{\n    void Reload(ref int key);\n}\n");
+        assert!(with_key(&report, "csharpsquid:S6424").is_empty());
+    }
+
+    #[test]
+    fn s6424_in_parameters_are_not_restricted_by_this_subset() {
+        let report = analyze_default(
+            "interface ICartEntity\n{\n    void Push(in int value);\n    void Add(int value);\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S6424").is_empty());
+    }
+
+    #[test]
+    fn s6424_flags_each_offending_method_distinctly() {
+        let report = analyze_default(
+            "interface ICartEntity\n{\n    void Save(out int id);\n    void Load();\n    void Move(ref int position);\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S6424");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(flagged[1].range.start.line, 5);
+    }
+
+    #[test]
+    fn s6424_entity_named_interfaces_without_ref_out_stay_clean() {
+        let report = analyze_default("interface ICartEntity\n{\n    void Add(int value);\n}\n");
+        assert!(with_key(&report, "csharpsquid:S6424").is_empty());
+    }
+}

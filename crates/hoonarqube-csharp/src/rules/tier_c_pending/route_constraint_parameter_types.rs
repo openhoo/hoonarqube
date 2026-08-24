@@ -81,3 +81,45 @@ fn route_tokens(template: &str) -> Vec<(&str, &str)> {
     }
     tokens
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s6800_unknown_and_missing_constraints_stay_uncovered() {
+        let report = analyze_default(
+            "class OrderPage\n{\n    [Parameter]\n    public long Id { get; set; }\n    public string Template() => \"/order/{id:alpha}/{page}\";\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S6800").is_empty());
+    }
+
+    #[test]
+    fn s6800_declared_type_matching_constraint_stays_clean() {
+        let report = analyze_default(
+            "class OrderPage\n{\n    [Parameter]\n    public Guid Id { get; set; }\n    public string Template() => \"/order/{id:guid}\";\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S6800").is_empty());
+    }
+
+    #[test]
+    fn s6800_nullable_parameter_type_is_normalized_before_compare() {
+        let report = analyze_default(
+            "class OrderPage\n{\n    [Parameter]\n    public long? Id { get; set; }\n    public string Template() => \"/order/{id:int}\";\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S6800");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 4);
+    }
+
+    #[test]
+    fn s6800_flags_each_mismatched_token_in_one_template() {
+        let report = analyze_default(
+            "class OrderPage\n{\n    [Parameter]\n    public long Id { get; set; }\n    [Parameter]\n    public DateTime When { get; set; }\n    public string Template() => \"/order/{id:int}/{when:guid}\";\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S6800");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 4);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+}

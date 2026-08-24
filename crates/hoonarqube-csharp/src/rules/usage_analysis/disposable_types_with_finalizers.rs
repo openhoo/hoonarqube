@@ -28,3 +28,45 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4002_ignores_finalizers_on_plain_types() {
+        let report =
+            analyze_default("class A\n{\n    ~A()\n    {\n    }\n}\n");
+        assert!(with_key(&report, "csharpsquid:S4002").is_empty());
+    }
+
+    #[test]
+    fn s4002_matches_unqualified_disposable_base() {
+        let report =
+            analyze_default("class A : IDisposable\n{\n    ~A()\n    {\n    }\n}\n");
+        let flagged = with_key(&report, "csharpsquid:S4002");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s4002_reports_each_disposable_finalizer_distinctly() {
+        let report = analyze_default(
+            "class A : IDisposable\n{\n    ~A()\n    {\n    }\n}\n\nclass B : IDisposable\n{\n    ~B()\n    {\n    }\n}\n",
+        );
+        let mut lines: Vec<u32> = with_key(&report, "csharpsquid:S4002")
+            .iter()
+            .map(|issue| issue.range.start.line)
+            .collect();
+        lines.sort_unstable();
+        assert_eq!(lines, vec![3, 10]);
+    }
+
+    #[test]
+    fn s4002_ignores_disposable_without_finalizer() {
+        let report = analyze_default(
+            "class A : IDisposable\n{\n    public void Dispose()\n    {\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4002").is_empty());
+    }
+}

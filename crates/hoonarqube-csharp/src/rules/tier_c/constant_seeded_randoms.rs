@@ -27,3 +27,52 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4347_ignores_sources_without_generators() {
+        let report = analyze_default("class C\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S4347").is_empty());
+    }
+
+    #[test]
+    fn s4347_ignores_runtime_seeds() {
+        let report =
+            analyze_default("int seed = Environment.TickCount;\nvar rng = new Random(seed);\n");
+        assert!(with_key(&report, "csharpsquid:S4347").is_empty());
+    }
+
+    #[test]
+    fn s4347_ignores_wrong_argument_counts_and_kinds() {
+        let report = analyze_default("var a = new Random(1, 2);\nvar b = new Random(-42);\n");
+        assert!(with_key(&report, "csharpsquid:S4347").is_empty());
+    }
+
+    #[test]
+    fn s4347_flags_random_suffix_type_names() {
+        let report = analyze_default("var rng = new SecureRandom(42);\n");
+        let found = with_key(&report, "csharpsquid:S4347");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s4347_flags_qualified_generator_types() {
+        let report = analyze_default("var rng = new System.Random(7);\n");
+        let found = with_key(&report, "csharpsquid:S4347");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s4347_flags_each_seeded_generator_at_its_own_line() {
+        let report = analyze_default("var first = new Random(1);\nvar second = new Random(2);\n");
+        let found = with_key(&report, "csharpsquid:S4347");
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].range.start.line, 1);
+        assert_eq!(found[1].range.start.line, 2);
+    }
+}

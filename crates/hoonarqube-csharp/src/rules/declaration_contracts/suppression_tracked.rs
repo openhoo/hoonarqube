@@ -30,3 +30,30 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1309_tracks_long_form_attributes() {
+        let report = analyze_default(
+            "[SuppressMessageAttribute(\"Category\", \"CheckId\")]\nclass A\n{\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S1309").len(), 1);
+    }
+
+    #[test]
+    fn s1309_spares_restore_pragmas() {
+        let report =
+            analyze_default("class A\n{\n#pragma warning restore CS1234\n    void M() { }\n}\n");
+        assert!(with_key(&report, "csharpsquid:S1309").is_empty());
+    }
+
+    #[test]
+    fn s1309_accumulates_attribute_and_pragma_suppressions() {
+        let combined = analyze_default(
+            "[SuppressMessage(\"Category\", \"CheckId\")]\nclass A\n{\n    void M()\n    {\n#pragma warning disable CS1234, CS5679\n        Risky();\n    }\n}\n",
+        );
+        assert_eq!(with_key(&combined, "csharpsquid:S1309").len(), 2);
+    }
+}

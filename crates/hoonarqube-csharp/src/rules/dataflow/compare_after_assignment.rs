@@ -85,3 +85,64 @@ fn side_effect_free(expression: Node<'_>) -> bool {
     )
     .is_empty()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    const KEY: &str = "csharpsquid:S3440";
+
+    #[test]
+    fn empty_body_and_declaration_first_window_stay_clean() {
+        let empty = analyze_default("class C {\n    void M() {\n    }\n}\n");
+        assert!(with_key(&empty, KEY).is_empty());
+
+        let declared = analyze_default(
+            "class C {\n    void M() {\n        int limit = 10;\n        if (limit == 10) {\n            Mark();\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&declared, KEY).is_empty());
+    }
+
+    #[test]
+    fn side_effecting_value_breaks_the_window() {
+        let report = analyze_default(
+            "class C {\n    int Get() {\n        return 5;\n    }\n    void M() {\n        int x;\n        x = Get();\n        if (x == Get()) {\n            Mark();\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn different_compared_value_does_not_fire() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        int x;\n        x = 5;\n        if (x == 9) {\n            Mark();\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn both_operand_orders_and_relational_operators_fire_distinctly() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        int x;\n        x = 7;\n        if (7 < x) {\n            A();\n        }\n        int y;\n        y = 2;\n        while (y <= 2) {\n            B();\n        }\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found[0].range.start.line, 5);
+        assert_eq!(found[1].range.start.line, 10);
+    }
+
+    #[test]
+    fn intervening_write_displaces_the_comparison() {
+        let report = analyze_default(
+            "class C {\n    void M(int next) {\n        int x;\n        x = 5;\n        x = next;\n        if (x == 5) {\n            Mark();\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn do_statement_condition_is_examined_too() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        int n;\n        n = 1;\n        do {\n            Step();\n        } while (n != 1);\n        Step();\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found[0].range.start.line, 7);
+    }
+}

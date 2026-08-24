@@ -33,3 +33,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s6612_flags_eager_add_or_update_factories() {
+        let report = analyze_default(
+            "class C\n{\n    int Bump(System.Collections.Concurrent.ConcurrentDictionary<int, int> map)\n    {\n        return map.AddOrUpdate(1, Compute(), (key, old) => old + 1);\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S6612").len(), 1);
+    }
+
+    #[test]
+    fn s6612_all_lambda_factories_stay_unflagged() {
+        let report = analyze_default(
+            "class C\n{\n    int Bump(System.Collections.Concurrent.ConcurrentDictionary<int, int> map)\n    {\n        return map.AddOrUpdate(1, key => 1, (key, old) => old + 1);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S6612").is_empty());
+    }
+}

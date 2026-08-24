@@ -25,3 +25,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1449_zero_argument_searches_flag_too() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        first = text.IndexOf();\n        last = text.LastIndexOf();\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S1449").len(), 2);
+    }
+
+    #[test]
+    fn s1449_two_argument_compareto_stays_unflagged() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        ordered = text.CompareTo(other, StringComparison.Ordinal);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1449").is_empty());
+    }
+}

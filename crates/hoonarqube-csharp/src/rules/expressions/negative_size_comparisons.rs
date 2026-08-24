@@ -41,3 +41,36 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 fn count_member_tail(operand: Node<'_>, source: &str) -> bool {
     matches!(expression_name(operand, source), Some("Count" | "Length"))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3981_non_negative_bounds_have_no_findings() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int[] items)\n    {\n        var roomy = items.Length < 10;\n        var empty_ok = items.Length < 0;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3981").is_empty());
+    }
+
+    #[test]
+    fn s3981_flags_each_count_against_negative_bound() {
+        let report = analyze_default(
+            "class A\n{\n    void M(System.Collections.Generic.List<int> list, int[] items)\n    {\n        var a = list.Count < -1;\n        var b = -2 >= items.Length;\n        var c = list.Count == -3;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3981");
+        assert_eq!(flagged.len(), 3);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+        assert_eq!(flagged[2].range.start.line, 7);
+    }
+
+    #[test]
+    fn s3981_plain_variables_and_non_literal_negatives_stay_unflagged() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int size, int margin)\n    {\n        var plain = size < -1;\n        var symbolic = margin < -margin;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3981").is_empty());
+    }
+}

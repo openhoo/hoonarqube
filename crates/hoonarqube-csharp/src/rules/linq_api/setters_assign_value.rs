@@ -40,3 +40,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3237_flags_only_setters_that_ignore_value() {
+        let report = analyze_default(
+            "class E\n{\n    int cached;\n    int Compound { set { cached += value; } }\n    int Self { set { cached = cached; } }\n    int Sink { set { other = value; } }\n    int Ignored { get { return cached; } }\n    int Broken { set { cached = backup; } }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3237");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 8); // document line 7
+    }
+
+    #[test]
+    fn s3237_minimal_class_without_accessors_is_clean() {
+        let report = analyze_default("class E\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S3237").is_empty());
+    }
+}

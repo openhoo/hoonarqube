@@ -29,3 +29,20 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2166_custom_exception_bases_satisfy_the_contract() {
+        let report = analyze_default("class BoomException : AppException\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S2166").is_empty());
+    }
+
+    #[test]
+    fn s2166_only_class_declarations_are_audited() {
+        let report = analyze_default("interface HandlerException\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S2166").is_empty());
+    }
+}

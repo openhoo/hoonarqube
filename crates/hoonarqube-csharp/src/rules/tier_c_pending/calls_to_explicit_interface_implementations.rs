@@ -103,3 +103,54 @@ fn base_explicitly_implements(
     }
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4039_this_qualified_calls_stay_unflagged_in_this_subset() {
+        // The rule doc mentions `this.`-qualified invocations, but the
+        // current implementation only flags bare calls; assert observed
+        // behavior (see family report discrepancy).
+        let report = analyze_default(
+            "interface IGreeter\n{\n    void Greet();\n}\nclass BaseGreeter : IGreeter\n{\n    void IGreeter.Greet()\n    {\n    }\n}\nclass DerivedGreeter : BaseGreeter\n{\n    public void Run()\n    {\n        this.Greet();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4039").is_empty());
+    }
+
+    #[test]
+    fn s4039_own_declaration_suppresses_the_finding() {
+        let report = analyze_default(
+            "interface IGreeter\n{\n    void Greet();\n}\nclass BaseGreeter : IGreeter\n{\n    void IGreeter.Greet()\n    {\n    }\n}\nclass DerivedGreeter : BaseGreeter\n{\n    public void Greet()\n    {\n    }\n    public void Run()\n    {\n        Greet();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4039").is_empty());
+    }
+
+    #[test]
+    fn s4039_implicitly_implemented_members_stay_clean() {
+        let report = analyze_default(
+            "interface IGreeter\n{\n    void Greet();\n}\nclass BaseGreeter : IGreeter\n{\n    public void Greet()\n    {\n    }\n}\nclass DerivedGreeter : BaseGreeter\n{\n    public void Run()\n    {\n        Greet();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4039").is_empty());
+    }
+
+    #[test]
+    fn s4039_other_receiver_shapes_stay_uncovered() {
+        let report = analyze_default(
+            "interface IGreeter\n{\n    void Greet();\n}\nclass BaseGreeter : IGreeter\n{\n    void IGreeter.Greet()\n    {\n    }\n}\nclass DerivedGreeter : BaseGreeter\n{\n    public void Run(BaseGreeter other)\n    {\n        other.Greet();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4039").is_empty());
+    }
+
+    #[test]
+    fn s4039_flags_each_explicit_only_member_distinctly() {
+        let report = analyze_default(
+            "interface IGreeter\n{\n    void Greet();\n    void Wave();\n}\nclass BaseGreeter : IGreeter\n{\n    void IGreeter.Greet()\n    {\n    }\n    void IGreeter.Wave()\n    {\n    }\n}\nclass DerivedGreeter : BaseGreeter\n{\n    public void Run()\n    {\n        Greet();\n        Wave();\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4039");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 19);
+        assert_eq!(flagged[1].range.start.line, 20);
+    }
+}

@@ -76,3 +76,64 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s7130_single_or_default_is_flagged_too() {
+        let report = analyze_default(
+            "void Register()\n{\n    var ids = new List<int>();\n    ids.Add(1);\n    var only = ids.SingleOrDefault();\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S7130");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s7130_clear_and_reassignment_displace_the_proof() {
+        let report = analyze_default(
+            "void Register()\n{\n    var ids = new List<int>();\n    ids.Add(1);\n    ids.Clear();\n    ids = new List<int>();\n    var first = ids.FirstOrDefault();\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S7130").is_empty());
+    }
+
+    #[test]
+    fn s7130_collection_initializers_do_not_populate_in_this_subset() {
+        // The rule doc mentions non-empty collection initializers, but no
+        // initializer form populates a receiver today; assert observed
+        // behavior (see family report discrepancy).
+        let report = analyze_default(
+            "void A()\n{\n    var ids = new List<int> { 1 };\n    var first = ids.FirstOrDefault();\n}\nvoid B()\n{\n    var ids = new List<int> { };\n    var first = ids.FirstOrDefault();\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S7130").is_empty());
+    }
+
+    #[test]
+    fn s7130_add_range_and_insert_also_prove_non_emptiness() {
+        let report = analyze_default(
+            "void A()\n{\n    var ids = new List<int>();\n    ids.AddRange(new[] { 1 });\n    var first = ids.FirstOrDefault();\n}\nvoid B()\n{\n    var ids = new List<int>();\n    ids.Insert(0, 2);\n    var first = ids.FirstOrDefault();\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S7130");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 11);
+    }
+
+    #[test]
+    fn s7130_other_receiver_shapes_and_unpopulated_locals_stay_clean() {
+        let report = analyze_default(
+            "void Run()\n{\n    var ids = GetIds();\n    var first = ids.FirstOrDefault();\n    var other = Load().FirstOrDefault();\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S7130").is_empty());
+    }
+
+    #[test]
+    fn s7130_population_does_not_cross_callables() {
+        let report = analyze_default(
+            "void Fill()\n{\n    var ids = new List<int>();\n    ids.Add(1);\n}\nvoid Use()\n{\n    var ids = new List<int>();\n    var first = ids.FirstOrDefault();\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S7130").is_empty());
+    }
+}

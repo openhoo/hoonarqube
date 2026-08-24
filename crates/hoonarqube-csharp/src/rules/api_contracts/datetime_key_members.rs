@@ -62,3 +62,24 @@ fn key_shaped(name: &str) -> bool {
         || (name.ends_with("Id") && name.len() > 2)
         || (name.ends_with("Key") && name.len() > 3)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3363_flags_key_shaped_datetime_fields() {
+        let report = analyze_default(
+            "class R\n{\n    private DateTime OrderKey;\n    public DateTimeOffset MyId;\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3363").len(), 2);
+    }
+
+    #[test]
+    fn s3363_lowercase_names_are_not_key_shaped() {
+        let report = analyze_default(
+            "class R\n{\n    public DateTime id { get; set; }\n    public DateTimeOffset stamp;\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3363").is_empty());
+    }
+}

@@ -26,3 +26,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2486_comment_only_bodies_still_count_as_ignored() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        try { Run(); }\n        catch (System.Exception)\n        {\n            // Nothing to see here.\n        }\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S2486").len(), 1);
+    }
+
+    #[test]
+    fn s2486_typeless_catches_are_out_of_scope() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        try { Run(); }\n        catch { }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2486").is_empty());
+    }
+}

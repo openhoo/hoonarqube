@@ -28,3 +28,24 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3878_ignores_arrays_outside_invocation_arguments() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        int[] keep = new int[] { 1, 2 };\n        Use(keep);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3878").is_empty());
+    }
+
+    #[test]
+    fn s3878_flags_both_array_forms_in_one_call() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        Use(new[] { \"a\" }, new string[] { \"b\" });\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3878").len(), 2);
+    }
+}

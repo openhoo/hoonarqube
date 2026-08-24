@@ -37,3 +37,50 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    const KEY: &str = "csharpsquid:S1006";
+
+    #[test]
+    fn s1006_minimal_class_without_overrides_is_clean() {
+        let report = analyze_default("class C {\n    void M(int x = 1) {\n    }\n}\n");
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s1006_matching_defaults_stay_clean() {
+        let report = analyze_default(
+            "class B {\n    public virtual void M(int x = 1) {\n    }\n}\nclass D : B {\n    public override void M(int x = 1) {\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s1006_changed_default_value_flags_the_override_name() {
+        let report = analyze_default(
+            "class B {\n    public virtual void M(int x = 1) {\n    }\n}\nclass D : B {\n    public override void M(int x = 2) {\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 6);
+    }
+
+    #[test]
+    fn s1006_missing_default_on_either_side_is_uncovered() {
+        let report = analyze_default(
+            "class B {\n    public virtual void M(int x) {\n    }\n}\nclass D : B {\n    public override void M(int x = 2) {\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s1006_non_override_same_signature_is_ignored() {
+        let report = analyze_default(
+            "class B {\n    public virtual void M(int x = 1) {\n    }\n}\nclass D : B {\n    public new void M(int x = 2) {\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+}

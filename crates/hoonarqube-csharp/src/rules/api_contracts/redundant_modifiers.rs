@@ -63,3 +63,30 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2333_matches_accessor_visibility_against_property_rank() {
+        let report = analyze_default(
+            "class A\n{\n    public int Both { public get; public set; }\n    public int Mixed { public get; private set; }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2333");
+        assert_eq!(flagged.len(), 3);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(flagged[1].range.start.line, 3);
+        assert_eq!(flagged[2].range.start.line, 4);
+    }
+
+    #[test]
+    fn s2333_counts_partials_per_type_kind() {
+        let report = analyze_default(
+            "partial class Duo { }\npartial struct Duo { }\npartial struct Duo { }\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2333");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+    }
+}

@@ -101,3 +101,67 @@ fn is_empty_collection_creation(node: Node<'_>, source: &str) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    const KEY: &str = "csharpsquid:S4158";
+
+    #[test]
+    fn s4158_minimal_empty_body_is_clean() {
+        let report = analyze_default("class C {\n    void M() {\n    }\n}\n");
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s4158_indexing_empty_array_flags() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        var first = new int[0][0];\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s4158_foreach_over_empty_list_flags() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        foreach (var item in new List<int>()) {\n            Keep(item);\n        }\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+    }
+
+    #[test]
+    fn s4158_parenthesized_chain_still_flags() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        var head = (new Dictionary<string, int>())[\"k\"];\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, KEY).len(), 1);
+    }
+
+    #[test]
+    fn s4158_non_empty_creation_is_clean() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        var first = new[] { 1 }[0];\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s4158_stored_value_loses_provenance_on_purpose() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        var empty = new List<int>();\n        Log(empty.Count);\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s4158_unknown_type_construction_is_ignored() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        var first = new Weird()[0];\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+}

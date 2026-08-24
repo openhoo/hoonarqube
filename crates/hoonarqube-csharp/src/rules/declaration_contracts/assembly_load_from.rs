@@ -28,3 +28,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3885_flags_load_with_partial_name_too() {
+        let report = analyze_default(
+            "class Loader\n{\n    void Fetch(string name)\n    {\n        Assembly.LoadWithPartialName(name);\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3885").len(), 1);
+    }
+
+    #[test]
+    fn s3885_other_receivers_are_out_of_scope() {
+        let report = analyze_default(
+            "class Loader\n{\n    void Fetch(string path)\n    {\n        other.LoadFrom(path);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3885").is_empty());
+    }
+}

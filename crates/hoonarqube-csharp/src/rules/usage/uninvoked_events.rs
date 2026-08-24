@@ -36,3 +36,45 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3264_flags_every_silent_declarator_of_a_list() {
+        let report = analyze_default("class C\n{\n    event System.EventHandler A, B;\n}\n");
+        let flagged = with_key(&report, "csharpsquid:S3264");
+        assert_eq!(flagged.len(), 2);
+        assert!(flagged.iter().any(|issue| issue.message.contains("'A'")));
+        assert!(flagged.iter().any(|issue| issue.message.contains("'B'")));
+    }
+
+    #[test]
+    fn s3264_shares_one_verdict_between_duplicate_names() {
+        let both_silent = analyze_default(
+            "class P\n{\n    event System.EventHandler Ping;\n}\n\nclass Q\n{\n    event System.EventHandler Ping;\n}\n",
+        );
+        assert_eq!(with_key(&both_silent, "csharpsquid:S3264").len(), 2);
+
+        let one_raised = analyze_default(
+            "class P\n{\n    event System.EventHandler Ping;\n\n    void Raise()\n    {\n        Ping(this, System.EventArgs.Empty);\n    }\n}\n\nclass Q\n{\n    event System.EventHandler Ping;\n}\n",
+        );
+        assert!(with_key(&one_raised, "csharpsquid:S3264").is_empty());
+    }
+
+    #[test]
+    fn s3264_ignores_accessor_style_event_declarations() {
+        let report = analyze_default(
+            "class C\n{\n    event System.EventHandler Custom\n    {\n        add { }\n        remove { }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3264").is_empty());
+    }
+
+    #[test]
+    fn s3264_audits_static_event_fields_like_instance_ones() {
+        let report = analyze_default("class C\n{\n    static event System.EventHandler Tick;\n}\n");
+        let flagged = with_key(&report, "csharpsquid:S3264");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'Tick'"));
+    }
+}

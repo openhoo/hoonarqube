@@ -154,3 +154,50 @@ fn build_local_type_map(body: Node<'_>, source: &str) -> std::collections::HashM
     }
     map
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s6608_covers_indexing_equivalents_on_list_like_receivers() {
+        let report = analyze_default(
+            "using System.Collections.Generic;\nclass C\n{\n    List<int> field = new List<int>();\n    int M(List<int> xs)\n    {\n        var local = new List<int>();\n        var a = xs.ElementAt(0);\n        var b = field.Last();\n        Log(a, b);\n        return 0;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S6608");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 8); // document line 7
+        assert_eq!(flagged[1].range.start.line, 9); // document line 8
+    }
+
+    #[test]
+    fn s6608_unknown_or_non_list_receivers_stay_clean() {
+        let report = analyze_default(
+            "using System.Collections.Generic;\nclass C\n{\n    int M(string text)\n    {\n        var local = new List<int>();\n        var c = local.FirstOrDefault();\n        var d = local.Max();\n        var f = Make().First();\n        var g = text.First();\n        Log(c, d, f, g);\n        return 0;\n    }\n    List<int> Make() => new List<int>();\n}\n",
+        );
+        for key in ["S6602", "S6603", "S6605", "S6608", "S6609", "S6613"] {
+            assert!(
+                with_key(&report, &format!("csharpsquid:{key}")).is_empty(),
+                "{key} fired unexpectedly"
+            );
+        }
+    }
+
+    #[test]
+    fn s6609_and_s6613_cover_set_like_receiver_shapes() {
+        let report = analyze_default(
+            "using System.Collections.Generic;\nclass C\n{\n    HashSet<int> hash = new HashSet<int>();\n    SortedSet<int> sorted = new SortedSet<int>();\n    LinkedList<int> chain = new LinkedList<int>();\n    IReadOnlyList<int> ro = new List<int>();\n    ArrayList raw = new ArrayList();\n    int M()\n    {\n        var b = sorted.Min(Selector);\n        var c = sorted.Max();\n        var d = chain.Last();\n        var e = ro.FirstOrDefault(x => x > 0);\n        var f = raw.All(x => x != null);\n        Log(b, c, d, e, f);\n        return 0;\n    }\n    int Selector(int x) => x;\n}\n",
+        );
+        let min_max = with_key(&report, "csharpsquid:S6609");
+        assert_eq!(min_max[0].range.start.line, 12); // document line 11
+        let ends = with_key(&report, "csharpsquid:S6613");
+        assert_eq!(ends.len(), 1);
+        assert_eq!(ends[0].range.start.line, 13); // document line 12
+        let find = with_key(&report, "csharpsquid:S6602");
+        assert_eq!(find.len(), 1);
+        assert_eq!(find[0].range.start.line, 14); // document line 13
+        let all = with_key(&report, "csharpsquid:S6603");
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].range.start.line, 15); // document line 14
+    }
+}

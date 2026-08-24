@@ -37,3 +37,28 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 
 /// Return shapes valid for test methods.
 const TEST_RETURN_TYPES: [&str; 3] = ["void", "Task", "ValueTask"];
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3433_flags_missing_public_and_value_returns_together() {
+        let report = analyze_default(
+            "class T\n{\n    [Fact]\n    int Compute() { return 1; }\n\n    [Test]\n    internal Task Load() { return Task.CompletedTask; }\n\n    [TestMethod]\n    public ValueTask Save() { return ValueTask.CompletedTask; }\n\n    public int Plain() { return 2; }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3433");
+        assert_eq!(flagged.len(), 3);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(flagged[1].range.start.line, 3);
+        assert_eq!(flagged[2].range.start.line, 6);
+    }
+
+    #[test]
+    fn s3433_allows_generic_task_return_shapes() {
+        let report = analyze_default(
+            "class T\n{\n    [Fact]\n    public Task<int> Fetch()\n    {\n        return Task.FromResult(1);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3433").is_empty());
+    }
+}

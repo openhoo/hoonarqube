@@ -43,3 +43,45 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3994_single_overload_without_sibling_is_clean() {
+        let report = analyze_default("class C\n{\n    public void Load(string path) { }\n}\n");
+        assert!(with_key(&report, "csharpsquid:S3994").is_empty());
+    }
+
+    #[test]
+    fn s3994_flags_every_string_overload_of_the_group() {
+        let report = analyze_default(
+            "class C\n{\n    public void Load(Uri u) { }\n    public void Load(string s) { }\n    public void Save(Uri u) { }\n    public void Save(string s) { }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3994");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 4); // document line 3
+        assert_eq!(flagged[1].range.start.line, 6); // document line 5
+    }
+
+    #[test]
+    fn s3994_requires_positional_alignment_with_the_uri_parameter() {
+        let report = analyze_default(
+            "class C\n{\n    public void Load(Uri u, int mode) { }\n    public void Load(int mode, string s) { }\n    public void Save(Uri u, int mode) { }\n    public void Save(string s, int mode) { }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3994");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 6); // document line 5
+    }
+
+    #[test]
+    fn s3994_accepts_namespace_qualified_uri_siblings() {
+        let report = analyze_default(
+            "class C\n{\n    public void Load(System.Uri u) { }\n    public void Load(string s) { }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3994");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 4); // document line 3
+    }
+}

@@ -31,3 +31,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3397_requires_the_enclosing_equals_override() {
+        let report = analyze_default(
+            "class C\n{\n    public override int GetHashCode()\n    {\n        return base.GetHashCode();\n    }\n\n    public bool Same(object obj)\n    {\n        return base.Equals(obj);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3397").is_empty());
+    }
+
+    #[test]
+    fn s3397_flags_base_equals_in_multi_statement_overrides() {
+        let report = analyze_default(
+            "class C\n{\n    public override bool Equals(object obj)\n    {\n        if (obj is null)\n        {\n            return false;\n        }\n        return base.Equals(obj);\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3397").len(), 1);
+    }
+}

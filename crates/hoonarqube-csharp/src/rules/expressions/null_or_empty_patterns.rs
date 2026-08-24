@@ -75,3 +75,53 @@ fn empty_check_name<'a>(comparison: Node<'_>, source: &'a str) -> Option<&'a str
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3256_plain_method_has_no_findings() {
+        let report = analyze_default(
+            "class A\n{\n    void M(string name)\n    {\n        Keep(name);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3256").is_empty());
+    }
+
+    #[test]
+    fn s3256_flags_null_or_empty_disjunction() {
+        let report = analyze_default(
+            "class A\n{\n    void M(string name)\n    {\n        var empty = name == null || name == \"\";\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3256");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s3256_flags_length_and_reversed_operand_shapes() {
+        let report = analyze_default(
+            "class A\n{\n    void M(string name, string other)\n    {\n        var a = name.Length == 0 || name == null;\n        var b = \"\" == other || null == other;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3256");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s3256_mismatched_names_conjunction_and_nonempty_literal_stay_unflagged() {
+        let report = analyze_default(
+            "class A\n{\n    void M(string left, string right)\n    {\n        var joined = left == null && right == \"\";\n        var split = left == null || right == \"\";\n        var marked = right == null || right == \"x\";\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3256").is_empty());
+    }
+
+    #[test]
+    fn s3256_string_empty_member_counts_as_empty() {
+        let report = analyze_default(
+            "class A\n{\n    void M(string name)\n    {\n        var empty = name == null || name == string.Empty;\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3256").len(), 1);
+    }
+}

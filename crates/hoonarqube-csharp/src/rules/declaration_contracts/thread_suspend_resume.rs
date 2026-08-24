@@ -19,3 +19,23 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3889_flags_suspend_and_resume_accesses() {
+        let report = analyze_default(
+            "class C\n{\n    void Freeze()\n    {\n        Thread.CurrentThread.Suspend();\n        Thread.CurrentThread.Resume();\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3889").len(), 2);
+    }
+
+    #[test]
+    fn s3889_spares_other_members_and_lowercase_receivers() {
+        let report = analyze_default(
+            "class C\n{\n    void Run(Thread worker)\n    {\n        Thread.Sleep(1);\n        worker.Suspend();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3889").is_empty());
+    }
+}

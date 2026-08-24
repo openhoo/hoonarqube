@@ -88,3 +88,68 @@ fn parameter_ends_nullable(parameter: Node<'_>, source: &str) -> bool {
         .child_by_field_name("type")
         .is_some_and(|type_node| node_text(type_node, source).ends_with('?'))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    const KEY: &str = "csharpsquid:S3655";
+
+    #[test]
+    fn s3655_minimal_empty_body_is_clean() {
+        let report = analyze_default("class C {\n    void M() {\n    }\n}\n");
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s3655_unchecked_nullable_parameter_value_flags() {
+        let report = analyze_default(
+            "class C {\n    int M(int? count) {\n        return count.Value;\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s3655_nullable_local_value_flags_too() {
+        let report = analyze_default(
+            "class C {\n    int M() {\n        int? attempts = Fetch();\n        return attempts.Value;\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, KEY).len(), 1);
+    }
+
+    #[test]
+    fn s3655_haspvalue_guard_anywhere_exempts_the_name() {
+        let report = analyze_default(
+            "class C {\n    int M(int? count) {\n        if (count.HasValue) {\n            Log(count.Value);\n        }\n        return count.Value;\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s3655_non_nullable_typed_name_is_out_of_scope() {
+        let report = analyze_default(
+            "class C {\n    int M(Box box) {\n        return box.Value;\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s3655_non_value_member_access_is_ignored() {
+        let report = analyze_default(
+            "class C {\n    int M(int? count) {\n        return count.GetValueOrDefault();\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s3655_two_unchecked_accesses_flag_distinctly() {
+        let report = analyze_default(
+            "class C {\n    int M(int? left, int? right) {\n        return left.Value + right.Value;\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 2);
+        assert_ne!(found[0].range.start.column, found[1].range.start.column);
+    }
+}

@@ -46,3 +46,60 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3466_enclosing_callable_without_defaults_never_flags() {
+        let report = analyze_default(
+            "class Sub\n{\n    public void Go(int count)\n    {\n        base.Save(count);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3466").is_empty());
+    }
+
+    #[test]
+    fn s3466_argument_not_among_the_defaults_stays_silent() {
+        let report = analyze_default(
+            "class Base\n{\n    public virtual void Save(int retries = 3) { }\n}\nclass Sub : Base\n{\n    public void Retry(int retries = 3)\n    {\n        int burst = 5;\n        base.Save(burst);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3466").is_empty());
+    }
+
+    #[test]
+    fn s3466_argument_lookup_against_defaults_is_case_sensitive() {
+        let report = analyze_default(
+            "class Base\n{\n    public virtual void Save(int count = 3) { }\n}\nclass Sub : Base\n{\n    public void Retry(int Retries = 3)\n    {\n        base.Save(retries);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3466").is_empty());
+    }
+
+    #[test]
+    fn s3466_non_base_receivers_are_ignored() {
+        let report = analyze_default(
+            "class Base\n{\n    public virtual void Save(int retries = 3) { }\n}\nclass Sub : Base\n{\n    public void Retry(int retries = 3)\n    {\n        this.Save(retries);\n        Save(retries);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3466").is_empty());
+    }
+
+    #[test]
+    fn s3466_reports_each_forwarding_call_at_its_own_line() {
+        let report = analyze_default(
+            "class Base\n{\n    public virtual void Save(int retries = 3) { }\n}\nclass Sub : Base\n{\n    public void Retry(int retries = 3)\n    {\n        base.Save(retries);\n        base.Save(retries);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3466");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 9);
+        assert_eq!(flagged[1].range.start.line, 10);
+    }
+
+    #[test]
+    fn s3466_lambda_wrapped_call_still_pairs_with_method_defaults() {
+        let report = analyze_default(
+            "class Base\n{\n    public virtual void Save(int retries = 3) { }\n}\nclass Sub : Base\n{\n    public void Retry(int retries = 3)\n    {\n        System.Action defer = () => base.Save(retries);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3466");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 9);
+    }
+}

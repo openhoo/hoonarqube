@@ -40,3 +40,49 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1905_minimal_input_emits_nothing() {
+        let report = analyze_default("class C\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S1905").is_empty());
+    }
+
+    #[test]
+    fn s1905_flags_floating_casts_on_distinct_lines() {
+        let report = analyze_default("float scale = (float)1.5;\ndouble precise = (double)2.25;\n");
+        let flagged = with_key(&report, "csharpsquid:S1905");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 1);
+        assert_eq!(flagged[1].range.start.line, 2);
+    }
+
+    #[test]
+    fn s1905_flags_char_cast() {
+        let report = analyze_default("char initial = (char)'i';\n");
+        let flagged = with_key(&report, "csharpsquid:S1905");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s1905_computed_expression_cast_is_not_flagged() {
+        let report = analyze_default("var sum = (int)(1 + 2);\n");
+        assert!(with_key(&report, "csharpsquid:S1905").is_empty());
+    }
+
+    #[test]
+    fn s1905_nullable_targets_are_not_flagged() {
+        let report = analyze_default("int? maybe = (int?)7;\ndouble? ratio = (double?)1.5;\n");
+        assert!(with_key(&report, "csharpsquid:S1905").is_empty());
+    }
+
+    #[test]
+    fn s1905_user_defined_type_target_is_not_flagged() {
+        let report = analyze_default("var parsed = (CustomId)42;\n");
+        assert!(with_key(&report, "csharpsquid:S1905").is_empty());
+    }
+}

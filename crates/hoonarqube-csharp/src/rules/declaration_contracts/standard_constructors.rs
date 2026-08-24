@@ -40,3 +40,37 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4027_flags_partial_standard_sets() {
+        let message_only = analyze_default(
+            "class BoomError : System.Exception\n{\n    public BoomError(string message) { }\n}\n",
+        );
+        assert_eq!(with_key(&message_only, "csharpsquid:S4027").len(), 1);
+
+        let missing_pair = analyze_default(
+            "class BoomError : System.Exception\n{\n    public BoomError() { }\n\n    public BoomError(string message) { }\n}\n",
+        );
+        assert_eq!(with_key(&missing_pair, "csharpsquid:S4027").len(), 1);
+    }
+
+    #[test]
+    fn s4027_exempts_abstract_and_non_exception_types() {
+        let abstract_form = analyze_default(
+            "abstract class BoomError : System.Exception\n{\n    protected BoomError() { }\n}\n",
+        );
+        assert!(with_key(&abstract_form, "csharpsquid:S4027").is_empty());
+
+        let plain = analyze_default("class Plain\n{\n    public Plain() { }\n}\n");
+        assert!(with_key(&plain, "csharpsquid:S4027").is_empty());
+    }
+
+    #[test]
+    fn s4027_checks_custom_exception_bases_by_name() {
+        let report = analyze_default("class DbError : DataException\n{\n}\n");
+        assert_eq!(with_key(&report, "csharpsquid:S4027").len(), 1);
+    }
+}

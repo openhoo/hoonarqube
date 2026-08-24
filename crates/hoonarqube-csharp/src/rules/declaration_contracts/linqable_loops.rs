@@ -67,3 +67,36 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3267_flags_braceless_if_add_bodies() {
+        let report = analyze_default(
+            "class C\n{\n    void Gather(int[] items, System.Collections.Generic.List<int> result)\n    {\n        foreach (var item in items)\n        {\n            if (item > 0)\n                result.Add(item);\n        }\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3267").len(), 1);
+    }
+
+    #[test]
+    fn s3267_spares_multi_statement_and_non_add_bodies() {
+        let multi = analyze_default(
+            "class C\n{\n    void Gather(int[] items, System.Collections.Generic.List<int> result)\n    {\n        foreach (var item in items)\n        {\n            if (item > 0)\n            {\n                result.Add(item);\n                result.Sort();\n            }\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&multi, "csharpsquid:S3267").is_empty());
+
+        let visiting = analyze_default(
+            "class C\n{\n    void Gather(int[] items, System.Collections.Generic.List<int> seen)\n    {\n        foreach (var item in items)\n        {\n            if (item > 0)\n            {\n                Visit(item);\n            }\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&visiting, "csharpsquid:S3267").is_empty());
+    }
+
+    #[test]
+    fn s3267_counts_each_convertible_loop() {
+        let report = analyze_default(
+            "class C\n{\n    void Gather(int[] items, System.Collections.Generic.List<int> evens, System.Collections.Generic.List<int> odds)\n    {\n        foreach (var item in items)\n        {\n            if (item % 2 == 0)\n            {\n                evens.Add(item);\n            }\n        }\n        foreach (var item in items)\n        {\n            if (item % 2 != 0)\n            {\n                odds.Add(item);\n            }\n        }\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3267").len(), 2);
+    }
+}

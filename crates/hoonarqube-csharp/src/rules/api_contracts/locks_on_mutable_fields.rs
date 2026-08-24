@@ -45,3 +45,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2445_flags_static_mutable_lock_fields() {
+        let report = analyze_default(
+            "class A\n{\n    static object shared;\n    void M()\n    {\n        lock (shared) { Work(); }\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S2445").len(), 1);
+    }
+}

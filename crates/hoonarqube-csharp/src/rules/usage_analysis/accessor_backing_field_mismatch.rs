@@ -39,3 +39,45 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4275_ignores_auto_properties() {
+        let report = analyze_default(
+            "class A\n{\n    public string Name\n    {\n        get;\n        set;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4275").is_empty());
+    }
+
+    #[test]
+    fn s4275_requires_both_accessors_to_touch_fields() {
+        let report = analyze_default(
+            "class A\n{\n    private string first;\n\n    public string Value\n    {\n        get { return first; }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4275").is_empty());
+    }
+
+    #[test]
+    fn s4275_accepts_matching_backing_fields() {
+        let report = analyze_default(
+            "class A\n{\n    private string first;\n\n    public string Value\n    {\n        get { return first; }\n        set { first = value; }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4275").is_empty());
+    }
+
+    #[test]
+    fn s4275_reports_each_mismatched_property_distinctly() {
+        let report = analyze_default(
+            "class A\n{\n    private string first;\n    private string second;\n\n    public string Alpha\n    {\n        get { return first; }\n        set { second = value; }\n    }\n\n    public string Beta\n    {\n        get { return second; }\n        set { first = value; }\n    }\n}\n",
+        );
+        let mut lines: Vec<u32> = with_key(&report, "csharpsquid:S4275")
+            .iter()
+            .map(|issue| issue.range.start.line)
+            .collect();
+        lines.sort_unstable();
+        assert_eq!(lines, vec![6, 12]);
+    }
+}

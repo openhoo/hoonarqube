@@ -49,3 +49,43 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2114_minimal_input_emits_nothing() {
+        let report = analyze_default("class C\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S2114").is_empty());
+    }
+
+    #[test]
+    fn s2114_flags_concat_and_union_self_references() {
+        let report = analyze_default("items.Concat(items);\nset.Union(set);\n");
+        let flagged = with_key(&report, "csharpsquid:S2114");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 1);
+        assert_eq!(flagged[1].range.start.line, 2);
+    }
+
+    #[test]
+    fn s2114_flags_copy_to_self_reference() {
+        let report = analyze_default("list.CopyTo(list, 0);\n");
+        let flagged = with_key(&report, "csharpsquid:S2114");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s2114_property_chain_receiver_is_not_flagged() {
+        let report = analyze_default("options.Items.AddRange(options.Items);\n");
+        assert!(with_key(&report, "csharpsquid:S2114").is_empty());
+    }
+
+    #[test]
+    fn s2114_different_argument_stays_clean() {
+        let report = analyze_default("queue.Except(other);\nitems.Intersect(sample);\n");
+        assert!(with_key(&report, "csharpsquid:S2114").is_empty());
+    }
+}

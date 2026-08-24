@@ -1,7 +1,7 @@
 use super::support::block_statements;
-use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::structure::{else_alternative, embedded_bodies, is_else_alternative};
+use crate::CsLanguage;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -61,4 +61,65 @@ fn if_chain_branch_texts(header: Node<'_>, source: &str) -> Option<Vec<String>> 
         }
     }
     Some(texts)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3923_minimal_type_has_no_findings() {
+        let report = analyze_default("class C\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S3923").is_empty());
+    }
+
+    #[test]
+    fn s3923_reports_fully_identical_three_way_chain_once() {
+        let report = analyze_default(
+            "class C\n{\n    void M(int n)\n    {\n        if (n == 1) { Run(); }\n        else if (n == 2) { Run(); }\n        else { Run(); }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3923");
+        // Only the outermost header of a chain is reported: nested
+        // `else if` headers are skipped via `is_else_alternative`, so the
+        // fully identical three-way chain yields exactly one finding.
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[0].range.end.line, 7);
+    }
+    #[test]
+    fn s3923_incomplete_chains_without_else_never_flag() {
+        let report = analyze_default(
+            "class C\n{\n    void M(bool a)\n    {\n        if (a) { Run(); }\n        if (a) { Run(); }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3923").is_empty());
+    }
+
+    #[test]
+    fn s3923_multiline_identical_blocks_flag_but_ternary_does_not() {
+        let report = analyze_default(
+            "class C\n{\n    int M(bool c)\n    {\n        if (c)\n        {\n            return 1;\n        }\n        else\n        {\n            return 1;\n        }\n    }\n}\n\nclass D\n{\n    int M(bool c)\n    {\n        return c ? Same() : Same();\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3923");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s3923_near_miss_bodies_do_not_flag() {
+        let report = analyze_default(
+            "class C\n{\n    void M(bool c)\n    {\n        if (c) { Run(1); }\n        else { Run(2); }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3923").is_empty());
+    }
+
+    #[test]
+    fn s3923_reports_two_independent_chains_at_their_headers() {
+        let report = analyze_default(
+            "class C\n{\n    void M(bool a, bool b)\n    {\n        if (a) { Go(); }\n        else { Go(); }\n\n        if (b) { Halt(); }\n        else { Halt(); }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3923");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 8);
+    }
 }

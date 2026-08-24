@@ -72,3 +72,51 @@ fn injected_interface_field_types<'a>(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s6960_below_either_threshold_stays_clean() {
+        let report = analyze_default(
+            "class DashboardController\n{\n    private readonly IUserService users;\n    private readonly IAuditService audit;\n    public void List() { }\n    public void Show() { }\n    public void Create() { }\n    public void Edit() { }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S6960").is_empty());
+    }
+
+    #[test]
+    fn s6960_service_fields_must_be_readonly_and_interface_typed() {
+        let report = analyze_default(
+            "class DashboardController\n{\n    private UserService users;\n    private AuditService audit;\n    private ReportService reports;\n    public void List() { }\n    public void Show() { }\n    public void Create() { }\n    public void Edit() { }\n    public void Remove() { }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S6960").is_empty());
+    }
+
+    #[test]
+    fn s6960_duplicate_service_types_count_once() {
+        let report = analyze_default(
+            "class DashboardController\n{\n    private readonly IUserService first;\n    private readonly IUserService second;\n    private readonly IAuditService audit;\n    public void List() { }\n    public void Show() { }\n    public void Create() { }\n    public void Edit() { }\n    public void Remove() { }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S6960").is_empty());
+    }
+
+    #[test]
+    fn s6960_non_controller_names_are_out_of_scope() {
+        let report = analyze_default(
+            "class DashboardHandler\n{\n    private readonly IUserService users;\n    private readonly IAuditService audit;\n    private readonly IReportService reports;\n    public void List() { }\n    public void Show() { }\n    public void Create() { }\n    public void Edit() { }\n    public void Remove() { }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S6960").is_empty());
+    }
+
+    #[test]
+    fn s6960_flags_each_violating_controller_at_its_own_line() {
+        let report = analyze_default(
+            "class AlphaController\n{\n    private readonly IUserService users;\n    private readonly IAuditService audit;\n    private readonly IReportService reports;\n    public void List() { }\n    public void Show() { }\n    public void Create() { }\n    public void Edit() { }\n    public void Remove() { }\n}\nclass BetaController\n{\n    private readonly IUserService users;\n    private readonly IAuditService audit;\n    private readonly IReportService reports;\n    public void List() { }\n    public void Show() { }\n    public void Create() { }\n    public void Edit() { }\n    public void Remove() { }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S6960");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 1);
+        assert_eq!(flagged[1].range.start.line, 12);
+    }
+}

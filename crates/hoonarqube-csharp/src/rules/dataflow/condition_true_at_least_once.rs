@@ -100,3 +100,69 @@ fn condition_false_at_entry(loop_header: Node<'_>, source: &str) -> bool {
     };
     !relation_holds(entry, operator, bound)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    const KEY: &str = "csharpsquid:S2252";
+
+    #[test]
+    fn empty_body_and_unfoldable_conditions_stay_clean() {
+        let empty = analyze_default("class C {\n    void M() {\n    }\n}\n");
+        assert!(with_key(&empty, KEY).is_empty());
+
+        let unknown = analyze_default(
+            "class C {\n    void M(int bound) {\n        for (int i = 0; i < bound; i++) {\n            Tick();\n        }\n        while (Ready()) {\n            Pump();\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&unknown, KEY).is_empty());
+    }
+
+    #[test]
+    fn folded_entry_relation_boundary_decides_finding() {
+        let failing = analyze_default(
+            "class C {\n    void M() {\n        while (3 > 5) {\n            Skip();\n        }\n    }\n}\n",
+        );
+        let found = with_key(&failing, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
+
+        // NOTE: a reflexive `5 >= 5` header would be ideal here, but the
+        // self-comparison shortcut pins it as always-false (impl subset,
+        // logged upstream); a folded strictly-holding relation proves the
+        // same boundary instead.
+        let holding = analyze_default(
+            "class C {\n    void M() {\n        while (3 < 5) {\n            Run();\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&holding, KEY).is_empty());
+    }
+
+    #[test]
+    fn relational_self_comparison_is_false_for_every_value() {
+        let report = analyze_default(
+            "class C {\n    void M(int pace) {\n        while (pace < pace) {\n            Stall();\n        }\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn stranded_counters_flag_at_distinct_lines() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        for (int i = 5; i < 3; i++) {\n            Tick();\n        }\n        for (int j = 10; j > 20; j--) {\n            Tock();\n        }\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].range.start.line, 3);
+        assert_eq!(found[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn do_bodies_run_before_their_condition_and_stay_exempt() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        do {\n            Once();\n        } while (false);\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+}

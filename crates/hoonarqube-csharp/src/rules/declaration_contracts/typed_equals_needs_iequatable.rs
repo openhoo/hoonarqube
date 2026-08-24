@@ -46,3 +46,50 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3897_flags_typed_equals_without_the_interface() {
+        let report = analyze_default("class C\n{\n    public bool Equals(C other) => true;\n}\n");
+        assert_eq!(with_key(&report, "csharpsquid:S3897").len(), 1);
+    }
+
+    #[test]
+    fn s3897_accepts_declared_iequatable_bases() {
+        let direct = analyze_default(
+            "class C : IEquatable<C>\n{\n    public bool Equals(C other) => true;\n}\n",
+        );
+        assert!(with_key(&direct, "csharpsquid:S3897").is_empty());
+
+        let qualified = analyze_default(
+            "class C : System.IEquatable<C>\n{\n    public bool Equals(C other) => true;\n}\n",
+        );
+        assert!(with_key(&qualified, "csharpsquid:S3897").is_empty());
+    }
+
+    #[test]
+    fn s3897_spares_object_signatures_and_overrides() {
+        let overridden = analyze_default(
+            "class C\n{\n    public override bool Equals(object obj) => true;\n}\n",
+        );
+        assert!(with_key(&overridden, "csharpsquid:S3897").is_empty());
+
+        let object_parameter =
+            analyze_default("class C\n{\n    public bool Equals(object obj) => true;\n}\n");
+        assert!(with_key(&object_parameter, "csharpsquid:S3897").is_empty());
+
+        let two_params =
+            analyze_default("class C\n{\n    public bool Equals(C x, C y) => true;\n}\n");
+        assert!(with_key(&two_params, "csharpsquid:S3897").is_empty());
+    }
+
+    #[test]
+    fn s3897_reports_each_typed_overload() {
+        let report = analyze_default(
+            "struct V\n{\n    public bool Equals(V other) => true;\n\n    public bool Equals(int scalar) => true;\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3897").len(), 2);
+    }
+}

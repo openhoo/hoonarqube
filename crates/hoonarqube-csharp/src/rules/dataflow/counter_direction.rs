@@ -116,3 +116,70 @@ fn update_direction(update: Node<'_>, counter: &str, source: &str) -> Option<Cou
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    const KEY: &str = "csharpsquid:S2251";
+
+    #[test]
+    fn s2251_minimal_empty_body_is_clean() {
+        let report = analyze_default("class C {\n    void M() {\n    }\n}\n");
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2251_ascending_against_upper_bound_is_clean() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        for (int i = 0; i < 9; i++) {\n            Tick(i);\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2251_ascending_against_lower_bound_strands() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        for (int i = 0; i < 9; i--) {\n            Tick(i);\n        }\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s2251_descending_with_plus_equals_also_strands() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        for (int n = 9; n > 0; n += 2) {\n            Tick(n);\n        }\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s2251_condition_without_counter_is_out_of_scope() {
+        let report = analyze_default(
+            "class C {\n    void M(bool done) {\n        for (int i = 0; !done; i--) {\n            Tick(i);\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2251_missing_update_clause_is_skipped() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        for (int i = 0; i < 9;) {\n            Tick(i);\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2251_two_stranded_loops_at_distinct_lines() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        for (int i = 0; i < 4; i--) {\n            Tick(i);\n        }\n        for (int j = 4; j > 0; j++) {\n            Tock(j);\n        }\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 2);
+        assert_ne!(found[0].range.start.line, found[1].range.start.line);
+    }
+}

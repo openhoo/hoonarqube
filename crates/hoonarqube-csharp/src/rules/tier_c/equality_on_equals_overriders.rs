@@ -63,3 +63,53 @@ fn equals_overriding_class_names<'a>(
         .map(|name| node_text(name, source))
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    const OVERRIDER: &str = "class Money\n{\n    public override bool Equals(object other)\n    {\n        return true;\n    }\n}\n";
+
+    #[test]
+    fn s1698_ignores_overrider_without_comparisons() {
+        let report = analyze_default(OVERRIDER);
+        assert!(with_key(&report, "csharpsquid:S1698").is_empty());
+    }
+
+    #[test]
+    fn s1698_ignores_types_without_equals_override() {
+        let report = analyze_default(
+            "class Plain\n{\n}\nvoid Check(Plain left, Plain right)\n{\n    var eq = left == right;\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1698").is_empty());
+    }
+
+    #[test]
+    fn s1698_flags_inequality_operator() {
+        let report = analyze_default(&format!(
+            "{OVERRIDER}void Check(Money left, Money right)\n{{\n    var ne = left != right;\n}}\n"
+        ));
+        let found = with_key(&report, "csharpsquid:S1698");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 10);
+    }
+
+    #[test]
+    fn s1698_flags_each_comparison_at_its_own_line() {
+        let report = analyze_default(&format!(
+            "{OVERRIDER}void Check(Money left, Money right)\n{{\n    var eq = left == right;\n    var ne = left != right;\n}}\n"
+        ));
+        let found = with_key(&report, "csharpsquid:S1698");
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].range.start.line, 10);
+        assert_eq!(found[1].range.start.line, 11);
+    }
+
+    #[test]
+    fn s1698_ignores_member_access_and_invocation_operands() {
+        let report = analyze_default(
+            "class Money\n{\n    public override bool Equals(object other)\n    {\n        return true;\n    }\n    public int Value;\n}\nMoney Make() => new Money();\nvoid Check(Money left)\n{\n    var eq = left.Value == Make().Value;\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1698").is_empty());
+    }
+}

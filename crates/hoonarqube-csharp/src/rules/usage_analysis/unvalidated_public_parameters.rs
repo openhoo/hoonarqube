@@ -98,3 +98,67 @@ fn null_guards_parameter(body: Node<'_>, parameter: &str, source: &str) -> bool 
                         .any(|argument| expression_name(*argument, source) == Some(parameter))
             })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3900_minimal_class_produces_no_findings() {
+        let report = analyze_default("class A\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S3900").is_empty());
+    }
+
+    #[test]
+    fn s3900_flags_each_dereference_shape_at_its_own_line() {
+        let report = analyze_default(
+            "class C\n{\n    public int A(string? t)\n    {\n        return t.Length;\n    }\n\n    public void B(string? d)\n    {\n        d();\n    }\n\n    public char H(string? s)\n    {\n        return s[0];\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3900");
+        assert_eq!(flagged.len(), 3);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 10);
+        assert_eq!(flagged[2].range.start.line, 15);
+        assert_eq!(
+            flagged[0].message,
+            "Validate parameter 't' against null before using it."
+        );
+    }
+
+    #[test]
+    fn s3900_ignores_non_public_and_non_annotated_parameters() {
+        let private = analyze_default(
+            "class C\n{\n    int A(string? t)\n    {\n        return t.Length;\n    }\n}\n",
+        );
+        assert!(with_key(&private, "csharpsquid:S3900").is_empty());
+
+        let non_annotated = analyze_default(
+            "class C\n{\n    public int A(string t)\n    {\n        return t.Length;\n    }\n}\n",
+        );
+        assert!(with_key(&non_annotated, "csharpsquid:S3900").is_empty());
+    }
+
+    #[test]
+    fn s3900_ignores_this_modifiers_on_extension_parameters() {
+        let report = analyze_default(
+            "class C\n{\n    public void Ext(this string? text)\n    {\n        Log(text.Length);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3900").is_empty());
+    }
+
+    #[test]
+    fn s3900_accepts_inverted_comparison_guards() {
+        let report = analyze_default(
+            "class C\n{\n    public int A(string? t)\n    {\n        if (t != null)\n        {\n            return t.Length;\n        }\n        return 0;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3900").is_empty());
+    }
+
+    #[test]
+    fn s3900_accepts_is_not_null_pattern_guards() {
+        let report = analyze_default(
+            "class C\n{\n    public int A(string? t)\n    {\n        if (t is not null)\n        {\n            return t.Length;\n        }\n        return -1;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3900").is_empty());
+    }
+}

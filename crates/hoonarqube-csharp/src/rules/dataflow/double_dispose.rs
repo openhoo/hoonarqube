@@ -55,3 +55,60 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    const KEY: &str = "csharpsquid:S3966";
+
+    #[test]
+    fn s3966_minimal_empty_body_is_clean() {
+        let report = analyze_default("class C {\n    void M() {\n    }\n}\n");
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s3966_two_bare_disposes_flag_the_second() {
+        let report = analyze_default(
+            "class C {\n    void M(Gate gate) {\n        gate.Dispose();\n        gate.Dispose();\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 4);
+    }
+
+    #[test]
+    fn s3966_using_counts_as_first_dispose() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        using (var s = Make()) {\n            s.Dispose();\n        }\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 4);
+    }
+
+    #[test]
+    fn s3966_intervening_store_resets_disposed_set() {
+        let report = analyze_default(
+            "class C {\n    void M(Gate gate) {\n        gate.Dispose();\n        gate = Spawn();\n        gate.Dispose();\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s3966_distinct_objects_each_disposed_once_stay_clean() {
+        let report = analyze_default(
+            "class C {\n    void M(Gate left, Gate right) {\n        left.Dispose();\n        right.Dispose();\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s3966_non_dispose_callees_are_ignored() {
+        let report = analyze_default(
+            "class C {\n    void M(Gate gate) {\n        gate.Flush();\n        gate.Flush();\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+}

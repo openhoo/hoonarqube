@@ -53,3 +53,64 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2952_this_qualified_receivers_stay_unflagged_in_this_subset() {
+        // The rule doc mentions `this.Name` receivers, but the current
+        // implementation only extracts bare identifiers; assert observed
+        // behavior (see family report discrepancy).
+        let report = analyze_default(
+            "class Worker : IDisposable\n{\n    public void Dispose()\n    {\n        this.helper.Dispose();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2952").is_empty());
+    }
+
+    #[test]
+    fn s2952_field_receivers_stay_clean() {
+        let report = analyze_default(
+            "class Worker : IDisposable\n{\n    private FileStream stream;\n    public void Dispose()\n    {\n        stream.Dispose();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2952").is_empty());
+    }
+
+    #[test]
+    fn s2952_other_receiver_shapes_stay_uncovered() {
+        let report = analyze_default(
+            "class Worker\n{\n    public void Dispose()\n    {\n        Make().Dispose();\n    }\n    private FileStream Make() => new FileStream(\"a\", FileMode.Open);\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2952").is_empty());
+    }
+
+    #[test]
+    fn s2952_struct_dispose_methods_are_checked_too() {
+        let report = analyze_default(
+            "struct Worker\n{\n    public void Dispose()\n    {\n        var temp = new MemoryStream();\n        temp.Dispose();\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2952");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 6);
+    }
+
+    #[test]
+    fn s2952_methods_not_named_dispose_stay_out_of_scope() {
+        let report = analyze_default(
+            "class Worker\n{\n    public void Cleanup()\n    {\n        var temp = new MemoryStream();\n        temp.Dispose();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2952").is_empty());
+    }
+
+    #[test]
+    fn s2952_flags_each_non_member_dispose_call() {
+        let report = analyze_default(
+            "class Worker\n{\n    public void Dispose()\n    {\n        var first = new MemoryStream();\n        var second = new MemoryStream();\n        first.Dispose();\n        second.Dispose();\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2952");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 7);
+        assert_eq!(flagged[1].range.start.line, 8);
+    }
+}

@@ -28,3 +28,25 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s6513_long_attribute_name_and_empty_reason_still_flag() {
+        let long_name =
+            analyze_default("[ExcludeFromCodeCoverageAttribute]\nclass Generated\n{\n}\n");
+        assert_eq!(with_key(&long_name, "csharpsquid:S6513").len(), 1);
+
+        let empty_reason =
+            analyze_default("[ExcludeFromCodeCoverage(\"\")]\nclass Generated\n{\n}\n");
+        assert_eq!(with_key(&empty_reason, "csharpsquid:S6513").len(), 1);
+    }
+
+    #[test]
+    fn s6513_other_attributes_are_out_of_scope() {
+        let report = analyze_default("[Obsolete(\"dead code\")]\nclass Legacy\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S6513").is_empty());
+    }
+}

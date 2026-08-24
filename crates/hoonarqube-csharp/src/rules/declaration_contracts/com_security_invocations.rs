@@ -22,3 +22,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3884_flags_co_initialize_security_too() {
+        let report = analyze_default(
+            "class C\n{\n    void Boot()\n    {\n        CoInitializeSecurity(IntPtr.Zero, -1, null, IntPtr.Zero, 0, 0, IntPtr.Zero, 0, 0);\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3884").len(), 1);
+    }
+
+    #[test]
+    fn s3884_unrelated_security_calls_stay_unflagged() {
+        let report = analyze_default(
+            "class C\n{\n    void Boot()\n    {\n        InitializeSecurity();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3884").is_empty());
+    }
+}

@@ -25,3 +25,31 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3169_counts_inner_links_of_triple_orderings() {
+        let report = analyze_default(
+            "class C\n{\n    void Sort(System.Collections.Generic.List<int> items)\n    {\n        items.OrderBy(a => a).OrderBy(b => b).OrderBy(c => c);\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3169").len(), 2);
+    }
+
+    #[test]
+    fn s3169_flags_descending_restacks() {
+        let report = analyze_default(
+            "class C\n{\n    void Sort(System.Collections.Generic.List<int> items)\n    {\n        items.OrderBy(a => a).OrderByDescending(b => b);\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3169").len(), 1);
+    }
+
+    #[test]
+    fn s3169_spares_orderings_after_other_operators() {
+        let report = analyze_default(
+            "class C\n{\n    void Sort(System.Collections.Generic.List<int> items)\n    {\n        items.GroupBy(a => a).OrderBy(b => b);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3169").is_empty());
+    }
+}

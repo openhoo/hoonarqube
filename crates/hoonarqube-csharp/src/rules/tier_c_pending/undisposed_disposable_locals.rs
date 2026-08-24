@@ -108,3 +108,63 @@ fn returned_names(block: Node<'_>, source: &str) -> std::collections::HashSet<St
         .map(|expression| node_text(expression, source).to_owned())
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2930_flags_each_undisposed_disposable_local() {
+        let report = analyze_default(
+            "class Importer\n{\n    public void Load()\n    {\n        FileStream first = new FileStream(\"a\", FileMode.Open);\n        StreamReader second = new StreamReader(\"b\");\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2930");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s2930_returned_locals_stay_clean() {
+        let report = analyze_default(
+            "class Importer\n{\n    public FileStream Open()\n    {\n        FileStream stream = new FileStream(\"a\", FileMode.Open);\n        return stream;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2930").is_empty());
+    }
+
+    #[test]
+    fn s2930_using_declaration_form_encloses_the_resource() {
+        let report = analyze_default(
+            "class Importer\n{\n    public void Load()\n    {\n        using var stream = new FileStream(\"a\", FileMode.Open);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2930").is_empty());
+    }
+
+    #[test]
+    fn s2930_disposal_of_a_different_name_does_not_cover_the_local() {
+        let report = analyze_default(
+            "class Importer\n{\n    public void Load()\n    {\n        FileStream stream = new FileStream(\"a\", FileMode.Open);\n        var other = new MemoryStream();\n        other.Dispose();\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2930");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s2930_var_and_field_declarations_stay_out_of_scope() {
+        let report = analyze_default(
+            "class Importer\n{\n    private FileStream cached;\n    public void Load()\n    {\n        var stream = new FileStream(\"a\", FileMode.Open);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2930").is_empty());
+    }
+
+    #[test]
+    fn s2930_qualified_type_names_still_match_the_table() {
+        let report = analyze_default(
+            "class Importer\n{\n    public void Load()\n    {\n        System.IO.StreamReader reader = new System.IO.StreamReader(\"b\");\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2930");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+}

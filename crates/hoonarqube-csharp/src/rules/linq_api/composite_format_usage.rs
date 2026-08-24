@@ -69,3 +69,27 @@ fn composite_template_is_valid(template: &str) -> bool {
     }
     true
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3457_treats_doubled_braces_as_escapes() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        text = string.Format(\"{{0}}\", one);\n        text = string.Format(\"Plain text\");\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3457").is_empty());
+    }
+
+    #[test]
+    fn s3457_flags_lone_closing_and_empty_slots() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        text = string.Format(\"Lone }\");\n        text = string.Format(\"{}\", one);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3457");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5); // document line 4
+        assert_eq!(flagged[1].range.start.line, 6); // document line 5
+    }
+}

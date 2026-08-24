@@ -49,3 +49,56 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2933_minimal_class_produces_no_findings() {
+        let report = analyze_default("class A\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S2933").is_empty());
+    }
+
+    #[test]
+    fn s2933_flags_constructor_written_field_with_message() {
+        let report = analyze_default(
+            "class C\n{\n    private int stamp;\n\n    public C()\n    {\n        stamp = 1;\n    }\n\n    public int Value\n    {\n        get { return stamp; }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2933");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(flagged[0].message, "Make field 'stamp' 'readonly'.");
+    }
+
+    #[test]
+    fn s2933_ignores_already_readonly_and_public_fields() {
+        let readonly = analyze_default(
+            "class C\n{\n    private readonly int pinned = 1;\n\n    public int Value\n    {\n        get { return pinned; }\n    }\n}\n",
+        );
+        assert!(with_key(&readonly, "csharpsquid:S2933").is_empty());
+
+        let public_field = analyze_default(
+            "class C\n{\n    public int stamp;\n\n    public C()\n    {\n        stamp = 1;\n    }\n\n    public int Value\n    {\n        get { return stamp; }\n    }\n}\n",
+        );
+        assert!(with_key(&public_field, "csharpsquid:S2933").is_empty());
+    }
+
+    #[test]
+    fn s2933_honors_ref_argument_escape_hatch() {
+        let report = analyze_default(
+            "class C\n{\n    private int stamp;\n\n    public C()\n    {\n        stamp = 1;\n    }\n\n    public void Refresh()\n    {\n        Bump(ref stamp);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2933").is_empty());
+    }
+
+    #[test]
+    fn s2933_accepts_static_constructor_writes_for_static_fields() {
+        let report = analyze_default(
+            "class C\n{\n    private static int counter;\n\n    static C()\n    {\n        counter = 42;\n    }\n\n    public int Value()\n    {\n        return counter;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2933");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+}

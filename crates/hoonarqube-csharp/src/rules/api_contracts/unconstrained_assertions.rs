@@ -21,3 +21,19 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2970_counts_each_single_argument_assert_that() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        Assert.That(flag);\n        if (ready)\n        {\n            Assert.That(state);\n        }\n        Check.That(other);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2970");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 8); // document line 7
+    }
+}

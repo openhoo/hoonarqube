@@ -48,3 +48,27 @@ fn is_expectation_literal(node: Node<'_>) -> bool {
             | "verbatim_string_literal"
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3415_flags_all_paired_assert_variants() {
+        let report = analyze_default(
+            "class Tests\n{\n    void M(object actual)\n    {\n        Assert.AreNotEqual(actual, true);\n        CollectionAssert.AreSame(actual, \"lit\");\n        Check.AreNotSame(actual, 'c');\n        AreEqual(actual, 42);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3415");
+        assert_eq!(flagged.len(), 4);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[3].range.start.line, 8);
+    }
+
+    #[test]
+    fn s3415_ignores_computed_seconds_and_short_calls() {
+        let report = analyze_default(
+            "class Tests\n{\n    void M(object actual)\n    {\n        Assert.AreEqual(actual, Compute());\n        Assert.AreSame(actual, actual);\n        Assert.AreEqual(7, actual);\n        Assert.AreNotEqual(actual);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3415").is_empty());
+    }
+}

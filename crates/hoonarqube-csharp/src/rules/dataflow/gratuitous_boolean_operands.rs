@@ -29,3 +29,57 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    const KEY: &str = "csharpsquid:S2589";
+
+    #[test]
+    fn s2589_minimal_empty_body_is_clean() {
+        let report = analyze_default("class C {\n    void M() {\n    }\n}\n");
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2589_literal_on_either_side_flags() {
+        let report = analyze_default(
+            "class C {\n    bool M(bool ready) {\n        return ready && true;\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s2589_both_literals_yield_two_findings() {
+        let report =
+            analyze_default("class C {\n    bool M() {\n        return true || false;\n    }\n}\n");
+        assert_eq!(with_key(&report, KEY).len(), 2);
+    }
+
+    #[test]
+    fn s2589_comparison_against_literal_belongs_to_s1125() {
+        let report = analyze_default(
+            "class C {\n    bool M(bool flag) {\n        return flag == true;\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2589_non_short_circuit_operators_are_ignored() {
+        let report = analyze_default(
+            "class C {\n    bool M(bool a, bool b) {\n        return a & true | b;\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2589_plain_boolean_operands_stay_clean() {
+        let report = analyze_default(
+            "class C {\n    bool M(bool a, bool b) {\n        return a && b;\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+}

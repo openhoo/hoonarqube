@@ -25,3 +25,19 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3998_flags_weak_locks_across_methods_but_spares_fields() {
+        let report = analyze_default(
+            "class A\n{\n    static readonly object gate = new();\n    readonly object padlock = new object();\n\n    void First()\n    {\n        lock (\"cache\") { }\n    }\n\n    void Second()\n    {\n        lock (this) { }\n        lock (gate) { }\n        lock (padlock) { }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3998");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 8);
+        assert_eq!(flagged[1].range.start.line, 13);
+    }
+}

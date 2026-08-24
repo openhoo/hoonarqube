@@ -34,3 +34,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3217_flags_casts_on_var_typed_iteration_variables() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        foreach (var row in rows)\n            Log(((string)row).Length);\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3217").len(), 1);
+    }
+
+    #[test]
+    fn s3217_casts_of_other_values_stay_unflagged() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        foreach (string raw in values)\n        {\n            Log(((string)other).Length);\n            Log(raw.Length);\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3217").is_empty());
+    }
+}

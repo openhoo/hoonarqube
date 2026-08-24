@@ -42,3 +42,68 @@ fn trailing_statement_exits(body: Node<'_>) -> bool {
         )
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    const KEY: &str = "csharpsquid:S1751";
+
+    #[test]
+    fn s1751_minimal_empty_body_is_clean() {
+        let report = analyze_default("class C {\n    void M() {\n    }\n}\n");
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s1751_trailing_break_makes_loop_single_shot() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        while (Ready()) {\n            Step();\n            break;\n        }\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s1751_trailing_return_flags_too() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        for (int i = 0; i < 9; i++) {\n            Tick(i);\n            return;\n        }\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, KEY).len(), 1);
+    }
+
+    #[test]
+    fn s1751_mid_body_break_with_trailing_work_is_clean() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        while (Ready()) {\n            if (Done()) {\n                break;\n            }\n            Step();\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s1751_plain_loop_without_jumps_stays_clean() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        while (Ready()) {\n            Step();\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s1751_do_while_run_once_idiom_is_exempt() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        do {\n            Step();\n        } while (Ready());\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s1751_two_single_shot_loops_flag_at_their_headers() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        while (Ready()) {\n            break;\n        }\n        for (int i = 0; i < 9; i++) {\n            return;\n        }\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 2);
+        assert_ne!(found[0].range.start.line, found[1].range.start.line);
+    }
+}

@@ -27,3 +27,46 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1125_plain_boolean_uses_have_no_findings() {
+        let report = analyze_default(
+            "class A\n{\n    void M(bool flag)\n    {\n        Keep(flag);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1125").is_empty());
+    }
+
+    #[test]
+    fn s1125_flags_identity_with_true_and_difference_with_false() {
+        let report = analyze_default(
+            "class A\n{\n    void M(bool flag, bool gate)\n    {\n        var a = flag == true;\n        var b = gate != false;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1125");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s1125_flags_literal_on_the_left_operand_too() {
+        let report = analyze_default(
+            "class A\n{\n    void M(bool flag, bool gate)\n    {\n        var a = true == flag;\n        var b = false != gate;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1125");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s1125_non_redundant_shapes_stay_unflagged() {
+        let report = analyze_default(
+            "class A\n{\n    void M(bool flag, bool gate)\n    {\n        var negated = flag == false;\n        var kept = gate != true;\n        var conjunct = flag && true;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1125").is_empty());
+    }
+}

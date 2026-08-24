@@ -27,3 +27,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s6618_flags_qualified_formattable_string_receivers() {
+        let report = analyze_default(
+            "class C\n{\n    string Text()\n    {\n        return System.FormattableString.Invariant($\"y{2}\");\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S6618").len(), 1);
+    }
+
+    #[test]
+    fn s6618_plain_interpolated_strings_stay_unflagged() {
+        let report = analyze_default(
+            "class C\n{\n    string Text()\n    {\n        return $\"y{2}\";\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S6618").is_empty());
+    }
+}

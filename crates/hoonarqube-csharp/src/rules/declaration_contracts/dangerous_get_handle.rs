@@ -18,3 +18,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+    #[test]
+    fn s3869_counts_every_dangerous_handle_read() {
+        let report = analyze_default(
+            "class C\n{\n    void Leak(SafeHandle firstHandle, SafeHandle secondSafeHandle)\n    {\n        Use(firstSafeHandle.DangerousGetHandle());\n        Use(secondSafeHandle.DangerousGetHandle());\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3869").len(), 2);
+    }
+}

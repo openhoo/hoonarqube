@@ -75,3 +75,63 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2934_flags_each_property_write_through_readonly_generic_field() {
+        let report = analyze_default(
+            "class Box<T>\n{\n    private readonly T value;\n    public void Reset()\n    {\n        value.Count = 0;\n        value.Name = \"x\";\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2934");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 6);
+        assert_eq!(flagged[1].range.start.line, 7);
+    }
+
+    #[test]
+    fn s2934_this_qualified_receiver_is_still_flagged() {
+        let report = analyze_default(
+            "class Box<T>\n{\n    private readonly T value;\n    public void Reset()\n    {\n        this.value.Count = 0;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2934");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 6);
+    }
+
+    #[test]
+    fn s2934_record_declarations_are_checked_too() {
+        let report = analyze_default(
+            "record Box<T>\n{\n    private readonly T value;\n    public void Reset()\n    {\n        value.Count = 0;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2934");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 6);
+    }
+
+    #[test]
+    fn s2934_struct_constrained_parameters_stay_clean() {
+        let report = analyze_default(
+            "struct Pair<T>\n    where T : struct\n{\n    private readonly T value;\n    public void Reset()\n    {\n        value.Count = 0;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2934").is_empty());
+    }
+
+    #[test]
+    fn s2934_non_generic_readonly_fields_are_not_in_scope() {
+        let report = analyze_default(
+            "class Store\n{\n    private readonly FileStream stream;\n    public void Reset()\n    {\n        stream.Name = \"x\";\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2934").is_empty());
+    }
+
+    #[test]
+    fn s2934_plain_identifier_assignment_is_not_a_property_write() {
+        let report = analyze_default(
+            "class Box<T>\n{\n    private readonly T value;\n    public void Reset()\n    {\n        value = default;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2934").is_empty());
+    }
+}

@@ -54,3 +54,51 @@ fn using_target_segment<'a>(directive: Node<'_>, source: &'a str) -> Option<&'a 
         target.rsplit('.').next()
     }
 }
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1128_flags_each_segment_even_when_directives_share_it() {
+        let report = analyze_default("using A.Tools;\nusing B.Tools;\nclass C\n{\n}\n");
+        assert_eq!(with_key(&report, "csharpsquid:S1128").len(), 2);
+    }
+
+    #[test]
+    fn s1128_flags_alias_targets_never_spelled_out() {
+        let report = analyze_default(
+            "using Repo = Acme.Data.Repository;\nclass C\n{\n    void M()\n    {\n        Repo.Load();\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S1128").len(), 1);
+    }
+
+    #[test]
+    fn s1128_keeps_segments_written_at_call_sites() {
+        let report = analyze_default(
+            "using System.IO;\nclass C\n{\n    string M()\n    {\n        return System.IO.File.ReadAllText(\"x\");\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1128").is_empty());
+    }
+
+    #[test]
+    fn s1128_audits_directives_nested_in_namespaces() {
+        let report = analyze_default(
+            "namespace N\n{\n    using System.Linq;\n    class C\n    {\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S1128").len(), 1);
+    }
+
+    #[test]
+    fn s1128_leaves_global_usings_untouched() {
+        let report = analyze_default("global using System.Threading;\nclass C\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S1128").is_empty());
+    }
+
+    #[test]
+    fn s1128_treats_comment_mentions_as_references() {
+        let report = analyze_default(
+            "using System.Net.Http;\n// Http traffic flows through the gateway.\nclass C\n{\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1128").is_empty());
+    }
+}

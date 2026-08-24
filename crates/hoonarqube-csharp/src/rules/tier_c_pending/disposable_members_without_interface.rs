@@ -45,3 +45,53 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2931_disposable_properties_trigger_the_rule_too() {
+        let report =
+            analyze_default("class Cache\n{\n    public FileStream Stream { get; set; }\n}\n");
+        assert_eq!(with_key(&report, "csharpsquid:S2931").len(), 1);
+    }
+
+    #[test]
+    fn s2931_partial_classes_stay_uncovered() {
+        let report = analyze_default("partial class Cache\n{\n    private FileStream stream;\n}\n");
+        assert!(with_key(&report, "csharpsquid:S2931").is_empty());
+    }
+
+    #[test]
+    fn s2931_disposable_bases_from_the_table_exempt_the_class() {
+        let report = analyze_default(
+            "class Cache : MemoryStream\n{\n    private FileStream stream;\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2931").is_empty());
+    }
+
+    #[test]
+    fn s2931_idisposable_typed_members_count() {
+        let report = analyze_default("class Cache\n{\n    private IDisposable resource;\n}\n");
+        assert_eq!(with_key(&report, "csharpsquid:S2931").len(), 1);
+    }
+
+    #[test]
+    fn s2931_qualified_member_types_still_match_the_table() {
+        let report =
+            analyze_default("class Cache\n{\n    private System.IO.FileStream stream;\n}\n");
+        assert_eq!(with_key(&report, "csharpsquid:S2931").len(), 1);
+    }
+
+    #[test]
+    fn s2931_flags_each_offending_class_distinctly() {
+        let report = analyze_default(
+            "class First\n{\n    private FileStream stream;\n}\nclass Second\n{\n    private SqlConnection connection;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2931");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 1);
+        assert_eq!(flagged[1].range.start.line, 5);
+    }
+}

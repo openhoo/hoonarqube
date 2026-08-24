@@ -46,3 +46,26 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4462_only_parameterless_waits_block() {
+        let report = analyze_default(
+            "class C\n{\n    void Block(Task task)\n    {\n        task.Wait(1000);\n        task.Wait();\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4462");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 6);
+    }
+
+    #[test]
+    fn s4462_result_invoked_like_a_method_is_exempt() {
+        let report = analyze_default(
+            "class C\n{\n    void Read(Provider provider)\n    {\n        provider.Result();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4462").is_empty());
+    }
+}

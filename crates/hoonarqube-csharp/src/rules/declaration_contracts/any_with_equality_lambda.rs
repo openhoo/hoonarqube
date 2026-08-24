@@ -44,3 +44,32 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s6617_flags_all_with_parameter_equality_lambda() {
+        let report = analyze_default(
+            "class C\n{\n    bool Has(System.Collections.Generic.List<int> items)\n    {\n        return items.All(v => v == 2);\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S6617").len(), 1);
+    }
+
+    #[test]
+    fn s6617_flags_reversed_operand_order() {
+        let report = analyze_default(
+            "class C\n{\n    bool Has(System.Collections.Generic.List<int> items)\n    {\n        return items.Any(v => 1 == v);\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S6617").len(), 1);
+    }
+
+    #[test]
+    fn s6617_inequality_predicates_stay_unflagged() {
+        let report = analyze_default(
+            "class C\n{\n    bool Has(System.Collections.Generic.List<int> items)\n    {\n        return items.Any(v => v != 1);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S6617").is_empty());
+    }
+}

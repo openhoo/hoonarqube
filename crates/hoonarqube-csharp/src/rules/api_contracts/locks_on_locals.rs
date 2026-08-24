@@ -43,3 +43,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s6507_parameters_and_fields_are_not_locals() {
+        let report = analyze_default(
+            "class A\n{\n    object field = new object();\n    void M(object gate)\n    {\n        lock (gate) { }\n        lock (field) { }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S6507").is_empty());
+    }
+
+    #[test]
+    fn s6507_counts_each_lock_on_a_local() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        var local = new object();\n        lock (local) { Work(); }\n        lock (local) { Again(); }\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S6507").len(), 2);
+    }
+}

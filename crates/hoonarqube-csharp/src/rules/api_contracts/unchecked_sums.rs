@@ -26,3 +26,19 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2291_reports_each_unchecked_block_once_regardless_of_sum_count() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        unchecked { total = values.Sum() + extra.Sum(); }\n        unchecked\n        {\n            if (ready)\n            {\n                total = values.Sum(item => item.Score);\n            }\n        }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2291");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+}

@@ -19,3 +19,22 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         "Add assembly version information ([assembly: AssemblyVersion(\"1.0.0.0\")]).",
     )]
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3904_version_match_is_case_insensitive() {
+        let report = analyze_default("[assembly: assemblyversion(\"2.0.0.0\")]\nclass A { }\n");
+        assert!(with_key(&report, "csharpsquid:S3904").is_empty());
+    }
+
+    #[test]
+    fn s3904_reports_once_for_several_non_version_attributes() {
+        let report = analyze_default(
+            "[assembly: System.CLSCompliant(false)]\n[assembly: AssemblyCompany(\"Acme\")]\nclass A { }\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3904").len(), 1);
+    }
+}

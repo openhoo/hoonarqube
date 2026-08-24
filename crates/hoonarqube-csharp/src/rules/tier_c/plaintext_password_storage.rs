@@ -103,3 +103,73 @@ fn password_bytes_conversion(call: Node<'_>, source: &str) -> bool {
         _ => false,
     }
 }
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s5344_method_without_password_identifiers_stays_silent() {
+        let report = analyze_default(
+            "class Repo\n{\n    byte[] Encode(string payload)\n    {\n        return Encoding.UTF8.GetBytes(payload);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S5344").is_empty());
+    }
+
+    #[test]
+    fn s5344_flags_ascii_getbytes_over_password_material() {
+        let report = analyze_default(
+            "class Repo\n{\n    byte[] Encode(string pwd)\n    {\n        return Encoding.ASCII.GetBytes(pwd);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S5344");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s5344_flags_utf8_getbytes_over_password_named_literal() {
+        let report = analyze_default(
+            "class Repo\n{\n    byte[] Encode(string pwd)\n    {\n        return Encoding.UTF8.GetBytes(\"Hunter2Password\");\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S5344");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s5344_fast_hash_is_reported_even_when_a_slow_kdf_suppresses_conversions() {
+        let report = analyze_default(
+            "class Kdf\n{\n    byte[] Derive(string password)\n    {\n        var bytes = Encoding.UTF8.GetBytes(password);\n        var kdf = new Rfc2898DeriveBytes(password, salt);\n        var md5 = MD5.Create();\n        return md5.ComputeHash(bytes);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S5344");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 7);
+    }
+
+    #[test]
+    fn s5344_other_encodings_do_not_count_as_plaintext_conversion() {
+        let report = analyze_default(
+            "class Repo\n{\n    byte[] Encode(string password)\n    {\n        return Encoding.BigEndianUnicode.GetBytes(password);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S5344").is_empty());
+    }
+
+    #[test]
+    fn s5344_non_getbytes_callees_stay_silent_despite_password_gate() {
+        let report = analyze_default(
+            "class Repo\n{\n    string Decode(byte[] pwd)\n    {\n        return Encoding.UTF8.GetString(pwd);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S5344").is_empty());
+    }
+
+    #[test]
+    fn s5344_reports_each_fast_hash_and_the_byte_conversion_in_document_order() {
+        let report = analyze_default(
+            "class Hasher\n{\n    byte[] Weak(string password)\n    {\n        var sha1 = SHA1.Create();\n        var hmac = HMACMD5.Create();\n        return sha1.ComputeHash(Encoding.UTF8.GetBytes(password));\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S5344");
+        assert_eq!(flagged.len(), 3);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+        assert_eq!(flagged[2].range.start.line, 7);
+    }
+}

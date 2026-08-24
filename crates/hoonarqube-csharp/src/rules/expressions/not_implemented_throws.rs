@@ -28,3 +28,33 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3717_minimal_class_has_no_findings() {
+        let report = analyze_default("class A\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S3717").is_empty());
+    }
+
+    #[test]
+    fn s3717_tracks_bare_and_qualified_not_implemented_throws() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        throw new NotImplementedException();\n        throw new System.NotImplementedException(\"later\");\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3717");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s3717_other_exceptions_and_rethrows_stay_untracked() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        throw new InvalidOperationException(\"busy\");\n        throw;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3717").is_empty());
+    }
+}

@@ -75,3 +75,34 @@ fn declared_member_names(declaration: Node<'_>, source: &str) -> std::collection
     names.extend(field_and_property_names(declaration, source));
     names
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4545_format_specifiers_and_method_forms_resolve() {
+        let report = analyze_default(
+            "[DebuggerDisplay(\"{Name,nq} {Compute()}\")]\nclass Card\n{\n    public string Name { get; set; }\n    int Compute() => 1;\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4545").is_empty());
+    }
+
+    #[test]
+    fn s4545_flags_missing_member_behind_method_form() {
+        let report = analyze_default(
+            "[DebuggerDisplay(\"{Missing()}\")]\nclass Card\n{\n    public string Name { get; set; }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4545");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'Missing'"));
+    }
+
+    #[test]
+    fn s4545_ignores_attributes_on_non_type_owners() {
+        let report = analyze_default(
+            "class Card\n{\n    [DebuggerDisplay(\"{Nope}\")]\n    public string label;\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4545").is_empty());
+    }
+}

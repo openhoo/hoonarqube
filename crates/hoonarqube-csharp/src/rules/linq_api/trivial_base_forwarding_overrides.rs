@@ -58,3 +58,22 @@ fn forwards_to_base(statement: Node<'_>, member: &str, source: &str) -> bool {
                 && first_child_token_text(function, source) == "base"
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1185_requires_override_and_same_member_forwarding() {
+        let report = analyze_default(
+            "class D : B\n{\n    public override string Name() { return base.Other(); }\n    public string Size() { return base.Size(); }\n    public override void Run() { }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1185").is_empty());
+    }
+
+    #[test]
+    fn s1185_minimal_class_without_overrides_is_clean() {
+        let report = analyze_default("class D : B\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S1185").is_empty());
+    }
+}

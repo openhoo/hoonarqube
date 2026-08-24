@@ -24,3 +24,20 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2953_flags_structs_with_hand_rolled_dispose() {
+        let report = analyze_default("struct Bag\n{\n    public void Dispose() { }\n}\n");
+        assert_eq!(with_key(&report, "csharpsquid:S2953").len(), 1);
+    }
+
+    #[test]
+    fn s2953_interface_without_dispose_method_is_not_flagged() {
+        let report = analyze_default("class Odd : IDisposable\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S2953").is_empty());
+    }
+}

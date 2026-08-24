@@ -78,3 +78,35 @@ fn or_chain_operands(expression: Node<'_>) -> Vec<Node<'_>> {
     }
     vec![expression]
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3937_keeps_short_regular_and_mixed_chains_clean() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int code, int other)\n    {\n        if (code == 1 || code == 7) { }\n        if (code == 1 || code == 3 || code == 5 || code == 7) { }\n        if (code == 1 || other == 2 || code == 9) { }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3937").is_empty());
+    }
+
+    #[test]
+    fn s3937_reports_irregular_chains_at_distinct_lines() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int code)\n    {\n        if (code == 1 || code == 2 || code == 9) { }\n        if (code == 4 || code == 8 || code == 15) { }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3937");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5); // document line 4
+        assert_eq!(flagged[1].range.start.line, 6); // document line 5
+    }
+
+    #[test]
+    fn s3937_minimal_body_without_or_chains_is_clean() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int code)\n    {\n        if (code == 1) { }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3937").is_empty());
+    }
+}

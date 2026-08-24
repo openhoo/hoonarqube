@@ -54,3 +54,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4049_enforces_prefix_case_and_shape_boundaries() {
+        let report = analyze_default(
+            "class F\n{\n    public string Get() { return name; }\n    public string Gets() { return name; }\n    public void SetName() { }\n    public void Setname(string newValue) { }\n    public void GetName() { }\n    public string GetName(int id) { return name; }\n    public void SetValue(string newValue) { }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4049");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 9); // document line 8
+    }
+
+    #[test]
+    fn s4049_minimal_class_without_methods_is_clean() {
+        let report = analyze_default("class F\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S4049").is_empty());
+    }
+}

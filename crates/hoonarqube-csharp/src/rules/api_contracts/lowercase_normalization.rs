@@ -24,3 +24,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 
 /// Methods that normalize text and must not fold case downwards.
 const TO_LOWER_METHODS: [&str; 2] = ["ToLower", "ToLowerInvariant"];
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4040_flags_lowercasing_at_the_end_of_a_chain() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        key = name.Trim().ToLower();\n        slug = raw.ToLowerInvariant().Replace(\" \", \"-\");\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S4040").len(), 2);
+    }
+}

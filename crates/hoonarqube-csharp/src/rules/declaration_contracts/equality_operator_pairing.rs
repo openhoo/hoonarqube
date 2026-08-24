@@ -30,3 +30,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4050_operator_pair_without_equals_override_still_flags() {
+        let report = analyze_default(
+            "struct Value\n{\n    public static bool operator ==(Value a, Value b) => true;\n\n    public static bool operator !=(Value a, Value b) => false;\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S4050").len(), 1);
+    }
+
+    #[test]
+    fn s4050_inequality_alone_is_out_of_scope() {
+        let report = analyze_default(
+            "struct Value\n{\n    public static bool operator !=(Value a, Value b) => false;\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4050").is_empty());
+    }
+}

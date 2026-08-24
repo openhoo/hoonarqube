@@ -71,3 +71,60 @@ pub(crate) fn monitor_operations<'a, 't>(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    const KEY: &str = "csharpsquid:S2222";
+
+    #[test]
+    fn s2222_minimal_empty_body_is_clean() {
+        let report = analyze_default("class C {\n    void M() {\n    }\n}\n");
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2222_exit_outside_finally_leaves_exception_path_uncovered() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        Monitor.Enter(gate);\n        try {\n            Work();\n        } catch {\n            Monitor.Exit(gate);\n        }\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s2222_exit_in_finally_releases_on_all_paths() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        Monitor.Enter(gate);\n        try {\n            Work();\n        } finally {\n            Monitor.Exit(gate);\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2222_try_enter_needs_finally_exit_too() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        Monitor.TryEnter(gate);\n        Work();\n        Monitor.Exit(gate);\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, KEY).len(), 1);
+    }
+
+    #[test]
+    fn s2222_pairing_keys_on_the_monitor_receiver_text() {
+        // Both calls share the receiver text 'Monitor', so this subset
+        // cannot tell the lock objects apart: the exit still pairs.
+        let report = analyze_default(
+            "class C {\n    void M() {\n        Monitor.Enter(left);\n        Monitor.Exit(right);\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+    }
+
+    #[test]
+    fn s2222_lone_exit_is_skipped() {
+        let report =
+            analyze_default("class C {\n    void M() {\n        Monitor.Exit(gate);\n    }\n}\n");
+        assert!(with_key(&report, KEY).is_empty());
+    }
+}

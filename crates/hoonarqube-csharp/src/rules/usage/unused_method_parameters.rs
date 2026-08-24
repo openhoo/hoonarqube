@@ -50,3 +50,54 @@ const SIGNATURE_KEEPING_MODIFIERS: [&str; 8] = [
     "partial",
     "extern",
 ];
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1172_flags_unused_constructor_parameters() {
+        let report =
+            analyze_default("class C\n{\n    C(int missing)\n    {\n        Log();\n    }\n}\n");
+        let flagged = with_key(&report, "csharpsquid:S1172");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'missing'"));
+    }
+
+    #[test]
+    fn s1172_keeps_every_signature_bearing_modifier() {
+        let report = analyze_default(
+            "class C\n{\n    internal static void Drain(int gone)\n    {\n    }\n\n    protected void Fill(int gone)\n    {\n    }\n\n    virtual int Mix(int gone)\n    {\n        return 0;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1172").is_empty());
+    }
+
+    #[test]
+    fn s1172_reports_each_unused_parameter_separately() {
+        let report = analyze_default(
+            "class C\n{\n    void Handle(int first, string second, bool third)\n    {\n        Log(first);\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S1172").len(), 2);
+    }
+
+    #[test]
+    fn s1172_disregards_prose_in_strings_and_comments() {
+        let report = analyze_default(
+            "class C\n{\n    void Handle(int value)\n    {\n        // value will matter soon\n        Log(\"value\");\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S1172").len(), 1);
+    }
+
+    #[test]
+    fn s1172_reads_expression_bodied_usage() {
+        let report = analyze_default("class C\n{\n    int Double(int v) => v * 2;\n}\n");
+        assert!(with_key(&report, "csharpsquid:S1172").is_empty());
+    }
+
+    #[test]
+    fn s1172_skips_lambdas_and_anonymous_methods() {
+        let report = analyze_default(
+            "class C\n{\n    void M()\n    {\n        System.Action<int> a = (int orphan) => Log();\n        System.Action<int> b = delegate(int leftover) { Log(); };\n        a(1);\n        b(2);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1172").is_empty());
+    }
+}

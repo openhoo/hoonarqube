@@ -41,3 +41,36 @@ fn element_write_target<'a>(statement: Node<'_>, source: &'a str) -> Option<&'a 
     let (target, _) = binary_operands(inner)?;
     (target.kind() == "element_access_expression").then(|| node_text(target, source))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4143_reports_each_dead_write_in_a_run() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        data[0] = 1;\n        data[0] = 2;\n        data[0] = 3;\n        Log();\n        data[0] = 4;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4143");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5); // document line 4
+        assert_eq!(flagged[1].range.start.line, 6); // document line 5
+    }
+
+    #[test]
+    fn s4143_matches_multi_dimensional_element_targets() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        grid[0, 1] = 1;\n        grid[0, 1] = 2;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4143");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5); // document line 4
+    }
+
+    #[test]
+    fn s4143_minimal_block_without_element_writes_is_clean() {
+        let report =
+            analyze_default("class A\n{\n    void M()\n    {\n        data[0] = 1;\n    }\n}\n");
+        assert!(with_key(&report, "csharpsquid:S4143").is_empty());
+    }
+}

@@ -35,3 +35,22 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2328_unreferenced_mutable_fields_do_not_poison() {
+        let report = analyze_default(
+            "class C\n{\n    private int moving;\n\n    private readonly int frozen;\n\n    public override int GetHashCode() => frozen * 31;\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2328").is_empty());
+    }
+
+    #[test]
+    fn s2328_types_without_hashcode_overrides_are_out_of_scope() {
+        let report = analyze_default("class C\n{\n    private int moving;\n}\n");
+        assert!(with_key(&report, "csharpsquid:S2328").is_empty());
+    }
+}

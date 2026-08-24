@@ -19,3 +19,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3902_flags_qualified_executing_assembly_reads() {
+        let report = analyze_default(
+            "class C\n{\n    void Who()\n    {\n        System.Reflection.Assembly.GetExecutingAssembly();\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3902").len(), 1);
+    }
+
+    #[test]
+    fn s3902_counts_every_occurrence() {
+        let report = analyze_default(
+            "class C\n{\n    void Who()\n    {\n        Assembly.GetExecutingAssembly();\n        Assembly.GetExecutingAssembly();\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3902").len(), 2);
+    }
+}

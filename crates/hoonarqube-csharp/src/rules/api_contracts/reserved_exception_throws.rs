@@ -27,3 +27,19 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 /// Reserved exception types that carry no domain meaning.
 const RESERVED_EXCEPTION_TYPES: [&str; 3] =
     ["Exception", "ApplicationException", "SystemException"];
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s112_flags_system_exception_creations_outside_throws() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        throw new System.ApplicationException(\"q\");\n        Log(new SystemException());\n        var wrapped = new ApplicationExceptionWrapper();\n        var fine = new InvalidOperationException(\"ok\");\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S112");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+}

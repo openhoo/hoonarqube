@@ -44,3 +44,16 @@ fn embedded_password_value<'a>(literal_text: &'a str, lowered: &str) -> Option<&
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2115_flags_pwd_marker_and_unterminated_values() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        var shortHand = \"User=u;pwd=hunter2;\";\n        var unterminated = \"Server=s;PASSWORD=top\";\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S2115").len(), 2);
+    }
+}

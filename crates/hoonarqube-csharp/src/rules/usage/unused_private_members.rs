@@ -119,3 +119,73 @@ fn private_declarators<'t>(
         })
         .collect()
 }
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1144_flags_dead_private_properties_events_and_nested_types() {
+        let report = analyze_default(
+            "class C\n{\n    int Score => 1;\n    event System.EventHandler Done;\n    class Helper\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1144");
+        assert_eq!(flagged.len(), 3);
+        assert!(
+            flagged
+                .iter()
+                .any(|issue| issue.message.contains("property"))
+        );
+        assert!(flagged.iter().any(|issue| issue.message.contains("event")));
+        assert!(
+            flagged
+                .iter()
+                .any(|issue| issue.message.contains("private Helper"))
+        );
+    }
+
+    #[test]
+    fn s1144_spares_attributed_members_and_entry_points() {
+        let report = analyze_default(
+            "class C\n{\n    [System.Obsolete]\n    void Legacy()\n    {\n    }\n\n    static void Main()\n    {\n    }\n\n    [System.ThreadStatic]\n    static int slot;\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1144").is_empty());
+    }
+
+    #[test]
+    fn s1144_keeps_all_overloads_until_the_last_reference_dies() {
+        let report = analyze_default(
+            "class C\n{\n    void Twice()\n    {\n    }\n\n    void Twice(int n)\n    {\n    }\n\n    static void Main()\n    {\n        Twice(3);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1144").is_empty());
+    }
+
+    #[test]
+    fn s1144_keeps_callees_reached_from_dead_callers() {
+        let report = analyze_default(
+            "class C\n{\n    void Dead()\n    {\n        Helper();\n    }\n\n    void Helper()\n    {\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1144");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("method"));
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s1144_ignores_non_private_visibility() {
+        let report = analyze_default(
+            "class C\n{\n    internal void Gone()\n    {\n    }\n\n    public int Exposed => 1;\n\n    protected bool flag;\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1144").is_empty());
+    }
+
+    #[test]
+    fn s1144_spares_used_and_public_nested_types() {
+        let used = analyze_default(
+            "class C\n{\n    class Inner\n    {\n    }\n\n    static void Main()\n    {\n        var item = new Inner();\n    }\n}\n",
+        );
+        assert!(with_key(&used, "csharpsquid:S1144").is_empty());
+
+        let public_nested = analyze_default("class C\n{\n    public class Open\n    {\n    }\n}\n");
+        assert!(with_key(&public_nested, "csharpsquid:S1144").is_empty());
+    }
+}

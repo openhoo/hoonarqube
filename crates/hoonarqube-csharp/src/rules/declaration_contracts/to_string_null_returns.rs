@@ -30,3 +30,35 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2225_flags_arrow_bodied_null_returns() {
+        let report =
+            analyze_default("class C\n{\n    public override string ToString() => null;\n}\n");
+        assert_eq!(with_key(&report, "csharpsquid:S2225").len(), 1);
+    }
+
+    #[test]
+    fn s2225_reports_only_the_first_null_return() {
+        let report = analyze_default(
+            "class C\n{\n    public override string ToString()\n    {\n        if (Broken())\n        {\n            return null;\n        }\n        return null;\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S2225").len(), 1);
+    }
+
+    #[test]
+    fn s2225_spares_empty_strings_and_other_members() {
+        let empty = analyze_default(
+            "class C\n{\n    public override string ToString()\n    {\n        return \"\";\n    }\n}\n",
+        );
+        assert!(with_key(&empty, "csharpsquid:S2225").is_empty());
+
+        let describe = analyze_default(
+            "class C\n{\n    string Describe()\n    {\n        return null;\n    }\n}\n",
+        );
+        assert!(with_key(&describe, "csharpsquid:S2225").is_empty());
+    }
+}

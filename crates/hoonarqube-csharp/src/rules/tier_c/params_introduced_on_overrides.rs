@@ -34,3 +34,60 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3600_minimal_derived_without_base_member_never_pairs() {
+        let report = analyze_default(
+            "class Base\n{\n}\nclass Sub : Base\n{\n    public override void Show() { }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3600").is_empty());
+    }
+
+    #[test]
+    fn s3600_params_introduced_on_a_later_position_alone_is_flagged() {
+        let report = analyze_default(
+            "class Base\n{\n    public virtual void Send(int lead, int tail) { }\n}\nclass Sub : Base\n{\n    public override void Send(int lead, params int[] rest) { }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3600");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 7);
+    }
+
+    #[test]
+    fn s3600_params_kept_at_every_matching_position_stays_clean() {
+        let report = analyze_default(
+            "class Base\n{\n    public virtual void Send(int lead, params int[] tail) { }\n}\nclass Sub : Base\n{\n    public override void Send(int lead, params int[] tail) { }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3600").is_empty());
+    }
+
+    #[test]
+    fn s3600_extension_beyond_base_arity_is_out_of_scope() {
+        let report = analyze_default(
+            "class Base\n{\n    public virtual void Send(int lead) { }\n}\nclass Sub : Base\n{\n    public override void Send(int lead, params int[] more) { }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3600").is_empty());
+    }
+
+    #[test]
+    fn s3600_hiding_without_override_modifier_never_pairs() {
+        let report = analyze_default(
+            "class Base\n{\n    public virtual void Send(int lead) { }\n}\nclass Sub : Base\n{\n    public void Send(params int[] rest) { }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3600").is_empty());
+    }
+
+    #[test]
+    fn s3600_reports_each_introducing_override_at_its_own_line() {
+        let report = analyze_default(
+            "class Base\n{\n    public virtual void First(int a) { }\n    public virtual void Second(int b) { }\n}\nclass Sub : Base\n{\n    public override void First(params int[] xs) { }\n    public override void Second(params int[] ys) { }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3600");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 8);
+        assert_eq!(flagged[1].range.start.line, 9);
+    }
+}

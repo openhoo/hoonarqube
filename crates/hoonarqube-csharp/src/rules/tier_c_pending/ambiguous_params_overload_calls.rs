@@ -71,3 +71,63 @@ fn parameter_binds_arrays(parameter: Node<'_>, source: &str) -> bool {
             text.ends_with("[]") || matches!(simple_name(text), "object" | "Object" | "dynamic")
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3220_implicit_array_creation_also_flags() {
+        let report = analyze_default(
+            "class Writer\n{\n    public void Write(string[] lines)\n    {\n    }\n    public void Write(params string[] lines)\n    {\n    }\n    public void Flush()\n    {\n        Write(new[] { \"a\" });\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3220");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 11);
+    }
+
+    #[test]
+    fn s3220_missing_plain_array_overload_stays_clean() {
+        let report = analyze_default(
+            "class Writer\n{\n    public void Write(params string[] lines)\n    {\n    }\n    public void Flush()\n    {\n        Write(new[] { \"a\" });\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3220").is_empty());
+    }
+
+    #[test]
+    fn s3220_non_array_plain_overload_stays_clean() {
+        let report = analyze_default(
+            "class Writer\n{\n    public void Write(string text)\n    {\n    }\n    public void Write(params string[] lines)\n    {\n    }\n    public void Flush()\n    {\n        Write(new[] { \"a\" });\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3220").is_empty());
+    }
+
+    #[test]
+    fn s3220_object_typed_plain_overload_counts() {
+        let report = analyze_default(
+            "class Writer\n{\n    public void Write(object item)\n    {\n    }\n    public void Write(params string[] lines)\n    {\n    }\n    public void Flush()\n    {\n        Write(new[] { \"a\" });\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3220");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 11);
+    }
+
+    #[test]
+    fn s3220_non_array_arguments_stay_clean() {
+        let report = analyze_default(
+            "class Writer\n{\n    public void Write(string[] lines)\n    {\n    }\n    public void Write(params string[] lines)\n    {\n    }\n    public void Flush(string[] buffer)\n    {\n        Write(buffer);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3220").is_empty());
+    }
+
+    #[test]
+    fn s3220_flags_each_ambiguous_call_distinctly() {
+        let report = analyze_default(
+            "class Writer\n{\n    public void Write(string[] lines)\n    {\n    }\n    public void Write(params string[] lines)\n    {\n    }\n    public void Flush()\n    {\n        Write(new[] { \"a\" });\n        Write(new string[] { \"b\" });\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3220");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 11);
+        assert_eq!(flagged[1].range.start.line, 12);
+    }
+}

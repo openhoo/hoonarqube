@@ -60,3 +60,66 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    const KEY: &str = "csharpsquid:S3949";
+
+    #[test]
+    fn s3949_minimal_empty_body_is_clean() {
+        let report = analyze_default("class C {\n    void M() {\n    }\n}\n");
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s3949_max_value_plus_one_wraps() {
+        let report =
+            analyze_default("class C {\n    int M() {\n        return 2147483647 + 1;\n    }\n}\n");
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s3949_min_value_minus_one_wraps() {
+        let report = analyze_default(
+            "class C {\n    int M() {\n        return -2147483648 - 1;\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, KEY).len(), 1);
+    }
+
+    #[test]
+    fn s3949_boundary_values_that_do_not_wrap_stay_clean() {
+        let report =
+            analyze_default("class C {\n    int M() {\n        return 2147483647 + 0;\n    }\n}\n");
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s3949_checked_statement_is_exempt_by_intent() {
+        // NOTE: only `checked { ... }` statements are exempt; the
+        // `checked(...)` expression form parses differently and still
+        // flags (impl subset, logged upstream).
+        let report = analyze_default(
+            "class C {\n    int M() {\n        checked {\n            return 2147483647 + 1;\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s3949_division_and_variables_are_out_of_scope() {
+        let report = analyze_default(
+            "class C {\n    int M(int scale) {\n        return -2147483648 / -1 + scale;\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s3949_multiplication_overflowing_int_flags() {
+        let report =
+            analyze_default("class C {\n    long M() {\n        return 65536 * 65536;\n    }\n}\n");
+        assert_eq!(with_key(&report, KEY).len(), 1);
+    }
+}

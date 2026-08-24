@@ -66,3 +66,76 @@ fn graph_reaches(
     }
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2330_ignores_sources_without_array_declarations() {
+        let report = analyze_default("class C\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S2330").is_empty());
+    }
+
+    #[test]
+    fn s2330_ignores_matching_element_types() {
+        let report =
+            analyze_default("class Dog\n{\n}\nvoid Kennel()\n{\n    Dog[] pack = new Dog[2];\n}\n");
+        assert!(with_key(&report, "csharpsquid:S2330").is_empty());
+    }
+
+    #[test]
+    fn s2330_ignores_unrelated_element_hierarchies() {
+        let report = analyze_default(
+            "class Rock\n{\n}\nclass Tree\n{\n}\nvoid Grove()\n{\n    Tree[] grove = new Rock[2];\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2330").is_empty());
+    }
+
+    #[test]
+    fn s2330_flags_transitive_base_element_types() {
+        let report = analyze_default(
+            "class Animal\n{\n}\nclass Pet : Animal\n{\n}\nclass Dog : Pet\n{\n}\nvoid Kennel()\n{\n    Animal[] pack = new Dog[2];\n}\n",
+        );
+        let found = with_key(&report, "csharpsquid:S2330");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 12);
+    }
+
+    #[test]
+    fn s2330_ignores_contravariant_directions() {
+        let report = analyze_default(
+            "class Animal\n{\n}\nclass Dog : Animal\n{\n}\nvoid Kennel()\n{\n    Dog[] pack = new Animal[2];\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2330").is_empty());
+    }
+
+    #[test]
+    fn s2330_ignores_reassignment_after_declaration() {
+        let report = analyze_default(
+            "class Animal\n{\n}\nclass Dog : Animal\n{\n}\nvoid Kennel()\n{\n    Animal[] pack = new Animal[2];\n    pack = new Dog[2];\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2330").is_empty());
+    }
+
+    #[test]
+    fn s2330_reports_first_covariant_declarator_per_declaration() {
+        let report = analyze_default(
+            "class Animal\n{\n}\nclass Dog : Animal\n{\n}\nvoid Kennel()\n{\n    Animal[] left = new Dog[2], right = new Dog[2];\n}\n",
+        );
+        let found = with_key(&report, "csharpsquid:S2330");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 9);
+    }
+
+    #[test]
+    fn s2330_flags_each_violation_at_its_own_line() {
+        let report = analyze_default(
+            "class Animal\n{\n}\nclass Dog : Animal\n{\n}\nvoid Kennel()\n{\n    Animal[] pack = new Dog[2];\n    Animal[] herd = new Dog[3];\n}\n",
+        );
+        let found = with_key(&report, "csharpsquid:S2330");
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].range.start.line, 9);
+        assert_eq!(found[1].range.start.line, 10);
+    }
+}

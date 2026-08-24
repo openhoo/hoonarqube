@@ -24,3 +24,37 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2197_plain_arithmetic_has_no_findings() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int total)\n    {\n        var remainder = total % 4;\n        var bounded = total > 3;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2197").is_empty());
+    }
+
+    #[test]
+    fn s2197_flags_equality_comparisons_on_remainders() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int i, int j)\n    {\n        var even = i % 2 == 0;\n        var odd = j % 3 != 1;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2197");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s2197_remainder_on_right_counts_but_relational_forms_stay_unflagged() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int i)\n    {\n        var even = 0 == i % 2;\n        var small = i % 2 < 2;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2197");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+}

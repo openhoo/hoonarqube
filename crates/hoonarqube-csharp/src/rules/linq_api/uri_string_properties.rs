@@ -28,3 +28,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3996_respects_suffix_and_type_boundaries() {
+        let report = analyze_default(
+            "class C\n{\n    public System.Uri HomeUri { get; set; }\n    public string Uri { get; set; }\n    public string XUri { get; set; }\n    public string homeuri { get; set; }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3996");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5); // document line 4
+    }
+
+    #[test]
+    fn s3996_empty_class_is_clean() {
+        let report = analyze_default("class C\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S3996").is_empty());
+    }
+}

@@ -35,3 +35,25 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1206_flags_lone_gethashcode_overrides_too() {
+        let report =
+            analyze_default("struct Key\n{\n    public override int GetHashCode() => 7;\n}\n");
+        let flagged = with_key(&report, "csharpsquid:S1206");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("GetHashCode' is alone"));
+    }
+
+    #[test]
+    fn s1206_counts_each_incomplete_type_separately() {
+        let report = analyze_default(
+            "class First\n{\n    public override bool Equals(object obj) => true;\n}\n\nclass Second\n{\n    public override int GetHashCode() => 1;\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S1206").len(), 2);
+    }
+}

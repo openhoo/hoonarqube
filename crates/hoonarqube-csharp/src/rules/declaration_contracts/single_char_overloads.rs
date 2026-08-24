@@ -38,3 +38,36 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s6610_flags_endswith_single_characters() {
+        let report = analyze_default(
+            "class C\n{\n    bool Tail(string s)\n    {\n        return s.EndsWith(\"x\");\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S6610").len(), 1);
+    }
+
+    #[test]
+    fn s6610_spares_char_literals_and_empty_strings() {
+        let character = analyze_default(
+            "class C\n{\n    bool Head(string s)\n    {\n        return s.StartsWith('a');\n    }\n}\n",
+        );
+        assert!(with_key(&character, "csharpsquid:S6610").is_empty());
+
+        let empty = analyze_default(
+            "class C\n{\n    bool Head(string s)\n    {\n        return s.StartsWith(\"\");\n    }\n}\n",
+        );
+        assert!(with_key(&empty, "csharpsquid:S6610").is_empty());
+    }
+
+    #[test]
+    fn s6610_spares_comparison_argument_overloads() {
+        let report = analyze_default(
+            "class C\n{\n    bool Head(string s)\n    {\n        return s.StartsWith(\"a\", System.StringComparison.Ordinal);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S6610").is_empty());
+    }
+}

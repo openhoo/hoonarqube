@@ -98,3 +98,67 @@ fn subtree_escapes(node: Node<'_>) -> bool {
     .iter()
     .any(|escape| !is_error_tainted(*escape))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    const KEY: &str = "csharpsquid:S2190";
+
+    #[test]
+    fn s2190_minimal_empty_body_is_clean() {
+        let report = analyze_default("class C {\n    void M() {\n    }\n}\n");
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2190_while_true_without_escape_flags() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        while (true) {\n            Spin();\n        }\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s2190_break_offers_the_way_out() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        while (true) {\n            if (Done()) {\n                break;\n            }\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2190_omitted_for_condition_with_return_is_clean() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        for (;;) {\n            return;\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2190_unguarded_tail_recursion_recurses_forever() {
+        let report = analyze_default(
+            "class C {\n    int Loop(int n) {\n        return Loop(n + 1);\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+    }
+
+    #[test]
+    fn s2190_base_case_elsewhere_breaks_recursion_flag() {
+        let report = analyze_default(
+            "class C {\n    int Fact(int n) {\n        if (n <= 1) {\n            return 1;\n        }\n        return Fact(n - 1);\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2190_throw_counts_as_escape() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        do {\n            throw new System.InvalidOperationException();\n        } while (true);\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+}

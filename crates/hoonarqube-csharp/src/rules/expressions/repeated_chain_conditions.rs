@@ -37,3 +37,45 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1862_single_if_chain_has_no_findings() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int x)\n    {\n        if (x > 0) { Work(); }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1862").is_empty());
+    }
+
+    #[test]
+    fn s1862_flags_third_condition_repeating_chain_head() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int x)\n    {\n        if (x > 0) { Work(); }\n        else if (x < 0) { Less(); }\n        else if (x > 0) { Repeat(); }\n        else { Rest(); }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1862");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 7);
+    }
+
+    #[test]
+    fn s1862_each_chain_reports_its_own_repeat() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int x, int y)\n    {\n        if (x > 0) { Work(); }\n        else if (x > 0) { More(); }\n\n        if (y < 3) { Run(); }\n        else if (y < 3) { Walk(); }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1862");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 6);
+        assert_eq!(flagged[1].range.start.line, 9);
+    }
+
+    #[test]
+    fn s1862_nested_duplicate_condition_is_separate_chain() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int x)\n    {\n        if (x > 0)\n        {\n            if (x > 0) { Work(); }\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1862").is_empty());
+    }
+}

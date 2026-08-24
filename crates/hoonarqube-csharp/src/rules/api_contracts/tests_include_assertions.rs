@@ -43,3 +43,27 @@ fn looks_like_assertion(invocation: Node<'_>, source: &str) -> bool {
                 .any(|prefix| name.starts_with(prefix))
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2699_accepts_fluent_and_verify_style_assertions() {
+        let report = analyze_default(
+            "class T\n{\n    [Fact]\n    public void UsesFluent()\n    {\n        var result = Compute();\n        result.Should().Be(2);\n    }\n\n    [Fact]\n    public void UsesVerify()\n    {\n        service.Verify(it => it.Flush());\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2699").is_empty());
+    }
+
+    #[test]
+    fn s2699_flags_plain_helper_calls_and_counts_each_test() {
+        let report = analyze_default(
+            "class T\n{\n    [Fact]\n    public void First()\n    {\n        repository.Flush();\n        log.Info(\"done\");\n    }\n\n    [Fact]\n    public void Second()\n    {\n        calculator.Total();\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2699");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(flagged[1].range.start.line, 10);
+    }
+}

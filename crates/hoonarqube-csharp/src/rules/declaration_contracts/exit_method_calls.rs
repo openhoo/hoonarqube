@@ -29,3 +29,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1147_flags_fail_fast_and_application_exit() {
+        let report = analyze_default(
+            "class C\n{\n    void Bail()\n    {\n        Environment.FailFast(\"fatal\");\n        System.Windows.Forms.Application.Exit();\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S1147").len(), 2);
+    }
+}

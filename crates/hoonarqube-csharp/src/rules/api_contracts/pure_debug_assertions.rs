@@ -45,3 +45,27 @@ fn argument_has_side_effects(argument: Node<'_>, source: &str) -> bool {
                 .any(|child| !child.is_named() && matches!(node_text(child, source), "++" | "--"))
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3346_flags_assignments_and_prefix_decrements() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        Debug.Assert((total = Compute()) > 0);\n        Debug.Assert(--pending == 0);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3346");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s3346_ignores_trace_assert_and_pure_debug_calls() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        Trace.Assert(Fetch() > 0);\n        Debug.WriteLine(Fetch());\n        Debug.Assert(total == expected);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3346").is_empty());
+    }
+}

@@ -94,3 +94,73 @@ fn consumes_string_builder(reference: Node<'_>, source: &str) -> bool {
         "argument" | "return_statement" | "element_access_expression"
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3063_minimal_class_produces_no_findings() {
+        let report = analyze_default("class A\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S3063").is_empty());
+    }
+
+    #[test]
+    fn s3063_flags_mutated_builder_at_the_declarator_line() {
+        let report = analyze_default(
+            "class C\n{\n    void M()\n    {\n        var message = new System.Text.StringBuilder();\n        message.Append(\"hi\");\n        message.Remove(0, 1);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3063");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(
+            flagged[0].message,
+            "The content of StringBuilder 'message' is never consumed."
+        );
+    }
+
+    #[test]
+    fn s3063_ignores_never_used_builders() {
+        let report = analyze_default(
+            "class C\n{\n    void M()\n    {\n        var orphan = new System.Text.StringBuilder();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3063").is_empty());
+    }
+
+    #[test]
+    fn s3063_ignores_builders_declared_as_fields() {
+        let report = analyze_default(
+            "class C\n{\n    System.Text.StringBuilder buffer = new System.Text.StringBuilder();\n\n    void M()\n    {\n        buffer.Append(\"x\");\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3063").is_empty());
+    }
+
+    #[test]
+    fn s3063_accepts_argument_return_and_element_access_consumption() {
+        let argument = analyze_default(
+            "class C\n{\n    void M()\n    {\n        var b = new StringBuilder();\n        b.Append(\"x\");\n        Store(b);\n    }\n}\n",
+        );
+        assert!(with_key(&argument, "csharpsquid:S3063").is_empty());
+
+        let returned = analyze_default(
+            "class C\n{\n    StringBuilder M()\n    {\n        var b = new StringBuilder();\n        b.Append(\"x\");\n        return b;\n    }\n}\n",
+        );
+        assert!(with_key(&returned, "csharpsquid:S3063").is_empty());
+
+        let element_access = analyze_default(
+            "class C\n{\n    char M()\n    {\n        var b = new StringBuilder(\"abc\");\n        return b[0];\n    }\n}\n",
+        );
+        assert!(with_key(&element_access, "csharpsquid:S3063").is_empty());
+    }
+
+    #[test]
+    fn s3063_reports_two_violations_at_distinct_lines_with_explicit_types() {
+        let report = analyze_default(
+            "class C\n{\n    void M()\n    {\n        var first = new StringBuilder();\n        StringBuilder second = new StringBuilder(\"s\");\n        first.Append(1);\n        second.Insert(0, 'a');\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3063");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+}

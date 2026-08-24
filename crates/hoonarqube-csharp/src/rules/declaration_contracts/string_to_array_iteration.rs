@@ -57,3 +57,31 @@ fn foreach_conversion_issues(
         }
     }
 }
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3456_flags_to_array_indexing() {
+        let report = analyze_default(
+            "class C\n{\n    char First(string s)\n    {\n        return s.ToArray()[0];\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3456").len(), 1);
+    }
+
+    #[test]
+    fn s3456_spares_conversion_results_kept_in_locals() {
+        let report = analyze_default(
+            "class C\n{\n    void Walk(string s, string other)\n    {\n        var chars = s.ToCharArray();\n        var head = chars[0];\n        foreach (var c in other)\n        {\n            var again = s.ToCharArray();\n            Use(again);\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3456").is_empty());
+    }
+
+    #[test]
+    fn s3456_counts_each_conversion_shape_once() {
+        let report = analyze_default(
+            "class C\n{\n    void Walk(string s)\n    {\n        var head = s.ToCharArray()[0];\n        foreach (char c in s.ToCharArray())\n        {\n            Use(c);\n        }\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3456").len(), 2);
+    }
+}

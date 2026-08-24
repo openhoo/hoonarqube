@@ -50,3 +50,55 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3329_minimal_input_emits_nothing() {
+        let report = analyze_default("class C\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S3329").is_empty());
+    }
+
+    #[test]
+    fn s3329_flags_create_decryptor_with_static_vector() {
+        let report = analyze_default(
+            "byte[] Decrypt(byte[] key)\n{\n    var transform = aes.CreateDecryptor(key, new byte[] { 7, 9 });\n    return transform;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3329");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s3329_boundary_single_argument_encryptor_is_not_flagged() {
+        let report = analyze_default("var enc = aes.CreateEncryptor(key);\n");
+        assert!(with_key(&report, "csharpsquid:S3329").is_empty());
+    }
+
+    #[test]
+    fn s3329_boundary_static_first_argument_alone_is_not_flagged() {
+        let report =
+            analyze_default("var enc = aes.CreateEncryptor(new byte[] { 1 }, ivStream);\n");
+        assert!(with_key(&report, "csharpsquid:S3329").is_empty());
+    }
+
+    #[test]
+    fn s3329_runtime_generated_vectors_stay_clean() {
+        let report = analyze_default(
+            "aes.IV = ivBuffer;\nvar dec = aes.CreateDecryptor(masterKey, ivBuffer);\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3329").is_empty());
+    }
+
+    #[test]
+    fn s3329_flags_two_static_assignments_on_distinct_lines() {
+        let report =
+            analyze_default("aes.IV = \"0123456789abcdef\";\ncipher.IV = \"abcdefghijklmnop\";\n");
+        let flagged = with_key(&report, "csharpsquid:S3329");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 1);
+        assert_eq!(flagged[1].range.start.line, 2);
+    }
+}

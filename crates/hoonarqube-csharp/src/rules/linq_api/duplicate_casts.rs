@@ -43,3 +43,37 @@ fn cast_fields(cast: Node<'_>, source: &str) -> Option<(String, String)> {
         .map(|value| node_text(value, source).trim().to_string())?;
     Some((target_type, operand))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3247_reports_second_and_third_repeats_per_scope() {
+        let report = analyze_default(
+            "class A\n{\n    void M(object item)\n    {\n        var a = (Customer)item;\n        var b = (Customer)item;\n        var c = (Customer)item;\n    }\n    void N(object item)\n    {\n        var d = (Customer)item;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3247");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 6); // document line 5
+        assert_eq!(flagged[1].range.start.line, 7); // document line 6
+    }
+
+    #[test]
+    fn s3247_trims_operand_whitespace_when_matching() {
+        let report = analyze_default(
+            "class A\n{\n    void M(object item)\n    {\n        var a = (Customer)item;\n        var b = (Customer) item;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3247");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 6); // document line 5
+    }
+
+    #[test]
+    fn s3247_single_cast_per_method_is_clean() {
+        let report = analyze_default(
+            "class A\n{\n    void M(object item)\n    {\n        var a = (Customer)item;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3247").is_empty());
+    }
+}

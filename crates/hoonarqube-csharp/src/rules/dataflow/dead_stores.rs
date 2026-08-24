@@ -190,3 +190,68 @@ fn push_dead_store(
         )),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1854_minimal_empty_body_is_clean() {
+        let report = analyze_default("class C {\n    void M() {\n    }\n}\n");
+        assert!(with_key(&report, "csharpsquid:S1854").is_empty());
+        assert!(with_key(&report, "csharpsquid:S2123").is_empty());
+    }
+
+    #[test]
+    fn s1854_unread_final_value_dies_at_block_end() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        int leftover = Compute();\n    }\n}\n",
+        );
+        let found = with_key(&report, "csharpsquid:S1854");
+        assert_eq!(found.len(), 1);
+    }
+
+    #[test]
+    fn s2123_useless_increment_reports_increment_rule() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        int ticks = 0;\n        ticks++;\n        Reset();\n    }\n}\n",
+        );
+        // The increment also displaces the initializer's pending store,
+        // so the masked `= 0` is reported under S1854.
+        assert_eq!(with_key(&report, "csharpsquid:S1854").len(), 1);
+    }
+
+    #[test]
+    fn s1854_captured_locals_are_exempt() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        int seed = 1;\n        Run(() => seed + 1);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1854").is_empty());
+    }
+
+    #[test]
+    fn s1854_out_argument_consumes_pending_store() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        int slot;\n        Bind(out slot);\n        Log(slot);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1854").is_empty());
+    }
+
+    #[test]
+    fn s1854_nested_block_write_without_local_declares_nothing() {
+        let report = analyze_default(
+            "class C {\n    void M(bool flag) {\n        int x = 0;\n        if (flag) {\n            x = 1;\n        }\n        Log(x);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1854").is_empty());
+    }
+
+    #[test]
+    fn s1854_displacement_and_tail_death_at_distinct_lines() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        int a = 1;\n        a = 2;\n        Log(a);\n        int b = 9;\n    }\n}\n",
+        );
+        let found = with_key(&report, "csharpsquid:S1854");
+        assert_eq!(found.len(), 2);
+        assert_ne!(found[0].range.start.line, found[1].range.start.line);
+    }
+}

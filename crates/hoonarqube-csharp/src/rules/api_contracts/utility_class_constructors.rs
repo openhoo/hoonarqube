@@ -46,3 +46,26 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1118_flags_internal_constructors_in_const_only_utilities() {
+        let report = analyze_default(
+            "class Codec\n{\n    public const string Prefix = \"c\";\n    internal Codec() { }\n    public static void Run() { }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1118");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 4);
+    }
+
+    #[test]
+    fn s1118_spares_stateful_classes_and_private_constructors() {
+        let report = analyze_default(
+            "class Cache\n{\n    int misses;\n    public Cache() { }\n    public static void Reset() { }\n}\n\nclass Hidden\n{\n    public static void Run() { }\n    private Hidden() { }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1118").is_empty());
+    }
+}

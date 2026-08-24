@@ -39,3 +39,32 @@ fn try_handler_signature(try_statement: Node<'_>, source: &str) -> (Vec<String>,
     }
     (catches, fin)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2327_counts_each_adjacent_identical_pair() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        try { One(); } catch (IOException e) { Heal(); }\n        try { Two(); } catch (IOException e) { Heal(); }\n        try { Three(); } catch (IOException e) { Heal(); }\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S2327").len(), 2);
+    }
+
+    #[test]
+    fn s2327_intervening_statements_break_adjacency() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        try { One(); } catch (IOException e) { Heal(); }\n        Gap();\n        try { Two(); } catch (IOException e) { Heal(); }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2327").is_empty());
+    }
+
+    #[test]
+    fn s2327_differing_finalizers_prevent_merging() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        try { One(); } catch (IOException e) { Heal(); } finally { First(); }\n        try { Two(); } catch (IOException e) { Heal(); } finally { Second(); }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2327").is_empty());
+    }
+}

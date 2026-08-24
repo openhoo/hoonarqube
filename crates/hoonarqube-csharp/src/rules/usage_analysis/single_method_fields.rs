@@ -48,3 +48,57 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1450_minimal_class_produces_no_findings() {
+        let report = analyze_default("class A\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S1450").is_empty());
+    }
+
+    #[test]
+    fn s1450_flags_single_method_field_at_declaration_with_message() {
+        let report = analyze_default(
+            "class C\n{\n    private int scratch;\n\n    public int Run()\n    {\n        scratch = 1;\n        return scratch;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1450");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(
+            flagged[0].message,
+            "Field 'scratch' is used only within one method; make it a local variable instead."
+        );
+    }
+
+    #[test]
+    fn s1450_ignores_fields_shared_with_accessors() {
+        let report = analyze_default(
+            "class C\n{\n    private int balance;\n\n    public int Balance\n    {\n        get { return balance; }\n    }\n\n    public void Add(int amount)\n    {\n        balance += amount;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1450").is_empty());
+    }
+
+    #[test]
+    fn s1450_ignores_attributed_and_public_fields_used_in_one_method() {
+        let attributed = analyze_default(
+            "class C\n{\n    [System.Obsolete]\n    private int legacy;\n\n    public int Read()\n    {\n        return legacy;\n    }\n}\n",
+        );
+        assert!(with_key(&attributed, "csharpsquid:S1450").is_empty());
+
+        let public_field = analyze_default(
+            "class C\n{\n    public int shared;\n\n    public int Read()\n    {\n        return shared;\n    }\n}\n",
+        );
+        assert!(with_key(&public_field, "csharpsquid:S1450").is_empty());
+    }
+
+    #[test]
+    fn s1450_requires_a_use_site() {
+        let report = analyze_default(
+            "class C\n{\n    private int orphan;\n\n    public void Touch()\n    {\n        Log(\"noop\");\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1450").is_empty());
+    }
+}

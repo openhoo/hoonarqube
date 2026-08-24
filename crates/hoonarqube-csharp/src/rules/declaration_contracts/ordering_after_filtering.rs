@@ -24,3 +24,31 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s6607_flags_descending_ordering_after_filtering() {
+        let report = analyze_default(
+            "class C\n{\n    void Query(System.Collections.Generic.List<int> items)\n    {\n        items.Where(v => v > 0).OrderByDescending(v => v);\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S6607").len(), 1);
+    }
+
+    #[test]
+    fn s6607_counts_each_late_ordering_in_a_chain() {
+        let report = analyze_default(
+            "class C\n{\n    void Query(System.Collections.Generic.List<int> items)\n    {\n        items.Where(v => v > 0).OrderBy(v => v).OrderBy(v => -v);\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S6607").len(), 2);
+    }
+
+    #[test]
+    fn s6607_spares_secondary_orderings() {
+        let report = analyze_default(
+            "class C\n{\n    void Query(System.Collections.Generic.List<int> items)\n    {\n        items.Where(v => v > 0).ThenBy(v => v);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S6607").is_empty());
+    }
+}

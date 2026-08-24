@@ -56,3 +56,57 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2995_minimal_input_emits_nothing() {
+        let report = analyze_default("class C\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S2995").is_empty());
+    }
+
+    #[test]
+    fn s2995_flags_numeric_literal_pair() {
+        let report = analyze_default("var same = ReferenceEquals(1, 2);\n");
+        let flagged = with_key(&report, "csharpsquid:S2995");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s2995_flags_boolean_and_character_literals() {
+        let report = analyze_default("var equal = ReferenceEquals('x', true);\n");
+        let flagged = with_key(&report, "csharpsquid:S2995");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s2995_mixed_value_and_reference_identifiers_are_not_flagged() {
+        let report = analyze_default(
+            "struct Point\n{\n}\nclass Box\n{\n}\nvoid Compare(Point point, Box box)\n{\n    var mixed = ReferenceEquals(point, box);\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2995").is_empty());
+    }
+
+    #[test]
+    fn s2995_boundary_wrong_arity_calls_are_not_flagged() {
+        let report = analyze_default(
+            "var one = ReferenceEquals(single);\nvar three = ReferenceEquals(a, b, extra);\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2995").is_empty());
+    }
+
+    #[test]
+    fn s2995_flags_struct_pair_and_literal_pair_on_distinct_lines() {
+        let report = analyze_default(
+            "struct Pair\n{\n}\nvoid Check(Pair left, Pair right)\n{\n    var structs = ReferenceEquals(left, right);\n    var literals = ReferenceEquals(3, 4);\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2995");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 6);
+        assert_eq!(flagged[1].range.start.line, 7);
+    }
+}

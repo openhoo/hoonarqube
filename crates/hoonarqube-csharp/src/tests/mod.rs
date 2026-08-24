@@ -2,7 +2,10 @@ pub(crate) use std::path::PathBuf;
 
 pub(crate) use crate::{AnalyzerOptions, CsLanguage, analyze, language_for_extension};
 
-fn with_key<'a>(report: &'a hoonarqube_ir::FileReport, key: &str) -> Vec<&'a hoonarqube_ir::Issue> {
+pub(crate) fn with_key<'a>(
+    report: &'a hoonarqube_ir::FileReport,
+    key: &str,
+) -> Vec<&'a hoonarqube_ir::Issue> {
     report
         .issues
         .iter()
@@ -10,11 +13,14 @@ fn with_key<'a>(report: &'a hoonarqube_ir::FileReport, key: &str) -> Vec<&'a hoo
         .collect()
 }
 
-fn analyze_options(source: &str, options: &AnalyzerOptions) -> hoonarqube_ir::FileReport {
+pub(crate) fn analyze_options(
+    source: &str,
+    options: &AnalyzerOptions,
+) -> hoonarqube_ir::FileReport {
     analyze(PathBuf::from("t.cs"), source, CsLanguage::CSharp, options)
 }
 
-fn analyze_default(source: &str) -> hoonarqube_ir::FileReport {
+pub(crate) fn analyze_default(source: &str) -> hoonarqube_ir::FileReport {
     analyze(
         PathBuf::from("t.cs"),
         source,

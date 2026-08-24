@@ -40,3 +40,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2701_contrary_literals_and_leading_variables_stay_unflagged() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        Assert.IsTrue(false);\n        widget.IsFalse(true);\n        Assert.IsTrue(ready, \"because\");\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2701").is_empty());
+    }
+
+    #[test]
+    fn s2701_flags_classic_true_false_assertion_names() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        Assert.True(true);\n        Assert.False(false);\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S2701").len(), 2);
+    }
+}

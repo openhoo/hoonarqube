@@ -29,3 +29,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4056_argument_count_boundaries_stay_unflagged() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        text = value.ToString(\"N2\");\n        number = int.Parse();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4056").is_empty());
+    }
+
+    #[test]
+    fn s4056_flags_inner_conversion_in_a_chain_once() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        text = value.ToString().Trim();\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S4056").len(), 1);
+    }
+}

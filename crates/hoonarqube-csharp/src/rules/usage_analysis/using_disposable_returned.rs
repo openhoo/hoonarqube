@@ -52,3 +52,68 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2997_flags_return_of_using_resource_at_the_return_line() {
+        let report = analyze_default(
+            "class C\n{\n    System.IO.StreamWriter Create()\n    {\n        using (var writer = new System.IO.StreamWriter(\"app.log\"))\n        {\n            return writer;\n        }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2997");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 7);
+        assert_eq!(
+            flagged[0].message,
+            "'writer' is disposed by its using statement; return it from outside."
+        );
+    }
+
+    #[test]
+    fn s2997_minimal_class_produces_no_findings() {
+        let report = analyze_default("class A\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S2997").is_empty());
+    }
+
+    #[test]
+    fn s2997_ignores_return_outside_the_using_block() {
+        let report = analyze_default(
+            "class C\n{\n    System.IO.StreamWriter Create()\n    {\n        using (var writer = new System.IO.StreamWriter(\"app.log\"))\n        {\n            writer.AutoFlush = true;\n        }\n        return writer;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2997").is_empty());
+    }
+
+    #[test]
+    fn s2997_ignores_non_disposable_initializer_and_foreign_names() {
+        let literal = analyze_default(
+            "class C\n{\n    string Read()\n    {\n        using (var text = \"cached\")\n        {\n            return text;\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&literal, "csharpsquid:S2997").is_empty());
+
+        let foreign_name = analyze_default(
+            "class C\n{\n    void M()\n    {\n        var kept = new System.IO.MemoryStream();\n        using (var temp = new System.IO.MemoryStream())\n        {\n            return kept;\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&foreign_name, "csharpsquid:S2997").is_empty());
+    }
+
+    #[test]
+    fn s2997_requires_a_block_body() {
+        let report = analyze_default(
+            "class C\n{\n    void M()\n    {\n        using (var stream = new System.IO.MemoryStream());\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2997").is_empty());
+    }
+
+    #[test]
+    fn s2997_reports_two_resources_at_distinct_lines_with_explicit_types() {
+        let report = analyze_default(
+            "class C\n{\n    System.IO.MemoryStream First()\n    {\n        using (var a = new System.IO.MemoryStream())\n        {\n            return a;\n        }\n    }\n\n    System.IO.MemoryStream Second()\n    {\n        using (System.IO.MemoryStream b = new System.IO.MemoryStream())\n        {\n            return b;\n        }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2997");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 7);
+        assert_eq!(flagged[1].range.start.line, 15);
+    }
+}

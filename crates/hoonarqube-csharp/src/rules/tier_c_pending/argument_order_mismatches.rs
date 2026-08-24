@@ -73,3 +73,60 @@ fn swapped_argument_pair(
         && node_text(right, source) == own_name
         && own_name != other_name
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2234_named_arguments_bypass_the_positional_gate() {
+        let report = analyze_default(
+            "class Calc\n{\n    public double Divide(double dividend, double divisor)\n    {\n        return dividend / divisor;\n    }\n    public void Quotient(double divisor, double dividend)\n    {\n        var ratio = Divide(dividend: divisor, divisor: dividend);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2234").is_empty());
+    }
+
+    #[test]
+    fn s2234_non_identifier_arguments_stay_clean() {
+        let report = analyze_default(
+            "class Calc\n{\n    public void Scale(int factor, int offset)\n    {\n    }\n    public void Run()\n    {\n        Scale(offset + 1, factor);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2234").is_empty());
+    }
+
+    #[test]
+    fn s2234_middle_swap_is_flagged() {
+        let report = analyze_default(
+            "class Calc\n{\n    public void Move(int x, int y, int z)\n    {\n    }\n    public void Run(int y, int x, int z)\n    {\n        Move(y, x, z);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2234");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 8);
+    }
+
+    #[test]
+    fn s2234_literal_arguments_stay_clean() {
+        let report = analyze_default(
+            "class Calc\n{\n    public void Move(int x, int y)\n    {\n    }\n    public void Run()\n    {\n        Move(1, 2);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2234").is_empty());
+    }
+
+    #[test]
+    fn s2234_flags_each_swapped_call_distinctly() {
+        let report = analyze_default(
+            "class Calc\n{\n    public void Swap(int left, int right)\n    {\n    }\n    public void Flip(int alpha, int beta)\n    {\n    }\n    public void Run()\n    {\n        Swap(right, left);\n        Flip(beta, alpha);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2234");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 11);
+        assert_eq!(flagged[1].range.start.line, 12);
+    }
+
+    #[test]
+    fn s2234_foreign_callees_stay_uncovered() {
+        let report =
+            analyze_default("static void Main()\n{\n    Console.WriteLine(count, size);\n}\n");
+        assert!(with_key(&report, "csharpsquid:S2234").is_empty());
+    }
+}

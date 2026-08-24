@@ -43,3 +43,47 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3366_flags_returning_this_from_nested_block() {
+        let report = analyze_default(
+            "class C\n{\n    public C()\n    {\n        System.Func<C> factory = () =>\n        {\n            return this;\n        };\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3366");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 7);
+    }
+
+    #[test]
+    fn s3366_ignores_this_as_assignment_target_qualifier() {
+        let report = analyze_default(
+            "class C\n{\n    private string name;\n\n    public C()\n    {\n        this.name = \"sample\";\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3366").is_empty());
+    }
+
+    #[test]
+    fn s3366_ignores_constructor_without_this() {
+        let report =
+            analyze_default("class C\n{\n    public C()\n    {\n    }\n}\n");
+        assert!(with_key(&report, "csharpsquid:S3366").is_empty());
+    }
+
+    #[test]
+    fn s3366_reports_each_escape_site_distinctly() {
+        let report = analyze_default(
+            "class C\n{\n    public C()\n    {\n        System.Console.WriteLine(this);\n        Helper(this);\n    }\n\n    private void Helper(C other) { }\n}\n",
+        );
+        let mut lines: Vec<u32> = with_key(&report, "csharpsquid:S3366")
+            .iter()
+            .map(|issue| issue.range.start.line)
+            .collect();
+        lines.sort_unstable();
+        assert_eq!(lines, vec![5, 6]);
+    }
+}
+

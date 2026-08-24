@@ -55,3 +55,62 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3263_minimal_class_produces_no_findings() {
+        let report = analyze_default("class A\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S3263").is_empty());
+    }
+
+    #[test]
+    fn s3263_flags_two_forward_references_with_messages() {
+        let report = analyze_default(
+            "class C\n{\n    private static int first = second + third;\n    private static int second = 1;\n    private static int third = 2;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3263");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(
+            flagged[0].message,
+            "'second' is declared after 'first'; static initialization order makes this read unreliable."
+        );
+        assert_eq!(
+            flagged[1].message,
+            "'third' is declared after 'first'; static initialization order makes this read unreliable."
+        );
+    }
+
+    #[test]
+    fn s3263_ignores_self_references() {
+        let report = analyze_default("class C\n{\n    private static int total = total + 1;\n}\n");
+        assert!(with_key(&report, "csharpsquid:S3263").is_empty());
+    }
+
+    #[test]
+    fn s3263_ignores_const_and_instance_siblings_declared_later() {
+        let const_sibling = analyze_default(
+            "class C\n{\n    private static int total = Rate + 1;\n    private const int Rate = 5;\n}\n",
+        );
+        assert!(with_key(&const_sibling, "csharpsquid:S3263").is_empty());
+
+        let instance_sibling = analyze_default(
+            "class C\n{\n    private static int total = other + 1;\n    private int other;\n}\n",
+        );
+        assert!(with_key(&instance_sibling, "csharpsquid:S3263").is_empty());
+    }
+
+    #[test]
+    fn s3263_accepts_backward_references_and_skips_uninitialized_fields() {
+        let report = analyze_default(
+            "class C\n{\n    private static int later;\n    private static int eager = later;\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3263").len(), 0);
+
+        let uninitialized = analyze_default("class C\n{\n    private static int pending;\n}\n");
+        assert!(with_key(&uninitialized, "csharpsquid:S3263").is_empty());
+    }
+}

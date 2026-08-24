@@ -125,3 +125,66 @@ fn conditional_context(node: Node<'_>) -> bool {
             )
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    const KEY: &str = "csharpsquid:S2259";
+
+    #[test]
+    fn s2259_minimal_empty_body_is_clean() {
+        let report = analyze_default("class C {\n    void M() {\n    }\n}\n");
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2259_member_access_on_known_null_flags() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        string name = null;\n        var len = name.Length;\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 4);
+    }
+
+    #[test]
+    fn s2259_reassignment_to_non_null_clears_the_state() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        string name = null;\n        name = Env();\n        var len = name.Length;\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2259_out_argument_clears_known_null() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        string name = null;\n        Fill(out name);\n        var len = name.Length;\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2259_guarded_name_is_exempt_member_wide() {
+        let report = analyze_default(
+            "class C {\n    void M(string? maybe) {\n        if (maybe == null) {\n            return;\n        }\n        var len = maybe.Length;\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2259_conditional_store_does_not_mark_known_null() {
+        let report = analyze_default(
+            "class C {\n    void M(bool flag) {\n        string name = \"x\";\n        if (flag) {\n            name = null;\n        }\n        var len = name.Length;\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2259_element_access_on_known_null_flags_too() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        int[] cells = null;\n        var head = cells[0];\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, KEY).len(), 1);
+    }
+}

@@ -51,3 +51,27 @@ fn has_transposed_assignment(line: &str) -> bool {
     }
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2757_flags_each_transposed_line_and_counts_them() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        total =+ amount;\n        count =+ step;\n        Log(total);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2757");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s2757_ignores_spaced_unary_plus_and_operator_pairs() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        total = +amount;\n        if (a ==+ b) { }\n        delta =- step;\n        /* note */ skipped =+ 1;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2757").is_empty());
+    }
+}

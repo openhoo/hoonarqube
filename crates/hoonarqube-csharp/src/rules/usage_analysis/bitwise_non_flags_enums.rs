@@ -93,3 +93,57 @@ fn bitwise_operator(expression: Node<'_>) -> Option<&'static str> {
         .find(|operator| **operator == kind)
         .copied()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3265_flags_member_only_bitwise_expression() {
+        let report = analyze_default(
+            "enum Style\n{\n    Bold,\n    Italic\n}\nclass C\n{\n    int Mix()\n    {\n        return (int)(Style.Bold & Style.Italic);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3265");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 10);
+    }
+
+    #[test]
+    fn s3265_ignores_flags_attributed_enums() {
+        let report = analyze_default(
+            "[Flags]\nenum Mask\n{\n    A,\n    B\n}\nclass C\n{\n    int Mix(Mask mask)\n    {\n        return (int)(mask | Mask.A);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3265").is_empty());
+    }
+
+    #[test]
+    fn s3265_ignores_equality_on_enum_values() {
+        let report = analyze_default(
+            "enum Color\n{\n    Red,\n    Green\n}\nclass C\n{\n    bool Same(Color color)\n    {\n        return color == Color.Red;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3265").is_empty());
+    }
+
+    #[test]
+    fn s3265_flags_compound_assignment_operator() {
+        let report = analyze_default(
+            "enum Mode\n{\n    On,\n    Off\n}\nclass C\n{\n    void Turn(Mode mode)\n    {\n        mode |= Mode.On;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3265");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 10);
+    }
+
+    #[test]
+    fn s3265_reports_each_bitwise_operation_distinctly() {
+        let report = analyze_default(
+            "enum Tone\n{\n    High,\n    Low\n}\nclass C\n{\n    void Both(Tone tone)\n    {\n        tone |= Tone.High;\n        tone &= Tone.Low;\n    }\n}\n",
+        );
+        let mut lines: Vec<u32> = with_key(&report, "csharpsquid:S3265")
+            .iter()
+            .map(|issue| issue.range.start.line)
+            .collect();
+        lines.sort_unstable();
+        assert_eq!(lines, vec![10, 11]);
+    }
+}

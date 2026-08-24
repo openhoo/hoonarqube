@@ -62,3 +62,26 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3956_flags_public_list_properties_but_not_protected_surface() {
+        let report = analyze_default(
+            "class A\n{\n    public List<int> Items { get; set; }\n\n    protected List<int> Peek() => null;\n\n    internal List<int> Grab() => null;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3956");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s3956_ignores_non_public_methods_and_locals() {
+        let report = analyze_default(
+            "class A\n{\n    int Total(List<int> xs)\n    {\n        List<int> copy = xs;\n        return copy.Count;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3956").is_empty());
+    }
+}

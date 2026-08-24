@@ -45,3 +45,38 @@ const OPERATOR_ALTERNATIVES: [(&str, &str); 4] = [
     ("*", "Multiply"),
     ("/", "Divide"),
 ];
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4069_requires_compareto_for_relational_operators() {
+        let missing = analyze_default(
+            "struct Range\n{\n    public static bool operator <(Range a, Range b) => true;\n}\n",
+        );
+        assert_eq!(with_key(&missing, "csharpsquid:S4069").len(), 1);
+
+        let provided = analyze_default(
+            "struct Range\n{\n    public static bool operator <(Range a, Range b) => true;\n\n    public int CompareTo(Range other) => 0;\n}\n",
+        );
+        assert!(with_key(&provided, "csharpsquid:S4069").is_empty());
+    }
+
+    #[test]
+    fn s4069_matches_exact_alternative_names_per_operator() {
+        let both = analyze_default(
+            "struct Money\n{\n    public static Money operator +(Money a, Money b) => a;\n\n    public static Money operator -(Money a, Money b) => a;\n}\n",
+        );
+        assert_eq!(with_key(&both, "csharpsquid:S4069").len(), 2);
+
+        let partial = analyze_default(
+            "struct Money\n{\n    public static Money operator -(Money a, Money b) => a;\n\n    public static Money Add(Money a, Money b) => a;\n}\n",
+        );
+        assert_eq!(with_key(&partial, "csharpsquid:S4069").len(), 1);
+
+        let equality = analyze_default(
+            "class Ref\n{\n    public static bool operator ==(Ref a, Ref b) => true;\n}\n",
+        );
+        assert!(with_key(&equality, "csharpsquid:S4069").is_empty());
+    }
+}

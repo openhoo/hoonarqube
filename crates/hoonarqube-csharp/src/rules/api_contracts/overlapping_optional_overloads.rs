@@ -49,3 +49,46 @@ fn parameter_shape(method: Node<'_>) -> (usize, usize) {
     });
     (parameters.len(), optional.count())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3427_allows_identical_signatures_without_defaults() {
+        let report = analyze_default(
+            "class A\n{\n    public int Sum(int a) { return a; }\n    public int Sum(int b) { return b; }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3427").is_empty());
+    }
+
+    #[test]
+    fn s3427_groups_overloads_per_enclosing_type() {
+        let report = analyze_default(
+            "class A\n{\n    public void Send(int a) { }\n}\n\nclass B\n{\n    public void Send(int a, int b = 1) { }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3427").is_empty());
+    }
+
+    #[test]
+    fn s3427_flags_exactly_touching_mandatory_ranges() {
+        let report = analyze_default(
+            "class A\n{\n    public void Save(int a, int b) { }\n    public void Save(int a, int b, int c = 3) { }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3427");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 4);
+    }
+
+    #[test]
+    fn s3427_counts_each_ambiguous_pair_separately() {
+        let report = analyze_default(
+            "class A\n{\n    public void Run(int a) { }\n    public void Run(int a, int b = 1) { }\n    public void Run(int a, int b = 2, int c = 3) { }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3427");
+        assert_eq!(flagged.len(), 3);
+        assert_eq!(flagged[0].range.start.line, 4);
+        assert_eq!(flagged[1].range.start.line, 5);
+        assert_eq!(flagged[2].range.start.line, 5);
+    }
+}

@@ -36,3 +36,53 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4487_minimal_class_produces_no_findings() {
+        let report = analyze_default("class A\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S4487").is_empty());
+    }
+
+    #[test]
+    fn s4487_reports_flavor_specific_messages_per_member_kind() {
+        let report = analyze_default(
+            "class A\n{\n    private int Stale;\n    private bool Gone { get; set; }\n    public int Live;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4487");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(
+            flagged[0].message,
+            "Remove the unused private field 'Stale'."
+        );
+        assert_eq!(flagged[1].range.start.line, 4);
+        assert_eq!(
+            flagged[1].message,
+            "Remove the unused private property 'Gone'."
+        );
+    }
+
+    #[test]
+    fn s4487_ignores_entry_point_named_main() {
+        let report = analyze_default("class A\n{\n    private void Main(string[] args) { }\n}\n");
+        assert!(with_key(&report, "csharpsquid:S4487").is_empty());
+    }
+
+    #[test]
+    fn s4487_ignores_contract_modifier_members() {
+        let report = analyze_default("class A\n{\n    private virtual void Hook() { }\n}\n");
+        assert!(with_key(&report, "csharpsquid:S4487").is_empty());
+    }
+
+    #[test]
+    fn s4487_ignores_private_methods_invoked_inside_the_class() {
+        let report = analyze_default(
+            "class A\n{\n    private int Compute() => 1;\n    public int Run() { return Compute(); }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4487").is_empty());
+    }
+}

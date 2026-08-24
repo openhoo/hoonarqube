@@ -35,3 +35,24 @@ fn has_base_list(type_node: Node<'_>) -> bool {
         .children(&mut cursor)
         .any(|child| child.kind() == "base_list")
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3249_flags_base_equals_on_object_derived_types() {
+        let report = analyze_default(
+            "class C\n{\n    public override bool Equals(object obj) => base.Equals(obj);\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3249").len(), 1);
+    }
+
+    #[test]
+    fn s3249_any_base_list_disarms_the_rule() {
+        let report = analyze_default(
+            "class C : System.IDisposable\n{\n    public void Dispose() { }\n\n    public override int GetHashCode()\n    {\n        return base.GetHashCode();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3249").is_empty());
+    }
+}

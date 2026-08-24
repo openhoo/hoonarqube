@@ -76,3 +76,64 @@ fn discards_result(invocation: Node<'_>) -> bool {
     }
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3241_ignores_captured_results() {
+        let report = analyze_default(
+            "class A\n{\n    private int Compute() => 42;\n    public int Run()\n    {\n        var value = Compute();\n        return value;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3241").is_empty());
+    }
+
+    #[test]
+    fn s3241_ignores_public_methods() {
+        let report = analyze_default(
+            "class A\n{\n    public int Compute() => 42;\n    public void Run()\n    {\n        Compute();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3241").is_empty());
+    }
+
+    #[test]
+    fn s3241_ignores_void_methods() {
+        let report = analyze_default(
+            "class A\n{\n    private void Compute() { }\n    public void Run()\n    {\n        Compute();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3241").is_empty());
+    }
+
+    #[test]
+    fn s3241_ignores_attributed_methods() {
+        let report = analyze_default(
+            "class A\n{\n    [System.Obsolete]\n    private int Compute() => 42;\n    public void Run()\n    {\n        Compute();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3241").is_empty());
+    }
+
+    #[test]
+    fn s3241_ignores_partial_owners() {
+        let report = analyze_default(
+            "public partial class A\n{\n    private int Compute() => 42;\n    public void Run()\n    {\n        Compute();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3241").is_empty());
+    }
+
+    #[test]
+    fn s3241_ignores_entry_point_named_main() {
+        let report = analyze_default(
+            "class A\n{\n    private int Main() => 0;\n    public void Run()\n    {\n        Main();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3241").is_empty());
+    }
+
+    #[test]
+    fn s3241_requires_every_caller_to_discard() {
+        let report = analyze_default(
+            "class A\n{\n    private int Compute() => 42;\n    public int Run()\n    {\n        var captured = Compute();\n        Compute();\n        return captured;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3241").is_empty());
+    }
+}

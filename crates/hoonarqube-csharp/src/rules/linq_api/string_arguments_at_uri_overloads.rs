@@ -42,3 +42,27 @@ const STRING_URI_OVERLOAD_METHODS: [&str; 5] = [
     "OpenRead",
     "OpenWrite",
 ];
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4005_checks_the_first_argument_across_wellknown_targets() {
+        let report = analyze_default(
+            "class A\n{\n    void M(System.Net.WebClient client)\n    {\n        body = client.UploadString(\"http://example.com\", payload);\n        stream = client.OpenWrite(\"http://example.com\", \"PUT\");\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4005");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5); // document line 4
+        assert_eq!(flagged[1].range.start.line, 6); // document line 5
+    }
+
+    #[test]
+    fn s4005_ignores_unknown_members_and_nonliteral_first_arguments() {
+        let report = analyze_default(
+            "class A\n{\n    void M(System.Net.WebClient client)\n    {\n        other = client.UnknownMethod(\"http://example.com\");\n        none = client.DownloadString();\n        stream = client.OpenRead(address);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4005").is_empty());
+    }
+}

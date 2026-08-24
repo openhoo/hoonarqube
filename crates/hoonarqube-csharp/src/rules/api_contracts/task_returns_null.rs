@@ -36,3 +36,27 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4586_flags_generic_task_returns_and_counts_each() {
+        let report = analyze_default(
+            "class A\n{\n    Task<int> First()\n    {\n        if (ready) { return null; }\n        return Task.FromResult(1);\n    }\n\n    Task Second() { return null; }\n\n    int Plain() { return null; }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4586");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 9);
+    }
+
+    #[test]
+    fn s4586_ignores_bodyless_interface_declarations() {
+        let report = analyze_default(
+            "interface IWorker\n{\n    Task Work();\n\n    Task<int> Fetch();\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4586").is_empty());
+    }
+}

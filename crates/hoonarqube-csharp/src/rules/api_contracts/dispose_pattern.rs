@@ -71,3 +71,26 @@ fn calls_dispose_with_literal(body: Node<'_>, source: &str) -> bool {
             callee_name(call, source) == Some("Dispose") && invocation_arguments(call).len() == 1
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3881_bool_overload_without_parameterless_dispose_is_accepted() {
+        let report = analyze_default(
+            "class Weird : IDisposable\n{\n    protected virtual void Dispose(bool disposing) { }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3881").is_empty());
+    }
+
+    #[test]
+    fn s3881_finalizer_skipping_dispose_flags_once() {
+        let report = analyze_default(
+            "class Bad : IDisposable\n{\n    public void Dispose() { Dispose(true); }\n    protected virtual void Dispose(bool disposing) { }\n    ~Bad() { done = true; }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3881");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("finalizer"));
+    }
+}

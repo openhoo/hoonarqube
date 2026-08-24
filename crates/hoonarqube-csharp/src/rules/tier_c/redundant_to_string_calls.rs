@@ -30,3 +30,43 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1858_minimal_input_emits_nothing() {
+        let report = analyze_default("class C\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S1858").is_empty());
+    }
+
+    #[test]
+    fn s1858_flags_hole_free_interpolated_receiver() {
+        let report = analyze_default("var text = $\"summary\".ToString();\n");
+        let flagged = with_key(&report, "csharpsquid:S1858");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s1858_integer_receiver_is_not_flagged() {
+        let report = analyze_default("var digits = 42.ToString();\n");
+        assert!(with_key(&report, "csharpsquid:S1858").is_empty());
+    }
+
+    #[test]
+    fn s1858_chained_member_receiver_is_not_flagged() {
+        let report = analyze_default("var trimmed = name.Trim().ToString();\n");
+        assert!(with_key(&report, "csharpsquid:S1858").is_empty());
+    }
+
+    #[test]
+    fn s1858_flags_two_calls_within_one_statement() {
+        let report = analyze_default("var joined = $\"{1}\".ToString() + 'q'.ToString();\n");
+        let flagged = with_key(&report, "csharpsquid:S1858");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 1);
+        assert_eq!(flagged[1].range.start.line, 1);
+    }
+}

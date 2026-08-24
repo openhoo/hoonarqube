@@ -43,3 +43,24 @@ const INDEXER_PARAMETER_TYPES: [&str; 12] = [
 fn parameters_from_list(list: Node<'_>) -> Vec<Node<'_>> {
     collect_kinds(list, &["parameter"])
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3876_integer_aliases_and_string_class_are_accepted() {
+        let report = analyze_default(
+            "class Grid\n{\n    public int this[long offset] => 0;\n    public int this[String key] => 1;\n    public int this[char digit] => 2;\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3876").is_empty());
+    }
+
+    #[test]
+    fn s3876_reports_once_per_indexer_despite_several_bad_parameters() {
+        let report = analyze_default(
+            "class Grid\n{\n    public int this[double ratio, System.DateTime when] => 0;\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S3876").len(), 1);
+    }
+}

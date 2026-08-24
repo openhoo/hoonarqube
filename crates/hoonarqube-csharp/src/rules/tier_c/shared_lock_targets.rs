@@ -38,3 +38,43 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2551_ignores_local_object_targets() {
+        let report = analyze_default(
+            "class C\n{\n    void M()\n    {\n        object gate = new object();\n        lock (gate)\n        {\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2551").is_empty());
+    }
+
+    #[test]
+    fn s2551_flags_nested_shared_targets_at_each_line() {
+        let report = analyze_default(
+            "class C\n{\n    void M()\n    {\n        lock (this)\n        {\n            lock (\"inner\")\n            {\n            }\n        }\n    }\n}\n",
+        );
+        let found = with_key(&report, "csharpsquid:S2551");
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].range.start.line, 5);
+        assert_eq!(found[1].range.start.line, 7);
+    }
+
+    #[test]
+    fn s2551_flags_qualified_typeof_targets() {
+        let report = analyze_default("lock (typeof(System.String))\n{\n}\n");
+        let found = with_key(&report, "csharpsquid:S2551");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 1);
+    }
+
+    #[test]
+    fn s2551_ignores_interpolated_and_parenthesized_targets() {
+        let report = analyze_default(
+            "class C\n{\n    object gate = new object();\n    void M(string name)\n    {\n        lock ($\"gate{name}\")\n        {\n        }\n        lock ((gate))\n        {\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2551").is_empty());
+    }
+}

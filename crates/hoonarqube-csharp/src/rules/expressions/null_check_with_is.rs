@@ -49,3 +49,46 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4201_plain_method_has_no_findings() {
+        let report =
+            analyze_default("class A\n{\n    void M(object x)\n    {\n        Keep(x);\n    }\n}\n");
+        assert!(with_key(&report, "csharpsquid:S4201").is_empty());
+    }
+
+    #[test]
+    fn s4201_flags_conjunction_of_null_check_and_predefined_is_pattern() {
+        let report = analyze_default(
+            "class A\n{\n    void M(object x)\n    {\n        var typed = x == null && x is string;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4201");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+
+        let swapped = analyze_default(
+            "class A\n{\n    void M(object x)\n    {\n        var typed = x is string && x == null;\n    }\n}\n",
+        );
+        assert_eq!(with_key(&swapped, "csharpsquid:S4201").len(), 1);
+    }
+
+    #[test]
+    fn s4201_canonical_not_null_and_named_type_shapes_stay_unflagged() {
+        let report = analyze_default(
+            "class A\n{\n    void M(object x)\n    {\n        var canonical = x != null && x is string;\n        var named = x == null && x is Widget;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4201").is_empty());
+    }
+
+    #[test]
+    fn s4201_mismatched_names_and_disjunction_stay_unflagged() {
+        let report = analyze_default(
+            "class A\n{\n    void M(object x, object y)\n    {\n        var other = x == null && y is Widget;\n        var either = x == null || x is Widget;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4201").is_empty());
+    }
+}
