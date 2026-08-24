@@ -6,7 +6,8 @@ use crate::rules::batch5::collectors_hotspots::SHELL_EXEC_FUNCTIONS;
 use crate::rules::batch5::collectors_hotspots::is_unpinned_npm_install;
 use crate::rules::batch5::collectors_hotspots::static_command_text;
 use crate::rules::expression::walker::regex_pattern_text;
-use crate::rules::react_jsx::walker::{duplicated_key_name, expression_through_this_link};
+use crate::rules::react_jsx::s6746_state_mutation_assignment::expression_through_this_link;
+use crate::rules::react_jsx::walker::duplicated_key_name;
 use crate::rules::tier_b::s2077_tb_sql_injection::SqlInjectionCollector;
 use crate::rules::tier_b::s2259_tb_null_accesses::NullAccessCollector;
 use crate::rules::tier_b::s2589_tb_constant_conditions::ConstantConditionCollector;
@@ -22,11 +23,13 @@ use crate::rules::tier_b::s5860_tb_named_groups::NamedGroupCollector;
 use crate::rules::tier_b::s5876_tb_session_regeneration::SessionRegenerationCollector;
 use crate::rules::tier_b::s6486_tb_unstable_keys::UnstableKeyCollector;
 use crate::rules::tier_b::s6544_tb_promise_chains::PromiseChainCollector;
+use crate::support::IssueSink;
 use crate::support::ast::callee_name;
 use crate::support::ast::expression_root_name;
-use crate::support::{
-    IssueSink, RuleScope, member_object, property_key_name, static_property_name, unparenthesized,
-};
+use crate::support::member_object;
+use crate::support::property_key_name;
+use crate::support::static_property_name;
+use crate::support::unparenthesized;
 use oxc_ast::ast::AssignmentExpression;
 use oxc_ast::ast::AssignmentOperator;
 use oxc_ast::ast::BindingPattern;
@@ -72,19 +75,6 @@ use oxc_ast_visit::walk::{
     walk_property_definition,
 };
 use oxc_span::{GetSpan, Span};
-
-/// React lifecycle names invoked by the framework itself (`S6441`).
-pub(crate) const LIFECYCLE_METHODS: &[&str] = &[
-    "constructor",
-    "render",
-    "componentDidMount",
-    "componentDidUpdate",
-    "componentWillUnmount",
-    "componentDidCatch",
-    "getDerivedStateFromProps",
-    "getSnapshotBeforeUpdate",
-    "shouldComponentUpdate",
-];
 
 #[derive(Default)]
 pub(crate) struct ClassFrame {
@@ -189,52 +179,6 @@ impl<'a> Visit<'a> for ClassRuleCollector<'_> {
             self.used_properties.push(field.field.name.to_string());
         }
         oxc_ast_visit::walk::walk_member_expression(self, member);
-    }
-}
-
-impl ClassRuleCollector<'_> {
-    fn finish_class_frame(&mut self, frame: &ClassFrame) {
-        let component = frame
-            .super_name
-            .as_deref()
-            .is_some_and(|base| base == "Component" || base == "PureComponent")
-            || frame.methods.iter().any(|(name, _)| name == "render");
-        for (name, span) in &frame.private_members {
-            if !self.used_properties.iter().any(|used| used == name) {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S1068",
-                    &format!("Remove this unused private class member '{name}'."),
-                    *span,
-                );
-            }
-        }
-        if !component {
-            return;
-        }
-        for (name, span) in &frame.methods {
-            if LIFECYCLE_METHODS.contains(&name.as_str()) {
-                continue;
-            }
-            if !self.used_properties.iter().any(|used| used == name) {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S6441",
-                    &format!("The component method '{name}' is never referenced."),
-                    *span,
-                );
-            }
-        }
-        for (name, span) in &frame.prop_type_keys {
-            if !self.props_accessed.iter().any(|used| used == name) {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S6767",
-                    &format!("Remove the unused prop type entry '{name}'."),
-                    *span,
-                );
-            }
-        }
     }
 }
 

@@ -1,5 +1,6 @@
 // Family 'tier_b' (generated).
 pub(crate) mod collectors;
+pub(crate) mod s1068_s6441_s6767_finish_class_frame;
 pub(crate) mod s1117_tb_shadowing;
 pub(crate) mod s1128_tb_unused_imports;
 pub(crate) mod s1172_tb_unused_parameters;

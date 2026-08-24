@@ -1,24 +1,51 @@
 // Family walker for 'react_jsx' (generated).
+use super::s6746_state_mutation_assignment::expression_through_this_link;
+use crate::JstsLanguage;
 use crate::context::{AnalysisContext, RuleOptions};
+use crate::expression_returns_jsx;
 use crate::rules::expression::s1528_constructor_calls::argument_expression;
 use crate::rules::expression::walker::call_property;
-use crate::support::{
-    IssueSink, LineIndex, RuleScope, binding_identifier_name, callee_name, identifier_name,
-    member_object, member_root_name, span_text_contains,
-};
-use crate::{JstsLanguage, REACT_DOM_ATTRIBUTES, expression_returns_jsx};
+use crate::support::IssueSink;
+use crate::support::LineIndex;
+use crate::support::binding_identifier_name;
+use crate::support::identifier_name;
 use hoonarqube_ir::Issue;
 use oxc_allocator::ArenaVec;
-use oxc_ast::ast::{
-    AssignmentExpression, AssignmentOperator, BindingPattern, CallExpression, Class, ClassElement,
-    DoWhileStatement, Expression, ExpressionStatement, ForInStatement, ForOfStatement,
-    ForStatement, FunctionBody, IfStatement, ImportDeclaration, ImportDeclarationSpecifier,
-    JSXAttribute, JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXChild, JSXElement,
-    JSXElementName, JSXExpression, JSXExpressionContainer, JSXFragment, JSXOpeningElement, JSXText,
-    LogicalOperator, MethodDefinition, MethodDefinitionKind, ModuleExportName, ObjectPropertyKind,
-    PropertyDefinition, PropertyKey, ReturnStatement, SimpleAssignmentTarget, Statement,
-    VariableDeclarator, WhileStatement,
-};
+use oxc_ast::ast::AssignmentExpression;
+use oxc_ast::ast::AssignmentOperator;
+use oxc_ast::ast::BindingPattern;
+use oxc_ast::ast::CallExpression;
+use oxc_ast::ast::Class;
+use oxc_ast::ast::ClassElement;
+use oxc_ast::ast::DoWhileStatement;
+use oxc_ast::ast::Expression;
+use oxc_ast::ast::ExpressionStatement;
+use oxc_ast::ast::ForInStatement;
+use oxc_ast::ast::ForOfStatement;
+use oxc_ast::ast::ForStatement;
+use oxc_ast::ast::FunctionBody;
+use oxc_ast::ast::IfStatement;
+use oxc_ast::ast::ImportDeclaration;
+use oxc_ast::ast::JSXAttribute;
+use oxc_ast::ast::JSXAttributeItem;
+use oxc_ast::ast::JSXAttributeName;
+use oxc_ast::ast::JSXChild;
+use oxc_ast::ast::JSXElement;
+use oxc_ast::ast::JSXElementName;
+use oxc_ast::ast::JSXExpressionContainer;
+use oxc_ast::ast::JSXFragment;
+use oxc_ast::ast::JSXOpeningElement;
+use oxc_ast::ast::JSXText;
+use oxc_ast::ast::MethodDefinition;
+use oxc_ast::ast::MethodDefinitionKind;
+use oxc_ast::ast::ObjectPropertyKind;
+use oxc_ast::ast::PropertyDefinition;
+use oxc_ast::ast::PropertyKey;
+use oxc_ast::ast::ReturnStatement;
+use oxc_ast::ast::SimpleAssignmentTarget;
+use oxc_ast::ast::Statement;
+use oxc_ast::ast::VariableDeclarator;
+use oxc_ast::ast::WhileStatement;
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_assignment_expression, walk_call_expression, walk_class, walk_do_while_statement,
@@ -205,18 +232,9 @@ impl<'a> Visit<'a> for ReactCollector<'_> {
             self.component_stack.pop();
         }
     }
+
     fn visit_this_expression(&mut self, it: &oxc_ast::ast::ThisExpression) {
-        if self.method_guard == 0
-            && self.class_depth == 0
-            && self.component_stack.last() == Some(&true)
-        {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6757",
-                "'this' is undefined inside a functional component; capture the needed values instead.",
-                it.span(),
-            );
-        }
+        self.check_s6757_this_expression(it);
         walk_this_expression(self, it);
     }
 
@@ -276,690 +294,6 @@ impl<'a> Visit<'a> for ReactCollector<'_> {
 }
 
 impl ReactCollector<'_> {
-    /// `S6748`, `S6761`, and the attribute half of `S6790`: conflicts
-    /// between the `children` prop, `dangerouslySetInnerHTML`, and nested
-    /// children, plus string `ref` attributes.
-    pub(crate) fn check_element_rules(&mut self, element: &JSXElement<'_>) {
-        let opening = &element.opening_element;
-        let children_attribute = jsx_find_attribute(opening, "children");
-        let raw_html_attribute = jsx_find_attribute(opening, "dangerouslySetInnerHTML");
-        if let Some(attribute) = children_attribute
-            && !element.children.is_empty()
-        {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6748",
-                "Remove this 'children' prop; the component already receives nested children.",
-                attribute.span(),
-            );
-        }
-        if let (Some(_children), Some(raw_html)) = (children_attribute, raw_html_attribute) {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6761",
-                "Remove 'dangerouslySetInnerHTML' or the 'children' prop; using both together is redundant.",
-                raw_html.span(),
-            );
-        }
-        if let Some(attribute) = jsx_find_attribute(opening, "ref")
-            && matches!(attribute.value, Some(JSXAttributeValue::StringLiteral(_)))
-        {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6790",
-                "Replace this string ref with a callback ref.",
-                attribute.span(),
-            );
-        }
-    }
-
-    pub(crate) fn check_single_child_fragment(&mut self, fragment: &JSXFragment<'_>) {
-        let single_child = matches!(
-            fragment.children.as_slice(),
-            [JSXChild::Element(_) | JSXChild::ExpressionContainer(_)]
-        );
-        if single_child {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6749",
-                "Remove this unnecessary fragment; it wraps a single child.",
-                fragment.span(),
-            );
-        }
-    }
-
-    /// `S6750`, `S6788`, `S6789`, and the call half of `S6957`: deprecated
-    /// `ReactDOM` entry points and `this.isMounted` probes.
-    pub(crate) fn check_react_dom_calls(&mut self, call: &CallExpression<'_>) {
-        if let Some((property, member)) = call_property(call) {
-            let root = member_root_name(member);
-            let is_render = root == Some("ReactDOM") && property == "render";
-            let is_find_dom_node = root == Some("ReactDOM") && property == "findDOMNode";
-            let is_create_class =
-                (root == Some("React") || root == Some("ReactDOM")) && property == "createClass";
-            if is_render && self.expression_statement_depth == 0 {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S6750",
-                    "'ReactDOM.render' should be called as a statement; do not consume its return value.",
-                    call.span(),
-                );
-            }
-            if is_find_dom_node {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S6788",
-                    "'ReactDOM.findDOMNode' is deprecated; use refs instead.",
-                    call.span(),
-                );
-            }
-            if is_render || is_find_dom_node || is_create_class {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S6957",
-                    "Remove this deprecated React API usage.",
-                    call.span(),
-                );
-            }
-        }
-        if callee_this_property(call) == Some("isMounted") {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6789",
-                "'this.isMounted' is deprecated and unreliable; track mounted state explicitly.",
-                call.callee.span(),
-            );
-        }
-    }
-
-    /// `S6443`: `setX(x)` calls passing the state variable back to its own
-    /// setter.
-    pub(crate) fn check_noop_state_setter(&mut self, call: &CallExpression<'_>) {
-        let Some(callee) = callee_name(call) else {
-            return;
-        };
-        if !is_state_setter_name(callee) || call.arguments.len() != 1 {
-            return;
-        }
-        let Some(argument) = call.arguments.first().and_then(argument_expression) else {
-            return;
-        };
-        let Some(name) = identifier_name(argument) else {
-            return;
-        };
-        if capitalize_first(name) == callee[3..] {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6443",
-                "Pass a different value or an updater function; setting the state to itself changes nothing.",
-                call.span(),
-            );
-        }
-    }
-
-    /// `S6754`: `useState` destructuring pairs follow the
-    /// `[value, setValue]` naming convention.
-    pub(crate) fn check_use_state_pair(&mut self, declarator: &VariableDeclarator<'_>) {
-        let Some(Expression::CallExpression(call)) = &declarator.init else {
-            return;
-        };
-        if callee_name(call) != Some("useState") {
-            return;
-        }
-        if matches!(&declarator.id, BindingPattern::BindingIdentifier(_)) {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6442",
-                "Destructure the 'useState' result into a '[value, setter]' pair.",
-                declarator.span(),
-            );
-            return;
-        }
-        let BindingPattern::ArrayPattern(array) = &declarator.id else {
-            return;
-        };
-        if array.elements.len() != 2 || array.rest.is_some() {
-            return;
-        }
-        let (Some(value), Some(setter)) = (&array.elements[0], &array.elements[1]) else {
-            return;
-        };
-        let (Some(value), Some(setter)) = (
-            binding_identifier_name(value),
-            binding_identifier_name(setter),
-        ) else {
-            return;
-        };
-        if !is_state_setter_name(setter) || capitalize_first(value) != setter[3..] {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6754",
-                "Rename this 'useState' pair to follow the '[value, setValue]' naming convention.",
-                declarator.span(),
-            );
-        }
-    }
-
-    /// `S6790` read half: any member chain rooted at `this.refs`.
-    pub(crate) fn check_refs_access(&mut self, expression: &Expression<'_>) {
-        let Expression::StaticMemberExpression(member) = expression else {
-            return;
-        };
-        if !matches!(&member.object, Expression::ThisExpression(_))
-            || member.property.name != "refs"
-        {
-            return;
-        }
-        self.sink.emit_span(
-            RuleScope::Both,
-            "S6790",
-            "Replace 'this.refs' accesses with callback refs.",
-            member.span(),
-        );
-    }
-
-    /// `S6790` write half: assignments into `this.refs.*`.
-    pub(crate) fn check_refs_write(&mut self, assignment: &AssignmentExpression<'_>) {
-        let Some(SimpleAssignmentTarget::StaticMemberExpression(member)) =
-            assignment.left.as_simple_assignment_target()
-        else {
-            return;
-        };
-        if !matches!(&member.object, Expression::ThisExpression(_))
-            || member.property.name != "refs"
-        {
-            return;
-        }
-        self.sink.emit_span(
-            RuleScope::Both,
-            "S6790",
-            "Replace 'this.refs' accesses with callback refs.",
-            member.span(),
-        );
-    }
-
-    /// `S6791`: legacy lifecycle method names on class bodies.
-    pub(crate) fn check_legacy_lifecycle(&mut self, method: &MethodDefinition<'_>) {
-        if method.kind == MethodDefinitionKind::Constructor {
-            return;
-        }
-        let Some(name) = duplicated_key_name(&method.key) else {
-            return;
-        };
-        if LEGACY_LIFECYCLE_METHODS.contains(&name) {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6791",
-                "This legacy lifecycle method is deprecated; use the 'UNSAFE_'-prefixed version or refactor.",
-                method.key.span(),
-            );
-        }
-    }
-    /// `S6957` import half: `prop-types` sources and `PropTypes` names.
-    pub(crate) fn check_deprecated_import(&mut self, declaration: &ImportDeclaration<'_>) {
-        let prop_types_import = declaration.source.value == "prop-types"
-            || declaration
-                .specifiers
-                .iter()
-                .flatten()
-                .any(|specifier| match specifier {
-                    ImportDeclarationSpecifier::ImportSpecifier(imported) => {
-                        module_export_name_is(&imported.imported, "PropTypes")
-                    }
-                    ImportDeclarationSpecifier::ImportDefaultSpecifier(defaulted) => {
-                        defaulted.local.name == "PropTypes"
-                    }
-                    ImportDeclarationSpecifier::ImportNamespaceSpecifier(_) => false,
-                });
-        if prop_types_import {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6957",
-                "Remove this deprecated React API usage; PropTypes checks vanish in production builds.",
-                declaration.span(),
-            );
-        }
-    }
-
-    /// `S6763`: `shouldComponentUpdate` is pointless on `PureComponent`.
-    pub(crate) fn check_pure_component_update(&mut self, class: &Class<'_>) {
-        let Some(heritage) = &class.heritage else {
-            return;
-        };
-        let pure_base = match &heritage.expression {
-            Expression::Identifier(identifier) => identifier.name.ends_with("PureComponent"),
-            Expression::StaticMemberExpression(member) => member.property.name == "PureComponent",
-            _ => false,
-        };
-        if !pure_base {
-            return;
-        }
-        for element in &class.body.body {
-            let ClassElement::MethodDefinition(method) = element else {
-                continue;
-            };
-            if duplicated_key_name(&method.key) != Some("shouldComponentUpdate") {
-                continue;
-            }
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6763",
-                "'shouldComponentUpdate' is useless on a PureComponent subclass; remove it.",
-                method.key.span(),
-            );
-        }
-    }
-
-    /// `S6435`: class `render` methods must return JSX or null somewhere.
-    pub(crate) fn check_render_method_return(&mut self, class: &Class<'_>) {
-        for element in &class.body.body {
-            let ClassElement::MethodDefinition(method) = element else {
-                continue;
-            };
-            if duplicated_key_name(&method.key) != Some("render")
-                || method.kind != MethodDefinitionKind::Method
-            {
-                continue;
-            }
-            let Some(body) = &method.value.body else {
-                continue;
-            };
-            let mut scanner = RenderReturnScanner::default();
-            scanner.visit_function_body(body);
-            if !scanner.satisfied {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S6435",
-                    "Add a return statement returning JSX or null to this 'render' method.",
-                    method.key.span(),
-                );
-            }
-        }
-    }
-
-    /// `S6746` assignment half: writes into `this.state.*`.
-    pub(crate) fn check_state_mutation_assignment(
-        &mut self,
-        assignment: &AssignmentExpression<'_>,
-    ) {
-        let through_state = match assignment.left.as_simple_assignment_target() {
-            Some(SimpleAssignmentTarget::StaticMemberExpression(member)) => {
-                (matches!(&member.object, Expression::ThisExpression(_))
-                    && member.property.name == "state")
-                    || expression_through_this_state(&member.object)
-            }
-            Some(SimpleAssignmentTarget::ComputedMemberExpression(member)) => {
-                expression_through_this_state(&member.object)
-            }
-            _ => false,
-        };
-        if through_state {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6746",
-                "Update state immutably; mutate a copy instead of 'this.state'.",
-                assignment.left.span(),
-            );
-        }
-    }
-
-    /// `S6746` call half: in-place mutations on `this.state.*` chains.
-    pub(crate) fn check_state_mutation_call(&mut self, call: &CallExpression<'_>) {
-        let Some((property, member)) = call_property(call) else {
-            return;
-        };
-        if STATE_MUTATION_METHODS.contains(&property)
-            && expression_through_this_state(member_object(member))
-        {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6746",
-                "Update state immutably; mutate a copy instead of 'this.state'.",
-                call.span(),
-            );
-        }
-    }
-
-    /// `S6766`: raw quote characters in JSX text nodes. Raw `>` and `}`
-    /// never reach the AST (the oxc lexer rejects them; the tolerant parse
-    /// recovers with an empty program), so quotes are the flaggable subset.
-    pub(crate) fn check_unescaped_entities(&mut self, text: &JSXText<'_>) {
-        let unescaped = text
-            .value
-            .chars()
-            .any(|ch| matches!(ch, '>' | '}' | '{' | '"' | '\''));
-        if unescaped {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6766",
-                "Escape this character in JSX text; use an HTML entity instead.",
-                text.span(),
-            );
-        }
-    }
-
-    /// `S6438`: empty expression containers whose comment content was
-    /// dropped by the lexer.
-    pub(crate) fn check_empty_container(&mut self, container: &JSXExpressionContainer<'_>) {
-        if !matches!(&container.expression, JSXExpression::EmptyExpression(_)) {
-            return;
-        }
-        let span = container.span();
-        if span_text_contains(self.source, span, "/*")
-            || span_text_contains(self.source, span, "//")
-        {
-            return;
-        }
-        self.sink.emit_span(
-            RuleScope::Both,
-            "S6438",
-            "Remove this empty JSX expression container.",
-            span,
-        );
-    }
-
-    /// `S6439`: `{literal && <element/>}` children render the literal when
-    /// the condition is falsy-but-present.
-    pub(crate) fn check_literal_conditional_child(
-        &mut self,
-        container: &JSXExpressionContainer<'_>,
-    ) {
-        if self.jsx_child_depth == 0 {
-            return;
-        }
-        let Some(Expression::LogicalExpression(logical)) = container.expression.as_expression()
-        else {
-            return;
-        };
-        if logical.operator != LogicalOperator::And
-            || !matches!(
-                logical.left,
-                Expression::NumericLiteral(_)
-                    | Expression::StringLiteral(_)
-                    | Expression::BigIntLiteral(_)
-            )
-        {
-            return;
-        }
-        self.sink.emit_span(
-            RuleScope::Both,
-            "S6439",
-            "This branch renders a literal; guard it with an explicit boolean condition.",
-            container.span(),
-        );
-    }
-
-    /// `S6480`: inline arrow or `.bind(...)` attribute values create a new
-    /// function on every render.
-    pub(crate) fn check_inline_function_values(&mut self, element: &JSXElement<'_>) {
-        for item in &element.opening_element.attributes {
-            let JSXAttributeItem::Attribute(attribute) = item else {
-                continue;
-            };
-            let Some(JSXAttributeValue::ExpressionContainer(container)) = &attribute.value else {
-                continue;
-            };
-            let inline = match container.expression.as_expression() {
-                Some(Expression::ArrowFunctionExpression(_)) => true,
-                Some(Expression::CallExpression(call)) => matches!(
-                    &call.callee,
-                    Expression::StaticMemberExpression(member) if member.property.name == "bind"
-                ),
-                _ => false,
-            };
-            if inline {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S6480",
-                    "Create this function outside of the render path; a fresh instance is created on every render.",
-                    attribute.span(),
-                );
-            }
-        }
-    }
-
-    /// `S6479`: `key={index}` where `index` is the surrounding `.map()`
-    /// callback's second parameter.
-    pub(crate) fn check_index_key(&mut self, element: &JSXElement<'_>) {
-        let Some(index_param) = self
-            .map_frames
-            .last()
-            .and_then(|frame| frame.index_param.clone())
-        else {
-            return;
-        };
-        let Some(key_attribute) = jsx_find_attribute(&element.opening_element, "key") else {
-            return;
-        };
-        let Some(JSXAttributeValue::ExpressionContainer(container)) = &key_attribute.value else {
-            return;
-        };
-        let is_index_key = matches!(
-            container.expression.as_expression(),
-            Some(Expression::Identifier(reference)) if reference.name == index_param.as_str()
-        );
-        if is_index_key {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6479",
-                "Avoid using the array index as the 'key'; use a stable identifier instead.",
-                key_attribute.span(),
-            );
-        }
-    }
-
-    /// `S6770`: lowercase tag names that are neither DOM elements nor
-    /// custom elements.
-    pub(crate) fn check_unknown_tag(&mut self, element: &JSXElement<'_>) {
-        let Some(tag) = jsx_element_tag(&element.opening_element.name) else {
-            return;
-        };
-        if jsx_tag_is_intrinsic(tag) && !tag.contains('-') && !HTML_TAG_ALLOWLIST.contains(&tag) {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6770",
-                "Capitalize this component name; lowercase tags are treated as built-in DOM elements.",
-                element.opening_element.name.span(),
-            );
-        }
-    }
-
-    /// `S6477`: root elements returned from `.map()` callbacks need keys.
-    pub(crate) fn check_map_root_key(&mut self, element: &JSXElement<'_>) {
-        let needs_key = match self.map_frames.last_mut() {
-            Some(frame) if !frame.root_checked => {
-                frame.root_checked = true;
-                frame.index_param.is_some()
-            }
-            _ => return,
-        };
-        if !needs_key
-            || jsx_has_spread_attribute(&element.opening_element)
-            || jsx_find_attribute(&element.opening_element, "key").is_some()
-        {
-            return;
-        }
-        self.sink.emit_span(
-            RuleScope::Both,
-            "S6477",
-            "Add a 'key' prop to this element returned from '.map()'.",
-            element.opening_element.span(),
-        );
-    }
-    /// `S6440`: hook calls under conditions, loops, or callbacks.
-    pub(crate) fn check_hook_call_site(&mut self, call: &CallExpression<'_>) {
-        if self.conditional_depth == 0 {
-            return;
-        }
-        let Some(callee) = callee_name(call) else {
-            return;
-        };
-        let Some(tail) = callee.strip_prefix("use") else {
-            return;
-        };
-        if !tail.starts_with(|ch: char| ch.is_ascii_uppercase()) {
-            return;
-        }
-        self.sink.emit_span(
-            RuleScope::Both,
-            "S6440",
-            "Move this hook call to the top level of the component; hooks must not run conditionally.",
-            call.span(),
-        );
-    }
-
-    /// `S6756`: `this.setState` arguments reaching into `this.state`
-    /// instead of using the updater form.
-    pub(crate) fn check_set_state_argument(&mut self, call: &CallExpression<'_>) {
-        let is_method_call = matches!(
-            &call.callee,
-            Expression::StaticMemberExpression(member)
-                if member.property.name == "setState"
-                    && matches!(&member.object, Expression::ThisExpression(_))
-        );
-        if !is_method_call {
-            return;
-        }
-        let Some(argument) = call.arguments.first().and_then(argument_expression) else {
-            return;
-        };
-        let mut scanner = ThisStateReferenceScanner::default();
-        scanner.visit_expression(argument);
-        if scanner.found {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6756",
-                "Use the updater form of 'setState'; reading 'this.state' during the update misses batching.",
-                call.span(),
-            );
-        }
-    }
-
-    /// `S6481`: inline objects or arrays passed as `Context.Provider`
-    /// values.
-    pub(crate) fn check_context_provider_value(&mut self, element: &JSXElement<'_>) {
-        let JSXElementName::MemberExpression(member) = &element.opening_element.name else {
-            return;
-        };
-        if member.property.name != "Provider" {
-            return;
-        }
-        let Some(value_attribute) = jsx_find_attribute(&element.opening_element, "value") else {
-            return;
-        };
-        let Some(JSXAttributeValue::ExpressionContainer(container)) = &value_attribute.value else {
-            return;
-        };
-        if matches!(
-            container.expression.as_expression(),
-            Some(Expression::ObjectExpression(_) | Expression::ArrayExpression(_))
-        ) {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6481",
-                "Pass a memoized 'value' instead of a fresh object or array literal.",
-                value_attribute.span(),
-            );
-        }
-    }
-
-    /// `S6478`: components defined inside other components.
-    pub(crate) fn check_nested_component(
-        &mut self,
-        returns_jsx: bool,
-        name_span: Option<Span>,
-        fallback_span: Span,
-    ) {
-        if !returns_jsx
-            || !self.component_stack.iter().any(|&component| component)
-            || self.method_guard > 0
-        {
-            return;
-        }
-        self.sink.emit_span(
-            RuleScope::Both,
-            "S6478",
-            "Define this component outside of its parent component.",
-            name_span.unwrap_or(fallback_span),
-        );
-    }
-
-    /// `S6772`: inline siblings separated only by collapsible whitespace.
-    pub(crate) fn check_whitespace_only_gaps(&mut self, children: &[JSXChild<'_>]) {
-        for window in children.windows(3) {
-            let [first, middle, last] = window else {
-                continue;
-            };
-            let (Some(first_tag), Some(last_tag)) =
-                (jsx_child_element_tag(first), jsx_child_element_tag(last))
-            else {
-                continue;
-            };
-            if !INLINE_TAGS.contains(&first_tag) || !INLINE_TAGS.contains(&last_tag) {
-                continue;
-            }
-            if let JSXChild::Text(text) = middle
-                && !text.value.is_empty()
-                && text.value.trim().is_empty()
-            {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S6772",
-                    "Whitespace between these inline elements collapses inconsistently; make the separation explicit.",
-                    text.span(),
-                );
-            }
-        }
-    }
-
-    /// `S6774`: class components touching `this.props` without declared
-    /// `propTypes` (JavaScript files only).
-    pub(crate) fn check_props_without_prop_types(&mut self, class: &Class<'_>) {
-        let declares_prop_types = class.body.body.iter().any(|element| {
-            let ClassElement::PropertyDefinition(definition) = element else {
-                return false;
-            };
-            definition.r#static && duplicated_key_name(&definition.key) == Some("propTypes")
-        });
-        if declares_prop_types {
-            return;
-        }
-        let mut scanner = ThisPropsScanner::default();
-        scanner.visit_class(class);
-        if scanner.found {
-            self.sink.emit_span(
-                RuleScope::JsOnly,
-                "S6774",
-                "Declare 'propTypes' for this class component or migrate its props to types.",
-                class.span(),
-            );
-        }
-    }
-
-    /// `S6747`: unknown attributes on intrinsic elements.
-    pub(crate) fn check_unknown_attributes(&mut self, element: &JSXElement<'_>) {
-        let Some(tag) = jsx_element_tag(&element.opening_element.name) else {
-            return;
-        };
-        if !jsx_tag_is_intrinsic(tag) {
-            return;
-        }
-        for item in &element.opening_element.attributes {
-            let JSXAttributeItem::Attribute(attribute) = item else {
-                continue;
-            };
-            let Some(name) = jsx_attribute_name(attribute) else {
-                continue;
-            };
-            if attribute_is_known(name, &self.rules.jsx_attribute_whitelist) {
-                continue;
-            }
-            let message = format!("'{name}' is not a known DOM or React attribute.");
-            self.sink
-                .emit_span(RuleScope::Both, "S6747", &message, attribute.span());
-        }
-    }
-
     /// `S6775` collection: records `X.propTypes` / `X.defaultProps`
     /// object assignments for the post-pass.
     pub(crate) fn collect_prop_metadata(&mut self, assignment: &AssignmentExpression<'_>) {
@@ -1011,30 +345,6 @@ impl ReactCollector<'_> {
             }
         }
     }
-
-    /// `S6775` post-pass: flags `defaultProps` entries without a matching
-    /// `isRequired` declaration.
-    pub(crate) fn report_uncovered_defaults(&mut self) {
-        let mut uncovered = Vec::new();
-        for (component, defaults) in &self.prop_defaults {
-            let Some(declarations) = self.prop_declarations.get(component) else {
-                continue;
-            };
-            for (property, span) in defaults {
-                if declarations.get(property) != Some(&PropKind::Required) {
-                    uncovered.push(*span);
-                }
-            }
-        }
-        for span in uncovered {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6775",
-                "'defaultProps' entry without an 'isRequired' 'propTypes' declaration hides missing-prop mistakes.",
-                span,
-            );
-        }
-    }
 }
 
 /// Which side of the prop-metadata cross-check an assignment feeds.
@@ -1060,14 +370,6 @@ impl Visit<'_> for ThisPropsScanner {
     }
 }
 
-/// Tags whose adjacent collapsible whitespace behaves inconsistently
-/// (`S6772`).
-pub(crate) const INLINE_TAGS: [&str; 36] = [
-    "a", "abbr", "b", "bdi", "bdo", "br", "button", "cite", "code", "data", "dfn", "em", "i",
-    "img", "input", "kbd", "label", "mark", "q", "rp", "rt", "ruby", "s", "samp", "select", "slot",
-    "small", "span", "strong", "sub", "sup", "time", "u", "textarea", "var", "wbr",
-];
-
 /// Subtree probe for reads through `this.state` (`S6756`).
 #[derive(Default)]
 pub(crate) struct ThisStateReferenceScanner {
@@ -1083,209 +385,6 @@ impl Visit<'_> for ThisStateReferenceScanner {
         walk_expression(self, it);
     }
 }
-
-/// Known intrinsic tag names (`S6770`): HTML plus a common SVG surface.
-pub(crate) const HTML_TAG_ALLOWLIST: &[&str] = &[
-    "a",
-    "abbr",
-    "acronym",
-    "address",
-    "animate",
-    "animateMotion",
-    "animateTransform",
-    "applet",
-    "area",
-    "article",
-    "aside",
-    "audio",
-    "b",
-    "base",
-    "basefont",
-    "bdi",
-    "bdo",
-    "big",
-    "blockquote",
-    "body",
-    "br",
-    "button",
-    "canvas",
-    "caption",
-    "circle",
-    "cite",
-    "clipPath",
-    "code",
-    "col",
-    "colgroup",
-    "data",
-    "datalist",
-    "dd",
-    "defs",
-    "del",
-    "desc",
-    "details",
-    "dfn",
-    "dialog",
-    "dir",
-    "div",
-    "dl",
-    "dt",
-    "ellipse",
-    "em",
-    "embed",
-    "feBlend",
-    "feColorMatrix",
-    "feComponentTransfer",
-    "feComposite",
-    "feConvolveMatrix",
-    "feDiffuseLighting",
-    "feDisplacementMap",
-    "feDistantLight",
-    "feDropShadow",
-    "feFlood",
-    "feFuncA",
-    "feFuncB",
-    "feFuncG",
-    "feFuncR",
-    "feGaussianBlur",
-    "feImage",
-    "feMerge",
-    "feMergeNode",
-    "feMorphology",
-    "feOffset",
-    "fePointLight",
-    "feSpecularLighting",
-    "feSpotLight",
-    "feTile",
-    "feTurbulence",
-    "fieldset",
-    "figcaption",
-    "figure",
-    "filter",
-    "font",
-    "footer",
-    "foreignObject",
-    "form",
-    "frame",
-    "frameset",
-    "g",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "head",
-    "header",
-    "hgroup",
-    "hr",
-    "html",
-    "i",
-    "iframe",
-    "image",
-    "img",
-    "input",
-    "ins",
-    "kbd",
-    "label",
-    "legend",
-    "li",
-    "line",
-    "linearGradient",
-    "link",
-    "main",
-    "map",
-    "mark",
-    "marker",
-    "marquee",
-    "mask",
-    "menu",
-    "menuitem",
-    "meta",
-    "metadata",
-    "meter",
-    "mpath",
-    "nav",
-    "nobr",
-    "noframes",
-    "noscript",
-    "object",
-    "ol",
-    "optgroup",
-    "option",
-    "output",
-    "p",
-    "param",
-    "path",
-    "pattern",
-    "picture",
-    "polygon",
-    "polyline",
-    "pre",
-    "progress",
-    "q",
-    "radialGradient",
-    "rect",
-    "rp",
-    "rt",
-    "ruby",
-    "s",
-    "samp",
-    "script",
-    "search",
-    "section",
-    "select",
-    "set",
-    "slot",
-    "small",
-    "solidcolor",
-    "source",
-    "span",
-    "stop",
-    "strike",
-    "strong",
-    "style",
-    "sub",
-    "summary",
-    "sup",
-    "svg",
-    "symbol",
-    "table",
-    "tbody",
-    "td",
-    "template",
-    "text",
-    "textPath",
-    "textarea",
-    "tfoot",
-    "th",
-    "thead",
-    "time",
-    "title",
-    "tr",
-    "track",
-    "tspan",
-    "tt",
-    "u",
-    "ul",
-    "use",
-    "var",
-    "video",
-    "view",
-    "wbr",
-];
-
-/// In-place array mutations flagged on `this.state` chains (`S6746`).
-pub(crate) const STATE_MUTATION_METHODS: [&str; 9] = [
-    "push",
-    "pop",
-    "shift",
-    "unshift",
-    "splice",
-    "sort",
-    "reverse",
-    "fill",
-    "copyWithin",
-];
 
 /// Scans a `render` body for a return statement whose value subtree
 /// contains JSX or a null literal (`S6435`).
@@ -1322,13 +421,6 @@ impl Visit<'_> for JsxOrNullScanner {
         walk_expression(self, it);
     }
 }
-
-/// `S6791`: pre-16.3 lifecycle names superseded by `UNSAFE_`-prefixed ones.
-pub(crate) const LEGACY_LIFECYCLE_METHODS: [&str; 3] = [
-    "componentWillMount",
-    "componentWillReceiveProps",
-    "componentWillUpdate",
-];
 
 /// Whether a collected `propTypes` entry is declared `.isRequired`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1438,19 +530,6 @@ pub(crate) fn jsx_find_attribute<'a>(
     })
 }
 
-/// Property name of a `this.<property>` callee, if the call target is
-/// exactly that shape.
-pub(crate) fn callee_this_property<'a>(call: &'a CallExpression<'a>) -> Option<&'a str> {
-    match &call.callee {
-        Expression::StaticMemberExpression(member)
-            if matches!(&member.object, Expression::ThisExpression(_)) =>
-        {
-            Some(&member.property.name)
-        }
-        _ => None,
-    }
-}
-
 /// `setFoo` shape: a `set` prefix followed by an uppercase letter.
 pub(crate) fn is_state_setter_name(name: &str) -> bool {
     name.strip_prefix("set")
@@ -1476,21 +555,6 @@ pub(crate) fn duplicated_key_name<'data>(key: &PropertyKey<'data>) -> Option<&'d
     }
 }
 
-/// Whether a module export name spells `expected` (`import {a as b}` keeps
-/// the imported spelling).
-pub(crate) fn module_export_name_is(name: &ModuleExportName<'_>, expected: &str) -> bool {
-    match name {
-        ModuleExportName::IdentifierName(identifier) => identifier.name == expected,
-        ModuleExportName::IdentifierReference(reference) => reference.name == expected,
-        ModuleExportName::StringLiteral(literal) => literal.value == expected,
-    }
-}
-
-/// Whether a member chain passes through a `this.state` link (`S6746`).
-pub(crate) fn expression_through_this_state(expression: &Expression<'_>) -> bool {
-    expression_through_this_link(expression, "state")
-}
-
 /// Tag name of a JSX element when spelled as a plain identifier (`div`,
 /// `Widget`); namespaced, member, and `this` names have none.
 pub(crate) fn jsx_element_tag<'a>(name: &'a JSXElementName<'a>) -> Option<&'a str> {
@@ -1506,22 +570,6 @@ pub(crate) fn jsx_tag_is_intrinsic(tag: &str) -> bool {
     tag.starts_with(|ch: char| ch.is_ascii_lowercase())
 }
 
-/// Whether the opening tag carries a spread attribute (unknown props).
-pub(crate) fn jsx_has_spread_attribute(opening: &JSXOpeningElement<'_>) -> bool {
-    opening
-        .attributes
-        .iter()
-        .any(|item| matches!(item, JSXAttributeItem::SpreadAttribute(_)))
-}
-
-/// Element tag behind a child position, if it is a plain element.
-pub(crate) fn jsx_child_element_tag<'a>(child: &'a JSXChild<'a>) -> Option<&'a str> {
-    match child {
-        JSXChild::Element(element) => jsx_element_tag(&element.opening_element.name),
-        _ => None,
-    }
-}
-
 /// Tag name of a JSX attribute (`ref`, `children`, ...); namespaced names
 /// (`xlink:href`) have no plain name.
 pub(crate) fn jsx_attribute_name<'a>(attribute: &'a JSXAttribute<'a>) -> Option<&'a str> {
@@ -1529,16 +577,6 @@ pub(crate) fn jsx_attribute_name<'a>(attribute: &'a JSXAttribute<'a>) -> Option<
         JSXAttributeName::Identifier(identifier) => Some(identifier.name.as_str()),
         JSXAttributeName::NamespacedName(_) => None,
     }
-}
-
-/// Whether an intrinsic-element attribute is a known DOM/React name
-/// (`S6747`): table, configured extras, `data-*`/`aria-*`, and handlers.
-pub(crate) fn attribute_is_known(name: &str, whitelist: &[String]) -> bool {
-    name.starts_with("data-")
-        || name.starts_with("aria-")
-        || (name.starts_with("on") && name[2..].starts_with(|ch: char| ch.is_ascii_alphabetic()))
-        || REACT_DOM_ATTRIBUTES.contains(&name)
-        || whitelist.iter().any(|allowed| allowed == name)
 }
 
 /// Whether a member chain contains a link spelled `link`.
@@ -1551,30 +589,13 @@ pub(crate) fn member_chain_has_link(expression: &Expression<'_>, link: &str) -> 
     }
 }
 
-/// Whether a member chain passes through a `this.<link>` access.
-pub(crate) fn expression_through_this_link(expression: &Expression<'_>, link: &str) -> bool {
-    match expression {
-        Expression::StaticMemberExpression(member) => {
-            (matches!(&member.object, Expression::ThisExpression(_))
-                && member.property.name == link)
-                || expression_through_this_link(&member.object, link)
-        }
-        Expression::ComputedMemberExpression(member) => {
-            expression_through_this_link(&member.object, link)
-        }
-        Expression::PrivateFieldExpression(member) => {
-            expression_through_this_link(&member.object, link)
-        }
-        _ => false,
-    }
-}
-
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_react_jsx_rules(ctx.program, ctx.source, ctx.index, ctx.language, ctx.rules)
 }
 
 #[cfg(test)]
 mod tests {
+
     use crate::test_support::*;
 
     #[test]

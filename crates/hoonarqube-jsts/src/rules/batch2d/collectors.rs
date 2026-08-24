@@ -1,26 +1,54 @@
 // Residual rule machinery for 'batch2d' (extracted from lib.rs).
 use crate::rules::batch2d::s3512_es_idioms::EsIdiomCollector;
-use crate::rules::expression::s1528_constructor_calls::argument_expression;
-use crate::rules::expression::walker::{call_property, is_equality_operator};
 use crate::rules::react_jsx::walker::duplicated_key_name;
-use crate::rules::statement_sequences::s1488_scan_statement_sequence::statement_ends_with_jump;
-use crate::support::ast::constructor_name;
-use crate::support::{
-    IssueSink, LineIndex, RuleScope, assignment_target_name, binding_identifier_name,
-    identifier_name, member_object, member_root_name, member_rooted_at, property_key_name,
-    statement_as_expression, static_property_name, to_u32, unparenthesized,
-};
-use oxc_ast::ast::RegExpFlags;
-use oxc_ast::ast::{
-    ArrowFunctionExpression, AssignmentExpression, AssignmentOperator, BinaryExpression,
-    BinaryOperator, BlockStatement, BreakStatement, CallExpression, Class, ClassElement,
-    ConditionalExpression, ContinueStatement, Declaration, DoWhileStatement, ExportDeclaration,
-    Expression, ForInStatement, ForOfStatement, ForStatement, FormalParameters, Function,
-    FunctionBody, IfStatement, LogicalExpression, LogicalOperator, MemberExpression,
-    MethodDefinition, MethodDefinitionKind, NewExpression, ObjectExpression, ObjectPropertyKind,
-    PropertyKind, ReturnStatement, SimpleAssignmentTarget, Statement, StaticBlock, SwitchStatement,
-    TryStatement, UnaryExpression, UnaryOperator, VariableDeclarationKind, WhileStatement,
-};
+use crate::support::IssueSink;
+use crate::support::LineIndex;
+use crate::support::binding_identifier_name;
+use crate::support::member_object;
+use crate::support::member_root_name;
+use crate::support::property_key_name;
+use crate::support::static_property_name;
+use crate::support::unparenthesized;
+use oxc_ast::ast::ArrowFunctionExpression;
+use oxc_ast::ast::AssignmentExpression;
+use oxc_ast::ast::BinaryExpression;
+use oxc_ast::ast::BinaryOperator;
+use oxc_ast::ast::BlockStatement;
+use oxc_ast::ast::BreakStatement;
+use oxc_ast::ast::CallExpression;
+use oxc_ast::ast::Class;
+use oxc_ast::ast::ClassElement;
+use oxc_ast::ast::ConditionalExpression;
+use oxc_ast::ast::ContinueStatement;
+use oxc_ast::ast::Declaration;
+use oxc_ast::ast::DoWhileStatement;
+use oxc_ast::ast::ExportDeclaration;
+use oxc_ast::ast::Expression;
+use oxc_ast::ast::ForInStatement;
+use oxc_ast::ast::ForOfStatement;
+use oxc_ast::ast::ForStatement;
+use oxc_ast::ast::FormalParameters;
+use oxc_ast::ast::Function;
+use oxc_ast::ast::FunctionBody;
+use oxc_ast::ast::IfStatement;
+use oxc_ast::ast::LogicalExpression;
+use oxc_ast::ast::LogicalOperator;
+use oxc_ast::ast::MemberExpression;
+use oxc_ast::ast::MethodDefinition;
+use oxc_ast::ast::MethodDefinitionKind;
+use oxc_ast::ast::NewExpression;
+use oxc_ast::ast::ObjectExpression;
+use oxc_ast::ast::ObjectPropertyKind;
+use oxc_ast::ast::PropertyKind;
+use oxc_ast::ast::ReturnStatement;
+use oxc_ast::ast::SimpleAssignmentTarget;
+use oxc_ast::ast::Statement;
+use oxc_ast::ast::StaticBlock;
+use oxc_ast::ast::SwitchStatement;
+use oxc_ast::ast::TryStatement;
+use oxc_ast::ast::UnaryExpression;
+use oxc_ast::ast::UnaryOperator;
+use oxc_ast::ast::WhileStatement;
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::walk_block_statement;
 use oxc_ast_visit::walk::walk_function_body;
@@ -37,30 +65,6 @@ use oxc_ast_visit::walk::{
 };
 use oxc_span::{GetSpan, Span};
 use std::collections::BTreeSet;
-
-/// `S3776`: functions exceeding this cognitive complexity are flagged
-/// (frozen catalog default of the `threshold` parameter).
-pub(crate) const MAX_COGNITIVE_COMPLEXITY: u32 = 15;
-
-/// `S1541`: functions exceeding this cyclomatic complexity are flagged
-/// (frozen catalog default of `maximumFunctionComplexityThreshold`).
-pub(crate) const MAX_CYCLOMATIC_COMPLEXITY: u32 = 10;
-
-/// `S3796`: array methods whose callbacks are expected to return values.
-/// `forEach` is deliberately absent — its callbacks legitimately produce
-/// nothing, so they never carry a missing-return defect.
-pub(crate) const ARRAY_CALLBACK_METHODS: [&str; 10] = [
-    "every",
-    "filter",
-    "find",
-    "findIndex",
-    "flatMap",
-    "map",
-    "reduce",
-    "reduceRight",
-    "some",
-    "sort",
-];
 
 /// Collects `return` statements outside nested functions, split into
 /// value-carrying and bare returns (`S3796`, `S3801`, `S6635`).
@@ -97,14 +101,6 @@ impl<'a> Visit<'a> for ReturnMixScanner {
     fn visit_method_definition(&mut self, _it: &MethodDefinition<'a>) {}
 
     fn visit_static_block(&mut self, _it: &StaticBlock<'a>) {}
-}
-
-/// Whether one function body carries no value-returning statement outside
-/// nested functions (`S3796`).
-pub(crate) fn lacks_valued_return(body: &FunctionBody<'_>) -> bool {
-    let mut scanner = ReturnMixScanner::default();
-    scanner.visit_function_body(body);
-    scanner.valued_spans.is_empty()
 }
 
 /// Computes the cognitive (`S3776`) and cyclomatic (`S1541`) complexity of
@@ -309,32 +305,7 @@ impl<'a> Visit<'a> for FunctionMetricsCollector<'_> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
-        // `S3796`: array-method callbacks without any value-returning
-        // statement (JavaScript-only).
-        if let Some((property, _member)) = call_property(it)
-            && ARRAY_CALLBACK_METHODS.contains(&property)
-            && let Some(callback) = it.arguments.first().and_then(argument_expression)
-        {
-            let missing = match callback {
-                Expression::FunctionExpression(function) => function
-                    .body
-                    .as_ref()
-                    .is_some_and(|body| lacks_valued_return(body)),
-                Expression::ArrowFunctionExpression(arrow) => arrow
-                    .body
-                    .as_function_body()
-                    .is_some_and(lacks_valued_return),
-                _ => false,
-            };
-            if missing {
-                self.sink.emit_span(
-                    RuleScope::JsOnly,
-                    "S3796",
-                    "Add the missing \"return\" statement to this function.",
-                    callback.span(),
-                );
-            }
-        }
+        self.check_s3796_call_expression(it);
         walk_call_expression(self, it);
     }
 }
@@ -352,32 +323,6 @@ impl FunctionMetricsCollector<'_> {
             self.report_unit(body, anchor, exempt_mixed_returns);
         }
         walk_children(self);
-    }
-
-    /// Emits the threshold findings for one measured unit.
-    fn report_complexity(&mut self, walker: &ComplexityWalker, anchor: Span) {
-        if walker.cognitive > MAX_COGNITIVE_COMPLEXITY {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S3776",
-                &format!(
-                    "Refactor this function to reduce its Cognitive Complexity from {} to the {} allowed.",
-                    walker.cognitive, MAX_COGNITIVE_COMPLEXITY
-                ),
-                anchor,
-            );
-        }
-        if walker.cyclomatic > MAX_CYCLOMATIC_COMPLEXITY {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S1541",
-                &format!(
-                    "The Cyclomatic Complexity of this function is {} which is greater than {} authorized.",
-                    walker.cyclomatic, MAX_CYCLOMATIC_COMPLEXITY
-                ),
-                anchor,
-            );
-        }
     }
 
     /// Measures a statement-list unit; `mixed` carries precomputed return
@@ -405,35 +350,6 @@ impl FunctionMetricsCollector<'_> {
         };
         walker.visit_expression(expression);
         self.report_complexity(&walker, anchor);
-    }
-
-    /// `S3801`: a function mixing valued and bare returns flags each bare
-    /// return; a function returning values but also falling off the end is
-    /// flagged at the function itself.
-    fn check_mixed_returns(&mut self, body: &FunctionBody<'_>, anchor: Span) {
-        let mut scanner = ReturnMixScanner::default();
-        scanner.visit_function_body(body);
-        let falls_off_end = !body
-            .statements
-            .last()
-            .is_some_and(|last| statement_ends_with_jump(last));
-        if !scanner.valued_spans.is_empty() && !scanner.bare_spans.is_empty() {
-            for span in &scanner.bare_spans {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S3801",
-                    "Remove this return statement or make it return a value.",
-                    *span,
-                );
-            }
-        } else if !scanner.valued_spans.is_empty() && falls_off_end {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S3801",
-                "Make this function consistently return a value.",
-                anchor,
-            );
-        }
     }
 }
 
@@ -548,133 +464,6 @@ impl<'a> Visit<'a> for ClassAccessorCollector<'_> {
     }
 }
 
-impl ClassAccessorCollector<'_> {
-    /// `S3854`: missing, duplicated, conditional, or late `super()` calls;
-    /// also `S6635`: constructors returning values.
-    fn check_constructor(&mut self, method: &MethodDefinition<'_>, heritage: bool) {
-        let Some(body) = &method.value.body else {
-            return;
-        };
-        // `S6635` applies with or without a base class.
-        let mut returns = ReturnMixScanner::default();
-        returns.visit_function_body(body);
-        for span in &returns.valued_spans {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6635",
-                "Remove this return value; constructors should not return anything.",
-                *span,
-            );
-        }
-        if !heritage {
-            return;
-        }
-
-        // Split the calls into direct top-level statements and nested
-        // (conditional) ones; only the top-level ones can be "first".
-        let mut top_level_spans: Vec<Span> = Vec::new();
-        let mut nested_spans: Vec<Span> = Vec::new();
-        for statement in &body.statements {
-            if is_super_call_statement(statement) {
-                if let Statement::ExpressionStatement(expr) = statement
-                    && let Expression::CallExpression(call) = unparenthesized(&expr.expression)
-                {
-                    top_level_spans.push(call.span());
-                }
-            } else {
-                let mut scanner = SuperCallScanner::default();
-                scanner.visit_statement(statement);
-                nested_spans.extend(scanner.spans);
-            }
-        }
-
-        if top_level_spans.is_empty() && nested_spans.is_empty() {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S3854",
-                "Add a \"super()\" call in this constructor.",
-                method.key.span(),
-            );
-            return;
-        }
-        for span in &nested_spans {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S3854",
-                "Move this call of super() to the first statement of this constructor.",
-                *span,
-            );
-        }
-        for span in top_level_spans.iter().skip(1) {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S3854",
-                "Remove this duplicated call to super().",
-                *span,
-            );
-        }
-        // `this` must not be touched before the first `super()` call.
-        if let Some(first) = top_level_spans.first() {
-            for statement in &body.statements {
-                if is_super_call_statement(statement) {
-                    break;
-                }
-                let mut scanner = ThisUseScanner::default();
-                scanner.visit_statement(statement);
-                if scanner.found {
-                    self.sink.emit_span(
-                        RuleScope::Both,
-                        "S3854",
-                        "Call super() before accessing \"this\".",
-                        statement.span(),
-                    );
-                    break;
-                }
-            }
-            let _ = first;
-        }
-    }
-
-    /// `S4275`: accessors should touch the field their name declares.
-    fn check_accessor(
-        &mut self,
-        name: Option<&str>,
-        key_span: Span,
-        is_setter: bool,
-        body: Option<&FunctionBody<'_>>,
-    ) {
-        let (Some(name), Some(body)) = (name, body) else {
-            return;
-        };
-        let mut scanner = FieldAccessScanner {
-            field: name,
-            read: false,
-            written: false,
-        };
-        scanner.visit_function_body(body);
-        let satisfied = if is_setter {
-            scanner.written
-        } else {
-            scanner.read
-        };
-        if !satisfied {
-            let message = if is_setter {
-                format!("Verify that this setter assigns the \"{name}\" field.")
-            } else {
-                format!("Verify that this getter accesses the \"{name}\" field.")
-            };
-            self.sink
-                .emit_span(RuleScope::Both, "S4275", &message, key_span);
-        }
-    }
-}
-
-pub(crate) fn is_super_call_statement(statement: &Statement<'_>) -> bool {
-    matches!(statement, Statement::ExpressionStatement(expr)
-        if matches!(unparenthesized(&expr.expression), Expression::CallExpression(call)
-            if matches!(call.callee, Expression::Super(_))))
-}
-
 /// `S3972` (`else`/`catch`/`finally` sharing the closing brace's line) and
 /// `S3973` (unbraced single-statement bodies indented deeper than their
 /// head statement).
@@ -731,47 +520,6 @@ impl<'a> Visit<'a> for KeywordPlacementCollector<'a, '_> {
     }
 }
 
-impl KeywordPlacementCollector<'_, '_> {
-    /// `S3972`: the keyword joining two blocks (`else`, `catch`, `finally`)
-    /// must start on its own line after the preceding closing brace; a
-    /// keyword sharing the brace's line is flagged.
-    fn check_keyword_line(&mut self, previous: Span, following: Span, keyword: &str) {
-        let gap = &self.source[previous.end as usize..following.start as usize];
-        if !gap.contains('\n') {
-            let anchor = gap
-                .find(keyword)
-                .map_or(following.start, |at| previous.end + to_u32(at));
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S3972",
-                "Move this keyword onto its own line after the closing brace.",
-                Span::new(anchor, anchor + to_u32(keyword.len())),
-            );
-        }
-    }
-
-    /// `S3973`: an unbraced body starting on a later line must be indented
-    /// strictly deeper than its head statement.
-    fn check_unbraced_indent(&mut self, head: Span, body: &Statement<'_>) {
-        if matches!(
-            body,
-            Statement::BlockStatement(_) | Statement::EmptyStatement(_)
-        ) {
-            return;
-        }
-        let head_start = self.index.pos(head.start);
-        let body_start = self.index.pos(body.span().start);
-        if body_start.line > head_start.line && body_start.column <= head_start.column {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S3973",
-                "Indent this statement deeper than its parent statement.",
-                body.span(),
-            );
-        }
-    }
-}
-
 /// `S4619` (`in` on arrays), `S4634` (immediately-settling promise
 /// executors), `S6671` (rejecting literals), and `S4822` (await-less
 /// promise calls inside `try` blocks).
@@ -782,145 +530,25 @@ pub(crate) struct PromiseFlowCollector<'index> {
 
 impl<'a> Visit<'a> for PromiseFlowCollector<'_> {
     fn visit_binary_expression(&mut self, it: &BinaryExpression<'a>) {
-        if it.operator == BinaryOperator::In {
-            let flagged = match unparenthesized(&it.right) {
-                Expression::ArrayExpression(_) => true,
-                Expression::Identifier(identifier) => {
-                    self.array_bindings.contains(identifier.name.as_str())
-                }
-                _ => false,
-            };
-            if flagged {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S4619",
-                    "Use \"includes\" or \"indexOf\" instead of the \"in\" operator on this array.",
-                    it.span(),
-                );
-            }
-        }
+        self.check_s4619_binary_expression(it);
         walk_binary_expression(self, it);
     }
 
     fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
-        if identifier_name(&it.callee) == Some("Promise")
-            && let Some(argument) = it.arguments.first().and_then(argument_expression)
-            && promise_executor_settles_immediately(argument)
-        {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S4634",
-                "Refactor this promise executor; it resolves or rejects immediately.",
-                it.span(),
-            );
-        }
+        self.check_s4634_new_expression(it);
         walk_new_expression(self, it);
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
-        // `S6671`: rejecting with a plain literal value.
-        let rejects = identifier_name(&it.callee) == Some("reject")
-            || it.callee.as_member_expression().is_some_and(|member| {
-                static_property_name(member) == Some("reject")
-                    && member_rooted_at(member, "Promise")
-            });
-        if rejects
-            && let Some(argument) = it.arguments.first().and_then(argument_expression)
-            && is_plain_literal(argument)
-        {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6671",
-                "Reject this promise with an \"Error\" object instead of a literal value.",
-                it.span(),
-            );
-        }
+        self.check_s6671_call_expression(it);
         walk_call_expression(self, it);
     }
 
     fn visit_try_statement(&mut self, it: &TryStatement<'a>) {
-        // `S4822`: await-less promise-producing calls escape the catch.
-        for statement in &it.block.body {
-            let Some(expression) = statement_as_expression(statement) else {
-                continue;
-            };
-            if matches!(expression, Expression::AwaitExpression(_)) {
-                continue;
-            }
-            if let Expression::CallExpression(call) = unparenthesized(expression) {
-                let promise_api = identifier_name(&call.callee) == Some("fetch")
-                    || call
-                        .callee
-                        .as_member_expression()
-                        .is_some_and(|member| static_property_name(member) == Some("then"));
-                if promise_api {
-                    self.sink.emit_span(
-                        RuleScope::Both,
-                        "S4822",
-                        "Await this promise; otherwise its failure bypasses the \"catch\".",
-                        statement.span(),
-                    );
-                }
-            }
-        }
+        self.check_s4822_try_statement(it);
         walk_try_statement(self, it);
     }
 }
-
-/// Whether every top-level statement of the executor immediately calls its
-/// own resolve/reject parameter.
-pub(crate) fn settles_immediately(body: &FunctionBody<'_>, param: &str) -> bool {
-    !body.statements.is_empty()
-        && body.statements.iter().all(|statement| {
-            statement_as_expression(statement).is_some_and(|expression| {
-                matches!(unparenthesized(expression), Expression::CallExpression(call)
-                    if identifier_name(&call.callee) == Some(param))
-            })
-        })
-}
-
-/// Whether a `new Promise` executor argument settles the promise without
-/// doing any asynchronous work: every block statement is an immediate call
-/// of its own resolve/reject parameter, or (for expression-bodied arrows)
-/// the whole body is that call.
-pub(crate) fn promise_executor_settles_immediately(argument: &Expression<'_>) -> bool {
-    match argument {
-        Expression::FunctionExpression(function) => {
-            let Some(body) = function.body.as_deref() else {
-                return false;
-            };
-            let Some(param) = function
-                .params
-                .items
-                .first()
-                .and_then(|item| binding_identifier_name(&item.pattern))
-            else {
-                return false;
-            };
-            settles_immediately(body, param)
-        }
-        Expression::ArrowFunctionExpression(arrow) => {
-            let Some(param) = arrow
-                .params
-                .items
-                .first()
-                .and_then(|item| binding_identifier_name(&item.pattern))
-            else {
-                return false;
-            };
-            match arrow.body.as_function_body() {
-                Some(body) => settles_immediately(body, param),
-                None => matches!(arrow.body.to_expression(), Expression::CallExpression(call)
-                    if identifier_name(&call.callee) == Some(param)),
-            }
-        }
-        _ => false,
-    }
-}
-
-/// `S1067`: conditions carrying more boolean operators than this are
-/// flagged (frozen catalog default of the `max` parameter).
-pub(crate) const MAX_CONDITION_OPERATORS: usize = 3;
 
 /// Counts `&&`, `||`, and `!` operators in one condition, excluding
 /// conditions of nested function units.
@@ -1023,38 +651,12 @@ impl<'a> Visit<'a> for DuplicationCollector<'a> {
     }
 
     fn visit_formal_parameters(&mut self, it: &FormalParameters<'a>) {
-        // `S1536`: duplicate parameter names (JavaScript-only).
-        let mut seen: Vec<&str> = Vec::new();
-        for item in &it.items {
-            let Some(name) = binding_identifier_name(&item.pattern) else {
-                continue;
-            };
-            if seen.contains(&name) {
-                self.sink.emit_span(
-                    RuleScope::JsOnly,
-                    "S1536",
-                    &format!("Rename this parameter; \"{name}\" is already used."),
-                    item.pattern.span(),
-                );
-            } else {
-                seen.push(name);
-            }
-        }
+        self.check_s1536_formal_parameters(it);
         walk_formal_parameters(self, it);
     }
 
     fn visit_export_declaration(&mut self, it: &ExportDeclaration<'a>) {
-        // `S6861`: mutable bindings must not be exported.
-        if let Declaration::VariableDeclaration(variable) = &it.declaration
-            && variable.kind != VariableDeclarationKind::Const
-        {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6861",
-                "Do not export mutable bindings.",
-                it.span(),
-            );
-        }
+        self.check_s6861_export_declaration(it);
         walk_export_declaration(self, it);
     }
 
@@ -1094,44 +696,6 @@ impl DuplicationCollector<'_> {
             seen.push(name);
         }
     }
-
-    fn emit_duplicate_key(&mut self, name: &str, span: Span) {
-        self.sink.emit_span(
-            RuleScope::Both,
-            "S1534",
-            &format!("Rename or remove this duplicated {name} key."),
-            span,
-        );
-    }
-
-    /// `S1067`: conditions with more operators than the catalog maximum.
-    fn check_condition_operators(&mut self, test: &Expression<'_>) {
-        let mut scanner = ConditionOperatorScanner::default();
-        scanner.visit_expression(test);
-        if scanner.count > MAX_CONDITION_OPERATORS {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S1067",
-                &format!(
-                    "This condition uses {} boolean operators; simplify it to at most {}.",
-                    scanner.count, MAX_CONDITION_OPERATORS
-                ),
-                test.span(),
-            );
-        }
-    }
-}
-
-pub(crate) fn is_plain_literal(expression: &Expression<'_>) -> bool {
-    matches!(
-        expression,
-        Expression::StringLiteral(_)
-            | Expression::NumericLiteral(_)
-            | Expression::BooleanLiteral(_)
-            | Expression::NullLiteral(_)
-            | Expression::BigIntLiteral(_)
-            | Expression::TemplateLiteral(_)
-    )
 }
 
 /// Whether an expression is entirely string literals joined by `+`
@@ -1143,30 +707,6 @@ pub(crate) fn is_pure_string_concat(expression: &Expression<'_>) -> bool {
         }
         Expression::StringLiteral(_) => true,
         _ => false,
-    }
-}
-
-/// Identifier compared against `null`/`undefined` by one side of an `&&`
-/// guard (`S6582`).
-pub(crate) fn null_guard_target<'a>(expression: &'a Expression<'a>) -> Option<&'a str> {
-    let Expression::BinaryExpression(binary) = unparenthesized(expression) else {
-        return None;
-    };
-    if !is_equality_operator(binary.operator) {
-        return None;
-    }
-    let is_nullish = |expression: &Expression<'_>| {
-        matches!(expression, Expression::NullLiteral(_))
-            || identifier_name(expression) == Some("undefined")
-    };
-    match (&binary.left, &binary.right) {
-        (Expression::Identifier(identifier), other)
-        | (other, Expression::Identifier(identifier))
-            if is_nullish(other) =>
-        {
-            Some(&identifier.name)
-        }
-        _ => None,
     }
 }
 
@@ -1196,60 +736,11 @@ impl<'a> Visit<'a> for RootedMemberScanner<'_> {
     }
 }
 
-/// The plain `=` assignment expression of an expression statement, if any
-/// (`S3514`).
-pub(crate) fn swap_assignment<'a>(
-    statement: &'a Statement<'a>,
-) -> Option<&'a AssignmentExpression<'a>> {
-    match statement {
-        Statement::ExpressionStatement(expression_statement) => {
-            match unparenthesized(&expression_statement.expression) {
-                Expression::AssignmentExpression(assignment)
-                    if assignment.operator == AssignmentOperator::Assign =>
-                {
-                    Some(assignment)
-                }
-                _ => None,
-            }
-        }
-        _ => None,
-    }
-}
-
 pub(crate) fn function_params_shadow_arguments(params: &FormalParameters<'_>) -> bool {
     params
         .items
         .iter()
         .any(|item| binding_identifier_name(&item.pattern) == Some("arguments"))
-}
-
-/// The `temp = saved` seed of a swap triple: either a plain assignment
-/// statement or a single-declarator declaration (`let t = a;`) with plain
-/// identifier sides (`S3514`).
-pub(crate) fn swap_seed<'a>(statement: &'a Statement<'a>) -> Option<(&'a str, &'a str)> {
-    match statement {
-        Statement::ExpressionStatement(expression_statement) => {
-            match unparenthesized(&expression_statement.expression) {
-                Expression::AssignmentExpression(assignment)
-                    if assignment.operator == AssignmentOperator::Assign =>
-                {
-                    Some((
-                        assignment_target_name(&assignment.left)?,
-                        identifier_name(&assignment.right)?,
-                    ))
-                }
-                _ => None,
-            }
-        }
-        Statement::VariableDeclaration(declaration) => {
-            let [declarator] = declaration.declarations.as_slice() else {
-                return None;
-            };
-            let name = binding_identifier_name(&declarator.id)?;
-            Some((name, identifier_name(declarator.init.as_ref()?)?))
-        }
-        _ => None,
-    }
 }
 
 impl<'a> Visit<'a> for EsIdiomCollector<'a> {
@@ -1311,67 +802,16 @@ impl<'a> Visit<'a> for EsIdiomCollector<'a> {
     }
 
     fn visit_identifier_reference(&mut self, it: &oxc_ast::ast::IdentifierReference<'a>) {
-        // `S3513`: direct `arguments` reads where no parameter shadows it.
-        if it.name == "arguments" && !self.arguments_shadowed.iter().any(|&shadowed| shadowed) {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S3513",
-                "Use rest parameters instead of \"arguments\".",
-                it.span(),
-            );
-        }
+        self.check_s3513_identifier_reference(it);
     }
 
     fn visit_object_expression(&mut self, it: &ObjectExpression<'a>) {
-        let mut non_shorthand_seen = false;
-        for property in &it.properties {
-            let ObjectPropertyKind::ObjectProperty(inner) = property else {
-                continue;
-            };
-            if inner.kind != PropertyKind::Init {
-                continue;
-            }
-            if inner.shorthand {
-                // `S3499`: shorthand properties come first.
-                if non_shorthand_seen {
-                    self.sink.emit_span(
-                        RuleScope::Both,
-                        "S3499",
-                        "Write this shorthand property before the non-shorthand properties.",
-                        inner.span(),
-                    );
-                }
-            } else {
-                non_shorthand_seen = true;
-                // `S3498`: `{ a: a }` should use the shorthand form.
-                if let (Some(key), Some(value)) =
-                    (property_key_name(&inner.key), identifier_name(&inner.value))
-                    && key == value
-                {
-                    self.sink.emit_span(
-                        RuleScope::Both,
-                        "S3498",
-                        "Use the shorthand syntax for this property.",
-                        inner.span(),
-                    );
-                }
-            }
-        }
+        self.check_s3498_s3499_object_expression(it);
         walk_object_expression(self, it);
     }
 
     fn visit_conditional_expression(&mut self, it: &ConditionalExpression<'a>) {
-        // `S3358`: ternaries nested in consequent or alternate positions.
-        for branch in [&it.consequent, &it.alternate] {
-            if let Expression::ConditionalExpression(nested) = unparenthesized(branch) {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S3358",
-                    "Refactor this nested ternary expression.",
-                    nested.span(),
-                );
-            }
-        }
+        self.check_s3358_conditional_expression(it);
         walk_conditional_expression(self, it);
     }
 
@@ -1388,107 +828,22 @@ impl<'a> Visit<'a> for EsIdiomCollector<'a> {
     }
 
     fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
-        // `S3523`: the `Function` constructor (JavaScript-only); overlaps
-        // the `S1523` finding on purpose — separate catalog rule keys.
-        if constructor_name(it) == Some("Function") {
-            self.sink.emit_span(
-                RuleScope::JsOnly,
-                "S3523",
-                "Remove this use of the \"Function\" constructor.",
-                it.callee.span(),
-            );
-        }
+        self.check_s3523_new_expression(it);
         walk_new_expression(self, it);
     }
 
     fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
-        // `S4158`: operations on empty array literals always do nothing.
-        if matches!(
-            unparenthesized(member_object(it)),
-            Expression::ArrayExpression(array) if array.elements.is_empty()
-        ) {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S4158",
-                "Review this operation; it always targets an empty array.",
-                it.span(),
-            );
-        }
+        self.check_s4158_member_expression(it);
         walk_member_expression(self, it);
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
-        // `S6594`: `.match(/…/g)` prefers `.matchAll` or `.exec`.
-        if let Some((property, _member)) = call_property(it)
-            && property == "match"
-            && let Some(argument) = it.arguments.first().and_then(argument_expression)
-            && let Expression::RegExpLiteral(literal) = argument
-            && literal.regex.flags.contains(RegExpFlags::G)
-        {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6594",
-                "Prefer \".matchAll\" or \".exec\" over \".match\" for this global regex.",
-                it.span(),
-            );
-        }
+        self.check_s6594_call_expression(it);
         walk_call_expression(self, it);
     }
 
     fn visit_logical_expression(&mut self, it: &LogicalExpression<'a>) {
-        // `S6582`: `x !== null && x.member` rewrites to optional chaining.
-        if it.operator == LogicalOperator::And
-            && let Some(root) = null_guard_target(&it.left)
-        {
-            let mut scanner = RootedMemberScanner { root, found: false };
-            scanner.visit_expression(&it.right);
-            if scanner.found {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S6582",
-                    "Use optional chaining (\"?.\") instead of this null check.",
-                    it.span(),
-                );
-            }
-        }
+        self.check_s6582_logical_expression(it);
         walk_logical_expression(self, it);
-    }
-}
-
-impl EsIdiomCollector<'_> {
-    /// `S3514`: consecutive `t = a; … ; a = t` statements hide a swap that
-    /// destructuring expresses directly.
-    fn scan_swap_triples(&mut self, statements: &[Statement<'_>]) {
-        for window in statements.windows(3) {
-            // First saves `saved` into `temp`, either through an assignment
-            // or a single declarator; the third restores it.
-            let Some((temp, saved)) = swap_seed(&window[0]) else {
-                continue;
-            };
-            let Some(third) = swap_assignment(&window[2]) else {
-                continue;
-            };
-            if identifier_name(&third.right) != Some(temp) {
-                continue;
-            }
-            let Some(counterpart) = assignment_target_name(&third.left) else {
-                continue;
-            };
-            let Some(middle) = swap_assignment(&window[1]) else {
-                continue;
-            };
-            let links_saved_to_counterpart = (assignment_target_name(&middle.left) == Some(saved)
-                && identifier_name(&middle.right) == Some(counterpart))
-                || (assignment_target_name(&middle.left) == Some(counterpart)
-                    && identifier_name(&middle.right) == Some(saved));
-            if counterpart != temp && links_saved_to_counterpart {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S3514",
-                    "Swap these variables with destructuring instead of this temporary.",
-                    window[0].span(),
-                );
-            }
-        }
     }
 }
