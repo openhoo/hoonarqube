@@ -1,0 +1,3 @@
+{"key": "typescript:S1068", "bad": "s1068_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S2933", "bad": "s2933_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S4623", "bad": "s4623_bad.ts", "expect_lines_min": 1}

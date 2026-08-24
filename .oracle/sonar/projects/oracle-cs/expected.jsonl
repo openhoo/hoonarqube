@@ -1,0 +1,451 @@
+{"key": "csharpsquid:S4502", "bad": "s4502_bad.cs", "expect_lines_min": 3}
+{"key": "csharpsquid:S4507", "bad": "s4507_bad.cs", "expect_lines_min": 3}
+{"key": "csharpsquid:S5332", "bad": "s5332_bad.cs", "expect_lines_min": 3}
+{"key": "csharpsquid:S4260", "bad": "s4260_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S3598", "bad": "s3598_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S3928", "bad": "s3928_bad.cs", "expect_lines_min": 3}
+{"key": "csharpsquid:S4426", "bad": "s4426_bad.cs", "expect_lines_min": 4}
+{"key": "csharpsquid:S4211", "bad": "s4211_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S4581", "bad": "s4581_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S5542", "bad": "s5542_bad.cs", "expect_lines_min": 4}
+{"key": "csharpsquid:S5659", "bad": "s5659_bad.cs", "expect_lines_min": 3}
+{"key": "csharpsquid:S3597", "bad": "s3597_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S3926", "bad": "s3926_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S4428", "bad": "s4428_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S5122", "bad": "s5122_bad.cs", "expect_lines_min": 3}
+{"key": "csharpsquid:S7039", "bad": "s7039_bad.cs", "expect_lines_min": 3}
+{"key": "csharpsquid:S5445", "bad": "s5445_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S5443", "bad": "s5443_bad.cs", "expect_lines_min": 4}
+{"key": "csharpsquid:S3603", "bad": "s3603_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S5693", "bad": "s5693_bad.cs", "expect_lines_min": 4}
+{"key": "csharpsquid:S5753", "bad": "s5753_bad.cs", "expect_lines_min": 3}
+{"key": "csharpsquid:S5547", "bad": "s5547_bad.cs", "expect_lines_min": 5}
+{"key": "csharpsquid:S4212", "bad": "s4212_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S3927", "bad": "s3927_bad.cs", "expect_lines_min": 3}
+{"key": "csharpsquid:S5042", "bad": "s5042_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S5773", "bad": "s5773_bad.cs", "expect_lines_min": 3}
+{"key": "csharpsquid:S4790", "bad": "s4790_bad.cs", "expect_lines_min": 4}
+{"key": "csharpsquid:S4423", "bad": "s4423_bad.cs", "expect_lines_min": 4}
+{"key": "csharpsquid:S4210", "bad": "s4210_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S1694", "bad": "s1694_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S126", "bad": "s126_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3776", "bad": "s3776_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1264", "bad": "s1264_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3235", "bad": "s3235_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S121", "bad": "s121_bad.cs", "expect_lines_min": 3}
+{"key": "csharpsquid:S1541", "bad": "s1541_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S4524", "bad": "s4524_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S108", "bad": "s108_bad.cs", "expect_lines_min": 3}
+{"key": "csharpsquid:S3458", "bad": "s3458_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2094", "bad": "s2094_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S3532", "bad": "s3532_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3880", "bad": "s3880_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S4023", "bad": "s4023_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1186", "bad": "s1186_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S3261", "bad": "s3261_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1116", "bad": "s1116_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S1048", "bad": "s1048_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1994", "bad": "s1994_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S138", "bad": "s138_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1067", "bad": "s1067_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S1066", "bad": "s1066_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S107", "bad": "s107_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S2681", "bad": "s2681_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S1199", "bad": "s1199_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1821", "bad": "s1821_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S134", "bad": "s134_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2372", "bad": "s2372_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1110", "bad": "s1110_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S1301", "bad": "s1301_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S131", "bad": "s131_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1151", "bad": "s1151_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1479", "bad": "s1479_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2292", "bad": "s2292_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3903", "bad": "s3903_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S2376", "bad": "s2376_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S3972", "bad": "s3972_bad.cs", "expect_lines_min": 3}
+{"key": "csharpsquid:S3973", "bad": "s3973_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S1109", "bad": "s1109_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1659", "bad": "s1659_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S122", "bad": "s122_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S105", "bad": "s105_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S113", "bad": "s113_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S125", "bad": "s125_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S103", "bad": "s103_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2148", "bad": "s2148_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S4663", "bad": "s4663_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S1451", "skip": "config"}
+{"key": "csharpsquid:S104", "skip": "config"}
+{"key": "csharpsquid:S2330", "bad": "s2330_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S4347", "bad": "s4347_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2201", "bad": "s2201_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1698", "bad": "s1698_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S4025", "bad": "s4025_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2387", "bad": "s2387_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2257", "bad": "s2257_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S4019", "bad": "s4019_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2184", "bad": "s2184_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3215", "bad": "s3215_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3444", "bad": "s3444_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3909", "bad": "s3909_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S4792", "bad": "s4792_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3466", "bad": "s3466_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1006", "bad": "s1006_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S4015", "bad": "s4015_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S927", "bad": "s927_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3600", "bad": "s3600_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3262", "bad": "s3262_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S5344", "bad": "s5344_bad.cs", "expect_lines_min": 3}
+{"key": "csharpsquid:S2245", "bad": "s2245_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3464", "bad": "s3464_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S1905", "bad": "s1905_bad.cs", "expect_lines_min": 6}
+{"key": "csharpsquid:S1939", "bad": "s1939_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3610", "bad": "s3610_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S1858", "bad": "s1858_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S2995", "bad": "s2995_bad.cs", "expect_lines_min": 3}
+{"key": "csharpsquid:S2114", "bad": "s2114_bad.cs", "expect_lines_min": 3}
+{"key": "csharpsquid:S2551", "bad": "s2551_bad.cs", "expect_lines_min": 3}
+{"key": "csharpsquid:S3449", "bad": "s3449_bad.cs", "expect_lines_min": 4}
+{"key": "csharpsquid:S3329", "bad": "s3329_bad.cs", "expect_lines_min": 3}
+{"key": "csharpsquid:S2053", "bad": "s2053_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S3220", "bad": "s3220_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2234", "bad": "s2234_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S4039", "bad": "s4039_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3254", "bad": "s3254_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2931", "bad": "s2931_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2952", "bad": "s2952_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S6424", "bad": "s6424_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S7130", "bad": "s7130_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S6960", "bad": "s6960_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2934", "bad": "s2934_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S6800", "bad": "s6800_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S5766", "bad": "s5766_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2930", "bad": "s2930_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S6797", "bad": "s6797_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S2345", "bad": "s2345_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S2346", "bad": "s2346_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2743", "bad": "s2743_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S2996", "bad": "s2996_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3005", "bad": "s3005_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3010", "bad": "s3010_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3052", "bad": "s3052_bad.cs", "expect_lines_min": 5}
+{"key": "csharpsquid:S3251", "bad": "s3251_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3253", "bad": "s3253_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S3906", "bad": "s3906_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3908", "bad": "s3908_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3962", "bad": "s3962_bad.cs", "expect_lines_min": 4}
+{"key": "csharpsquid:S3963", "bad": "s3963_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S3990", "bad": "s3990_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3992", "bad": "s3992_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3993", "bad": "s3993_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S4016", "bad": "s4016_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S4026", "bad": "s4026_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S4070", "bad": "s4070_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S4220", "bad": "s4220_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S4225", "bad": "s4225_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S109", "bad": "s109_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S1128", "bad": "s1128_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S1144", "bad": "s1144_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S1172", "bad": "s1172_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1481", "bad": "s1481_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3264", "bad": "s3264_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S4275", "bad": "s4275_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S3265", "bad": "s3265_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1699", "bad": "s1699_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S3172", "bad": "s3172_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3241", "bad": "s3241_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S4002", "bad": "s4002_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3236", "bad": "s3236_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2955", "bad": "s2955_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3443", "bad": "s3443_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1226", "bad": "s1226_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S3218", "bad": "s3218_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2696", "bad": "s2696_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1168", "bad": "s1168_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S3398", "bad": "s3398_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2933", "bad": "s2933_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1450", "bad": "s1450_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2325", "bad": "s2325_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3263", "bad": "s3263_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S3997", "bad": "s3997_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3366", "bad": "s3366_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S3459", "bad": "s3459_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S3063", "bad": "s3063_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S4487", "bad": "s4487_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S3900", "bad": "s3900_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S2997", "bad": "s2997_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S127", "bad": "s127_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1751", "bad": "s1751_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1854", "bad": "s1854_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2077", "bad": "s2077_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2123", "bad": "s2123_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2190", "bad": "s2190_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2222", "bad": "s2222_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2251", "bad": "s2251_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2252", "bad": "s2252_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2259", "bad": "s2259_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2583", "bad": "s2583_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2589", "bad": "s2589_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2674", "bad": "s2674_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3353", "bad": "s3353_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3440", "bad": "s3440_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3655", "bad": "s3655_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3949", "bad": "s3949_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3966", "bad": "s3966_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S4158", "bad": "s4158_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S881", "bad": "s881_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1117", "bad": "s1117_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1121", "bad": "s1121_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1125", "bad": "s1125_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1244", "bad": "s1244_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1656", "bad": "s1656_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1764", "bad": "s1764_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1848", "bad": "s1848_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1862", "bad": "s1862_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1871", "bad": "s1871_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S1940", "bad": "s1940_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2183", "bad": "s2183_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2197", "bad": "s2197_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2198", "bad": "s2198_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2219", "bad": "s2219_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2437", "bad": "s2437_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2688", "bad": "s2688_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2692", "bad": "s2692_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2760", "bad": "s2760_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S2761", "bad": "s2761_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3060", "bad": "s3060_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3240", "bad": "s3240_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3256", "bad": "s3256_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3358", "bad": "s3358_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3400", "bad": "s3400_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3441", "bad": "s3441_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3604", "bad": "s3604_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3626", "bad": "s3626_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3717", "bad": "s3717_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3923", "bad": "s3923_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3981", "bad": "s3981_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S3984", "bad": "s3984_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S4144", "bad": "s4144_bad.cs", "expect_lines_min": 1}
+{"key": "csharpsquid:S4201", "bad": "s4201_bad.cs", "expect_lines_min": 1}
+{"key":"csharpsquid:S1118","bad":"s1118_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S112","bad":"s112_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S1163","bad":"s1163_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S1696","bad":"s1696_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2187","bad":"s2187_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2291","bad":"s2291_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2302","bad":"s2302_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2327","bad":"s2327_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2333","bad":"s2333_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S2699","bad":"s2699_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2737","bad":"s2737_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2757","bad":"s2757_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2970","bad":"s2970_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3346","bad":"s3346_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3415","bad":"s3415_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3427","bad":"s3427_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S3433","bad":"s3433_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3887","bad":"s3887_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3956","bad":"s3956_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4052","bad":"s4052_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4586","bad":"s4586_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S1449","bad":"s1449_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S2115","bad":"s2115_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2139","bad":"s2139_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S2221","bad":"s2221_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2445","bad":"s2445_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S2486","bad":"s2486_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2701","bad":"s2701_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2953","bad":"s2953_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S3217","bad":"s3217_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S3363","bad":"s3363_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3445","bad":"s3445_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S3876","bad":"s3876_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3878","bad":"s3878_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3881","bad":"s3881_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S3904","bad":"s3904_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S3998","bad":"s3998_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4004","bad":"s4004_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S4040","bad":"s4040_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4056","bad":"s4056_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4058","bad":"s4058_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4545","bad":"s4545_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S6507","bad":"s6507_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S106","bad":"s106_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S1123","bad":"s1123_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S1133","bad":"s1133_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S1147","bad":"s1147_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S1206","bad":"s1206_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S1210","bad":"s1210_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S1215","bad":"s1215_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S1309","bad":"s1309_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S1607","bad":"s1607_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S1643","bad":"s1643_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2166","bad":"s2166_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2225","bad":"s2225_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2328","bad":"s2328_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2925","bad":"s2925_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2971","bad":"s2971_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S3169","bad":"s3169_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S3216","bad":"s3216_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3249","bad":"s3249_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3267","bad":"s3267_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3397","bad":"s3397_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3431","bad":"s3431_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3456","bad":"s3456_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3869","bad":"s3869_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3875","bad":"s3875_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3877","bad":"s3877_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S3884","bad":"s3884_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3885","bad":"s3885_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3889","bad":"s3889_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3897","bad":"s3897_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3898","bad":"s3898_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3902","bad":"s3902_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3971","bad":"s3971_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4027","bad":"s4027_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4050","bad":"s4050_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4069","bad":"s4069_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4462","bad":"s4462_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S4635","bad":"s4635_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6513","bad":"s6513_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6607","bad":"s6607_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S6610","bad":"s6610_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6612","bad":"s6612_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6617","bad":"s6617_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6618","bad":"s6618_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S1104","bad":"s1104_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S1227","bad":"s1227_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S2156","bad":"s2156_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2223","bad":"s2223_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2290","bad":"s2290_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2306","bad":"s2306_bad.cs","expect_lines_min":4}
+{"key":"csharpsquid:S2326","bad":"s2326_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S907","bad":"s907_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S2339","bad":"s2339_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2357","bad":"s2357_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2360","bad":"s2360_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2368","bad":"s2368_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2386","bad":"s2386_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S2436","bad":"s2436_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3059","bad":"s3059_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3168","bad":"s3168_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3260","bad":"s3260_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3343","bad":"s3343_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3442","bad":"s3442_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3447","bad":"s3447_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3450","bad":"s3450_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3451","bad":"s3451_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3453","bad":"s3453_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3871","bad":"s3871_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S3874","bad":"s3874_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S3967","bad":"s3967_bad.cs","expect_lines_min":6}
+{"key":"csharpsquid:S4000","bad":"s4000_bad.cs","expect_lines_min":4}
+{"key":"csharpsquid:S4017","bad":"s4017_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S4018","bad":"s4018_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4022","bad":"s4022_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S4035","bad":"s4035_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4060","bad":"s4060_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4061","bad":"s4061_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S4200","bad":"s4200_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4214","bad":"s4214_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S6640","bad":"s6640_bad.cs","expect_lines_min":4}
+{"key":"csharpsquid:S2092","bad":"s2092_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S2178","bad":"s2178_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2365","bad":"s2365_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2612","bad":"s2612_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S2755","bad":"s2755_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3011","bad":"s3011_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3925","bad":"s3925_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S4036","bad":"s4036_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4055","bad":"s4055_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4057","bad":"s4057_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4159","bad":"s4159_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S4226","bad":"s4226_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S4277","bad":"s4277_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4433","bad":"s4433_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S4456","bad":"s4456_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S4457","bad":"s4457_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S4583","bad":"s4583_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S4830","bad":"s4830_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S5034","bad":"s5034_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S6377","bad":"s6377_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S6563","bad":"s6563_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6566","bad":"s6566_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S6668","bad":"s6668_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6781","bad":"s6781_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S6803","bad":"s6803_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6964","bad":"s6964_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S6966","bad":"s6966_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S7131","bad":"s7131_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S7133","bad":"s7133_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S6354","bad":"s6354_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6419","bad":"s6419_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6420","bad":"s6420_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6421","bad":"s6421_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6422","bad":"s6422_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6423","bad":"s6423_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6561","bad":"s6561_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6562","bad":"s6562_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6575","bad":"s6575_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S6580","bad":"s6580_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6585","bad":"s6585_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6588","bad":"s6588_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6798","bad":"s6798_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6930","bad":"s6930_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6931","bad":"s6931_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6932","bad":"s6932_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6934","bad":"s6934_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S6961","bad":"s6961_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S6962","bad":"s6962_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6965","bad":"s6965_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S6967","bad":"s6967_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S6968","bad":"s6968_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S100","bad":"s100_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S101","bad":"s101_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S2342","bad":"s2342_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2344","bad":"s2344_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3376","bad":"s3376_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3872","bad":"s3872_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4041","bad":"s4041_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4059","bad":"s4059_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4136","bad":"s4136_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S4261","bad":"s4261_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6669","bad":"s6669_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S1155","bad":"s1155_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S1185","bad":"s1185_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S2275","bad":"s2275_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S3237","bad":"s3237_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S3244","bad":"s3244_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3247","bad":"s3247_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S3257","bad":"s3257_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S3457","bad":"s3457_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3937","bad":"s3937_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3994","bad":"s3994_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S3995","bad":"s3995_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S3996","bad":"s3996_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4005","bad":"s4005_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S4049","bad":"s4049_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S4143","bad":"s4143_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6602","bad":"s6602_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S1075","bad":"s1075_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S1192","bad":"s1192_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S1313","bad":"s1313_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2068","bad":"s2068_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S2479","bad":"s2479_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S2857","bad":"s2857_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S5856","bad":"s5856_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6418","bad":"s6418_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6444","bad":"s6444_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S818","bad":"s818_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S1312","bad":"s1312_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S2629","bad":"s2629_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S3416","bad":"s3416_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S6664","bad":"s6664_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S6667","bad":"s6667_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S6670","bad":"s6670_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6672","bad":"s6672_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6673","bad":"s6673_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S6674","bad":"s6674_bad.cs","expect_lines_min":3}
+{"key":"csharpsquid:S6675","bad":"s6675_bad.cs","expect_lines_min":2}
+{"key":"csharpsquid:S6677","bad":"s6677_bad.cs","expect_lines_min":1}
+{"key":"csharpsquid:S6678","bad":"s6678_bad.cs","expect_lines_min":2}

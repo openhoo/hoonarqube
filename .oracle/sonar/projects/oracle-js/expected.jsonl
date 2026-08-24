@@ -1,0 +1,378 @@
+{"key":"javascript:S103","bad":"s103_bad.js","expect_lines_min":1}
+{"key":"javascript:S104","skip":"config"}
+{"key":"javascript:S105","bad":"s105_bad.js","expect_lines_min":1}
+{"key":"javascript:S113","bad":"s113_bad.js","expect_lines_min":1}
+{"key":"typescript:S113","bad":"s113_bad.ts","expect_lines_min":1}
+{"key":"javascript:S1131","bad":"s1131_bad.js","expect_lines_min":1}
+{"key":"javascript:S1134","bad":"s1134_bad.js","expect_lines_min":1}
+{"key":"javascript:S1135","bad":"s1135_bad.js","expect_lines_min":1}
+{"key":"javascript:S125","bad":"s125_bad.js","expect_lines_min":1}
+{"key":"javascript:S1291","bad":"s1291_bad.js","expect_lines_min":1}
+{"key":"javascript:S139","bad":"s139_bad.js","expect_lines_min":1}
+{"key":"javascript:S1451","skip":"config"}
+{"key":"javascript:S1186","bad":"s1186_bad.js","expect_lines_min":1}
+{"key":"javascript:S1527","bad":"s1527_bad.js","expect_lines_min":1}
+{"key":"javascript:S2068","bad":"s2068_bad.js","expect_lines_min":1}
+{"key":"javascript:S2094","bad":"s2094_bad.js","expect_lines_min":1}
+{"key":"javascript:S2137","bad":"s2137_bad.js","expect_lines_min":1}
+{"key":"javascript:S2138","bad":"s2138_bad.js","expect_lines_min":1}
+{"key":"javascript:S3799","bad":"s3799_bad.js","expect_lines_min":1}
+{"key":"typescript:S4023","bad":"s4023_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4124","bad":"s4124_bad.ts","expect_lines_min":1}
+{"key":"javascript:S6418","bad":"s6418_bad.js","expect_lines_min":1}
+{"key":"javascript:S6645","bad":"s6645_bad.js","expect_lines_min":1}
+{"key":"javascript:S6647","bad":"s6647_bad.js","expect_lines_min":1}
+{"key":"javascript:S6650","bad":"s6650_bad.js","expect_lines_min":1}
+{"key":"javascript:S1764","bad":"s1764_bad.js","expect_lines_min":1}
+{"key":"javascript:S1862","bad":"s1862_bad.js","expect_lines_min":1}
+{"key":"javascript:S1871","bad":"s1871_bad.js","expect_lines_min":1}
+{"key":"javascript:S3516","bad":"s3516_bad.js","expect_lines_min":1}
+{"key":"javascript:S3923","bad":"s3923_bad.js","expect_lines_min":1}
+{"key":"javascript:S4144","bad":"s4144_bad.js","expect_lines_min":1}
+{"key":"javascript:S1105","bad":"s1105_bad.js","expect_lines_min":1}
+{"key":"javascript:S1472","bad":"s1472_bad.js","expect_lines_min":1}
+{"key":"javascript:S1121","bad":"s1121_bad.js","expect_lines_min":1}
+{"key":"javascript:S1067","bad":"s1067_bad.js","expect_lines_min":1}
+{"key":"javascript:S1534","bad":"s1534_bad.js","expect_lines_min":1}
+{"key":"javascript:S1536","bad":"s1536_bad.js","expect_lines_min":1}
+{"key":"javascript:S1541","bad":"s1541_bad.js","expect_lines_min":1}
+{"key":"javascript:S3358","bad":"s3358_bad.js","expect_lines_min":1}
+{"key":"javascript:S3498","bad":"s3498_bad.js","expect_lines_min":1}
+{"key":"javascript:S3499","bad":"s3499_bad.js","expect_lines_min":1}
+{"key":"javascript:S3512","bad":"s3512_bad.js","expect_lines_min":1}
+{"key":"javascript:S3513","bad":"s3513_bad.js","expect_lines_min":1}
+{"key":"javascript:S3514","bad":"s3514_bad.js","expect_lines_min":1}
+{"key":"javascript:S3523","bad":"s3523_bad.js","expect_lines_min":1}
+{"key":"javascript:S3776","bad":"s3776_bad.js","expect_lines_min":1}
+{"key":"javascript:S3796","bad":"s3796_bad.js","expect_lines_min":1}
+{"key":"javascript:S3801","bad":"s3801_bad.js","expect_lines_min":1}
+{"key":"javascript:S3854","bad":"s3854_bad.js","expect_lines_min":1}
+{"key":"javascript:S3972","bad":"s3972_bad.js","expect_lines_min":1}
+{"key":"javascript:S3973","bad":"s3973_bad.js","expect_lines_min":1}
+{"key":"javascript:S4158","bad":"s4158_bad.js","expect_lines_min":1}
+{"key":"javascript:S4275","bad":"s4275_bad.js","expect_lines_min":1}
+{"key":"javascript:S4619","bad":"s4619_bad.js","expect_lines_min":1}
+{"key":"javascript:S4634","bad":"s4634_bad.js","expect_lines_min":1}
+{"key":"javascript:S4822","bad":"s4822_bad.js","expect_lines_min":1}
+{"key":"javascript:S6582","bad":"s6582_bad.js","expect_lines_min":1}
+{"key":"javascript:S6594","bad":"s6594_bad.js","expect_lines_min":1}
+{"key":"javascript:S6635","bad":"s6635_bad.js","expect_lines_min":1}
+{"key":"javascript:S6671","bad":"s6671_bad.js","expect_lines_min":1}
+{"key":"javascript:S6861","bad":"s6861_bad.js","expect_lines_min":1}
+{"key":"javascript:S1264","bad":"s1264_bad.js","expect_lines_min":1}
+{"key":"javascript:S1535","bad":"s1535_bad.js","expect_lines_min":1}
+{"key":"javascript:S1751","bad":"s1751_bad.js","expect_lines_min":1}
+{"key":"javascript:S1994","bad":"s1994_bad.js","expect_lines_min":1}
+{"key":"javascript:S2189","bad":"s2189_bad.js","expect_lines_min":1}
+{"key":"javascript:S2251","bad":"s2251_bad.js","expect_lines_min":1}
+{"key":"javascript:S2310","bad":"s2310_bad.js","expect_lines_min":1}
+{"key":"javascript:S4138","bad":"s4138_bad.js","expect_lines_min":1}
+{"key":"javascript:S4139","bad":"s4139_bad.js","expect_lines_min":1}
+{"key":"javascript:S1219","bad":"s1219_bad.js","expect_lines_min":1}
+{"key":"javascript:S1439","bad":"s1439_bad.js","expect_lines_min":1}
+{"key":"javascript:S1515","bad":"s1515_bad.js","expect_lines_min":1}
+{"key":"javascript:S1530","bad":"s1530_bad.js","expect_lines_min":1}
+{"key":"javascript:S1788","bad":"s1788_bad.js","expect_lines_min":1}
+{"key":"javascript:S2004","bad":"s2004_bad.js","expect_lines_min":1}
+{"key":"javascript:S2376","bad":"s2376_bad.js","expect_lines_min":1}
+{"key":"javascript:S3001","bad":"s3001_bad.js","expect_lines_min":1}
+{"key":"javascript:S3525","bad":"s3525_bad.js","expect_lines_min":1}
+{"key":"javascript:S3531","bad":"s3531_bad.js","expect_lines_min":1}
+{"key":"javascript:S3626","bad":"s3626_bad.js","expect_lines_min":1}
+{"key":"javascript:S1143","bad":"s1143_bad.js","expect_lines_min":1}
+{"key":"javascript:S5332","bad":"s5332_bad.js","expect_lines_min":1}
+{"key":"javascript:S5527","bad":"s5527_bad.js","expect_lines_min":1}
+{"key":"javascript:S5542","bad":"s5542_bad.js","expect_lines_min":1}
+{"key":"javascript:S5547","bad":"s5547_bad.js","expect_lines_min":1}
+{"key":"javascript:S5604","bad":"s5604_bad.js","expect_lines_min":1}
+{"key":"javascript:S5659","bad":"s5659_bad.js","expect_lines_min":1}
+{"key":"javascript:S5689","bad":"s5689_bad.js","expect_lines_min":1}
+{"key":"javascript:S5691","bad":"s5691_bad.js","expect_lines_min":1}
+{"key":"javascript:S5693","bad":"s5693_bad.js","expect_lines_min":1}
+{"key":"javascript:S5728","bad":"s5728_bad.js","expect_lines_min":1}
+{"key":"javascript:S5730","bad":"s5730_bad.js","expect_lines_min":1}
+{"key":"javascript:S5732","bad":"s5732_bad.js","expect_lines_min":1}
+{"key":"javascript:S5734","bad":"s5734_bad.js","expect_lines_min":1}
+{"key":"javascript:S5736","bad":"s5736_bad.js","expect_lines_min":1}
+{"key":"javascript:S5739","bad":"s5739_bad.js","expect_lines_min":1}
+{"key":"javascript:S5742","bad":"s5742_bad.js","expect_lines_min":1}
+{"key":"javascript:S5743","bad":"s5743_bad.js","expect_lines_min":1}
+{"key":"javascript:S5757","bad":"s5757_bad.js","expect_lines_min":1}
+{"key":"javascript:S5759","bad":"s5759_bad.js","expect_lines_min":1}
+{"key":"javascript:S6080","bad":"s6080_bad.test.js","expect_lines_min":1}
+{"key":"javascript:S6245","bad":"s6245_bad.js","expect_lines_min":1}
+{"key":"javascript:S6268","bad":"s6268_bad.js","expect_lines_min":1}
+{"key":"javascript:S6299","bad":"s6299_bad.js","expect_lines_min":1}
+{"key":"javascript:S2187","bad":"s2187_bad.test.js","expect_lines_min":1}
+{"key":"javascript:S3317","bad":"s3317_bad.js","expect_lines_min":1}
+{"key":"javascript:S5958","bad":"s5958_bad.test.js","expect_lines_min":1}
+{"key":"javascript:S7060","bad":"s7060_bad.js","expect_lines_min":1}
+{"key":"javascript:S2424","bad":"s2424_bad.js","expect_lines_min":1}
+{"key":"javascript:S2757","bad":"s2757_bad.js","expect_lines_min":1}
+{"key":"javascript:S3003","bad":"s3003_bad.js","expect_lines_min":1}
+{"key":"javascript:S3981","bad":"s3981_bad.js","expect_lines_min":1}
+{"key":"javascript:S4125","bad":"s4125_bad.js","expect_lines_min":1}
+{"key":"javascript:S6644","bad":"s6644_bad.js","expect_lines_min":1}
+{"key":"javascript:S6637","bad":"s6637_bad.js","expect_lines_min":1}
+{"key":"javascript:S6676","bad":"s6676_bad.js","expect_lines_min":1}
+{"key":"javascript:S6666","bad":"s6666_bad.js","expect_lines_min":1}
+{"key":"javascript:S6959","bad":"s6959_bad.js","expect_lines_min":1}
+{"key":"javascript:S2871","bad":"s2871_bad.js","expect_lines_min":1}
+{"key":"javascript:S6653","bad":"s6653_bad.js","expect_lines_min":1}
+{"key":"javascript:S2427","bad":"s2427_bad.js","expect_lines_min":1}
+{"key":"javascript:S3533","bad":"s3533_bad.js","expect_lines_min":1}
+{"key":"javascript:S2817","bad":"s2817_bad.js","expect_lines_min":1}
+{"key":"javascript:S1528","bad":"s1528_bad.js","expect_lines_min":1}
+{"key":"javascript:S1533","bad":"s1533_bad.js","expect_lines_min":1}
+{"key":"javascript:S2428","bad":"s2428_bad.js","expect_lines_min":1}
+{"key":"javascript:S3834","bad":"s3834_bad.js","expect_lines_min":1}
+{"key":"javascript:S6509","bad":"s6509_bad.js","expect_lines_min":1}
+{"key":"javascript:S1774","bad":"s1774_bad.js","expect_lines_min":1}
+{"key":"javascript:S4624","bad":"s4624_bad.js","expect_lines_min":1}
+{"key":"javascript:S6657","bad":"s6657_bad.js","expect_lines_min":1}
+{"key":"javascript:S4140","bad":"s4140_bad.js","expect_lines_min":1}
+{"key":"javascript:S1313","bad":"s1313_bad.js","expect_lines_min":1}
+{"key":"javascript:S1516","bad":"s1516_bad.js","expect_lines_min":1}
+{"key":"javascript:S3786","bad":"s3786_bad.js","expect_lines_min":1}
+{"key":"javascript:S6535","bad":"s6535_bad.js","expect_lines_min":1}
+{"key":"javascript:S1314","bad":"s1314_bad.js","expect_lines_min":1}
+{"key":"javascript:S6534","bad":"s6534_bad.js","expect_lines_min":1}
+{"key":"javascript:S1125","bad":"s1125_bad.js","expect_lines_min":1}
+{"key":"javascript:S1440","bad":"s1440_bad.js","expect_lines_min":1}
+{"key":"javascript:S2688","bad":"s2688_bad.js","expect_lines_min":1}
+{"key":"javascript:S6679","bad":"s6679_bad.js","expect_lines_min":1}
+{"key":"javascript:S2692","bad":"s2692_bad.js","expect_lines_min":1}
+{"key":"javascript:S6557","bad":"s6557_bad.js","expect_lines_min":1}
+{"key":"javascript:S2685","bad":"s2685_bad.js","expect_lines_min":1}
+{"key":"javascript:S6654","bad":"s6654_bad.js","expect_lines_min":1}
+{"key":"javascript:S6661","bad":"s6661_bad.js","expect_lines_min":1}
+{"key":"javascript:S1442","bad":"s1442_bad.js","expect_lines_min":1}
+{"key":"javascript:S6958","bad":"s6958_bad.js","expect_lines_min":1}
+{"key":"javascript:S6643","bad":"s6643_bad.js","expect_lines_min":1}
+{"key":"typescript:S1444","bad":"s1444_bad.ts","expect_lines_min":1}
+{"key":"javascript:S1539","bad":"s1539_bad.js","expect_lines_min":1}
+{"key":"javascript:S1607","bad":"s1607_bad.test.js","expect_lines_min":1}
+{"key":"typescript:S2966","bad":"s2966_bad.ts","expect_lines_min":1}
+{"key":"javascript:S2970","bad":"s2970_bad.test.js","expect_lines_min":1}
+{"key":"javascript:S2990","bad":"s2990_bad.js","expect_lines_min":1}
+{"key":"typescript:S3257","bad":"s3257_bad.ts","expect_lines_min":1}
+{"key":"javascript:S3798","bad":"s3798_bad.js","expect_lines_min":1}
+{"key":"typescript:S4136","bad":"s4136_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4137","bad":"s4137_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4156","bad":"s4156_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4157","bad":"s4157_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4204","bad":"s4204_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4322","bad":"s4322_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4323","bad":"s4323_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4324","bad":"s4324_bad.ts","expect_lines_min":1}
+{"key":"javascript:S4326","bad":"s4326_bad.js","expect_lines_min":1}
+{"key":"typescript:S4327","bad":"s4327_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4335","bad":"s4335_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4621","bad":"s4621_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4622","bad":"s4622_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4782","bad":"s4782_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6550","bad":"s6550_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6564","bad":"s6564_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6565","bad":"s6565_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6568","bad":"s6568_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6569","bad":"s6569_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6571","bad":"s6571_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6572","bad":"s6572_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6578","bad":"s6578_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6583","bad":"s6583_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6590","bad":"s6590_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6598","bad":"s6598_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6759","bad":"s6759_bad.ts","expect_lines_min":1}
+{"key":"javascript:S6426","bad":"s6426_bad.test.js","expect_lines_min":1}
+{"key":"typescript:S7059","bad":"s7059_bad.ts","expect_lines_min":1}
+{"key":"javascript:S2092","bad":"s2092_bad.js","expect_lines_min":1}
+{"key":"javascript:S2245","bad":"s2245_bad.js","expect_lines_min":1}
+{"key":"javascript:S2255","bad":"s2255_bad.js","expect_lines_min":1}
+{"key":"javascript:S2598","bad":"s2598_bad.js","expect_lines_min":1}
+{"key":"javascript:S2612","bad":"s2612_bad.js","expect_lines_min":1}
+{"key":"javascript:S2699","bad":"s2699_bad.test.js","expect_lines_min":1}
+{"key":"javascript:S2755","bad":"s2755_bad.js","expect_lines_min":1}
+{"key":"javascript:S2819","bad":"s2819_bad.js","expect_lines_min":1}
+{"key":"javascript:S3330","bad":"s3330_bad.js","expect_lines_min":1}
+{"key":"javascript:S3415","bad":"s3415_bad.test.js","expect_lines_min":1}
+{"key":"javascript:S4036","bad":"s4036_bad.js","expect_lines_min":1}
+{"key":"javascript:S4423","bad":"s4423_bad.js","expect_lines_min":1}
+{"key":"javascript:S4426","bad":"s4426_bad.js","expect_lines_min":1}
+{"key":"javascript:S4502","bad":"s4502_bad.js","expect_lines_min":1}
+{"key":"javascript:S4507","bad":"s4507_bad.js","expect_lines_min":1}
+{"key":"javascript:S4721","bad":"s4721_bad.js","expect_lines_min":1}
+{"key":"javascript:S4787","bad":"s4787_bad.js","expect_lines_min":1}
+{"key":"javascript:S4790","bad":"s4790_bad.js","expect_lines_min":1}
+{"key":"javascript:S4817","bad":"s4817_bad.js","expect_lines_min":1}
+{"key":"javascript:S4818","bad":"s4818_bad.js","expect_lines_min":1}
+{"key":"javascript:S4823","bad":"s4823_bad.js","expect_lines_min":1}
+{"key":"javascript:S4829","bad":"s4829_bad.js","expect_lines_min":1}
+{"key":"javascript:S4830","bad":"s4830_bad.js","expect_lines_min":1}
+{"key":"javascript:S5042","bad":"s5042_bad.js","expect_lines_min":1}
+{"key":"javascript:S5122","bad":"s5122_bad.js","expect_lines_min":1}
+{"key":"javascript:S5148","bad":"s5148_bad.js","expect_lines_min":1}
+{"key":"javascript:S5247","bad":"s5247_bad.js","expect_lines_min":1}
+{"key":"javascript:S5863","bad":"s5863_bad.test.js","expect_lines_min":1}
+{"key":"javascript:S5973","bad":"s5973_bad.test.js","expect_lines_min":1}
+{"key":"javascript:S6079","bad":"s6079_bad.test.js","expect_lines_min":1}
+{"key":"javascript:S6092","bad":"s6092_bad.test.js","expect_lines_min":1}
+{"key":"typescript:S4798","bad":"s4798_bad.ts","expect_lines_min":1}
+{"key":"javascript:S1110","bad":"s1110_bad.js","expect_lines_min":1}
+{"key":"javascript:S1529","bad":"s1529_bad.js","expect_lines_min":1}
+{"key":"javascript:S3735","bad":"s3735_bad.js","expect_lines_min":1}
+{"key":"javascript:S6638","bad":"s6638_bad.js","expect_lines_min":1}
+{"key":"javascript:S107","bad":"s107_bad.js","expect_lines_min":1}
+{"key":"javascript:S134","bad":"s134_bad.js","expect_lines_min":1}
+{"key":"javascript:S135","bad":"s135_bad.js","expect_lines_min":1}
+{"key":"javascript:S888","bad":"s888_bad.js","expect_lines_min":1}
+{"key":"javascript:S881","bad":"s881_bad.js","expect_lines_min":1}
+{"key":"javascript:S905","bad":"s905_bad.js","expect_lines_min":1}
+{"key":"javascript:S106","bad":"s106_bad.js","expect_lines_min":1}
+{"key":"javascript:S878","bad":"s878_bad.js","expect_lines_min":1}
+{"key": "javascript:S1192", "bad": "s1192_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1441", "bad": "s1441_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S2430", "bad": "s2430_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1656", "bad": "s1656_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1488", "bad": "s1488_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1763", "bad": "s1763_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1301", "bad": "s1301_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1479", "bad": "s1479_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1821", "bad": "s1821_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3616", "bad": "s3616_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S4524", "bad": "s4524_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1066", "bad": "s1066_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1116", "bad": "s1116_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1119", "bad": "s1119_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1126", "bad": "s1126_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1154", "bad": "s1154_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1199", "bad": "s1199_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1321", "bad": "s1321_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1525", "bad": "s1525_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1848", "bad": "s1848_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S2201", "bad": "s2201_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S2208", "bad": "s2208_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S2681", "bad": "s2681_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3504", "bad": "s3504_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3696", "bad": "s3696_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3863", "bad": "s3863_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3984", "bad": "s3984_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6660", "bad": "s6660_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6836", "bad": "s6836_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6859", "bad": "s6859_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6435", "bad": "s6435_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6438", "bad": "s6438_bad.jsx", "expect_lines_min": 1}
+{"key": "javascript:S6439", "bad": "s6439_bad.jsx", "expect_lines_min": 1}
+{"key": "javascript:S6440", "bad": "s6440_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6442", "bad": "s6442_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6443", "bad": "s6443_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6477", "bad": "s6477_bad.jsx", "expect_lines_min": 1}
+{"key": "javascript:S6478", "bad": "s6478_bad.jsx", "expect_lines_min": 1}
+{"key": "javascript:S6479", "bad": "s6479_bad.jsx", "expect_lines_min": 1}
+{"key": "javascript:S6480", "bad": "s6480_bad.jsx", "expect_lines_min": 1}
+{"key": "javascript:S6481", "bad": "s6481_bad.jsx", "expect_lines_min": 1}
+{"key": "javascript:S6746", "bad": "s6746_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6747", "bad": "s6747_bad.jsx", "expect_lines_min": 1}
+{"key": "javascript:S6748", "bad": "s6748_bad.jsx", "expect_lines_min": 1}
+{"key": "javascript:S6749", "bad": "s6749_bad.jsx", "expect_lines_min": 1}
+{"key": "javascript:S6750", "bad": "s6750_bad.jsx", "expect_lines_min": 1}
+{"key": "javascript:S6754", "bad": "s6754_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6756", "bad": "s6756_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6757", "bad": "s6757_bad.jsx", "expect_lines_min": 1}
+{"key": "javascript:S6761", "bad": "s6761_bad.jsx", "expect_lines_min": 1}
+{"key": "javascript:S6763", "bad": "s6763_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6766", "bad": "s6766_bad.jsx", "expect_lines_min": 1}
+{"key": "javascript:S6770", "bad": "s6770_bad.jsx", "expect_lines_min": 1}
+{"key": "javascript:S6772", "bad": "s6772_bad.jsx", "expect_lines_min": 1}
+{"key": "javascript:S6774", "bad": "s6774_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6775", "bad": "s6775_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6788", "bad": "s6788_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6789", "bad": "s6789_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6790", "bad": "s6790_bad.jsx", "expect_lines_min": 1}
+{"key": "javascript:S6791", "bad": "s6791_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6957", "bad": "s6957_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S2639", "bad": "s2639_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S5842", "bad": "s5842_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S5843", "bad": "s5843_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S5850", "bad": "s5850_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S5852", "bad": "s5852_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S5856", "bad": "s5856_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S5867", "bad": "s5867_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S5868", "bad": "s5868_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S5869", "bad": "s5869_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6019", "bad": "s6019_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6035", "bad": "s6035_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6323", "bad": "s6323_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6324", "bad": "s6324_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6325", "bad": "s6325_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6326", "bad": "s6326_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6328", "bad": "s6328_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6331", "bad": "s6331_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6351", "bad": "s6351_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6353", "bad": "s6353_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6397", "bad": "s6397_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3402", "bad": "s3402_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3403", "bad": "s3403_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3579", "bad": "s3579_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3699", "bad": "s3699_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3757", "bad": "s3757_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3758", "bad": "s3758_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3760", "bad": "s3760_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3782", "bad": "s3782_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3785", "bad": "s3785_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S4123", "bad": "s4123_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6523", "bad": "s6523_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6551", "bad": "s6551_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1117", "bad": "s1117_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1128", "bad": "s1128_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1172", "bad": "s1172_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1226", "bad": "s1226_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1481", "bad": "s1481_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1526", "bad": "s1526_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1537", "bad": "s1537_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S1854", "bad": "s1854_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S2077", "bad": "s2077_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S2123", "bad": "s2123_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S2259", "bad": "s2259_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S2392", "bad": "s2392_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S2589", "bad": "s2589_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S2703", "bad": "s2703_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S2814", "bad": "s2814_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S2870", "bad": "s2870_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S2999", "bad": "s2999_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3353", "bad": "s3353_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3500", "bad": "s3500_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3686", "bad": "s3686_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3723", "bad": "s3723_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S3827", "bad": "s3827_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S4030", "bad": "s4030_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S4043", "bad": "s4043_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S4143", "bad": "s4143_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S4165", "bad": "s4165_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S4784", "bad": "s4784_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S5443", "bad": "s5443_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S5725", "bad": "s5725_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S5860", "bad": "s5860_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S5876", "bad": "s5876_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6441", "bad": "s6441_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6486", "bad": "s6486_bad.jsx", "expect_lines_min": 1}
+{"key": "javascript:S6522", "bad": "s6522_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6544", "bad": "s6544_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6767", "bad": "s6767_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6249", "bad": "s6249_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6252", "bad": "s6252_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6265", "bad": "s6265_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6270", "bad": "s6270_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6275", "bad": "s6275_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6281", "bad": "s6281_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6302", "bad": "s6302_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6303", "bad": "s6303_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6304", "bad": "s6304_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6308", "bad": "s6308_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6317", "bad": "s6317_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6319", "bad": "s6319_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6321", "bad": "s6321_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6327", "bad": "s6327_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6329", "bad": "s6329_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6330", "bad": "s6330_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6332", "bad": "s6332_bad.js", "expect_lines_min": 1}
+{"key": "javascript:S6333", "bad": "s6333_bad.js", "expect_lines_min": 1}
