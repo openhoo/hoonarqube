@@ -147,7 +147,8 @@ mod tests {
 
     #[test]
     fn s6957_allows_current_react_api() {
-        let findings = js_keys("import React from 'react';\nconst x = React.createElement('div');\n");
+        let findings =
+            js_keys("import React from 'react';\nconst x = React.createElement('div');\n");
         assert_eq!(count_key(&findings, "javascript:S6957"), 0);
     }
 }

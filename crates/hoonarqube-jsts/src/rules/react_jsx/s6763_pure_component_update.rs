@@ -56,9 +56,8 @@ mod tests {
 
     #[test]
     fn s6763_flags_member_expression_pure_component_base() {
-        let findings = js_keys(
-            "class A extends React.PureComponent {\n  shouldComponentUpdate() {}\n}\n",
-        );
+        let findings =
+            js_keys("class A extends React.PureComponent {\n  shouldComponentUpdate() {}\n}\n");
         assert_eq!(count_key(&findings, "javascript:S6763"), 1);
     }
 }

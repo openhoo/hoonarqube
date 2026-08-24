@@ -110,7 +110,8 @@ mod tests {
 
     #[test]
     fn s6761_allows_raw_html_without_children_prop() {
-        let findings = jsx_keys("const el = <div dangerouslySetInnerHTML={{__html: 'y'}}></div>;\n");
+        let findings =
+            jsx_keys("const el = <div dangerouslySetInnerHTML={{__html: 'y'}}></div>;\n");
         assert_eq!(count_key(&findings, "javascript:S6761"), 0);
     }
 

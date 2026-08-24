@@ -26,7 +26,8 @@ mod tests {
 
     #[test]
     fn s6757_flags_this_inside_function_component() {
-        let findings = jsx_keys("function C() {\n  console.log(this);\n  return <span></span>;\n}\n");
+        let findings =
+            jsx_keys("function C() {\n  console.log(this);\n  return <span></span>;\n}\n");
         assert_eq!(count_key(&findings, "javascript:S6757"), 1);
     }
 

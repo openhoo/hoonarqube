@@ -59,9 +59,8 @@ mod tests {
 
     #[test]
     fn s6747_allows_data_aria_and_handler_attributes() {
-        let findings = jsx_keys(
-            "const el = <div data-x=\"1\" aria-hidden=\"true\" onClick={f}></div>;\n",
-        );
+        let findings =
+            jsx_keys("const el = <div data-x=\"1\" aria-hidden=\"true\" onClick={f}></div>;\n");
         assert_eq!(count_key(&findings, "javascript:S6747"), 0);
     }
 

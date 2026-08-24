@@ -33,7 +33,8 @@ mod tests {
 
     #[test]
     fn s6775_flags_default_for_optional_prop() {
-        let findings = js_keys("C.propTypes = {a: PropTypes.string};\nC.defaultProps = {a: 'x'};\n");
+        let findings =
+            js_keys("C.propTypes = {a: PropTypes.string};\nC.defaultProps = {a: 'x'};\n");
         assert_eq!(count_key(&findings, "javascript:S6775"), 1);
     }
 
