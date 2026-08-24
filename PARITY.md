@@ -14,9 +14,12 @@ line-level, per rule key.
 | JavaScript/TS | 381 pairs | 308 | **0 confirmed** | 70 (33 OUT-OF-SCOPE ts misfiles, 27 TRUE-GAP = we exceed CE oracle, 5 control-not-clean, 4 SQ-OVERFIRE on deprecated/noise rules) |
 | C# | 451 pairs | scan blocked* | n/a | n/a |
 
-*C#: SQ CE's C# analyzer requires Roslyn diagnostic output from a real MSBuild/VSTS-style build
-pipeline; the dotnet-sonarscanner begin/build/end loop cannot complete on bare fixture collections
-(no ProjectGuid/MSBuild legacy model). C# parity is instead anchored by: rule-for-rule catalog
+*C#: SQ CE's C# analyzer requires Roslyn diagnostic output from an MSBuild-integrated
+build. Attempted routes: host dotnet-sonarscanner 11.2.1 + SDK 10 (.NET 10, legacy-GUID variants,
+--no-incremental clean rebuilds), containerized mcr.dotnet/sdk:10.0, sln vs csproj entry — all fail
+either at begin ("unable to collect required information") or end ("project has not been built /
+no valid ProjectGuid"), i.e. the SonarC# Roslyn injection never produces ProjectInfo.xml for this
+dotnet-SDK-10 + scanner-11.2.1 + fixture-collection combination. C# parity is instead anchored by: rule-for-rule catalog
 match, per-rule unit suites (433→1194 crate-wide), and the shared tree-sitter detection semantics
 reviewed in the hardening pass. The harness scaffolding (`oracle-cs.csproj/.sln`,
 `tools/oracle/run_scan.sh`) remains in place for a future MSBuild-integrated run.
