@@ -1,0 +1,52 @@
+//! Attribute/test and override/member contracts (Tiers A7-A8).
+//! A7 — attributes tracked & test contracts
+
+pub(crate) mod any_with_equality_lambda;
+pub(crate) mod assembly_load_from;
+pub(crate) mod base_calls_on_object_types;
+pub(crate) mod base_equals_misuse;
+pub(crate) mod blocking_on_async;
+pub(crate) mod com_security_invocations;
+pub(crate) mod comparable_contracts;
+pub(crate) mod concurrent_dictionary_delegates;
+pub(crate) mod configure_await_usage;
+pub(crate) mod console_output;
+pub(crate) mod coverage_exclusion_reasons;
+pub(crate) mod dangerous_get_handle;
+pub(crate) mod equality_operator_pairing;
+pub(crate) mod equals_hashcode_pairing;
+pub(crate) mod exception_named_bases;
+pub(crate) mod exit_method_calls;
+pub(crate) mod expected_exception_attributes;
+pub(crate) mod formattable_string_flows;
+pub(crate) mod gc_collect_calls;
+pub(crate) mod get_executing_assembly;
+pub(crate) mod gethashcode_mutable_fields;
+pub(crate) mod ignored_tests;
+pub(crate) mod linqable_loops;
+pub(crate) mod obsolete_tracked;
+pub(crate) mod obsolete_without_reason;
+pub(crate) mod operator_equals_on_classes;
+pub(crate) mod operator_named_alternatives;
+pub(crate) mod ordering_after_filtering;
+pub(crate) mod repeated_orderings;
+pub(crate) mod single_char_overloads;
+pub(crate) mod standard_constructors;
+pub(crate) mod string_concatenation_in_loops;
+pub(crate) mod string_to_array_iteration;
+pub(crate) mod structs_implement_iequatable;
+mod support;
+pub(crate) mod suppress_finalize_usage;
+pub(crate) mod suppression_tracked;
+pub(crate) mod thread_sleep_in_tests;
+pub(crate) mod thread_suspend_resume;
+pub(crate) mod throws_from_special_methods;
+pub(crate) mod to_string_null_returns;
+pub(crate) mod typed_equals_needs_iequatable;
+mod walker;
+pub(crate) mod where_terminal_chains;
+pub(crate) mod zero_based_substring;
+
+pub(crate) use support::attribute_applications;
+pub(crate) use support::enclosing_method;
+pub(crate) use walker::contract_issues;

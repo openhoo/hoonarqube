@@ -1,0 +1,127 @@
+use super::support::WriteKind;
+use super::support::callable_blocks;
+use super::support::identifier_write;
+use super::support::name_is_guarded;
+use super::support::walk_except_blocks;
+use crate::CsLanguage;
+use crate::cst::{ancestors_of, collect_kinds, issue, node_text, range_of};
+use crate::rules::expressions::block_statements;
+use crate::rules::literals::declarator_initializer;
+use hoonarqube_ir::Issue;
+use tree_sitter::Node;
+
+/// csharpsquid:S2259 — dereferencing a known-null reference crashes.
+/// Bound: straight-line knowledge inside one block — names assigned
+/// `null` by an unconditional statement stay null until another store
+/// or an unknown-state use (`out`/`ref`) clears them; a member-wide
+/// textual guard exempts a name entirely. Cross-branch reasoning is out
+/// of scope.
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for body in callable_blocks(root) {
+        let body_text = node_text(body, source);
+        for block in collect_kinds(body, &["block"]) {
+            let mut known_null: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            for statement in block_statements(block) {
+                // Dereferences first: statements are processed in order.
+                walk_except_blocks(statement, &mut |node| {
+                    if !matches!(
+                        node.kind(),
+                        "member_access_expression" | "element_access_expression"
+                    ) {
+                        return;
+                    }
+                    let Some(base) = node.child_by_field_name("expression") else {
+                        return;
+                    };
+                    if base.kind() != "identifier" {
+                        return;
+                    }
+                    let name = node_text(base, source);
+                    if !known_null.contains(name)
+                        || node_text(node, source).contains('?')
+                        || name_is_guarded(body_text, name)
+                    {
+                        return;
+                    }
+                    issues.push(issue(
+                        language,
+                        "S2259",
+                        format!("'{name}' is null here; this dereference will throw."),
+                        range_of(base),
+                    ));
+                });
+                // Then state updates from this statement's writes.
+                for identifier in collect_kinds(statement, &["identifier"]) {
+                    let passes_by_reference = identifier.parent().is_some_and(|parent| {
+                        parent.kind() == "argument"
+                            && parent.children(&mut parent.walk()).any(|child| {
+                                !child.is_named()
+                                    && matches!(node_text(child, source), "out" | "ref")
+                            })
+                    });
+                    if passes_by_reference {
+                        known_null.remove(node_text(identifier, source));
+                        continue;
+                    }
+                    match identifier_write(identifier) {
+                        Some(WriteKind::Store) => {
+                            let stores_null = identifier.parent().is_some_and(|parent| {
+                                parent
+                                    .child_by_field_name("right")
+                                    .is_some_and(|right| right.kind() == "null_literal")
+                                    || declarator_initializer(parent, identifier)
+                                        .is_some_and(|value| value.kind() == "null_literal")
+                            });
+                            if stores_null && !conditional_context(identifier) {
+                                known_null.insert(node_text(identifier, source).to_owned());
+                            } else {
+                                known_null.remove(node_text(identifier, source));
+                            }
+                        }
+                        Some(WriteKind::Increment) => {
+                            known_null.remove(node_text(identifier, source));
+                        }
+                        None => {}
+                    }
+                }
+            }
+        }
+    }
+    issues
+}
+
+/// Ancestors between `node` and its nearest block-like boundary that run
+/// conditionally: branches, loops, handlers, short-circuit operands.
+fn conditional_context(node: Node<'_>) -> bool {
+    ancestors_of(node)
+        .take_while(|ancestor| {
+            !matches!(
+                ancestor.kind(),
+                "method_declaration"
+                    | "constructor_declaration"
+                    | "destructor_declaration"
+                    | "accessor_declaration"
+                    | "local_function_statement"
+                    | "operator_declaration"
+            )
+        })
+        .any(|ancestor| {
+            matches!(
+                ancestor.kind(),
+                "if_statement"
+                    | "while_statement"
+                    | "for_statement"
+                    | "foreach_statement"
+                    | "do_statement"
+                    | "switch_statement"
+                    | "switch_section"
+                    | "try_statement"
+                    | "catch_clause"
+                    | "finally_clause"
+                    | "conditional_expression"
+                    | "using_statement"
+            )
+        })
+}

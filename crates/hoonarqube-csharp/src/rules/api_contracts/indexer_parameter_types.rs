@@ -1,0 +1,45 @@
+use crate::CsLanguage;
+use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of, simple_name};
+use hoonarqube_ir::Issue;
+use tree_sitter::Node;
+
+/// csharpsquid:S3876 — indexers on other types read as opaque lookups.
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    collect_kinds(root, &["indexer_declaration"])
+        .into_iter()
+        .filter(|indexer| !is_error_tainted(*indexer))
+        .filter(|indexer| {
+            indexer
+                .child_by_field_name("parameters")
+                .is_some_and(|list| {
+                    parameters_from_list(list).iter().any(|parameter| {
+                        parameter
+                            .child_by_field_name("type")
+                            .is_some_and(|type_node| {
+                                !INDEXER_PARAMETER_TYPES
+                                    .contains(&simple_name(node_text(type_node, source)))
+                            })
+                    })
+                })
+        })
+        .map(|indexer| {
+            issue(
+                language,
+                "S3876",
+                "Index on a string or integral type.",
+                range_of(indexer),
+            )
+        })
+        .collect()
+}
+
+/// Types acceptable for indexer parameters.
+const INDEXER_PARAMETER_TYPES: [&str; 12] = [
+    "string", "String", "int", "uint", "long", "ulong", "short", "ushort", "byte", "sbyte", "char",
+    "nint",
+];
+
+/// Parameters behind either bracketed or parenthesized lists.
+fn parameters_from_list(list: Node<'_>) -> Vec<Node<'_>> {
+    collect_kinds(list, &["parameter"])
+}
