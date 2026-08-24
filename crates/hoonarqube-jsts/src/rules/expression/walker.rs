@@ -77,6 +77,11 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
         }
     }
 
+    /// Intentional CE divergence (`S1774`): the upstream documentation example
+    /// marks even a single-level ternary Noncompliant, and the captured engine
+    /// emits "Ternary operator used." on every ternary in oracle-js. We
+    /// deliberately implement the narrower nesting-only policy: only ternaries
+    /// nested inside another ternary are flagged.
     fn visit_conditional_expression(&mut self, it: &ConditionalExpression<'a>) {
         if self.ternary_depth > 0 {
             self.sink.emit_span(
@@ -417,5 +422,16 @@ host = '10.0.0.1';
                 "expected {key}"
             );
         }
+    }
+
+    #[test]
+    fn s1774_flags_only_nested_ternaries_intentional_ce_divergence() {
+        // Single ternary: clean here, though the captured engine would flag
+        // it (SQ-OVERFIRE quirk; disposition pinned per project decision).
+        let single = js_keys("const v = a ? b : c;\n");
+        assert_eq!(count_key(&single, "javascript:S1774"), 0);
+
+        let nested = js_keys("const v = a ? b : (c ? d : e);\n");
+        assert_eq!(count_key(&nested, "javascript:S1774"), 1);
     }
 }

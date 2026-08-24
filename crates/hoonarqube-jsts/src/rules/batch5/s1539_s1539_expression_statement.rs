@@ -8,6 +8,14 @@ use oxc_span::GetSpan;
 // Generated per-rule checks (moved out of traversal overrides).
 impl MiscCollector<'_> {
     /// `S1539` logic extracted from `visit_expression_statement`.
+    ///
+    /// Intentional CE divergence: the captured engine applies an unreliable
+    /// module-mode heuristic ("'use strict' is unnecessary inside of
+    /// modules.") that misfires on plain scripts (oracle-js `s1539_good.js`,
+    /// where the directive sits in canonical top-of-script position), and
+    /// the upstream documentation example instead targets function-level
+    /// directives. We deliberately flag only directives that lost their
+    /// directive-prologue position, which is the actionable defect.
     pub(crate) fn check_s1539_expression_statement(&mut self, it: &ExpressionStatement<'_>) {
         // `S1539`: a surviving string-literal `"use strict"` statement is by
         // definition outside a directive prologue (valid ones become

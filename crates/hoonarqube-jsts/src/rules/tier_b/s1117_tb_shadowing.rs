@@ -5,25 +5,19 @@ use crate::support::{IssueSink, RuleScope};
 // ---------------------------------------------------------------------------
 // Tier B rule queries over the scope model.
 
-/// S1117 — an inner declaration shadowing an outer binding that is still
-/// referenced later.
+/// S1117 — any inner declaration shadowing a binding from an enclosing
+/// scope. CE-parity: the documented rule and the captured engine flag
+/// shadowing unconditionally, even when the outer binding is never read
+/// afterwards (oracle-js `s1117_good.js`), so no usage gate is applied.
 pub(crate) fn check_tb_shadowing(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
     for &(outer, inner) in &model.shadows {
-        let outer_binding = &model.bindings[outer];
-        let decl = model.bindings[inner].decl;
-        let used_after = outer_binding
-            .reads
-            .iter()
-            .any(|read| read.start > decl.start);
-        if used_after {
-            let name = outer_binding.name;
-            sink.emit_span(
-                RuleScope::Both,
-                "S1117",
-                &format!("Rename this '{name}' declaration; it shadows one from an outer scope."),
-                decl,
-            );
-        }
+        let name = model.bindings[outer].name;
+        sink.emit_span(
+            RuleScope::Both,
+            "S1117",
+            &format!("Rename this '{name}' declaration; it shadows one from an outer scope."),
+            model.bindings[inner].decl,
+        );
     }
 }
 
@@ -32,11 +26,14 @@ mod tests {
     use crate::test_support::*;
 
     #[test]
-    fn shadowing_flagged_only_when_outer_used_after_inner_declaration() {
-        let flagged = js("let x = 1;\nfunction g() {\n  let x = 2;\n}\ng(x);\n");
-        assert_eq!(filtered(&flagged, "S1117").len(), 1);
+    fn shadowing_flagged_regardless_of_outer_usage() {
+        // CE-parity flip: SQ fires on the shadowing declaration itself even
+        // when the outer variable is unused afterwards (s1117_good.js); the
+        // old usage gate made us silently pass such controls.
+        let used = js("let x = 1;\nfunction g() {\n  let x = 2;\n}\ng(x);\n");
+        assert_eq!(filtered(&used, "S1117").len(), 1);
 
-        let clean = js("let x = 1;\nfunction g() {\n  let x = 2;\n}\ng();\n");
-        assert_eq!(filtered(&clean, "S1117").len(), 0);
+        let unused_outer = js("let x = 1;\nfunction g() {\n  let x = 2;\n}\ng();\n");
+        assert_eq!(filtered(&unused_outer, "S1117").len(), 1);
     }
 }

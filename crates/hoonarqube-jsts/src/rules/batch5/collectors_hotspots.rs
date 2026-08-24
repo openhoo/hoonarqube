@@ -268,8 +268,15 @@ mod tests {
         let no_iv = js_keys("crypto.createCipheriv('aes-128-cbc', key, null);\n");
         assert_eq!(count_key(&no_iv, "javascript:S5542"), 1);
 
-        let clean = js_keys("crypto.createCipheriv('aes-128-cbc', key, iv);\n");
-        assert_eq!(count_key(&clean, "javascript:S5542"), 0);
+        // CE-parity flip: the documented scope treats CBC as insecure
+        // regardless of IV; the captured engine fires on `aes-256-cbc` with
+        // a zeroed Buffer.alloc(16) IV (oracle-js s5542_good.js) and co-fires
+        // with S5547 on `des-ede3-cbc` (s5547_bad.js).
+        let cbc_with_iv = js_keys("crypto.createCipheriv('aes-128-cbc', key, iv);\n");
+        assert_eq!(count_key(&cbc_with_iv, "javascript:S5542"), 1);
+
+        let gcm = js_keys("crypto.createCipheriv('aes-256-gcm', key, iv);\n");
+        assert_eq!(count_key(&gcm, "javascript:S5542"), 0);
     }
 
     #[test]

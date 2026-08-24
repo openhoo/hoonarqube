@@ -49,6 +49,7 @@ pub(crate) fn check_ts_type_rules(
         },
         class_stack: Vec::new(),
         constructor_depth: 0,
+        try_guard_depth: 0,
     };
     collector.visit_program(program);
     collector.sink.issues

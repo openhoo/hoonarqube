@@ -257,15 +257,20 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
     fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
         if let Some(test) = &it.test
             && let Expression::BinaryExpression(binary) = unparenthesized(test)
-            && matches!(
-                binary.operator,
-                BinaryOperator::Equality | BinaryOperator::Inequality
-            )
+            // CE-parity: documented scope covers `==`/`!=`; the captured
+            // engine additionally rejects the strict variants (oracle-js
+            // `s888_good.js` fires on `i === n`). Documented exception kept:
+            // tests against `null` are ignored. The step-by-one exception is
+            // intentionally NOT implemented because the captured engine does
+            // not honor it either (it flags `i === n` with an `i++` update).
+            && let Some(operator_text) = loop_equality_operator_text(binary.operator)
+            && !matches!(unparenthesized(&binary.left), Expression::NullLiteral(_))
+            && !matches!(unparenthesized(&binary.right), Expression::NullLiteral(_))
         {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S888",
-                "Use a strict comparison in this loop condition.",
+                &format!("Replace '{operator_text}' operator with <=, >=, < or >."),
                 test.span(),
             );
         }
@@ -427,6 +432,18 @@ pub(crate) fn is_constant_true(expression: Option<&Expression<'_>>) -> bool {
     }
 }
 
+/// Operator text for the equality operators covered by `S888`, `None` for
+/// every other operator.
+fn loop_equality_operator_text(operator: BinaryOperator) -> Option<&'static str> {
+    match operator {
+        BinaryOperator::Equality => Some("=="),
+        BinaryOperator::Inequality => Some("!="),
+        BinaryOperator::StrictEquality => Some("==="),
+        BinaryOperator::StrictInequality => Some("!=="),
+        _ => None,
+    }
+}
+
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_loop_rules(ctx.program, ctx.source, ctx.index, ctx.language)
 }
@@ -436,12 +453,27 @@ mod tests {
     use crate::test_support::*;
 
     #[test]
-    fn s888_flags_loose_equality_in_for_test() {
+    fn s888_flags_loose_and_strict_equality_in_for_test() {
         let loose = js_keys("for (let i = 0; i == n; i++) {}\n");
         assert_eq!(count_key(&loose, "javascript:S888"), 1);
 
+        // CE-parity pin: strict equality in a loop condition is equally
+        // dangerous and flagged identically by the captured engine.
         let strict = js_keys("for (let i = 0; i === n; i++) {}\n");
-        assert_eq!(count_key(&strict, "javascript:S888"), 0);
+        assert_eq!(count_key(&strict, "javascript:S888"), 1);
+    }
+
+    #[test]
+    fn s888_flags_inequality_but_exempt_tests_against_null() {
+        let inequality = js_keys("for (let i = 0; i != n; i += 2) {}\n");
+        assert_eq!(count_key(&inequality, "javascript:S888"), 1);
+
+        // Documented exception: comparisons against `null` are ignored.
+        let null_test = js_keys("for (let i = 0; arr[i] != null; i++) {}\n");
+        assert_eq!(count_key(&null_test, "javascript:S888"), 0);
+
+        let strict_null_test = js_keys("for (let i = 0; arr[i] !== null; i++) {}\n");
+        assert_eq!(count_key(&strict_null_test, "javascript:S888"), 0);
     }
 
     #[test]

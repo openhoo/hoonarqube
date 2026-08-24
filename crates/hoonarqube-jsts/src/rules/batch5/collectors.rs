@@ -19,6 +19,7 @@ use oxc_ast::ast::ObjectExpression;
 use oxc_ast::ast::ObjectProperty;
 use oxc_ast::ast::ObjectPropertyKind;
 use oxc_ast::ast::PropertyDefinition;
+use oxc_ast::ast::ReturnStatement;
 use oxc_ast::ast::Statement;
 use oxc_ast::ast::StringLiteral;
 use oxc_ast::ast::TSAnyKeyword;
@@ -35,18 +36,19 @@ use oxc_ast::ast::TSTypeLiteral;
 use oxc_ast::ast::TSTypeParameter;
 use oxc_ast::ast::TSUnionType;
 use oxc_ast::ast::TemplateLiteral;
+use oxc_ast::ast::TryStatement;
 use oxc_ast::ast::VariableDeclarator;
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_arrow_function_expression, walk_assignment_expression, walk_await_expression,
     walk_call_expression, walk_class, walk_formal_parameter, walk_import_declaration,
     walk_logical_expression, walk_member_expression, walk_method_definition, walk_new_expression,
-    walk_object_property, walk_property_definition, walk_statement, walk_string_literal,
-    walk_template_literal, walk_ts_any_keyword, walk_ts_enum_declaration,
-    walk_ts_interface_declaration, walk_ts_intersection_type, walk_ts_namespace_declaration,
-    walk_ts_non_null_expression, walk_ts_property_signature, walk_ts_type_alias_declaration,
-    walk_ts_type_assertion, walk_ts_type_literal, walk_ts_type_parameter, walk_ts_union_type,
-    walk_variable_declarator,
+    walk_object_property, walk_property_definition, walk_return_statement, walk_statement,
+    walk_string_literal, walk_template_literal, walk_try_statement, walk_ts_any_keyword,
+    walk_ts_enum_declaration, walk_ts_interface_declaration, walk_ts_intersection_type,
+    walk_ts_namespace_declaration, walk_ts_non_null_expression, walk_ts_property_signature,
+    walk_ts_type_alias_declaration, walk_ts_type_assertion, walk_ts_type_literal,
+    walk_ts_type_parameter, walk_ts_union_type, walk_variable_declarator,
 };
 use oxc_span::GetSpan;
 
@@ -73,6 +75,9 @@ pub(crate) struct TsTypeCollector<'s, 'index> {
     pub(crate) class_stack: Vec<String>,
     /// Constructor nesting depth (`S7059`).
     pub(crate) constructor_depth: u32,
+    /// Depth of enclosing try statements that have a catch or finally
+    /// handler (`S4326` return-await exemption).
+    pub(crate) try_guard_depth: u32,
 }
 
 impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
@@ -197,6 +202,25 @@ impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
     fn visit_property_definition(&mut self, it: &PropertyDefinition<'a>) {
         self.check_s1444_property_definition(it);
         walk_property_definition(self, it);
+    }
+
+    fn visit_return_statement(&mut self, it: &ReturnStatement<'a>) {
+        self.check_s4326_return_await(it);
+        walk_return_statement(self, it);
+    }
+
+    fn visit_try_statement(&mut self, it: &TryStatement<'a>) {
+        // `return await` inside a try statement with a catch or finally
+        // handler preserves rejection-handling semantics; those regions are
+        // exempt from the `S4326` return-await finding.
+        let guarded = it.handler.is_some() || it.finalizer.is_some();
+        if guarded {
+            self.try_guard_depth += 1;
+        }
+        walk_try_statement(self, it);
+        if guarded {
+            self.try_guard_depth -= 1;
+        }
     }
 
     fn visit_await_expression(&mut self, it: &AwaitExpression<'a>) {

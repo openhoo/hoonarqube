@@ -7,8 +7,14 @@ use oxc_ast::ast::JSXElementName;
 use oxc_span::GetSpan;
 
 impl ReactCollector<'_> {
-    /// `S6481`: inline objects or arrays passed as `Context.Provider`
-    /// values.
+    /// `S6481`: freshly created object or array literals passed as
+    /// `Context.Provider` values.
+    ///
+    /// Intentional CE divergence: the captured engine also fires on provably
+    /// stable values such as hoisted module-level constants (oracle-js
+    /// `s6481_good.jsx`), which already provide exactly the memoization the
+    /// rule asks for. We restrict the finding to inline literals evaluated
+    /// in place; identifiers (including module-level memoized values) pass.
     pub(crate) fn check_context_provider_value(&mut self, element: &JSXElement<'_>) {
         let JSXElementName::MemberExpression(member) = &element.opening_element.name else {
             return;
@@ -61,6 +67,16 @@ mod tests {
     #[test]
     fn s6481_ignores_non_provider_member_elements() {
         let findings = jsx_keys("const el = <Ctx.Consumer value={{a: 1}}></Ctx.Consumer>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6481"), 0);
+    }
+
+    #[test]
+    fn s6481_allows_hoisted_module_level_memo_const() {
+        // CE-divergence pin: stable module-level references stay clean even
+        // though the captured engine overfires on them.
+        let findings = jsx_keys(
+            "const memo = {a: 1};\nconst el = <Ctx.Provider value={memo}></Ctx.Provider>;\n",
+        );
         assert_eq!(count_key(&findings, "javascript:S6481"), 0);
     }
 }
