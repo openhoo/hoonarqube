@@ -35,3 +35,18 @@ pub(crate) struct InPlaceCaptureCollector<'p> {
     pub(crate) captures: Vec<(&'p str, &'p str, Span)>,
     pub(crate) references: Vec<(&'p str, Span)>,
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn in_place_capture_needs_later_original_use() {
+        let flagged = js(
+            "function f(list) {\n  const sorted = list.sort();\n  return list.length + sorted.length;\n}\nf(items);\n",
+        );
+        assert_eq!(filtered(&flagged, "S4043").len(), 1);
+        let clean = js("const ordered = items.sort();\nreturn ordered;\n");
+        assert_eq!(filtered(&clean, "S4043").len(), 0);
+    }
+}

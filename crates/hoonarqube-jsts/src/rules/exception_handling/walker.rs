@@ -135,3 +135,62 @@ pub(crate) fn span_contains_comment(comments: &[ScannedComment], span: Span) -> 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_exception_handling(ctx.program, ctx.source, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn exception_handling_rules_flag_empty_rethrow_and_setter_returns() {
+        let source = "\
+function rethrowOnly() {
+  try {
+    a();
+  } catch (e) {
+    throw e;
+  }
+}
+function meaningful() {
+  try {
+    b();
+  } catch (e) {
+    log(e);
+    throw e;
+  }
+}
+function silent() {
+  try {
+    c();
+  } catch {
+  }
+}
+";
+        let keys = js_keys(source);
+        assert_eq!(count_key(&keys, "javascript:S2737"), 1);
+        // The comment-only catch is tolerated by `S2486`.
+        let with_comment = js_keys(
+            "function f() {\n  try {\n    d();\n  } catch {\n    // ignored on purpose\n  }\n}\n",
+        );
+        assert_eq!(count_key(&with_comment, "javascript:S2486"), 0);
+        assert_eq!(count_key(&keys, "javascript:S2486"), 1);
+
+        // A setter returning a value is flagged only for JavaScript files.
+        let setter_source = "class A {\n  set value(next) {\n    return next;\n  }\n}\n";
+        assert_eq!(
+            js(setter_source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S2432"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            ts(setter_source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S2432"))
+                .count(),
+            0
+        );
+    }
+}

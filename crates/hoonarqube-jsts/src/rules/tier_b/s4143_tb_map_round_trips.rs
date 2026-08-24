@@ -59,3 +59,20 @@ pub(crate) struct MapRoundTripCollector<'p> {
     /// Writes to variables, used to detect re-binding between get and set.
     pub(crate) variable_writes: Vec<(&'p str, Span)>,
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn map_set_after_get_round_trip_flagged() {
+        let flagged = js(
+            "function f(map) {\n  const current = map.get('key');\n  map.set('key', current);\n}\nf(m);\n",
+        );
+        assert_eq!(filtered(&flagged, "S4143").len(), 1);
+        let other_key = js("const v = map.get('a');\nmap.set('b', v);\n");
+        assert_eq!(filtered(&other_key, "S4143").len(), 0);
+        let deleted_between = js("const v = map.get('k');\nmap.delete('k');\nmap.set('k', v);\n");
+        assert_eq!(filtered(&deleted_between, "S4143").len(), 0);
+    }
+}

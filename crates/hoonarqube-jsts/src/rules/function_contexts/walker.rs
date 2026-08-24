@@ -239,3 +239,51 @@ pub(crate) fn param_has_default(item: &FormalParameter<'_>) -> bool {
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_function_contexts(ctx.program, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn functions_in_loops_blocks_and_depths_are_flagged() {
+        // S1515: a closure created inside a loop body.
+        let in_loop = js_keys("for (const v of items) {\n  setTimeout(() => v);\n}\n");
+        assert_eq!(count_key(&in_loop, "javascript:S1515"), 1);
+
+        let in_header = js_keys("for (const f of makers) {\n  f();\n}\n");
+        assert_eq!(count_key(&in_header, "javascript:S1515"), 0);
+
+        // S1530: function declaration nested in a block; top level is fine.
+        let in_block = js_keys("{\n  function inner() {}\n}\n");
+        assert_eq!(count_key(&in_block, "javascript:S1530"), 1);
+        let top_level = js_keys("function outer() {}\n");
+        assert_eq!(count_key(&top_level, "javascript:S1530"), 0);
+
+        // S2004: five levels of nesting exceed the maximum of four.
+        let deep_keys = js_keys(
+            "function a() {\n  const b = () => {\n    const c = () => {\n      const d = () => {\n        const e = () => {};\n      };\n    };\n  };\n}\n",
+        );
+        assert_eq!(count_key(&deep_keys, "javascript:S2004"), 1);
+        assert_eq!(count_key(&deep_keys, "javascript:S1515"), 0);
+
+        // Four levels are exactly at the allowed maximum.
+        assert_eq!(
+            count_key(
+                &js_keys(
+                    "function a() {\n  const b = () => {\n    const c = () => {\n      const d = () => {};\n    };\n  };\n}\n"
+                ),
+                "javascript:S2004"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn default_parameters_must_come_last() {
+        let ordered = js_keys("function f(a, b = 1, c = 2) { return a; }\n");
+        assert_eq!(count_key(&ordered, "javascript:S1788"), 0);
+
+        let unordered = js_keys("function f(a = 1, b) { return b; }\n");
+        assert_eq!(count_key(&unordered, "javascript:S1788"), 1);
+    }
+}

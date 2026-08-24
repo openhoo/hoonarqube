@@ -153,3 +153,61 @@ pub(crate) fn is_pointless_expression(expression: &Expression<'_>) -> bool {
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_embedded_effects(ctx.program, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn embedded_updates_and_assignments_require_statement_roots() {
+        let source = "\
+let i = 0;
+i++;
+for (i = 0; i < 3; i++) {
+  foo(i++);
+}
+let j = i++;
+foo(k = 1);
+if (k = 1) {}
+m = n = 1;
+";
+        let report = js(source);
+        let embedded: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| {
+                matches!(
+                    issue.rule_key.as_str(),
+                    "javascript:S881" | "javascript:S1121"
+                )
+            })
+            .map(|issue| {
+                (
+                    issue.rule_key.clone(),
+                    (
+                        issue.range.start.line,
+                        issue.range.start.column,
+                        issue.range.end.line,
+                        issue.range.end.column,
+                    ),
+                )
+            })
+            .collect();
+        // Standalone `i++`, the assignment in the `for` header, and the
+        // statement-root assignment are clean; everything embedded deeper
+        // than a statement root is flagged once per construct.
+        let hit = |rule: &str, line: u32, start: u32, end: u32| {
+            (rule.to_string(), (line, start, line, end))
+        };
+        assert_eq!(
+            embedded,
+            vec![
+                hit("javascript:S881", 4, 6, 9),
+                hit("javascript:S881", 6, 8, 11),
+                hit("javascript:S1121", 7, 4, 9),
+                hit("javascript:S1121", 8, 4, 9),
+                hit("javascript:S1121", 9, 4, 9),
+            ]
+        );
+    }
+}

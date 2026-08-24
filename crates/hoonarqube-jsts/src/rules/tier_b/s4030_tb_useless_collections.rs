@@ -40,3 +40,20 @@ pub(crate) struct UselessCollectionCollector<'p> {
     /// Receiver spans of `push`/`set`/`add`-family calls.
     pub(crate) write_receivers: HashSet<u32>,
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn write_only_collections_flagged() {
+        let map = js("const cache = new Map();\ncache.set('a', 1);\n");
+        assert_eq!(filtered(&map, "S4030").len(), 1);
+        let array = js("const out = [];\nout.push(2);\nout.unshift(3);\n");
+        assert_eq!(filtered(&array, "S4030").len(), 1);
+        let read = js("const kept = [];\nkept.push(1);\nuse(kept);\n");
+        assert_eq!(filtered(&read, "S4030").len(), 0);
+        let indexed = js("const mixed = [];\nmixed[0] = 1;\n");
+        assert_eq!(filtered(&indexed, "S4030").len(), 0);
+    }
+}

@@ -87,3 +87,26 @@ impl<'a> Visit<'a> for CallArgumentOrderCollector<'_> {
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_swapped_call_arguments(ctx.program, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn swapped_call_arguments_detected_by_name_match() {
+        let source = "\
+function draw(width, height) {}
+draw(height, width);
+draw(width, height);
+draw(other, more);
+";
+        let report = js(source);
+        let s2234_lines: Vec<u32> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S2234"))
+            .map(|issue| issue.range.start.line)
+            .collect();
+        assert_eq!(s2234_lines, vec![2]);
+    }
+}

@@ -319,3 +319,110 @@ pub(crate) fn is_empty_block(statement: &Statement<'_>) -> bool {
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_duplicate_rules(ctx.program, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn identical_binary_operands_flagged() {
+        let report =
+            js("if (a === a) {}\nif (b + c === b + c) {}\nif (x == y) {}\nlet t = p && p;\n");
+        assert_eq!(count_key(&report_keys(&report), "javascript:S1764"), 2);
+        let first: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|found| found.rule_key == "javascript:S1764")
+            .collect();
+        assert_eq!(
+            first[0].range,
+            hoonarqube_ir::Range {
+                start: pos(1, 4),
+                end: pos(1, 11),
+            }
+        );
+    }
+
+    #[test]
+    fn identical_if_branches_and_switch_cases_flagged() {
+        let report = js(
+            "function f(cond) {\n  if (cond) { work(); cleanup(); } else { work(); cleanup(); }\n}\n",
+        );
+        // The identical if/else pair is reported by both rule keys.
+        assert_eq!(count_key(&report_keys(&report), "javascript:S1871"), 1);
+        assert_eq!(count_key(&report_keys(&report), "javascript:S3923"), 1);
+
+        let switch = js(
+            "function g(v) {\nswitch (v) { case 1: a(); break; case 2: a(); break; case 3: b(); break; }\n}\n",
+        );
+        assert_eq!(count_key(&report_keys(&switch), "javascript:S1871"), 1);
+
+        // Fallthrough placeholders are not duplicated bodies.
+        let fallthrough = js("switch (v) { case 1: case 2: a(); break; }\n");
+        assert_eq!(count_key(&report_keys(&fallthrough), "javascript:S1871"), 0);
+    }
+
+    #[test]
+    fn all_identical_branch_structures_flagged_once() {
+        let ternary = js("const r = flag ? 1 : 1;\n");
+        assert_eq!(count_key(&report_keys(&ternary), "javascript:S3923"), 1);
+
+        let chain =
+            js("function f(a, b) {\n  if (a) { x(); } else if (b) { x(); } else { x(); }\n}\n");
+        assert_eq!(count_key(&report_keys(&chain), "javascript:S3923"), 1);
+        // Only the last link's branches are identical.
+        assert_eq!(count_key(&report_keys(&chain), "javascript:S1871"), 1);
+    }
+
+    #[test]
+    fn duplicated_conditions_in_chains_and_switches_flagged() {
+        let chain = js("function f(a) {\n  if (a === 1) { x(); } else if (a === 1) { y(); }\n}\n");
+        assert_eq!(count_key(&report_keys(&chain), "javascript:S1862"), 1);
+
+        let distinct =
+            js("function f(a, b) {\n  if (a === 1) { x(); } else if (b === 1) { y(); }\n}\n");
+        assert_eq!(count_key(&report_keys(&distinct), "javascript:S1862"), 0);
+
+        let switch = js("switch (v) { case 1: r(); break; case 1: s(); break; }\n");
+        assert_eq!(count_key(&report_keys(&switch), "javascript:S1862"), 1);
+    }
+
+    #[test]
+    fn identical_function_bodies_flagged_but_trivial_ones_skipped() {
+        let source = "\
+function alpha() {
+  setup();
+  run();
+}
+function beta() {
+  setup();
+  run();
+}
+function gamma() {
+  other();
+}
+";
+        let report = js(source);
+        assert_eq!(count_key(&report_keys(&report), "javascript:S4144"), 1);
+
+        let trivial = js("function d1() { x(); }\nfunction d2() { x(); }\n");
+        assert_eq!(count_key(&report_keys(&trivial), "javascript:S4144"), 0);
+    }
+
+    #[test]
+    fn invariant_literal_returns_flagged_once_per_function() {
+        let same = js("function f(n) {\n  if (n) { return 'same'; }\n  return 'same';\n}\n");
+        assert_eq!(count_key(&report_keys(&same), "javascript:S3516"), 1);
+
+        let differing = js("function f(n) {\n  if (n) { return 'a'; }\n  return 'b';\n}\n");
+        assert_eq!(count_key(&report_keys(&differing), "javascript:S3516"), 0);
+
+        // A bare `return` means the returns are not all literal values.
+        let bare_mixed = js("function f(n) {\n  if (n) { return; }\n  return 'x';\n}\n");
+        assert_eq!(count_key(&report_keys(&bare_mixed), "javascript:S3516"), 0);
+
+        // Non-literal returns never count as invariant duplicates.
+        let identifiers = js("function f(n, m) {\n  if (n) { return m; }\n  return m;\n}\n");
+        assert_eq!(count_key(&report_keys(&identifiers), "javascript:S3516"), 0);
+    }
+}

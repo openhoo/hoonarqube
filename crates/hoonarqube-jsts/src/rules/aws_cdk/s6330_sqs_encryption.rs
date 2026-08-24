@@ -51,3 +51,45 @@ pub(crate) fn check_s6330_sqs_encryption(
         sink.emit_span(RuleScope::Both, "S6330", DISABLED, value.span());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6330_requires_sqs_encryption() {
+        let count = |source: &str| -> usize {
+            js(source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S6330"))
+                .count()
+        };
+
+        assert_eq!(
+            count("import * as sqs from 'aws-cdk-lib/aws-sqs';\nnew sqs.Queue(this, 'Q');\n"),
+            1
+        );
+        assert_eq!(
+            count(
+                "import * as sqs from 'aws-cdk-lib/aws-sqs';\n\
+             new sqs.Queue(this, 'Q', { encryption: sqs.QueueEncryption.UNENCRYPTED });\n"
+            ),
+            1
+        );
+        assert_eq!(
+            count(
+                "import * as sqs from 'aws-cdk-lib/aws-sqs';\n\
+             new sqs.CfnQueue(this, 'Q', { kmsMasterKeyId: 'k' });\n"
+            ),
+            0
+        );
+        assert_eq!(
+            count(
+                "import * as sqs from 'aws-cdk-lib/aws-sqs';\n\
+             new sqs.Queue(this, 'Q', { encryption: sqs.QueueEncryption.KMS_MANAGED });\n"
+            ),
+            0
+        );
+    }
+}

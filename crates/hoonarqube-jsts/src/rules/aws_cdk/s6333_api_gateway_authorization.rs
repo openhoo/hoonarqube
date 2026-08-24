@@ -120,3 +120,69 @@ fn method_options_span(call: &CallExpression<'_>) -> Span {
         .and_then(oxc_ast::ast::Argument::as_expression)
         .map_or(call.span(), oxc_span::GetSpan::span)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6333_flags_public_api_gateway_methods() {
+        let count = |source: &str| -> usize {
+            js(source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S6333"))
+                .count()
+        };
+
+        // CfnMethod with NONE authorization.
+        assert_eq!(
+            count(
+                "import * as apigateway from 'aws-cdk-lib/aws-apigateway';\n\
+             new apigateway.CfnMethod(this, 'M', { authorizationType: 'NONE' });\n"
+            ),
+            1
+        );
+
+        // CfnMethod without authorizationType.
+        assert_eq!(
+            count(
+                "import * as apigateway from 'aws-cdk-lib/aws-apigateway';\n\
+             new apigateway.CfnMethod(this, 'M', { httpMethod: 'GET' });\n"
+            ),
+            1
+        );
+
+        // root.addMethod without authorization and without API default.
+        assert_eq!(
+            count(
+                "import * as apigateway from 'aws-cdk-lib/aws-apigateway';\n\
+             const api = new apigateway.RestApi(this, 'Api');\n\
+             api.root.addMethod('GET');\n"
+            ),
+            1
+        );
+
+        // root.addMethod inheriting a NONE default.
+        assert_eq!(
+            count(
+                "import * as apigateway from 'aws-cdk-lib/aws-apigateway';\n\
+             const api = new apigateway.RestApi(this, 'Api', {\n\
+             \x20 defaultMethodOptions: { authorizationType: 'NONE' },\n\
+             });\n\
+             api.root.addMethod('GET', {});\n"
+            ),
+            1
+        );
+
+        // Clean: explicit IAM authorization.
+        assert_eq!(
+            count(
+                "import * as apigateway from 'aws-cdk-lib/aws-apigateway';\n\
+             const api = new apigateway.RestApi(this, 'Api');\n\
+             api.root.addMethod('GET', { authorizationType: 'IAM' });\n"
+            ),
+            0
+        );
+    }
+}

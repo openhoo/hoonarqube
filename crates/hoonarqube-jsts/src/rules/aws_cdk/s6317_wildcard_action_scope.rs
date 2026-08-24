@@ -120,3 +120,59 @@ fn sensitive_resource(resource: &str) -> bool {
         && parts[1..4].iter().all(|part| !part.contains('/'))
         && matches!(parts[4], "role/*" | "user/*" | "group/*")
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6317_flags_privilege_escalation_wildcards() {
+        let count = |source: &str| -> usize {
+            js(source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S6317"))
+                .count()
+        };
+
+        // iam:PassRole on all roles.
+        assert_eq!(
+            count(
+                "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 effect: iam.Effect.ALLOW,\n\
+             \x20 actions: ['iam:PassRole'],\n\
+             \x20 resources: ['*'],\n\
+             \x20 principals: [new iam.ServicePrincipal('ec2.amazonaws.com')],\n\
+             });\n"
+            ),
+            1
+        );
+
+        // Account-scoped wildcard role resource.
+        assert_eq!(
+            count(
+                "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 actions: ['sts:AssumeRole'],\n\
+             \x20 resources: ['*:*:*:*:role/*'],\n\
+             \x20 principals: [new iam.ServicePrincipal('ec2.amazonaws.com')],\n\
+             });\n"
+            ),
+            1
+        );
+
+        // Clean: concrete role resource.
+        assert_eq!(
+            count(
+                "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 actions: ['sts:AssumeRole'],\n\
+             \x20 resources: ['arn:aws:iam::123456789012:role/deploy'],\n\
+             \x20 principals: [new iam.ServicePrincipal('ec2.amazonaws.com')],\n\
+             });\n"
+            ),
+            0
+        );
+    }
+}

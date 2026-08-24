@@ -116,3 +116,59 @@ fn search_engine(file: &CdkFile, view: &PropsView<'_, '_>, spec: &DomainSpec) ->
         spec.default_engine
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6308_requires_opensearch_encryption_at_rest() {
+        let count = |source: &str| -> usize {
+            js(source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S6308"))
+                .count()
+        };
+
+        // L2 OpenSearch domain without encryptionAtRestOptions.
+        assert_eq!(
+            count(
+                "import * as opensearch from 'aws-cdk-lib/aws-opensearchservice';\n\
+             new opensearch.Domain(this, 'D', { version: opensearch.EngineVersion.OPENSEARCH_1_0 });\n"
+            ),
+            1
+        );
+
+        // Explicitly disabled encryption.
+        assert_eq!(
+            count(
+                "import * as opensearch from 'aws-cdk-lib/aws-opensearchservice';\n\
+             new opensearch.Domain(this, 'D', {\n\
+             \x20 encryptionAtRestOptions: { enabled: false },\n\
+             });\n"
+            ),
+            1
+        );
+
+        // L1 CfnDomain with an Elasticsearch engine version string.
+        assert_eq!(
+            count(
+                "import * as elasticsearch from 'aws-cdk-lib/aws-elasticsearch';\n\
+             new elasticsearch.CfnDomain(this, 'D', { engineVersion: 'Elasticsearch_7.10' });\n"
+            ),
+            1
+        );
+
+        // Clean: encryption enabled.
+        assert_eq!(
+            count(
+                "import * as opensearch from 'aws-cdk-lib/aws-opensearchservice';\n\
+             new opensearch.Domain(this, 'D', {\n\
+             \x20 encryptionAtRestOptions: { enabled: true },\n\
+             });\n"
+            ),
+            0
+        );
+    }
+}

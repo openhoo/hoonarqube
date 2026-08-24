@@ -41,3 +41,16 @@ pub(crate) fn check_tb_mixed_construction(model: &TbModel<'_>, sink: &mut IssueS
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn mixed_call_and_new_sites_flag_minority_form() {
+        let flagged = js("function Thing() {}\nnew Thing();\nThing();\n");
+        assert_eq!(filtered(&flagged, "S3686").len(), 1);
+        let clean = js("function plain() {}\nplain();\nplain();\n");
+        assert_eq!(filtered(&clean, "S3686").len(), 0);
+    }
+}

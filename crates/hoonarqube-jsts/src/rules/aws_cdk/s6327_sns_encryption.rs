@@ -41,3 +41,38 @@ pub(crate) fn check_s6327_sns_encryption(
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6327_requires_sns_kms_keys() {
+        let count = |source: &str| -> usize {
+            js(source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S6327"))
+                .count()
+        };
+
+        assert_eq!(
+            count("import * as sns from 'aws-cdk-lib/aws-sns';\nnew sns.Topic(this, 'T');\n"),
+            1
+        );
+        assert_eq!(
+            count(
+                "import * as sns from 'aws-cdk-lib/aws-sns';\n\
+             new sns.CfnTopic(this, 'T', { kmsMasterKeyId: 'k' });\n"
+            ),
+            0
+        );
+        assert_eq!(
+            count(
+                "import * as sns from 'aws-cdk-lib/aws-sns';\n\
+             new sns.Topic(this, 'T', { masterKey: 'k' });\n"
+            ),
+            0
+        );
+    }
+}

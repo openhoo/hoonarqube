@@ -179,3 +179,6 @@ use crate::rules::switch_flow::walker::MAX_SWITCH_CASES;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod test_support;

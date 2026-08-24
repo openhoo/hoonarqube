@@ -69,3 +69,56 @@ fn check_statement(
         sink.emit_span(RuleScope::Both, "S6304", MESSAGE, span);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6304_flags_wildcard_resource_policies() {
+        let count = |source: &str| -> usize {
+            js(source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S6304"))
+                .count()
+        };
+
+        assert_eq!(
+            count(
+                "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 effect: iam.Effect.ALLOW,\n\
+             \x20 actions: ['s3:GetObject'],\n\
+             \x20 resources: ['*'],\n\
+             });\n"
+            ),
+            1
+        );
+
+        // KMS key policies are exempt from the wildcard-resource flag.
+        assert_eq!(
+            count(
+                "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 effect: iam.Effect.ALLOW,\n\
+             \x20 actions: ['kms:Decrypt'],\n\
+             \x20 resources: ['*'],\n\
+             });\n"
+            ),
+            0
+        );
+
+        // Clean: scoped resource.
+        assert_eq!(
+            count(
+                "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 actions: ['s3:GetObject'],\n\
+             \x20 resources: ['arn:aws:s3:::bucket/*'],\n\
+             });\n"
+            ),
+            0
+        );
+    }
+}

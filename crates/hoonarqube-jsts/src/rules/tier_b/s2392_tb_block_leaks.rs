@@ -23,3 +23,16 @@ pub(crate) fn check_tb_block_leaks(model: &TbModel<'_>, sink: &mut IssueSink<'_>
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn var_leaking_out_of_its_block_flagged_once() {
+        let flagged = js("if (cond) {\n  var leaky = 1;\n}\nuse(leaky);\n");
+        assert_eq!(filtered(&flagged, "S2392").len(), 1);
+        let clean = js("if (cond) {\n  let scoped = 1;\n  use(scoped);\n}\n");
+        assert_eq!(filtered(&clean, "S2392").len(), 0);
+    }
+}

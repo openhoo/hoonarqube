@@ -1572,3 +1572,398 @@ pub(crate) fn expression_through_this_link(expression: &Expression<'_>, link: &s
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_react_jsx_rules(ctx.program, ctx.source, ctx.index, ctx.language, ctx.rules)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn children_prop_conflicts_with_nested_children() {
+        let both = jsx_keys("const el = <div children={<a/>}><b/></div>;\n");
+        assert_eq!(count_key(&both, "javascript:S6748"), 1);
+
+        let attribute_only = jsx_keys("const el = <div children={<a/>}/>;\n");
+        assert_eq!(count_key(&attribute_only, "javascript:S6748"), 0);
+
+        let nested_only = jsx_keys("const el = <div><b/></div>;\n");
+        assert_eq!(count_key(&nested_only, "javascript:S6748"), 0);
+    }
+
+    #[test]
+    fn children_and_raw_html_attributes_conflict() {
+        let both = jsx_keys(
+            "const el = <div children={<a/>} dangerouslySetInnerHTML={{__html: 'x'}}/>;\n",
+        );
+        assert_eq!(count_key(&both, "javascript:S6761"), 1);
+
+        let raw_only = jsx_keys("const el = <div dangerouslySetInnerHTML={{__html: 'x'}}/>;\n");
+        assert_eq!(count_key(&raw_only, "javascript:S6761"), 0);
+    }
+
+    #[test]
+    fn single_child_fragments_are_flagged() {
+        let element_child = jsx_keys("const el = <><span/></>;\n");
+        assert_eq!(count_key(&element_child, "javascript:S6749"), 1);
+
+        let expression_child = jsx_keys("let item = 1;\nconst el = <>{item}</>;\n");
+        assert_eq!(count_key(&expression_child, "javascript:S6749"), 1);
+
+        let two_children = jsx_keys("const el = <><span/><span/></>;\n");
+        assert_eq!(count_key(&two_children, "javascript:S6749"), 0);
+
+        let empty_fragment = jsx_keys("const el = <></>;\n");
+        assert_eq!(count_key(&empty_fragment, "javascript:S6749"), 0);
+    }
+
+    #[test]
+    fn consumed_render_results_are_flagged() {
+        let consumed = jsx_keys("const el = ReactDOM.render(<span/>, node);\n");
+        assert_eq!(count_key(&consumed, "javascript:S6750"), 1);
+
+        let statement = jsx_keys("ReactDOM.render(<span/>, node);\n");
+        assert_eq!(count_key(&statement, "javascript:S6750"), 0);
+    }
+
+    #[test]
+    fn use_state_pairs_follow_naming_convention() {
+        let symmetric = js_keys("const [count, setCount] = useState(0);\n");
+        assert_eq!(count_key(&symmetric, "javascript:S6754"), 0);
+
+        let asymmetric = js_keys("const [count, setValue] = useState(0);\n");
+        assert_eq!(count_key(&asymmetric, "javascript:S6754"), 1);
+
+        let missing_set_prefix = js_keys("const [count, countUpdated] = useState(0);\n");
+        assert_eq!(count_key(&missing_set_prefix, "javascript:S6754"), 1);
+    }
+
+    #[test]
+    fn noop_state_setters_are_flagged() {
+        let self_assigning = js_keys("setCount(count);\n");
+        assert_eq!(count_key(&self_assigning, "javascript:S6443"), 1);
+
+        let updater = js_keys("setCount(count + 1);\n");
+        assert_eq!(count_key(&updater, "javascript:S6443"), 0);
+
+        let different_value = js_keys("setCount(other);\n");
+        assert_eq!(count_key(&different_value, "javascript:S6443"), 0);
+    }
+
+    #[test]
+    fn find_dom_node_calls_are_flagged() {
+        let flagged = js_keys("ReactDOM.findDOMNode(this).focus();\n");
+        assert_eq!(count_key(&flagged, "javascript:S6788"), 1);
+
+        let other_root = js_keys("wrapper.findDOMNode(this);\n");
+        assert_eq!(count_key(&other_root, "javascript:S6788"), 0);
+    }
+
+    #[test]
+    fn is_mounted_calls_are_flagged() {
+        let flagged = js_keys("if (this.isMounted()) {\n  done();\n}\n");
+        assert_eq!(count_key(&flagged, "javascript:S6789"), 1);
+
+        let other_object = js_keys("if (widget.isMounted()) {\n  done();\n}\n");
+        assert_eq!(count_key(&other_object, "javascript:S6789"), 0);
+    }
+
+    #[test]
+    fn string_refs_and_refs_accesses_are_flagged() {
+        let string_ref = jsx_keys("const el = <input ref=\"name\"/>;\n");
+        assert_eq!(count_key(&string_ref, "javascript:S6790"), 1);
+
+        let callback_ref = jsx_keys("const el = <input ref={(node) => save(node)}/>;\n");
+        assert_eq!(count_key(&callback_ref, "javascript:S6790"), 0);
+
+        let refs_access = js_keys("this.refs.name.focus();\n");
+        assert_eq!(count_key(&refs_access, "javascript:S6790"), 1);
+
+        let refs_write = js_keys("this.refs.name = node;\n");
+        assert_eq!(count_key(&refs_write, "javascript:S6790"), 1);
+
+        let plain_member = js_keys("this.props.name.focus();\n");
+        assert_eq!(count_key(&plain_member, "javascript:S6790"), 0);
+    }
+
+    #[test]
+    fn legacy_lifecycle_methods_are_flagged() {
+        let flagged = js_keys(
+            "class A extends B {\n  componentWillMount() {}\n  componentDidMount() {}\n}\n",
+        );
+        assert_eq!(count_key(&flagged, "javascript:S6791"), 1);
+
+        let safe = js_keys("class A extends B {\n  UNSAFE_componentWillMount() {}\n}\n");
+        assert_eq!(count_key(&safe, "javascript:S6791"), 0);
+    }
+
+    #[test]
+    fn deprecated_react_apis_are_flagged() {
+        let prop_types_package = js_keys("import PropTypes from 'prop-types';\n");
+        assert_eq!(count_key(&prop_types_package, "javascript:S6957"), 1);
+        let create_class = js_keys("const x = React.createClass({});\n");
+        assert_eq!(count_key(&create_class, "javascript:S6957"), 1);
+
+        let render_call = jsx_keys("ReactDOM.render(<span/>, node);\n");
+        assert_eq!(count_key(&render_call, "javascript:S6957"), 1);
+
+        let current_api =
+            js_keys("import React from 'react';\nconst x = React.createElement('div');\n");
+        assert_eq!(count_key(&current_api, "javascript:S6957"), 0);
+    }
+
+    #[test]
+    fn pure_component_update_is_useless() {
+        let flagged = js_keys(
+            "class A extends PureComponent {\n  shouldComponentUpdate() {\n    return true;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&flagged, "javascript:S6763"), 1);
+
+        let plain_component = js_keys(
+            "class A extends Component {\n  shouldComponentUpdate() {\n    return true;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&plain_component, "javascript:S6763"), 0);
+    }
+
+    #[test]
+    fn direct_state_mutations_are_flagged() {
+        let method_mutation = js_keys("this.state.items.push(1);\n");
+        assert_eq!(count_key(&method_mutation, "javascript:S6746"), 1);
+
+        let field_write = js_keys("this.state.count = 5;\n");
+        assert_eq!(count_key(&field_write, "javascript:S6746"), 1);
+
+        let copy_first = js_keys("const copy = [...this.state.items];\ncopy.push(1);\n");
+        assert_eq!(count_key(&copy_first, "javascript:S6746"), 0);
+
+        let props_chain = js_keys("this.props.items.push(1);\n");
+        assert_eq!(count_key(&props_chain, "javascript:S6746"), 0);
+    }
+
+    #[test]
+    fn unescaped_jsx_entities_are_flagged() {
+        // oxc's JSX lexer rejects raw `>` and `}` in text (tolerant parse
+        // recovers with no AST), so the flaggable surface is quote marks.
+        let double_quoted = jsx_keys("const el = <div>say \"hi\"</div>;\n");
+        assert_eq!(count_key(&double_quoted, "javascript:S6766"), 1);
+
+        let apostrophe = jsx_keys("const el = <div>it's here</div>;\n");
+        assert_eq!(count_key(&apostrophe, "javascript:S6766"), 1);
+
+        let plain_text = jsx_keys("const el = <div>plain text</div>;\n");
+        assert_eq!(count_key(&plain_text, "javascript:S6766"), 0);
+    }
+
+    #[test]
+    fn empty_containers_without_comments_are_flagged() {
+        let empty = jsx_keys("const el = <div>{}</div>;\n");
+        assert_eq!(count_key(&empty, "javascript:S6438"), 1);
+
+        let commented = jsx_keys("const el = <div>{/* note */}</div>;\n");
+        assert_eq!(count_key(&commented, "javascript:S6438"), 0);
+    }
+
+    #[test]
+    fn inline_function_props_are_flagged() {
+        let arrow_value = jsx_keys("const el = <button onClick={() => save()}/>;\n");
+        assert_eq!(count_key(&arrow_value, "javascript:S6480"), 1);
+
+        let bound_value = jsx_keys("const el = <button onClick={handler.bind(this)}/>;\n");
+        assert_eq!(count_key(&bound_value, "javascript:S6480"), 1);
+
+        let reference_value = jsx_keys("const el = <button onClick={handler}/>\n;\n");
+        assert_eq!(count_key(&reference_value, "javascript:S6480"), 0);
+    }
+
+    #[test]
+    fn map_index_keys_and_missing_keys_are_flagged() {
+        let index_key = jsx_keys("items.map((item, index) => <li key={index}/>);\n");
+        assert_eq!(count_key(&index_key, "javascript:S6479"), 1);
+        assert_eq!(count_key(&index_key, "javascript:S6477"), 0);
+
+        let stable_key = jsx_keys("items.map((item) => <li key={item.id}/>);\n");
+        assert_eq!(count_key(&stable_key, "javascript:S6479"), 0);
+
+        let missing_key = jsx_keys("items.map((item, index) => <li/>);\n");
+        assert_eq!(count_key(&missing_key, "javascript:S6477"), 1);
+    }
+
+    #[test]
+    fn unknown_lowercase_tags_are_flagged() {
+        let unknown = jsx_keys("const el = <widget/>;\n");
+        assert_eq!(count_key(&unknown, "javascript:S6770"), 1);
+
+        let intrinsic = jsx_keys("const el = <div/>;\n");
+        assert_eq!(count_key(&intrinsic, "javascript:S6770"), 0);
+
+        let custom_element = jsx_keys("const el = <my-widget/>;\n");
+        assert_eq!(count_key(&custom_element, "javascript:S6770"), 0);
+
+        let component = jsx_keys("const el = <Widget/>;\n");
+        assert_eq!(count_key(&component, "javascript:S6770"), 0);
+    }
+
+    #[test]
+    fn render_methods_must_return_jsx_or_null() {
+        let returns_jsx = js_keys("class A {\n  render() {\n    return <span/>;\n  }\n}\n");
+        assert_eq!(count_key(&returns_jsx, "javascript:S6435"), 0);
+
+        let returns_nothing = js_keys("class A {\n  render() {\n    console.log(1);\n  }\n}\n");
+        assert_eq!(count_key(&returns_nothing, "javascript:S6435"), 1);
+
+        let conditional_null = js_keys(
+            "class A {\n  render() {\n    if (done) {\n      return null;\n    }\n    return <span/>;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&conditional_null, "javascript:S6435"), 0);
+    }
+
+    #[test]
+    fn literal_conditionals_rendering_children_are_flagged() {
+        let numeric_guard = jsx_keys("const el = <div>{5 && <span/>}</div>;\n");
+        assert_eq!(count_key(&numeric_guard, "javascript:S6439"), 1);
+
+        let string_guard = jsx_keys("const el = <div>{'x' && <span/>}</div>;\n");
+        assert_eq!(count_key(&string_guard, "javascript:S6439"), 1);
+
+        let boolean_guard =
+            jsx_keys("let ready = true;\nconst el = <div>{ready && <span/>}</div>;\n");
+        assert_eq!(count_key(&boolean_guard, "javascript:S6439"), 0);
+
+        let attribute_position = jsx_keys("const el = <div prop={5 && <span/>}/>;\n");
+        assert_eq!(count_key(&attribute_position, "javascript:S6439"), 0);
+    }
+
+    #[test]
+    fn hook_calls_under_conditions_are_flagged() {
+        let under_if = js_keys("function C() {\n  if (ready) {\n    useState();\n  }\n}\n");
+        assert_eq!(count_key(&under_if, "javascript:S6440"), 1);
+
+        let under_loop = js_keys("for (const item of items) {\n  useState();\n}\n");
+        assert_eq!(count_key(&under_loop, "javascript:S6440"), 1);
+
+        let in_callback = js_keys("useEffect(() => {\n  useState();\n}, []);\n");
+        assert_eq!(count_key(&in_callback, "javascript:S6440"), 1);
+
+        let top_level = js_keys("function Component() {\n  const [v] = useState(0);\n}\n");
+        assert_eq!(count_key(&top_level, "javascript:S6440"), 0);
+    }
+
+    #[test]
+    fn undestructured_use_state_is_flagged() {
+        let plain_binding = js_keys("const state = useState(0);\n");
+        assert_eq!(count_key(&plain_binding, "javascript:S6442"), 1);
+
+        let destructured = js_keys("const [value, setValue] = useState(0);\n");
+        assert_eq!(count_key(&destructured, "javascript:S6442"), 0);
+    }
+
+    #[test]
+    fn inline_context_values_are_flagged() {
+        let object_value = jsx_keys("const el = <Ctx.Provider value={{a: 1}}/>;\n");
+        assert_eq!(count_key(&object_value, "javascript:S6481"), 1);
+
+        let array_value = jsx_keys("const el = <Ctx.Provider value={[1]}/>\n;\n");
+        assert_eq!(count_key(&array_value, "javascript:S6481"), 1);
+
+        let stable_value = jsx_keys("let memo = {};\nconst el = <Ctx.Provider value={memo}/>\n;\n");
+        assert_eq!(count_key(&stable_value, "javascript:S6481"), 0);
+    }
+
+    #[test]
+    fn nested_component_definitions_are_flagged() {
+        let nested = jsx_keys(
+            "function Outer() {\n  function Inner() {\n    return <span/>;\n  }\n  return <Inner/>;\n}\n",
+        );
+        assert_eq!(count_key(&nested, "javascript:S6478"), 1);
+
+        let siblings = jsx_keys(
+            "function Outer() {\n  return <span/>;\n}\nfunction Inner() {\n  return <span/>;\n}\n",
+        );
+        assert_eq!(count_key(&siblings, "javascript:S6478"), 0);
+    }
+
+    #[test]
+    fn set_state_reading_state_is_flagged() {
+        let direct_read = js_keys("this.setState({count: this.state.count + 1});\n");
+        assert_eq!(count_key(&direct_read, "javascript:S6756"), 1);
+
+        let updater = js_keys("this.setState((previous) => ({count: previous.count + 1}));\n");
+        assert_eq!(count_key(&updater, "javascript:S6756"), 0);
+    }
+
+    #[test]
+    fn this_in_functional_components_is_flagged() {
+        let flagged = jsx_keys(
+            "function Component() {\n  return <button onClick={() => this.save()}/>;\n}\n",
+        );
+        assert_eq!(count_key(&flagged, "javascript:S6757"), 1);
+
+        let class_method = js_keys("class Widget {\n  save() {\n    this.x();\n  }\n}\n");
+        assert_eq!(count_key(&class_method, "javascript:S6757"), 0);
+    }
+
+    #[test]
+    fn collapsing_whitespace_between_inline_siblings_is_flagged() {
+        let inline_gap = jsx_keys("const el = <div><span>a</span> <b>c</b></div>;\n");
+        assert_eq!(count_key(&inline_gap, "javascript:S6772"), 1);
+
+        let block_elements = jsx_keys("const el = <div><p>a</p> <p>b</p></div>;\n");
+        assert_eq!(count_key(&block_elements, "javascript:S6772"), 0);
+    }
+
+    #[test]
+    fn props_without_prop_types_flagged_javascript_only() {
+        let flagged = js_keys("class A {\n  m() {\n    return this.props.x;\n  }\n}\n");
+        assert_eq!(count_key(&flagged, "javascript:S6774"), 1);
+
+        let declared = js_keys(
+            "class A {\n  static propTypes = {};\n  m() {\n    return this.props.x;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&declared, "javascript:S6774"), 0);
+
+        let typescript_report = ts("class A {\n  m() {\n    return this.props.x;\n  }\n}\n");
+        assert_eq!(
+            count_key(&report_keys(&typescript_report), "typescript:S6774"),
+            0
+        );
+    }
+
+    #[test]
+    fn default_props_require_matching_required_prop_types() {
+        let missing_entry = js_keys(
+            "C.propTypes = {a: PropTypes.string.isRequired};\nC.defaultProps = {a: 'x', b: 'y'};\n",
+        );
+        assert_eq!(count_key(&missing_entry, "javascript:S6775"), 1);
+
+        let optional_entry =
+            js_keys("C.propTypes = {a: PropTypes.string};\nC.defaultProps = {a: 'x'};\n");
+        assert_eq!(count_key(&optional_entry, "javascript:S6775"), 1);
+
+        let covered = js_keys(
+            "C.propTypes = {a: PropTypes.string.isRequired};\nC.defaultProps = {a: 'x'};\n",
+        );
+        assert_eq!(count_key(&covered, "javascript:S6775"), 0);
+    }
+
+    #[test]
+    fn unknown_jsx_attributes_are_flagged() {
+        let html_spelling = jsx_keys("const el = <div class=\"x\"/>;\n");
+        assert_eq!(count_key(&html_spelling, "javascript:S6747"), 1);
+
+        let unknown_name = jsx_keys("const el = <div foo=\"1\"/>;\n");
+        assert_eq!(count_key(&unknown_name, "javascript:S6747"), 1);
+
+        let known_names = jsx_keys(
+            "const el = <div className=\"x\" tabIndex={0} data-x=\"1\" aria-hidden=\"true\" onClick={f}/>;\n",
+        );
+        assert_eq!(count_key(&known_names, "javascript:S6747"), 0);
+
+        let rules = RuleOptions {
+            jsx_attribute_whitelist: vec!["foo".to_string()],
+            ..RuleOptions::default()
+        };
+        let whitelisted = keys_with_rules("<div foo=\"1\"/>\n", &rules);
+        assert_eq!(count_key(&whitelisted, "javascript:S6747"), 0);
+
+        let on_component = jsx_keys("const el = <Widget arbitraryProp=\"1\"/>;\n");
+        assert_eq!(count_key(&on_component, "javascript:S6747"), 0);
+    }
+}

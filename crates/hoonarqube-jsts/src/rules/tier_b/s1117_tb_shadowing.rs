@@ -26,3 +26,17 @@ pub(crate) fn check_tb_shadowing(model: &TbModel<'_>, sink: &mut IssueSink<'_>) 
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn shadowing_flagged_only_when_outer_used_after_inner_declaration() {
+        let flagged = js("let x = 1;\nfunction g() {\n  let x = 2;\n}\ng(x);\n");
+        assert_eq!(filtered(&flagged, "S1117").len(), 1);
+
+        let clean = js("let x = 1;\nfunction g() {\n  let x = 2;\n}\ng();\n");
+        assert_eq!(filtered(&clean, "S1117").len(), 0);
+    }
+}

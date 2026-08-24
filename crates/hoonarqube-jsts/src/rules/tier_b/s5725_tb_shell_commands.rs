@@ -26,3 +26,19 @@ pub(crate) fn check_tb_shell_commands(
 pub(crate) struct ShellCommandCollector {
     pub(crate) sites: Vec<(Span, &'static str)>,
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn shell_commands_flag_http_downloads_and_unpinned_installs() {
+        let flagged =
+            js("exec('curl http://example.com/install.sh');\nspawn('npm install lodash');\n");
+        assert_eq!(filtered(&flagged, "S5725").len(), 2);
+        let clean = js(
+            "exec('curl https://example.com/install.sh');\nspawn('npm install lodash@4.17.21');\nexecFile('git', ['status']);\n",
+        );
+        assert_eq!(filtered(&clean, "S5725").len(), 0);
+    }
+}

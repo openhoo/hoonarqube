@@ -42,3 +42,20 @@ pub(crate) struct DynamicRegexCollector<'p> {
     pub(crate) static_bindings: HashSet<&'p str>,
     pub(crate) dynamic_bindings: HashSet<&'p str>,
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn dynamic_regex_construction_flagged() {
+        let flagged = js(
+            "new RegExp('a' + userInput);\nnew RegExp(`^${prefix}`);\nconst p = buildPattern();\nnew RegExp(p);\n",
+        );
+        assert_eq!(filtered(&flagged, "S4784").len(), 3);
+        let static_binding = js("const digits = '\\\\d+';\nnew RegExp(digits);\n");
+        assert_eq!(filtered(&static_binding, "S4784").len(), 0);
+        let literal = js("new RegExp('abc');\n");
+        assert_eq!(filtered(&literal, "S4784").len(), 0);
+    }
+}

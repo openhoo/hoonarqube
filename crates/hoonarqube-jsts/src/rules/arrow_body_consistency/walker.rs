@@ -66,3 +66,22 @@ impl<'a> Visit<'a> for ArrowStyleCollector<'_> {
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_arrow_body_consistency(ctx.program, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn mixed_arrow_body_styles_flag_the_minority() {
+        let minority_block =
+            js_keys("const a = () => 1;\nconst b = () => 2;\nconst c = () => {\n  return 3;\n};\n");
+        assert_eq!(count_key(&minority_block, "javascript:S3524"), 1);
+
+        let consistent = js_keys("const a = () => 1;\nconst b = () => 2;\n");
+        assert_eq!(count_key(&consistent, "javascript:S3524"), 0);
+
+        // On ties the expression-bodied arrows are flagged.
+        let tie = js_keys("const a = () => {\n  return 1;\n};\nconst b = () => 2;\n");
+        assert_eq!(count_key(&tie, "javascript:S3524"), 1);
+    }
+}

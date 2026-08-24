@@ -445,3 +445,134 @@ pub(crate) const PURE_STRING_METHODS: [&str; 15] = [
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_statement_rules(ctx.program, ctx.source, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn one_statement_per_line_flags_only_second_onwards_including_nesting() {
+        let source = "\
+let a = 1; let b = 2;
+function f() {
+  let c = 3; let d = 4;
+}
+if (a) { g(); h(); }
+while (false) { i(); j(); }
+try { k(); l(); } catch { m(); n(); }
+";
+        let report = js(source);
+        let s122: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S122"))
+            .collect();
+        // One issue per additional statement sharing a line: top level, the
+        // function body, the `if` block, the `while` block, and two in the
+        // try/catch line (`l()` and `n()`).
+        assert_eq!(s122.len(), 6);
+        assert!(
+            s122.iter()
+                .all(|issue| issue.message == "Only one statement per line is allowed.")
+        );
+        assert_eq!(
+            s122[0].range,
+            hoonarqube_ir::Range {
+                start: pos(1, 11),
+                end: pos(1, 21),
+            }
+        );
+    }
+
+    #[test]
+    fn switch_and_loop_single_statement_bodies_are_walked() {
+        let source = "\
+for (let i = 0; i < 1; i++) o(); p();
+switch (x) { case 1: q(); r(); }
+label: s(); t();
+with (obj) { u(); v(); }
+";
+        let report = js(source);
+        assert_eq!(
+            report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S122"))
+                .count(),
+            4
+        );
+    }
+
+    #[test]
+    fn multiline_block_comment_between_statements_is_fully_counted() {
+        let source = "let a = 1;\n/* one\ntwo\nthree */\nlet b = 2;\n";
+        let report = js(source);
+        assert_eq!(report.metrics.comment_lines, 3);
+        assert_eq!(report.metrics.code_lines, 2);
+    }
+
+    #[test]
+    fn statement_level_batch_rules_fire() {
+        let source = "\
+debugger;
+with (o) { }
+var v = 1;
+import * as ns from 'm';
+import x from '/abs';
+throw 'oops';
+new Error('x');
+;;
+";
+        let flagged = js_keys(source);
+        for key in [
+            "S1525", "S1321", "S3504", "S2208", "S6859", "S3696", "S3984", "S1848", "S1116",
+        ] {
+            assert!(
+                count_key(&flagged, &format!("javascript:{key}")) >= 1,
+                "expected {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn control_structure_batch_rules_fire() {
+        let source = "\
+if (a) b();
+else { if (c) d(); }
+if (e) { if (f) g(); }
+switch (s) { case 1: let z = 2; }
+while (x) continue;
+";
+        let flagged = js_keys(source);
+        for key in ["S121", "S6660", "S1066", "S6836", "S909"] {
+            assert!(
+                count_key(&flagged, &format!("javascript:{key}")) >= 1,
+                "expected {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn statements_after_jumps_are_unreachable() {
+        let source = "\
+function f() {
+  return 1;
+  g();
+}
+function clean() {
+  if (a) {
+    return 1;
+  }
+  g();
+}
+";
+        let report = js(source);
+        let s1763: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S1763"))
+            .map(|issue| issue.range.start.line)
+            .collect();
+        assert_eq!(s1763, vec![3]);
+    }
+}

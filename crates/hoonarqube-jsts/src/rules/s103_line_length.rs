@@ -43,3 +43,39 @@ pub(crate) fn check_line_length(
 pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
     check_line_length(ctx.source, ctx.language, ctx.options)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn line_length_honors_option_with_exact_boundary_clean() {
+        // Exactly at the limit: clean. One more character: flagged.
+        let options = AnalyzerOptions {
+            maximum_line_length: 13,
+        };
+        let at_limit = analyze(
+            PathBuf::from("test.js"),
+            "const ab = 1;\n",
+            JstsLanguage::JavaScript,
+            &options,
+        );
+        assert!(at_limit.issues.is_empty());
+
+        let over_limit = analyze(
+            PathBuf::from("test.js"),
+            "const abc = 1;\n",
+            JstsLanguage::JavaScript,
+            &options,
+        );
+        assert_eq!(
+            over_limit.issues,
+            vec![issue(
+                "javascript:S103",
+                "This line exceeds the maximum allowed length of 13 characters.",
+                (1, 0),
+                (1, 14),
+            )]
+        );
+    }
+}

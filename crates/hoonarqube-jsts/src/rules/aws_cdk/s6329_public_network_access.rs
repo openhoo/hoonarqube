@@ -82,3 +82,63 @@ fn subnet_type<'a, 'p>(view: PropsView<'a, 'p>) -> Option<ValueView<'a, 'p>> {
     let vpc_subnets = property_value(view, "vpcSubnets")?;
     value_object(vpc_subnets).and_then(|object| property_value(object, "subnetType"))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6329_flags_public_network_exposure() {
+        let count = |source: &str| -> usize {
+            js(source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S6329"))
+                .count()
+        };
+
+        // EC2 instance on a public subnet.
+        assert_eq!(
+            count(
+                "import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             new ec2.Instance(this, 'I', {\n\
+             \x20 vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },\n\
+             });\n"
+            ),
+            1
+        );
+
+        // RDS instance on a public subnet without publiclyAccessible.
+        assert_eq!(
+            count(
+                "import * as rds from 'aws-cdk-lib/aws-rds';\n\
+             import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             new rds.DatabaseInstance(this, 'DB', {\n\
+             \x20 vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },\n\
+             });\n"
+            ),
+            1
+        );
+
+        // Clean: private subnet.
+        assert_eq!(
+            count(
+                "import * as rds from 'aws-cdk-lib/aws-rds';\n\
+             import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             new rds.DatabaseInstance(this, 'DB', {\n\
+             \x20 vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },\n\
+             });\n"
+            ),
+            0
+        );
+
+        // DMS replication instance with publiclyAccessible.
+        assert_eq!(
+            count(
+                "import * as dms from 'aws-cdk-lib/aws-dms';\n\
+             new dms.CfnReplicationInstance(this, 'D', { publiclyAccessible: true });\n"
+            ),
+            1
+        );
+    }
+}

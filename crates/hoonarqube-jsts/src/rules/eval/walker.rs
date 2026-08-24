@@ -63,3 +63,18 @@ impl EvalUsageCollector<'_> {
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_eval_usage(ctx.program, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn rule_keys_follow_file_language_prefix() {
+        let javascript = js("eval(\"x\");");
+        assert_eq!(javascript.issues[0].rule_key, "javascript:S1523");
+
+        let typescript = ts("eval(\"x\");");
+        assert_eq!(typescript.issues[0].rule_key, "typescript:S1523");
+        assert_eq!(typescript.language, "typescript");
+    }
+}

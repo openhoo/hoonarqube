@@ -28,3 +28,23 @@ pub(crate) struct ReadonlyFieldCollector<'p> {
     pub(crate) writes: Vec<(&'p str, Span, bool)>,
     pub(crate) constructor_depth: u32,
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn constructor_only_fields_suggested_readonly_in_typescript() {
+        let source = "class C {\n  name;\n  constructor(value) {\n    this.name = value;\n  }\n}\n";
+        assert_eq!(filtered(&ts(source), "S2933").len(), 1);
+        assert_eq!(filtered(&js(source), "S2933").len(), 0);
+        let method_written = "class C {\n  count;\n  tick() {\n    this.count = 1;\n  }\n}\n";
+        assert_eq!(filtered(&ts(method_written), "S2933").len(), 0);
+        let already_readonly =
+            "class C {\n  readonly id;\n  constructor() {\n    this.id = 1;\n  }\n}\n";
+        assert_eq!(filtered(&ts(already_readonly), "S2933").len(), 0);
+        let initialized =
+            "class C {\n  preset = 1;\n  constructor() {\n    this.preset = 2;\n  }\n}\n";
+        assert_eq!(filtered(&ts(initialized), "S2933").len(), 0);
+    }
+}

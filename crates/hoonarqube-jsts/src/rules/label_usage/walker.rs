@@ -77,3 +77,32 @@ pub(crate) fn label_target_is_loop_or_switch(statement: &Statement<'_>) -> bool 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_label_usage(ctx.program, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn labels_on_switch_cases_and_non_loops_are_flagged() {
+        assert_eq!(
+            count_key(
+                &js_keys("switch (x) {\n  case 1:\n    outer: break;\n}\n"),
+                "javascript:S1219"
+            ),
+            1
+        );
+
+        assert_eq!(
+            count_key(
+                &js_keys("outer: for (;;) {\n  break outer;\n}\n"),
+                "javascript:S1439"
+            ),
+            0
+        );
+
+        assert_eq!(
+            count_key(&js_keys("outer: {\n  f();\n}\n"), "javascript:S1439"),
+            1
+        );
+    }
+}

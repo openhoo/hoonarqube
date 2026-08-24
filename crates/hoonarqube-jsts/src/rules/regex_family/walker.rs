@@ -181,3 +181,125 @@ impl Visit<'_> for RegexFamilyCollector<'_> {
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_regex_family(ctx.program, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn constant_regexp_constructor_prefers_literal() {
+        let flagged = js_keys("const re = new RegExp('ab+c');\nRegExp('\\\\d+', 'g');\n");
+        assert_eq!(count_key(&flagged, "javascript:S6325"), 2);
+
+        // A substitution-free template literal also counts as constant.
+        let template = js_keys("const re = new RegExp(`ab+c`);\n");
+        assert_eq!(count_key(&template, "javascript:S6325"), 1);
+
+        let dynamic = js_keys("const re = new RegExp(userPattern);\n");
+        assert_eq!(count_key(&dynamic, "javascript:S6325"), 0);
+
+        let literal_form = js_keys("const re = /ab+c/;\n");
+        assert_eq!(count_key(&literal_form, "javascript:S6325"), 0);
+    }
+
+    #[test]
+    fn wholly_empty_groups_are_flagged() {
+        let capturing = js_keys("const re = /()/;\n");
+        assert_eq!(count_key(&capturing, "javascript:S6331"), 1);
+        // A wholly empty group is not reported as an empty alternative.
+        assert_eq!(count_key(&capturing, "javascript:S6323"), 0);
+
+        let non_capturing = js_keys("const re = /(?:)/;\n");
+        assert_eq!(count_key(&non_capturing, "javascript:S6331"), 1);
+
+        let clean = js_keys("const re = /(a)/;\n");
+        assert_eq!(count_key(&clean, "javascript:S6331"), 0);
+    }
+
+    #[test]
+    fn duplicate_class_members_are_flagged() {
+        let duplicated = js_keys("const re = /[aa]/;\n");
+        assert_eq!(count_key(&duplicated, "javascript:S5869"), 1);
+        // Duplicate-only classes additionally receive the concise rewrite.
+        assert_eq!(count_key(&duplicated, "javascript:S6353"), 1);
+
+        let twice = js_keys("const re = /[aaa]/;\n");
+        assert_eq!(count_key(&twice, "javascript:S5869"), 2);
+
+        let clean = js_keys("const re = /[ab]/;\n");
+        assert_eq!(count_key(&clean, "javascript:S5869"), 0);
+    }
+
+    #[test]
+    fn space_runs_in_patterns_are_flagged() {
+        let double = js_keys("const re = /a  b/;\n");
+        assert_eq!(count_key(&double, "javascript:S6326"), 1);
+
+        let triple = js_keys("const re = /a   b/;\n");
+        assert_eq!(count_key(&triple, "javascript:S6326"), 1);
+
+        let clean = js_keys("const re = /a b/;\n");
+        assert_eq!(count_key(&clean, "javascript:S6326"), 0);
+    }
+
+    #[test]
+    fn empty_string_repetition_is_flagged() {
+        // Bounded repetition over a group that can match empty still loops.
+        let bounded = js_keys("const re = /x(a*){2}y/;\n");
+        assert_eq!(count_key(&bounded, "javascript:S5842"), 1);
+
+        // `(a*)+` trips both this rule and exponential backtracking.
+        let unbounded = js_keys("const re = /(a*)+b/;\n");
+        assert_eq!(count_key(&unbounded, "javascript:S5842"), 1);
+        assert_eq!(count_key(&unbounded, "javascript:S5852"), 1);
+
+        let clean = js_keys("const re = /(a+){2}/;\n");
+        assert_eq!(count_key(&clean, "javascript:S5842"), 0);
+    }
+
+    #[test]
+    fn single_char_alternations_become_classes() {
+        let top_level = js_keys("const re = /a|b|c/;\n");
+        assert_eq!(count_key(&top_level, "javascript:S6035"), 1);
+
+        // Alternations nested inside groups are flagged at the group span.
+        let nested = js_keys("const re = /x(a|b)y/;\n");
+        assert_eq!(count_key(&nested, "javascript:S6035"), 1);
+
+        let clean = js_keys("const re = /(ab)|c/;\n");
+        assert_eq!(count_key(&clean, "javascript:S6035"), 0);
+    }
+
+    #[test]
+    fn nested_unbounded_quantifiers_risk_backtracking() {
+        let classic = js_keys("const re = /(a+)+$/;\n");
+        assert_eq!(count_key(&classic, "javascript:S5852"), 1);
+        // `(a+)` cannot match empty, so S5842 stays silent here.
+        assert_eq!(count_key(&classic, "javascript:S5842"), 0);
+
+        // Zero-minimum repetition escapes S5842's consuming-quantifier subset.
+        let zero_min = js_keys("const re = /(a*)*b/;\n");
+        assert_eq!(count_key(&zero_min, "javascript:S5852"), 1);
+        assert_eq!(count_key(&zero_min, "javascript:S5842"), 0);
+
+        let flat = js_keys("const re = /a+b+c/;\n");
+        assert_eq!(count_key(&flat, "javascript:S5852"), 0);
+    }
+
+    #[test]
+    fn stateful_global_regexes_inside_loops_are_flagged() {
+        let while_loop =
+            js_keys("while (more) {\n  if (/\\d+/g.test(input)) {\n    more = false;\n  }\n}\n");
+        assert_eq!(count_key(&while_loop, "javascript:S6351"), 1);
+
+        let for_of_loop =
+            js_keys("for (const part of parts) {\n  const m = /[a-z]+/g.exec(part);\n}\n");
+        assert_eq!(count_key(&for_of_loop, "javascript:S6351"), 1);
+
+        let outside_loop = js_keys("const found = /\\d+/g.test(input);\n");
+        assert_eq!(count_key(&outside_loop, "javascript:S6351"), 0);
+
+        let not_global = js_keys("while (more) {\n  found = /\\d+/.test(input);\n}\n");
+        assert_eq!(count_key(&not_global, "javascript:S6351"), 0);
+    }
+}

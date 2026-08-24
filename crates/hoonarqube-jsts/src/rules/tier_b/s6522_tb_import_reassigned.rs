@@ -21,3 +21,26 @@ pub(crate) fn check_tb_import_reassigned(model: &TbModel<'_>, sink: &mut IssueSi
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn import_reassignment_flagged() {
+        let flagged = js("import { helper } from './helper';\nhelper = null;\n");
+        assert_eq!(filtered(&flagged, "S6522").len(), 1);
+    }
+
+    #[test]
+    fn typescript_files_receive_tier_b_keys_with_typescript_prefix() {
+        let source = "import { helper } from './helper';\nhelper = null;\n";
+        let report = ts(source);
+        assert!(
+            report
+                .issues
+                .iter()
+                .any(|issue| issue.rule_key == "typescript:S6522")
+        );
+    }
+}

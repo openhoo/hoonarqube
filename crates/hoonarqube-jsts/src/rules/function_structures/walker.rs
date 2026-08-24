@@ -354,3 +354,51 @@ impl<'a> Visit<'a> for YieldScanner {
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_function_structures(ctx.program, ctx.source, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn delete_prototype_and_generator_rules_flag_expected_shapes() {
+        let delete_plain = js_keys("delete variable;\n");
+        assert_eq!(count_key(&delete_plain, "javascript:S3001"), 1);
+        let delete_member = js_keys("delete obj.field;\n");
+        assert_eq!(count_key(&delete_member, "javascript:S3001"), 0);
+
+        let prototype_assignment = js_keys("Type.prototype.method = function () {};\n");
+        assert_eq!(count_key(&prototype_assignment, "javascript:S3525"), 1);
+        let plain_assignment = js_keys("obj.handler = function () {};\n");
+        assert_eq!(count_key(&plain_assignment, "javascript:S3525"), 0);
+
+        let empty_generator = js_keys("function* generate() {}\n");
+        assert_eq!(count_key(&empty_generator, "javascript:S3531"), 1);
+        let yielding_generator = js_keys("function* generate() {\n  yield 1;\n}\n");
+        assert_eq!(count_key(&yielding_generator, "javascript:S3531"), 0);
+        // A yield inside a nested generator belongs to that nested function.
+        let nested_yield_only =
+            js_keys("function* outer() {\n  function* inner() {\n    yield 1;\n  }\n}\n");
+        assert_eq!(count_key(&nested_yield_only, "javascript:S3531"), 1);
+    }
+
+    #[test]
+    fn trailing_jumps_flagged_only_in_redundant_positions() {
+        let loop_break = js_keys("while (a) {\n  break;\n}\n");
+        assert_eq!(count_key(&loop_break, "javascript:S3626"), 1);
+
+        let bare_block = js("function f() {\n  {\n    return 1;\n  }\n}\n");
+        let s3626_lines: Vec<u32> = bare_block
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S3626"))
+            .map(|issue| issue.range.start.line)
+            .collect();
+        assert_eq!(s3626_lines, vec![3]);
+
+        // Function bodies and case bodies end with jumps conventionally.
+        let conventional = js_keys("switch (x) {\n  case 1:\n    break;\n}\n");
+        assert_eq!(count_key(&conventional, "javascript:S3626"), 0);
+        let fn_tail = js_keys("function f() {\n  return 1;\n}\n");
+        assert_eq!(count_key(&fn_tail, "javascript:S3626"), 0);
+    }
+}

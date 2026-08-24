@@ -132,3 +132,85 @@ pub(crate) fn check_tb_class_rules<'a>(
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_tier_b_rules(ctx.program, ctx.source, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn dead_store_flagged_but_conditional_overwrite_kept_clean() {
+        let flagged = js("function f() {\n  let x = compute();\n  x = 2;\n  return x;\n}\nf();\n");
+        assert_eq!(filtered(&flagged, "S1854").len(), 1);
+        let clean = js("function f() {\n  let x = compute();\n  return x;\n}\nf();\n");
+        assert_eq!(filtered(&clean, "S1854").len(), 0);
+        let conditional = js(
+            "function g(c) {\n  let x = a();\n  if (c) {\n    x = b();\n  }\n  return x;\n}\ng(true);\n",
+        );
+        assert_eq!(filtered(&conditional, "S1854").len(), 0);
+    }
+
+    #[test]
+    fn dead_store_survives_branches_only_when_both_paths_agree() {
+        let source = js(
+            "function f(c) {\n  let x = a();\n  if (c) {\n    x = b();\n  } else {\n    x = b();\n  }\n  return x;\n}\nf(1);\n",
+        );
+        // The two overwrites live at different offsets, so the value may be
+        // read from either path: nothing is reported.
+        assert_eq!(filtered(&source, "S1854").len(), 0);
+    }
+
+    #[test]
+    fn misleading_self_increment_flagged() {
+        let flagged = js("function f() {\n  let i = 0;\n  i = i++;\n  return i;\n}\nf();\n");
+        assert_eq!(filtered(&flagged, "S2123").len(), 1);
+        assert_eq!(filtered(&flagged, "S1854").len(), 0);
+        let clean = js("let i = 0;\ni += 1;\nuse(i);\n");
+        assert_eq!(filtered(&clean, "S2123").len(), 0);
+    }
+
+    #[test]
+    fn initial_value_overwrite_flagged_for_params_and_catch() {
+        let param = js("function f(a) {\n  a = 1;\n  return a;\n}\nf(2);\n");
+        assert_eq!(filtered(&param, "S1226").len(), 1);
+        let caught =
+            js("try {\n  risky();\n} catch (error) {\n  error = null;\n  log(error);\n}\n");
+        assert_eq!(filtered(&caught, "S1226").len(), 1);
+        let clean = js("function f(c) {\n  if (c) {\n    c = 1;\n  }\n  return c;\n}\nf(2);\n");
+        assert_eq!(filtered(&clean, "S1226").len(), 0);
+    }
+
+    #[test]
+    fn identical_repeated_write_prefers_redundant_assignment_key() {
+        let flagged = js(
+            "function f() {\n  let size = width();\n  size = width();\n  return size;\n}\nf();\n",
+        );
+        assert_eq!(filtered(&flagged, "S4165").len(), 1);
+        assert_eq!(filtered(&flagged, "S1854").len(), 0);
+    }
+
+    #[test]
+    fn single_line_trailing_commas_flagged_but_multiline_kept() {
+        let flagged = js("const colors = ['red', 'blue',];\nconst pair = {a: 1, b: 2,};\n");
+        assert_eq!(filtered(&flagged, "S1537").len(), 2);
+        assert_eq!(filtered(&flagged, "S3723").len(), 0);
+        let clean_single = js("const colors = ['red', 'blue'];\n");
+        assert_eq!(filtered(&clean_single, "S1537").len(), 0);
+    }
+
+    #[test]
+    fn multiline_lists_require_trailing_commas() {
+        let flagged =
+            js("const sizes = [\n  'small',\n  'medium'\n];\nfunction tune(\n  a,\n  b\n) {}\n");
+        assert_eq!(filtered(&flagged, "S3723").len(), 2);
+        assert_eq!(filtered(&flagged, "S1537").len(), 0);
+        let clean_multi = js("const sizes = [\n  'small',\n  'medium',\n];\n");
+        assert_eq!(filtered(&clean_multi, "S3723").len(), 0);
+    }
+
+    #[test]
+    fn call_and_new_argument_lists_follow_the_same_comma_contract() {
+        let flagged = js("send(a, b,);\nnew Widget(x, y\n);\n");
+        assert_eq!(filtered(&flagged, "S1537").len(), 1);
+        assert_eq!(filtered(&flagged, "S3723").len(), 1);
+    }
+}

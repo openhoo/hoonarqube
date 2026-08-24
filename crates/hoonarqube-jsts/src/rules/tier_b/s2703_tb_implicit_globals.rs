@@ -13,3 +13,18 @@ pub(crate) fn check_tb_implicit_globals(model: &TbModel<'_>, sink: &mut IssueSin
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn implicit_global_assignment_flagged_in_javascript_only() {
+        let source = "function f() {\n  leaked = 1;\n}\nf();\n";
+        assert_eq!(filtered(&js(source), "S2703").len(), 1);
+        assert_eq!(
+            filtered(&ts("function f() {\n  leaked = 1;\n}\nf();\n"), "S2703").len(),
+            0
+        );
+    }
+}

@@ -87,3 +87,61 @@ fn public_access_level(fqn: &str) -> Option<&'static str> {
         .into_iter()
         .find(|level| fqn == format!("aws_cdk_lib.aws_s3.BucketAccessControl.{level}"))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6265_flags_public_s3_access_grants() {
+        let count = |source: &str| -> usize {
+            js(source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S6265"))
+                .count()
+        };
+
+        // `publicReadAccess: true` on a bucket.
+        assert_eq!(
+            count(
+                "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             new s3.Bucket(this, 'B', { publicReadAccess: true });\n"
+            ),
+            1
+        );
+
+        // Public `accessControl` level.
+        assert_eq!(
+            count(
+                "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             new s3.Bucket(this, 'B', {\n\
+             \x20 accessControl: s3.BucketAccessControl.PUBLIC_READ,\n\
+             });\n"
+            ),
+            1
+        );
+
+        // `grantPublicAccess()` on a bucket variable.
+        assert_eq!(
+            count(
+                "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             const bucket = new s3.Bucket(this, 'B', {});\n\
+             bucket.grantPublicAccess();\n"
+            ),
+            1
+        );
+
+        // Clean: private access control and no grants.
+        assert_eq!(
+            count(
+                "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             new s3.Bucket(this, 'B', {\n\
+             \x20 accessControl: s3.BucketAccessControl.PRIVATE,\n\
+             \x20 publicReadAccess: false,\n\
+             });\n"
+            ),
+            0
+        );
+    }
+}

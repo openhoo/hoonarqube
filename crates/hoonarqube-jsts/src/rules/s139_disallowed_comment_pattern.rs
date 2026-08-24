@@ -44,3 +44,17 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
     }
     sink.issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn disallowed_comment_pattern_only_fires_on_code_lines() {
+        let inline = js_keys("let x = 1; // hack\n");
+        assert_eq!(count_key(&inline, "javascript:S139"), 1);
+
+        let own_line = js_keys("// hack\nlet x = 1;\n");
+        assert_eq!(count_key(&own_line, "javascript:S139"), 0);
+    }
+}

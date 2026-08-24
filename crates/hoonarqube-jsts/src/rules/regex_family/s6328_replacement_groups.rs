@@ -84,3 +84,24 @@ pub(crate) fn reference_exists(reference: &GroupReference, parsed: &ParsedRegex)
         GroupReference::Name(name) => parsed.capture_names.iter().any(|known| known == name),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn replacement_group_references_are_validated() {
+        let out_of_range = js_keys("'ab'.replace(/(a)(b)/, '$3');\n");
+        assert_eq!(count_key(&out_of_range, "javascript:S6328"), 1);
+
+        let unknown_name = js_keys("'a'.replace(/(?<first>a)/, '$<second>');\n");
+        assert_eq!(count_key(&unknown_name, "javascript:S6328"), 1);
+
+        let clean = js_keys("'ab'.replace(/(a)(b)/, '$2$1');\n'a'.replace(/(?<x>a)/, '$<x>');\n");
+        assert_eq!(count_key(&clean, "javascript:S6328"), 0);
+
+        // `$$` escapes the dollar and never references a group.
+        let escaped = js_keys("'ab'.replace(/(a)/, '$$1');\n");
+        assert_eq!(count_key(&escaped, "javascript:S6328"), 0);
+    }
+}

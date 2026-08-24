@@ -375,3 +375,47 @@ pub(crate) fn call_property<'r, 'a>(
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_expression_rules(ctx.program, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn expression_level_batch_rules_fire() {
+        let source = "\
+if (a == b) { void c; (d, e); }
+if (x === NaN) { if (list.length < 0) { } }
+const n = parseInt(s);
+console.log(n);
+alert(n);
+values.sort();
+other.reduce(cb);
+if (list.indexOf(x) > 0) { }
+if ('a' < 'b') { }
+q = cond ? nested(1) : outer(cond ? nested(2) : 3);
+r = flag ? true : false;
+f = (() => 1).bind(this);
+g.call(ctx);
+h.apply(ctx, [args]);
+Object.assign({}, opts);
+const arr = new Array(1, 2);
+const num = new Number(5);
+legacy = require('mod');
+db = openDatabase(name);
+outer = `${inner `${deep}`}`;
+text = \"interp ${x}\";
+host = '10.0.0.1';
+";
+        let flagged = js_keys(source);
+        for key in [
+            "S1440", "S3735", "S878", "S6679", "S3981", "S2427", "S106", "S1442", "S2871", "S6959",
+            "S2692", "S3003", "S1774", "S6644", "S6637", "S6676", "S6666", "S6661", "S1528",
+            "S1533", "S3533", "S2817", "S4624", "S3786", "S1313",
+        ] {
+            assert!(
+                count_key(&flagged, &format!("javascript:{key}")) >= 1,
+                "expected {key}"
+            );
+        }
+    }
+}

@@ -59,3 +59,17 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
     }
     sink.issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn commented_out_code_heuristic_flags_keyword_comments() {
+        let flagged = js_keys("// return value;\n");
+        assert_eq!(count_key(&flagged, "javascript:S125"), 1);
+
+        let prose = js_keys("// this comment only explains things\n");
+        assert_eq!(count_key(&prose, "javascript:S125"), 0);
+    }
+}

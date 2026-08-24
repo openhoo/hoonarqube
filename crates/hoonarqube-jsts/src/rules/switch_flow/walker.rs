@@ -190,3 +190,141 @@ pub(crate) fn statement_ends_with_jump(stmt: &Statement<'_>) -> bool {
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_switch_flow(ctx.program, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s126_flags_else_if_chain_without_final_else() {
+        let chained =
+            js_keys("if (a) {\n  f();\n} else if (b) {\n  g();\n} else if (c) {\n  h();\n}\n");
+        assert_eq!(count_key(&chained, "javascript:S126"), 1);
+        let tail_line = chained
+            .iter()
+            .find(|(key, _)| key == "javascript:S126")
+            .map(|(_, line)| *line);
+        assert_eq!(tail_line, Some(5));
+
+        let with_final_else =
+            js_keys("if (a) {\n  f();\n} else if (b) {\n  g();\n} else {\n  h();\n}\n");
+        assert_eq!(count_key(&with_final_else, "javascript:S126"), 0);
+
+        // A lone `if` is not a chain.
+        let plain_if = js_keys("if (a) {\n  f();\n}\n");
+        assert_eq!(count_key(&plain_if, "javascript:S126"), 0);
+    }
+
+    #[test]
+    fn s128_requires_unconditional_case_termination() {
+        let falling_through = js_keys("switch (x) {\n  case 1:\n    f();\n}\n");
+        assert_eq!(count_key(&falling_through, "javascript:S128"), 1);
+
+        let with_break = js_keys("switch (x) {\n  case 1:\n    f();\n    break;\n}\n");
+        assert_eq!(count_key(&with_break, "javascript:S128"), 0);
+
+        // Empty consequents (case grouping) and block-wrapped jumps stay
+        // clean.
+        let grouped = js_keys("switch (x) {\n  case 1:\n  case 2:\n    f();\n    break;\n}\n");
+        assert_eq!(count_key(&grouped, "javascript:S128"), 0);
+
+        let via_block_return = js_keys(
+            "function f(x) {\n  switch (x) {\n    case 1:\n      { g(); return; }\n  }\n}\n",
+        );
+        assert_eq!(count_key(&via_block_return, "javascript:S128"), 0);
+    }
+
+    #[test]
+    fn s131_flags_switch_without_default_case() {
+        let source = "switch (x) {\n  case 1:\n    break;\n}\n";
+        let missing = js_keys(source);
+        assert_eq!(count_key(&missing, "javascript:S131"), 1);
+
+        let with_default =
+            js_keys("switch (x) {\n  case 1:\n    break;\n  default:\n    break;\n}\n");
+        assert_eq!(count_key(&with_default, "javascript:S131"), 0);
+
+        let typescript = findings(source, JstsLanguage::TypeScript);
+        assert_eq!(count_key(&typescript, "typescript:S131"), 1);
+        assert_eq!(count_key(&typescript, "javascript:S131"), 0);
+    }
+
+    #[test]
+    fn s4524_flags_default_case_not_in_last_position() {
+        let misplaced = js_keys("switch (x) {\n  default:\n    break;\n  case 1:\n    break;\n}\n");
+        assert_eq!(count_key(&misplaced, "javascript:S4524"), 1);
+
+        let last = js_keys("switch (x) {\n  case 1:\n    break;\n  default:\n    break;\n}\n");
+        assert_eq!(count_key(&last, "javascript:S4524"), 0);
+    }
+
+    #[test]
+    fn s3616_flags_sequence_and_logical_or_case_tests() {
+        let sequence = js_keys("switch (x) {\n  case (a(), b):\n    break;\n}\n");
+        assert_eq!(count_key(&sequence, "javascript:S3616"), 1);
+
+        let logical_or = js_keys("switch (x) {\n  case a || b:\n    break;\n}\n");
+        assert_eq!(count_key(&logical_or, "javascript:S3616"), 1);
+
+        // Logical AND tests are ordinary expressions.
+        let logical_and = js_keys("switch (x) {\n  case a && b:\n    break;\n}\n");
+        assert_eq!(count_key(&logical_and, "javascript:S3616"), 0);
+    }
+
+    #[test]
+    fn s1479_flags_switches_with_more_than_thirty_cases() {
+        let build = |case_count: usize| {
+            let mut source = String::from("switch (x) {\n");
+            for case_number in 0..case_count {
+                let _ = write!(source, "  case {case_number}:\n    break;\n");
+            }
+            source.push_str("}\n");
+            source
+        };
+
+        let at_limit = js_keys(&build(crate::MAX_SWITCH_CASES));
+        assert_eq!(count_key(&at_limit, "javascript:S1479"), 0);
+
+        let over_limit = js_keys(&build(crate::MAX_SWITCH_CASES + 1));
+        assert_eq!(count_key(&over_limit, "javascript:S1479"), 1);
+    }
+
+    #[test]
+    fn s1301_flags_switches_convertible_to_if() {
+        let two_cases = js_keys(
+            "switch (x) {\n  case 1:\n    f();\n    break;\n  case 2:\n    g();\n    break;\n  default:\n    break;\n}\n",
+        );
+        assert_eq!(count_key(&two_cases, "javascript:S1301"), 1);
+
+        let one_case =
+            js_keys("switch (x) {\n  case 1:\n    f();\n    break;\n  default:\n    break;\n}\n");
+        assert_eq!(count_key(&one_case, "javascript:S1301"), 1);
+
+        let mut three_cases_source = String::from("switch (x) {\n  default:\n    break;\n");
+        for case_number in 0..3 {
+            let _ = write!(three_cases_source, "  case {case_number}:\n    break;\n");
+        }
+        three_cases_source.push_str("}\n");
+        let three_cases = js_keys(&three_cases_source);
+        assert_eq!(count_key(&three_cases, "javascript:S1301"), 0);
+    }
+
+    #[test]
+    fn s1821_flags_switch_nested_inside_case_consequent() {
+        let nested = js_keys(
+            "switch (x) {\n  case 1:\n    switch (y) {\n      case 2:\n        break;\n    }\n    break;\n}\n",
+        );
+        assert_eq!(count_key(&nested, "javascript:S1821"), 1);
+        let inner_line = nested
+            .iter()
+            .find(|(key, _)| key == "javascript:S1821")
+            .map(|(_, line)| *line);
+        assert_eq!(inner_line, Some(3));
+
+        // Sibling switches at the top level stay clean.
+        let sibling = js_keys(
+            "switch (x) {\n  case 1:\n    break;\n}\nswitch (y) {\n  default:\n    break;\n}\n",
+        );
+        assert_eq!(count_key(&sibling, "javascript:S1821"), 0);
+    }
+}

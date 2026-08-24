@@ -212,3 +212,69 @@ fn live_call<'a, 'p>(
 fn argument_view<'a, 'p>(argument: &'a Argument<'p>) -> Option<ValueView<'a, 'p>> {
     argument.as_expression().map(ValueView::Live)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6321_flags_admin_ports_open_to_world() {
+        let count = |source: &str| -> usize {
+            js(source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S6321"))
+                .count()
+        };
+
+        // SSH opened to any IPv4 via allowFromAnyIpv4.
+        assert_eq!(
+            count(
+                "import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             sg.connections.allowFromAnyIpv4(ec2.Port.tcp(22));\n"
+            ),
+            1
+        );
+
+        // allowFrom with open peer and admin port.
+        assert_eq!(
+            count(
+                "import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             sg.connections.allowFrom(ec2.Peer.ipv4('0.0.0.0/0'), ec2.Port.tcp(3389));\n"
+            ),
+            1
+        );
+
+        // CfnSecurityGroupIngress opening RDP to the world.
+        assert_eq!(
+            count(
+                "import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             new ec2.CfnSecurityGroupIngress(this, 'Ingress', {\n\
+             \x20 cidrIp: '0.0.0.0/0',\n\
+             \x20 ipProtocol: 'tcp',\n\
+             \x20 fromPort: 22,\n\
+             \x20 toPort: 22,\n\
+             });\n"
+            ),
+            1
+        );
+
+        // Clean: restricted peer and port.
+        assert_eq!(
+            count(
+                "import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             sg.connections.allowFrom(ec2.Peer.ipv4('10.0.0.0/8'), ec2.Port.tcp(22));\n"
+            ),
+            0
+        );
+
+        // Clean: open world but a non-admin port.
+        assert_eq!(
+            count(
+                "import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             sg.connections.allowFrom(ec2.Peer.anyIpv4(), ec2.Port.tcp(8443));\n"
+            ),
+            0
+        );
+    }
+}

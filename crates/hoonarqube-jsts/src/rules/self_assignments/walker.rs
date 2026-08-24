@@ -57,3 +57,25 @@ impl<'a> Visit<'a> for SelfAssignmentCollector<'a, '_> {
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_self_assignments(ctx.program, ctx.source, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn self_assignments_are_flagged_for_names_and_chains() {
+        let source = "\
+a = a;
+obj.x = obj.x;
+b = c;
+";
+        let report = js(source);
+        let s1656_lines: Vec<u32> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S1656"))
+            .map(|issue| issue.range.start.line)
+            .collect();
+        assert_eq!(s1656_lines, vec![1, 2]);
+    }
+}

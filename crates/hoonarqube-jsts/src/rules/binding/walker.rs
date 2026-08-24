@@ -400,3 +400,52 @@ pub(crate) fn name_contains_any(name: &str, words: &[String]) -> bool {
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_binding_rules(ctx.program, ctx.source, ctx.index, ctx.language, ctx.rules)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn binding_and_pattern_batch_rules_fire() {
+        let source = "\
+const shadow = undefined;
+const int = 1;
+const { renamed: renamed } = pair;
+const {} = empty;
+const password = 'hunter2';
+const apiKeyValue = 'Zx9kQ2vL8pR4tW7yB1nM6cJ3fH5dG0aE#';
+NaN = 1;
+";
+        let flagged = js_keys(source);
+        for key in [
+            "S2138", "S6645", "S1527", "S6650", "S3799", "S2068", "S6418", "S2137",
+        ] {
+            assert!(
+                count_key(&flagged, &format!("javascript:{key}")) >= 1,
+                "expected {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn class_interface_and_empty_body_rules_respect_scope() {
+        let ts_source = "\
+class Empty {}
+interface Nothing {}
+interface WithCtor { new (): void; }
+function bare() {}
+const cb = () => {};
+arr.map(function () {});
+";
+        let ts_findings = findings(ts_source, JstsLanguage::TypeScript);
+        assert_eq!(count_key(&ts_findings, "typescript:S2094"), 1);
+        assert_eq!(count_key(&ts_findings, "typescript:S4023"), 1);
+        assert_eq!(count_key(&ts_findings, "typescript:S4124"), 1);
+        // Callback conventions suppress `S1186`.
+        assert_eq!(count_key(&ts_findings, "typescript:S1186"), 2);
+
+        let js_findings = findings(ts_source, JstsLanguage::JavaScript);
+        assert_eq!(count_key(&js_findings, "javascript:S4023"), 0);
+        assert_eq!(count_key(&js_findings, "javascript:S4124"), 0);
+    }
+}

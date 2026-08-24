@@ -36,3 +36,59 @@ pub(crate) fn check_file_header(
 pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
     check_file_header(ctx.source, ctx.language, ctx.rules)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn file_header_requires_configured_prefix() {
+        let mut rules = RuleOptions {
+            header_format: "// Copyright\n".to_string(),
+            ..RuleOptions::default()
+        };
+        let missing = crate::analyze_with_rules(
+            PathBuf::from("test.js"),
+            "let x = 1;\n",
+            JstsLanguage::JavaScript,
+            &AnalyzerOptions::default(),
+            &rules,
+        );
+        assert_eq!(count_key(&report_keys(&missing), "javascript:S1451"), 1);
+
+        let present = crate::analyze_with_rules(
+            PathBuf::from("test.js"),
+            "// Copyright\nlet x = 1;\n",
+            JstsLanguage::JavaScript,
+            &AnalyzerOptions::default(),
+            &rules,
+        );
+        assert_eq!(count_key(&report_keys(&present), "javascript:S1451"), 0);
+
+        rules.header_is_regular_expression = true;
+        rules.header_format = r"^// \(c\) \d{4}".to_string();
+        let regex_present = crate::analyze_with_rules(
+            PathBuf::from("test.js"),
+            "// (c) 2026 ACME\nlet x = 1;\n",
+            JstsLanguage::JavaScript,
+            &AnalyzerOptions::default(),
+            &rules,
+        );
+        assert_eq!(
+            count_key(&report_keys(&regex_present), "javascript:S1451"),
+            0
+        );
+
+        let regex_missing = crate::analyze_with_rules(
+            PathBuf::from("test.js"),
+            "// Other header\nlet x = 1;\n",
+            JstsLanguage::JavaScript,
+            &AnalyzerOptions::default(),
+            &rules,
+        );
+        assert_eq!(
+            count_key(&report_keys(&regex_missing), "javascript:S1451"),
+            1
+        );
+    }
+}

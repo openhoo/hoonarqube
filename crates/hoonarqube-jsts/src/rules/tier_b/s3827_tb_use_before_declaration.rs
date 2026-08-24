@@ -38,3 +38,16 @@ pub(crate) fn check_tb_use_before_declaration(model: &TbModel<'_>, sink: &mut Is
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn use_before_declaration_flagged_for_let_and_function_calls() {
+        let source = "function f() {\n  early = 1;\n  let early = 2;\n}\nf();\n";
+        assert_eq!(filtered(&js(source), "S3827").len(), 1);
+        let calls = js("later();\nfunction later() {}\n");
+        assert_eq!(filtered(&calls, "S3827").len(), 1);
+    }
+}

@@ -23,3 +23,34 @@ pub(crate) fn check_s6319_sagemaker_encryption(
         required_prop(file, new_expression, 2, "kmsKeyId", "S6319", OMITTED, sink);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6319_requires_sagemaker_kms_key() {
+        let count = |source: &str| -> usize {
+            js(source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S6319"))
+                .count()
+        };
+
+        assert_eq!(
+            count(
+                "import * as sagemaker from 'aws-cdk-lib/aws-sagemaker';\n\
+             new sagemaker.CfnNotebookInstance(this, 'NB');\n"
+            ),
+            1
+        );
+        assert_eq!(
+            count(
+                "import * as sagemaker from 'aws-cdk-lib/aws-sagemaker';\n\
+             new sagemaker.CfnNotebookInstance(this, 'NB', { kmsKeyId: 'k' });\n"
+            ),
+            0
+        );
+    }
+}

@@ -25,3 +25,20 @@ pub(crate) fn check_tb_promise_chains(
 pub(crate) struct PromiseChainCollector {
     pub(crate) sites: Vec<Span>,
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn valueless_then_callback_in_chain_flagged() {
+        let flagged =
+            js("fetchData().then((response) => {\n  console.log(response);\n}).catch(fail);\n");
+        assert_eq!(filtered(&flagged, "S6544").len(), 1);
+        let returns_value =
+            js("fetchData().then((response) => {\n  return response.json();\n}).catch(fail);\n");
+        assert_eq!(filtered(&returns_value, "S6544").len(), 0);
+        let unchained = js("fetchData().then((response) => {\n  console.log(response);\n});\n");
+        assert_eq!(filtered(&unchained, "S6544").len(), 0);
+    }
+}

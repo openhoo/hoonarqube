@@ -403,3 +403,166 @@ pub(crate) fn escapes_delimiter(raw: &str, delimiter: char) -> bool {
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_naming_rules(ctx.program, ctx.index, ctx.language, ctx.rules)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn function_class_and_interface_names_follow_catalog_formats() {
+        let report = js(
+            "function goodName() {}\nfunction BadName() {}\nfunction _underscoreOk() {}\nclass GoodClass {}\nclass badClass {}\n",
+        );
+        assert_eq!(count_key(&report_keys(&report), "javascript:S100"), 1);
+        assert_eq!(count_key(&report_keys(&report), "javascript:S101"), 1);
+        let bad_function: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|found| found.rule_key == "javascript:S100")
+            .collect();
+        assert_eq!(
+            bad_function,
+            vec![&issue(
+                "javascript:S100",
+                "Rename this function to match the regular expression '^[_a-z][a-zA-Z0-9]*$'.",
+                (2, 9),
+                (2, 16),
+            )]
+        );
+
+        let ts_report = ts("interface goodInterface {}\ninterface GoodInterface {}\n");
+        assert_eq!(count_key(&report_keys(&ts_report), "typescript:S101"), 1);
+        assert_eq!(count_key(&report_keys(&ts_report), "typescript:S100"), 0);
+    }
+
+    #[test]
+    fn method_names_are_checked_but_constructors_are_exempt() {
+        let rules = RuleOptions {
+            format_functions: "^doRe$".to_string(),
+            ..RuleOptions::default()
+        };
+        let flagged = keys_with_rules("class C { constructor() {} doIt() {} doRe() {} }\n", &rules);
+        assert_eq!(count_key(&flagged, "javascript:S100"), 1);
+    }
+
+    #[test]
+    fn variables_parameters_and_properties_honor_format() {
+        let defaults_clean = js_keys(
+            "function f(goodParam) { let goodVar = 1; const UPPER_SNAKE = 2; const opts = { anyKey: 3 }; }\n",
+        );
+        assert_eq!(count_key(&defaults_clean, "javascript:S117"), 0);
+
+        let rules = RuleOptions {
+            format_variables: "^[a-z][a-zA-Z0-9]*$".to_string(),
+            ..RuleOptions::default()
+        };
+        let strict = keys_with_rules(
+            "function f(BadParam) { let BadVar = 1; let okVar = 2; }\n",
+            &rules,
+        );
+        assert_eq!(count_key(&strict, "javascript:S117"), 2);
+    }
+
+    #[test]
+    fn magic_numbers_flagged_only_outside_allowed_contexts() {
+        let report = js(
+            "const LIMIT = 42;\nlet retries = 3;\nitems[0] = LIMIT;\nfunction g(x = 1, y = 5) { return x; }\nfunction h(z = -1) { return z; }\nlet offset = -7;\ng(2);\n",
+        );
+        let magic: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|found| found.rule_key == "javascript:S109")
+            .collect();
+        let message = "This numeric literal should be replaced by a named constant.";
+        assert_eq!(
+            magic,
+            vec![
+                &issue("javascript:S109", message, (2, 14), (2, 15)),
+                &issue("javascript:S109", message, (4, 22), (4, 23)),
+                &issue("javascript:S109", message, (6, 14), (6, 15)),
+                &issue("javascript:S109", message, (7, 2), (7, 3)),
+            ]
+        );
+
+        // Boundary: `-1..=2` parameter defaults are allowed, larger ones are not.
+        let boundary = js("function k(a = 2, b = 3) {}\n");
+        assert_eq!(count_key(&report_keys(&boundary), "javascript:S109"), 1);
+    }
+
+    #[test]
+    fn duplicate_string_literals_report_once_at_first_occurrence() {
+        let report = js(
+            "log('application/json');\nlog('application/json');\nlog('application/json');\nwarn('dup');\nwarn('dup');\nwarn('dup');\ntag('x');\ntag('x');\n",
+        );
+        let duplicates: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|found| found.rule_key == "javascript:S1192")
+            .collect();
+        // The configured `ignoreStrings` entry never fires; single-character
+        // literals are excluded; the third occurrence reaches the threshold.
+        assert_eq!(
+            duplicates,
+            vec![&issue(
+                "javascript:S1192",
+                "Define a constant instead of duplicating this literal \"dup\" 3 times.",
+                (4, 5),
+                (4, 10),
+            )]
+        );
+
+        let eager = RuleOptions {
+            duplicate_string_threshold: 2,
+            ..RuleOptions::default()
+        };
+        let flagged = keys_with_rules("a('aa');\nb('aa');\nc('bb');\n", &eager);
+        assert_eq!(count_key(&flagged, "javascript:S1192"), 1);
+    }
+
+    #[test]
+    fn string_quote_style_follows_single_quotes_param() {
+        let report = js(
+            "const a = \"double\";\nconst b = 'single';\nconst c = \"escaped \\\"quote\\\"\";\nconst d = `template`;\n",
+        );
+        let quotes: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|found| found.rule_key == "javascript:S1441")
+            .collect();
+        assert_eq!(
+            quotes,
+            vec![&issue(
+                "javascript:S1441",
+                "Use single quotes for this string literal.",
+                (1, 10),
+                (1, 18),
+            )]
+        );
+
+        let double = RuleOptions {
+            single_quotes: false,
+            ..RuleOptions::default()
+        };
+        let relaxed = keys_with_rules("const a = 'quoted';\nconst b = \"doubled\";\n", &double);
+        assert_eq!(count_key(&relaxed, "javascript:S1441"), 1);
+    }
+
+    #[test]
+    fn lowercase_constructor_callees_flagged() {
+        let report = js("new foo();\nnew Foo();\nnew lib.Bar();\n");
+        let constructors: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|found| found.rule_key == "javascript:S2430")
+            .collect();
+        assert_eq!(
+            constructors,
+            vec![&issue(
+                "javascript:S2430",
+                "Rename this constructor to start with an uppercase letter.",
+                (1, 4),
+                (1, 7),
+            )]
+        );
+    }
+}

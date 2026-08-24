@@ -16,3 +16,17 @@ pub(crate) fn check_tb_unused_imports(model: &TbModel<'_>, sink: &mut IssueSink<
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn unused_imports_flagged_in_javascript_only() {
+        let source = "import { helper } from './helper';\n";
+        assert_eq!(filtered(&js(source), "S1128").len(), 1);
+        assert_eq!(filtered(&ts(source), "S1128").len(), 0);
+        let used = "import { helper } from './helper';\nhelper();\n";
+        assert_eq!(filtered(&js(used), "S1128").len(), 0);
+    }
+}

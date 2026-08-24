@@ -47,3 +47,22 @@ pub(crate) struct LetToConstCollector<'a> {
     pub(crate) in_let: bool,
     pub(crate) in_export: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn never_reassigned_let_suggested_as_const() {
+        let flagged = js("let fixed = compute();\nuse(fixed);\n");
+        assert_eq!(filtered(&flagged, "S3353").len(), 1);
+        let reassigned = js("let moving = 1;\nmoving = 2;\nuse(moving);\n");
+        assert_eq!(filtered(&reassigned, "S3353").len(), 0);
+        let for_head = js("for (let item of list) {\n  use(item);\n}\n");
+        assert_eq!(filtered(&for_head, "S3353").len(), 0);
+        let exported = js("export let exportedValue = compute();\nuse(exportedValue);\n");
+        assert_eq!(filtered(&exported, "S3353").len(), 0);
+        let late_init = js("let late;\nlate = 1;\nuse(late);\n");
+        assert_eq!(filtered(&late_init, "S3353").len(), 0);
+    }
+}

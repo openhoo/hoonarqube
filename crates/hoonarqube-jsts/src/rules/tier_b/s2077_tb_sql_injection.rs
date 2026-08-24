@@ -25,3 +25,18 @@ pub(crate) fn check_tb_sql_injection(
 pub(crate) struct SqlInjectionCollector {
     pub(crate) sites: Vec<Span>,
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn sql_sinks_reject_dynamic_strings_only() {
+        let flagged = js(
+            "db.query(`SELECT * FROM users WHERE name = ${name}`);\ndb.execute('SELECT ' + column);\n",
+        );
+        assert_eq!(filtered(&flagged, "S2077").len(), 2);
+        let clean = js("db.query('SELECT 1');\ndb.query(staticQuery);\n");
+        assert_eq!(filtered(&clean, "S2077").len(), 0);
+    }
+}

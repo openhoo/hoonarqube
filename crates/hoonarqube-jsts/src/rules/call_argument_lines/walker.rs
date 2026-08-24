@@ -51,3 +51,28 @@ impl<'a> Visit<'a> for CallArgumentCollector<'_> {
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_call_argument_lines(ctx.program, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn call_arguments_split_across_lines_are_flagged() {
+        let split = js("foo(\n  bar);\n");
+        let s1472: Vec<_> = split
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S1472"))
+            .collect();
+        assert_eq!(s1472.len(), 1);
+        assert_eq!(
+            s1472[0].range,
+            hoonarqube_ir::Range {
+                start: pos(2, 2),
+                end: pos(2, 5),
+            }
+        );
+
+        assert_eq!(count_key(&js_keys("foo(bar);\n"), "javascript:S1472"), 0);
+    }
+}

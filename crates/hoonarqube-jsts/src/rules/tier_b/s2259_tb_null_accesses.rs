@@ -30,3 +30,18 @@ pub(crate) struct NullAccessCollector {
     pub(crate) sites: Vec<(&'static str, Span)>,
     pub(crate) undefined_shadowed: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn null_member_access_is_javascript_only() {
+        let sources = ["null.foo();\n", "undefined.bar;\n", "value(null.x);\n"];
+        for source in sources {
+            assert_eq!(filtered(&js(source), "S2259").len(), 1, "{source}");
+            assert_eq!(filtered(&ts(source), "S2259").len(), 0, "{source}");
+        }
+        assert_eq!(filtered(&js("null?.foo;\n"), "S2259").len(), 0);
+    }
+}

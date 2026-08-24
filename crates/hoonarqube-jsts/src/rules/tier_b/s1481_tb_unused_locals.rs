@@ -22,3 +22,16 @@ pub(crate) fn check_tb_unused_locals(model: &TbModel<'_>, sink: &mut IssueSink<'
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn unused_locals_flagged_inside_functions_but_not_at_top_level() {
+        let source = "const kept = 1;\nfunction f() {\n  const orphan = 2;\n}\nf();\n";
+        let issues = filtered(&js(source), "S1481");
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].contains("orphan"));
+    }
+}

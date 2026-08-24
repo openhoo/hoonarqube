@@ -40,3 +40,27 @@ pub(crate) struct TestFrameworkCollector<'s, 'index> {
     pub(crate) sink: IssueSink<'index>,
     pub(crate) test_calls_found: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn test_files_without_tests_are_flagged() {
+        let empty_suite: &str = "const helper = require('./helper');\n";
+        assert_eq!(
+            count_key(&test_file_keys(empty_suite), "javascript:S2187"),
+            1
+        );
+
+        let with_tests: &str =
+            "describe('suite', () => { it('works', () => { expect(1).to.equal(1); }); });\n";
+        assert_eq!(
+            count_key(&test_file_keys(with_tests), "javascript:S2187"),
+            0
+        );
+
+        let not_a_test_file: &str = "console.log('plain module');\n";
+        assert_eq!(count_key(&js_keys(not_a_test_file), "javascript:S2187"), 0);
+    }
+}

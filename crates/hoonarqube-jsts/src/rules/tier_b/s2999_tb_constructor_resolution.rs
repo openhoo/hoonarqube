@@ -21,3 +21,16 @@ pub(crate) fn check_tb_constructor_resolution(model: &TbModel<'_>, sink: &mut Is
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn new_on_non_constructor_binding_flagged() {
+        let flagged = js("const make = () => 1;\nnew make();\n");
+        assert_eq!(filtered(&flagged, "S2999").len(), 1);
+        let clean = js("class Box {}\nnew Box();\nfunction Factory() {}\nnew Factory();\n");
+        assert_eq!(filtered(&clean, "S2999").len(), 0);
+    }
+}

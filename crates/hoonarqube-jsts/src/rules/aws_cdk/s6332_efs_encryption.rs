@@ -37,3 +37,46 @@ pub(crate) fn check_s6332_efs_encryption(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6332_requires_efs_encryption() {
+        let count = |source: &str| -> usize {
+            js(source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S6332"))
+                .count()
+        };
+
+        // L2: only explicit false is flagged (omission defaults to encrypted).
+        assert_eq!(
+            count(
+                "import * as efs from 'aws-cdk-lib/aws-efs';\n\
+             new efs.FileSystem(this, 'FS', { encrypted: false });\n"
+            ),
+            1
+        );
+        assert_eq!(
+            count("import * as efs from 'aws-cdk-lib/aws-efs';\nnew efs.FileSystem(this, 'FS');\n"),
+            0
+        );
+        // L1: omission is flagged.
+        assert_eq!(
+            count(
+                "import * as efs from 'aws-cdk-lib/aws-efs';\nnew efs.CfnFileSystem(this, 'FS');\n"
+            ),
+            1
+        );
+        assert_eq!(
+            count(
+                "import * as efs from 'aws-cdk-lib/aws-efs';\n\
+             new efs.CfnFileSystem(this, 'FS', { encrypted: true });\n"
+            ),
+            0
+        );
+    }
+}

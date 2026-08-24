@@ -25,3 +25,20 @@ pub(crate) fn check_tb_unstable_keys(
 pub(crate) struct UnstableKeyCollector {
     pub(crate) sites: Vec<Span>,
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn unstable_jsx_keys_flagged() {
+        let flagged =
+            jsx("const rows = items.map((item) => (\n  <li key={Math.random()}>{item}</li>\n));\n");
+        assert_eq!(filtered(&flagged, "S6486").len(), 1);
+        let date_key = jsx("<li key={Date.now()}>{item}</li>\n");
+        assert_eq!(filtered(&date_key, "S6486").len(), 1);
+        let stable =
+            jsx("const rows = items.map((item) => (\n  <li key={item.id}>{item}</li>\n));\n");
+        assert_eq!(filtered(&stable, "S6486").len(), 0);
+    }
+}

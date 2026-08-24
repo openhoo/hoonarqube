@@ -86,3 +86,52 @@ fn kms_key_or_alias(file: &CdkFile, key: &ValueView<'_, '_>) -> bool {
         Some("aws_cdk_lib.aws_kms.Key" | "aws_cdk_lib.aws_kms.Alias")
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6303_requires_rds_storage_encryption() {
+        let count = |source: &str| -> usize {
+            js(source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S6303"))
+                .count()
+        };
+
+        assert_eq!(
+            count(
+                "import * as rds from 'aws-cdk-lib/aws-rds';\nnew rds.DatabaseInstance(this, 'DB');\n"
+            ),
+            1
+        );
+        assert_eq!(
+            count(
+                "import * as rds from 'aws-cdk-lib/aws-rds';\n\
+             new rds.DatabaseInstance(this, 'DB', { storageEncrypted: false });\n"
+            ),
+            1
+        );
+        // L2 exception: explicit KMS storage encryption key.
+        assert_eq!(
+            count(
+                "import * as rds from 'aws-cdk-lib/aws-rds';\n\
+             import * as kms from 'aws-cdk-lib/aws-kms';\n\
+             new rds.DatabaseInstance(this, 'DB', {\n\
+             \x20 storageEncryptionKey: new kms.Key(this, 'Key'),\n\
+             });\n"
+            ),
+            0
+        );
+        // Clean: encrypted.
+        assert_eq!(
+            count(
+                "import * as rds from 'aws-cdk-lib/aws-rds';\n\
+             new rds.DatabaseCluster(this, 'DB', { storageEncrypted: true });\n"
+            ),
+            0
+        );
+    }
+}

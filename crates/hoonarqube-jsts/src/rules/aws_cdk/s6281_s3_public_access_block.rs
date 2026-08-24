@@ -61,3 +61,57 @@ pub(crate) fn check_s6281_s3_public_access_block(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6281_flags_incomplete_s3_public_access_blocks() {
+        let count = |source: &str| -> usize {
+            js(source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S6281"))
+                .count()
+        };
+
+        // BLOCK_ACLS_ONLY still lets bucket policies grant public access.
+        assert_eq!(
+            count(
+                "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             new s3.Bucket(this, 'B', {\n\
+             \x20 blockPublicAccess: s3.BlockPublicAccess.BLOCK_ACLS_ONLY,\n\
+             });\n"
+            ),
+            1
+        );
+
+        // One disabled flag inside the BlockPublicAccess configuration.
+        assert_eq!(
+            count(
+                "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             new s3.Bucket(this, 'B', {\n\
+             \x20 blockPublicAccess: new s3.BlockPublicAccess({ blockPublicPolicy: false }),\n\
+             });\n"
+            ),
+            1
+        );
+
+        // Clean: all four flags enabled.
+        assert_eq!(
+            count(
+                "import * as s3 from 'aws-cdk-lib/aws-s3';\n\
+             new s3.Bucket(this, 'B', {\n\
+             \x20 blockPublicAccess: new s3.BlockPublicAccess({\n\
+             \x20   blockPublicAcls: true,\n\
+             \x20   blockPublicPolicy: true,\n\
+             \x20   ignorePublicAcls: true,\n\
+             \x20   restrictPublicBuckets: true,\n\
+             \x20 }),\n\
+             });\n"
+            ),
+            0
+        );
+    }
+}

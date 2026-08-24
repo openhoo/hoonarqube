@@ -32,3 +32,22 @@ pub(crate) fn check_tb_session_regeneration(
 pub(crate) struct SessionRegenerationCollector {
     pub(crate) sites: Vec<Span>,
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn login_without_session_regeneration_flagged() {
+        let flagged = js(
+            "app.post('/login', (req, res) => {\n  req.session.user = req.body.user;\n  res.redirect('/');\n});\n",
+        );
+        assert_eq!(filtered(&flagged, "S5876").len(), 1);
+        let regenerated = js(
+            "app.post('/login', (req, res) => {\n  req.session.regenerate(() => {});\n  res.redirect('/');\n});\n",
+        );
+        assert_eq!(filtered(&regenerated, "S5876").len(), 0);
+        let other_path = js("app.post('/profile', (req, res) => {\n  res.send('ok');\n});\n");
+        assert_eq!(filtered(&other_path, "S5876").len(), 0);
+    }
+}

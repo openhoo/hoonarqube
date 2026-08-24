@@ -13,3 +13,16 @@ pub(crate) fn check_tb_duplicates(model: &TbModel<'_>, sink: &mut IssueSink<'_>)
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn duplicate_var_declarations_in_same_scope_flagged() {
+        let flagged = js("var dup = 1;\nvar dup = 2;\n");
+        assert_eq!(filtered(&flagged, "S2814").len(), 1);
+        let clean = js("var first = 1;\nvar second = 2;\n");
+        assert_eq!(filtered(&clean, "S2814").len(), 0);
+    }
+}

@@ -56,3 +56,18 @@ pub(crate) struct EsIdiomCollector<'index> {
     /// the name `arguments` (`S3513`).
     pub(crate) arguments_shadowed: Vec<bool>,
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn pure_string_concatenation_suggests_template_literals() {
+        let flagged = js_keys("const s = 'a' + 'b' + 'c';\n");
+        // Only the outermost chain root is flagged.
+        assert_eq!(count_key(&flagged, "javascript:S3512"), 1);
+
+        let dynamic = js_keys("const t = 'a' + name;\n");
+        assert_eq!(count_key(&dynamic, "javascript:S3512"), 0);
+    }
+}

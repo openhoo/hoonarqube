@@ -32,3 +32,38 @@ pub(crate) fn check_s6275_ebs_encryption(
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6275_requires_encrypted_ebs_volumes() {
+        let count = |source: &str| -> usize {
+            js(source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S6275"))
+                .count()
+        };
+
+        assert_eq!(
+            count("import * as ec2 from 'aws-cdk-lib/aws-ec2';\nnew ec2.Volume(this, 'V');\n"),
+            1
+        );
+        assert_eq!(
+            count(
+                "import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             new ec2.Volume(this, 'V', { encrypted: false });\n"
+            ),
+            1
+        );
+        assert_eq!(
+            count(
+                "import * as ec2 from 'aws-cdk-lib/aws-ec2';\n\
+             new ec2.Volume(this, 'V', { encrypted: true });\n"
+            ),
+            0
+        );
+    }
+}

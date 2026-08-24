@@ -16,3 +16,17 @@ pub(crate) fn check_tb_unused_parameters(model: &TbModel<'_>, sink: &mut IssueSi
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn unused_parameters_flagged_but_setters_exempt() {
+        let flagged = js("function f(unused) {\n  return 1;\n}\nf(2);\n");
+        assert_eq!(filtered(&flagged, "S1172").len(), 1);
+        let clean =
+            js("const obj = { set value(next) { this.stored = next; } };\nobj.value = 3;\n");
+        assert_eq!(filtered(&clean, "S1172").len(), 0);
+    }
+}

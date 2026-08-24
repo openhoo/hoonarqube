@@ -54,3 +54,55 @@ fn check_statement(
         sink.emit_span(RuleScope::Both, "S6302", MESSAGE, span);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6302_flags_wildcard_action_policies() {
+        let count = |source: &str| -> usize {
+            js(source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S6302"))
+                .count()
+        };
+
+        assert_eq!(
+            count(
+                "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 effect: iam.Effect.ALLOW,\n\
+             \x20 actions: ['s3:*', '*'],\n\
+             \x20 resources: ['arn:aws:s3:::bucket/*'],\n\
+             });\n"
+            ),
+            1
+        );
+
+        // JSON style via PolicyDocument.fromJson.
+        assert_eq!(
+            count(
+                "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             iam.PolicyDocument.fromJson({\n\
+             \x20 Statement: [{ Effect: 'Allow', Action: '*', Resource: '*' }],\n\
+             });\n"
+            ),
+            1
+        );
+
+        // Clean: concrete actions.
+        assert_eq!(
+            count(
+                "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 effect: iam.Effect.ALLOW,\n\
+             \x20 actions: ['s3:GetObject'],\n\
+             \x20 resources: ['*'],\n\
+             });\n"
+            ),
+            0
+        );
+    }
+}

@@ -31,3 +31,17 @@ pub(crate) fn check_tb_arity(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn arity_mismatch_against_local_function_flagged() {
+        let flagged = js("function add(a, b) { return a + b; }\nadd(1);\nadd(1, 2, 3);\n");
+        assert_eq!(filtered(&flagged, "S930").len(), 2);
+        let rest_clean =
+            js("function pick(first, ...rest) { return rest; }\npick(1);\npick(1, 2, 3);\n");
+        assert_eq!(filtered(&rest_clean, "S930").len(), 0);
+    }
+}

@@ -99,3 +99,43 @@ impl<'a> Visit<'a> for BraceStyleCollector<'a, '_> {
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_brace_style(ctx.program, ctx.source, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn brace_style_tolerates_comments_between_head_and_brace() {
+        // The trailing comment shares the head's line; the brace on the next
+        // line is still flagged against it.
+        let trailing = js("if (a) // note\n{\n  b();\n}\n");
+        let braces: Vec<_> = trailing
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S1105"))
+            .map(|issue| (issue.range.start.line, issue.range.start.column))
+            .collect();
+        assert_eq!(braces, vec![(2, 0)]);
+
+        // A comment-only line between head and brace is skipped entirely.
+        let separated = js("if (a)\n// note\n{\n  b();\n}\n");
+        let braces: Vec<_> = separated
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S1105"))
+            .map(|issue| (issue.range.start.line, issue.range.start.column))
+            .collect();
+        assert_eq!(braces, vec![(3, 0)]);
+
+        // Fully 1tbs code stays clean across constructs.
+        assert_eq!(
+            count_key(
+                &js_keys(
+                    "function good() {\n  if (a) {\n    b();\n  } else {\n    c();\n  }\n  try {\n    d();\n  } catch (e) {\n    f();\n  } finally {\n    g();\n  }\n  while (a) {\n    h();\n  }\n}\n"
+                ),
+                "javascript:S1105"
+            ),
+            0
+        );
+    }
+}

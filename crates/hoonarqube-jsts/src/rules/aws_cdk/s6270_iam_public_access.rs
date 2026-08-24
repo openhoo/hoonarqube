@@ -104,3 +104,68 @@ fn json_principal_sensitive(file: &CdkFile, value: &ValueView<'_, '_>) -> Option
     let aws = property_value(object, "AWS")?;
     (file.value_strings(&aws).contains(&"*")).then(|| aws.span())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6270_flags_public_iam_principals() {
+        let count = |source: &str| -> usize {
+            js(source)
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S6270"))
+                .count()
+        };
+
+        // CDK style: StarPrincipal with default (allow) effect.
+        assert_eq!(
+            count(
+                "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 actions: ['s3:*'],\n\
+             \x20 resources: ['*'],\n\
+             \x20 principals: [new iam.StarPrincipal()],\n\
+             });\n"
+            ),
+            1
+        );
+
+        // CDK style: explicit ALLOW effect.
+        assert_eq!(
+            count(
+                "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 effect: iam.Effect.ALLOW,\n\
+             \x20 principals: [new iam.AnyPrincipal()],\n\
+             });\n"
+            ),
+            1
+        );
+
+        // JSON style via PolicyStatement.fromJson with wildcard principal.
+        assert_eq!(
+            count(
+                "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             iam.PolicyStatement.fromJson({\n\
+             \x20 Effect: 'Allow',\n\
+             \x20 Principal: '*',\n\
+             });\n"
+            ),
+            1
+        );
+
+        // Clean: DENY effect and concrete principal.
+        assert_eq!(
+            count(
+                "import * as iam from 'aws-cdk-lib/aws-iam';\n\
+             new iam.PolicyStatement({\n\
+             \x20 effect: iam.Effect.DENY,\n\
+             \x20 principals: [new iam.ArnPrincipal('arn:aws:iam::123:root')],\n\
+             });\n"
+            ),
+            0
+        );
+    }
+}

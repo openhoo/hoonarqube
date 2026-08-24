@@ -430,3 +430,149 @@ pub(crate) fn is_constant_true(expression: Option<&Expression<'_>>) -> bool {
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_loop_rules(ctx.program, ctx.source, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s888_flags_loose_equality_in_for_test() {
+        let loose = js_keys("for (let i = 0; i == n; i++) {}\n");
+        assert_eq!(count_key(&loose, "javascript:S888"), 1);
+
+        let strict = js_keys("for (let i = 0; i === n; i++) {}\n");
+        assert_eq!(count_key(&strict, "javascript:S888"), 0);
+    }
+
+    #[test]
+    fn s1264_flags_init_and_update_less_for_loops() {
+        let bare = js_keys("for (;;) {\n  break;\n}\n");
+        assert_eq!(count_key(&bare, "javascript:S1264"), 1);
+
+        let counted = js_keys("for (let i = 0; i < n; i++) {\n  f(i);\n}\n");
+        assert_eq!(count_key(&counted, "javascript:S1264"), 0);
+    }
+
+    #[test]
+    fn s2251_flags_counter_moving_away_from_bound() {
+        let away = js_keys("for (let i = 0; i < n; i--) {}\n");
+        assert_eq!(count_key(&away, "javascript:S2251"), 1);
+
+        let towards = js_keys("for (let i = 0; i > n; i--) {}\n");
+        assert_eq!(count_key(&towards, "javascript:S2251"), 0);
+
+        let incrementing_up = js_keys("for (let i = 0; i < n; i++) {}\n");
+        assert_eq!(count_key(&incrementing_up, "javascript:S2251"), 0);
+    }
+
+    #[test]
+    fn s1994_flags_update_clause_not_touching_counter() {
+        let other_counter = js_keys("let j = 0;\nfor (let i = 0; i < n; j++) {}\n");
+        assert_eq!(count_key(&other_counter, "javascript:S1994"), 1);
+
+        let compound_update = js_keys("for (let i = 0; i < n; i += 2) {}\n");
+        assert_eq!(count_key(&compound_update, "javascript:S1994"), 0);
+    }
+
+    #[test]
+    fn s2310_flags_counter_writes_inside_loop_body() {
+        let assigned = js_keys("for (let i = 0; i < n; i++) {\n  i = 5;\n}\n");
+        assert_eq!(count_key(&assigned, "javascript:S2310"), 1);
+
+        let updated = js_keys("for (let i = 0; i < n; i++) {\n  i++;\n}\n");
+        assert_eq!(count_key(&updated, "javascript:S2310"), 1);
+
+        let other_variable = js_keys("for (let i = 0; i < n; i++) {\n  j = 5;\n}\n");
+        assert_eq!(count_key(&other_variable, "javascript:S2310"), 0);
+    }
+
+    #[test]
+    fn s135_flags_more_than_one_direct_exit_point() {
+        let two_breaks =
+            js_keys("while (a) {\n  if (b) {\n    break;\n  }\n  if (c) {\n    break;\n  }\n}\n");
+        assert_eq!(count_key(&two_breaks, "javascript:S135"), 1);
+
+        let one_break = js_keys("while (a) {\n  if (b) {\n    break;\n  }\n  f();\n}\n");
+        assert_eq!(count_key(&one_break, "javascript:S135"), 0);
+
+        // Breaks inside a nested loop count for the inner loop only.
+        let nested = js_keys(
+            "while (a) {\n  if (b) {\n    break;\n  }\n  while (c) {\n    if (d) {\n      break;\n    }\n    break;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&nested, "javascript:S135"), 1);
+        let inner_line = nested
+            .iter()
+            .find(|(key, _)| key == "javascript:S135")
+            .map(|(_, line)| *line);
+        assert_eq!(inner_line, Some(5));
+    }
+
+    #[test]
+    fn s1751_flags_single_iteration_loops() {
+        let constant_false = js_keys("while (false) {\n  f();\n}\n");
+        assert_eq!(count_key(&constant_false, "javascript:S1751"), 1);
+
+        let terminal_break = js_keys("while (x) {\n  f();\n  break;\n}\n");
+        assert_eq!(count_key(&terminal_break, "javascript:S1751"), 1);
+
+        let continue_keeps_iterations =
+            js_keys("while (x) {\n  if (y) {\n    continue;\n  }\n  break;\n}\n");
+        assert_eq!(count_key(&continue_keeps_iterations, "javascript:S1751"), 0);
+
+        let ordinary = js_keys("while (x) {\n  f();\n}\n");
+        assert_eq!(count_key(&ordinary, "javascript:S1751"), 0);
+    }
+
+    #[test]
+    fn s2189_flags_endless_loops_without_terminators() {
+        let forever = js_keys("while (true) {\n  f();\n}\n");
+        assert_eq!(count_key(&forever, "javascript:S2189"), 1);
+
+        let do_forever = js_keys("do {\n  f();\n} while (true);\n");
+        assert_eq!(count_key(&do_forever, "javascript:S2189"), 1);
+
+        let with_break = js_keys("while (true) {\n  break;\n}\n");
+        assert_eq!(count_key(&with_break, "javascript:S2189"), 0);
+
+        let with_return = js_keys("function f() {\n  for (;;) {\n    return 1;\n  }\n}\n");
+        assert_eq!(count_key(&with_return, "javascript:S2189"), 0);
+
+        // JS-only rule: TypeScript files are never flagged.
+        let typescript = findings("while (true) {\n  f();\n}\n", JstsLanguage::TypeScript);
+        assert_eq!(count_key(&typescript, "typescript:S2189"), 0);
+    }
+
+    #[test]
+    fn s1535_requires_hasownproperty_guard_in_for_in() {
+        let bare = js_keys("for (const k in obj) {\n  f(k);\n}\n");
+        assert_eq!(count_key(&bare, "javascript:S1535"), 1);
+
+        let guarded =
+            js_keys("for (const k in obj) {\n  if (obj.hasOwnProperty(k)) {\n    f(k);\n  }\n}\n");
+        assert_eq!(count_key(&guarded, "javascript:S1535"), 0);
+    }
+
+    #[test]
+    fn s4139_flags_for_in_over_arrays_and_strings() {
+        let array = js_keys("for (const v in [\"a\", \"b\"]) {\n  f(v);\n}\n");
+        assert_eq!(count_key(&array, "javascript:S4139"), 1);
+
+        let string = js_keys("for (const v in \"ab\") {\n  f(v);\n}\n");
+        assert_eq!(count_key(&string, "javascript:S4139"), 1);
+
+        let object = js_keys("for (const v in obj) {\n  f(v);\n}\n");
+        assert_eq!(count_key(&object, "javascript:S4139"), 0);
+    }
+
+    #[test]
+    fn s4138_flags_for_of_over_non_iterables() {
+        let object = js_keys("for (const v of { a: 1 }) {\n  f(v);\n}\n");
+        assert_eq!(count_key(&object, "javascript:S4138"), 1);
+
+        let number = js_keys("for (const v of 5) {\n  f(v);\n}\n");
+        assert_eq!(count_key(&number, "javascript:S4138"), 1);
+
+        let array = js_keys("for (const v of [1, 2]) {\n  f(v);\n}\n");
+        assert_eq!(count_key(&array, "javascript:S4138"), 0);
+    }
+}

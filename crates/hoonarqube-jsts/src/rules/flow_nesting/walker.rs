@@ -270,3 +270,132 @@ pub(crate) const MAX_FUNCTION_PARAMETERS: usize = 7;
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_flow_nesting_rules(ctx.program, ctx.index, ctx.language)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn too_many_parameters_flags_eighth_and_counts_rest() {
+        assert_eq!(
+            count_key(
+                &js_keys("function f(a, b, c, d, e, g, h) { return a; }\n"),
+                "javascript:S107"
+            ),
+            0
+        );
+
+        let over = js("function f(a, b, c, d, e, g, h, i) { return a; }\n");
+        let s107: Vec<_> = over
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S107"))
+            .collect();
+        assert_eq!(s107.len(), 1);
+        assert_eq!(
+            s107[0].message,
+            "This function has 8 parameters, which is greater than the 7 authorized."
+        );
+        assert_eq!(s107[0].range.start, pos(1, 10));
+
+        // A rest parameter counts as one parameter toward the limit.
+        assert_eq!(
+            count_key(
+                &js_keys("const f = (a, b, c, d, e, g, ...rest) => a;\n"),
+                "javascript:S107"
+            ),
+            0
+        );
+        assert_eq!(
+            count_key(
+                &js_keys("const f = (a, b, c, d, e, g, h, ...rest) => a;\n"),
+                "javascript:S107"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn control_flow_nesting_flags_fourth_level_and_resets_per_function() {
+        let deep = js("if (a) { for (;;) { while (b) { if (c) { d(); } } } }\n");
+        let s134: Vec<_> = deep
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S134"))
+            .collect();
+        assert_eq!(s134.len(), 1);
+        assert_eq!(s134[0].range.start, pos(1, 32));
+
+        // Three levels of nesting are exactly at the allowed maximum.
+        assert_eq!(
+            count_key(
+                &js_keys("if (a) {\n  for (;;) {\n    while (b) {\n      c();\n    }\n  }\n}\n"),
+                "javascript:S134"
+            ),
+            0
+        );
+
+        // Function boundaries reset the depth: without the reset, `if (c)`
+        // would sit at depth four.
+        assert_eq!(
+            count_key(
+                &js_keys(
+                    "function outer() {\n  if (a) {\n    function inner() {\n      if (b) {\n        if (c) {\n          e();\n        }\n      }\n    }\n  }\n}\n"
+                ),
+                "javascript:S134"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn jumps_in_finally_flagged_but_catch_return_allowed() {
+        let source = "\
+function withReturn() {
+  try {
+    a();
+  } finally {
+    return 1;
+  }
+}
+function catchReturn() {
+  try {
+    b();
+  } catch (e) {
+    return e;
+  } finally {
+    c();
+  }
+}
+function withThrow() {
+  try {
+    d();
+  } finally {
+    throw 'x';
+  }
+}
+function loopJump() {
+  for (;;) {
+    try {
+      e();
+    } finally {
+      continue;
+    }
+  }
+}
+";
+        assert_eq!(count_key(&js_keys(source), "javascript:S1143"), 3);
+
+        // A `return` in the catch clause is fine when there is no jump of
+        // its own anywhere in the try statement.
+        assert_eq!(
+            count_key(
+                &js_keys(
+                    "function f() {\n  try {\n    a();\n  } catch (err) {\n    return err;\n  }\n}\n"
+                ),
+                "javascript:S1143"
+            ),
+            0
+        );
+    }
+}

@@ -25,3 +25,16 @@ pub(crate) fn check_tb_constant_conditions(
 pub(crate) struct ConstantConditionCollector {
     pub(crate) sites: Vec<(Span, bool)>,
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn constant_boolean_conditions_flagged() {
+        let flagged = js("if (true) {\n  work();\n}\nwhile (false) {\n  skip();\n}\n");
+        assert_eq!(filtered(&flagged, "S2589").len(), 2);
+        let clean = js("if (cond) {\n  work();\n}\nwhile (running) {\n  skip();\n}\n");
+        assert_eq!(filtered(&clean, "S2589").len(), 0);
+    }
+}

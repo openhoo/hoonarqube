@@ -35,3 +35,21 @@ pub(crate) fn check_class_getter_pairing(sink: &mut IssueSink<'_>, elements: &[C
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn getters_without_setters_are_flagged_on_classes_and_objects() {
+        let class_unpaired = js_keys("class A {\n  get value() {\n    return 1;\n  }\n}\n");
+        assert_eq!(count_key(&class_unpaired, "javascript:S2376"), 1);
+        let class_paired =
+            js_keys("class A {\n  get value() {\n    return 1;\n  }\n  set value(next) {}\n}\n");
+        assert_eq!(count_key(&class_paired, "javascript:S2376"), 0);
+
+        let object_unpaired =
+            js_keys("const obj = {\n  get count() {\n    return this.n;\n  }\n};\n");
+        assert_eq!(count_key(&object_unpaired, "javascript:S2376"), 1);
+    }
+}
