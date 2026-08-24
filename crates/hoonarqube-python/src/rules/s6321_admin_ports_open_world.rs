@@ -1,4 +1,3 @@
-use crate::support::ADMIN_PORTS;
 use crate::support::call_subtree_has_port;
 use crate::support::call_subtree_open_world;
 use crate::support::called_name;
@@ -32,3 +31,8 @@ pub(crate) fn check_s6321_admin_ports_open_world(
     });
     issues
 }
+
+// --- migrated from support/mod.rs (S6321) ---
+// --- python:S6321 — administration services restricted by IP ----------------------
+
+pub(crate) const ADMIN_PORTS: [i64; 2] = [22, 3389];

@@ -1,10 +1,9 @@
-use crate::support::base_tail_is;
-use crate::support::class_base_paths;
+use crate::support::called_name;
+use crate::support::dotted_name;
 use crate::support::for_each_expr;
 use crate::support::for_each_method;
 use crate::support::for_each_stmt_in_scope;
 use crate::support::has_keyword;
-use crate::support::is_super_init_call;
 use crate::support::issue_at;
 use crate::support::stmt_exprs;
 use hoonarqube_ir::Issue;
@@ -47,6 +46,29 @@ pub(crate) fn check_keras_model_input_shape(
         });
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S6919) ---
+// --- python:S6919 / python:S6974 — Keras Model / BaseEstimator subclass contracts ----
+
+pub(crate) fn class_base_paths(class: &ruff_python_ast::StmtClassDef) -> Vec<String> {
+    class
+        .arguments
+        .as_ref()
+        .map(|arguments| arguments.args.iter().filter_map(dotted_name).collect())
+        .unwrap_or_default()
+}
+
+pub(crate) fn base_tail_is(path: &str, tail: &str) -> bool {
+    path.rsplit('.').next() == Some(tail)
+}
+
+pub(crate) fn is_super_init_call(expr: &Expr) -> bool {
+    matches!(expr, Expr::Call(call)
+        if matches!(call.func.as_ref(), Expr::Attribute(attr)
+            if attr.attr.as_str() == "__init__"
+                && matches!(attr.value.as_ref(), Expr::Call(outer)
+                    if called_name(&outer.func) == Some("super"))))
 }
 
 #[cfg(test)]

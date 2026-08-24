@@ -1,4 +1,3 @@
-use crate::support::NON_ITERATOR_RETURNS;
 use crate::support::for_each_return_in_scope;
 use crate::support::for_each_stmt;
 use crate::support::for_each_stmt_expr;
@@ -62,3 +61,33 @@ pub(crate) fn check_s2876_iter_returns(
     });
     issues
 }
+
+// --- migrated from support/mod.rs (S2876) ---
+// --- python:S2876 — "__iter__" should return an iterator ----------------------
+
+/// Free functions whose results are provably not iterators.
+pub(crate) const NON_ITERATOR_RETURNS: [&str; 23] = [
+    "len",
+    "abs",
+    "sum",
+    "min",
+    "max",
+    "ord",
+    "hash",
+    "id",
+    "print",
+    "input",
+    "round",
+    "divmod",
+    "bool",
+    "int",
+    "float",
+    "str",
+    "bytes",
+    "list",
+    "tuple",
+    "dict",
+    "set",
+    "frozenset",
+    "sorted",
+];

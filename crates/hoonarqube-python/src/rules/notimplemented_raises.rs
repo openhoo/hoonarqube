@@ -1,9 +1,8 @@
-use crate::support::PROTOCOL_DUNDERS;
 use crate::support::for_each_stmt;
 use crate::support::for_each_stmt_in_scope;
-use crate::support::is_notimplemented_error_expr;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
+use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
 use ruff_python_parser::Parsed;
@@ -39,6 +38,56 @@ pub(crate) fn check_notimplemented_raises(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S5712) ---
+// --- python:S5712 — special methods raising NotImplementedError ---------------
+
+pub(crate) const PROTOCOL_DUNDERS: [&str; 34] = [
+    "__add__",
+    "__sub__",
+    "__mul__",
+    "__truediv__",
+    "__floordiv__",
+    "__mod__",
+    "__pow__",
+    "__lshift__",
+    "__rshift__",
+    "__and__",
+    "__or__",
+    "__xor__",
+    "__radd__",
+    "__rsub__",
+    "__rmul__",
+    "__rtruediv__",
+    "__rfloordiv__",
+    "__rmod__",
+    "__rpow__",
+    "__rlshift__",
+    "__rrshift__",
+    "__rand__",
+    "__ror__",
+    "__rxor__",
+    "__iadd__",
+    "__isub__",
+    "__imul__",
+    "__eq__",
+    "__ne__",
+    "__lt__",
+    "__le__",
+    "__gt__",
+    "__ge__",
+    "__hash__",
+];
+
+pub(crate) fn is_notimplemented_error_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Name(name) => name.id.as_str() == "NotImplementedError",
+        Expr::Call(call) => {
+            matches!(call.func.as_ref(), Expr::Name(name) if name.id.as_str() == "NotImplementedError")
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]

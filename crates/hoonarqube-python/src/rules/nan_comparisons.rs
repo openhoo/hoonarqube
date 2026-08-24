@@ -1,5 +1,5 @@
+use crate::support::dotted_name;
 use crate::support::for_each_expr_in_module;
-use crate::support::is_numpy_nan;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
@@ -39,4 +39,11 @@ pub(crate) fn check_nan_comparisons(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S6725) ---
+// --- python:S6725 — equality against numpy.nan --------------------------------
+
+pub(crate) fn is_numpy_nan(expr: &Expr) -> bool {
+    dotted_name(expr).is_some_and(|path| matches!(path.as_str(), "np.nan" | "numpy.nan"))
 }

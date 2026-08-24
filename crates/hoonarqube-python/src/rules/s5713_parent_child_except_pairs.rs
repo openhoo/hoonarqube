@@ -1,7 +1,6 @@
+use crate::support::direct_base_names;
 use crate::support::for_each_stmt;
-use crate::support::has_file_local_ancestor;
 use crate::support::issue_at;
-use crate::support::module_classes;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ExceptHandler;
 use ruff_python_ast::Expr;
@@ -10,6 +9,7 @@ use ruff_python_ast::Stmt;
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
+use std::collections::HashMap;
 use std::collections::HashSet;
 
 /// python:S5713 — flags except-tuples listing both a parent and its subclass
@@ -69,4 +69,40 @@ pub(crate) fn check_s5713_parent_child_except_pairs(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S5713) ---
+// --- python:S5713 — subclass and parent should not share an except clause -----
+
+/// Module-level file-local classes by name.
+pub(crate) fn module_classes(module: &[Stmt]) -> HashMap<&str, &ruff_python_ast::StmtClassDef> {
+    module
+        .iter()
+        .filter_map(|stmt| match stmt {
+            Stmt::ClassDef(class) => Some((class.name.as_str(), class)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether `candidate` is a transitive file-local ancestor of `class_name`;
+/// cycles in the (invalid) inheritance graph are cut by the visited set.
+pub(crate) fn has_file_local_ancestor(
+    class_name: &str,
+    candidate: &str,
+    classes: &HashMap<&str, &ruff_python_ast::StmtClassDef>,
+    visited: &mut HashSet<String>,
+) -> bool {
+    if !visited.insert(class_name.to_string()) {
+        return false;
+    }
+    let Some(class) = classes.get(class_name) else {
+        return false;
+    };
+    for base in direct_base_names(class) {
+        if base == candidate || has_file_local_ancestor(base, candidate, classes, visited) {
+            return true;
+        }
+    }
+    false
 }

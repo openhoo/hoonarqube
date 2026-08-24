@@ -1,7 +1,6 @@
 use crate::support::called_name;
 use crate::support::for_each_stmt_expr;
 use crate::support::issue_at;
-use crate::support::wrapping_redundancy;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
@@ -34,4 +33,16 @@ pub(crate) fn check_wrapping_collection_constructors(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S7496) ---
+// --- python:S7496 — constructor wrapping an existing literal/comprehension ----
+
+pub(crate) fn wrapping_redundancy(func_name: &str, argument: &Expr) -> bool {
+    match func_name {
+        "list" => matches!(argument, Expr::List(_) | Expr::ListComp(_)),
+        "set" => matches!(argument, Expr::Set(_) | Expr::SetComp(_)),
+        "dict" => matches!(argument, Expr::Dict(_) | Expr::DictComp(_)),
+        _ => false,
+    }
 }

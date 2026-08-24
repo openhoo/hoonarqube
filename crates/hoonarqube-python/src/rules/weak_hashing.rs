@@ -1,7 +1,8 @@
 use crate::support::dotted_name;
 use crate::support::for_each_call;
-use crate::support::hash_call_is_exempt;
+use crate::support::is_false_literal;
 use crate::support::issue_at;
+use crate::support::keyword_value;
 use crate::support::string_literal_text;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
@@ -38,4 +39,11 @@ pub(crate) fn check_weak_hashing(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S4790) ---
+// --- python:S4790 — weak hashing algorithms -----------------------------------
+
+pub(crate) fn hash_call_is_exempt(call: &ruff_python_ast::ExprCall) -> bool {
+    keyword_value(&call.arguments, "usedforsecurity").is_some_and(is_false_literal)
 }

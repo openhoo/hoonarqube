@@ -1,5 +1,4 @@
 use crate::support::for_each_stmt_expr;
-use crate::support::is_float_literal;
 use crate::support::issue_at;
 use crate::support::literal_kind;
 use hoonarqube_ir::Issue;
@@ -34,4 +33,15 @@ pub(crate) fn check_s6663_sequence_index_type(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S6663) ---
+// --- python:S6663 — sequence indexes must provide __index__ ------------------------
+
+pub(crate) fn is_float_literal(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::NumberLiteral(number)
+            if matches!(number.value, ruff_python_ast::Number::Float(_))
+    )
 }

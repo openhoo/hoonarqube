@@ -50,6 +50,10 @@ mod tests {
         for source in [
             "if len(xs) >= 0:\n    show()\n",
             "if 0 <= len(xs):\n    show()\n",
+            "if len(xs) <= 0:\n    show()\n",
+            "if len(xs) < 0:\n    show()\n",
+            "if 0 > len(xs):\n    show()\n",
+            "if 0 >= len(xs):\n    show()\n",
         ] {
             assert_eq!(findings(&scan(source), "python:S3981").len(), 1, "{source}");
         }
@@ -59,5 +63,11 @@ mod tests {
         ] {
             assert!(findings(&scan(clean), "python:S3981").is_empty(), "{clean}");
         }
+    }
+
+    #[test]
+    fn s3981_chained_zero_comparison_still_flags() {
+        let chained = scan("if 0 <= len(xs) < 10:\n    show()\n");
+        assert_eq!(findings(&chained, "python:S3981").len(), 1);
     }
 }

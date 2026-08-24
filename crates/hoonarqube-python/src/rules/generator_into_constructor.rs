@@ -1,7 +1,6 @@
 use crate::support::called_name;
 use crate::support::for_each_stmt_expr;
 use crate::support::issue_at;
-use crate::support::single_positional_call;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
@@ -31,4 +30,22 @@ pub(crate) fn check_generator_into_constructor(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S7494) ---
+// --- python:S7494 — comprehension over a generator expression -----------------
+
+/// `(name, sole positional argument)` for calls shaped `name(x)` without
+/// keywords.
+pub(crate) fn single_positional_call<'a>(expr: &'a Expr, name: &str) -> Option<&'a Expr> {
+    match expr {
+        Expr::Call(call)
+            if called_name(&call.func) == Some(name)
+                && call.arguments.args.len() == 1
+                && call.arguments.keywords.is_empty() =>
+        {
+            Some(&call.arguments.args[0])
+        }
+        _ => None,
+    }
 }

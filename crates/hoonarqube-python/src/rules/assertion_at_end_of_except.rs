@@ -1,8 +1,8 @@
 use crate::support::for_each_stmt;
-use crate::support::is_unittest_assert_call;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ExceptHandler;
+use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
 use ruff_python_parser::Parsed;
@@ -33,4 +33,21 @@ pub(crate) fn check_assertion_at_end_of_except(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S5915) ---
+// --- python:S5915 — assertion at end of except block ---------------------------
+
+pub(crate) fn is_unittest_assert_call(stmt: &Stmt) -> bool {
+    let Stmt::Expr(value) = stmt else {
+        return false;
+    };
+    let Expr::Call(call) = value.value.as_ref() else {
+        return false;
+    };
+    match call.func.as_ref() {
+        Expr::Name(name) => name.id.as_str().starts_with("assert"),
+        Expr::Attribute(attribute) => attribute.attr.as_str().starts_with("assert"),
+        _ => false,
+    }
 }

@@ -1,7 +1,6 @@
 use crate::AnalyzerOptions;
 use crate::support::comment_tokens;
 use crate::support::issue_at;
-use crate::support::legal_trailing_comment;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
 use ruff_python_parser::Parsed;
@@ -42,4 +41,30 @@ pub(crate) fn check_trailing_comments(
         }
     }
     issues
+}
+
+// --- migrated from support/mod.rs (S139) ---
+// --- python:S139 — comments at the end of code lines -----------------------------------
+
+/// Default catalog semantics: `fmt:`/`type:`/`noqa:` directives and
+/// single-token comments are legal; arbitrary user patterns are matched
+/// naively (`prefix.*`, `\S+`-style alternatives, literals).
+pub(crate) fn legal_trailing_comment(pattern: &str, content: &str) -> bool {
+    if pattern.is_empty() {
+        return !content.is_empty()
+            && (!content.contains(char::is_whitespace)
+                || content.starts_with("fmt:")
+                || content.starts_with("type:")
+                || content.starts_with("noqa"));
+    }
+    pattern.split('|').any(|alternative| {
+        let alternative = alternative.trim_matches('^').trim_matches('$');
+        if alternative.ends_with(".*") {
+            content.starts_with(alternative.trim_end_matches(".*"))
+        } else if matches!(alternative, "[^\\s]++" | "\\S+" | "[^\\s]+") {
+            !content.is_empty() && !content.contains(char::is_whitespace)
+        } else {
+            content == alternative
+        }
+    })
 }

@@ -1,6 +1,8 @@
-use crate::support::autoescape_off;
+use crate::support::called_name;
 use crate::support::for_each_call;
+use crate::support::is_false_literal;
 use crate::support::issue_at;
+use crate::support::keyword_value;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
 use ruff_python_parser::Parsed;
@@ -25,6 +27,17 @@ pub(crate) fn check_s5247_autoescaping_disabled(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S5247) ---
+// --- python:S5247 / S5439 — HTML autoescaping disabled ------------------------
+
+/// Jinja shapes that switch autoescaping off.
+pub(crate) fn autoescape_off(call: &ruff_python_ast::ExprCall) -> bool {
+    const AUTOESCAPE_ENGINES: [&str; 2] = ["Environment", "select_autoescape"];
+    AUTOESCAPE_ENGINES.contains(&called_name(&call.func).unwrap_or_default())
+        && (keyword_value(&call.arguments, "autoescape").is_some_and(is_false_literal)
+            || keyword_value(&call.arguments, "enabled").is_some_and(is_false_literal))
 }
 
 #[cfg(test)]

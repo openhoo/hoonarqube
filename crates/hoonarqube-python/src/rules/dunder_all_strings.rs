@@ -1,4 +1,3 @@
-use crate::support::is_dunder_all_target;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
@@ -45,6 +44,13 @@ pub(crate) fn check_dunder_all_strings(
         }
     }
     issues
+}
+
+// --- migrated from support/mod.rs (S2823) ---
+// --- python:S2823 — `__all__` must contain only strings ---------------------
+
+pub(crate) fn is_dunder_all_target(expr: &Expr) -> bool {
+    matches!(expr, Expr::Name(name) if name.id.as_str() == "__all__")
 }
 
 #[cfg(test)]

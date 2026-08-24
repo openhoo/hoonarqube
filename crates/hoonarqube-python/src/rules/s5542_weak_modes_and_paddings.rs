@@ -1,4 +1,3 @@
-use crate::support::WEAK_MODE_OR_PADDING_NAMES;
 use crate::support::for_each_attr_load;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
@@ -26,6 +25,11 @@ pub(crate) fn check_s5542_weak_modes_and_paddings(
     }
     issues
 }
+
+// --- migrated from support/mod.rs (S5542) ---
+// --- python:S5542 — weak cipher modes and paddings -----------------------------
+
+pub(crate) const WEAK_MODE_OR_PADDING_NAMES: [&str; 2] = ["MODE_ECB", "PKCS1v15"];
 
 #[cfg(test)]
 mod tests {

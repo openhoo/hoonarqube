@@ -1,8 +1,10 @@
+use crate::support::excluded_identical_pair;
 use crate::support::exprs_textually_equal;
 use crate::support::for_each_call;
+use crate::support::is_none_literal;
 use crate::support::issue_at;
-use crate::support::trivially_repeatable;
 use hoonarqube_ir::Issue;
+use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
@@ -36,6 +38,15 @@ pub(crate) fn check_duplicate_call_arguments(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S5549) ---
+// --- python:S5549 — identical arguments repeated within one call ------------------
+
+pub(crate) fn trivially_repeatable(left: &Expr, right: &Expr) -> bool {
+    excluded_identical_pair(left, right)
+        || (is_none_literal(left) && is_none_literal(right))
+        || (matches!(left, Expr::BooleanLiteral(_)) && matches!(right, Expr::BooleanLiteral(_)))
 }
 
 #[cfg(test)]

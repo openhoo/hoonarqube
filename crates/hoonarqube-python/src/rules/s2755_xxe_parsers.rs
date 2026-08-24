@@ -1,4 +1,3 @@
-use crate::support::XXE_PARSER_CALLS;
 use crate::support::dotted_name;
 use crate::support::for_each_call;
 use crate::support::issue_at;
@@ -39,6 +38,24 @@ pub(crate) fn check_s2755_xxe_parsers(
     });
     issues
 }
+
+// --- migrated from support/mod.rs (S2755) ---
+// --- python:S2755 — XML parsers vulnerable to XXE -------------------------------
+
+pub(crate) const XXE_PARSER_CALLS: [&str; 12] = [
+    "xml.etree.ElementTree.parse",
+    "xml.etree.ElementTree.fromstring",
+    "xml.etree.ElementTree.XMLParser",
+    "lxml.etree.parse",
+    "lxml.etree.fromstring",
+    "xml.dom.minidom.parse",
+    "xml.dom.minidom.parseString",
+    "xml.sax.parse",
+    "xml.sax.parseString",
+    "ET.parse",
+    "ET.fromstring",
+    "ET.XMLParser",
+];
 
 #[cfg(test)]
 mod tests {

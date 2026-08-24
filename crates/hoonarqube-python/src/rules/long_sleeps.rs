@@ -46,4 +46,23 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].range.start.line, 2);
     }
+
+    #[test]
+    fn s7486_requires_literal_duration_on_sleep_tails() {
+        // Bare `sleep` tails are recognized alongside dotted ones.
+        let bare = scan("from time import sleep\nsleep(60)\n");
+        assert_eq!(findings(&bare, "python:S7486").len(), 1);
+
+        // Non-literal durations stay unjudged.
+        let dynamic = "import asyncio\nasyncio.sleep(delay)\n";
+        assert!(findings(&scan(dynamic), "python:S7486").is_empty());
+    }
+
+    #[test]
+    fn s7486_reports_multiline_call_at_its_start_line() {
+        let flagged = scan("async def main():\n    await asyncio.sleep(\n        120,\n    )\n");
+        let found = findings(&flagged, "python:S7486");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 2);
+    }
 }

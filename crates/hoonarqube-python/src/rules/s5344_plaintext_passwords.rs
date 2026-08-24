@@ -1,9 +1,9 @@
-use crate::support::FAST_HASH_NAMES;
+use crate::support::CREDENTIAL_WORDS;
 use crate::support::called_name;
 use crate::support::for_each_call;
 use crate::support::for_each_stmt;
-use crate::support::is_credential_name;
 use crate::support::issue_at;
+use crate::support::name_words;
 use crate::support::string_literal_text;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
@@ -58,6 +58,15 @@ pub(crate) fn check_s5344_plaintext_passwords(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S5344) ---
+// --- python:S5344 — passwords not stored in plaintext or fast-hashed ----------
+
+pub(crate) const FAST_HASH_NAMES: [&str; 3] = ["md5", "sha1", "sha"];
+
+pub(crate) fn is_credential_name(name: &str) -> bool {
+    name_words(name).any(|word| CREDENTIAL_WORDS.contains(&word))
 }
 
 #[cfg(test)]

@@ -21,6 +21,13 @@ pub(crate) fn check_needless_pass(
     issues
 }
 
+// --- migrated from support/mod.rs (S2772) ---
+// ---------------------------------------------------------------------------
+// Tier-A battery entries #48–#110 (python:S2772 … python:S7512).
+//
+// One private check per catalog entry, wired through `check_tier_a_battery`.
+// Detection follows the batch spec: single-file AST/token/text heuristics
+// with deliberately conservative predicates.
 #[cfg(test)]
 mod tests {
 

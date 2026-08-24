@@ -1,6 +1,6 @@
+use crate::support::child_bodies;
 use crate::support::for_each_stmt;
 use crate::support::issue_at;
-use crate::support::suite_has_direct_continue;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
@@ -32,4 +32,17 @@ pub(crate) fn check_single_iteration_loops(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S1751) ---
+// --- python:S1751 — loops running at most once --------------------------------
+
+pub(crate) fn suite_has_direct_continue(suite: &[Stmt]) -> bool {
+    suite.iter().any(|stmt| match stmt {
+        Stmt::Continue(_) => true,
+        Stmt::For(_) | Stmt::While(_) | Stmt::FunctionDef(_) | Stmt::ClassDef(_) => false,
+        _ => child_bodies(stmt)
+            .iter()
+            .any(|body| suite_has_direct_continue(body)),
+    })
 }

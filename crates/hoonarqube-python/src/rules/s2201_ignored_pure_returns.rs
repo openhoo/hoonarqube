@@ -1,8 +1,5 @@
-use crate::support::PURE_FREE_FUNCTIONS;
-use crate::support::PURE_STRING_METHODS;
 use crate::support::called_name;
 use crate::support::for_each_stmt;
-use crate::support::is_pure_string_expression;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
@@ -51,4 +48,76 @@ pub(crate) fn check_s2201_ignored_pure_returns(
         ));
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S2201) ---
+// --- python:S2201 — return values from pure calls should not be ignored ------
+
+pub(crate) const PURE_FREE_FUNCTIONS: [&str; 13] = [
+    "sorted", "reversed", "abs", "len", "repr", "ascii", "hash", "bin", "oct", "hex", "chr", "ord",
+    "divmod",
+];
+
+pub(crate) const PURE_STRING_METHODS: [&str; 46] = [
+    "upper",
+    "lower",
+    "capitalize",
+    "casefold",
+    "title",
+    "swapcase",
+    "strip",
+    "lstrip",
+    "rstrip",
+    "removeprefix",
+    "removesuffix",
+    "replace",
+    "center",
+    "zfill",
+    "ljust",
+    "rjust",
+    "count",
+    "find",
+    "rfind",
+    "index",
+    "rindex",
+    "startswith",
+    "endswith",
+    "partition",
+    "rpartition",
+    "split",
+    "rsplit",
+    "splitlines",
+    "join",
+    "encode",
+    "format",
+    "format_map",
+    "translate",
+    "expandtabs",
+    "isascii",
+    "isalpha",
+    "isalnum",
+    "isdecimal",
+    "isdigit",
+    "isidentifier",
+    "islower",
+    "isnumeric",
+    "isprintable",
+    "isspace",
+    "istitle",
+    "isupper",
+];
+
+/// Whether the expression is a string literal or a call chain over pure
+/// `str` methods rooted at a string literal (`"a,b".strip().split(",")`).
+pub(crate) fn is_pure_string_expression(expr: &Expr) -> bool {
+    match expr {
+        Expr::StringLiteral(_) => true,
+        Expr::Call(call) => matches!(
+            call.func.as_ref(),
+            Expr::Attribute(attribute)
+                if PURE_STRING_METHODS.contains(&attribute.attr.as_str())
+                    && is_pure_string_expression(&attribute.value)
+        ),
+        _ => false,
+    }
 }

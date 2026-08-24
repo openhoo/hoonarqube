@@ -1,6 +1,6 @@
 use crate::support::for_each_stmt;
+use crate::support::is_call_to;
 use crate::support::issue_at;
-use crate::support::straight_line_self_call;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
@@ -28,4 +28,28 @@ pub(crate) fn check_infinite_recursion(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S2190) ---
+// --- python:S2190 — infinite recursion ---------------------------------------
+
+pub(crate) fn straight_line_self_call(suite: &[Stmt], name: &str) -> bool {
+    for stmt in suite {
+        match stmt {
+            Stmt::Expr(expr_stmt) => {
+                if is_call_to(&expr_stmt.value, name) {
+                    return true;
+                }
+            }
+            Stmt::Return(return_stmt) => {
+                if let Some(value) = return_stmt.value.as_deref()
+                    && is_call_to(value, name)
+                {
+                    return true;
+                }
+            }
+            _ => return false,
+        }
+    }
+    false
 }

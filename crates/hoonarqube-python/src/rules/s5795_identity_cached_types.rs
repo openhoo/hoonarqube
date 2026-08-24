@@ -1,4 +1,3 @@
-use crate::support::IDENTITY_UNSAFE_KINDS;
 use crate::support::comparison_pairs;
 use crate::support::for_each_stmt_expr;
 use crate::support::is_identity_op;
@@ -37,3 +36,8 @@ pub(crate) fn check_s5795_identity_cached_types(
     });
     issues
 }
+
+// --- migrated from support/mod.rs (S5795) ---
+// --- python:S5795 — identity comparisons with cached types -------------------------
+
+pub(crate) const IDENTITY_UNSAFE_KINDS: [&str; 3] = ["number", "string", "bytes"];

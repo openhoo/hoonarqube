@@ -1,4 +1,3 @@
-use crate::support::UNHASHABLE_KINDS;
 use crate::support::for_each_stmt_expr;
 use crate::support::issue_at;
 use crate::support::literal_kind;
@@ -48,3 +47,8 @@ pub(crate) fn check_s6662_unhashable_collection_literals(
     });
     issues
 }
+
+// --- migrated from support/mod.rs (S6662) ---
+// --- python:S6662 — unhashable set members and dict keys ---------------------------
+
+pub(crate) const UNHASHABLE_KINDS: [&str; 3] = ["list", "set", "dict"];

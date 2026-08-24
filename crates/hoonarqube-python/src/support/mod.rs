@@ -1337,53 +1337,6 @@ pub(crate) fn collect_exception_names(expr: &Expr, names: &mut Vec<String>) {
 
 // --- python:S5712 — special methods raising NotImplementedError ---------------
 
-pub(crate) const PROTOCOL_DUNDERS: [&str; 34] = [
-    "__add__",
-    "__sub__",
-    "__mul__",
-    "__truediv__",
-    "__floordiv__",
-    "__mod__",
-    "__pow__",
-    "__lshift__",
-    "__rshift__",
-    "__and__",
-    "__or__",
-    "__xor__",
-    "__radd__",
-    "__rsub__",
-    "__rmul__",
-    "__rtruediv__",
-    "__rfloordiv__",
-    "__rmod__",
-    "__rpow__",
-    "__rlshift__",
-    "__rrshift__",
-    "__rand__",
-    "__ror__",
-    "__rxor__",
-    "__iadd__",
-    "__isub__",
-    "__imul__",
-    "__eq__",
-    "__ne__",
-    "__lt__",
-    "__le__",
-    "__gt__",
-    "__ge__",
-    "__hash__",
-];
-
-pub(crate) fn is_notimplemented_error_expr(expr: &Expr) -> bool {
-    match expr {
-        Expr::Name(name) => name.id.as_str() == "NotImplementedError",
-        Expr::Call(call) => {
-            matches!(call.func.as_ref(), Expr::Name(name) if name.id.as_str() == "NotImplementedError")
-        }
-        _ => false,
-    }
-}
-
 // --- python:S5719 — instance/class methods need a positional parameter --------
 
 /// Iterates `(class, function)` for every method directly defined in a class
@@ -1405,96 +1358,10 @@ pub(crate) fn for_each_method(
 
 // --- python:S5722 — special method arity --------------------------------------
 
-pub(crate) const ARITY_ONE_DUNDERS: [&str; 17] = [
-    "__str__",
-    "__repr__",
-    "__len__",
-    "__hash__",
-    "__bool__",
-    "__iter__",
-    "__next__",
-    "__enter__",
-    "__dir__",
-    "__index__",
-    "__neg__",
-    "__pos__",
-    "__invert__",
-    "__abs__",
-    "__int__",
-    "__float__",
-    "__complex__",
-];
-
-pub(crate) const ARITY_TWO_DUNDERS: [&str; 39] = [
-    "__add__",
-    "__sub__",
-    "__mul__",
-    "__truediv__",
-    "__floordiv__",
-    "__mod__",
-    "__pow__",
-    "__lshift__",
-    "__rshift__",
-    "__and__",
-    "__or__",
-    "__xor__",
-    "__eq__",
-    "__ne__",
-    "__lt__",
-    "__le__",
-    "__gt__",
-    "__ge__",
-    "__radd__",
-    "__rsub__",
-    "__rmul__",
-    "__rtruediv__",
-    "__rfloordiv__",
-    "__rmod__",
-    "__rpow__",
-    "__rlshift__",
-    "__rrshift__",
-    "__rand__",
-    "__ror__",
-    "__rxor__",
-    "__iadd__",
-    "__isub__",
-    "__imul__",
-    "__contains__",
-    "__getitem__",
-    "__delitem__",
-    "__getattr__",
-    "__getattribute__",
-    "__delete__",
-];
-
-pub(crate) const ARITY_THREE_DUNDERS: [&str; 4] =
-    ["__setitem__", "__setattr__", "__delattr__", "__set_name__"];
-
-pub(crate) fn required_special_method_arity(name: &str) -> Option<usize> {
-    if ARITY_ONE_DUNDERS.contains(&name) {
-        Some(1)
-    } else if ARITY_TWO_DUNDERS.contains(&name) {
-        Some(2)
-    } else if ARITY_THREE_DUNDERS.contains(&name) {
-        Some(3)
-    } else {
-        None
-    }
-}
-
 // --- python:S5709 — custom exceptions inherit Exception -----------------------
 
 pub(crate) fn looks_like_exception_name(name: &str) -> bool {
     name.ends_with("Error") || name.ends_with("Warning") || name.ends_with("Exception")
-}
-
-pub(crate) fn is_builtin_exception_base(expr: &Expr) -> bool {
-    let tail = match expr {
-        Expr::Name(name) => Some(name.id.as_str()),
-        Expr::Attribute(attribute) => Some(attribute.attr.as_str()),
-        _ => None,
-    };
-    matches!(tail, Some(base) if base == "Exception" || base == "BaseException" || looks_like_exception_name(base))
 }
 
 pub(crate) fn scan_flow_statements(
@@ -1703,41 +1570,9 @@ pub(crate) fn visit_scopes_for_yields(
 
 // --- python:S5899 — unreachable test methods ------------------------------------
 
-pub(crate) fn is_test_case_base(expr: &Expr) -> bool {
-    let tail = match expr {
-        Expr::Name(name) => Some(name.id.as_str()),
-        Expr::Attribute(attribute) => Some(attribute.attr.as_str()),
-        _ => None,
-    };
-    matches!(tail, Some(base) if base.ends_with("TestCase"))
-}
-
 // --- python:S5915 — assertion at end of except block ---------------------------
 
-pub(crate) fn is_unittest_assert_call(stmt: &Stmt) -> bool {
-    let Stmt::Expr(value) = stmt else {
-        return false;
-    };
-    let Expr::Call(call) = value.value.as_ref() else {
-        return false;
-    };
-    match call.func.as_ref() {
-        Expr::Name(name) => name.id.as_str().starts_with("assert"),
-        Expr::Attribute(attribute) => attribute.attr.as_str().starts_with("assert"),
-        _ => false,
-    }
-}
-
 // --- python:S7496 — constructor wrapping an existing literal/comprehension ----
-
-pub(crate) fn wrapping_redundancy(func_name: &str, argument: &Expr) -> bool {
-    match func_name {
-        "list" => matches!(argument, Expr::List(_) | Expr::ListComp(_)),
-        "set" => matches!(argument, Expr::Set(_) | Expr::SetComp(_)),
-        "dict" => matches!(argument, Expr::Dict(_) | Expr::DictComp(_)),
-        _ => false,
-    }
-}
 
 // --- python:S7494 — comprehension over a generator expression -----------------
 
@@ -1803,13 +1638,6 @@ pub(crate) fn is_constant_expression(expr: &Expr) -> bool {
 }
 
 // --- python:S7508 — redundant identical nested constructors ----------------------
-
-/// Name of a collection-constructor call (`list`, `set`, `tuple`, `frozenset`).
-pub(crate) fn constructor_name(expr: &Expr) -> Option<&str> {
-    let Expr::Call(call) = expr else { return None };
-    let name = called_name(&call.func)?;
-    matches!(name, "list" | "set" | "tuple" | "frozenset").then_some(name)
-}
 
 // ---------------------------------------------------------------------------
 // Tier-A battery entries #111–#193 (python:S1192 … python:S7489).
@@ -1942,50 +1770,11 @@ pub(crate) fn excluded_by_pattern(pattern: &str, value: &str) -> bool {
 
 // --- python:S5828 — invalid open modes ---------------------------------------
 
-pub(crate) fn open_mode_is_valid(mode: &str) -> bool {
-    let mut primary = 0;
-    let mut plus = 0;
-    let mut binary = 0;
-    let mut textual = 0;
-    for ch in mode.chars() {
-        match ch {
-            'r' | 'w' | 'a' | 'x' => primary += 1,
-            '+' => plus += 1,
-            'b' => binary += 1,
-            't' => textual += 1,
-            'U' => {}
-            _ => return false,
-        }
-    }
-    primary == 1 && plus <= 1 && binary <= 1 && textual <= 1
-}
-
 // --- python:S4790 — weak hashing algorithms -----------------------------------
-
-pub(crate) fn hash_call_is_exempt(call: &ruff_python_ast::ExprCall) -> bool {
-    keyword_value(&call.arguments, "usedforsecurity").is_some_and(is_false_literal)
-}
 
 // --- python:S5361 — re.sub with a metacharacter-free pattern --------------------
 
-pub(crate) const REGEX_METACHARACTERS: [char; 14] = [
-    '\\', '^', '$', '.', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}',
-];
-
 // --- python:S3984 — exception instantiated but never raised ---------------------
-
-pub(crate) fn exception_constructor_name(call: &ruff_python_ast::ExprCall) -> Option<&str> {
-    let name = called_name(&call.func)?;
-    let known_builtin = matches!(
-        name,
-        "KeyboardInterrupt"
-            | "SystemExit"
-            | "GeneratorExit"
-            | "StopIteration"
-            | "StopAsyncIteration"
-    );
-    (looks_like_exception_name(name) || known_builtin).then_some(name)
-}
 
 // ---------------------------------------------------------------------------
 // Entries #112–#154 continued: NumPy/Math/Pandas/TensorFlow/scikit-learn/
@@ -2015,30 +1804,7 @@ pub(crate) fn is_zero_number_literal(expr: &Expr) -> bool {
 
 // --- python:S6725 — equality against numpy.nan --------------------------------
 
-pub(crate) fn is_numpy_nan(expr: &Expr) -> bool {
-    dotted_name(expr).is_some_and(|path| matches!(path.as_str(), "np.nan" | "numpy.nan"))
-}
-
 // --- python:S6730 — deprecated NumPy scalar aliases ------------------------------
-
-pub(crate) const DEPRECATED_NUMPY_ALIASES: [&str; 16] = [
-    "np.int",
-    "np.float",
-    "np.bool",
-    "np.object",
-    "np.str",
-    "np.long",
-    "np.unicode",
-    "np.complex",
-    "np.float_",
-    "numpy.int",
-    "numpy.float",
-    "numpy.bool",
-    "numpy.object",
-    "numpy.str",
-    "numpy.long",
-    "numpy.complex",
-];
 
 // --- pandas heuristics ------------------------------------------------------------
 
@@ -2124,63 +1890,9 @@ pub(crate) fn visit_dataframe_chain(
 
 // --- python:S6900 — invalid NumPy weekmasks ---------------------------------------
 
-pub(crate) fn weekmask_is_valid(mask: &str) -> bool {
-    mask.len() == 7 && mask.bytes().all(|byte| byte == b'0' || byte == b'1')
-}
-
 // --- python:S6882 — out-of-range date/time components -----------------------------
 
-/// Inclusive upper bounds per constructor slot: year, month, day, hour,
-/// minute, second, microsecond.
-pub(crate) fn datetime_component_limit(constructor: &str, position: usize) -> Option<(i64, i64)> {
-    let constructor = match constructor {
-        "date" => "datetime.date",
-        "time" => "datetime.time",
-        "datetime" => "datetime.datetime",
-        other => other,
-    };
-    match constructor {
-        "datetime.date" => [(1, 9999), (1, 12), (1, 31)].get(position).copied(),
-        "datetime.time" => [(0, 23), (0, 59), (0, 59), (0, 999_999)]
-            .get(position)
-            .copied(),
-        "datetime.datetime" => [
-            (1, 9999),
-            (1, 12),
-            (1, 31),
-            (0, 23),
-            (0, 59),
-            (0, 59),
-            (0, 999_999),
-        ]
-        .get(position)
-        .copied(),
-        _ => None,
-    }
-}
-
 // --- python:S6929 / python:S6925 — TensorFlow reduction/gather contracts -------------
-
-pub(crate) const NUMPY_REDUCTIONS: [&str; 18] = [
-    "np.sum",
-    "np.mean",
-    "np.max",
-    "np.min",
-    "np.prod",
-    "np.std",
-    "np.var",
-    "np.all",
-    "np.any",
-    "numpy.sum",
-    "numpy.mean",
-    "numpy.max",
-    "numpy.min",
-    "numpy.prod",
-    "numpy.std",
-    "numpy.var",
-    "numpy.all",
-    "numpy.any",
-];
 
 // --- python:S6919 / python:S6974 — Keras Model / BaseEstimator subclass contracts ----
 
@@ -2366,14 +2078,6 @@ pub(crate) fn function_parameters(
 
 // --- python:S7487 / S7493 / S7499 / S7501 / S7488 / S7489 — blocking calls -------
 
-pub(crate) const SYNC_SUBPROCESS_CALLS: [&str; 5] = [
-    "subprocess.run",
-    "subprocess.call",
-    "subprocess.check_call",
-    "subprocess.check_output",
-    "subprocess.Popen",
-];
-
 pub(crate) const SYNC_OS_CALLS: [&str; 9] = [
     "os.system",
     "os.popen",
@@ -2426,23 +2130,6 @@ pub(crate) const SYNC_HTTP_CALLS: [&str; 19] = [
 
 // --- python:S7503 — async function without async features ---------------------------
 
-pub(crate) fn async_features_present(function: &ruff_python_ast::StmtFunctionDef) -> bool {
-    let mut found = false;
-    for_each_stmt_in_scope(function.body.as_slice(), &mut |stmt| {
-        match stmt {
-            Stmt::For(loop_stmt) => found |= loop_stmt.is_async,
-            Stmt::With(with_stmt) => found |= with_stmt.is_async,
-            _ => {}
-        }
-        for expr in stmt_exprs(stmt) {
-            for_each_expr(expr, &mut |expr| {
-                found |= matches!(expr, Expr::Await(_));
-            });
-        }
-    });
-    found
-}
-
 // --- python:S7513 / python:S7514 — nursery blocks ------------------------------------
 
 pub(crate) fn nursery_context_expression(expr: &Expr) -> bool {
@@ -2470,26 +2157,6 @@ pub(crate) fn is_nursery_block(with_stmt: &ruff_python_ast::StmtWith) -> bool {
             .items
             .iter()
             .any(|item| nursery_context_expression(&item.context_expr))
-}
-
-pub(crate) const NURSERY_START_CALLS: [&str; 4] =
-    ["start_soon", "start_soon_nursery", "spawn", "create_task"];
-
-pub(crate) fn nursery_started_tasks(with_stmt: &ruff_python_ast::StmtWith) -> usize {
-    let mut count = 0;
-    for_each_stmt_in_scope(with_stmt.body.as_slice(), &mut |stmt| {
-        for expr in stmt_exprs(stmt) {
-            for_each_expr(expr, &mut |expr| {
-                if let Expr::Call(call) = expr
-                    && called_name(&call.func)
-                        .is_some_and(|name| NURSERY_START_CALLS.contains(&name))
-                {
-                    count += 1;
-                }
-            });
-        }
-    });
-    count
 }
 
 pub(crate) fn for_each_nursery_block(
@@ -2583,60 +2250,7 @@ pub(crate) fn assertion_literal_kind(expr: &Expr) -> Option<u8> {
 
 // --- python:S5549 — identical arguments repeated within one call ------------------
 
-pub(crate) fn trivially_repeatable(left: &Expr, right: &Expr) -> bool {
-    excluded_identical_pair(left, right)
-        || (is_none_literal(left) && is_none_literal(right))
-        || (matches!(left, Expr::BooleanLiteral(_)) && matches!(right, Expr::BooleanLiteral(_)))
-}
-
 // --- python:S5906 / python:S5914 — imprecise and unconditional asserts ---------------
-
-pub(crate) fn preferred_assertion(call: &ruff_python_ast::ExprCall) -> Option<&'static str> {
-    let args = &call.arguments.args;
-    match called_name(&call.func) {
-        Some("assertEqual" | "assertNotEqual") if args.len() == 2 => {
-            let negated = called_name(&call.func) == Some("assertNotEqual");
-            for pair in [(0, 1), (1, 0)] {
-                let other = &args[pair.1];
-                if is_true_literal(other) {
-                    return Some(if negated { "assertFalse" } else { "assertTrue" });
-                }
-                if is_false_literal(other) {
-                    return Some(if negated { "assertTrue" } else { "assertFalse" });
-                }
-                if is_none_literal(other) {
-                    return Some(if negated {
-                        "assertIsNotNone"
-                    } else {
-                        "assertIsNone"
-                    });
-                }
-            }
-            None
-        }
-        Some("assertTrue") if args.len() == 1 => match &args[0] {
-            Expr::Compare(compare) if compare.ops.len() == 1 => match compare.ops[0] {
-                ruff_python_ast::CmpOp::Eq => Some("assertEqual"),
-                ruff_python_ast::CmpOp::NotEq => Some("assertNotEqual"),
-                ruff_python_ast::CmpOp::Is => Some("assertIs"),
-                ruff_python_ast::CmpOp::IsNot => Some("assertIsNot"),
-                ruff_python_ast::CmpOp::In => Some("assertIn"),
-                ruff_python_ast::CmpOp::NotIn => Some("assertNotIn"),
-                _ => None,
-            },
-            _ => None,
-        },
-        Some("assertFalse") if args.len() == 1 => match &args[0] {
-            Expr::Compare(compare)
-                if compare.ops.len() == 1 && compare.ops[0] == ruff_python_ast::CmpOp::In =>
-            {
-                Some("assertNotIn")
-            }
-            _ => None,
-        },
-        _ => None,
-    }
-}
 
 pub(crate) fn unconditional_assert_verdict(
     call: &ruff_python_ast::ExprCall,
@@ -2663,61 +2277,9 @@ pub(crate) fn unconditional_assert_verdict(
 
 // --- python:S6709 — unseeded randomness (file-level presence heuristic) ---------------
 
-pub(crate) fn random_entry_point(path: &str) -> bool {
-    let random_module = path.starts_with("random.") && path != "random.seed";
-    let numpy_random = (path.starts_with("np.random.") || path.starts_with("numpy.random."))
-        && !["seed", "default_rng", "Generator", "RandomState"]
-            .contains(&path.rsplit('.').next().unwrap_or(""));
-    random_module || numpy_random
-}
-
-pub(crate) fn seeding_call(path: &str) -> bool {
-    path.contains("seed") || path.ends_with("default_rng") || path.ends_with("manual_seed")
-}
-
 // --- python:S139 — comments at the end of code lines -----------------------------------
 
-/// Default catalog semantics: `fmt:`/`type:`/`noqa:` directives and
-/// single-token comments are legal; arbitrary user patterns are matched
-/// naively (`prefix.*`, `\S+`-style alternatives, literals).
-pub(crate) fn legal_trailing_comment(pattern: &str, content: &str) -> bool {
-    if pattern.is_empty() {
-        return !content.is_empty()
-            && (!content.contains(char::is_whitespace)
-                || content.starts_with("fmt:")
-                || content.starts_with("type:")
-                || content.starts_with("noqa"));
-    }
-    pattern.split('|').any(|alternative| {
-        let alternative = alternative.trim_matches('^').trim_matches('$');
-        if alternative.ends_with(".*") {
-            content.starts_with(alternative.trim_end_matches(".*"))
-        } else if matches!(alternative, "[^\\s]++" | "\\S+" | "[^\\s]+") {
-            !content.is_empty() && !content.contains(char::is_whitespace)
-        } else {
-            content == alternative
-        }
-    })
-}
-
 // --- python:S4143 — collection content replaced unconditionally ------------------------
-
-pub(crate) fn subscript_assignment_key(
-    assign: &ruff_python_ast::StmtAssign,
-    source: &str,
-) -> Option<String> {
-    let [target] = assign.targets.as_slice() else {
-        return None;
-    };
-    if let Expr::Subscript(subscript) = target {
-        return Some(format!(
-            "{}@{}",
-            expr_normalized_text(&subscript.value, source),
-            expr_normalized_text(&subscript.slice, source)
-        ));
-    }
-    None
-}
 
 // --- python:S4144 — identical sibling function implementations --------------------------
 
@@ -2770,72 +2332,6 @@ pub(crate) fn flag_identical_function_pairs(
 }
 
 // --- python:S5717 — modified/assigned parameters ----------------------------------------
-
-pub(crate) const MUTATING_METHODS: [&str; 9] = [
-    "append",
-    "extend",
-    "insert",
-    "remove",
-    "pop",
-    "clear",
-    "update",
-    "add",
-    "setdefault",
-];
-
-pub(crate) fn is_mutable_default(expr: &Expr) -> bool {
-    matches!(expr, Expr::List(_) | Expr::Dict(_) | Expr::Set(_)) || called_name_of_constructor(expr)
-}
-
-pub(crate) fn called_name_of_constructor(expr: &Expr) -> bool {
-    matches!(expr, Expr::Call(call)
-        if matches!(called_name(&call.func), Some("list" | "dict" | "set"))
-            && call.arguments.args.is_empty()
-            && call.arguments.keywords.is_empty())
-}
-
-pub(crate) fn parameter_is_assigned(body: &[Stmt], name: &str) -> bool {
-    let mut assigned = false;
-    for_each_stmt_in_scope(body, &mut |stmt| {
-        if let Stmt::Assign(assign) = stmt {
-            for target in &assign.targets {
-                assigned |= matches!(target, Expr::Name(name_target)
-                    if name_target.id.as_str() == name);
-            }
-        }
-    });
-    assigned
-}
-
-pub(crate) fn parameter_is_mutated(body: &[Stmt], name: &str) -> bool {
-    let mut mutated = false;
-    for_each_stmt_in_scope(body, &mut |stmt| {
-        match stmt {
-            Stmt::AugAssign(aug) => {
-                mutated |= matches!(aug.target.as_ref(), Expr::Name(n) if n.id.as_str() == name);
-            }
-            Stmt::Assign(assign) => {
-                for target in &assign.targets {
-                    mutated |= matches!(target, Expr::Subscript(subscript)
-                        if matches!(subscript.value.as_ref(), Expr::Name(n) if n.id.as_str() == name));
-                }
-            }
-            _ => {}
-        }
-        for expr in stmt_exprs(stmt) {
-            for_each_expr(expr, &mut |expr| {
-                if let Expr::Call(call) = expr
-                    && let Expr::Attribute(attribute) = call.func.as_ref()
-                    && matches!(attribute.value.as_ref(), Expr::Name(n) if n.id.as_str() == name)
-                    && MUTATING_METHODS.contains(&attribute.attr.as_str())
-                {
-                    mutated = true;
-                }
-            });
-        }
-    });
-    mutated
-}
 
 // --- python:S5797 — constant conditions ---------------------------------------------------
 
@@ -3099,38 +2595,7 @@ pub(crate) fn module_all_exports(parsed: &Parsed<ModModule>) -> Vec<(String, Tex
 
 // --- python:S1751 — loops running at most once --------------------------------
 
-pub(crate) fn suite_has_direct_continue(suite: &[Stmt]) -> bool {
-    suite.iter().any(|stmt| match stmt {
-        Stmt::Continue(_) => true,
-        Stmt::For(_) | Stmt::While(_) | Stmt::FunctionDef(_) | Stmt::ClassDef(_) => false,
-        _ => child_bodies(stmt)
-            .iter()
-            .any(|body| suite_has_direct_continue(body)),
-    })
-}
-
 // --- python:S2190 — infinite recursion ---------------------------------------
-
-pub(crate) fn straight_line_self_call(suite: &[Stmt], name: &str) -> bool {
-    for stmt in suite {
-        match stmt {
-            Stmt::Expr(expr_stmt) => {
-                if is_call_to(&expr_stmt.value, name) {
-                    return true;
-                }
-            }
-            Stmt::Return(return_stmt) => {
-                if let Some(value) = return_stmt.value.as_deref()
-                    && is_call_to(value, name)
-                {
-                    return true;
-                }
-            }
-            _ => return false,
-        }
-    }
-    false
-}
 
 // --- python:S2159 — unnecessary equality checks -------------------------------
 
@@ -3364,44 +2829,7 @@ pub(crate) fn percent_format_parts(expr: &Expr) -> Option<(String, Vec<&Expr>, &
 
 // --- python:S3516 — invariant function returns --------------------------------
 
-/// Normalized texts of direct non-None constant `return` values.
-pub(crate) fn direct_constant_return_texts(suite: &[Stmt], source: &str) -> Vec<String> {
-    let mut texts = Vec::new();
-    for_each_stmt_in_scope(suite, &mut |stmt| {
-        if let Stmt::Return(return_stmt) = stmt
-            && let Some(value) = return_stmt.value.as_deref()
-            && !is_none_literal(value)
-            && constant_truth(value).is_some()
-        {
-            texts.push(expr_normalized_text(value, source));
-        }
-    });
-    texts
-}
-
 // --- python:S3801 — inconsistent return values --------------------------------
-
-pub(crate) fn suite_contains_yield(suite: &[Stmt]) -> bool {
-    let mut found = false;
-    for_each_stmt_expr(suite, &mut |expr| {
-        found |= matches!(expr, Expr::Yield(_) | Expr::YieldFrom(_));
-    });
-    found
-}
-
-pub(crate) fn direct_return_kinds(suite: &[Stmt]) -> (usize, usize) {
-    let mut valued = 0;
-    let mut empty = 0;
-    for_each_stmt_in_scope(suite, &mut |stmt| {
-        if let Stmt::Return(return_stmt) = stmt {
-            match return_stmt.value.as_deref() {
-                Some(value) if !is_none_literal(value) => valued += 1,
-                _ => empty += 1,
-            }
-        }
-    });
-    (valued, empty)
-}
 
 // ---------------------------------------------------------------------------
 // effect: effect / retention tracking.
@@ -3493,21 +2921,6 @@ pub(crate) fn for_each_with_in_function_context(
 }
 
 // --- python:S7490 / python:S7497 — cancellation contracts -----------------------
-
-pub(crate) fn suite_contains_checkpoint(suite: &[Stmt]) -> bool {
-    let mut found = false;
-    for_each_stmt_expr(suite, &mut |expr| {
-        found |= matches!(expr, Expr::Await(_));
-    });
-    found
-}
-
-pub(crate) fn is_call_context_tail(item: &ruff_python_ast::WithItem, tails: &[&str]) -> bool {
-    let Expr::Call(call) = &item.context_expr else {
-        return false;
-    };
-    called_name(&call.func).is_some_and(|tail| tails.contains(&tail))
-}
 
 pub(crate) fn suite_contains_raise(suite: &[Stmt]) -> bool {
     suite.iter().any(|stmt| match stmt {
@@ -3815,18 +3228,7 @@ pub(crate) fn http_verify_disabled(call: &ruff_python_ast::ExprCall) -> bool {
 
 // --- python:S4423 — weak SSL/TLS protocols ------------------------------------
 
-pub(crate) const WEAK_PROTOCOL_CONSTANTS: [&str; 4] = [
-    "PROTOCOL_SSLv2",
-    "PROTOCOL_SSLv3",
-    "PROTOCOL_TLSv1",
-    "PROTOCOL_TLSv1_1",
-];
-
 // --- python:S4426 — cryptographic key generation based on strong parameters --
-
-pub(crate) const STRONG_MINIMUM_KEY_BITS: i64 = 2048;
-
-pub(crate) const WEAK_ELLIPTIC_CURVES: [&str; 2] = ["SECP192R1", "SECP224R1"];
 
 // --- python:S2092 / S3330 — cookie "secure" and "HttpOnly" flags --------------
 
@@ -3838,8 +3240,6 @@ pub(crate) fn cookie_flag_missing(call: &ruff_python_ast::ExprCall, flag: &str) 
 }
 
 // --- python:S5122 — CORS policy restricted to trusted origins -----------------
-
-pub(crate) const CORS_WILDCARD_HEADER: &str = "Access-Control-Allow-Origin";
 
 // --- python:S5247 / S5439 — HTML autoescaping disabled ------------------------
 
@@ -3880,85 +3280,21 @@ pub(crate) fn sql_statement_shape(lowercased: &str) -> bool {
 
 // --- python:S4433 — LDAP connections should be authenticated -------------------
 
-pub(crate) const LDAP_BIND_METHODS: [&str; 4] = ["simple_bind", "simple_bind_s", "bind", "bind_s"];
-
-pub(crate) const LDAP_SEARCH_METHODS: [&str; 3] = ["search_s", "search_ext_s", "search_st"];
-
 // --- python:S5542 — weak cipher modes and paddings -----------------------------
-
-pub(crate) const WEAK_MODE_OR_PADDING_NAMES: [&str; 2] = ["MODE_ECB", "PKCS1v15"];
 
 // --- python:S5547 — robust cipher algorithms ------------------------------------
 
-pub(crate) const WEAK_CIPHER_ALGORITHMS: [&str; 6] =
-    ["DES", "DES3", "ARC2", "ARC4", "Blowfish", "IDEA"];
-
 // --- python:S5344 — passwords not stored in plaintext or fast-hashed ----------
-
-pub(crate) const FAST_HASH_NAMES: [&str; 3] = ["md5", "sha1", "sha"];
-
-pub(crate) fn is_credential_name(name: &str) -> bool {
-    name_words(name).any(|word| CREDENTIAL_WORDS.contains(&word))
-}
 
 // --- python:S2245 — PRNGs in security contexts ---------------------------------
 
-pub(crate) const SECURITY_CONTEXT_WORDS: [&str; 8] = [
-    "token", "password", "secret", "key", "nonce", "salt", "cert", "auth",
-];
-
-pub(crate) const PRNG_FUNCTIONS: [&str; 8] = [
-    "random",
-    "randint",
-    "randrange",
-    "choice",
-    "choices",
-    "uniform",
-    "shuffle",
-    "sample",
-];
-
 // --- python:S5443 — temporary files in publicly writable directories -----------
-
-pub(crate) const PUBLIC_TEMP_PREFIXES: [&str; 3] = ["/tmp/", "/var/tmp/", "/dev/shm"];
 
 // --- python:S2755 — XML parsers vulnerable to XXE -------------------------------
 
-pub(crate) const XXE_PARSER_CALLS: [&str; 12] = [
-    "xml.etree.ElementTree.parse",
-    "xml.etree.ElementTree.fromstring",
-    "xml.etree.ElementTree.XMLParser",
-    "lxml.etree.parse",
-    "lxml.etree.fromstring",
-    "xml.dom.minidom.parse",
-    "xml.dom.minidom.parseString",
-    "xml.sax.parse",
-    "xml.sax.parseString",
-    "ET.parse",
-    "ET.fromstring",
-    "ET.XMLParser",
-];
-
 // --- python:S6377 — XML signatures validated securely ---------------------------
 
-pub(crate) const WEAK_XML_DIGEST_URI: &str = "http://www.w3.org/2001/04/xmldsig-more#md5";
-
 // --- python:S2257 — custom cryptographic algorithms -----------------------------
-
-pub(crate) const CUSTOM_CRYPTO_NAME_WORDS: [&str; 7] =
-    ["encrypt", "decrypt", "cipher", "xor", "crypt", "rc4", "des"];
-
-pub(crate) fn contains_bitwise_xor(suite: &[Stmt]) -> bool {
-    let mut found = false;
-    for_each_stmt_expr(suite, &mut |expr| {
-        if let Expr::BinOp(binop) = expr
-            && matches!(binop.op, ruff_python_ast::Operator::BitXor)
-        {
-            found = true;
-        }
-    });
-    found
-}
 
 // --- AWS call-shape helpers ----------------------------------------------------
 
@@ -4016,16 +3352,7 @@ pub(crate) fn includes_wildcard(expr: &Expr) -> bool {
 
 // --- python:S6265 — S3 buckets not granted to all users -------------------------
 
-pub(crate) const ALL_USERS_GRANT_URI: &str = "http://acs.amazonaws.com/groups/global/AllUsers";
-
 // --- python:S6281 — S3 public access fully blocked --------------------------------
-
-pub(crate) const PUBLIC_ACCESS_BLOCK_KEYS: [&str; 4] = [
-    "BlockPublicAcls",
-    "BlockPublicPolicy",
-    "IgnorePublicAcls",
-    "RestrictPublicBuckets",
-];
 
 // --- AWS policy-dict subtree helpers --------------------------------------------
 
@@ -4077,27 +3404,9 @@ pub(crate) fn sets_true_flag(call: &ruff_python_ast::ExprCall, name: &str) -> bo
 
 // --- python:S6317 — wildcard-scoped actions in policies ---------------------------
 
-pub(crate) fn action_scope_wildcards(value: &Expr) -> bool {
-    match value {
-        Expr::List(list) => list.elts.iter().any(action_scope_wildcards),
-        Expr::StringLiteral(_) => {
-            string_literal_text(value).is_some_and(|action| action.ends_with(":*"))
-        }
-        _ => false,
-    }
-}
-
 // --- python:S6321 — administration services restricted by IP ----------------------
 
-pub(crate) const ADMIN_PORTS: [i64; 2] = [22, 3389];
-
 // --- python:S6329 — public network access disabled ----------------------------------
-
-pub(crate) const PUBLIC_NETWORK_FLAGS: [&str; 3] = [
-    "PubliclyAccessible",
-    "MapPublicIpOnLaunch",
-    "AssociatePublicIpAddress",
-];
 
 // --- literal-kind classification for operator rules --------------------------------
 
@@ -4140,17 +3449,7 @@ pub(crate) fn comparison_pairs(
 
 // --- python:S5795 — identity comparisons with cached types -------------------------
 
-pub(crate) const IDENTITY_UNSAFE_KINDS: [&str; 3] = ["number", "string", "bytes"];
-
 // --- python:S6663 — sequence indexes must provide __index__ ------------------------
-
-pub(crate) fn is_float_literal(expr: &Expr) -> bool {
-    matches!(
-        expr,
-        Expr::NumberLiteral(number)
-            if matches!(number.value, ruff_python_ast::Number::Float(_))
-    )
-}
 
 // --- literal-kind helpers for the operator/exception family ---------------------
 
@@ -4222,8 +3521,6 @@ pub(crate) fn binop_literal_invalid(
 }
 
 // --- python:S6662 — unhashable set members and dict keys ---------------------------
-
-pub(crate) const UNHASHABLE_KINDS: [&str; 3] = ["list", "set", "dict"];
 
 /// Fine-grained literal classification (numbers split by numeric type) shared
 /// by the Tier-C semantic rules.
@@ -4337,122 +3634,7 @@ pub(crate) fn collect_module_literal_bindings(module: &[Stmt]) -> HashSet<String
 
 // --- python:S2201 — return values from pure calls should not be ignored ------
 
-pub(crate) const PURE_FREE_FUNCTIONS: [&str; 13] = [
-    "sorted", "reversed", "abs", "len", "repr", "ascii", "hash", "bin", "oct", "hex", "chr", "ord",
-    "divmod",
-];
-
-pub(crate) const PURE_STRING_METHODS: [&str; 46] = [
-    "upper",
-    "lower",
-    "capitalize",
-    "casefold",
-    "title",
-    "swapcase",
-    "strip",
-    "lstrip",
-    "rstrip",
-    "removeprefix",
-    "removesuffix",
-    "replace",
-    "center",
-    "zfill",
-    "ljust",
-    "rjust",
-    "count",
-    "find",
-    "rfind",
-    "index",
-    "rindex",
-    "startswith",
-    "endswith",
-    "partition",
-    "rpartition",
-    "split",
-    "rsplit",
-    "splitlines",
-    "join",
-    "encode",
-    "format",
-    "format_map",
-    "translate",
-    "expandtabs",
-    "isascii",
-    "isalpha",
-    "isalnum",
-    "isdecimal",
-    "isdigit",
-    "isidentifier",
-    "islower",
-    "isnumeric",
-    "isprintable",
-    "isspace",
-    "istitle",
-    "isupper",
-];
-
-/// Whether the expression is a string literal or a call chain over pure
-/// `str` methods rooted at a string literal (`"a,b".strip().split(",")`).
-pub(crate) fn is_pure_string_expression(expr: &Expr) -> bool {
-    match expr {
-        Expr::StringLiteral(_) => true,
-        Expr::Call(call) => matches!(
-            call.func.as_ref(),
-            Expr::Attribute(attribute)
-                if PURE_STRING_METHODS.contains(&attribute.attr.as_str())
-                    && is_pure_string_expression(&attribute.value)
-        ),
-        _ => false,
-    }
-}
-
 // --- python:S3699 — output of functions returning nothing should not be used -
-
-/// Whether the undecorated, non-async function provably returns nothing:
-/// no `return <value>` and no `yield` anywhere in its body.
-pub(crate) fn is_void_function(function: &ruff_python_ast::StmtFunctionDef) -> bool {
-    if function.is_async || !function.decorator_list.is_empty() {
-        return false;
-    }
-    let mut returns_value = false;
-    for_each_stmt(&function.body, &mut |stmt| {
-        if let Stmt::Return(returned) = stmt
-            && returned.value.is_some()
-        {
-            returns_value = true;
-        }
-    });
-    let mut yields = false;
-    for_each_stmt_expr(&function.body, &mut |expr| {
-        if matches!(expr, Expr::Yield(_) | Expr::YieldFrom(_)) {
-            yields = true;
-        }
-    });
-    !returns_value && !yields
-}
-
-/// Names of module-level functions satisfying [`is_void_function`]. Duplicate
-/// definitions shadow one another and are dropped as ambiguous.
-pub(crate) fn collect_void_function_names(module: &[Stmt]) -> HashSet<String> {
-    let mut counts: HashMap<String, usize> = HashMap::new();
-    for stmt in module {
-        if let Stmt::FunctionDef(function) = stmt {
-            *counts
-                .entry(function.name.as_str().to_string())
-                .or_insert(0) += 1;
-        }
-    }
-    let mut void = HashSet::new();
-    for stmt in module {
-        if let Stmt::FunctionDef(function) = stmt
-            && counts.get(function.name.as_str()) == Some(&1)
-            && is_void_function(function)
-        {
-            void.insert(function.name.as_str().to_string());
-        }
-    }
-    void
-}
 
 /// Visits `return` statements of a suite without descending into nested
 /// function or class definitions.
@@ -4563,44 +3745,7 @@ pub(crate) fn s5655_check_argument(
 
 // --- python:S2876 — "__iter__" should return an iterator ----------------------
 
-/// Free functions whose results are provably not iterators.
-pub(crate) const NON_ITERATOR_RETURNS: [&str; 23] = [
-    "len",
-    "abs",
-    "sum",
-    "min",
-    "max",
-    "ord",
-    "hash",
-    "id",
-    "print",
-    "input",
-    "round",
-    "divmod",
-    "bool",
-    "int",
-    "float",
-    "str",
-    "bytes",
-    "list",
-    "tuple",
-    "dict",
-    "set",
-    "frozenset",
-    "sorted",
-];
-
 // --- python:S2638 — method overrides should not change contracts --------------
-
-/// Decorators whose paired accessors legitimately differ between overrides.
-pub(crate) const PROPERTY_FAMILY_DECORATORS: [&str; 5] =
-    ["property", "setter", "getter", "deleter", "cachedproperty"];
-
-pub(crate) fn is_property_family(function: &ruff_python_ast::StmtFunctionDef) -> bool {
-    PROPERTY_FAMILY_DECORATORS
-        .iter()
-        .any(|name| has_decorator(function, name))
-}
 
 // --- python:S5713 — subclass and parent should not share an except clause -----
 
@@ -4613,28 +3758,6 @@ pub(crate) fn module_classes(module: &[Stmt]) -> HashMap<&str, &ruff_python_ast:
             _ => None,
         })
         .collect()
-}
-
-/// Whether `candidate` is a transitive file-local ancestor of `class_name`;
-/// cycles in the (invalid) inheritance graph are cut by the visited set.
-pub(crate) fn has_file_local_ancestor(
-    class_name: &str,
-    candidate: &str,
-    classes: &HashMap<&str, &ruff_python_ast::StmtClassDef>,
-    visited: &mut HashSet<String>,
-) -> bool {
-    if !visited.insert(class_name.to_string()) {
-        return false;
-    }
-    let Some(class) = classes.get(class_name) else {
-        return false;
-    };
-    for base in direct_base_names(class) {
-        if base == candidate || has_file_local_ancestor(base, candidate, classes, visited) {
-            return true;
-        }
-    }
-    false
 }
 
 // ---------------------------------------------------------------------------

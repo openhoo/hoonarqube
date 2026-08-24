@@ -1,4 +1,3 @@
-use crate::support::PUBLIC_NETWORK_FLAGS;
 use crate::support::for_each_call;
 use crate::support::issue_at;
 use crate::support::sets_true_flag;
@@ -30,3 +29,12 @@ pub(crate) fn check_s6329_public_network_access(
     });
     issues
 }
+
+// --- migrated from support/mod.rs (S6329) ---
+// --- python:S6329 — public network access disabled ----------------------------------
+
+pub(crate) const PUBLIC_NETWORK_FLAGS: [&str; 3] = [
+    "PubliclyAccessible",
+    "MapPublicIpOnLaunch",
+    "AssociatePublicIpAddress",
+];

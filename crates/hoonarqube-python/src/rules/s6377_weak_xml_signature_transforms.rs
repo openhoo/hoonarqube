@@ -1,4 +1,3 @@
-use crate::support::WEAK_XML_DIGEST_URI;
 use crate::support::collect_string_contents;
 use crate::support::for_each_attr_load;
 use crate::support::issue_at;
@@ -36,6 +35,11 @@ pub(crate) fn check_s6377_weak_xml_signature_transforms(
     }
     issues
 }
+
+// --- migrated from support/mod.rs (S6377) ---
+// --- python:S6377 — XML signatures validated securely ---------------------------
+
+pub(crate) const WEAK_XML_DIGEST_URI: &str = "http://www.w3.org/2001/04/xmldsig-more#md5";
 
 #[cfg(test)]
 mod tests {

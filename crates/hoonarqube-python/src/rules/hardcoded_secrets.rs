@@ -59,3 +59,7 @@ pub(crate) fn check_hardcoded_secrets(
     });
     issues
 }
+
+// --- migrated from support/mod.rs (S6418) ---
+// ---------------------------------------------------------------------------
+// python:S6418 / python:S6437 — hard-coded secrets.

@@ -1,5 +1,7 @@
-use crate::support::direct_constant_return_texts;
+use crate::support::constant_truth;
+use crate::support::expr_normalized_text;
 use crate::support::for_each_stmt_in_scope;
+use crate::support::is_none_literal;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
@@ -30,4 +32,22 @@ pub(crate) fn check_invariant_returns(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S3516) ---
+// --- python:S3516 — invariant function returns --------------------------------
+
+/// Normalized texts of direct non-None constant `return` values.
+pub(crate) fn direct_constant_return_texts(suite: &[Stmt], source: &str) -> Vec<String> {
+    let mut texts = Vec::new();
+    for_each_stmt_in_scope(suite, &mut |stmt| {
+        if let Stmt::Return(return_stmt) = stmt
+            && let Some(value) = return_stmt.value.as_deref()
+            && !is_none_literal(value)
+            && constant_truth(value).is_some()
+        {
+            texts.push(expr_normalized_text(value, source));
+        }
+    });
+    texts
 }

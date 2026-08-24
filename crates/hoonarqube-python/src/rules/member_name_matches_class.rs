@@ -73,3 +73,33 @@ fn flag_matching_members(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s1700_flags_case_insensitive_member_matches() {
+        let flagged = scan("class Parser:\n    def parser(self):\n        pass\n");
+        let found = findings(&flagged, "python:S1700");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 2);
+
+        let field = scan("class Config:\n    CONFIG = 1\n");
+        assert_eq!(findings(&field, "python:S1700").len(), 1);
+    }
+
+    #[test]
+    fn s1700_only_immediate_class_scope_counts() {
+        let nested =
+            scan("class Outer:\n    class Inner:\n        def outer(self):\n            pass\n");
+        assert!(findings(&nested, "python:S1700").is_empty());
+    }
+
+    #[test]
+    fn s1700_unrelated_members_stay_clean() {
+        let clean = "class Router:\n    def route(self):\n        pass\n    TIMEOUT = 5\n";
+        assert!(findings(&scan(clean), "python:S1700").is_empty());
+    }
+}

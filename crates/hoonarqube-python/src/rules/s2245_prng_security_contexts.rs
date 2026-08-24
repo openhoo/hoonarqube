@@ -1,5 +1,3 @@
-use crate::support::PRNG_FUNCTIONS;
-use crate::support::SECURITY_CONTEXT_WORDS;
 use crate::support::called_name;
 use crate::support::dotted_name;
 use crate::support::for_each_call;
@@ -47,6 +45,24 @@ pub(crate) fn check_s2245_prng_security_contexts(
     });
     issues
 }
+
+// --- migrated from support/mod.rs (S2245) ---
+// --- python:S2245 — PRNGs in security contexts ---------------------------------
+
+pub(crate) const SECURITY_CONTEXT_WORDS: [&str; 8] = [
+    "token", "password", "secret", "key", "nonce", "salt", "cert", "auth",
+];
+
+pub(crate) const PRNG_FUNCTIONS: [&str; 8] = [
+    "random",
+    "randint",
+    "randrange",
+    "choice",
+    "choices",
+    "uniform",
+    "shuffle",
+    "sample",
+];
 
 #[cfg(test)]
 mod tests {

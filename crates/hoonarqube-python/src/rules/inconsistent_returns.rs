@@ -1,8 +1,9 @@
-use crate::support::direct_return_kinds;
+use crate::support::for_each_stmt_expr;
 use crate::support::for_each_stmt_in_scope;
+use crate::support::is_none_literal;
 use crate::support::issue_at;
-use crate::support::suite_contains_yield;
 use hoonarqube_ir::Issue;
+use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
 use ruff_python_parser::Parsed;
@@ -35,4 +36,29 @@ pub(crate) fn check_inconsistent_returns(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S3801) ---
+// --- python:S3801 — inconsistent return values --------------------------------
+
+pub(crate) fn suite_contains_yield(suite: &[Stmt]) -> bool {
+    let mut found = false;
+    for_each_stmt_expr(suite, &mut |expr| {
+        found |= matches!(expr, Expr::Yield(_) | Expr::YieldFrom(_));
+    });
+    found
+}
+
+pub(crate) fn direct_return_kinds(suite: &[Stmt]) -> (usize, usize) {
+    let mut valued = 0;
+    let mut empty = 0;
+    for_each_stmt_in_scope(suite, &mut |stmt| {
+        if let Stmt::Return(return_stmt) = stmt {
+            match return_stmt.value.as_deref() {
+                Some(value) if !is_none_literal(value) => valued += 1,
+                _ => empty += 1,
+            }
+        }
+    });
+    (valued, empty)
 }

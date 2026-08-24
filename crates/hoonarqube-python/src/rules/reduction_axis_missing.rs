@@ -1,4 +1,3 @@
-use crate::support::NUMPY_REDUCTIONS;
 use crate::support::dotted_name;
 use crate::support::for_each_call;
 use crate::support::has_keyword;
@@ -32,3 +31,27 @@ pub(crate) fn check_reduction_axis_missing(
     });
     issues
 }
+
+// --- migrated from support/mod.rs (S6929) ---
+// --- python:S6929 / python:S6925 — TensorFlow reduction/gather contracts -------------
+
+pub(crate) const NUMPY_REDUCTIONS: [&str; 18] = [
+    "np.sum",
+    "np.mean",
+    "np.max",
+    "np.min",
+    "np.prod",
+    "np.std",
+    "np.var",
+    "np.all",
+    "np.any",
+    "numpy.sum",
+    "numpy.mean",
+    "numpy.max",
+    "numpy.min",
+    "numpy.prod",
+    "numpy.std",
+    "numpy.var",
+    "numpy.all",
+    "numpy.any",
+];

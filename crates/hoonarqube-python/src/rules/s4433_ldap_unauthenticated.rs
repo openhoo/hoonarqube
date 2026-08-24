@@ -1,5 +1,3 @@
-use crate::support::LDAP_BIND_METHODS;
-use crate::support::LDAP_SEARCH_METHODS;
 use crate::support::called_name;
 use crate::support::for_each_call;
 use crate::support::issue_at;
@@ -52,6 +50,13 @@ pub(crate) fn check_s4433_ldap_unauthenticated(
     }
     issues
 }
+
+// --- migrated from support/mod.rs (S4433) ---
+// --- python:S4433 — LDAP connections should be authenticated -------------------
+
+pub(crate) const LDAP_BIND_METHODS: [&str; 4] = ["simple_bind", "simple_bind_s", "bind", "bind_s"];
+
+pub(crate) const LDAP_SEARCH_METHODS: [&str; 3] = ["search_s", "search_ext_s", "search_st"];
 
 #[cfg(test)]
 mod tests {

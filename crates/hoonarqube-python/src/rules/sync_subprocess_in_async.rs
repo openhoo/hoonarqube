@@ -1,4 +1,3 @@
-use crate::support::SYNC_SUBPROCESS_CALLS;
 use crate::support::dotted_name;
 use crate::support::flag_sync_calls_inside_async;
 use hoonarqube_ir::Issue;
@@ -26,6 +25,17 @@ pub(crate) fn check_sync_subprocess_in_async(
     );
     issues
 }
+
+// --- migrated from support/mod.rs (S7487) ---
+// --- python:S7487 / S7493 / S7499 / S7501 / S7488 / S7489 — blocking calls -------
+
+pub(crate) const SYNC_SUBPROCESS_CALLS: [&str; 5] = [
+    "subprocess.run",
+    "subprocess.call",
+    "subprocess.check_call",
+    "subprocess.check_output",
+    "subprocess.Popen",
+];
 
 #[cfg(test)]
 mod tests {

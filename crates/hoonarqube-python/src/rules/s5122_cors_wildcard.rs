@@ -1,4 +1,3 @@
-use crate::support::CORS_WILDCARD_HEADER;
 use crate::support::for_each_call;
 use crate::support::for_each_stmt;
 use crate::support::for_each_stmt_expr;
@@ -77,6 +76,11 @@ pub(crate) fn check_s5122_cors_wildcard(
     });
     issues
 }
+
+// --- migrated from support/mod.rs (S5122) ---
+// --- python:S5122 — CORS policy restricted to trusted origins -----------------
+
+pub(crate) const CORS_WILDCARD_HEADER: &str = "Access-Control-Allow-Origin";
 
 #[cfg(test)]
 mod tests {

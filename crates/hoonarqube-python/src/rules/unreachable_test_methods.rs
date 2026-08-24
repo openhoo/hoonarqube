@@ -1,7 +1,7 @@
 use crate::support::for_each_stmt;
-use crate::support::is_test_case_base;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
+use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
 use ruff_python_parser::Parsed;
@@ -35,4 +35,16 @@ pub(crate) fn check_unreachable_test_methods(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S5899) ---
+// --- python:S5899 — unreachable test methods ------------------------------------
+
+pub(crate) fn is_test_case_base(expr: &Expr) -> bool {
+    let tail = match expr {
+        Expr::Name(name) => Some(name.id.as_str()),
+        Expr::Attribute(attribute) => Some(attribute.attr.as_str()),
+        _ => None,
+    };
+    matches!(tail, Some(base) if base.ends_with("TestCase"))
 }

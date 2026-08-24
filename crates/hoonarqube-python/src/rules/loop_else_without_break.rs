@@ -50,4 +50,21 @@ mod tests {
         let clean = "while x:\n    if done(x):\n        break\nelse:\n    close()\n";
         assert!(findings(&scan(clean), "python:S2836").is_empty());
     }
+
+    #[test]
+    fn s2836_flags_for_loop_else_and_return_bodies() {
+        let flagged = scan("for item in items:\n    ship(item)\nelse:\n    close()\n");
+        let found = findings(&flagged, "python:S2836");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 4);
+
+        let returns = scan("while wait():\n    return None\nelse:\n    close()\n");
+        assert_eq!(findings(&returns, "python:S2836").len(), 1);
+    }
+
+    #[test]
+    fn s2836_allows_nested_conditional_breaks() {
+        let clean = "for item in items:\n    if bad(item):\n        break\nelse:\n    close()\n";
+        assert!(findings(&scan(clean), "python:S2836").is_empty());
+    }
 }

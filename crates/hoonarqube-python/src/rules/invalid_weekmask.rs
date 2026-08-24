@@ -3,7 +3,6 @@ use crate::support::for_each_call;
 use crate::support::issue_at;
 use crate::support::keyword_value;
 use crate::support::string_literal_text;
-use crate::support::weekmask_is_valid;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
 use ruff_python_parser::Parsed;
@@ -50,4 +49,11 @@ pub(crate) fn check_invalid_weekmask(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S6900) ---
+// --- python:S6900 — invalid NumPy weekmasks ---------------------------------------
+
+pub(crate) fn weekmask_is_valid(mask: &str) -> bool {
+    mask.len() == 7 && mask.bytes().all(|byte| byte == b'0' || byte == b'1')
 }

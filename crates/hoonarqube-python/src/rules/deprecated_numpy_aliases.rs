@@ -1,4 +1,3 @@
-use crate::support::DEPRECATED_NUMPY_ALIASES;
 use crate::support::dotted_name;
 use crate::support::for_each_expr_in_module;
 use crate::support::issue_at;
@@ -30,3 +29,25 @@ pub(crate) fn check_deprecated_numpy_aliases(
     });
     issues
 }
+
+// --- migrated from support/mod.rs (S6730) ---
+// --- python:S6730 — deprecated NumPy scalar aliases ------------------------------
+
+pub(crate) const DEPRECATED_NUMPY_ALIASES: [&str; 16] = [
+    "np.int",
+    "np.float",
+    "np.bool",
+    "np.object",
+    "np.str",
+    "np.long",
+    "np.unicode",
+    "np.complex",
+    "np.float_",
+    "numpy.int",
+    "numpy.float",
+    "numpy.bool",
+    "numpy.object",
+    "numpy.str",
+    "numpy.long",
+    "numpy.complex",
+];

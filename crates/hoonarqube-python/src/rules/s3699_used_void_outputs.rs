@@ -1,4 +1,3 @@
-use crate::support::collect_void_function_names;
 use crate::support::for_each_stmt;
 use crate::support::for_each_stmt_expr;
 use crate::support::issue_at;
@@ -10,6 +9,8 @@ use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 use ruff_text_size::TextRange;
+use std::collections::HashMap;
+use std::collections::HashSet;
 
 /// python:S3699 — flags expression-position uses of calls to file-local void
 /// functions: every call except a whole expression statement, a decorator
@@ -73,4 +74,53 @@ pub(crate) fn check_s3699_used_void_outputs(
         ));
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S3699) ---
+// --- python:S3699 — output of functions returning nothing should not be used -
+
+/// Whether the undecorated, non-async function provably returns nothing:
+/// no `return <value>` and no `yield` anywhere in its body.
+pub(crate) fn is_void_function(function: &ruff_python_ast::StmtFunctionDef) -> bool {
+    if function.is_async || !function.decorator_list.is_empty() {
+        return false;
+    }
+    let mut returns_value = false;
+    for_each_stmt(&function.body, &mut |stmt| {
+        if let Stmt::Return(returned) = stmt
+            && returned.value.is_some()
+        {
+            returns_value = true;
+        }
+    });
+    let mut yields = false;
+    for_each_stmt_expr(&function.body, &mut |expr| {
+        if matches!(expr, Expr::Yield(_) | Expr::YieldFrom(_)) {
+            yields = true;
+        }
+    });
+    !returns_value && !yields
+}
+
+/// Names of module-level functions satisfying [`is_void_function`]. Duplicate
+/// definitions shadow one another and are dropped as ambiguous.
+pub(crate) fn collect_void_function_names(module: &[Stmt]) -> HashSet<String> {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for stmt in module {
+        if let Stmt::FunctionDef(function) = stmt {
+            *counts
+                .entry(function.name.as_str().to_string())
+                .or_insert(0) += 1;
+        }
+    }
+    let mut void = HashSet::new();
+    for stmt in module {
+        if let Stmt::FunctionDef(function) = stmt
+            && counts.get(function.name.as_str()) == Some(&1)
+            && is_void_function(function)
+        {
+            void.insert(function.name.as_str().to_string());
+        }
+    }
+    void
 }

@@ -1,4 +1,3 @@
-use crate::support::WEAK_PROTOCOL_CONSTANTS;
 use crate::support::for_each_attr_load;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
@@ -26,6 +25,16 @@ pub(crate) fn check_s4423_weak_ssl_protocols(
     }
     issues
 }
+
+// --- migrated from support/mod.rs (S4423) ---
+// --- python:S4423 — weak SSL/TLS protocols ------------------------------------
+
+pub(crate) const WEAK_PROTOCOL_CONSTANTS: [&str; 4] = [
+    "PROTOCOL_SSLv2",
+    "PROTOCOL_SSLv3",
+    "PROTOCOL_TLSv1",
+    "PROTOCOL_TLSv1_1",
+];
 
 #[cfg(test)]
 mod tests {

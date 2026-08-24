@@ -53,3 +53,7 @@ pub(crate) fn check_hardcoded_credentials(
     }
     issues
 }
+
+// --- migrated from support/mod.rs (S2068) ---
+// ---------------------------------------------------------------------------
+// python:S2068 — hard-coded credentials.

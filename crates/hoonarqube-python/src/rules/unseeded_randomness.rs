@@ -1,8 +1,6 @@
 use crate::support::dotted_name;
 use crate::support::for_each_call;
 use crate::support::issue_at;
-use crate::support::random_entry_point;
-use crate::support::seeding_call;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
 use ruff_python_parser::Parsed;
@@ -33,6 +31,21 @@ pub(crate) fn check_unseeded_randomness(
         )];
     }
     Vec::new()
+}
+
+// --- migrated from support/mod.rs (S6709) ---
+// --- python:S6709 — unseeded randomness (file-level presence heuristic) ---------------
+
+pub(crate) fn random_entry_point(path: &str) -> bool {
+    let random_module = path.starts_with("random.") && path != "random.seed";
+    let numpy_random = (path.starts_with("np.random.") || path.starts_with("numpy.random."))
+        && !["seed", "default_rng", "Generator", "RandomState"]
+            .contains(&path.rsplit('.').next().unwrap_or(""));
+    random_module || numpy_random
+}
+
+pub(crate) fn seeding_call(path: &str) -> bool {
+    path.contains("seed") || path.ends_with("default_rng") || path.ends_with("manual_seed")
 }
 
 #[cfg(test)]

@@ -1,4 +1,3 @@
-use crate::support::PUBLIC_ACCESS_BLOCK_KEYS;
 use crate::support::call_source_text;
 use crate::support::called_name;
 use crate::support::for_each_call;
@@ -35,3 +34,13 @@ pub(crate) fn check_s6281_s3_public_access_block(
     });
     issues
 }
+
+// --- migrated from support/mod.rs (S6281) ---
+// --- python:S6281 — S3 public access fully blocked --------------------------------
+
+pub(crate) const PUBLIC_ACCESS_BLOCK_KEYS: [&str; 4] = [
+    "BlockPublicAcls",
+    "BlockPublicPolicy",
+    "IgnorePublicAcls",
+    "RestrictPublicBuckets",
+];

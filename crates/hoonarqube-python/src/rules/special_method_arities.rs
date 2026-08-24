@@ -1,7 +1,6 @@
 use crate::support::for_each_stmt;
 use crate::support::issue_at;
 use crate::support::positional_parameters;
-use crate::support::required_special_method_arity;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
@@ -37,6 +36,86 @@ pub(crate) fn check_special_method_arities(
         ));
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S5722) ---
+// --- python:S5722 — special method arity --------------------------------------
+
+pub(crate) const ARITY_ONE_DUNDERS: [&str; 17] = [
+    "__str__",
+    "__repr__",
+    "__len__",
+    "__hash__",
+    "__bool__",
+    "__iter__",
+    "__next__",
+    "__enter__",
+    "__dir__",
+    "__index__",
+    "__neg__",
+    "__pos__",
+    "__invert__",
+    "__abs__",
+    "__int__",
+    "__float__",
+    "__complex__",
+];
+
+pub(crate) const ARITY_TWO_DUNDERS: [&str; 39] = [
+    "__add__",
+    "__sub__",
+    "__mul__",
+    "__truediv__",
+    "__floordiv__",
+    "__mod__",
+    "__pow__",
+    "__lshift__",
+    "__rshift__",
+    "__and__",
+    "__or__",
+    "__xor__",
+    "__eq__",
+    "__ne__",
+    "__lt__",
+    "__le__",
+    "__gt__",
+    "__ge__",
+    "__radd__",
+    "__rsub__",
+    "__rmul__",
+    "__rtruediv__",
+    "__rfloordiv__",
+    "__rmod__",
+    "__rpow__",
+    "__rlshift__",
+    "__rrshift__",
+    "__rand__",
+    "__ror__",
+    "__rxor__",
+    "__iadd__",
+    "__isub__",
+    "__imul__",
+    "__contains__",
+    "__getitem__",
+    "__delitem__",
+    "__getattr__",
+    "__getattribute__",
+    "__delete__",
+];
+
+pub(crate) const ARITY_THREE_DUNDERS: [&str; 4] =
+    ["__setitem__", "__setattr__", "__delattr__", "__set_name__"];
+
+pub(crate) fn required_special_method_arity(name: &str) -> Option<usize> {
+    if ARITY_ONE_DUNDERS.contains(&name) {
+        Some(1)
+    } else if ARITY_TWO_DUNDERS.contains(&name) {
+        Some(2)
+    } else if ARITY_THREE_DUNDERS.contains(&name) {
+        Some(3)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]

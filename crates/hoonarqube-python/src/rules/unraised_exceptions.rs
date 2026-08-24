@@ -1,6 +1,7 @@
-use crate::support::exception_constructor_name;
+use crate::support::called_name;
 use crate::support::for_each_stmt_in_scope;
 use crate::support::issue_at;
+use crate::support::looks_like_exception_name;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
@@ -30,6 +31,22 @@ pub(crate) fn check_unraised_exceptions(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S3984) ---
+// --- python:S3984 — exception instantiated but never raised ---------------------
+
+pub(crate) fn exception_constructor_name(call: &ruff_python_ast::ExprCall) -> Option<&str> {
+    let name = called_name(&call.func)?;
+    let known_builtin = matches!(
+        name,
+        "KeyboardInterrupt"
+            | "SystemExit"
+            | "GeneratorExit"
+            | "StopIteration"
+            | "StopAsyncIteration"
+    );
+    (looks_like_exception_name(name) || known_builtin).then_some(name)
 }
 
 #[cfg(test)]

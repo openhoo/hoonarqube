@@ -2,7 +2,6 @@ use crate::engine::calls::method_shape;
 use crate::engine::calls::s2638_contract_change;
 use crate::support::direct_base_names;
 use crate::support::has_decorator;
-use crate::support::is_property_family;
 use crate::support::issue_at;
 use crate::support::module_classes;
 use hoonarqube_ir::Issue;
@@ -70,4 +69,17 @@ pub(crate) fn check_s2638_override_contracts(
         }
     }
     issues
+}
+
+// --- migrated from support/mod.rs (S2638) ---
+// --- python:S2638 — method overrides should not change contracts --------------
+
+/// Decorators whose paired accessors legitimately differ between overrides.
+pub(crate) const PROPERTY_FAMILY_DECORATORS: [&str; 5] =
+    ["property", "setter", "getter", "deleter", "cachedproperty"];
+
+pub(crate) fn is_property_family(function: &ruff_python_ast::StmtFunctionDef) -> bool {
+    PROPERTY_FAMILY_DECORATORS
+        .iter()
+        .any(|name| has_decorator(function, name))
 }

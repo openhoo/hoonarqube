@@ -2,7 +2,6 @@ use crate::support::dotted_name;
 use crate::support::for_each_call;
 use crate::support::issue_at;
 use crate::support::keyword_value;
-use crate::support::open_mode_is_valid;
 use crate::support::string_literal_text;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
@@ -42,4 +41,25 @@ pub(crate) fn check_open_modes(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S5828) ---
+// --- python:S5828 — invalid open modes ---------------------------------------
+
+pub(crate) fn open_mode_is_valid(mode: &str) -> bool {
+    let mut primary = 0;
+    let mut plus = 0;
+    let mut binary = 0;
+    let mut textual = 0;
+    for ch in mode.chars() {
+        match ch {
+            'r' | 'w' | 'a' | 'x' => primary += 1,
+            '+' => plus += 1,
+            'b' => binary += 1,
+            't' => textual += 1,
+            'U' => {}
+            _ => return false,
+        }
+    }
+    primary == 1 && plus <= 1 && binary <= 1 && textual <= 1
 }

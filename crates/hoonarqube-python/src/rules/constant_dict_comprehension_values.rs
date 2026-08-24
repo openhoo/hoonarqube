@@ -1,5 +1,5 @@
+use crate::support::for_each_expr;
 use crate::support::for_each_stmt_expr;
-use crate::support::is_constant_expression;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
@@ -28,4 +28,31 @@ pub(crate) fn check_constant_dict_comprehension_values(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S7506) ---
+// --- python:S7506 — static value in dict comprehension ---------------------------
+
+/// Constant expression trees: literals and pure operators only.
+pub(crate) fn is_constant_expression(expr: &Expr) -> bool {
+    let mut constant = true;
+    for_each_expr(expr, &mut |node| {
+        constant &= matches!(
+            node,
+            Expr::NoneLiteral(_)
+                | Expr::BooleanLiteral(_)
+                | Expr::NumberLiteral(_)
+                | Expr::StringLiteral(_)
+                | Expr::BytesLiteral(_)
+                | Expr::EllipsisLiteral(_)
+                | Expr::Tuple(_)
+                | Expr::List(_)
+                | Expr::Set(_)
+                | Expr::UnaryOp(_)
+                | Expr::BinOp(_)
+                | Expr::BoolOp(_)
+                | Expr::Compare(_)
+        );
+    });
+    constant
 }

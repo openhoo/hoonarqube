@@ -1,4 +1,3 @@
-use crate::support::datetime_component_limit;
 use crate::support::dotted_name;
 use crate::support::for_each_call;
 use crate::support::int_literal_value;
@@ -37,4 +36,36 @@ pub(crate) fn check_datetime_component_ranges(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S6882) ---
+// --- python:S6882 — out-of-range date/time components -----------------------------
+
+/// Inclusive upper bounds per constructor slot: year, month, day, hour,
+/// minute, second, microsecond.
+pub(crate) fn datetime_component_limit(constructor: &str, position: usize) -> Option<(i64, i64)> {
+    let constructor = match constructor {
+        "date" => "datetime.date",
+        "time" => "datetime.time",
+        "datetime" => "datetime.datetime",
+        other => other,
+    };
+    match constructor {
+        "datetime.date" => [(1, 9999), (1, 12), (1, 31)].get(position).copied(),
+        "datetime.time" => [(0, 23), (0, 59), (0, 59), (0, 999_999)]
+            .get(position)
+            .copied(),
+        "datetime.datetime" => [
+            (1, 9999),
+            (1, 12),
+            (1, 31),
+            (0, 23),
+            (0, 59),
+            (0, 59),
+            (0, 999_999),
+        ]
+        .get(position)
+        .copied(),
+        _ => None,
+    }
 }

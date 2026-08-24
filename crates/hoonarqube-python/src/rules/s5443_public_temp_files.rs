@@ -1,4 +1,3 @@
-use crate::support::PUBLIC_TEMP_PREFIXES;
 use crate::support::called_name;
 use crate::support::for_each_call;
 use crate::support::issue_at;
@@ -39,6 +38,11 @@ pub(crate) fn check_s5443_public_temp_files(
     });
     issues
 }
+
+// --- migrated from support/mod.rs (S5443) ---
+// --- python:S5443 — temporary files in publicly writable directories -----------
+
+pub(crate) const PUBLIC_TEMP_PREFIXES: [&str; 3] = ["/tmp/", "/var/tmp/", "/dev/shm"];
 
 #[cfg(test)]
 mod tests {

@@ -1,8 +1,7 @@
 use crate::support::for_each_stmt;
-use crate::support::is_builtin_exception_base;
 use crate::support::issue_at;
-use crate::support::looks_like_exception_name;
 use hoonarqube_ir::Issue;
+use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
 use ruff_python_parser::Parsed;
@@ -30,6 +29,22 @@ pub(crate) fn check_exception_inheritance(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S5709) ---
+// --- python:S5709 — custom exceptions inherit Exception -----------------------
+
+pub(crate) fn looks_like_exception_name(name: &str) -> bool {
+    name.ends_with("Error") || name.ends_with("Warning") || name.ends_with("Exception")
+}
+
+pub(crate) fn is_builtin_exception_base(expr: &Expr) -> bool {
+    let tail = match expr {
+        Expr::Name(name) => Some(name.id.as_str()),
+        Expr::Attribute(attribute) => Some(attribute.attr.as_str()),
+        _ => None,
+    };
+    matches!(tail, Some(base) if base == "Exception" || base == "BaseException" || looks_like_exception_name(base))
 }
 
 #[cfg(test)]

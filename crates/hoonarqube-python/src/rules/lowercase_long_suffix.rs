@@ -36,3 +36,23 @@ pub(crate) fn check_lowercase_long_suffix(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    const KEY: &str = "python:LongIntegerWithLowercaseSuffixUsage";
+
+    #[test]
+    fn long_integer_lowercase_suffix_is_flagged() {
+        let flagged = scan("value = 123l\n");
+        let found = findings(&flagged, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 1);
+
+        // The uppercase Python 2 suffix and plain literals stay clean.
+        assert!(findings(&scan("value = 123L\n"), KEY).is_empty());
+        assert!(findings(&scan("value = 123\n"), KEY).is_empty());
+    }
+}

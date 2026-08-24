@@ -1,8 +1,9 @@
-use crate::support::action_scope_wildcards;
 use crate::support::dict_string_entry;
 use crate::support::for_each_dict_literal;
 use crate::support::issue_at;
+use crate::support::string_literal_text;
 use hoonarqube_ir::Issue;
+use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
@@ -26,4 +27,17 @@ pub(crate) fn check_s6317_wildcard_action_scope(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S6317) ---
+// --- python:S6317 — wildcard-scoped actions in policies ---------------------------
+
+pub(crate) fn action_scope_wildcards(value: &Expr) -> bool {
+    match value {
+        Expr::List(list) => list.elts.iter().any(action_scope_wildcards),
+        Expr::StringLiteral(_) => {
+            string_literal_text(value).is_some_and(|action| action.ends_with(":*"))
+        }
+        _ => false,
+    }
 }

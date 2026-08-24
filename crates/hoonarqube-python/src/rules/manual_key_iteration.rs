@@ -41,3 +41,33 @@ pub(crate) fn check_manual_key_iteration(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s7517_flags_indexing_with_the_loop_key() {
+        let flagged = scan("for key in settings:\n    print(settings[key])\n");
+        let found = findings(&flagged, "python:S7517");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 2);
+
+        // Every lookup through the loop key is reported individually.
+        let repeated = scan("for key in stock:\n    total += stock[key]\n    audit(stock[key])\n");
+        assert_eq!(findings(&repeated, "python:S7517").len(), 2);
+    }
+
+    #[test]
+    fn s7517_stays_clean_outside_the_pattern() {
+        for clean in [
+            "for key, value in settings.items():\n    print(value)\n",
+            "for key in settings:\n    print(cache[key])\n",
+            "for key in settings:\n    print(settings.get(key))\n",
+            "for key, value in pairs:\n    print(pairs[key])\n",
+        ] {
+            assert!(findings(&scan(clean), "python:S7517").is_empty(), "{clean}");
+        }
+    }
+}

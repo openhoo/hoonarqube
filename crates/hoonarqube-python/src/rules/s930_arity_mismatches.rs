@@ -48,3 +48,6 @@ pub(crate) fn check_s930_arity_mismatches(
     });
     issues
 }
+
+// --- migrated from support/mod.rs (S930) ---
+// --- python:S930 — call arguments should match parameters ----------------------

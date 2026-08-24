@@ -1,8 +1,9 @@
-use crate::support::constructor_name;
+use crate::support::called_name;
 use crate::support::for_each_stmt_expr;
 use crate::support::issue_at;
 use crate::support::single_positional_call;
 use hoonarqube_ir::Issue;
+use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
@@ -32,4 +33,14 @@ pub(crate) fn check_nested_identical_constructors(
         }
     });
     issues
+}
+
+// --- migrated from support/mod.rs (S7508) ---
+// --- python:S7508 — redundant identical nested constructors ----------------------
+
+/// Name of a collection-constructor call (`list`, `set`, `tuple`, `frozenset`).
+pub(crate) fn constructor_name(expr: &Expr) -> Option<&str> {
+    let Expr::Call(call) = expr else { return None };
+    let name = called_name(&call.func)?;
+    matches!(name, "list" | "set" | "tuple" | "frozenset").then_some(name)
 }
