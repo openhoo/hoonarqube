@@ -22,3 +22,37 @@ pub(crate) fn check_no_sonar(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+
+    use std::path::PathBuf;
+
+    use crate::test_support::issue;
+    use crate::{AnalyzerOptions, analyze};
+
+    #[test]
+    fn nosonar_comment_is_flagged_case_sensitively() {
+        let report = analyze(
+            PathBuf::from("test.py"),
+            "x = 1  # NOSONAR\nstr(x)\n",
+            &AnalyzerOptions::default(),
+        );
+        assert_eq!(
+            report.issues,
+            vec![issue(
+                "python:NoSonar",
+                "Remove this usage of 'NOSONAR'.",
+                (1, 7),
+                (1, 16),
+            )]
+        );
+
+        let lowercase = analyze(
+            PathBuf::from("test.py"),
+            "x = 1  # nosonar\nstr(x)\n",
+            &AnalyzerOptions::default(),
+        );
+        assert!(lowercase.issues.is_empty());
+    }
+}

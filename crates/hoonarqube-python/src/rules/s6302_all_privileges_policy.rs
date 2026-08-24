@@ -29,3 +29,25 @@ pub(crate) fn check_s6302_all_privileges_policy(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6302_flags_wildcard_action_policies() {
+        let flagged = concat!(
+            "p1 = {\"Action\": \"*\"}\n",
+            "p2 = {\"Action\": [\"s3:*\", \"ec2:RunInstances\"]}\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S6302").len(), 1);
+        assert!(
+            findings(
+                &scan("p3 = {\"Action\": [\"s3:GetObject\"]}\n"),
+                "python:S6302"
+            )
+            .is_empty()
+        );
+    }
+}

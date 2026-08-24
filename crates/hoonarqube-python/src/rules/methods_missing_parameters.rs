@@ -29,3 +29,19 @@ pub(crate) fn check_methods_missing_parameters(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5719_requires_positional_parameter_on_methods() {
+        let flagged = scan("class C:\n    def method():\n        return 1\n");
+        assert_eq!(findings(&flagged, "python:S5719").len(), 1);
+        let static_clean = "class C:\n    @staticmethod\n    def util():\n        return 1\n";
+        assert!(findings(&scan(static_clean), "python:S5719").is_empty());
+        let bound_clean = "class C:\n    def method(self):\n        return 1\n";
+        assert!(findings(&scan(bound_clean), "python:S5719").is_empty());
+    }
+}

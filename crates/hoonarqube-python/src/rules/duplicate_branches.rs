@@ -40,3 +40,22 @@ pub(crate) fn check_duplicate_branches(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s1871_flags_duplicate_branch_bodies() {
+        let chain = scan("if a == 1:\n    do(x)\nelif a == 2:\n    do(x)\n");
+        let found = findings(&chain, "python:S1871");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 4);
+        let handlers =
+            scan("try:\n    risky()\nexcept A:\n    handle()\nexcept B:\n    handle()\n");
+        assert_eq!(findings(&handlers, "python:S1871").len(), 1);
+        let clean = "if a == 1:\n    do(x)\nelif a == 2:\n    do(y)\n";
+        assert!(findings(&scan(clean), "python:S1871").is_empty());
+    }
+}

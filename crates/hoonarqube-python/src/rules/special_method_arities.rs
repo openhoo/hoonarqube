@@ -38,3 +38,17 @@ pub(crate) fn check_special_method_arities(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5722_flags_missing_special_method_parameters() {
+        let flagged = scan("class C:\n    def __lt__(self):\n        return NotImplemented\n");
+        assert_eq!(findings(&flagged, "python:S5722").len(), 1);
+        let clean = "class C:\n    def __lt__(self, other):\n        return NotImplemented\n";
+        assert!(findings(&scan(clean), "python:S5722").is_empty());
+    }
+}

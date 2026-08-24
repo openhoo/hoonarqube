@@ -34,3 +34,18 @@ pub(crate) fn check_instance_self_parameters(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5720_requires_self_first_for_instance_methods() {
+        let flagged = scan("class C:\n    def show(this_one):\n        return this_one\n");
+        assert_eq!(findings(&flagged, "python:S5720").len(), 1);
+        let classmethod_clean =
+            "class C:\n    @classmethod\n    def build(cls):\n        return cls\n";
+        assert!(findings(&scan(classmethod_clean), "python:S5720").is_empty());
+    }
+}

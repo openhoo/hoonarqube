@@ -45,3 +45,16 @@ pub(crate) fn check_json_response_safe_flag(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6560_requires_safe_flag_for_non_dict_payloads() {
+        let flagged =
+            scan("JsonResponse([1, 2])\nJsonResponse({\"a\": 1})\nJsonResponse([1], safe=False)\n");
+        assert_eq!(findings(&flagged, "python:S6560").len(), 1);
+    }
+}

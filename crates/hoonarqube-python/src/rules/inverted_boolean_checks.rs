@@ -31,3 +31,18 @@ pub(crate) fn check_inverted_boolean_checks(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s1940_flags_negated_comparisons() {
+        assert_eq!(
+            findings(&scan("ok = not (a == b)\n"), "python:S1940").len(),
+            1
+        );
+        assert!(findings(&scan("fine = not (a and b)\n"), "python:S1940").is_empty());
+    }
+}

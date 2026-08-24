@@ -63,3 +63,26 @@ pub(crate) fn check_rx_syntax_shapes(
     check_rx_empty_groups(parsed, push);
     check_rx_pointless_groups(parsed, push);
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::regex_finds;
+
+    #[test]
+    fn s6001_flags_back_references_to_unmatched_groups() {
+        for pattern in [r"\1(.)", r"(.)\2", r"(.)|\1", r"(?P<x>.)|(?P=x)"] {
+            assert!(
+                regex_finds(
+                    &format!("import re\nre.compile(r'{pattern}')\n"),
+                    "python:S6001"
+                ),
+                "{pattern}"
+            );
+        }
+        assert!(!regex_finds(
+            "import re\nre.compile(r'(.)\\1')\n",
+            "python:S6001"
+        ));
+    }
+}

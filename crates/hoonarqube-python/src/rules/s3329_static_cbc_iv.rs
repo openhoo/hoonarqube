@@ -41,3 +41,25 @@ pub(crate) fn check_s3329_static_cbc_iv(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s3329_flags_static_cbc_ivs() {
+        let flagged = concat!(
+            "AES.new(k, AES.MODE_CBC, iv=b\"0123456789abcdef\")\n",
+            "c = Cipher(a, modes.CBC(b\"staticiv12345\"))\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S3329").len(), 2);
+        assert!(
+            findings(
+                &scan("AES.new(k, AES.MODE_CBC, iv=os.urandom(16))\n"),
+                "python:S3329"
+            )
+            .is_empty()
+        );
+    }
+}

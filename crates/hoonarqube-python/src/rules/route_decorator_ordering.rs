@@ -36,3 +36,23 @@ pub(crate) fn check_route_decorator_ordering(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6552_requires_route_decorator_outermost() {
+        let flagged = scan(concat!(
+            "@app.get(\"/x\")\n",
+            "@log_call\n",
+            "def handler():\n",
+            "    return 1\n",
+            "@app.get(\"/y\")\n",
+            "def good():\n",
+            "    return 2\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6552").len(), 1);
+    }
+}

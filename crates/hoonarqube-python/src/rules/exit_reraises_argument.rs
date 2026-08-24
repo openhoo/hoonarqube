@@ -47,3 +47,27 @@ pub(crate) fn check_exit_reraises_argument(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5706_flags_exit_reraising_its_arguments() {
+        let flagged = scan(concat!(
+            "class C:\n",
+            "    def __exit__(self, kind, value, trace):\n",
+            "        cleanup(value)\n",
+            "        raise value\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S5706").len(), 1);
+        let clean = concat!(
+            "class C:\n",
+            "    def __exit__(self, kind, value, trace):\n",
+            "        cleanup(value)\n",
+            "        return False\n"
+        );
+        assert!(findings(&scan(clean), "python:S5706").is_empty());
+    }
+}

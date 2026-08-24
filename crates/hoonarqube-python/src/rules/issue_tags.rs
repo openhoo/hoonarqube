@@ -45,3 +45,44 @@ pub(crate) fn check_issue_tags(
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use std::path::PathBuf;
+
+    use crate::test_support::issue;
+    use crate::{AnalyzerOptions, analyze};
+
+    #[test]
+    fn todo_and_fixme_tags_are_tracked_with_person_reference() {
+        let report = analyze(
+            PathBuf::from("t.py"),
+            "# FIXME fix later\n# TODO (jane) improve\n",
+            &AnalyzerOptions::default(),
+        );
+        assert_eq!(
+            report.issues,
+            vec![
+                issue(
+                    "python:S1134",
+                    "Resolve this FIXME comment or clarify it with a person reference.",
+                    (1, 0),
+                    (1, 17),
+                ),
+                issue(
+                    "python:S1707",
+                    "Add a person reference such as '(jane)' to this TODO/FIXME comment.",
+                    (1, 0),
+                    (1, 17),
+                ),
+                issue(
+                    "python:S1135",
+                    "Resolve this TODO comment or clarify it with a person reference.",
+                    (2, 0),
+                    (2, 21),
+                ),
+            ]
+        );
+    }
+}

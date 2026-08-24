@@ -31,3 +31,50 @@ pub(crate) fn check_line_length(source: &str, options: &AnalyzerOptions) -> Vec<
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use std::path::PathBuf;
+
+    use crate::test_support::pos;
+    use crate::{AnalyzerOptions, analyze};
+
+    #[test]
+    fn line_length_honors_option() {
+        let long_121 = format!("x = {}\nstr(x)\n", "1".repeat(117));
+        // 4 + 117 content characters on line 1, plus a short reader line.
+        assert_eq!(
+            long_121.lines().next().map(str::chars).map(Iterator::count),
+            Some(121)
+        );
+        let report = analyze(
+            PathBuf::from("test.py"),
+            &long_121,
+            &AnalyzerOptions::default(),
+        );
+        assert_eq!(report.issues.len(), 1);
+        assert_eq!(report.issues[0].rule_key, "python:LineLength");
+        assert_eq!(report.issues[0].range.start, pos(1, 0));
+        assert_eq!(report.issues[0].range.end, pos(1, 121));
+
+        let long_120 = format!("x = {}\nstr(x)\n", "1".repeat(116));
+        let clean = analyze(
+            PathBuf::from("test.py"),
+            &long_120,
+            &AnalyzerOptions::default(),
+        );
+        assert!(clean.issues.is_empty());
+
+        let strict = AnalyzerOptions {
+            maximum_line_length: 10,
+            ..AnalyzerOptions::default()
+        };
+        let flagged = analyze(PathBuf::from("test.py"), "x = 12345678\nstr(x)\n", &strict);
+        assert_eq!(flagged.issues.len(), 1);
+        assert_eq!(
+            flagged.issues[0].message,
+            "This line exceeds the maximum allowed length of 10 characters."
+        );
+    }
+}

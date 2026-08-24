@@ -43,3 +43,24 @@ pub(crate) fn check_lambda_assignments(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6661_flags_lambdas_assigned_to_names() {
+        assert_eq!(
+            findings(&scan("handler = lambda e: str(e)\n"), "python:S6661").len(),
+            1
+        );
+        assert!(
+            findings(
+                &scan("def handler(e):\n    return str(e)\n"),
+                "python:S6661"
+            )
+            .is_empty()
+        );
+    }
+}

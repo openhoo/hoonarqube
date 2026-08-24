@@ -31,3 +31,20 @@ pub(crate) fn check_s6245_s3_encryption_configuration(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6245_requires_s3_server_side_encryption_configuration() {
+        let flagged = "s3.create_bucket(Bucket=\"b\")\n";
+        assert_eq!(findings(&scan(flagged), "python:S6245").len(), 1);
+        assert!(findings(
+                &scan("s3.create_bucket(Bucket=\"b\", ServerSideEncryptionConfiguration={\"Rules\": []})\n"),
+                "python:S6245"
+            )
+            .is_empty());
+    }
+}

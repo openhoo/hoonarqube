@@ -36,3 +36,29 @@ pub(crate) fn check_missing_docstrings(
     for_each_function_def(parsed.syntax().body.as_slice(), false, &mut visit);
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s1720_flags_public_definitions_without_docstrings() {
+        let flagged =
+            scan("def bare():\n    return 1\nclass C:\n    def method(self):\n        return 2\n");
+        assert_eq!(findings(&flagged, "python:S1720").len(), 2);
+    }
+
+    #[test]
+    fn s1720_spares_private_and_documented_functions() {
+        for clean in [
+            // Underscore-prefixed names are private; dunders are exempt too.
+            "def _helper():\n    return 1\nclass C:\n    def __init__(self):\n        self.x = 1\n",
+            // A docstring fills the contract.
+            "def documented():\n    \"\"\"Docs.\"\"\"\n",
+            "class C:\n    def method(self):\n        \"\"\"Docs.\"\"\"\n",
+        ] {
+            assert!(findings(&scan(clean), "python:S1720").is_empty());
+        }
+    }
+}

@@ -25,3 +25,45 @@ pub(crate) fn check_ends_with_newline(source: &str) -> Vec<Issue> {
         },
     }]
 }
+
+#[cfg(test)]
+mod tests {
+
+    use std::path::PathBuf;
+
+    use crate::test_support::pos;
+    use crate::{AnalyzerOptions, analyze};
+
+    #[test]
+    fn file_must_end_with_newline() {
+        let missing = analyze(PathBuf::from("t.py"), "x = 1", &AnalyzerOptions::default());
+        let newline_issues: Vec<_> = missing
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "python:S113")
+            .collect();
+        assert_eq!(newline_issues.len(), 1);
+        assert_eq!(
+            newline_issues[0].message,
+            "Add a newline character at the end of this file."
+        );
+        assert_eq!(newline_issues[0].range.start, pos(1, 0));
+        assert_eq!(newline_issues[0].range.end, pos(1, 5));
+        assert!(
+            analyze(PathBuf::from("t.py"), "", &AnalyzerOptions::default())
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "python:S113")
+        );
+        assert!(
+            analyze(
+                PathBuf::from("t.py"),
+                "x = 1\n",
+                &AnalyzerOptions::default()
+            )
+            .issues
+            .iter()
+            .all(|issue| issue.rule_key != "python:S113")
+        );
+    }
+}

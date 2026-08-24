@@ -34,3 +34,18 @@ pub(crate) fn check_classmethod_parameter_names(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s2710_requires_cls_naming_for_classmethods() {
+        let flagged =
+            scan("class C:\n    @classmethod\n    def make(other):\n        return other\n");
+        assert_eq!(findings(&flagged, "python:S2710").len(), 1);
+        let clean = "class C:\n    @classmethod\n    def make(cls):\n        return cls\n";
+        assert!(findings(&scan(clean), "python:S2710").is_empty());
+    }
+}

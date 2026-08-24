@@ -37,3 +37,22 @@ pub(crate) fn check_property_accessor_arities(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5724_checks_property_accessor_arity_exactly() {
+        let flagged =
+            scan("class C:\n    @property\n    def size(self, extra):\n        return 1\n");
+        assert_eq!(findings(&flagged, "python:S5724").len(), 1);
+        for clean in [
+            "class C:\n    @property\n    def size(self):\n        return 1\n",
+            "class C:\n    @size.setter\n    def size(self, value):\n        self._size = value\n",
+        ] {
+            assert!(findings(&scan(clean), "python:S5724").is_empty(), "{clean}");
+        }
+    }
+}

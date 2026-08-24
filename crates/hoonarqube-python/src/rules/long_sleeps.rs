@@ -33,3 +33,17 @@ pub(crate) fn check_long_sleeps(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s7486_flags_only_long_sleeps() {
+        let flagged = scan("await asyncio.sleep(59)\nawait asyncio.sleep(60)\n");
+        let found = findings(&flagged, "python:S7486");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 2);
+    }
+}

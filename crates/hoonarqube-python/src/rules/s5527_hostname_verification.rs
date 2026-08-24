@@ -54,3 +54,21 @@ pub(crate) fn check_s5527_hostname_verification(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5527_flags_disabled_hostname_verification() {
+        let flagged = concat!(
+            "ctx.check_hostname = False\n",
+            "http.post(url, verify=False)\n",
+            "wrap(sock, check_hostname=False)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S5527").len(), 3);
+        let clean = concat!("ctx.check_hostname = True\n", "http.post(url)\n");
+        assert!(findings(&scan(clean), "python:S5527").is_empty());
+    }
+}

@@ -29,3 +29,61 @@ pub(crate) fn check_license_header(options: &AnalyzerOptions, source: &str) -> V
         },
     }]
 }
+
+#[cfg(test)]
+mod tests {
+
+    use std::path::PathBuf;
+
+    use crate::test_support::issue;
+    use crate::{AnalyzerOptions, analyze};
+
+    #[test]
+    fn license_header_is_enforced_only_when_configured() {
+        let options = AnalyzerOptions {
+            copyright_header_format: "Copyright 2026".to_string(),
+            ..AnalyzerOptions::default()
+        };
+        assert!(
+            analyze(
+                PathBuf::from("t.py"),
+                "# Copyright 2026\nfor _ in []:\n    _ = None\n",
+                &options
+            )
+            .issues
+            .is_empty()
+        );
+        assert!(
+            analyze(
+                PathBuf::from("t.py"),
+                "#!/usr/bin/env python3\n# Copyright 2026\nfor _ in []:\n    _ = None\n",
+                &options
+            )
+            .issues
+            .is_empty()
+        );
+        let missing = analyze(
+            PathBuf::from("t.py"),
+            "for _ in []:\n    _ = None\n",
+            &options,
+        );
+        assert_eq!(
+            missing.issues,
+            vec![issue(
+                "python:S1451",
+                "Add or update the copyright header of this file.",
+                (1, 0),
+                (1, 0)
+            )]
+        );
+        assert!(
+            analyze(
+                PathBuf::from("t.py"),
+                "for _ in []:\n    _ = None\n",
+                &AnalyzerOptions::default()
+            )
+            .issues
+            .is_empty()
+        );
+    }
+}

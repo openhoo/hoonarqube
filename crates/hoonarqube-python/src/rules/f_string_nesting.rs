@@ -77,3 +77,26 @@ fn visit_elements(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6799_flags_f_strings_nested_three_levels_deep() {
+        let flagged = scan("deep = f\"{f\"{f\"{x}\"}\"}\"\n");
+        assert_eq!(findings(&flagged, "python:S6799").len(), 1);
+    }
+
+    #[test]
+    fn s6799_spares_single_and_double_level_nesting() {
+        for clean in [
+            "flat = f\"value {x}\"\n",
+            "once = f\"outer {f\"inner {x}\"} end\"\n",
+            "plain = \"no interpolation at all\"\n",
+        ] {
+            assert!(findings(&scan(clean), "python:S6799").is_empty());
+        }
+    }
+}

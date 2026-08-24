@@ -26,3 +26,31 @@ pub(crate) fn check_trailing_whitespace(source: &str) -> Vec<Issue> {
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use std::path::PathBuf;
+
+    use crate::test_support::pos;
+    use crate::{AnalyzerOptions, analyze};
+
+    #[test]
+    fn trailing_whitespace_is_flagged_per_line() {
+        let report = analyze(
+            PathBuf::from("t.py"),
+            "a \nb\t\nc\n",
+            &AnalyzerOptions::default(),
+        );
+        let flagged: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "python:S1131")
+            .collect();
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start, pos(1, 1));
+        assert_eq!(flagged[0].range.end, pos(1, 2));
+        assert_eq!(flagged[1].range.start, pos(2, 1));
+        assert_eq!(flagged[1].range.end, pos(2, 2));
+    }
+}

@@ -26,3 +26,17 @@ pub(crate) fn check_unconditional_assertions(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5914_flags_unconditional_assertions() {
+        let flagged = scan(
+            "case.assertEqual(a, a)\ncase.assertTrue(True)\ncase.assertFalse(True)\ncase.assertEqual(a, b)\n",
+        );
+        assert_eq!(findings(&flagged, "python:S5914").len(), 3);
+    }
+}

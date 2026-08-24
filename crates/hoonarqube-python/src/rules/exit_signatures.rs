@@ -32,3 +32,18 @@ pub(crate) fn check_exit_signatures(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s2733_checks_exit_signature_completeness() {
+        let flagged =
+            scan("class C:\n    def __exit__(self, kind, value):\n        return False\n");
+        assert_eq!(findings(&flagged, "python:S2733").len(), 1);
+        let clean = "class C:\n    def __exit__(self, kind, value, trace):\n        return False\n";
+        assert!(findings(&scan(clean), "python:S2733").is_empty());
+    }
+}

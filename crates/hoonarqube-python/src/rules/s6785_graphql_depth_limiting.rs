@@ -40,3 +40,29 @@ pub(crate) fn check_s6785_graphql_depth_limiting(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6785_flags_graphql_schemas_without_depth_limiting() {
+        let flagged = "schema = Schema(query=Query, mutation=Mutation)\n";
+        assert_eq!(findings(&scan(flagged), "python:S6785").len(), 1);
+        let clean = concat!(
+            "schema = Schema(\n",
+            "    query=Query,\n",
+            "    extensions=[QueryDepthLimiter(max_depth=10)],\n",
+            ")\n"
+        );
+        assert!(findings(&scan(clean), "python:S6785").is_empty());
+        assert!(
+            findings(
+                &scan("class ColorSchema(Schema):\n    name = fields.Str()\n"),
+                "python:S6785"
+            )
+            .is_empty()
+        );
+    }
+}

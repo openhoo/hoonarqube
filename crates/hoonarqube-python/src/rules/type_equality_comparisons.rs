@@ -50,3 +50,18 @@ pub(crate) fn check_type_equality_comparisons(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6660_prefers_isinstance_over_type_equality() {
+        assert_eq!(
+            findings(&scan("exact = type(x) is int\n"), "python:S6660").len(),
+            1
+        );
+        assert!(findings(&scan("safe = isinstance(x, int)\n"), "python:S6660").is_empty());
+    }
+}

@@ -52,3 +52,21 @@ pub(crate) fn check_typevar_annotated_functions(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6796_prefers_pep695_parameters_over_typevar_hints() {
+        let flagged = scan(concat!(
+            "T = TypeVar(\"T\")\n",
+            "def identity(x: T) -> T:\n",
+            "    return x\n",
+            "def plain(x: int) -> int:\n",
+            "    return x\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6796").len(), 1);
+    }
+}

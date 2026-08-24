@@ -29,3 +29,23 @@ pub(crate) fn check_control_flow_in_nurseries(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s7514_flags_control_flow_out_of_nurseries() {
+        let flagged = scan(concat!(
+            "async def esc():\n",
+            "    async with trio.open_nursery() as nursery:\n",
+            "        nursery.start_soon(a)\n",
+            "        nursery.start_soon(b)\n",
+            "        return\n"
+        ));
+        let found = findings(&flagged, "python:S7514");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 5);
+    }
+}

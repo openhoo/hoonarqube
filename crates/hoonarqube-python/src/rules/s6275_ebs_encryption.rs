@@ -43,3 +43,28 @@ pub(crate) fn check_s6275_ebs_encryption(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6275_flags_unencrypted_ebs_volumes() {
+        let flagged = concat!(
+            "ec2.create_volume(Size=8, AvailabilityZone=\"us-east-1a\")\n",
+            "ec2.create_volume(Size=8, Encrypted=False)\n",
+            "ec2.run_instances(ImageId=\"ami\", BlockDeviceMappings=[{\"DeviceName\": \"/dev/sda\"}])\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S6275").len(), 3);
+        assert!(
+            findings(
+                &scan(
+                    "ec2.create_volume(Size=8, AvailabilityZone=\"us-east-1a\", Encrypted=True)\n"
+                ),
+                "python:S6275"
+            )
+            .is_empty()
+        );
+    }
+}

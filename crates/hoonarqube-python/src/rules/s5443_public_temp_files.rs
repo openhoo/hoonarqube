@@ -39,3 +39,20 @@ pub(crate) fn check_s5443_public_temp_files(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5443_flags_temp_files_in_public_directories() {
+        let flagged = concat!(
+            "open(\"/tmp/app.log\", \"w\")\n",
+            "open(\"/var/tmp/data.csv\")\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S5443").len(), 2);
+        let clean = concat!("open(\"app.log\")\n", "tempfile.NamedTemporaryFile()\n");
+        assert!(findings(&scan(clean), "python:S5443").is_empty());
+    }
+}

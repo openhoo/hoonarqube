@@ -56,3 +56,23 @@ pub(crate) fn check_s5547_weak_ciphers(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5547_flags_weak_cipher_imports_and_constructors() {
+        let flagged = concat!(
+            "from Crypto.Cipher import DES\n",
+            "c = DES.new(key, mode)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S5547").len(), 2);
+        let clean = concat!(
+            "from Crypto.Cipher import AES\n",
+            "c = AES.new(key, mode)\n"
+        );
+        assert!(findings(&scan(clean), "python:S5547").is_empty());
+    }
+}

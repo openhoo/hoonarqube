@@ -29,3 +29,15 @@ pub(crate) fn check_dataloader_workers(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6983_requires_num_workers_on_dataloaders() {
+        let flagged = scan("DataLoader(ds, batch_size=2)\nDataLoader(ds, num_workers=4)\n");
+        assert_eq!(findings(&flagged, "python:S6983").len(), 1);
+    }
+}

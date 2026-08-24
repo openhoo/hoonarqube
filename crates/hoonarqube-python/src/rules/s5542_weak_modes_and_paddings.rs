@@ -26,3 +26,17 @@ pub(crate) fn check_s5542_weak_modes_and_paddings(
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5542_flags_ecb_mode_and_weak_padding() {
+        let flagged = "c = AES.new(k, AES.MODE_ECB)\np = padding.PKCS1v15()\n";
+        assert_eq!(findings(&scan(flagged), "python:S5542").len(), 2);
+        let clean = "g = AES.new(k, AES.MODE_GCM)\no = padding.OAEP(mgf=mgf1)\n";
+        assert!(findings(&scan(clean), "python:S5542").is_empty());
+    }
+}

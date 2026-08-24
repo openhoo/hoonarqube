@@ -37,3 +37,17 @@ pub(crate) fn check_identical_if_else_branches(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s3923_flags_identical_if_else_branches() {
+        let flagged = scan("if a:\n    run()\nelse:\n    run()\n");
+        assert_eq!(findings(&flagged, "python:S3923").len(), 1);
+        let clean = "if a:\n    run()\nelse:\n    walk()\n";
+        assert!(findings(&scan(clean), "python:S3923").is_empty());
+    }
+}

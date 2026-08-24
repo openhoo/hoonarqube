@@ -37,3 +37,26 @@ pub(crate) fn check_s4792_logger_configuration(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s4792_flags_logger_configuration_apis() {
+        let flagged = concat!(
+            "import logging.config\n",
+            "logging.config.dictConfig({})\n",
+            "logging.config.fileConfig(\"log.ini\")\n",
+            "logging.basicConfig(handlers=[h])\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S4792").len(), 3);
+        let clean = concat!(
+            "import logging\n",
+            "logging.basicConfig(level=\"INFO\")\n",
+            "logging.info(\"hello\")\n"
+        );
+        assert!(findings(&scan(clean), "python:S4792").is_empty());
+    }
+}

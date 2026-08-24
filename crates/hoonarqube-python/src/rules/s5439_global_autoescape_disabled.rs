@@ -36,3 +36,17 @@ pub(crate) fn check_s5439_global_autoescape_disabled(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5439_flags_only_global_autoescape_disable() {
+        let module_level = "env = Environment(autoescape=False)\n";
+        assert_eq!(findings(&scan(module_level), "python:S5439").len(), 1);
+        let nested = "def build():\n    return Environment(autoescape=False)\n";
+        assert!(findings(&scan(nested), "python:S5439").is_empty());
+    }
+}

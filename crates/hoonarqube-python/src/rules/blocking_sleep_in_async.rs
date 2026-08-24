@@ -22,3 +22,15 @@ pub(crate) fn check_blocking_sleep_in_async(
     );
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s7488_flags_blocking_time_sleep_in_async_functions() {
+        let flagged = scan("async def tick():\n    time.sleep(1)\n    await asyncio.sleep(1)\n");
+        assert_eq!(findings(&flagged, "python:S7488").len(), 1);
+    }
+}

@@ -86,3 +86,35 @@ fn scope_bindings(suite: &[Stmt]) -> Vec<(&str, TextRange)> {
     }
     bindings
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s1845_flags_case_only_collisions_in_scope() {
+        let module = scan("value = 1\nValue = 2\n");
+        assert_eq!(findings(&module, "python:S1845").len(), 1);
+        let class_scope = scan(concat!(
+            "class C:\n",
+            "    def render(self):\n",
+            "        return 1\n",
+            "    RENDER = 2\n",
+        ));
+        assert_eq!(findings(&class_scope, "python:S1845").len(), 1);
+    }
+
+    #[test]
+    fn s1845_spares_identical_names_and_separate_scopes() {
+        for clean in [
+            // Exact duplicates are redefinitions, not case collisions.
+            "value = 1\nvalue = 2\n",
+            // Members of separate class scopes never collide.
+            "class A:\n    def go(self):\n        return 1\nclass B:\n    def go(self):\n        return 2\n",
+            "def outer():\n    value = 1\nvalue = 2\n",
+        ] {
+            assert!(findings(&scan(clean), "python:S1845").is_empty());
+        }
+    }
+}

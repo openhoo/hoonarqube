@@ -31,3 +31,15 @@ pub(crate) fn check_any_type_hints(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6542_flags_any_type_hints() {
+        let flagged = scan("def f(x: Any) -> int:\n    return 1\n");
+        assert_eq!(findings(&flagged, "python:S6542").len(), 1);
+    }
+}

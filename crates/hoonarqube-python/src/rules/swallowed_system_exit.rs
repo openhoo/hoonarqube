@@ -43,3 +43,17 @@ pub(crate) fn check_swallowed_system_exit(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5754_requires_systemexit_reraise() {
+        let flagged = scan("try:\n    run_app()\nexcept SystemExit:\n    cleanup()\n");
+        assert_eq!(findings(&flagged, "python:S5754").len(), 1);
+        let clean = "try:\n    run_app()\nexcept ValueError:\n    cleanup()\n";
+        assert!(findings(&scan(clean), "python:S5754").is_empty());
+    }
+}

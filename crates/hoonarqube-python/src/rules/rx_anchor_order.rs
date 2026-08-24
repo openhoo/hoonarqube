@@ -33,3 +33,21 @@ pub(crate) fn check_rx_anchor_order(seq: &RxSeq, push: &mut dyn FnMut(&str, &str
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::regex_finds;
+
+    #[test]
+    fn s5996_flags_boundaries_that_can_never_match() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'$[a-z]+^')\n",
+            "python:S5996"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'^[a-z]+$')\n",
+            "python:S5996"
+        ));
+    }
+}

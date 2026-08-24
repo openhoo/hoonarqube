@@ -51,3 +51,18 @@ pub(crate) fn check_identical_operands(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s1764_flags_identical_operands_except_small_ints() {
+        assert_eq!(findings(&scan("z = x - x\n"), "python:S1764").len(), 1);
+        assert_eq!(findings(&scan("q = x == x\n"), "python:S1764").len(), 1);
+        for clean in ["z = x * 2\n", "q = 1 - 1\n"] {
+            assert!(findings(&scan(clean), "python:S1764").is_empty(), "{clean}");
+        }
+    }
+}

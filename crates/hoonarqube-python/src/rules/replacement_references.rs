@@ -98,3 +98,23 @@ pub(crate) fn check_replacement_references(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings_of, regex_finds};
+
+    #[test]
+    fn s6328_validates_group_references_in_replacements() {
+        let flagged = "import re\nre.sub(r'(a)(b)(c)', r'\\1, \\9, \\3', s)\n";
+        assert_eq!(findings_of(flagged, "python:S6328").len(), 1);
+        assert!(!regex_finds(
+            "import re\nre.sub(r'(a)(b)(c)', r'\\1, \\2, \\3', s)\n",
+            "python:S6328"
+        ));
+        assert!(regex_finds(
+            "import re\nre.sub(r'(?P<a>x)', r'\\g<b>', s)\n",
+            "python:S6328"
+        ));
+    }
+}

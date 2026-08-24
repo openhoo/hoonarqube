@@ -34,3 +34,19 @@ pub(crate) fn check_named_steps_bypass(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6971_flags_named_steps_bypass_on_cached_pipelines() {
+        let flagged = scan(concat!(
+            "pipe = Pipeline(steps, memory=\"./c\")\n",
+            "step = pipe.named_steps[\"s\"]\n",
+            "plain = other.named_steps[\"s\"]\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6971").len(), 1);
+    }
+}

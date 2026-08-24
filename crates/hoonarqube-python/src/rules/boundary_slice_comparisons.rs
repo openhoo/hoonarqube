@@ -49,3 +49,22 @@ pub(crate) fn check_boundary_slice_comparisons(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6659_prefers_startswith_endswith_over_slices() {
+        assert_eq!(
+            findings(&scan("head = name[:2] == \"ab\"\n"), "python:S6659").len(),
+            1
+        );
+        assert_eq!(
+            findings(&scan("tail = name[-2:] == \"cd\"\n"), "python:S6659").len(),
+            1
+        );
+        assert!(findings(&scan("mid = name[1:2] == \"b\"\n"), "python:S6659").is_empty());
+    }
+}

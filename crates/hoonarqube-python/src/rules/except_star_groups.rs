@@ -50,3 +50,15 @@ pub(crate) fn check_except_star_groups(
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6468_flags_except_star_on_exception_groups() {
+        let flagged = scan("try:\n    pass\nexcept* ExceptionGroup:\n    pass\n");
+        assert_eq!(findings(&flagged, "python:S6468").len(), 1);
+    }
+}

@@ -26,3 +26,20 @@ pub(crate) fn check_imprecise_assertions(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5906_suggests_specific_assertions() {
+        let flagged = scan(concat!(
+            "case.assertEqual(x, True)\n",
+            "case.assertTrue(x == y)\n",
+            "case.assertFalse(a in b)\n",
+            "case.assertEqual(x, y)\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S5906").len(), 3);
+    }
+}

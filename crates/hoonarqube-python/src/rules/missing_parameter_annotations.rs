@@ -36,3 +36,24 @@ pub(crate) fn check_missing_parameter_annotations(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use std::path::PathBuf;
+
+    use crate::test_support::{findings, scan};
+    use crate::{AnalyzerOptions, analyze};
+
+    #[test]
+    fn s6540_gated_parameter_annotations() {
+        let source = "def add(a, b):\n    return a\ndef tagged(a: int):\n    return a\n";
+        let options = AnalyzerOptions {
+            require_type_hints: true,
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze(PathBuf::from("t.py"), source, &options);
+        assert_eq!(findings(&report, "python:S6540").len(), 2);
+        assert!(findings(&scan(source), "python:S6540").is_empty());
+    }
+}

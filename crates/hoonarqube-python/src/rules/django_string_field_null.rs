@@ -31,3 +31,17 @@ pub(crate) fn check_django_string_field_null(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6553_rejects_null_on_string_fields() {
+        let flagged = scan(
+            "CharField(max_length=10, null=True)\nCharField(max_length=10)\nIntegerField(null=True)\n",
+        );
+        assert_eq!(findings(&flagged, "python:S6553").len(), 1);
+    }
+}

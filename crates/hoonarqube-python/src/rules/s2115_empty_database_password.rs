@@ -35,3 +35,25 @@ pub(crate) fn check_s2115_empty_database_password(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s2115_flags_empty_database_passwords() {
+        let flagged = concat!(
+            "psycopg2.connect(dsn, password=\"\")\n",
+            "mysql.connector.connect(passwd=\"\")\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S2115").len(), 2);
+        assert!(
+            findings(
+                &scan("psycopg2.connect(dsn, password=\"s3cret\")\n"),
+                "python:S2115"
+            )
+            .is_empty()
+        );
+    }
+}

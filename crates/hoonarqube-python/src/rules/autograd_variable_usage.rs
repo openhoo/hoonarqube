@@ -28,3 +28,15 @@ pub(crate) fn check_autograd_variable_usage(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6979_flags_autograd_variable_usage() {
+        let flagged = scan("torch.autograd.Variable(x)\n");
+        assert_eq!(findings(&flagged, "python:S6979").len(), 1);
+    }
+}

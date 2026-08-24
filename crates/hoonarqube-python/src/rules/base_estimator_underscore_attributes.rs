@@ -45,3 +45,20 @@ pub(crate) fn check_base_estimator_underscore_attributes(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6974_flags_trailing_underscore_attributes_in_init() {
+        let flagged = scan(concat!(
+            "class E(BaseEstimator):\n",
+            "    def __init__(self):\n",
+            "        self.x_ = 1\n",
+            "        self.y = 2\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6974").len(), 1);
+    }
+}

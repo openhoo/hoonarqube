@@ -37,3 +37,23 @@ pub(crate) fn check_s5659_jwt_signing(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5659_flags_unsigned_and_unverified_jwt() {
+        let flagged = concat!(
+            "t = jwt.encode(p, k, algorithm=\"none\")\n",
+            "c = jwt.decode(t, k)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S5659").len(), 2);
+        let clean = concat!(
+            "t = jwt.encode(p, k, algorithm=\"HS256\")\n",
+            "c = jwt.decode(t, k, algorithms=[\"HS256\"])\n"
+        );
+        assert!(findings(&scan(clean), "python:S5659").is_empty());
+    }
+}

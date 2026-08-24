@@ -49,3 +49,16 @@ pub(crate) fn check_self_assignment(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s1656_flags_self_assignment() {
+        assert_eq!(findings(&scan("x = x\n"), "python:S1656").len(), 1);
+        assert_eq!(findings(&scan("x.y = x.y\n"), "python:S1656").len(), 1);
+        assert!(findings(&scan("x = y\n"), "python:S1656").is_empty());
+    }
+}

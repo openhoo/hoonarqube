@@ -35,3 +35,22 @@ pub(crate) fn check_async_timeout_parameters(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s7483_flags_timeout_parameters_on_async_functions_only() {
+        let flagged = scan(concat!(
+            "async def fetch(client, timeout_s):\n",
+            "    await client.get(\"/\")\n",
+            "def sync(timeout_s):\n",
+            "    return timeout_s\n"
+        ));
+        let found = findings(&flagged, "python:S7483");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 1);
+    }
+}

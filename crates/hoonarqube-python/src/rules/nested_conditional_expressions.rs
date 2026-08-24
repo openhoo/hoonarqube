@@ -19,3 +19,16 @@ pub(crate) fn check_nested_conditional_expressions(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s3358_flags_nested_conditional_expressions() {
+        let flagged = scan("v = a if b else c if d else e\n");
+        assert_eq!(findings(&flagged, "python:S3358").len(), 1);
+        assert!(findings(&scan("v = a if b else e\n"), "python:S3358").is_empty());
+    }
+}

@@ -49,3 +49,16 @@ pub(crate) fn check_s4823_command_line_arguments(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s4823_flags_command_line_argument_access() {
+        let flagged = "import sys\nprint(sys.argv[1])\nfrom sys import argv\n";
+        assert_eq!(findings(&scan(flagged), "python:S4823").len(), 2);
+        assert!(findings(&scan("print(sys.version)\n"), "python:S4823").is_empty());
+    }
+}

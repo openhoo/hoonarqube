@@ -31,3 +31,17 @@ pub(crate) fn check_unraised_exceptions(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s3984_flags_exceptions_created_without_raising() {
+        let flagged = scan(
+            "ValueError(\"bad\")\nraise ValueError(\"good\")\nstored = ValueError(\"kept\")\n",
+        );
+        assert_eq!(findings(&flagged, "python:S3984").len(), 1);
+    }
+}

@@ -39,3 +39,20 @@ pub(crate) fn check_init_return_values(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s2734_flags_init_returning_value() {
+        let flagged =
+            scan("class C:\n    def __init__(self):\n        self.x = 1\n        return 5\n");
+        let found = findings(&flagged, "python:S2734");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 4);
+        let clean = "class C:\n    def __init__(self):\n        self.x = 1\n        return None\n";
+        assert!(findings(&scan(clean), "python:S2734").is_empty());
+    }
+}

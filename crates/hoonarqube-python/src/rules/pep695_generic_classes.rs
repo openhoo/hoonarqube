@@ -39,3 +39,15 @@ pub(crate) fn check_pep695_generic_classes(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6792_prefers_pep695_generic_classes() {
+        let flagged = scan("class Box(Generic[T]):\n    pass\nclass Plain:\n    pass\n");
+        assert_eq!(findings(&flagged, "python:S6792").len(), 1);
+    }
+}

@@ -41,3 +41,22 @@ pub(crate) fn check_s4829_standard_input(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s4829_flags_standard_input_reads() {
+        let flagged = "name = input()\ndata = sys.stdin.read()\n";
+        assert_eq!(findings(&scan(flagged), "python:S4829").len(), 2);
+        assert!(
+            findings(
+                &scan("sys.stdout.write(\"x\")\nsys.stderr.flush()\n"),
+                "python:S4829"
+            )
+            .is_empty()
+        );
+    }
+}

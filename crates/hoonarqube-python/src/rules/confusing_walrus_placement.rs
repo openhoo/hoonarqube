@@ -55,3 +55,28 @@ pub(crate) fn check_confusing_walrus_placement(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5685_flags_confusing_walrus_positions() {
+        assert_eq!(
+            findings(&scan("vals = [y := get(y) for y in ys]\n"), "python:S5685").len(),
+            1
+        );
+        assert_eq!(
+            findings(&scan("mid = a < (b := c) < d\n"), "python:S5685").len(),
+            1
+        );
+        assert!(
+            findings(
+                &scan("kept = [y for y in ys if (mark := y)]\n"),
+                "python:S5685"
+            )
+            .is_empty()
+        );
+    }
+}

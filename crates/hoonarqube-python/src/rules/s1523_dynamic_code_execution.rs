@@ -35,3 +35,16 @@ pub(crate) fn check_s1523_dynamic_code_execution(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s1523_flags_dynamic_code_execution_on_variables() {
+        let flagged = "result = eval(user_input)\nexec(code_var)\n";
+        assert_eq!(findings(&scan(flagged), "python:S1523").len(), 2);
+        assert!(findings(&scan("value = eval(\"2 + 2\")\n"), "python:S1523").is_empty());
+    }
+}

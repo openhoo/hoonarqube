@@ -46,3 +46,32 @@ fn flag_empty_bases(
         ));
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s1722_flags_classes_without_bases() {
+        assert_eq!(
+            findings(&scan("class Bare:\n    pass\n"), "python:S1722").len(),
+            1
+        );
+        assert_eq!(
+            findings(&scan("class EmptyParens():\n    pass\n"), "python:S1722").len(),
+            1
+        );
+    }
+
+    #[test]
+    fn s1722_spares_explicit_inheritance() {
+        for clean in [
+            "class Object(object):\n    pass\n",
+            "class Base(BaseError):\n    pass\n",
+            "class Keyword(kw=object):\n    pass\n",
+        ] {
+            assert!(findings(&scan(clean), "python:S1722").is_empty());
+        }
+    }
+}

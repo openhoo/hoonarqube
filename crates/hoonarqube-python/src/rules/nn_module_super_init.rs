@@ -52,3 +52,22 @@ pub(crate) fn check_nn_module_super_init(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6978_requires_super_init_in_module_subclasses() {
+        let flagged = scan(concat!(
+            "class M(nn.Module):\n",
+            "    def __init__(self):\n",
+            "        self.layer = 1\n",
+            "class Ok(nn.Module):\n",
+            "    def __init__(self):\n",
+            "        super().__init__()\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6978").len(), 1);
+    }
+}

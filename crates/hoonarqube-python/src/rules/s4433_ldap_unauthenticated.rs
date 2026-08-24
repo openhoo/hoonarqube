@@ -52,3 +52,25 @@ pub(crate) fn check_s4433_ldap_unauthenticated(
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s4433_flags_unauthenticated_ldap_searches() {
+        let flagged = "con = ldap.initialize(url)\ncon.search_s(base, scope)\n";
+        assert_eq!(findings(&scan(flagged), "python:S4433").len(), 1);
+        let clean = concat!(
+            "con = ldap.initialize(url)\n",
+            "con.simple_bind_s(\"user\", \"secret\")\n",
+            "con.search_s(base, scope)\n"
+        );
+        assert!(findings(&scan(clean), "python:S4433").is_empty());
+        assert_eq!(
+            findings(&scan("ldap.simple_bind(\"\", \"\")\n"), "python:S4433").len(),
+            1
+        );
+    }
+}

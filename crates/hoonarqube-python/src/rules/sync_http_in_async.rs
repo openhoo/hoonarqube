@@ -25,3 +25,16 @@ pub(crate) fn check_sync_http_in_async(
     );
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s7499_flags_sync_http_clients_in_async_functions() {
+        let flagged =
+            scan("async def web():\n    requests.get(\"http://x\")\n    await asyncio.sleep(1)\n");
+        assert_eq!(findings(&flagged, "python:S7499").len(), 1);
+    }
+}

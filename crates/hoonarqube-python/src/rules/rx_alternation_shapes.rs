@@ -84,3 +84,25 @@ pub(crate) fn check_rx_alternation_shapes(
     // alternatives.
     check_rx_alternation_nodes(&parsed.root, false, push);
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::regex_finds;
+
+    #[test]
+    fn s6002_flags_contradictory_lookaheads() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'(?=a)b')\n",
+            "python:S6002"
+        ));
+        assert!(regex_finds(
+            "import re\nre.compile(r'(?=a)(?!a)')\n",
+            "python:S6002"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'a(?=b)')\n",
+            "python:S6002"
+        ));
+    }
+}

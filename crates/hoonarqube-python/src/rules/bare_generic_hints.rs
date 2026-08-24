@@ -27,3 +27,17 @@ pub(crate) fn check_bare_generic_hints(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6543_flags_bare_generic_hints() {
+        let flagged = scan(
+            "def first(xs: list) -> int:\n    return 1\ndef second(xs: list[int]) -> int:\n    return 1\n",
+        );
+        assert_eq!(findings(&flagged, "python:S6543").len(), 1);
+    }
+}

@@ -343,3 +343,145 @@ impl Measurer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use std::path::PathBuf;
+
+    use crate::test_support::{findings, scan};
+    use crate::{AnalyzerOptions, analyze};
+
+    #[test]
+    fn s3776_scores_nesting_weighted_structures() {
+        let source = concat!(
+            "def f(a, b):\n",
+            "    if a:\n",
+            "        if b:\n",
+            "            if a and b:\n",
+            "                pass\n",
+        );
+        // cognitive = if(1) + nested if(2) + nested if(3) + boolop chain(1) = 7.
+        for (threshold, expected) in [(6, 1), (7, 0)] {
+            let options = AnalyzerOptions {
+                maximum_cognitive_complexity: threshold,
+                ..AnalyzerOptions::default()
+            };
+            let report = analyze(PathBuf::from("t.py"), source, &options);
+            assert_eq!(findings(&report, "python:S3776").len(), expected);
+        }
+    }
+
+    #[test]
+    fn s3776_threshold_is_configurable() {
+        let options = AnalyzerOptions {
+            maximum_cognitive_complexity: 1,
+            ..AnalyzerOptions::default()
+        };
+        // Two sequential ifs score 2 cognitive points.
+        let report = analyze(
+            PathBuf::from("t.py"),
+            "def f(a, b):\n    if a:\n        pass\n    if b:\n        pass\n",
+            &options,
+        );
+        let found = findings(&report, "python:S3776");
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            found[0].message,
+            "Refactor this function to reduce its Cognitive Complexity from 2 to the 1 allowed."
+        );
+    }
+
+    #[test]
+    fn function_complexity_flags_past_threshold_with_baseline() {
+        // if(1) + elif(1) + for(1) + while(1) + boolop values-1(1) + baseline(1)
+        // = 6, which exceeds the lowered threshold of 4.
+        let source = concat!(
+            "def f(a, b, c):\n",
+            "    if a:\n",
+            "        pass\n",
+            "    elif b:\n",
+            "        pass\n",
+            "    else:\n",
+            "        pass\n",
+            "    for x in []:\n",
+            "        while c or a:\n",
+            "            pass\n",
+        );
+        let options = AnalyzerOptions {
+            maximum_function_complexity: 4,
+            ..AnalyzerOptions::default()
+        };
+        // if(1) + elif(1) + for(1) + while(1) + boolop values-1(1) + baseline(1) = 6
+        let report = analyze(PathBuf::from("t.py"), source, &options);
+        assert_eq!(findings(&report, "python:FunctionComplexity").len(), 1);
+    }
+
+    #[test]
+    fn file_complexity_sums_all_function_units() {
+        let source = concat!(
+            "def f():\n",
+            "    if a:\n",
+            "        pass\n",
+            "\n",
+            "def g():\n",
+            "    if b:\n",
+            "        pass\n",
+        );
+        // Each unit: baseline 1 + one if = 2; total 4 exceeds the lowered bar.
+        let options = AnalyzerOptions {
+            maximum_file_complexity: 3,
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze(PathBuf::from("t.py"), source, &options);
+        assert_eq!(findings(&report, "python:FileComplexity").len(), 1);
+        assert!(findings(&scan(source), "python:FileComplexity").is_empty());
+    }
+
+    #[test]
+    fn class_complexity_sums_direct_methods() {
+        let source = concat!(
+            "class C:\n",
+            "    def m(self):\n",
+            "        if a:\n",
+            "            pass\n",
+            "    def n(self):\n",
+            "        try:\n",
+            "            pass\n",
+            "        except ValueError:\n",
+            "            pass\n",
+        );
+        // Methods: (1 + 1) + (1 + 1 handler) = 4.
+        let options = AnalyzerOptions {
+            maximum_class_complexity: 3,
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze(PathBuf::from("t.py"), source, &options);
+        assert_eq!(findings(&report, "python:ClassComplexity").len(), 1);
+        assert!(findings(&scan(source), "python:ClassComplexity").is_empty());
+    }
+
+    #[test]
+    fn complexity_units_exclude_nested_definitions_and_count_match_cases() {
+        let source = concat!(
+            "def outer(v):\n",
+            "    match v:\n",
+            "        case 1:\n",
+            "            pass\n",
+            "        case _:\n",
+            "            def inner(x):\n",
+            "                if x:\n",
+            "                    pass\n",
+            "                return [y for y in v if y]\n",
+        );
+        // outer: match cases(2) + baseline(1) = 3; the comprehension filter
+        // and the `if` belong to inner's own unit, which also scores 3.
+        let options = AnalyzerOptions {
+            maximum_function_complexity: 2,
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze(PathBuf::from("t.py"), source, &options);
+        assert_eq!(findings(&report, "python:FunctionComplexity").len(), 2);
+        assert!(findings(&scan(source), "python:FunctionComplexity").is_empty());
+    }
+}

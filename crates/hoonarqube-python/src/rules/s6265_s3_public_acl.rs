@@ -41,3 +41,25 @@ pub(crate) fn check_s6265_s3_public_acl(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6265_flags_public_acl_and_all_users_grants() {
+        let flagged = concat!(
+            "s3.put_object_acl(Bucket=\"b\", Key=\"k\", ACL=\"public-read\")\n",
+            "s3.put_bucket_acl(Bucket=\"b\", GrantFullControl='uri=\"http://acs.amazonaws.com/groups/global/AllUsers\"')\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S6265").len(), 2);
+        assert!(
+            findings(
+                &scan("s3.put_object_acl(Bucket=\"b\", Key=\"k\", ACL=\"private\")\n"),
+                "python:S6265"
+            )
+            .is_empty()
+        );
+    }
+}

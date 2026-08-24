@@ -53,3 +53,26 @@ pub(crate) fn check_s4787_encrypting_data(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s4787_flags_encryption_api_constructions() {
+        let flagged = concat!(
+            "aes = AES.new(key)\n",
+            "f = Fernet(secret)\n",
+            "c = cryptography.hazmat.primitives.ciphers.Cipher(a, b)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S4787").len(), 3);
+        assert!(
+            findings(
+                &scan("digest = hashlib.sha256(b\"data\")\n"),
+                "python:S4787"
+            )
+            .is_empty()
+        );
+    }
+}

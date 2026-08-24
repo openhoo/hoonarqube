@@ -32,3 +32,18 @@ pub(crate) fn check_tuple_assertions(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5905_flags_nonempty_tuple_assertions() {
+        let flagged = scan("assert (False, \"why\")\n");
+        assert_eq!(findings(&flagged, "python:S5905").len(), 1);
+        for clean in ["assert ()\n", "assert condition\n"] {
+            assert!(findings(&scan(clean), "python:S5905").is_empty(), "{clean}");
+        }
+    }
+}

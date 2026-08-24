@@ -34,3 +34,29 @@ pub(crate) fn check_rx_redundant_alternatives(
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::regex_finds;
+
+    #[test]
+    fn s5855_flags_alternatives_covered_by_earlier_ones() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'[ab]|a')\n",
+            "python:S5855"
+        ));
+        assert!(regex_finds(
+            "import re\nre.compile(r'.*|a')\n",
+            "python:S5855"
+        ));
+        assert!(regex_finds(
+            "import re\nre.compile(r'foo|foo')\n",
+            "python:S5855"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'foo|bar')\n",
+            "python:S5855"
+        ));
+    }
+}

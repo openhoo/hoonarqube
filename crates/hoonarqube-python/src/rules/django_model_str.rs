@@ -34,3 +34,21 @@ pub(crate) fn check_django_model_str(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6554_requires_str_on_django_models() {
+        let flagged = scan(concat!(
+            "class Book(models.Model):\n",
+            "    title = models.CharField(max_length=5)\n",
+            "class Shelf(models.Model):\n",
+            "    def __str__(self):\n",
+            "        return \"s\"\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6554").len(), 1);
+    }
+}

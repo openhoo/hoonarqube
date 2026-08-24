@@ -29,3 +29,15 @@ pub(crate) fn check_torch_load_weights_only(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6985_requires_weights_only_on_torch_load() {
+        let flagged = scan("torch.load(\"m.pt\")\ntorch.load(\"m.pt\", weights_only=True)\n");
+        assert_eq!(findings(&flagged, "python:S6985").len(), 1);
+    }
+}

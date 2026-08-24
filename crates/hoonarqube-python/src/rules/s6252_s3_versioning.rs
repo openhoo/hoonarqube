@@ -31,3 +31,20 @@ pub(crate) fn check_s6252_s3_versioning(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6252_requires_s3_versioning_configuration() {
+        let flagged = "s3.put_bucket_versioning(Bucket=\"b\")\n";
+        assert_eq!(findings(&scan(flagged), "python:S6252").len(), 1);
+        assert!(findings(
+                &scan("s3.put_bucket_versioning(Bucket=\"b\", VersioningConfiguration={\"Status\": \"Enabled\"})\n"),
+                "python:S6252"
+            )
+            .is_empty());
+    }
+}

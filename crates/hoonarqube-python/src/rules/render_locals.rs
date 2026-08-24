@@ -29,3 +29,15 @@ pub(crate) fn check_render_locals(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6556_rejects_locals_in_render() {
+        let flagged = scan("render(req, \"t.html\", locals())\nrender(req, \"t.html\", {})\n");
+        assert_eq!(findings(&flagged, "python:S6556").len(), 1);
+    }
+}

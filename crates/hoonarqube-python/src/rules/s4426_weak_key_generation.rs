@@ -54,3 +54,24 @@ pub(crate) fn check_s4426_weak_key_generation(
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s4426_flags_weak_key_generation_parameters() {
+        let flagged = concat!(
+            "RSA.generate(1024)\n",
+            "DSA.generate(1024)\n",
+            "ec.generate_private_key(ec.SECP192R1())\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S4426").len(), 3);
+        let clean = concat!(
+            "RSA.generate(4096)\n",
+            "ec.generate_private_key(ec.SECP384R1())\n"
+        );
+        assert!(findings(&scan(clean), "python:S4426").is_empty());
+    }
+}

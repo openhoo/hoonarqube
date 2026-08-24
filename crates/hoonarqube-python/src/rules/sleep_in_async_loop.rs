@@ -46,3 +46,23 @@ pub(crate) fn check_sleep_in_async_loop(
     );
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s7484_flags_sleep_awaits_inside_async_loops() {
+        let flagged = scan(concat!(
+            "async def poll(client):\n",
+            "    while True:\n",
+            "        await asyncio.sleep(1)\n",
+            "async def once(client):\n",
+            "    await asyncio.sleep(1)\n"
+        ));
+        let found = findings(&flagged, "python:S7484");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
+    }
+}

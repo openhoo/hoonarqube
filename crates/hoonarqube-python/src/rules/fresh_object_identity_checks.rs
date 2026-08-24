@@ -41,3 +41,22 @@ pub(crate) fn check_fresh_object_identity_checks(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5796_flags_identity_on_fresh_objects() {
+        assert_eq!(
+            findings(&scan("never = [] is []\n"), "python:S5796").len(),
+            1
+        );
+        assert_eq!(
+            findings(&scan("fresh = list() is other\n"), "python:S5796").len(),
+            1
+        );
+        assert!(findings(&scan("ref = a is b\n"), "python:S5796").is_empty());
+    }
+}

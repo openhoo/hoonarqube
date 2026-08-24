@@ -39,3 +39,22 @@ pub(crate) fn check_constant_none_comparisons(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5727_flags_constant_none_comparisons() {
+        assert_eq!(
+            findings(&scan("same = None == None\n"), "python:S5727").len(),
+            1
+        );
+        assert_eq!(
+            findings(&scan("odd = \"x\" == None\n"), "python:S5727").len(),
+            1
+        );
+        assert!(findings(&scan("maybe = x == None\n"), "python:S5727").is_empty());
+    }
+}

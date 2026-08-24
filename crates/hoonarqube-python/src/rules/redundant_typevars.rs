@@ -35,3 +35,15 @@ pub(crate) fn check_redundant_typevars(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6795_flags_typevars_alongside_pep695_syntax() {
+        let flagged = scan("T = TypeVar(\"T\")\ntype PairOf[T] = tuple[T, T]\n");
+        assert_eq!(findings(&flagged, "python:S6795").len(), 1);
+    }
+}

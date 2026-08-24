@@ -35,3 +35,19 @@ pub(crate) fn check_doubled_prefix_operators(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s2761_flags_doubled_prefix_operators() {
+        assert_eq!(
+            findings(&scan("b = not not flag\n"), "python:S2761").len(),
+            1
+        );
+        assert_eq!(findings(&scan("c = ~~bits\n"), "python:S2761").len(), 1);
+        assert!(findings(&scan("flip = -(-amount)\n"), "python:S2761").is_empty());
+    }
+}

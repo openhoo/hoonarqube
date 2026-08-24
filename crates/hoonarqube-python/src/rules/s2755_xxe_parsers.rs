@@ -39,3 +39,24 @@ pub(crate) fn check_s2755_xxe_parsers(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s2755_flags_unsafe_xml_parsers() {
+        let flagged = concat!(
+            "doc = ET.parse(path)\n",
+            "node = lxml.etree.fromstring(text)\n",
+            "xml.sax.parse(file, handler)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S2755").len(), 3);
+        let clean = concat!(
+            "doc = defusedxml.ElementTree.parse(path)\n",
+            "data = json.load(file)\n"
+        );
+        assert!(findings(&scan(clean), "python:S2755").is_empty());
+    }
+}

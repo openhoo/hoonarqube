@@ -37,3 +37,25 @@ pub(crate) fn check_rx_possessive_deadlock(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::regex_finds;
+
+    #[test]
+    fn s5994_flags_patterns_that_fail_after_possessive_quantifiers() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'a++abc')\n",
+            "python:S5994"
+        ));
+        assert!(regex_finds(
+            "import re\nre.compile(r'\\d*+[02468]')\n",
+            "python:S5994"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'a++b')\n",
+            "python:S5994"
+        ));
+    }
+}

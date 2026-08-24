@@ -54,3 +54,26 @@ pub(crate) fn check_redundant_jump_statements(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s3626_flags_trailing_jump_statements() {
+        let cases = [
+            ("def f():\n    setup()\n    return\n", 3),
+            ("for i in xs:\n    step(i)\n    continue\n", 3),
+            ("match x:\n    case 1:\n        break\n", 3),
+        ];
+        for (source, line) in cases {
+            let report = scan(source);
+            let found = findings(&report, "python:S3626");
+            assert_eq!(found.len(), 1, "{source}");
+            assert_eq!(found[0].range.start.line, line);
+        }
+        let clean = "def f():\n    if a:\n        return 0\n    return 1\n";
+        assert!(findings(&scan(clean), "python:S3626").is_empty());
+    }
+}

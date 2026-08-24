@@ -34,3 +34,19 @@ pub(crate) fn check_unseeded_randomness(
     }
     Vec::new()
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, pos, scan};
+
+    #[test]
+    fn s6709_flags_files_using_unseeded_randomness() {
+        let unseeded = scan("import random\nvalue = random.random()\n");
+        let found = findings(&unseeded, "python:S6709");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start, pos(1, 0));
+        let seeded = scan("random.seed(7)\nvalue = random.random()\n");
+        assert!(findings(&seeded, "python:S6709").is_empty());
+    }
+}

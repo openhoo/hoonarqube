@@ -27,3 +27,15 @@ pub(crate) fn check_pipeline_memory_missing(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6969_requires_memory_on_pipelines() {
+        let flagged = scan("Pipeline(steps)\nPipeline(steps, memory=\"./cache\")\n");
+        assert_eq!(findings(&flagged, "python:S6969").len(), 1);
+    }
+}

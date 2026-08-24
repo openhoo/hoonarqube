@@ -34,3 +34,17 @@ pub(crate) fn check_s4502_csrf_disabled(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s4502_flags_csrf_exempt_decorators() {
+        let flagged = "@csrf_exempt\ndef view(request):\n    return None\n";
+        assert_eq!(findings(&scan(flagged), "python:S4502").len(), 1);
+        let clean = "@login_required\ndef view(request):\n    return None\n";
+        assert!(findings(&scan(clean), "python:S4502").is_empty());
+    }
+}

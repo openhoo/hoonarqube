@@ -47,3 +47,25 @@ pub(crate) fn check_s2245_prng_security_contexts(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s2245_flags_prng_in_security_named_functions() {
+        let flagged = concat!(
+            "def make_token(user):\n",
+            "    return random.randint(0, 999999)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S2245").len(), 1);
+        let clean = concat!(
+            "def make_token(user):\n",
+            "    return secrets.token_hex(32)\n",
+            "def stats(sample):\n",
+            "    return random.randint(0, 10)\n"
+        );
+        assert!(findings(&scan(clean), "python:S2245").is_empty());
+    }
+}

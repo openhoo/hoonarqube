@@ -56,3 +56,29 @@ pub(crate) fn check_rx_alternation_nodes(
         RxNode::Seq(seq) => visit_items(&seq.items, push),
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::regex_finds;
+
+    #[test]
+    fn s6035_flags_single_character_alternations() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'a|b|c')\n",
+            "python:S6035"
+        ));
+        assert!(regex_finds(
+            "import re\nre.compile(r'gr(a|e)y')\n",
+            "python:S6035"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'[abc]')\n",
+            "python:S6035"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'ab|cd')\n",
+            "python:S6035"
+        ));
+    }
+}

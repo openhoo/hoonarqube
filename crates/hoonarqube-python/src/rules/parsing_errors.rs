@@ -19,3 +19,29 @@ pub(crate) fn check_parsing_errors(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+
+    use std::path::PathBuf;
+
+    use crate::{AnalyzerOptions, analyze};
+
+    #[test]
+    fn parsing_errors_are_recovered_from_tolerantly() {
+        let report = analyze(
+            PathBuf::from("test.py"),
+            "def f(:\n    pass",
+            &AnalyzerOptions::default(),
+        );
+        let parsing: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "python:ParsingError")
+            .collect();
+        // Ruff 0.0.10 tolerant recovery emits exactly these two errors for
+        // this input; the analyzer reports one issue per `errors()` entry.
+        assert_eq!(parsing.len(), 2);
+        assert!(parsing[0].message.contains("Expected"));
+    }
+}

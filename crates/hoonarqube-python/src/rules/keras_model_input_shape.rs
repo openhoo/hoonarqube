@@ -48,3 +48,22 @@ pub(crate) fn check_keras_model_input_shape(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6919_rejects_input_shape_on_model_subclasses() {
+        let flagged = scan(concat!(
+            "class Net(keras.Model):\n",
+            "    def __init__(self):\n",
+            "        super().__init__(input_shape=(28,))\n",
+            "class Fine(keras.Model):\n",
+            "    def __init__(self):\n",
+            "        super().__init__()\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6919").len(), 1);
+    }
+}

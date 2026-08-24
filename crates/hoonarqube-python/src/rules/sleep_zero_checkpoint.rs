@@ -35,3 +35,17 @@ pub(crate) fn check_sleep_zero_checkpoint(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s7491_prefers_checkpoint_over_sleep_zero() {
+        let flagged = scan("await asyncio.sleep(0)\nawait asyncio.sleep(1)\n");
+        let found = findings(&flagged, "python:S7491");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 1);
+    }
+}

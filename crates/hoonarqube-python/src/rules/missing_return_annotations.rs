@@ -35,3 +35,24 @@ pub(crate) fn check_missing_return_annotations(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use std::path::PathBuf;
+
+    use crate::test_support::{findings, scan};
+    use crate::{AnalyzerOptions, analyze};
+
+    #[test]
+    fn s6538_gated_return_annotations() {
+        let source = "def add(a, b):\n    return a\n";
+        assert!(findings(&scan(source), "python:S6538").is_empty());
+        let options = AnalyzerOptions {
+            require_type_hints: true,
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze(PathBuf::from("t.py"), source, &options);
+        assert_eq!(findings(&report, "python:S6538").len(), 1);
+    }
+}

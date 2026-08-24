@@ -35,3 +35,17 @@ pub(crate) fn check_incompatible_assert_literals(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5845_flags_incompatible_assert_literal_types() {
+        let flagged = scan(
+            "case.assertEqual(\"1\", 2)\ncase.assertEqual(1, 2)\ncase.assertEqual(\"1\", \"2\")\n",
+        );
+        assert_eq!(findings(&flagged, "python:S5845").len(), 1);
+    }
+}

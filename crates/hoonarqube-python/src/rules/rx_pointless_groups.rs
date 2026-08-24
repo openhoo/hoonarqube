@@ -26,3 +26,25 @@ pub(crate) fn check_rx_pointless_groups(
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::regex_finds;
+
+    #[test]
+    fn s6395_flags_pointless_non_capturing_groups() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'(?:number)\\d{2}')\n",
+            "python:S6395"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'(?:number|string)')\n",
+            "python:S6395"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'(?:number)?\\d{2}')\n",
+            "python:S6395"
+        ));
+    }
+}

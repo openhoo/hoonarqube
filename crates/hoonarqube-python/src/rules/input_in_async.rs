@@ -22,3 +22,15 @@ pub(crate) fn check_input_in_async(
     );
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s7501_flags_blocking_input_in_async_functions() {
+        let flagged = scan("async def ask():\n    name = input()\n    await asyncio.sleep(1)\n");
+        assert_eq!(findings(&flagged, "python:S7501").len(), 1);
+    }
+}

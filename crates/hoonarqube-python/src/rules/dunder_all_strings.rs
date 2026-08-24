@@ -46,3 +46,20 @@ pub(crate) fn check_dunder_all_strings(
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s2823_requires_string_literals_in_dunder_all() {
+        let flagged = scan("__all__ = [\"a\", b]\n");
+        let found = findings(&flagged, "python:S2823");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 1);
+        for clean in ["__all__ = [\"a\", \"b\"]\n", "__all__ += [\"c\"]\n"] {
+            assert!(findings(&scan(clean), "python:S2823").is_empty(), "{clean}");
+        }
+    }
+}

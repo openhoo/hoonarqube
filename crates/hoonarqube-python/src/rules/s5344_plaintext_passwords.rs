@@ -59,3 +59,24 @@ pub(crate) fn check_s5344_plaintext_passwords(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5344_flags_plaintext_and_fast_hashed_passwords() {
+        let flagged = concat!(
+            "password = \"hunter2\"\n",
+            "digest = md5(password_bytes)\n",
+            "h = hashlib.sha1(user_password)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S5344").len(), 3);
+        let clean = concat!(
+            "digest = hashlib.sha256(data)\n",
+            "token = secrets.token_hex(32)\n"
+        );
+        assert!(findings(&scan(clean), "python:S5344").is_empty());
+    }
+}

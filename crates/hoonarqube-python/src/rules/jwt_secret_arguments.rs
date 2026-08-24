@@ -37,3 +37,15 @@ pub(crate) fn check_jwt_secret_arguments(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6781_flags_hardcoded_jwt_secrets() {
+        let flagged = scan("jwt.encode(payload, \"secret\")\njwt.encode(payload, key_from_env)\n");
+        assert_eq!(findings(&flagged, "python:S6781").len(), 1);
+    }
+}

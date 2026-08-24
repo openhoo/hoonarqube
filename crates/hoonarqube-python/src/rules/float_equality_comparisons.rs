@@ -41,3 +41,20 @@ pub(crate) fn check_float_equality_comparisons(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s1244_flags_exact_float_equality_only() {
+        assert_eq!(
+            findings(&scan("close = 0.1 + 0.2 == 0.3\n"), "python:S1244").len(),
+            1
+        );
+        for clean in ["cmp = 0.1 < 0.2\n", "ieq = 1 == 2\n"] {
+            assert!(findings(&scan(clean), "python:S1244").is_empty(), "{clean}");
+        }
+    }
+}

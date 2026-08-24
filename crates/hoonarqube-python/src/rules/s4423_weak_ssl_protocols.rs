@@ -26,3 +26,24 @@ pub(crate) fn check_s4423_weak_ssl_protocols(
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s4423_flags_weak_ssl_protocol_constants() {
+        let flagged = concat!(
+            "ctx = ssl.SSLContext(ssl.PROTOCOL_SSLv3)\n",
+            "wrap(sock, ssl_version=ssl.PROTOCOL_TLSv1)\n",
+            "v = ssl.PROTOCOL_SSLv2\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S4423").len(), 3);
+        let clean = concat!(
+            "ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)\n",
+            "v2 = ssl.PROTOCOL_TLSv1_2\n"
+        );
+        assert!(findings(&scan(clean), "python:S4423").is_empty());
+    }
+}

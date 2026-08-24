@@ -41,3 +41,16 @@ pub(crate) fn check_disclosed_secret_keys(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6779_flags_disclosed_secret_keys() {
+        let flagged =
+            scan("SECRET_KEY = \"hunter2\"\napp.secret_key = \"abc123\"\nDEBUG_KEY = 42\n");
+        assert_eq!(findings(&flagged, "python:S6779").len(), 2);
+    }
+}

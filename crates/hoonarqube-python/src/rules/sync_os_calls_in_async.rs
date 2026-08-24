@@ -23,3 +23,15 @@ pub(crate) fn check_sync_os_calls_in_async(
     );
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s7489_flags_sync_os_calls_in_async_functions() {
+        let flagged = scan("async def sh():\n    os.system(\"ls\")\n    await asyncio.sleep(1)\n");
+        assert_eq!(findings(&flagged, "python:S7489").len(), 1);
+    }
+}

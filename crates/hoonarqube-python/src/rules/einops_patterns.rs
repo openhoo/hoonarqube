@@ -43,3 +43,19 @@ pub(crate) fn check_einops_patterns(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6984_validates_einops_patterns() {
+        let flagged = scan(concat!(
+            "rearrange(img, \"b h w -> b w h\")\n",
+            "rearrange(img, \"b h -> b w h\")\n",
+            "rearrange(img, \"b (h h2 w -> b h w\")\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6984").len(), 2);
+    }
+}

@@ -40,3 +40,20 @@ pub(crate) fn check_s2257_custom_cryptography(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s2257_flags_hand_rolled_cipher_functions() {
+        let flagged = concat!(
+            "def xor_encrypt(data, key):\n",
+            "    return bytes(b ^ key[i % len(key)] for i, b in enumerate(data))\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S2257").len(), 1);
+        let clean = "def hash_password(pw):\n    return sha256(pw).hexdigest()\n";
+        assert!(findings(&scan(clean), "python:S2257").is_empty());
+    }
+}

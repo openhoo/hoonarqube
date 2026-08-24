@@ -42,3 +42,17 @@ pub(crate) fn check_only_reraise_handlers(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s2737_flags_handlers_that_only_reraise() {
+        let flagged = scan("try:\n    risky()\nexcept ValueError:\n    raise\n");
+        assert_eq!(findings(&flagged, "python:S2737").len(), 1);
+        let clean = "try:\n    risky()\nexcept ValueError:\n    log()\n    raise\n";
+        assert!(findings(&scan(clean), "python:S2737").is_empty());
+    }
+}

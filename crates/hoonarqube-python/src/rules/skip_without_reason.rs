@@ -40,3 +40,17 @@ pub(crate) fn check_skip_without_reason(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s1607_requires_reasons_for_skips() {
+        let flagged = scan(
+            "@unittest.skip()\ndef t1():\n    pass\n@unittest.skip(\"flaky\")\ndef t2():\n    pass\n",
+        );
+        assert_eq!(findings(&flagged, "python:S1607").len(), 1);
+    }
+}

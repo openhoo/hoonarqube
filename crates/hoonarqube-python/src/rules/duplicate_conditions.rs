@@ -41,3 +41,19 @@ pub(crate) fn check_duplicate_conditions(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s1862_flags_duplicate_conditions_in_chain() {
+        let flagged = scan("if a == 1:\n    f()\nelif a == 1:\n    g()\n");
+        let found = findings(&flagged, "python:S1862");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
+        let clean = "if a == 1:\n    f()\nelif a == 2:\n    g()\n";
+        assert!(findings(&scan(clean), "python:S1862").is_empty());
+    }
+}

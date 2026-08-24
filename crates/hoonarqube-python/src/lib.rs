@@ -210,4 +210,7 @@ pub(crate) mod rules;
 pub(crate) mod support;
 
 #[cfg(test)]
+mod test_support;
+
+#[cfg(test)]
 mod tests;

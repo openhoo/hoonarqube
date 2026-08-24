@@ -37,3 +37,15 @@ pub(crate) fn check_duplicate_call_arguments(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5549_flags_repeated_nontrivial_arguments() {
+        let flagged = scan("f(a, a)\nf(None, None)\ng(1, 1)\nh(a, b)\n");
+        assert_eq!(findings(&flagged, "python:S5549").len(), 1);
+    }
+}

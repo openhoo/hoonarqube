@@ -42,3 +42,17 @@ pub(crate) fn check_boolean_except_clauses(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5714_flags_boolean_except_specifications() {
+        let flagged = scan("try:\n    run()\nexcept (A or B):\n    stop()\n");
+        assert_eq!(findings(&flagged, "python:S5714").len(), 1);
+        let clean = "try:\n    run()\nexcept (A, B):\n    stop()\n";
+        assert!(findings(&scan(clean), "python:S5714").is_empty());
+    }
+}

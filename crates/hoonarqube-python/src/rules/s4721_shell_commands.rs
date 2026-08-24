@@ -45,3 +45,30 @@ pub(crate) fn check_s4721_shell_commands(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s4721_flags_shell_interpreter_usage() {
+        let flagged = concat!(
+            "subprocess.run(cmd, shell=True)\n",
+            "os.system(cmd)\n",
+            "os.popen(cmd)\n",
+            "subprocess.Popen(cmd, shell=True)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S4721").len(), 4);
+        assert!(
+            findings(
+                &scan(concat!(
+                    "subprocess.run([\"ls\"], shell=False)\n",
+                    "os.getcwd()\n"
+                )),
+                "python:S4721"
+            )
+            .is_empty()
+        );
+    }
+}

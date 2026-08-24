@@ -46,3 +46,29 @@ pub(crate) fn check_named_group_references(
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::regex_finds;
+
+    #[test]
+    fn s5860_flags_unknown_named_group_references() {
+        let flagged = concat!(
+            "import re\n",
+            "pattern = re.compile(r'(?P<a>.)')\n",
+            "matches = pattern.match(s)\n",
+            "g = matches.group('b')\n"
+        );
+        assert!(regex_finds(flagged, "python:S5860"));
+        let compliant = concat!(
+            "import re\n",
+            "pattern = re.compile(r'(?P<a>.)')\n",
+            "matches = pattern.match(s)\n",
+            "g = matches.group('a')\n"
+        );
+        assert!(!regex_finds(compliant, "python:S5860"));
+        // Without any named groups in the file there is no signal.
+        assert!(!regex_finds("matches.group('anything')\n", "python:S5860"));
+    }
+}

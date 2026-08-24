@@ -31,3 +31,26 @@ pub(crate) fn check_rx_lazy_quantifiers(seq: &RxSeq, push: &mut dyn FnMut(&str, 
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::regex_finds;
+
+    #[test]
+    fn s6019_flags_lazy_quantifiers_before_empty_matches() {
+        assert!(regex_finds(
+            "import re\nre.match(r'^\\d*?$', s)\n",
+            "python:S6019"
+        ));
+        assert!(regex_finds(
+            "import re\nre.sub(r'start\\w*?(end)?', 'x', s)\n",
+            "python:S6019"
+        ));
+        // The sanctioned lazy-terminator idiom is exempt.
+        assert!(!regex_finds(
+            "import re\nre.sub(r'start\\w*?(end|$)', 'x', s)\n",
+            "python:S6019"
+        ));
+    }
+}

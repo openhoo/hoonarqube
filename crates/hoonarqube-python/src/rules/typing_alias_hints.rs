@@ -43,3 +43,16 @@ pub(crate) fn check_typing_alias_hints(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6545_prefers_builtin_generics_over_typing_aliases() {
+        let flagged =
+            scan("def f() -> List[int]:\n    return []\ndef g() -> list[int]:\n    return []\n");
+        assert_eq!(findings(&flagged, "python:S6545").len(), 1);
+    }
+}

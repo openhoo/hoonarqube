@@ -30,3 +30,18 @@ pub(crate) fn check_wildcard_imports(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s2208_flags_wildcard_imports() {
+        assert_eq!(
+            findings(&scan("from m import *\n"), "python:S2208").len(),
+            1
+        );
+        assert!(findings(&scan("from m import thing\n"), "python:S2208").is_empty());
+    }
+}

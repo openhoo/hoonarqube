@@ -29,3 +29,24 @@ pub(crate) fn check_s6270_public_resource_policy(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6270_flags_wildcard_principal_policies() {
+        let flagged = concat!(
+            "policy = {\"Statement\": [{\"Effect\": \"Allow\", \"Principal\": \"*\",\n",
+            "    \"Action\": \"s3:GetObject\"}]}\n",
+            "policy2 = {\"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"AWS\": \"*\"}}]}\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S6270").len(), 2);
+        assert!(findings(
+                &scan("policy = {\"Statement\": [{\"Principal\": {\"AWS\": \"arn:aws:iam::123:root\"}}]}\n"),
+                "python:S6270"
+            )
+            .is_empty());
+    }
+}

@@ -38,3 +38,22 @@ pub(crate) fn check_modelform_meta_fields(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6559_requires_meta_field_declarations() {
+        let flagged = scan(concat!(
+            "class FormF(forms.ModelForm):\n",
+            "    class Meta:\n",
+            "        model = M\n",
+            "class Good(forms.ModelForm):\n",
+            "    class Meta:\n",
+            "        fields = [\"a\"]\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S6559").len(), 1);
+    }
+}

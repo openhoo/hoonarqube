@@ -40,3 +40,20 @@ pub(crate) fn check_unreachable_code(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s1763_flags_statements_after_terminator() {
+        let flagged = scan("def f():\n    return 1\n    print(x)\n    y()\n");
+        let found = findings(&flagged, "python:S1763");
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].range.start.line, 3);
+        assert_eq!(found[1].range.start.line, 4);
+        let clean = "def f():\n    if a:\n        return 1\n    return 2\n";
+        assert!(findings(&scan(clean), "python:S1763").is_empty());
+    }
+}

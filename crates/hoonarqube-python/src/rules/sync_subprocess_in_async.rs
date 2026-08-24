@@ -26,3 +26,19 @@ pub(crate) fn check_sync_subprocess_in_async(
     );
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s7487_flags_sync_subprocess_in_async_functions() {
+        let flagged = scan(concat!(
+            "async def run_cmd():\n",
+            "    subprocess.run([\"ls\"])\n",
+            "    await asyncio.sleep(1)\n"
+        ));
+        assert_eq!(findings(&flagged, "python:S7487").len(), 1);
+    }
+}

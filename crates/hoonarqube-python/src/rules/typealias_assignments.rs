@@ -32,3 +32,15 @@ pub(crate) fn check_typealias_assignments(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6794_prefers_type_statement_aliases() {
+        let flagged = scan("X: TypeAlias = int\nY = int\n");
+        assert_eq!(findings(&flagged, "python:S6794").len(), 1);
+    }
+}

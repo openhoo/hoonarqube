@@ -43,3 +43,23 @@ pub(crate) fn check_s2053_static_salt(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s2053_flags_short_static_salts() {
+        let flagged = concat!(
+            "hashlib.pbkdf2_hmac(\"sha256\", pw, b\"salt\", 100000)\n",
+            "hashlib.scrypt(pw, salt=b\"staticsalt\")\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S2053").len(), 2);
+        let clean = concat!(
+            "hashlib.pbkdf2_hmac(\"sha256\", pw, os.urandom(16), 100000)\n",
+            "hashlib.pbkdf2_hmac(\"sha256\", pw, b\"a-32-byte-salt-of-random-data!!\", 100000)\n"
+        );
+        assert!(findings(&scan(clean), "python:S2053").is_empty());
+    }
+}

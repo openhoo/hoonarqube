@@ -44,3 +44,20 @@ pub(crate) fn check_s4830_certificate_verification(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s4830_flags_disabled_certificate_verification() {
+        let flagged = concat!(
+            "requests.get(url, verify=False)\n",
+            "ctx = ssl._create_unverified_context()\n",
+            "ctx.verify_mode = ssl.CERT_NONE\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S4830").len(), 3);
+        assert!(findings(&scan("requests.get(url)\n"), "python:S4830").is_empty());
+    }
+}

@@ -39,3 +39,25 @@ pub(crate) fn check_meaningless_size_comparisons(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s3981_len_zero_comparison_table() {
+        for source in [
+            "if len(xs) >= 0:\n    show()\n",
+            "if 0 <= len(xs):\n    show()\n",
+        ] {
+            assert_eq!(findings(&scan(source), "python:S3981").len(), 1, "{source}");
+        }
+        for clean in [
+            "if len(xs) == 0:\n    show()\n",
+            "if len(xs) < 5:\n    show()\n",
+        ] {
+            assert!(findings(&scan(clean), "python:S3981").is_empty(), "{clean}");
+        }
+    }
+}

@@ -26,3 +26,37 @@ pub(crate) fn check_module_name(
         },
     }]
 }
+
+#[cfg(test)]
+mod tests {
+
+    use std::path::PathBuf;
+
+    use crate::{AnalyzerOptions, analyze};
+
+    #[test]
+    fn module_names_must_follow_convention() {
+        let flagged = analyze(
+            PathBuf::from("my-mod.py"),
+            "x = 1\n",
+            &AnalyzerOptions::default(),
+        );
+        assert_eq!(
+            flagged
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "python:S1578")
+                .count(),
+            1
+        );
+        for name in ["good_mod.py", "GoodMod.py", "__init__.py"] {
+            assert!(
+                analyze(PathBuf::from(name), "x = 1\n", &AnalyzerOptions::default())
+                    .issues
+                    .iter()
+                    .all(|issue| issue.rule_key != "python:S1578"),
+                "name: {name}"
+            );
+        }
+    }
+}

@@ -30,3 +30,22 @@ pub(crate) fn check_async_without_awaits(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s7503_flags_async_functions_without_awaits() {
+        let flagged = scan(concat!(
+            "async def noop():\n",
+            "    return 1\n",
+            "async def real():\n",
+            "    await asyncio.sleep(1)\n"
+        ));
+        let found = findings(&flagged, "python:S7503");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 1);
+    }
+}

@@ -42,3 +42,15 @@ pub(crate) fn check_estimator_hyperparameters(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6973_flags_estimators_missing_required_hyperparameters() {
+        let flagged = scan("KMeans(3)\nKMeans(n_clusters=3)\nPCA(4)\nSGDClassifier(max_iter=5)\n");
+        assert_eq!(findings(&flagged, "python:S6973").len(), 3);
+    }
+}

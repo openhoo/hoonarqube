@@ -44,3 +44,46 @@ pub(crate) fn check_rx_style_shapes(
         check_rx_class(class, push);
     });
 }
+
+#[cfg(test)]
+mod tests {
+
+    use std::path::PathBuf;
+
+    use crate::test_support::regex_finds;
+    use crate::{AnalyzerOptions, analyze};
+
+    #[test]
+    fn s5857_flags_reluctant_wildcard_quantifiers() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'<.+?>')\n",
+            "python:S5857"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'<[^>]*>')\n",
+            "python:S5857"
+        ));
+    }
+
+    #[test]
+    fn s5843_enforces_the_complexity_budget() {
+        let complex = "import re\nre.compile(r'(a|b|c|d|e|f|g|h|i|j)+(k|l|m|n|o|p|q|r|s|t)+(u|v|x|y|z|A|B|C|D|E)+')\n";
+        assert!(regex_finds(complex, "python:S5843"));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'\\d{4}-\\d{2}')\n",
+            "python:S5843"
+        ));
+        // Raising the budget silences the finding.
+        let options = AnalyzerOptions {
+            regex_maximum_complexity: 500,
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze(PathBuf::from("t.py"), complex, &options);
+        assert!(
+            report
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "python:S5843")
+        );
+    }
+}

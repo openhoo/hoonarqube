@@ -35,3 +35,19 @@ pub(crate) fn check_loop_else_without_break(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s2836_flags_loop_else_without_break() {
+        let flagged = scan("while x:\n    drain()\nelse:\n    close()\n");
+        let found = findings(&flagged, "python:S2836");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 4);
+        let clean = "while x:\n    if done(x):\n        break\nelse:\n    close()\n";
+        assert!(findings(&scan(clean), "python:S2836").is_empty());
+    }
+}

@@ -77,3 +77,24 @@ pub(crate) fn check_s5122_cors_wildcard(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5122_flags_wildcard_cors_origins() {
+        let flagged = concat!(
+            "CORS(app, origins=\"*\")\n",
+            "headers = {\"Access-Control-Allow-Origin\": \"*\"}\n",
+            "resp.headers[\"Access-Control-Allow-Origin\"] = \"*\"\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S5122").len(), 3);
+        let clean = concat!(
+            "CORS(app, origins=\"https://example.com\")\n",
+            "headers = {\"Access-Control-Allow-Origin\": \"https://example.com\"}\n"
+        );
+        assert!(findings(&scan(clean), "python:S5122").is_empty());
+    }
+}

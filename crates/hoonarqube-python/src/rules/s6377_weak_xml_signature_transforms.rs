@@ -36,3 +36,23 @@ pub(crate) fn check_s6377_weak_xml_signature_transforms(
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6377_flags_weak_xml_signature_digests() {
+        let flagged = concat!(
+            "t = xmlsec.constants.TransformMd5\n",
+            "uri = \"http://www.w3.org/2001/04/xmldsig-more#md5\"\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S6377").len(), 2);
+        let clean = concat!(
+            "t2 = xmlsec.constants.TransformSha256\n",
+            "uri2 = \"http://www.w3.org/2001/04/xmlenc#sha256\"\n"
+        );
+        assert!(findings(&scan(clean), "python:S6377").is_empty());
+    }
+}

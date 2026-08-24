@@ -40,3 +40,18 @@ pub(crate) fn check_notimplemented_raises(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5712_prefers_returning_notimplemented() {
+        let flagged =
+            scan("class P:\n    def __eq__(self, other):\n        raise NotImplementedError\n");
+        assert_eq!(findings(&flagged, "python:S5712").len(), 1);
+        let clean = "class P:\n    def __eq__(self, other):\n        return NotImplemented\n";
+        assert!(findings(&scan(clean), "python:S5712").is_empty());
+    }
+}

@@ -31,3 +31,23 @@ pub(crate) fn check_exception_inheritance(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5709_requires_exception_base_for_exception_named_classes() {
+        assert_eq!(
+            findings(&scan("class AppError:\n    pass\n"), "python:S5709").len(),
+            1
+        );
+        for clean in [
+            "class AppError(Exception):\n    pass\n",
+            "class Plain:\n    pass\n",
+        ] {
+            assert!(findings(&scan(clean), "python:S5709").is_empty(), "{clean}");
+        }
+    }
+}

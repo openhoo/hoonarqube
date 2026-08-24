@@ -33,3 +33,20 @@ pub(crate) fn check_s5300_sending_emails(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5300_flags_email_sending_apis() {
+        let flagged = concat!(
+            "client = smtplib.SMTP(host)\n",
+            "client.sendmail(sender, to, msg)\n",
+            "server.send_message(msg)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S5300").len(), 3);
+        assert!(findings(&scan("sock.sendall(b\"x\")\n"), "python:S5300").is_empty());
+    }
+}

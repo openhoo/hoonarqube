@@ -35,3 +35,17 @@ pub(crate) fn check_typing_union_hints(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6546_prefers_pep604_unions() {
+        let flagged = scan(
+            "def f(x: Union[int, str]) -> int:\n    return 1\ndef g(x: int | str) -> int:\n    return 1\n",
+        );
+        assert_eq!(findings(&flagged, "python:S6546").len(), 1);
+    }
+}

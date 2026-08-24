@@ -32,3 +32,15 @@ pub(crate) fn check_any_all_list_comprehension(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s7492_prefers_generator_expressions_for_any_all() {
+        let flagged = scan("any([x for x in xs])\nany(x for x in xs)\n");
+        assert_eq!(findings(&flagged, "python:S7492").len(), 1);
+    }
+}

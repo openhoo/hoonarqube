@@ -56,3 +56,19 @@ pub(crate) fn check_closure_captures_loop_variable(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s1515_flags_closures_capturing_loop_variables() {
+        let flagged = scan("callbacks = []\nfor i in range(3):\n    callbacks.append(lambda: i)\n");
+        let found = findings(&flagged, "python:S1515");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
+        let clean = "callbacks = []\nfor i in range(3):\n    callbacks.append(lambda v: v)\n";
+        assert!(findings(&scan(clean), "python:S1515").is_empty());
+    }
+}
