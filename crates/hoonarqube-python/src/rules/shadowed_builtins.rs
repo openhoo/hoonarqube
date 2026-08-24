@@ -1,3 +1,4 @@
+use crate::engine::scope::ScopeKind;
 use crate::engine::scope::SymbolTable;
 use crate::support::is_builtin_name;
 use crate::support::issue_at;
@@ -13,6 +14,11 @@ pub(crate) fn check_shadowed_builtins(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for scope in &table.scopes {
+        // CE flags builtin shadowing by function-local bindings only; module-
+        // and class-level rebinding stays out of the rule's scope.
+        if !matches!(scope.kind, ScopeKind::Function) {
+            continue;
+        }
         for (name, bindings) in &scope.bindings {
             if !is_builtin_name(name) {
                 continue;

@@ -1,5 +1,6 @@
 use crate::support::called_name;
 use crate::support::for_each_call;
+use crate::support::has_boto3_binding;
 use crate::support::has_keyword;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
@@ -16,6 +17,11 @@ pub(crate) fn check_s6308_opensearch_encryption(
     source: &str,
 ) -> Vec<Issue> {
     const DOMAIN_CREATORS: [&str; 2] = ["create_domain", "create_elasticsearch_domain"];
+    // CE only evaluates boto3 client calls it can resolve to a real binding;
+    // stub objects stay silent.
+    if !has_boto3_binding(parsed.syntax().body.as_slice()) {
+        return Vec::new();
+    }
     let mut issues = Vec::new();
     for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
         if DOMAIN_CREATORS.contains(&called_name(&call.func).unwrap_or_default())

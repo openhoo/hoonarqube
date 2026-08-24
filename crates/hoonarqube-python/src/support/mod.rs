@@ -1737,27 +1737,45 @@ pub(crate) fn for_each_call(
     });
 }
 
-pub(crate) fn is_standalone_string_stmt(stmt: &Stmt) -> bool {
-    matches!(stmt, Stmt::Expr(expr) if matches!(expr.value.as_ref(), Expr::StringLiteral(_)))
+/// Whether the module shows evidence of an actual boto3 client/resource
+/// binding: a `boto3.client`/`boto3.resource` call, a `boto3.Session`
+/// construction, or `.client(`/`.resource(` reached through a `boto3` or
+/// session object. The AWS/cdk-family checks only evaluate calls on
+/// resolvable boto3 clients, so they stay silent without such a binding
+/// (stub objects like `client = object()` never qualify).
+pub(crate) fn has_boto3_binding(module_body: &[Stmt]) -> bool {
+    let mut found = false;
+    for_each_call(module_body, &mut |call| {
+        if found {
+            return;
+        }
+        let Expr::Attribute(attribute) = &*call.func else {
+            return;
+        };
+        match attribute.attr.as_str() {
+            "client" | "resource" => {
+                found = expr_chain_mentions(&attribute.value, &["boto3", "session"]);
+            }
+            "Session" => found = expr_chain_mentions(&attribute.value, &["boto3"]),
+            _ => {}
+        }
+    });
+    found
 }
 
-/// Every plain string literal in the tree except module/class/function
-/// docstrings (a leading bare string statement of any suite).
-pub(crate) fn collect_literal_strings(suite: &[Stmt], out: &mut Vec<(String, TextRange)>) {
-    for (position, stmt) in suite.iter().enumerate() {
-        if !(position == 0 && is_standalone_string_stmt(stmt)) {
-            for expr in stmt_exprs(stmt) {
-                for_each_expr(expr, &mut |expr| {
-                    if let Expr::StringLiteral(literal) = expr {
-                        out.push((string_value_text(&literal.value), literal.range()));
-                    }
-                });
-            }
+/// Whether any name inside the expression tree equals one of `names`.
+fn expr_chain_mentions(expr: &Expr, names: &[&str]) -> bool {
+    let mut found = false;
+    for_each_expr(expr, &mut |child| {
+        if let Expr::Name(name) = child {
+            found |= names.contains(&name.id.as_str());
         }
-        for body in child_bodies(stmt) {
-            collect_literal_strings(body, out);
-        }
-    }
+    });
+    found
+}
+
+pub(crate) fn is_standalone_string_stmt(stmt: &Stmt) -> bool {
+    matches!(stmt, Stmt::Expr(expr) if matches!(expr.value.as_ref(), Expr::StringLiteral(_)))
 }
 
 /// Naive matcher for the `exclusionRegex` option: a plain substring when the
@@ -2254,13 +2272,12 @@ pub(crate) fn assertion_literal_kind(expr: &Expr) -> Option<u8> {
 
 pub(crate) fn unconditional_assert_verdict(
     call: &ruff_python_ast::ExprCall,
-    source: &str,
+    _source: &str,
 ) -> Option<&'static str> {
     let args = &call.arguments.args;
+    // CE flags only constant boolean literals in assertTrue/assertFalse;
+    // `assertEqual(x, x)` forms are beyond the CE engine's scope.
     match called_name(&call.func) {
-        Some(name) if COMPARISON_ASSERTS.contains(&name) && args.len() == 2 => {
-            (exprs_textually_equal(&args[0], &args[1], source)).then_some("passes")
-        }
         Some("assertTrue") if args.len() == 1 => match &args[0] {
             Expr::BooleanLiteral(literal) if literal.value => Some("passes"),
             Expr::BooleanLiteral(_) => Some("fails"),
@@ -2596,164 +2613,6 @@ pub(crate) fn module_all_exports(parsed: &Parsed<ModModule>) -> Vec<(String, Tex
 // --- python:S1751 — loops running at most once --------------------------------
 
 // --- python:S2190 — infinite recursion ---------------------------------------
-
-// --- python:S2159 — unnecessary equality checks -------------------------------
-
-pub(crate) fn literal_comparison_operand(expr: &Expr, source: &str) -> Option<String> {
-    constant_truth(expr)?;
-    match expr {
-        Expr::StringLiteral(_)
-        | Expr::NumberLiteral(_)
-        | Expr::BooleanLiteral(_)
-        | Expr::NoneLiteral(_) => Some(expr_normalized_text(expr, source)),
-        _ => None,
-    }
-}
-
-pub(crate) fn scan_known_value_expr(
-    expr: &Expr,
-    known: &HashMap<String, String>,
-    index: &LineIndex,
-    source: &str,
-    issues: &mut Vec<Issue>,
-) {
-    if let Expr::Compare(compare) = expr {
-        let mut operands: Vec<&Expr> = Vec::new();
-        operands.push(&compare.left);
-        operands.extend(compare.comparators.iter());
-        for position in 0..compare.ops.len() {
-            let op = &compare.ops[position];
-            if !matches!(
-                op,
-                ruff_python_ast::CmpOp::Eq | ruff_python_ast::CmpOp::NotEq
-            ) {
-                continue;
-            }
-            let left = operands[position];
-            let right = operands[position + 1];
-            let matched = known_value_pair(left, right, known, source)
-                .or_else(|| known_value_pair(right, left, known, source));
-            if let Some(name) = matched {
-                issues.push(issue_at(
-                    "python:S2159",
-                    &format!("This comparison always evaluates the same way; '{name}' already holds that value."),
-                    compare.range(),
-                    index,
-                    source,
-                ));
-            }
-        }
-        return;
-    }
-    for child in child_exprs(expr) {
-        scan_known_value_expr(child, known, index, source, issues);
-    }
-}
-
-pub(crate) fn known_value_pair(
-    candidate: &Expr,
-    literal: &Expr,
-    known: &HashMap<String, String>,
-    source: &str,
-) -> Option<String> {
-    let Expr::Name(name) = candidate else {
-        return None;
-    };
-    let text = literal_comparison_operand(literal, source)?;
-    if known.get(name.id.as_str()) == Some(&text) {
-        Some(name.id.as_str().to_string())
-    } else {
-        None
-    }
-}
-
-pub(crate) fn clear_known_targets(targets: &[Expr], known: &mut HashMap<String, String>) {
-    for target in targets {
-        let mut names: Vec<String> = Vec::new();
-        collect_target_names(target, &mut names);
-        for name in names {
-            known.remove(&name);
-        }
-    }
-}
-
-pub(crate) fn scan_known_value_suite(
-    suite: &[Stmt],
-    inherited: &HashMap<String, String>,
-    index: &LineIndex,
-    source: &str,
-    issues: &mut Vec<Issue>,
-) {
-    let mut known = inherited.clone();
-    for stmt in suite {
-        match stmt {
-            Stmt::Assign(assign) => {
-                for target in &assign.targets {
-                    scan_known_value_expr(target, &known, index, source, issues);
-                }
-                scan_known_value_expr(&assign.value, &known, index, source, issues);
-                if let [Expr::Name(target)] = assign.targets.as_slice() {
-                    if let Some(text) = literal_comparison_operand(&assign.value, source) {
-                        known.insert(target.id.as_str().to_string(), text);
-                    } else {
-                        known.remove(target.id.as_str());
-                    }
-                } else {
-                    clear_known_targets(&assign.targets, &mut known);
-                }
-            }
-            Stmt::If(if_stmt) => {
-                scan_known_value_expr(&if_stmt.test, &known, index, source, issues);
-                scan_known_value_suite(&if_stmt.body, &known, index, source, issues);
-                for clause in &if_stmt.elif_else_clauses {
-                    if let Some(test) = clause.test.as_ref() {
-                        scan_known_value_expr(test, &known, index, source, issues);
-                    }
-                    scan_known_value_suite(&clause.body, &known, index, source, issues);
-                }
-                known.clear();
-            }
-            Stmt::While(while_stmt) => {
-                scan_known_value_expr(&while_stmt.test, &known, index, source, issues);
-                scan_known_value_suite(&while_stmt.body, &HashMap::new(), index, source, issues);
-                known.clear();
-            }
-            Stmt::For(for_stmt) => {
-                scan_known_value_expr(&for_stmt.iter, &known, index, source, issues);
-                scan_known_value_suite(&for_stmt.body, &HashMap::new(), index, source, issues);
-                known.clear();
-            }
-            Stmt::With(with_stmt) => {
-                for item in &with_stmt.items {
-                    scan_known_value_expr(&item.context_expr, &known, index, source, issues);
-                }
-                scan_known_value_suite(&with_stmt.body, &HashMap::new(), index, source, issues);
-                known.clear();
-            }
-            Stmt::Try(try_stmt) => {
-                scan_known_value_suite(&try_stmt.body, &HashMap::new(), index, source, issues);
-                for handler in &try_stmt.handlers {
-                    let ExceptHandler::ExceptHandler(inner) = handler;
-                    scan_known_value_suite(&inner.body, &HashMap::new(), index, source, issues);
-                }
-                scan_known_value_suite(&try_stmt.orelse, &HashMap::new(), index, source, issues);
-                scan_known_value_suite(&try_stmt.finalbody, &HashMap::new(), index, source, issues);
-                known.clear();
-            }
-            Stmt::FunctionDef(function) => {
-                scan_known_value_suite(&function.body, &HashMap::new(), index, source, issues);
-            }
-            Stmt::ClassDef(class) => {
-                scan_known_value_suite(&class.body, &HashMap::new(), index, source, issues);
-            }
-            _ => {
-                for expr in stmt_exprs(stmt) {
-                    scan_known_value_expr(expr, &known, index, source, issues);
-                }
-            }
-        }
-    }
-}
 
 // --- python:S2275 / python:S3457 — printf-style formatting ---------------------
 

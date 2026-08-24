@@ -1,3 +1,5 @@
+use crate::support::called_name;
+use crate::support::for_each_call;
 use crate::support::for_each_stmt_expr;
 use crate::support::issue_at;
 use crate::support::sql_statement_shape;
@@ -16,6 +18,16 @@ pub(crate) fn check_s2077_sql_formatting(
     index: &LineIndex,
     source: &str,
 ) -> Vec<Issue> {
+    // CE stays silent unless the formatted SQL actually reaches an execution
+    // sink; formatting alone never raises.
+    const EXECUTE_SINKS: [&str; 3] = ["execute", "executemany", "executescript"];
+    let mut has_sink = false;
+    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+        has_sink |= EXECUTE_SINKS.contains(&called_name(&call.func).unwrap_or_default());
+    });
+    if !has_sink {
+        return Vec::new();
+    }
     let mut issues = Vec::new();
     let sql_shape = |text: &str| sql_statement_shape(&text.to_lowercase());
     for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| match expr {
@@ -76,17 +88,23 @@ pub(crate) fn check_s2077_sql_formatting(
 
 #[cfg(test)]
 mod tests {
-
     use crate::test_support::{findings, scan};
 
     #[test]
-    fn s2077_flags_formatted_sql_queries() {
+    fn s2077_flags_formatted_sql_reaching_execute() {
         let flagged = concat!(
+            "q = \"SELECT * FROM t WHERE id=%s\" % uid\n",
+            "q2 = \"SELECT * FROM u WHERE n='{}'\".format(name)\n",
+            "cursor.execute(q)\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S2077").len(), 2);
+        // Formatting without any execution sink stays silent (CE parity).
+        let no_sink = concat!(
             "q = \"SELECT * FROM t WHERE id=%s\" % uid\n",
             "q2 = \"SELECT * FROM u WHERE n='{}'\".format(name)\n",
             "q3 = f\"SELECT * FROM t WHERE id={uid}\"\n"
         );
-        assert_eq!(findings(&scan(flagged), "python:S2077").len(), 3);
+        assert!(findings(&scan(no_sink), "python:S2077").is_empty());
         let clean = concat!(
             "cursor.execute(\"SELECT * FROM t\")\n",
             "msg = \"hi %s\" % name\n"

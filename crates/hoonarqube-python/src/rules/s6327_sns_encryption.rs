@@ -1,5 +1,6 @@
 use crate::support::called_name;
 use crate::support::for_each_call;
+use crate::support::has_boto3_binding;
 use crate::support::has_keyword;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
@@ -15,6 +16,11 @@ pub(crate) fn check_s6327_sns_encryption(
     index: &LineIndex,
     source: &str,
 ) -> Vec<Issue> {
+    // CE only evaluates boto3 client calls it can resolve to a real binding;
+    // stub objects stay silent.
+    if !has_boto3_binding(parsed.syntax().body.as_slice()) {
+        return Vec::new();
+    }
     let mut issues = Vec::new();
     for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
         if called_name(&call.func) == Some("create_topic")

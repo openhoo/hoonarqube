@@ -1,5 +1,6 @@
 use crate::support::called_name;
 use crate::support::for_each_call;
+use crate::support::has_boto3_binding;
 use crate::support::has_keyword;
 use crate::support::is_false_literal;
 use crate::support::issue_at;
@@ -18,6 +19,11 @@ pub(crate) fn check_s6303_rds_encryption(
     source: &str,
 ) -> Vec<Issue> {
     const RDS_CREATORS: [&str; 2] = ["create_db_instance", "create_db_cluster"];
+    // CE only evaluates boto3 client calls it can resolve to a real binding;
+    // stub objects stay silent.
+    if !has_boto3_binding(parsed.syntax().body.as_slice()) {
+        return Vec::new();
+    }
     let mut issues = Vec::new();
     for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
         let unencrypted = RDS_CREATORS.contains(&called_name(&call.func).unwrap_or_default())

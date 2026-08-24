@@ -802,8 +802,6 @@ pub(crate) mod boolean_except_clauses;
 
 pub(crate) mod boundary_slice_comparisons;
 
-pub(crate) mod call_usage;
-
 pub(crate) mod cancellation_scope_checkpoints;
 
 pub(crate) mod collapsible_ifs;

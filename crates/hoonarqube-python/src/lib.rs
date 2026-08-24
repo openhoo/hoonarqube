@@ -16,7 +16,6 @@ use crate::engine::rx::decode_string_part;
 #[cfg(test)]
 use crate::engine::rx::parse_regex;
 use crate::rules::assign_plus_minus::check_assign_plus_minus;
-use crate::rules::call_usage::check_call_usage;
 use crate::rules::check_naming_convention_battery;
 use crate::rules::check_regex_battery;
 use crate::rules::check_size_metric_battery;
@@ -166,22 +165,6 @@ pub fn analyze(
     issues.extend(check_invalid_string_escapes(&parsed, &index, source));
     issues.extend(check_keyword_parentheses(&parsed, &index, source));
     issues.extend(check_mixed_string_concatenation(&parsed, &index, source));
-    issues.extend(check_call_usage(
-        &parsed,
-        &index,
-        source,
-        "exec",
-        "python:ExecStatementUsage",
-        "Remove this usage of 'exec'.",
-    ));
-    issues.extend(check_call_usage(
-        &parsed,
-        &index,
-        source,
-        "print",
-        "python:PrintStatementUsage",
-        "Remove this usage of 'print'.",
-    ));
     issues.extend(check_one_statement_per_line(&parsed, &index, source));
     issues.extend(check_tier_a_battery(&parsed, &index, source));
     issues.extend(check_tier_a_battery_2(&parsed, &index, source, options));

@@ -48,21 +48,13 @@ fn one_statement_per_line_flags_only_second_onwards() {
 }
 
 #[test]
-fn exec_and_print_calls_are_flagged_but_not_attributes() {
-    let source = "exec(\"x\")\nprint(\"y\")\nmy_print(\"z\")\nmy_exec(\"w\")\n";
-    let report = analyze(
-        PathBuf::from("test.py"),
-        source,
-        &AnalyzerOptions::default(),
-    );
-    assert_eq!(
-        report
-            .issues
-            .iter()
-            .map(|issue| issue.rule_key.as_str())
-            .collect::<Vec<_>>(),
-        vec!["python:ExecStatementUsage", "python:PrintStatementUsage"]
-    );
+fn exec_and_print_calls_are_py3_calls_and_not_flagged() {
+    // CE matches only py2 statement forms; under py3 parsing `exec(...)` and
+    // `print(...)` are plain builtin calls and stay out of scope. Attribute
+    // access is untouched either way.
+    let source = "exec(\"x = 1\")\nprint(\"hi\")\nobj.exec(1)\nsys.print(2)\n";
+    assert!(findings(&scan(source), "python:ExecStatementUsage").is_empty());
+    assert!(findings(&scan(source), "python:PrintStatementUsage").is_empty());
 }
 
 #[test]
@@ -86,16 +78,16 @@ fn metrics_count_code_comment_and_blank_lines() {
 fn issue_positions_are_one_based_line_zero_based_column() {
     let report = analyze(
         PathBuf::from("test.py"),
-        "if x:\n  exec(y)\n",
+        "if x:\n  y = 1; z = 2\n",
         &AnalyzerOptions::default(),
     );
-    let exec_issues: Vec<_> = report
+    let split_issues: Vec<_> = report
         .issues
         .iter()
-        .filter(|issue| issue.rule_key == "python:ExecStatementUsage")
+        .filter(|issue| issue.rule_key == "python:OneStatementPerLine")
         .collect();
-    assert_eq!(exec_issues.len(), 1);
-    assert_eq!(exec_issues[0].range.start, pos(2, 2));
+    assert_eq!(split_issues.len(), 1);
+    assert_eq!(split_issues[0].range.start, pos(2, 9));
 }
 
 #[test]
@@ -130,22 +122,10 @@ fn integration_assembles_full_report_sorted() {
                     (3, 9),
                 ),
                 issue(
-                    "python:PrintStatementUsage",
-                    "Remove this usage of 'print'.",
-                    (5, 4),
-                    (5, 9),
-                ),
-                issue(
                     "python:OneStatementPerLine",
                     "Only one statement per line is allowed.",
                     (6, 11),
                     (6, 16),
-                ),
-                issue(
-                    "python:ExecStatementUsage",
-                    "Remove this usage of 'exec'.",
-                    (8, 8),
-                    (8, 12),
                 ),
                 issue(
                     "python:NoSonar",
@@ -406,10 +386,20 @@ fn s7512_flags_items_pairs_when_only_keys_used() {
 }
 
 #[test]
-fn s1192_flags_duplicated_literals_only_past_threshold() {
-    let flagged = scan("a = \"dup\"\nb = \"dup\"\nc = \"dup\"\n");
+fn s1192_flags_duplicated_literals_per_function_scope() {
+    // CE counts occurrences within one function; three module-level copies stay silent.
+    assert!(
+        findings(
+            &scan("a = \"dup\"\nb = \"dup\"\nc = \"dup\"\n"),
+            "python:S1192"
+        )
+        .is_empty()
+    );
+    let flagged = scan("def run():\n    x = \"dup\" + \"dup\"\n    return \"dup\"\n\n\nrun()\n");
     assert_eq!(findings(&flagged, "python:S1192").len(), 2);
-    assert!(findings(&scan("a = \"dup\"\nb = \"dup\"\n"), "python:S1192").is_empty());
+    // Occurrences in separate functions never accumulate across scopes.
+    let split = scan("def a():\n    return \"dup\"\n\ndef b():\n    return \"dup\"\n");
+    assert!(findings(&split, "python:S1192").is_empty());
 }
 
 #[test]
@@ -420,7 +410,7 @@ fn s1192_exclusion_regex_suppresses_matches() {
     };
     let report = analyze(
         PathBuf::from("t.py"),
-        "a = \"dup\"\nb = \"dup\"\nc = \"dup\"\n",
+        "def run():\n    x = \"dup\" + \"dup\"\n    return \"dup\"\n\n\nrun()\n",
         &options,
     );
     assert!(findings(&report, "python:S1192").is_empty());
@@ -757,10 +747,12 @@ fn s5603_flags_unused_nested_definitions() {
 }
 
 #[test]
-fn s5806_flags_bindings_shadowing_builtins() {
+fn s5806_flags_function_local_builtin_shadowing_only() {
     let flagged =
         scan("def process(items):\n    len = len(items)\n    return len\n\n\nprocess([1])\n");
     assert_eq!(findings(&flagged, "python:S5806").len(), 1);
+    // CE scopes the rule to function locals; module-level rebinding stays silent.
+    assert!(findings(&scan("id = 42\n"), "python:S5806").is_empty());
     let renamed =
         scan("def process(items):\n    length = len(items)\n    return length\n\n\nprocess([1])\n");
     assert!(findings(&renamed, "python:S5806").is_empty());
@@ -906,15 +898,16 @@ fn s1854_flags_dead_final_stores() {
 }
 
 #[test]
-fn s2159_flags_comparisons_with_known_values() {
+fn s2159_flags_only_self_comparisons() {
     let flagged = scan(
-        "def decide(flag):\n    expected = True\n    if expected == True:\n        return 1\n    return 0\n\n\ndecide(True)\n",
+        "def decide(flag):\n    if flag == flag:\n        return 1\n    return 0\n\n\ndecide(True)\n",
     );
     assert_eq!(findings(&flagged, "python:S2159").len(), 1);
-    let unknown = scan(
-        "def decide(flag):\n    expected = compute_flag()\n    if expected == True:\n        return 1\n    return 0\n\n\ndecide(True)\n",
+    // Constant-folding through known initializers exceeds the CE engine's scope.
+    let known_initializer = scan(
+        "def decide(flag):\n    expected = True\n    if expected == True:\n        return 1\n    return 0\n\n\ndecide(True)\n",
     );
-    assert!(findings(&unknown, "python:S2159").is_empty());
+    assert!(findings(&known_initializer, "python:S2159").is_empty());
 }
 
 #[test]
@@ -1507,13 +1500,18 @@ fn s3330_requires_httponly_cookie_flag() {
 #[test]
 fn s6281_requires_full_s3_public_access_block() {
     let flagged = concat!(
+        "client = boto3.client(\"s3\")\n",
         "s3.put_public_access_block(\n",
         "    Bucket=\"b\",\n",
         "    PublicAccessBlockConfiguration={\"BlockPublicAcls\": True},\n",
         ")\n"
     );
     assert_eq!(findings(&scan(flagged), "python:S6281").len(), 1);
+    // Stub-only files carry no resolvable boto3 client and stay silent (CE parity).
+    let stub_only = "s3.put_public_access_block(\n    Bucket=\"b\",\n    PublicAccessBlockConfiguration={\"BlockPublicAcls\": True},\n)\n";
+    assert!(findings(&scan(stub_only), "python:S6281").is_empty());
     let clean = concat!(
+        "client = boto3.client(\"s3\")\n",
         "s3.put_public_access_block(\n",
         "    Bucket=\"b\",\n",
         "    PublicAccessBlockConfiguration={\n",
@@ -1526,15 +1524,46 @@ fn s6281_requires_full_s3_public_access_block() {
 }
 
 #[test]
+fn s6302_flags_wildcard_action_policies() {
+    let flagged = concat!(
+        "client = boto3.resource(\"iam\")\n",
+        "p1 = {\"Action\": \"*\"}\n",
+        "p2 = {\"Action\": [\"s3:*\", \"ec2:RunInstances\"]}\n"
+    );
+    assert_eq!(findings(&scan(flagged), "python:S6302").len(), 1);
+    let stub_only = concat!(
+        "p1 = {\"Action\": \"*\"}\n",
+        "p2 = {\"Action\": [\"s3:*\", \"ec2:RunInstances\"]}\n"
+    );
+    assert!(findings(&scan(stub_only), "python:S6302").is_empty());
+    assert!(
+        findings(
+            &scan(concat!(
+                "client = boto3.resource(\"iam\")\n",
+                "p3 = {\"Action\": [\"s3:GetObject\"]}\n"
+            )),
+            "python:S6302"
+        )
+        .is_empty()
+    );
+}
+
+#[test]
 fn s6304_flags_all_resources_policies() {
     let flagged = concat!(
+        "client = boto3.client(\"s3\")\n",
         "p1 = {\"Effect\": \"Allow\", \"Resource\": \"*\"}\n",
         "p2 = {\"Effect\": \"Allow\", \"Resource\": [\"*\"]}\n"
     );
     assert_eq!(findings(&scan(flagged), "python:S6304").len(), 2);
+    let stub_only = "p1 = {\"Effect\": \"Allow\", \"Resource\": \"*\"}\np2 = {\"Effect\": \"Allow\", \"Resource\": [\"*\"]}\n";
+    assert!(findings(&scan(stub_only), "python:S6304").is_empty());
     assert!(
         findings(
-            &scan("p3 = {\"Effect\": \"Allow\", \"Resource\": \"arn:aws:s3:::bucket/*\"}\n"),
+            &scan(concat!(
+                "client = boto3.client(\"s3\")\n",
+                "p3 = {\"Effect\": \"Allow\", \"Resource\": \"arn:aws:s3:::bucket/*\"}\n"
+            )),
             "python:S6304"
         )
         .is_empty()
@@ -1544,13 +1573,22 @@ fn s6304_flags_all_resources_policies() {
 #[test]
 fn s6303_requires_rds_storage_encryption() {
     let flagged = concat!(
+        "rds = boto3.client(\"rds\")\n",
         "rds.create_db_instance(DBInstanceIdentifier=\"db\")\n",
         "rds.create_db_cluster(DBClusterIdentifier=\"c\", StorageEncrypted=False)\n"
     );
     assert_eq!(findings(&scan(flagged), "python:S6303").len(), 2);
+    let stub_only = concat!(
+        "rds.create_db_instance(DBInstanceIdentifier=\"db\")\n",
+        "rds.create_db_cluster(DBClusterIdentifier=\"c\", StorageEncrypted=False)\n"
+    );
+    assert!(findings(&scan(stub_only), "python:S6303").is_empty());
     assert!(
         findings(
-            &scan("rds.create_db_instance(DBInstanceIdentifier=\"db\", StorageEncrypted=True)\n"),
+            &scan(concat!(
+                "rds = boto3.client(\"rds\")\n",
+                "rds.create_db_instance(DBInstanceIdentifier=\"db\", StorageEncrypted=True)\n"
+            )),
             "python:S6303"
         )
         .is_empty()
@@ -1560,24 +1598,43 @@ fn s6303_requires_rds_storage_encryption() {
 #[test]
 fn s6308_requires_opensearch_encryption_options() {
     let flagged = concat!(
-        "client.create_domain(DomainName=\"d\")\n",
+        "es = boto3.client(\"es\")\n",
+        "es.create_domain(DomainName=\"d\")\n",
         "es.create_elasticsearch_domain(DomainName=\"e\")\n"
     );
     assert_eq!(findings(&scan(flagged), "python:S6308").len(), 2);
-    assert!(findings(
-            &scan("client.create_domain(DomainName=\"d\", EncryptionAtRestOptions={\"Enabled\": True})\n"),
+    let stub_only = concat!(
+        "client.create_domain(DomainName=\"d\")\n",
+        "es.create_elasticsearch_domain(DomainName=\"e\")\n"
+    );
+    assert!(findings(&scan(stub_only), "python:S6308").is_empty());
+    assert!(
+        findings(
+            &scan(concat!(
+                "es = boto3.client(\"es\")\n",
+                "es.create_domain(DomainName=\"d\", EncryptionAtRestOptions={\"Enabled\": True})\n"
+            )),
             "python:S6308"
         )
-        .is_empty());
+        .is_empty()
+    );
 }
 
 #[test]
 fn s6317_flags_wildcard_scoped_actions() {
-    let flagged = "p = {\"Action\": [\"s3:*\", \"ec2:DescribeInstances\"]}\n";
+    let flagged = concat!(
+        "client = boto3.client(\"s3\")\n",
+        "p = {\"Action\": [\"s3:*\", \"ec2:DescribeInstances\"]}\n"
+    );
     assert_eq!(findings(&scan(flagged), "python:S6317").len(), 1);
+    let stub_only = "p = {\"Action\": [\"s3:*\", \"ec2:DescribeInstances\"]}\n";
+    assert!(findings(&scan(stub_only), "python:S6317").is_empty());
     assert!(
         findings(
-            &scan("p = {\"Action\": [\"s3:GetObject\", \"ec2:DescribeInstances\"]}\n"),
+            &scan(concat!(
+                "client = boto3.client(\"s3\")\n",
+                "p = {\"Action\": [\"s3:GetObject\", \"ec2:DescribeInstances\"]}\n"
+            )),
             "python:S6317"
         )
         .is_empty()
@@ -1586,10 +1643,18 @@ fn s6317_flags_wildcard_scoped_actions() {
 
 #[test]
 fn s6319_requires_sagemaker_volume_kms_key() {
-    let flagged = "sm.create_notebook_instance(NotebookInstanceName=\"n\", RoleArn=\"r\")\n";
+    let flagged = concat!(
+        "sm = boto3.client(\"sagemaker\")\n",
+        "sm.create_notebook_instance(NotebookInstanceName=\"n\", RoleArn=\"r\")\n"
+    );
     assert_eq!(findings(&scan(flagged), "python:S6319").len(), 1);
+    let stub_only = "sm.create_notebook_instance(NotebookInstanceName=\"n\", RoleArn=\"r\")\n";
+    assert!(findings(&scan(stub_only), "python:S6319").is_empty());
     assert!(findings(
-            &scan("sm.create_notebook_instance(NotebookInstanceName=\"n\", RoleArn=\"r\", VolumeKmsKeyId=\"k\")\n"),
+            &scan(concat!(
+                "sm = boto3.client(\"sagemaker\")\n",
+                "sm.create_notebook_instance(NotebookInstanceName=\"n\", RoleArn=\"r\", VolumeKmsKeyId=\"k\")\n"
+            )),
             "python:S6319"
         )
         .is_empty());
@@ -1598,6 +1663,7 @@ fn s6319_requires_sagemaker_volume_kms_key() {
 #[test]
 fn s6321_flags_admin_ports_open_to_world() {
     let flagged = concat!(
+        "ec2 = boto3.client(\"ec2\")\n",
         "ec2.authorize_security_group_ingress(GroupId=\"g\", IpPermissions=[\n",
         "    {\"FromPort\": 22, \"ToPort\": 22, \"IpRanges\": [{\"CidrIp\": \"0.0.0.0/0\"}]},\n",
         "])\n",
@@ -1606,7 +1672,14 @@ fn s6321_flags_admin_ports_open_to_world() {
         "])\n"
     );
     assert_eq!(findings(&scan(flagged), "python:S6321").len(), 2);
+    let stub_only = concat!(
+        "ec2.authorize_security_group_ingress(GroupId=\"g\", IpPermissions=[\n",
+        "    {\"FromPort\": 22, \"ToPort\": 22, \"IpRanges\": [{\"CidrIp\": \"0.0.0.0/0\"}]},\n",
+        "])\n"
+    );
+    assert!(findings(&scan(stub_only), "python:S6321").is_empty());
     let clean = concat!(
+        "ec2 = boto3.client(\"ec2\")\n",
         "ec2.authorize_security_group_ingress(GroupId=\"g\", IpPermissions=[\n",
         "    {\"FromPort\": 443, \"ToPort\": 443, \"IpRanges\": [{\"CidrIp\": \"10.0.0.0/16\"}]},\n",
         "])\n"
@@ -1616,13 +1689,12 @@ fn s6321_flags_admin_ports_open_to_world() {
 
 #[test]
 fn s6327_requires_sns_kms_master_key() {
-    assert_eq!(
-        findings(&scan("sns.create_topic(Name=\"t\")\n"), "python:S6327").len(),
-        1
-    );
+    let flagged = "sns = boto3.client(\"sns\")\nsns.create_topic(Name=\"t\")\n";
+    assert_eq!(findings(&scan(flagged), "python:S6327").len(), 1);
+    assert!(findings(&scan("sns.create_topic(Name=\"t\")\n"), "python:S6327").is_empty());
     assert!(
         findings(
-            &scan("sns.create_topic(Name=\"t\", KmsMasterKeyId=\"key\")\n"),
+            &scan("sns = boto3.client(\"sns\")\nsns.create_topic(Name=\"t\", KmsMasterKeyId=\"key\")\n"),
             "python:S6327"
         )
         .is_empty()
@@ -1632,14 +1704,24 @@ fn s6327_requires_sns_kms_master_key() {
 #[test]
 fn s6329_flags_public_network_access_flags() {
     let flagged = concat!(
+        "session_client = boto3.Session().client(\"ec2\")\n",
         "rds.create_db_instance(DBInstanceIdentifier=\"d\", PubliclyAccessible=True)\n",
         "ec2.modify_subnet_attribute(SubnetId=\"s\", MapPublicIpOnLaunch=True)\n",
         "ec2.run_instances(NetworkInterfaces=[{\"AssociatePublicIpAddress\": True}])\n"
     );
     assert_eq!(findings(&scan(flagged), "python:S6329").len(), 3);
+    let stub_only = concat!(
+        "rds.create_db_instance(DBInstanceIdentifier=\"d\", PubliclyAccessible=True)\n",
+        "ec2.modify_subnet_attribute(SubnetId=\"s\", MapPublicIpOnLaunch=True)\n",
+        "ec2.run_instances(NetworkInterfaces=[{\"AssociatePublicIpAddress\": True}])\n"
+    );
+    assert!(findings(&scan(stub_only), "python:S6329").is_empty());
     assert!(
         findings(
-            &scan("rds.create_db_instance(DBInstanceIdentifier=\"d\", PubliclyAccessible=False)\n"),
+            &scan(concat!(
+                "ec2 = boto3.client(\"ec2\")\n",
+                "rds.create_db_instance(DBInstanceIdentifier=\"d\", PubliclyAccessible=False)\n"
+            )),
             "python:S6329"
         )
         .is_empty()
@@ -1648,13 +1730,12 @@ fn s6329_flags_public_network_access_flags() {
 
 #[test]
 fn s6330_requires_sqs_kms_master_queue_id() {
-    assert_eq!(
-        findings(&scan("sqs.create_queue(QueueName=\"q\")\n"), "python:S6330").len(),
-        1
-    );
+    let flagged = "sqs = boto3.client(\"sqs\")\nsqs.create_queue(QueueName=\"q\")\n";
+    assert_eq!(findings(&scan(flagged), "python:S6330").len(), 1);
+    assert!(findings(&scan("sqs.create_queue(QueueName=\"q\")\n"), "python:S6330").is_empty());
     assert!(
         findings(
-            &scan("sqs.create_queue(QueueName=\"q\", KmsMasterQueueId=\"key\")\n"),
+            &scan("sqs = boto3.client(\"sqs\")\nsqs.create_queue(QueueName=\"q\", KmsMasterQueueId=\"key\")\n"),
             "python:S6330"
         )
         .is_empty()
@@ -1664,13 +1745,22 @@ fn s6330_requires_sqs_kms_master_queue_id() {
 #[test]
 fn s6332_requires_efs_encryption() {
     let flagged = concat!(
+        "efs = boto3.client(\"efs\")\n",
         "efs.create_file_system(CreationToken=\"t\")\n",
         "efs.create_file_system(CreationToken=\"t\", Encrypted=False)\n"
     );
     assert_eq!(findings(&scan(flagged), "python:S6332").len(), 2);
+    let stub_only = concat!(
+        "efs.create_file_system(CreationToken=\"t\")\n",
+        "efs.create_file_system(CreationToken=\"t\", Encrypted=False)\n"
+    );
+    assert!(findings(&scan(stub_only), "python:S6332").is_empty());
     assert!(
         findings(
-            &scan("efs.create_file_system(CreationToken=\"t\", Encrypted=True)\n"),
+            &scan(concat!(
+                "efs = boto3.client(\"efs\")\n",
+                "efs.create_file_system(CreationToken=\"t\", Encrypted=True)\n"
+            )),
             "python:S6332"
         )
         .is_empty()
@@ -1679,10 +1769,18 @@ fn s6332_requires_efs_encryption() {
 
 #[test]
 fn s6333_flags_api_gateway_open_authorization() {
-    let flagged = "apigw.put_method(restApiId=\"a\", resourceId=\"r\", httpMethod=\"GET\", authorizationType=\"NONE\")\n";
+    let flagged = concat!(
+        "apigw = boto3.client(\"apigateway\")\n",
+        "apigw.put_method(restApiId=\"a\", resourceId=\"r\", httpMethod=\"GET\", authorizationType=\"NONE\")\n"
+    );
     assert_eq!(findings(&scan(flagged), "python:S6333").len(), 1);
+    let stub_only = "apigw.put_method(restApiId=\"a\", resourceId=\"r\", httpMethod=\"GET\", authorizationType=\"NONE\")\n";
+    assert!(findings(&scan(stub_only), "python:S6333").is_empty());
     assert!(findings(
-            &scan("apigw.put_method(restApiId=\"a\", resourceId=\"r\", httpMethod=\"GET\", authorizationType=\"AWS_IAM\")\n"),
+            &scan(concat!(
+                "apigw = boto3.client(\"apigateway\")\n",
+                "apigw.put_method(restApiId=\"a\", resourceId=\"r\", httpMethod=\"GET\", authorizationType=\"AWS_IAM\")\n"
+            )),
             "python:S6333"
         )
         .is_empty());
@@ -1691,12 +1789,20 @@ fn s6333_flags_api_gateway_open_authorization() {
 #[test]
 fn s6463_flags_unrestricted_security_group_egress() {
     let flagged = concat!(
+        "ec2 = boto3.client(\"ec2\")\n",
         "ec2.authorize_security_group_egress(GroupId=\"g\", IpPermissions=[\n",
         "    {\"IpProtocol\": \"-1\", \"IpRanges\": [{\"CidrIp\": \"0.0.0.0/0\"}]},\n",
         "])\n"
     );
     assert_eq!(findings(&scan(flagged), "python:S6463").len(), 1);
+    let stub_only = concat!(
+        "ec2.authorize_security_group_egress(GroupId=\"g\", IpPermissions=[\n",
+        "    {\"IpProtocol\": \"-1\", \"IpRanges\": [{\"CidrIp\": \"0.0.0.0/0\"}]},\n",
+        "])\n"
+    );
+    assert!(findings(&scan(stub_only), "python:S6463").is_empty());
     let clean = concat!(
+        "ec2 = boto3.client(\"ec2\")\n",
         "ec2.authorize_security_group_egress(GroupId=\"g\", IpPermissions=[\n",
         "    {\"IpProtocol\": \"tcp\", \"IpRanges\": [{\"CidrIp\": \"10.0.0.0/16\"}]},\n",
         "])\n"

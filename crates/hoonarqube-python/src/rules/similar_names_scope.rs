@@ -11,9 +11,10 @@ use ruff_text_size::TextRange;
 
 // --- python:S1845 — names differing only in capitalization ----------------------
 //
-// Within one scope (module or class body) two members whose names differ only
-// by letter case are a maintenance trap. The later occurrence is flagged;
-// exact duplicates are redefinitions and stay out of scope here.
+// CE targets class members (methods and fields): two names in one class body
+// differing only by letter case are a maintenance trap. The later occurrence
+// is flagged; module-level bindings are out of scope, and exact duplicates are
+// redefinitions handled elsewhere.
 
 pub(crate) fn check_similar_names_scope(
     parsed: &Parsed<ModModule>,
@@ -21,7 +22,6 @@ pub(crate) fn check_similar_names_scope(
     source: &str,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    flag_collisions(parsed.syntax().body.as_slice(), &mut issues, index, source);
     visit_nested_classes(parsed.syntax().body.as_slice(), &mut issues, index, source);
     issues
 }
@@ -93,9 +93,9 @@ mod tests {
     use crate::test_support::{findings, scan};
 
     #[test]
-    fn s1845_flags_case_only_collisions_in_scope() {
-        let module = scan("value = 1\nValue = 2\n");
-        assert_eq!(findings(&module, "python:S1845").len(), 1);
+    fn s1845_flags_case_only_collisions_in_class_bodies() {
+        // CE scopes the rule to class members; module-level bindings stay silent.
+        assert!(findings(&scan("value = 1\nValue = 2\n"), "python:S1845").is_empty());
         let class_scope = scan(concat!(
             "class C:\n",
             "    def render(self):\n",

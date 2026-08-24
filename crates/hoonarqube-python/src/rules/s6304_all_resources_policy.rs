@@ -1,5 +1,6 @@
 use crate::support::dict_string_entry;
 use crate::support::for_each_dict_literal;
+use crate::support::has_boto3_binding;
 use crate::support::includes_wildcard;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
@@ -15,6 +16,11 @@ pub(crate) fn check_s6304_all_resources_policy(
     index: &LineIndex,
     source: &str,
 ) -> Vec<Issue> {
+    // CE only evaluates policies in files with a resolvable boto3 binding;
+    // stub-only files stay silent.
+    if !has_boto3_binding(parsed.syntax().body.as_slice()) {
+        return Vec::new();
+    }
     let mut issues = Vec::new();
     for_each_dict_literal(parsed.syntax().body.as_slice(), &mut |dict| {
         if dict_string_entry(dict, "Resource").is_some_and(includes_wildcard) {

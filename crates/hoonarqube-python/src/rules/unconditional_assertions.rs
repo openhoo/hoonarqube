@@ -33,10 +33,11 @@ mod tests {
     use crate::test_support::{findings, scan};
 
     #[test]
-    fn s5914_flags_unconditional_assertions() {
-        let flagged = scan(
-            "case.assertEqual(a, a)\ncase.assertTrue(True)\ncase.assertFalse(True)\ncase.assertEqual(a, b)\n",
-        );
-        assert_eq!(findings(&flagged, "python:S5914").len(), 3);
+    fn s5914_flags_only_constant_boolean_assertions() {
+        let flagged =
+            scan("case.assertTrue(True)\ncase.assertFalse(False)\ncase.assertEqual(a, a)\n");
+        assert_eq!(findings(&flagged, "python:S5914").len(), 2);
+        // CE does not implement the assertEqual(x, x) comparison form.
+        assert!(findings(&scan("case.assertEqual(a, a)\n"), "python:S5914").is_empty());
     }
 }
