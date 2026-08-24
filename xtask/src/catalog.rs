@@ -473,9 +473,8 @@ fn coverage_language(name: &'static str, language_id: &str) -> Result<LanguageCo
 
 /// Recursively collects `*.rs` paths under one analyzer crate's `src` tree.
 fn collect_rust_sources(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(_) => return,
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
