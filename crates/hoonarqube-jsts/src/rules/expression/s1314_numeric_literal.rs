@@ -42,3 +42,29 @@ pub(crate) fn loses_precision(digits: &str) -> bool {
             .is_ok_and(|value| value.abs() > 9_007_199_254_740_991)
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s1314_flags_legacy_octal_integer_literal() {
+        let findings = js_keys("let mode = 0755;\n");
+        assert_eq!(count_key(&findings, "javascript:S1314"), 1);
+    }
+
+    #[test]
+    fn s1314_allows_modern_and_plain_numerics() {
+        let findings = js_keys("let octal = 0o755;\nlet plain = 755;\n");
+        assert_eq!(count_key(&findings, "javascript:S1314"), 0);
+    }
+
+    #[test]
+    fn s6534_flags_precision_loss_beyond_safe_integer_boundary() {
+        let exact = js_keys("let ok = 9007199254740991;\n");
+        assert_eq!(count_key(&exact, "javascript:S6534"), 0);
+
+        let over = js_keys("let big = 9007199254740993;\n");
+        assert_eq!(count_key(&over, "javascript:S6534"), 1);
+    }
+}

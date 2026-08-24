@@ -28,3 +28,25 @@ pub(crate) fn check_missing_newline_at_eof(
 pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
     check_missing_newline_at_eof(ctx.source, ctx.language, ctx.index)
 }
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn missing_final_newline_is_flagged_once_per_file() {
+        let missing = js_keys("let a = 1;");
+        assert_eq!(count_key(&missing, "javascript:S113"), 1);
+
+        let missing_ts = ts_keys("let a = 1;");
+        assert_eq!(count_key(&missing_ts, "typescript:S113"), 1);
+
+        let terminated = js_keys("let a = 1;\n");
+        assert_eq!(count_key(&terminated, "javascript:S113"), 0);
+    }
+
+    #[test]
+    fn empty_source_never_violates_newline_at_eof() {
+        let empty = js("");
+        assert_eq!(count_key(&report_keys(&empty), "javascript:S113"), 0);
+    }
+}

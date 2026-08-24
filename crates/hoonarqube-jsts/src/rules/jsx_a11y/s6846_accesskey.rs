@@ -22,3 +22,28 @@ impl A11yCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6846_flags_accesskey_attributes() {
+        let flagged = jsx_keys("const el = <div accesskey=\"s\"/>;\n");
+        assert_eq!(count_key(&flagged, "javascript:S6846"), 1);
+    }
+
+    #[test]
+    fn s6846_counts_every_flagged_element_in_a_tree() {
+        let nested = jsx_keys(
+            "const el = <div accesskey=\"s\"><span accesskey=\"p\">Profile</span></div>;\n",
+        );
+        assert_eq!(count_key(&nested, "javascript:S6846"), 2);
+    }
+
+    #[test]
+    fn s6846_ignores_elements_without_accesskeys() {
+        let clean = jsx_keys("const el = <div title=\"s\">Profile</div>;\n");
+        assert_eq!(count_key(&clean, "javascript:S6846"), 0);
+    }
+}

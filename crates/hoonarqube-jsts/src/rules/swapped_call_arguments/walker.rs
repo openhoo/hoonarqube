@@ -109,4 +109,43 @@ draw(other, more);
             .collect();
         assert_eq!(s2234_lines, vec![2]);
     }
+
+    #[test]
+    fn s2234_requires_known_callee_matching_arity_and_names() {
+        // Unknown callees are never checked.
+        assert_eq!(
+            count_key(
+                &js_keys("function draw(width, height) {}\nunknown(width, height);\n"),
+                "javascript:S2234"
+            ),
+            0
+        );
+        // Arity mismatch with the signature skips the check.
+        assert_eq!(
+            count_key(
+                &js_keys("function draw(width, height) {}\ndraw(height, width, extra);\n"),
+                "javascript:S2234"
+            ),
+            0
+        );
+        // A non-identifier argument blocks the name-based comparison.
+        assert_eq!(
+            count_key(
+                &js_keys("function draw(width, height) {}\ndraw(height, f());\n"),
+                "javascript:S2234"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn s2234_detects_swap_among_three_arguments() {
+        assert_eq!(
+            count_key(
+                &js_keys("function scale(a, b, c) {}\nscale(b, a, c);\n"),
+                "javascript:S2234"
+            ),
+            1
+        );
+    }
 }

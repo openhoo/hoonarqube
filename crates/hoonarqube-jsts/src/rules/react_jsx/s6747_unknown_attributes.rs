@@ -40,3 +40,34 @@ pub(crate) fn attribute_is_known(name: &str, whitelist: &[String]) -> bool {
         || REACT_DOM_ATTRIBUTES.contains(&name)
         || whitelist.iter().any(|allowed| allowed == name)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6747_flags_each_unknown_attribute_on_intrinsic_element() {
+        let findings = jsx_keys("const el = <div class=\"x\" foo=\"1\"></div>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6747"), 2);
+    }
+
+    #[test]
+    fn s6747_allows_known_dom_attribute() {
+        let findings = jsx_keys("const el = <div className=\"foo\"></div>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6747"), 0);
+    }
+
+    #[test]
+    fn s6747_allows_data_aria_and_handler_attributes() {
+        let findings = jsx_keys(
+            "const el = <div data-x=\"1\" aria-hidden=\"true\" onClick={f}></div>;\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S6747"), 0);
+    }
+
+    #[test]
+    fn s6747_ignores_attributes_on_component_elements() {
+        let findings = jsx_keys("const el = <Widget arbitrary={1}></Widget>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6747"), 0);
+    }
+}

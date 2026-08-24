@@ -22,3 +22,32 @@ impl ReactCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6766_flags_raw_apostrophe_in_jsx_text() {
+        let findings = jsx_keys("const el = <div>it's here</div>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6766"), 1);
+    }
+
+    #[test]
+    fn s6766_allows_plain_jsx_text() {
+        let findings = jsx_keys("const el = <div>plain text</div>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6766"), 0);
+    }
+
+    #[test]
+    fn s6766_flags_raw_double_quote_in_jsx_text() {
+        let findings = jsx_keys("const el = <div>say \"hi\"</div>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6766"), 1);
+    }
+
+    #[test]
+    fn s6766_ignores_quotes_inside_attribute_values() {
+        let findings = jsx_keys("const el = <div title=\"it's\">text</div>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6766"), 0);
+    }
+}

@@ -28,3 +28,22 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
     }
     sink.issues
 }
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn nosonar_marker_in_comments_is_flagged() {
+        let line = js_keys("// workaround NOSONAR\nlet a = 1;\n");
+        assert_eq!(count_key(&line, "javascript:S1291"), 1);
+
+        let block = js_keys("/* NOSONAR */\nlet a = 1;\n");
+        assert_eq!(count_key(&block, "javascript:S1291"), 1);
+    }
+
+    #[test]
+    fn nosonar_match_is_case_sensitive() {
+        let lower = js_keys("// nosonar please\nlet a = 1;\n");
+        assert_eq!(count_key(&lower, "javascript:S1291"), 0);
+    }
+}

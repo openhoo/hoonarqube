@@ -448,4 +448,137 @@ arr.map(function () {});
         assert_eq!(count_key(&js_findings, "javascript:S4023"), 0);
         assert_eq!(count_key(&js_findings, "javascript:S4124"), 0);
     }
+    #[test]
+    fn s6647_flags_empty_constructor_logic_and_param_property_variants() {
+        let flagged = js_keys("class C {\n  constructor() {}\n}\n");
+        assert_eq!(count_key(&flagged, "javascript:S6647"), 1);
+
+        let with_logic = js_keys("class D {\n  constructor() {\n    this.ready = true;\n  }\n}\n");
+        assert_eq!(count_key(&with_logic, "javascript:S6647"), 0);
+
+        // A TypeScript parameter property counts as constructor logic.
+        let param_property = ts_keys("class E {\n  constructor(private name) {}\n}\n");
+        assert_eq!(count_key(&param_property, "typescript:S6647"), 0);
+    }
+
+    #[test]
+    fn binding_compliant_fixture_emits_none_of_the_family_keys() {
+        let source = "\
+const first = 1;
+let second = null;
+
+function work(value) {
+  return value + second;
+}
+
+class Model {
+  constructor() {
+    this.ready = true;
+  }
+
+  run() {
+    return work(first);
+  }
+}
+
+export { Model };
+";
+        let flagged = js_keys(source);
+        for key in [
+            "S1186", "S1527", "S2068", "S2094", "S2137", "S2138", "S3799", "S4023", "S4124",
+            "S6418", "S6645", "S6647", "S6650",
+        ] {
+            assert_eq!(
+                count_key(&flagged, &format!("javascript:{key}")),
+                0,
+                "unexpected {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn s2138_and_s6645_void_zero_and_typescript_scope_edges() {
+        let void_init = js_keys("let x = void 0;\n");
+        assert_eq!(count_key(&void_init, "javascript:S2138"), 1);
+        assert_eq!(count_key(&void_init, "javascript:S6645"), 0);
+
+        let explicit = js_keys("let y = undefined;\n");
+        assert_eq!(count_key(&explicit, "javascript:S2138"), 1);
+        assert_eq!(count_key(&explicit, "javascript:S6645"), 1);
+
+        let typescript = ts_keys("let z = undefined;\n");
+        assert_eq!(count_key(&typescript, "typescript:S2138"), 1);
+        assert_eq!(count_key(&typescript, "typescript:S6645"), 0);
+
+        let meaningful = js_keys("let w = null;\n");
+        assert_eq!(count_key(&meaningful, "javascript:S2138"), 0);
+    }
+
+    #[test]
+    fn s2068_and_s6418_credential_boundaries_stay_clean() {
+        let boundaries = js_keys(
+            "const password = '';\nconst nickname = 'hunter2';\nconst apiKey = 'aaaaaaaaaaaaaaaa';\nconst token = 'Zx9kQ2';\n",
+        );
+        assert_eq!(count_key(&boundaries, "javascript:S2068"), 0);
+        assert_eq!(count_key(&boundaries, "javascript:S6418"), 0);
+    }
+
+    #[test]
+    fn s6650_flags_import_and_export_renames_aliasing_passes() {
+        let import_rename = js_keys("import { alpha as alpha } from 'm';\n");
+        assert_eq!(count_key(&import_rename, "javascript:S6650"), 1);
+
+        let export_rename = js_keys("const tool = 1;\nexport { tool as tool };\n");
+        assert_eq!(count_key(&export_rename, "javascript:S6650"), 1);
+
+        let plain = js_keys("import { beta } from 'm';\nconst gamma = 2;\nexport { gamma };\n");
+        assert_eq!(count_key(&plain, "javascript:S6650"), 0);
+
+        let aliased = js_keys("import { alpha as beta } from 'm';\nconst { a: b } = pair;\n");
+        assert_eq!(count_key(&aliased, "javascript:S6650"), 0);
+    }
+
+    #[test]
+    fn s3799_array_and_parameter_patterns_flagged_nonempty_pass() {
+        let array_pattern = js_keys("const [] = list;\n");
+        assert_eq!(count_key(&array_pattern, "javascript:S3799"), 1);
+
+        let param_pattern = js_keys("function f({}) {\n  return 1;\n}\n");
+        assert_eq!(count_key(&param_pattern, "javascript:S3799"), 1);
+
+        let populated = js_keys("const [head] = list;\nconst { tail } = obj;\n");
+        assert_eq!(count_key(&populated, "javascript:S3799"), 0);
+    }
+
+    #[test]
+    fn s2137_binding_flavor_and_s1527_typescript_scope() {
+        let bound = js_keys("let Infinity = 1;\n");
+        assert_eq!(count_key(&bound, "javascript:S2137"), 1);
+        assert_eq!(count_key(&bound, "javascript:S1527"), 0);
+
+        let assigned = js_keys("eval = 2;\n");
+        assert_eq!(count_key(&assigned, "javascript:S2137"), 1);
+
+        let reserved_word = js_keys("let abstract = 3;\n");
+        assert_eq!(count_key(&reserved_word, "javascript:S1527"), 1);
+
+        let typescript = ts_keys("let normalName = 4;\n");
+        assert_eq!(count_key(&typescript, "typescript:S1527"), 0);
+        assert_eq!(count_key(&typescript, "typescript:S2137"), 0);
+    }
+
+    #[test]
+    fn s2094_s4023_s4124_populated_shapes_pass_construct_signature_flags() {
+        let populated_class = js_keys("class Full {\n  run() {\n    return work();\n  }\n}\n");
+        assert_eq!(count_key(&populated_class, "javascript:S2094"), 0);
+
+        let typescript =
+            ts_keys("interface Rich {\n  width: number;\n}\nclass Impl {\n  width = 1;\n}\n");
+        assert_eq!(count_key(&typescript, "typescript:S4023"), 0);
+        assert_eq!(count_key(&typescript, "typescript:S4124"), 0);
+
+        let construct_signature = ts_keys("interface Factory {\n  new (): Factory;\n}\n");
+        assert_eq!(count_key(&construct_signature, "typescript:S4124"), 1);
+        assert_eq!(count_key(&construct_signature, "typescript:S4023"), 0);
+    }
 }

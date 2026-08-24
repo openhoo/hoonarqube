@@ -26,3 +26,26 @@ impl ReactCollector<'_> {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6438_flags_empty_expression_container() {
+        let findings = jsx_keys("const el = <span>{}</span>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6438"), 1);
+    }
+
+    #[test]
+    fn s6438_allows_comment_only_container() {
+        let findings = jsx_keys("const el = <div>{/* note */}</div>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6438"), 0);
+    }
+
+    #[test]
+    fn s6438_flags_each_empty_container_in_sequence() {
+        let findings = jsx_keys("const el = <div>{}{}</div>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6438"), 2);
+    }
+}

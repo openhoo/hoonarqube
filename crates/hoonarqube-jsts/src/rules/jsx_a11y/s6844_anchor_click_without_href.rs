@@ -22,3 +22,32 @@ impl A11yCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6844_flags_anchor_click_handlers_missing_href() {
+        let click_only = jsx_keys("const el = <a onClick={openMenu}>Menu</a>;\n");
+        assert_eq!(count_key(&click_only, "javascript:S6844"), 1);
+    }
+
+    #[test]
+    fn s6844_accepts_anchors_with_href_and_plain_buttons() {
+        let linked = jsx_keys("const el = <a href=\"/menu\" onClick={openMenu}>Menu</a>;\n");
+        assert_eq!(count_key(&linked, "javascript:S6844"), 0);
+
+        let button = jsx_keys("const el = <button onClick={openMenu}>Menu</button>;\n");
+        assert_eq!(count_key(&button, "javascript:S6844"), 0);
+    }
+
+    #[test]
+    fn s6844_requires_click_handler_and_skips_spread_anchors() {
+        let no_handler = jsx_keys("const el = <a>Menu</a>;\n");
+        assert_eq!(count_key(&no_handler, "javascript:S6844"), 0);
+
+        let spread = jsx_keys("const el = <a {...props} onClick={openMenu}>Menu</a>;\n");
+        assert_eq!(count_key(&spread, "javascript:S6844"), 0);
+    }
+}

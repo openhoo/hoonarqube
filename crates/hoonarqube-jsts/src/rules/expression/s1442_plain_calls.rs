@@ -72,3 +72,35 @@ pub(crate) const BUILTIN_GLOBALS: [&str; 16] = [
     "Array", "Object", "Function", "String", "Number", "Boolean", "Symbol", "BigInt", "Map", "Set",
     "Promise", "Date", "RegExp", "Error", "Math", "JSON",
 ];
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s1442_flags_alert_and_radixless_parseint() {
+        let findings = js_keys("alert(\"hi\");\nparseInt(s);\n");
+        assert_eq!(count_key(&findings, "javascript:S1442"), 1);
+        assert_eq!(count_key(&findings, "javascript:S2427"), 1);
+    }
+
+    #[test]
+    fn s1442_allows_radix_parseint_and_flags_member_style_alert() {
+        let radix = js_keys("parseInt(s, 10);\nconsole.log(1);\n");
+        assert_eq!(count_key(&radix, "javascript:S1442"), 0);
+        assert_eq!(count_key(&radix, "javascript:S2427"), 0);
+
+        let member = js_keys("window.alert(\"hi\");\n");
+        assert_eq!(count_key(&member, "javascript:S1442"), 1);
+    }
+
+    #[test]
+    fn s1442_family_ts_suppresses_js_only_calls_but_keeps_s6958() {
+        let ts_findings = ts_keys("alert(\"hi\");\nrequire(\"fs\");\n");
+        assert_eq!(count_key(&ts_findings, "typescript:S1442"), 0);
+        assert_eq!(count_key(&ts_findings, "typescript:S3533"), 0);
+
+        let literal_call = js_keys("\"foo\"();\n");
+        assert_eq!(count_key(&literal_call, "javascript:S6958"), 1);
+    }
+}

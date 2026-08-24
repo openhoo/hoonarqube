@@ -565,4 +565,63 @@ mod tests {
             )]
         );
     }
+    #[test]
+    fn naming_compliant_fixture_emits_none_of_the_family_keys() {
+        let source = "\
+function goodName(paramOne) {
+  const localValue = paramOne;
+  return localValue;
+}
+
+class GoodClass {
+  goodMethod() {
+    return goodName('once');
+  }
+}
+
+const item = new GoodClass();
+log(item);
+";
+        let flagged = js_keys(source);
+        for key in ["S100", "S101", "S109", "S117", "S1192", "S1441", "S2430"] {
+            assert_eq!(
+                count_key(&flagged, &format!("javascript:{key}")),
+                0,
+                "unexpected {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn s101_interface_flavor_positive_with_explicit_clean_shapes() {
+        let report = js("class lowercase {}\nclass Proper {}\n");
+        assert_eq!(count_key(&report_keys(&report), "javascript:S101"), 1);
+
+        let typescript = ts_keys("interface BadName {}\ninterface fine {}\n");
+        assert_eq!(count_key(&typescript, "typescript:S101"), 1);
+        assert_eq!(count_key(&typescript, "typescript:S100"), 0);
+    }
+
+    #[test]
+    fn s1192_configured_ignore_strings_never_fire() {
+        let rules = RuleOptions {
+            ignored_strings: vec!["dup".to_string()],
+            ..RuleOptions::default()
+        };
+        let flagged = keys_with_rules("a('dup');\nb('dup');\nc('dup');\n", &rules);
+        assert_eq!(count_key(&flagged, "javascript:S1192"), 0);
+    }
+
+    #[test]
+    fn s109_numbers_inside_strings_pass_and_s1441_templates_pass() {
+        let report = js("const msg = 'retry 42 times';\nconst keep = `raw ${msg}`;\n");
+        assert_eq!(count_key(&report_keys(&report), "javascript:S109"), 0);
+        assert_eq!(count_key(&report_keys(&report), "javascript:S1441"), 0);
+    }
+
+    #[test]
+    fn s2430_uppercase_constructors_pass_explicitly() {
+        let clean = js_keys("new Upper();\nnew lib.Bar();\n");
+        assert_eq!(count_key(&clean, "javascript:S2430"), 0);
+    }
 }

@@ -72,4 +72,21 @@ mod tests {
         let prose = js_keys("// this comment only explains things\n");
         assert_eq!(count_key(&prose, "javascript:S125"), 0);
     }
+    #[test]
+    fn commented_out_code_detects_semicolon_and_block_shapes() {
+        let assignment = js_keys("// let total = compute(a, b);\n");
+        assert_eq!(count_key(&assignment, "javascript:S125"), 1);
+
+        let call = js_keys("// renderChart(data);\n");
+        assert_eq!(count_key(&call, "javascript:S125"), 1);
+
+        let block = js_keys("// { cleanup(); }\n");
+        assert_eq!(count_key(&block, "javascript:S125"), 1);
+    }
+
+    #[test]
+    fn commented_out_code_spares_tag_comments_even_if_code_like() {
+        let tagged = js_keys("// FIXME: draw(x);\n");
+        assert_eq!(count_key(&tagged, "javascript:S125"), 0);
+    }
 }

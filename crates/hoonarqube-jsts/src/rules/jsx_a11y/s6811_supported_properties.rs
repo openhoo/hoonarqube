@@ -171,3 +171,38 @@ pub(crate) const ROLE_SUPPORTED_PROPERTIES: &[(&str, &[&str])] = &[
         ],
     ),
 ];
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6811_flags_each_unsupported_property_per_role() {
+        let slider = jsx_keys("const el = <div role=\"slider\" aria-selected=\"true\"/>;\n");
+        assert_eq!(count_key(&slider, "javascript:S6811"), 1);
+
+        let button = jsx_keys(
+            "const el = <span role=\"button\" aria-level=\"2\" aria-sort=\"ascending\"/>;\n",
+        );
+        assert_eq!(count_key(&button, "javascript:S6811"), 2);
+    }
+
+    #[test]
+    fn s6811_accepts_supported_global_and_unknown_property_names() {
+        let supported =
+            jsx_keys("const el = <div role=\"slider\" aria-orientation=\"vertical\"/>;\n");
+        assert_eq!(count_key(&supported, "javascript:S6811"), 0);
+
+        let global = jsx_keys("const el = <div role=\"slider\" aria-hidden=\"true\"/>;\n");
+        assert_eq!(count_key(&global, "javascript:S6811"), 0);
+
+        let unknown_name = jsx_keys("const el = <div role=\"button\" aria-datapoints=\"3\"/>;\n");
+        assert_eq!(count_key(&unknown_name, "javascript:S6811"), 0);
+    }
+
+    #[test]
+    fn s6811_ignores_roles_outside_the_support_table() {
+        let note_role = jsx_keys("const el = <div role=\"note\" aria-level=\"2\">x</div>;\n");
+        assert_eq!(count_key(&note_role, "javascript:S6811"), 0);
+    }
+}

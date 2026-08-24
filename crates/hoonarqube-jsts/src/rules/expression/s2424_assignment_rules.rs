@@ -67,3 +67,30 @@ pub(crate) fn member_builtin_conflict(expression: &Expression<'_>) -> (bool, boo
         _ => (false, false),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s2424_flags_builtin_writes_and_sign_swap_typo() {
+        let findings = js_keys("Array.prototype.custom = 1;\nx =+ 1;\n");
+        assert_eq!(count_key(&findings, "javascript:S2424"), 1);
+        assert_eq!(count_key(&findings, "javascript:S6643"), 1);
+        assert_eq!(count_key(&findings, "javascript:S2757"), 1);
+    }
+
+    #[test]
+    fn s2424_allows_plain_targets_and_compound_assignment() {
+        let findings = js_keys("obj.prop = 1;\nx += 1;\ny = 1 - 2;\n");
+        assert_eq!(count_key(&findings, "javascript:S2424"), 0);
+        assert_eq!(count_key(&findings, "javascript:S2757"), 0);
+    }
+
+    #[test]
+    fn s2424_builtin_root_without_prototype_skips_extension_rule() {
+        let findings = js_keys("Math.pi = 3;\n");
+        assert_eq!(count_key(&findings, "javascript:S2424"), 1);
+        assert_eq!(count_key(&findings, "javascript:S6643"), 0);
+    }
+}

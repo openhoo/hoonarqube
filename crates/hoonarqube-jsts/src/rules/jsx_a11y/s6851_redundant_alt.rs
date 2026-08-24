@@ -37,3 +37,34 @@ impl A11yCollector<'_> {
 /// Redundant image alt texts (`S6851`).
 pub(crate) const REDUNDANT_ALT_WORDS: [&str; 6] =
     ["image", "photo", "picture", "grafik", "bild", "logo"];
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6851_flags_filler_words_in_alt_text() {
+        let filler = jsx_keys("const el = <img src=\"team.jpg\" alt=\"photo\"/>;\n");
+        assert_eq!(count_key(&filler, "javascript:S6851"), 1);
+    }
+
+    #[test]
+    fn s6851_flags_alt_repeating_the_file_stem() {
+        let stem_match = jsx_keys("const el = <img src=\"/img/banner.svg\" alt=\"Banner\"/>;\n");
+        assert_eq!(count_key(&stem_match, "javascript:S6851"), 1);
+    }
+
+    #[test]
+    fn s6851_accepts_descriptive_dynamic_and_missing_alts() {
+        let descriptive =
+            jsx_keys("const el = <img src=\"team.jpg\" alt=\"Engineering team offsite\"/>;\n");
+        assert_eq!(count_key(&descriptive, "javascript:S6851"), 0);
+
+        let dynamic =
+            jsx_keys("let text = 'photo';\nconst el = <img src=\"a.png\" alt={text}/>;\n");
+        assert_eq!(count_key(&dynamic, "javascript:S6851"), 0);
+
+        let missing_alt = jsx_keys("const el = <img src=\"team.jpg\"/>;\n");
+        assert_eq!(count_key(&missing_alt, "javascript:S6851"), 0);
+    }
+}

@@ -60,3 +60,35 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
     }
     sink.issues
 }
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn todo_tags_report_s1135() {
+        let findings = js_keys("// TODO implement this\nlet a = 1;\n");
+        assert_eq!(count_key(&findings, "javascript:S1135"), 1);
+    }
+
+    #[test]
+    fn fixme_tags_report_s1134() {
+        let findings = js_keys("// FIXME crash on empty input\nlet a = 1;\n");
+        assert_eq!(count_key(&findings, "javascript:S1134"), 1);
+    }
+
+    #[test]
+    fn mixed_tag_comment_reports_both_rules() {
+        let findings = js_keys("// TODO and FIXME in one note\nlet a = 1;\n");
+        assert_eq!(count_key(&findings, "javascript:S1135"), 1);
+        assert_eq!(count_key(&findings, "javascript:S1134"), 1);
+    }
+
+    #[test]
+    fn tags_inside_longer_words_or_lowercase_stay_silent() {
+        let todos = js_keys("// TODOS live elsewhere\nlet a = 1;\n");
+        assert_eq!(count_key(&todos, "javascript:S1135"), 0);
+
+        let lower = js_keys("// todo: lowercase stays silent\nlet a = 1;\n");
+        assert_eq!(count_key(&lower, "javascript:S1135"), 0);
+    }
+}

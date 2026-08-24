@@ -88,3 +88,32 @@ pub(crate) fn expression_through_this_link(expression: &Expression<'_>, link: &s
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6746_flags_assignment_into_this_state() {
+        let findings = js_keys("this.state.count = 5;\n");
+        assert_eq!(count_key(&findings, "javascript:S6746"), 1);
+    }
+
+    #[test]
+    fn s6746_flags_in_place_mutation_call_on_this_state() {
+        let findings = js_keys("this.state.items.push(1);\n");
+        assert_eq!(count_key(&findings, "javascript:S6746"), 1);
+    }
+
+    #[test]
+    fn s6746_allows_mutating_a_copy() {
+        let findings = js_keys("const copy = [...this.state.items];\ncopy.push(1);\n");
+        assert_eq!(count_key(&findings, "javascript:S6746"), 0);
+    }
+
+    #[test]
+    fn s6746_ignores_this_props_chains() {
+        let findings = js_keys("this.props.items.push(1);\n");
+        assert_eq!(count_key(&findings, "javascript:S6746"), 0);
+    }
+}

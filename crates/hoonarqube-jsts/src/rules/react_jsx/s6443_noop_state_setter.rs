@@ -32,3 +32,26 @@ impl ReactCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6443_flags_setter_called_with_its_own_value() {
+        let findings = js_keys("setCount(count);\n");
+        assert_eq!(count_key(&findings, "javascript:S6443"), 1);
+    }
+
+    #[test]
+    fn s6443_allows_updater_or_new_value() {
+        let findings = js_keys("setCount(count + 1);\n");
+        assert_eq!(count_key(&findings, "javascript:S6443"), 0);
+    }
+
+    #[test]
+    fn s6443_ignores_non_setter_callee_shape() {
+        let findings = js_keys("setcount(count);\n");
+        assert_eq!(count_key(&findings, "javascript:S6443"), 0);
+    }
+}

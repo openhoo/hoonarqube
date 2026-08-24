@@ -39,3 +39,38 @@ impl A11yCollector<'_> {
 pub(crate) fn is_non_interactive_role(role: &str) -> bool {
     NON_INTERACTIVE_ROLES.contains(&role)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6843_flags_structural_roles_on_interactive_selects() {
+        let select_article = jsx_keys("const el = <select role=\"article\"/>;\n");
+        assert_eq!(count_key(&select_article, "javascript:S6843"), 1);
+
+        let textarea_banner = jsx_keys("const el = <textarea role=\"banner\"/>;\n");
+        assert_eq!(count_key(&textarea_banner, "javascript:S6843"), 1);
+    }
+
+    #[test]
+    fn s6843_accepts_matching_or_omitted_roles() {
+        let matching = jsx_keys("const el = <button role=\"checkbox\"/>;\n");
+        assert_eq!(count_key(&matching, "javascript:S6843"), 0);
+
+        let no_role = jsx_keys("const el = <button/>;\n");
+        assert_eq!(count_key(&no_role, "javascript:S6843"), 0);
+
+        let static_element = jsx_keys("const el = <div role=\"banner\">x</div>;\n");
+        assert_eq!(count_key(&static_element, "javascript:S6843"), 0);
+    }
+
+    #[test]
+    fn s6843_skips_spread_elements_and_hrefless_anchors() {
+        let spread = jsx_keys("const el = <button {...rest} role=\"list\"/>;\n");
+        assert_eq!(count_key(&spread, "javascript:S6843"), 0);
+
+        let hrefless = jsx_keys("const el = <a role=\"list\">x</a>;\n");
+        assert_eq!(count_key(&hrefless, "javascript:S6843"), 0);
+    }
+}

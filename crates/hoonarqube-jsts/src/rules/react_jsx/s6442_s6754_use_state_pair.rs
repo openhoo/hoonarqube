@@ -51,3 +51,32 @@ impl ReactCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6442_flags_plain_use_state_binding() {
+        let findings = js_keys("const state = useState(0);\n");
+        assert_eq!(count_key(&findings, "javascript:S6442"), 1);
+    }
+
+    #[test]
+    fn s6442_allows_destructured_pair() {
+        let findings = js_keys("const [value, setValue] = useState(0);\n");
+        assert_eq!(count_key(&findings, "javascript:S6442"), 0);
+    }
+
+    #[test]
+    fn s6754_flags_asymmetric_setter_name() {
+        let findings = js_keys("const [count, setValue] = useState(0);\n");
+        assert_eq!(count_key(&findings, "javascript:S6754"), 1);
+    }
+
+    #[test]
+    fn s6754_allows_three_element_pattern() {
+        let findings = js_keys("const [a, setA, other] = useState(0);\n");
+        assert_eq!(count_key(&findings, "javascript:S6754"), 0);
+    }
+}

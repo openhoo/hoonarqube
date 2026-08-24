@@ -28,3 +28,37 @@ impl A11yCollector<'_> {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6823_flags_activedescendant_without_tab_index() {
+        let missing =
+            jsx_keys("const el = <div role=\"listbox\" aria-activedescendant=\"opt-2\"/>;\n");
+        assert_eq!(count_key(&missing, "javascript:S6823"), 1);
+    }
+
+    #[test]
+    fn s6823_accepts_camel_case_and_lowercase_tab_indices() {
+        let camel = jsx_keys(
+            "const el = <div role=\"listbox\" aria-activedescendant=\"opt-2\" tabIndex={0}/>;\n",
+        );
+        assert_eq!(count_key(&camel, "javascript:S6823"), 0);
+
+        let lowercase = jsx_keys(
+            "const el = <ul aria-activedescendant=\"opt-2\" tabindex=\"-1\"><li>x</li></ul>;\n",
+        );
+        assert_eq!(count_key(&lowercase, "javascript:S6823"), 0);
+    }
+
+    #[test]
+    fn s6823_skips_spread_elements_and_other_attributes() {
+        let spread = jsx_keys("const el = <div {...rest} aria-activedescendant=\"opt-2\"/>;\n");
+        assert_eq!(count_key(&spread, "javascript:S6823"), 0);
+
+        let unrelated = jsx_keys("const el = <div aria-describedby=\"hint\"/>;\n");
+        assert_eq!(count_key(&unrelated, "javascript:S6823"), 0);
+    }
+}

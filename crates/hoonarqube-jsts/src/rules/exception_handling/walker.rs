@@ -193,4 +193,57 @@ function silent() {
             0
         );
     }
+
+    #[test]
+    fn s2737_requires_rethrowing_the_caught_binding() {
+        // A different binding is a meaningful rethrow target.
+        assert_eq!(
+            count_key(
+                &js_keys("try {\n  a();\n} catch (e) {\n  throw err;\n}\n"),
+                "javascript:S2737"
+            ),
+            0
+        );
+        // Without a catch binding there is nothing to rethrow.
+        assert_eq!(
+            count_key(
+                &js_keys("try {\n  b();\n} catch {\n  throw err;\n}\n"),
+                "javascript:S2737"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn s2486_tolerates_inline_comments_and_non_empty_catches() {
+        assert_eq!(
+            count_key(
+                &js_keys("try {\n  a();\n} catch (e) { /* noop */ }\n"),
+                "javascript:S2486"
+            ),
+            0
+        );
+        assert_eq!(
+            count_key(
+                &js_keys("try {\n  b();\n} catch (e) {\n  log(e);\n}\n"),
+                "javascript:S2486"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn s2432_spares_getters_bare_returns_and_nested_functions() {
+        let getter = js_keys("class A {\n  get value() {\n    return 1;\n  }\n}\n");
+        assert_eq!(count_key(&getter, "javascript:S2432"), 0);
+
+        let bare_return = js_keys("class A {\n  set value(next) {\n    return;\n  }\n}\n");
+        assert_eq!(count_key(&bare_return, "javascript:S2432"), 0);
+
+        // A value return inside a nested arrow is not the setter's own.
+        let nested = js_keys(
+            "class A {\n  set value(next) {\n    const f = () => {\n      return next;\n    };\n  }\n}\n",
+        );
+        assert_eq!(count_key(&nested, "javascript:S2432"), 0);
+    }
 }

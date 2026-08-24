@@ -35,3 +35,32 @@ impl ReactCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6481_flags_inline_object_provider_value() {
+        let findings = jsx_keys("const el = <Ctx.Provider value={{a: 1}}></Ctx.Provider>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6481"), 1);
+    }
+
+    #[test]
+    fn s6481_flags_inline_array_provider_value() {
+        let findings = jsx_keys("const el = <Ctx.Provider value={[]}></Ctx.Provider>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6481"), 1);
+    }
+
+    #[test]
+    fn s6481_allows_memoized_provider_value() {
+        let findings = jsx_keys("const el = <Ctx.Provider value={memo}></Ctx.Provider>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6481"), 0);
+    }
+
+    #[test]
+    fn s6481_ignores_non_provider_member_elements() {
+        let findings = jsx_keys("const el = <Ctx.Consumer value={{a: 1}}></Ctx.Consumer>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6481"), 0);
+    }
+}

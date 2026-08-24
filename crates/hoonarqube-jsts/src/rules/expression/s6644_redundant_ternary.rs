@@ -23,3 +23,26 @@ pub(crate) fn check_redundant_ternary(sink: &mut IssueSink, it: &ConditionalExpr
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6644_flags_boolean_and_identical_branch_ternaries() {
+        let findings = js_keys("v = cond ? true : false;\nw = cond ? x : x;\n");
+        assert_eq!(count_key(&findings, "javascript:S6644"), 2);
+    }
+
+    #[test]
+    fn s6644_allows_distinct_branches() {
+        let findings = js_keys("v = cond ? 1 : 2;\nw = cond ? x : y;\n");
+        assert_eq!(count_key(&findings, "javascript:S6644"), 0);
+    }
+
+    #[test]
+    fn s6644_inverted_boolean_ternary_is_meaningful() {
+        let findings = js_keys("v = cond ? false : true;\n");
+        assert_eq!(count_key(&findings, "javascript:S6644"), 0);
+    }
+}

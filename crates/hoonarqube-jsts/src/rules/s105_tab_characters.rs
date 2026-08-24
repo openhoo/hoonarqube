@@ -36,3 +36,39 @@ pub(crate) fn check_tab_characters(source: &str, language: JstsLanguage) -> Vec<
 pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
     check_tab_characters(ctx.source, ctx.language)
 }
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn tab_characters_flag_each_tabbed_line_at_first_tab_column() {
+        let report = js("\tlet a = 1;\nlet b = 2;\n\t\tlet c = 3;\n");
+        let tabs: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|found| found.rule_key == "javascript:S105")
+            .collect();
+        assert_eq!(tabs.len(), 2);
+        assert_eq!(tabs[0].range.start.line, 1);
+        assert_eq!(tabs[0].range.start.column, 0);
+        assert_eq!(tabs[1].range.start.line, 3);
+        assert_eq!(tabs[1].range.start.column, 0);
+
+        let spaced = js_keys("let a = 1;\nlet b = 2;\n");
+        assert_eq!(count_key(&spaced, "javascript:S105"), 0);
+    }
+
+    #[test]
+    fn tab_character_issue_has_precise_span() {
+        let report = js("greet();\n\treset();\n");
+        assert_eq!(
+            report.issues,
+            vec![issue(
+                "javascript:S105",
+                "Replace all tab characters in this file by sequences of spaces.",
+                (2, 0),
+                (2, 1),
+            )]
+        );
+    }
+}

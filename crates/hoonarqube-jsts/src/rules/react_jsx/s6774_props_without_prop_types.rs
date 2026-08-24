@@ -30,3 +30,28 @@ impl ReactCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6774_flags_this_props_without_declared_prop_types() {
+        let findings = js_keys("class A {\n  m() {\n    return this.props.x;\n  }\n}\n");
+        assert_eq!(count_key(&findings, "javascript:S6774"), 1);
+    }
+
+    #[test]
+    fn s6774_allows_class_with_static_prop_types() {
+        let findings = js_keys(
+            "class A {\n  static propTypes = {};\n  m() {\n    return this.props.x;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S6774"), 0);
+    }
+
+    #[test]
+    fn s6774_is_javascript_only() {
+        let findings = ts_keys("class A {\n  m() {\n    return this.props.x;\n  }\n}\n");
+        assert_eq!(count_key(&findings, "typescript:S6774"), 0);
+    }
+}

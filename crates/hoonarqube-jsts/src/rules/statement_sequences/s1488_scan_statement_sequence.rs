@@ -75,3 +75,40 @@ pub(crate) fn statement_ends_with_jump(stmt: &Statement<'_>) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s1763_flags_first_statement_after_unconditional_jump() {
+        let findings = js_keys("function f() {\n  return 1;\n  console.log(2);\n}\n");
+        assert_eq!(count_key(&findings, "javascript:S1763"), 1);
+    }
+
+    #[test]
+    fn s1488_flags_sole_declarator_immediately_thrown_under_own_name() {
+        let findings = js_keys("function g() {\n  const e = new Error(\"boom\");\n  throw e;\n}\n");
+        assert_eq!(count_key(&findings, "javascript:S1488"), 1);
+    }
+
+    #[test]
+    fn s1488_allows_transformed_returns_and_direct_throws() {
+        let findings = js_keys(
+            "function h(a) {\n  const b = wrap(a);\n  return b + 1;\n}\nfunction i() {\n  throw new Error(\"x\");\n}\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S1488"), 0);
+        assert_eq!(count_key(&findings, "javascript:S1763"), 0);
+    }
+
+    #[test]
+    fn s1763_requires_both_if_branches_to_jump_before_dead_code() {
+        let both = js_keys(
+            "function j(c) {\n  if (c) { return 1; } else { return 2; }\n  console.log(3);\n}\n",
+        );
+        assert_eq!(count_key(&both, "javascript:S1763"), 1);
+
+        let one_sided = js_keys("function k(c) {\n  if (c) { return 1; }\n  console.log(2);\n}\n");
+        assert_eq!(count_key(&one_sided, "javascript:S1763"), 0);
+    }
+}

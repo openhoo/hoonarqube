@@ -69,3 +69,29 @@ pub(crate) fn has_unnecessary_escape(raw: &str) -> bool {
             && !meaningful.contains(&(window[1] as u8))
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s1313_flags_hardcoded_ipv4_literals() {
+        let findings = js_keys("let a = \"192.168.0.1\";\nlet b = '10.0.0.1';\n");
+        assert_eq!(count_key(&findings, "javascript:S1313"), 2);
+    }
+
+    #[test]
+    fn s1313_allows_hostnames_and_invalid_octets() {
+        let findings = js_keys(
+            "let h = \"example.com\";\nlet big = \"300.1.1.1\";\nlet lead = \"01.2.3.4\";\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S1313"), 0);
+    }
+
+    #[test]
+    fn s3786_and_s6535_flag_interpolation_lookalike_and_needless_escape() {
+        let findings = js_keys("let s = \"${x}\\a\";\n");
+        assert_eq!(count_key(&findings, "javascript:S3786"), 1);
+        assert_eq!(count_key(&findings, "javascript:S6535"), 1);
+    }
+}

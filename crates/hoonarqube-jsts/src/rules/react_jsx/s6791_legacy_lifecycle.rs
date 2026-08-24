@@ -30,3 +30,26 @@ pub(crate) const LEGACY_LIFECYCLE_METHODS: [&str; 3] = [
     "componentWillReceiveProps",
     "componentWillUpdate",
 ];
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6791_flags_legacy_component_will_mount() {
+        let findings = js_keys("class A extends B {\n  componentWillMount() {}\n}\n");
+        assert_eq!(count_key(&findings, "javascript:S6791"), 1);
+    }
+
+    #[test]
+    fn s6791_allows_unsafe_prefixed_variant() {
+        let findings = js_keys("class A extends B {\n  UNSAFE_componentWillMount() {}\n}\n");
+        assert_eq!(count_key(&findings, "javascript:S6791"), 0);
+    }
+
+    #[test]
+    fn s6791_flags_legacy_component_will_receive_props() {
+        let findings = js_keys("class A {\n  componentWillReceiveProps() {}\n}\n");
+        assert_eq!(count_key(&findings, "javascript:S6791"), 1);
+    }
+}

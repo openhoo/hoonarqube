@@ -20,3 +20,29 @@ impl A11yCollector<'_> {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s1090_flags_iframes_missing_title() {
+        let bare = jsx_keys("const el = <iframe src=\"https://example.com\"/>;\n");
+        assert_eq!(count_key(&bare, "javascript:S1090"), 1);
+    }
+
+    #[test]
+    fn s1090_accepts_titled_iframes_even_with_empty_title() {
+        let titled = jsx_keys("const el = <iframe src=\"https://example.com\" title=\"Map\"/>;\n");
+        assert_eq!(count_key(&titled, "javascript:S1090"), 0);
+
+        let empty_title = jsx_keys("const el = <iframe title=\"\"/>;\n");
+        assert_eq!(count_key(&empty_title, "javascript:S1090"), 0);
+    }
+
+    #[test]
+    fn s1090_skips_iframes_with_spread_attributes() {
+        let spread = jsx_keys("const el = <iframe {...props}/>;\n");
+        assert_eq!(count_key(&spread, "javascript:S1090"), 0);
+    }
+}

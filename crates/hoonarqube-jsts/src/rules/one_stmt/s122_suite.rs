@@ -121,3 +121,26 @@ pub(crate) fn check_nested_bodies(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s122_flags_extra_statements_sharing_one_line() {
+        let findings = js_keys("let a = 1; let b = 2; let c = 3;\n");
+        assert_eq!(count_key(&findings, "javascript:S122"), 2);
+    }
+
+    #[test]
+    fn s122_allows_one_statement_per_line() {
+        let findings = js_keys("let a = 1;\nlet b = 2;\n");
+        assert_eq!(count_key(&findings, "javascript:S122"), 0);
+    }
+
+    #[test]
+    fn s122_counts_each_additional_expression_statement() {
+        let findings = js_keys("f(); g(); h(); i();\n");
+        assert_eq!(count_key(&findings, "javascript:S122"), 3);
+    }
+}

@@ -52,4 +52,23 @@ mod tests {
             js_keys("const obj = {\n  get count() {\n    return this.n;\n  }\n};\n");
         assert_eq!(count_key(&object_unpaired, "javascript:S2376"), 1);
     }
+
+    #[test]
+    fn s2376_spares_paired_object_accessors_and_lone_setters() {
+        let object_paired = js_keys(
+            "const obj = {\n  get count() {\n    return this.n;\n  },\n  set count(next) {},\n};\n",
+        );
+        assert_eq!(count_key(&object_paired, "javascript:S2376"), 0);
+
+        let setter_only = js_keys("class A {\n  set value(next) {}\n}\n");
+        assert_eq!(count_key(&setter_only, "javascript:S2376"), 0);
+    }
+
+    #[test]
+    fn s2376_flags_each_unpaired_getter_separately() {
+        let mixed = js_keys(
+            "class A {\n  get a() {\n    return 1;\n  }\n  set a(v) {}\n  get b() {\n    return 2;\n  }\n  get c() {\n    return 3;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&mixed, "javascript:S2376"), 2);
+    }
 }

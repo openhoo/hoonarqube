@@ -38,3 +38,33 @@ pub(crate) fn check_trailing_whitespace(source: &str, language: JstsLanguage) ->
 pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
     check_trailing_whitespace(ctx.source, ctx.language)
 }
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn trailing_whitespace_span_covers_only_padding() {
+        let report = js("render(chart);   \n");
+        assert_eq!(
+            report.issues,
+            vec![issue(
+                "javascript:S1131",
+                "Remove all trailing whitespaces.",
+                (1, 14),
+                (1, 17),
+            )]
+        );
+    }
+
+    #[test]
+    fn crlf_trailing_whitespace_strips_carriage_return() {
+        let findings = js_keys("let b = 2; \r\n");
+        assert_eq!(count_key(&findings, "javascript:S1131"), 1);
+    }
+
+    #[test]
+    fn clean_and_blank_lines_are_allowed() {
+        let findings = js_keys("let a = 1;\n\nlet b = 2;\n");
+        assert_eq!(count_key(&findings, "javascript:S1131"), 0);
+    }
+}

@@ -39,3 +39,27 @@ pub(crate) fn check_index_of_comparisons(sink: &mut IssueSink, it: &BinaryExpres
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s2692_flags_indexof_greater_than_zero() {
+        let findings = js_keys("if (s.indexOf(x) > 0) {}\n");
+        assert_eq!(count_key(&findings, "javascript:S2692"), 1);
+    }
+
+    #[test]
+    fn s2692_allows_gte_zero_and_nonzero_bounds() {
+        let findings = js_keys("if (s.indexOf(x) >= 0) {}\nif (s.indexOf(x) > 1) {}\n");
+        assert_eq!(count_key(&findings, "javascript:S2692"), 0);
+    }
+
+    #[test]
+    fn s6557_flags_equality_with_zero_for_index_and_lastindexof() {
+        let findings = js_keys("if (s.indexOf(x) === 0) {}\nif (s.lastIndexOf(y) == 0) {}\n");
+        assert_eq!(count_key(&findings, "javascript:S6557"), 2);
+        assert_eq!(count_key(&findings, "javascript:S2692"), 0);
+    }
+}

@@ -75,3 +75,38 @@ pub(crate) const BOOLEAN_ARIA_PROPERTIES: [&str; 13] = [
     "aria-readonly",
     "aria-selected",
 ];
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6793_flags_bad_tokens_and_negative_numerics() {
+        let bad_popup = jsx_keys("const el = <div aria-haspopup=\"list\"/>;\n");
+        assert_eq!(count_key(&bad_popup, "javascript:S6793"), 1);
+
+        let negative = jsx_keys("const el = <div aria-posinset=\"-2\"/>;\n");
+        assert_eq!(count_key(&negative, "javascript:S6793"), 1);
+    }
+
+    #[test]
+    fn s6793_rejects_mixed_on_strictly_boolean_properties() {
+        let mixed = jsx_keys("const el = <div role=\"checkbox\" aria-checked=\"mixed\"/>;\n");
+        assert_eq!(count_key(&mixed, "javascript:S6793"), 1);
+
+        let boolean_ok = jsx_keys("const el = <div role=\"checkbox\" aria-checked=\"true\"/>;\n");
+        assert_eq!(count_key(&boolean_ok, "javascript:S6793"), 0);
+    }
+
+    #[test]
+    fn s6793_accepts_valid_tokens_and_skips_dynamic_values() {
+        let current = jsx_keys("const el = <a href=\"/docs\" aria-current=\"date\">docs</a>;\n");
+        assert_eq!(count_key(&current, "javascript:S6793"), 0);
+
+        let sort = jsx_keys("const el = <table aria-sort=\"descending\"/>;\n");
+        assert_eq!(count_key(&sort, "javascript:S6793"), 0);
+
+        let dynamic = jsx_keys("let v = 'list';\nconst el = <div aria-haspopup={v}/>;\n");
+        assert_eq!(count_key(&dynamic, "javascript:S6793"), 0);
+    }
+}

@@ -53,3 +53,32 @@ pub(crate) fn argument_expression<'r, 'a>(
 ) -> Option<&'r Expression<'a>> {
     argument.as_expression()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s1528_flags_array_wrapper_object_and_primitive_constructors() {
+        let findings =
+            js_keys("new Array(1, 2);\nnew String(\"x\");\nnew Object();\nnew Symbol();\n");
+        assert_eq!(count_key(&findings, "javascript:S1528"), 1);
+        assert_eq!(count_key(&findings, "javascript:S1533"), 1);
+        assert_eq!(count_key(&findings, "javascript:S2428"), 1);
+        assert_eq!(count_key(&findings, "javascript:S3834"), 1);
+    }
+
+    #[test]
+    fn s1528_allows_length_constructor_and_user_classes() {
+        let findings = js_keys("new Array(3);\nnew Foo();\n[];\n");
+        assert_eq!(count_key(&findings, "javascript:S1528"), 0);
+        assert_eq!(count_key(&findings, "javascript:S1533"), 0);
+    }
+
+    #[test]
+    fn s1528_empty_array_and_bigint_constructor_still_flagged() {
+        let findings = js_keys("new Array();\nnew BigInt(1);\n");
+        assert_eq!(count_key(&findings, "javascript:S1528"), 1);
+        assert_eq!(count_key(&findings, "javascript:S3834"), 1);
+    }
+}

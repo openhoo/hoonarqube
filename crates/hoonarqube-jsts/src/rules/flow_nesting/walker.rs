@@ -398,4 +398,73 @@ function loopJump() {
             0
         );
     }
+
+    #[test]
+    fn s107_flags_eighth_method_parameter() {
+        assert_eq!(
+            count_key(
+                &js_keys("class A {\n  m(a, b, c, d, e, g, h) { return a; }\n}\n"),
+                "javascript:S107"
+            ),
+            0
+        );
+        assert_eq!(
+            count_key(
+                &js_keys("class A {\n  m(a, b, c, d, e, g, h, i) { return a; }\n}\n"),
+                "javascript:S107"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn s134_flags_every_construct_beyond_maximum_depth() {
+        // The fourth and fifth nested `if` both exceed the maximum.
+        assert_eq!(
+            count_key(
+                &js_keys("if (a) { if (b) { if (c) { if (d) { if (e) { f(); } } } } }\n"),
+                "javascript:S134"
+            ),
+            2
+        );
+        // Mixed construct kinds nest too: `catch`, `if`, and `while` all
+        // sit deeper than three enclosing constructs.
+        assert_eq!(
+            count_key(
+                &js_keys(
+                    "for (const x of a) { for (const y in b) { try { c(); } catch (e) { if (d) { while (f) { g(); } } } } }\n"
+                ),
+                "javascript:S134"
+            ),
+            3
+        );
+    }
+
+    #[test]
+    fn s134_static_block_resets_depth_like_functions() {
+        // Without the static-block reset, `if (c)` would already sit at
+        // depth four; with it, only the fourth inner `if` is flagged.
+        assert_eq!(
+            count_key(
+                &js_keys(
+                    "if (a) { if (b) { class A { static { if (c) { if (d) { if (e) { if (g) { h(); } } } } } } } }\n"
+                ),
+                "javascript:S134"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn s1143_flags_labeled_break_in_finally() {
+        assert_eq!(
+            count_key(
+                &js_keys(
+                    "outer: while (a) {\n  try {\n    b();\n  } finally {\n    break outer;\n  }\n}\n"
+                ),
+                "javascript:S1143"
+            ),
+            1
+        );
+    }
 }

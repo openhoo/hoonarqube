@@ -103,3 +103,51 @@ pub(crate) fn module_export_name_is(name: &ModuleExportName<'_>, expected: &str)
         ModuleExportName::StringLiteral(literal) => literal.value == expected,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6750_flags_consumed_render_return_value() {
+        let findings = jsx_keys("const el = ReactDOM.render(<span></span>, node);\n");
+        assert_eq!(count_key(&findings, "javascript:S6750"), 1);
+    }
+
+    #[test]
+    fn s6750_allows_statement_render_but_still_reports_s6957() {
+        let findings = jsx_keys("ReactDOM.render(<span></span>, node);\n");
+        assert_eq!(count_key(&findings, "javascript:S6750"), 0);
+        assert_eq!(count_key(&findings, "javascript:S6957"), 1);
+    }
+
+    #[test]
+    fn s6788_flags_find_dom_node_call() {
+        let findings = js_keys("ReactDOM.findDOMNode(this).focus();\n");
+        assert_eq!(count_key(&findings, "javascript:S6788"), 1);
+    }
+
+    #[test]
+    fn s6789_flags_this_is_mounted_probe() {
+        let findings = js_keys("if (this.isMounted()) {\n  done();\n}\n");
+        assert_eq!(count_key(&findings, "javascript:S6789"), 1);
+    }
+
+    #[test]
+    fn s6789_allows_is_mounted_on_other_object() {
+        let findings = js_keys("if (widget.isMounted()) {\n  done();\n}\n");
+        assert_eq!(count_key(&findings, "javascript:S6789"), 0);
+    }
+
+    #[test]
+    fn s6957_flags_prop_types_import() {
+        let findings = js_keys("import PropTypes from 'prop-types';\n");
+        assert_eq!(count_key(&findings, "javascript:S6957"), 1);
+    }
+
+    #[test]
+    fn s6957_allows_current_react_api() {
+        let findings = js_keys("import React from 'react';\nconst x = React.createElement('div');\n");
+        assert_eq!(count_key(&findings, "javascript:S6957"), 0);
+    }
+}

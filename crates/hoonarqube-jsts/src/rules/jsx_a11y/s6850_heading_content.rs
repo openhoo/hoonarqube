@@ -31,3 +31,35 @@ impl A11yCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6850_flags_headings_without_text_or_labels() {
+        let bare = jsx_keys("const el = <h2/>;\n");
+        assert_eq!(count_key(&bare, "javascript:S6850"), 1);
+
+        let icon_only = jsx_keys("const el = <h4><span/></h4>;\n");
+        assert_eq!(count_key(&icon_only, "javascript:S6850"), 1);
+    }
+
+    #[test]
+    fn s6850_accepts_text_and_labelled_headings() {
+        let textual = jsx_keys("const el = <h1>Release notes</h1>;\n");
+        assert_eq!(count_key(&textual, "javascript:S6850"), 0);
+
+        let labelled_by = jsx_keys("const el = <h3 aria-labelledby=\"section-title\"/>;\n");
+        assert_eq!(count_key(&labelled_by, "javascript:S6850"), 0);
+
+        let titled = jsx_keys("const el = <h6 title=\"Footer\"/>;\n");
+        assert_eq!(count_key(&titled, "javascript:S6850"), 0);
+    }
+
+    #[test]
+    fn s6850_ignores_non_heading_elements() {
+        let paragraph = jsx_keys("const el = <p/>;\n");
+        assert_eq!(count_key(&paragraph, "javascript:S6850"), 0);
+    }
+}

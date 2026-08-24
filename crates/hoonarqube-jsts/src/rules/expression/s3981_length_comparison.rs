@@ -34,3 +34,28 @@ pub(crate) fn check_length_comparison(sink: &mut IssueSink, it: &BinaryExpressio
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s3981_flags_always_false_length_comparison() {
+        let findings = js_keys("if (list.length < 0) {}\n");
+        assert_eq!(count_key(&findings, "javascript:S3981"), 1);
+    }
+
+    #[test]
+    fn s3981_allows_meaningful_length_bounds() {
+        let findings = js_keys(
+            "if (list.length > 0) {}\nif (list.length === 1) {}\nif (list.length !== 0) {}\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S3981"), 0);
+    }
+
+    #[test]
+    fn s3981_operand_order_does_not_matter() {
+        let findings = js_keys("if (0 === list.length) {}\n");
+        assert_eq!(count_key(&findings, "javascript:S3981"), 1);
+    }
+}

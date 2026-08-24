@@ -327,4 +327,58 @@ mod tests {
         );
         assert_eq!(count_key(&sibling, "javascript:S1821"), 0);
     }
+    #[test]
+    fn s126_nested_if_is_not_a_chain() {
+        let nested = js_keys("if (a) {\n  if (b) {\n    f();\n  }\n}\n");
+        assert_eq!(count_key(&nested, "javascript:S126"), 0);
+    }
+
+    #[test]
+    fn s128_return_and_throw_terminate_cases() {
+        let via_return =
+            js_keys("function f(x) {\n  switch (x) {\n    case 1:\n      return g();\n  }\n}\n");
+        assert_eq!(count_key(&via_return, "javascript:S128"), 0);
+
+        let via_throw = js_keys(
+            "function f(x) {\n  switch (x) {\n    case 1:\n      throw new Error('bad');\n  }\n}\n",
+        );
+        assert_eq!(count_key(&via_throw, "javascript:S128"), 0);
+    }
+
+    #[test]
+    fn s131_default_only_switch_passes_and_stays_last() {
+        let default_only = js_keys("switch (x) {\n  default:\n    break;\n}\n");
+        assert_eq!(count_key(&default_only, "javascript:S131"), 0);
+        assert_eq!(count_key(&default_only, "javascript:S4524"), 0);
+    }
+
+    #[test]
+    fn s3616_bitwise_and_case_test_passes() {
+        let bitwise = js_keys("switch (x) {\n  case a & b:\n    break;\n}\n");
+        assert_eq!(count_key(&bitwise, "javascript:S3616"), 0);
+    }
+
+    #[test]
+    fn s4524_default_between_cases_still_flags() {
+        let middle = js_keys(
+            "switch (x) {\n  case 1:\n    break;\n  default:\n    break;\n  case 2:\n    break;\n}\n",
+        );
+        assert_eq!(count_key(&middle, "javascript:S4524"), 1);
+    }
+
+    #[test]
+    fn s1301_two_cases_without_default_remain_convertible() {
+        let no_default = js_keys(
+            "switch (x) {\n  case 1:\n    f();\n    break;\n  case 2:\n    g();\n    break;\n}\n",
+        );
+        assert_eq!(count_key(&no_default, "javascript:S1301"), 1);
+    }
+
+    #[test]
+    fn s1821_deeply_nested_switches_flag_per_level() {
+        let deep = js_keys(
+            "switch (x) {\n  case 1:\n    switch (y) {\n      case 2:\n        switch (z) {\n          case 3:\n            break;\n        }\n        break;\n    }\n    break;\n}\n",
+        );
+        assert_eq!(count_key(&deep, "javascript:S1821"), 2);
+    }
 }

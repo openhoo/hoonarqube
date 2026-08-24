@@ -68,3 +68,35 @@ pub(crate) const AUTOCOMPLETE_GENERAL_TOKENS: [&str; 14] = [
     "street-address",
     "username",
 ];
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6840_flags_scoped_tokens_on_mismatched_input_types() {
+        let tel_mismatch = jsx_keys("const el = <input type=\"tel\" autoComplete=\"email\"/>;\n");
+        assert_eq!(count_key(&tel_mismatch, "javascript:S6840"), 1);
+    }
+
+    #[test]
+    fn s6840_accepts_matching_scopes_and_lowercase_spelling() {
+        let url_match = jsx_keys("const el = <input type=\"url\" autocomplete=\"url\"/>;\n");
+        assert_eq!(count_key(&url_match, "javascript:S6840"), 0);
+
+        let general_token = jsx_keys("const el = <select autoComplete=\"country-name\"/>;\n");
+        assert_eq!(count_key(&general_token, "javascript:S6840"), 0);
+    }
+
+    #[test]
+    fn s6840_skips_spreads_dynamic_values_and_other_tags() {
+        let spread = jsx_keys("const el = <input {...rest} autoComplete=\"banana\"/>;\n");
+        assert_eq!(count_key(&spread, "javascript:S6840"), 0);
+
+        let dynamic = jsx_keys("let v = 'email';\nconst el = <input autoComplete={v}/>;\n");
+        assert_eq!(count_key(&dynamic, "javascript:S6840"), 0);
+
+        let other_tag = jsx_keys("const el = <div autoComplete=\"banana\"/>;\n");
+        assert_eq!(count_key(&other_tag, "javascript:S6840"), 0);
+    }
+}

@@ -27,3 +27,26 @@ impl ReactCollector<'_> {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6440_flags_hook_under_condition() {
+        let findings = js_keys("function C() {\n  if (ready) {\n    useState();\n  }\n}\n");
+        assert_eq!(count_key(&findings, "javascript:S6440"), 1);
+    }
+
+    #[test]
+    fn s6440_allows_top_level_hook() {
+        let findings = js_keys("function Component() {\n  const [v] = useState(0);\n}\n");
+        assert_eq!(count_key(&findings, "javascript:S6440"), 0);
+    }
+
+    #[test]
+    fn s6440_ignores_non_hook_use_prefix_callee() {
+        let findings = js_keys("function C() {\n  if (ready) {\n    user();\n  }\n}\n");
+        assert_eq!(count_key(&findings, "javascript:S6440"), 0);
+    }
+}

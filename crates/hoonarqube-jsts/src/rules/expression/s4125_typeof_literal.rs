@@ -46,3 +46,29 @@ pub(crate) const TYPEOF_VALUES: [&str; 8] = [
     "bigint",
     "function",
 ];
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s4125_flags_typeof_comparison_outside_typeof_set() {
+        let findings = js_keys("typeof x === \"strng\";\n\"num\" === typeof y;\n");
+        assert_eq!(count_key(&findings, "javascript:S4125"), 2);
+    }
+
+    #[test]
+    fn s4125_allows_real_typeof_results() {
+        let findings = js_keys("typeof x === \"string\";\ntypeof y === \"undefined\";\n");
+        assert_eq!(count_key(&findings, "javascript:S4125"), 0);
+    }
+
+    #[test]
+    fn s4125_js_only_scope_suppresses_typescript_and_is_case_sensitive() {
+        let ts_findings = ts_keys("typeof x === \"strng\";\n");
+        assert_eq!(count_key(&ts_findings, "typescript:S4125"), 0);
+
+        let cased = js_keys("typeof x === \"Strng\";\n");
+        assert_eq!(count_key(&cased, "javascript:S4125"), 1);
+    }
+}

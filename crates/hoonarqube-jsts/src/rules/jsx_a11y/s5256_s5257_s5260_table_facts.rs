@@ -42,3 +42,48 @@ impl A11yCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s5256_and_s5257_flag_plain_layout_tables_together() {
+        let plain = jsx_keys("const el = <table><tr><td>x</td></tr></table>;\n");
+        assert_eq!(count_key(&plain, "javascript:S5256"), 1);
+        assert_eq!(count_key(&plain, "javascript:S5257"), 1);
+    }
+
+    #[test]
+    fn s5256_still_requires_headers_when_presentation_or_captioned() {
+        let presentation =
+            jsx_keys("const el = <table role=\"presentation\"><tr><td>x</td></tr></table>;\n");
+        assert_eq!(count_key(&presentation, "javascript:S5256"), 1);
+        assert_eq!(count_key(&presentation, "javascript:S5257"), 0);
+
+        let captioned =
+            jsx_keys("const el = <table><caption>t</caption><tr><td>x</td></tr></table>;\n");
+        assert_eq!(count_key(&captioned, "javascript:S5257"), 0);
+    }
+
+    #[test]
+    fn s5256_accepts_thead_sections() {
+        let thead = jsx_keys(
+            "const el = <table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>x</td></tr></tbody></table>;\n",
+        );
+        assert_eq!(count_key(&thead, "javascript:S5256"), 0);
+        assert_eq!(count_key(&thead, "javascript:S5257"), 0);
+    }
+
+    #[test]
+    fn s5260_flags_each_dangling_token_in_a_reference() {
+        let dangling = jsx_keys(
+            "const el = <table><tr><th id=\"a\"/><td headers=\"a missing\"/></tr></table>;\n",
+        );
+        assert_eq!(count_key(&dangling, "javascript:S5260"), 1);
+
+        let resolved =
+            jsx_keys("const el = <table><tr><th id=\"a\"/><td headers=\"a\"/></tr></table>;\n");
+        assert_eq!(count_key(&resolved, "javascript:S5260"), 0);
+    }
+}

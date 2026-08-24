@@ -49,3 +49,33 @@ pub(crate) const ROLE_REQUIRED_CHILDREN: &[(&str, &[&str])] = &[
     ("tablist", &["tab"]),
     ("tree", &["treeitem"]),
 ];
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6807_flags_treeless_trees_and_tabless_tablists() {
+        let tree = jsx_keys("const el = <ul role=\"tree\"/>;\n");
+        assert_eq!(count_key(&tree, "javascript:S6807"), 1);
+
+        let tablist = jsx_keys("const el = <div role=\"tablist\"/>;\n");
+        assert_eq!(count_key(&tablist, "javascript:S6807"), 1);
+    }
+
+    #[test]
+    fn s6807_accepts_menus_with_owned_menuitems() {
+        let menu =
+            jsx_keys("const el = <div role=\"menu\"><div role=\"menuitem\">Open</div></div>;\n");
+        assert_eq!(count_key(&menu, "javascript:S6807"), 0);
+
+        let implicit_listitem = jsx_keys("const el = <div role=\"list\"><li>Item</li></div>;\n");
+        assert_eq!(count_key(&implicit_listitem, "javascript:S6807"), 0);
+    }
+
+    #[test]
+    fn s6807_ignores_roles_without_required_children() {
+        let note = jsx_keys("const el = <div role=\"note\">text</div>;\n");
+        assert_eq!(count_key(&note, "javascript:S6807"), 0);
+    }
+}

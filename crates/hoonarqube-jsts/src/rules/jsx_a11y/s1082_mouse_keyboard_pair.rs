@@ -22,3 +22,32 @@ impl A11yCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s1082_flags_mouse_out_handler_without_blur_counterpart() {
+        let alone = jsx_keys("const el = <div onMouseOut={leave}/>;\n");
+        assert_eq!(count_key(&alone, "javascript:S1082"), 1);
+    }
+
+    #[test]
+    fn s1082_reports_only_the_unpaired_mouse_handler() {
+        let half_paired =
+            jsx_keys("const el = <div onMouseOver={show} onMouseOut={leave} onFocus={focus}/>;\n");
+        assert_eq!(count_key(&half_paired, "javascript:S1082"), 1);
+    }
+
+    #[test]
+    fn s1082_accepts_fully_paired_and_spread_elements() {
+        let paired = jsx_keys(
+            "const el = <div onMouseOver={show} onFocus={focus} onMouseOut={leave} onBlur={hide}/>;\n",
+        );
+        assert_eq!(count_key(&paired, "javascript:S1082"), 0);
+
+        let spread = jsx_keys("const el = <div {...handlers} onMouseOver={show}/>;\n");
+        assert_eq!(count_key(&spread, "javascript:S1082"), 0);
+    }
+}

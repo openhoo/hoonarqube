@@ -37,3 +37,26 @@ pub(crate) fn jsx_has_spread_attribute(opening: &JSXOpeningElement<'_>) -> bool 
         .iter()
         .any(|item| matches!(item, JSXAttributeItem::SpreadAttribute(_)))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6477_flags_keyless_map_root_element() {
+        let findings = jsx_keys("items.map((item, index) => <li></li>);\n");
+        assert_eq!(count_key(&findings, "javascript:S6477"), 1);
+    }
+
+    #[test]
+    fn s6477_allows_root_element_with_key() {
+        let findings = jsx_keys("items.map((item, index) => <li key={item.id}></li>);\n");
+        assert_eq!(count_key(&findings, "javascript:S6477"), 0);
+    }
+
+    #[test]
+    fn s6477_ignores_callback_without_index_parameter() {
+        let findings = jsx_keys("items.map((item) => <li></li>);\n");
+        assert_eq!(count_key(&findings, "javascript:S6477"), 0);
+    }
+}

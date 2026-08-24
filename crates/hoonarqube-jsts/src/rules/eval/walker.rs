@@ -77,4 +77,21 @@ mod tests {
         assert_eq!(typescript.issues[0].rule_key, "typescript:S1523");
         assert_eq!(typescript.language, "typescript");
     }
+    #[test]
+    fn s1523_flags_function_constructor_and_clean_code_passes() {
+        let function_ctor = js_keys("new Function('return 1');\n");
+        assert_eq!(count_key(&function_ctor, "javascript:S1523"), 1);
+
+        let clean = js_keys("compute('x');\nconst made = new Maker();\n");
+        assert_eq!(count_key(&clean, "javascript:S1523"), 0);
+    }
+
+    #[test]
+    fn s1523_member_callee_is_not_flagged_but_nested_direct_eval_is() {
+        let member = js_keys("window.eval('x');\nnew window.Function('return 1');\n");
+        assert_eq!(count_key(&member, "javascript:S1523"), 0);
+
+        let nested_direct = js_keys("setTimeout(() => eval('x'), 0);\n");
+        assert_eq!(count_key(&nested_direct, "javascript:S1523"), 1);
+    }
 }

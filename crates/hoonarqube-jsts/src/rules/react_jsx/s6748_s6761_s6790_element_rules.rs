@@ -83,3 +83,48 @@ impl ReactCollector<'_> {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6748_flags_children_prop_with_nested_children() {
+        let findings = jsx_keys("const el = <div children={x}>text</div>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6748"), 1);
+    }
+
+    #[test]
+    fn s6748_allows_children_prop_without_nested_children() {
+        let findings = jsx_keys("const el = <div children={x}></div>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6748"), 0);
+    }
+
+    #[test]
+    fn s6761_flags_children_with_dangerously_set_inner_html() {
+        let findings = jsx_keys(
+            "const el = <div children={x} dangerouslySetInnerHTML={{__html: 'y'}}></div>;\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S6761"), 1);
+    }
+
+    #[test]
+    fn s6761_allows_raw_html_without_children_prop() {
+        let findings = jsx_keys("const el = <div dangerouslySetInnerHTML={{__html: 'y'}}></div>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6761"), 0);
+    }
+
+    #[test]
+    fn s6790_flags_string_ref_attribute() {
+        let findings = jsx_keys("const el = <input ref=\"name\"></input>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6790"), 1);
+    }
+
+    #[test]
+    fn s6790_allows_callback_ref_and_flags_this_refs_read() {
+        let callback = jsx_keys("const el = <input ref={(node) => save(node)}></input>;\n");
+        assert_eq!(count_key(&callback, "javascript:S6790"), 0);
+        let refs_read = js_keys("this.refs.name.focus();\n");
+        assert_eq!(count_key(&refs_read, "javascript:S6790"), 1);
+    }
+}

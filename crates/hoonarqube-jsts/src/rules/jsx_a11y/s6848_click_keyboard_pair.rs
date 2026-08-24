@@ -40,3 +40,36 @@ impl A11yCollector<'_> {
 
 /// Keyboard handlers that pair with `onClick` for `S6848`.
 pub(crate) const KEYBOARD_HANDLERS: [&str; 3] = ["onKeyDown", "onKeyPress", "onKeyUp"];
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6848_flags_click_without_keyboard_on_list_items() {
+        let click_only = jsx_keys("const el = <li onClick={select}>One</li>;\n");
+        assert_eq!(count_key(&click_only, "javascript:S6848"), 1);
+    }
+
+    #[test]
+    fn s6848_accepts_alternate_keyboard_counterparts() {
+        let key_press = jsx_keys("const el = <li onClick={select} onKeyPress={k}>One</li>;\n");
+        assert_eq!(count_key(&key_press, "javascript:S6848"), 0);
+
+        let key_up = jsx_keys("const el = <li onClick={select} onKeyUp={k}>One</li>;\n");
+        assert_eq!(count_key(&key_up, "javascript:S6848"), 0);
+    }
+
+    #[test]
+    fn s6848_skips_interactive_elements_and_spreads() {
+        let input_field = jsx_keys("const el = <input type=\"text\" onClick={f}/>;\n");
+        assert_eq!(count_key(&input_field, "javascript:S6848"), 0);
+
+        let interactive_role =
+            jsx_keys("const el = <div role=\"menuitem\" onClick={f}>Open</div>;\n");
+        assert_eq!(count_key(&interactive_role, "javascript:S6848"), 0);
+
+        let spread = jsx_keys("const el = <div {...rest} onClick={f}/>;\n");
+        assert_eq!(count_key(&spread, "javascript:S6848"), 0);
+    }
+}

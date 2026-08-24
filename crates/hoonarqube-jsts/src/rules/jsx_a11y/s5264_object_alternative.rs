@@ -32,3 +32,39 @@ impl A11yCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s5264_flags_objects_without_text_alternatives() {
+        let bare = jsx_keys("const el = <object data=\"x.swf\"/>;\n");
+        assert_eq!(count_key(&bare, "javascript:S5264"), 1);
+
+        let empty = jsx_keys("const el = <object data=\"x.swf\"><span/></object>;\n");
+        assert_eq!(count_key(&empty, "javascript:S5264"), 1);
+    }
+
+    #[test]
+    fn s5264_accepts_fallback_text_and_labels() {
+        let fallback = jsx_keys("const el = <object data=\"x.swf\">fallback</object>;\n");
+        assert_eq!(count_key(&fallback, "javascript:S5264"), 0);
+
+        let titled = jsx_keys("const el = <object data=\"x.swf\" title=\"movie\"/>;\n");
+        assert_eq!(count_key(&titled, "javascript:S5264"), 0);
+
+        let labelled_by =
+            jsx_keys("const el = <object data=\"x.swf\" aria-labelledby=\"obj-label\"/>;\n");
+        assert_eq!(count_key(&labelled_by, "javascript:S5264"), 0);
+    }
+
+    #[test]
+    fn s5264_skips_spread_elements_and_other_tags() {
+        let spread = jsx_keys("const el = <object {...props}/>;\n");
+        assert_eq!(count_key(&spread, "javascript:S5264"), 0);
+
+        let other_tag = jsx_keys("const el = <embed src=\"x.swf\"/>;\n");
+        assert_eq!(count_key(&other_tag, "javascript:S5264"), 0);
+    }
+}

@@ -28,3 +28,35 @@ impl A11yCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s5254_flags_html_elements_with_missing_or_invalid_lang() {
+        let missing = jsx_keys("const el = <html><body/></html>;\n");
+        assert_eq!(count_key(&missing, "javascript:S5254"), 1);
+
+        let invalid = jsx_keys("const el = <html lang=\"english!\"><body/></html>;\n");
+        assert_eq!(count_key(&invalid, "javascript:S5254"), 1);
+    }
+
+    #[test]
+    fn s5254_accepts_valid_language_tags() {
+        let region = jsx_keys("const el = <html lang=\"de-DE\"><body/></html>;\n");
+        assert_eq!(count_key(&region, "javascript:S5254"), 0);
+
+        let base = jsx_keys("const el = <html lang=\"fr\"><body/></html>;\n");
+        assert_eq!(count_key(&base, "javascript:S5254"), 0);
+    }
+
+    #[test]
+    fn s5254_skips_spread_html_and_other_tags() {
+        let spread = jsx_keys("const el = <html {...props}><body/></html>;\n");
+        assert_eq!(count_key(&spread, "javascript:S5254"), 0);
+
+        let other_tag = jsx_keys("const el = <div lang=\"e\"/>;\n");
+        assert_eq!(count_key(&other_tag, "javascript:S5254"), 0);
+    }
+}

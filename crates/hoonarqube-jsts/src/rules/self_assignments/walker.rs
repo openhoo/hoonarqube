@@ -78,4 +78,14 @@ b = c;
             .collect();
         assert_eq!(s1656_lines, vec![1, 2]);
     }
+
+    #[test]
+    fn s1656_matches_computed_member_text_and_skips_compound_ops() {
+        // Computed members are not plain names but identical text matches.
+        assert_eq!(count_key(&js_keys("a[i] = a[i];\n"), "javascript:S1656"), 1);
+        // Compound assignment operators are not self-assignments.
+        assert_eq!(count_key(&js_keys("a += a;\n"), "javascript:S1656"), 0);
+        // Only the inner link of an assignment chain self-assigns.
+        assert_eq!(count_key(&js_keys("a = b = b;\n"), "javascript:S1656"), 1);
+    }
 }

@@ -210,3 +210,32 @@ pub(crate) const HTML_TAG_ALLOWLIST: &[&str] = &[
     "view",
     "wbr",
 ];
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6770_flags_lowercase_unknown_tag() {
+        let findings = jsx_keys("const el = <widget></widget>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6770"), 1);
+    }
+
+    #[test]
+    fn s6770_allows_known_intrinsic_tag() {
+        let findings = jsx_keys("const el = <div></div>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6770"), 0);
+    }
+
+    #[test]
+    fn s6770_allows_custom_element_with_dash() {
+        let findings = jsx_keys("const el = <my-widget></my-widget>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6770"), 0);
+    }
+
+    #[test]
+    fn s6770_allows_capitalized_component_tag() {
+        let findings = jsx_keys("const el = <Widget></Widget>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6770"), 0);
+    }
+}

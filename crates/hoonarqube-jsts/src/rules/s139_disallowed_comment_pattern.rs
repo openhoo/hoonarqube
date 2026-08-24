@@ -57,4 +57,22 @@ mod tests {
         let own_line = js_keys("// hack\nlet x = 1;\n");
         assert_eq!(count_key(&own_line, "javascript:S139"), 0);
     }
+    #[test]
+    fn custom_pattern_applies_to_inline_comments_only() {
+        let rules = RuleOptions {
+            comment_pattern: "TODO".to_string(),
+            ..RuleOptions::default()
+        };
+        let inline = keys_with_rules("let a = 1; // TODO reconsider\n", &rules);
+        assert_eq!(count_key(&inline, "javascript:S139"), 1);
+
+        let own_line = keys_with_rules("// TODO reconsider\nlet a = 1;\n", &rules);
+        assert_eq!(count_key(&own_line, "javascript:S139"), 0);
+    }
+
+    #[test]
+    fn whitespace_only_inline_comment_is_allowed_by_default_pattern() {
+        let findings = js_keys("let a = 1; //   \n");
+        assert_eq!(count_key(&findings, "javascript:S139"), 0);
+    }
 }

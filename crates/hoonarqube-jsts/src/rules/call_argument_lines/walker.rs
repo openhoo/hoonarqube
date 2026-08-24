@@ -75,4 +75,26 @@ mod tests {
 
         assert_eq!(count_key(&js_keys("foo(bar);\n"), "javascript:S1472"), 0);
     }
+
+    #[test]
+    fn s1472_ignores_spread_first_arguments_and_empty_calls() {
+        assert_eq!(
+            count_key(&js_keys("foo(\n  ...args);\n"), "javascript:S1472"),
+            0
+        );
+        assert_eq!(count_key(&js_keys("foo();\n"), "javascript:S1472"), 0);
+    }
+
+    #[test]
+    fn s1472_flags_each_call_with_first_argument_on_next_line() {
+        // Only the inner call's first argument starts on a later line.
+        assert_eq!(
+            count_key(&js_keys("outer(inner(\n  1));\n"), "javascript:S1472"),
+            1
+        );
+        assert_eq!(
+            count_key(&js_keys("foo(\n  a,\n  b);\n"), "javascript:S1472"),
+            1
+        );
+    }
 }

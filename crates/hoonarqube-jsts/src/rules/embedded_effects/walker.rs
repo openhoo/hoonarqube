@@ -210,4 +210,33 @@ m = n = 1;
             ]
         );
     }
+
+    #[test]
+    fn s905_flags_pointless_expression_statements() {
+        assert_eq!(
+            count_key(
+                &js_keys("foo;\n42;\n1 + 2;\nvoid 0;\n`done`;\n"),
+                "javascript:S905"
+            ),
+            5
+        );
+    }
+
+    #[test]
+    fn s905_allows_effectful_expression_statements() {
+        assert_eq!(
+            count_key(
+                &js_keys("foo();\n`x${y}`;\ndelete obj.p;\nlet q = 1;\ntag`x`;\n"),
+                "javascript:S905"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn s881_flags_updates_inside_sequence_statement_roots() {
+        // The sequence expression is the statement root; both updates sit
+        // one level deeper and are embedded.
+        assert_eq!(count_key(&js_keys("i++, j++;\n"), "javascript:S881"), 2);
+    }
 }

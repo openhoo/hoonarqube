@@ -38,3 +38,39 @@ impl A11yCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s1077_flags_area_and_object_without_alt() {
+        let area = jsx_keys("const el = <area shape=\"rect\"/>;\n");
+        assert_eq!(count_key(&area, "javascript:S1077"), 1);
+
+        let object = jsx_keys("const el = <object data=\"x.swf\"/>;\n");
+        assert_eq!(count_key(&object, "javascript:S1077"), 1);
+    }
+
+    #[test]
+    fn s1077_only_requires_alt_on_image_inputs() {
+        let image_input = jsx_keys("const el = <input type=\"image\" src=\"go.png\"/>;\n");
+        assert_eq!(count_key(&image_input, "javascript:S1077"), 1);
+
+        let checkbox_input = jsx_keys("const el = <input type=\"checkbox\"/>;\n");
+        assert_eq!(count_key(&checkbox_input, "javascript:S1077"), 0);
+
+        let image_with_alt =
+            jsx_keys("const el = <input type=\"image\" alt=\"Submit search\"/>;\n");
+        assert_eq!(count_key(&image_with_alt, "javascript:S1077"), 0);
+    }
+
+    #[test]
+    fn s1077_accepts_empty_alt_and_skips_spread_elements() {
+        let decorative = jsx_keys("const el = <img src=\"divider.gif\" alt=\"\"/>;\n");
+        assert_eq!(count_key(&decorative, "javascript:S1077"), 0);
+
+        let spread = jsx_keys("const el = <img {...props}/>;\n");
+        assert_eq!(count_key(&spread, "javascript:S1077"), 0);
+    }
+}

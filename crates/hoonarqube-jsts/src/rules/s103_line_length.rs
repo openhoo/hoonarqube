@@ -78,4 +78,57 @@ mod tests {
             )]
         );
     }
+    #[test]
+    fn line_length_flags_only_the_offending_lines() {
+        let options = AnalyzerOptions {
+            maximum_line_length: 5,
+        };
+        let report = analyze(
+            PathBuf::from("test.js"),
+            "a();\ninspect(report);\nhi();\n",
+            JstsLanguage::JavaScript,
+            &options,
+        );
+        assert_eq!(
+            report.issues,
+            vec![issue(
+                "javascript:S103",
+                "This line exceeds the maximum allowed length of 5 characters.",
+                (2, 0),
+                (2, 16),
+            )]
+        );
+    }
+
+    #[test]
+    fn line_length_counts_characters_not_bytes() {
+        let options = AnalyzerOptions {
+            maximum_line_length: 10,
+        };
+        // Nine characters (fifteen bytes): char semantics stay within limit.
+        let at_limit = analyze(
+            PathBuf::from("test.js"),
+            "// áááááá\n",
+            JstsLanguage::JavaScript,
+            &options,
+        );
+        assert!(at_limit.issues.is_empty());
+
+        // Eleven characters (nineteen bytes) exceed the ten-char maximum.
+        let over_limit = analyze(
+            PathBuf::from("test.js"),
+            "// áááááááá\n",
+            JstsLanguage::JavaScript,
+            &options,
+        );
+        assert_eq!(
+            over_limit.issues,
+            vec![issue(
+                "javascript:S103",
+                "This line exceeds the maximum allowed length of 10 characters.",
+                (1, 0),
+                (1, 11),
+            )]
+        );
+    }
 }

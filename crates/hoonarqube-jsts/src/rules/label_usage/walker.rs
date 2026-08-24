@@ -105,4 +105,46 @@ mod tests {
             1
         );
     }
+
+    #[test]
+    fn s1219_flags_labels_nested_in_switch_cases_only() {
+        // A label inside a nested block within a case still counts.
+        assert_eq!(
+            count_key(
+                &js_keys("switch (x) {\n  case 1:\n    {\n      inner: break;\n    }\n}\n"),
+                "javascript:S1219"
+            ),
+            1
+        );
+        // Outside a switch, labels are not flagged by `S1219`.
+        assert_eq!(
+            count_key(
+                &js_keys("outer: for (;;) {\n  break outer;\n}\n"),
+                "javascript:S1219"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn s1439_flags_nested_labels_and_non_loop_targets() {
+        // Both labels of a nested pair target non-loops.
+        assert_eq!(
+            count_key(&js_keys("a: b: {\n  f();\n}\n"), "javascript:S1439"),
+            2
+        );
+        // A labeled function declaration is a non-loop target.
+        assert_eq!(
+            count_key(&js_keys("label: function g() {}\n"), "javascript:S1439"),
+            1
+        );
+        // Every tolerated target kind stays clean.
+        assert_eq!(
+            count_key(
+                &js_keys("p: while (a) {}\nq: do {} while (b);\nr: switch (c) {}\n"),
+                "javascript:S1439"
+            ),
+            0
+        );
+    }
 }

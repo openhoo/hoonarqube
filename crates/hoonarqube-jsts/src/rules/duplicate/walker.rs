@@ -425,4 +425,61 @@ function gamma() {
         let identifiers = js("function f(n, m) {\n  if (n) { return m; }\n  return m;\n}\n");
         assert_eq!(count_key(&report_keys(&identifiers), "javascript:S3516"), 0);
     }
+    #[test]
+    fn s1764_distinct_operands_stay_clean_and_nesting_still_flags() {
+        let distinct = js_keys("if (a === b) {}\nlet sum = c + d;\n");
+        assert_eq!(count_key(&distinct, "javascript:S1764"), 0);
+
+        let nested = js_keys("function g() {\n  if (p === p) {\n    mark();\n  }\n}\n");
+        assert_eq!(count_key(&nested, "javascript:S1764"), 1);
+    }
+
+    #[test]
+    fn s3923_differing_branch_values_stay_clean() {
+        let ternary = js_keys("const r = flag ? 1 : 2;\n");
+        assert_eq!(count_key(&ternary, "javascript:S3923"), 0);
+
+        let branches = js_keys(
+            "function f(cond) {\n  if (cond) {\n    work();\n  } else {\n    cleanup();\n  }\n}\n",
+        );
+        assert_eq!(count_key(&branches, "javascript:S3923"), 0);
+    }
+
+    #[test]
+    fn duplicate_compliant_fixture_emits_none_of_the_family_keys() {
+        let source = "\
+function one(a) {
+  return a + 1;
+}
+
+function two(b) {
+  return b * 2;
+}
+
+function pick(flag) {
+  if (flag) {
+    return 'yes';
+  }
+  return 'no';
+}
+
+const other = flag ? 'left' : 'right';
+switch (side) {
+  case 1:
+    r();
+    break;
+  case 2:
+    s();
+    break;
+}
+";
+        let flagged = js_keys(source);
+        for key in ["S1764", "S1862", "S1871", "S3516", "S3923", "S4144"] {
+            assert_eq!(
+                count_key(&flagged, &format!("javascript:{key}")),
+                0,
+                "unexpected {key}"
+            );
+        }
+    }
 }

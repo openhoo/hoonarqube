@@ -40,3 +40,39 @@ impl A11yCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6845_flags_positive_indices_on_static_elements() {
+        let paragraph = jsx_keys("const el = <p tabIndex={0}>text</p>;\n");
+        assert_eq!(count_key(&paragraph, "javascript:S6845"), 1);
+
+        let lowercase = jsx_keys("const el = <span tabindex=\"1\"/>;\n");
+        assert_eq!(count_key(&lowercase, "javascript:S6845"), 1);
+    }
+
+    #[test]
+    fn s6845_accepts_programmatic_and_role_focusable_elements() {
+        let negative = jsx_keys("const el = <p tabIndex={-1}>text</p>;\n");
+        assert_eq!(count_key(&negative, "javascript:S6845"), 0);
+
+        let interactive_role = jsx_keys("const el = <span role=\"option\" tabIndex={0}/>;\n");
+        assert_eq!(count_key(&interactive_role, "javascript:S6845"), 0);
+    }
+
+    #[test]
+    fn s6845_skips_interactive_tags_spreads_and_activedescendant() {
+        let input_field = jsx_keys("const el = <input type=\"text\" tabIndex={0}/>;\n");
+        assert_eq!(count_key(&input_field, "javascript:S6845"), 0);
+
+        let spread = jsx_keys("const el = <div {...rest} tabIndex={0}/>;\n");
+        assert_eq!(count_key(&spread, "javascript:S6845"), 0);
+
+        let activedescendant =
+            jsx_keys("const el = <div aria-activedescendant=\"o1\" tabIndex={0}/>;\n");
+        assert_eq!(count_key(&activedescendant, "javascript:S6845"), 0);
+    }
+}

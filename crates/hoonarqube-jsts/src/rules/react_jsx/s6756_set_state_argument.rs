@@ -34,3 +34,26 @@ impl ReactCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6756_flags_set_state_argument_reading_this_state() {
+        let findings = js_keys("this.setState({count: this.state.count + 1});\n");
+        assert_eq!(count_key(&findings, "javascript:S6756"), 1);
+    }
+
+    #[test]
+    fn s6756_allows_updater_function_argument() {
+        let findings = js_keys("this.setState((previous) => ({count: previous.count + 1}));\n");
+        assert_eq!(count_key(&findings, "javascript:S6756"), 0);
+    }
+
+    #[test]
+    fn s6756_allows_literal_argument_without_state_read() {
+        let findings = js_keys("this.setState({count: 5});\n");
+        assert_eq!(count_key(&findings, "javascript:S6756"), 0);
+    }
+}

@@ -25,3 +25,32 @@ impl A11yCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s4084_flags_video_and_audio_without_captions() {
+        let video = jsx_keys("const el = <video src=\"a.mp4\" controls/>;\n");
+        assert_eq!(count_key(&video, "javascript:S4084"), 1);
+
+        let audio = jsx_keys("const el = <audio src=\"a.mp3\" controls/>;\n");
+        assert_eq!(count_key(&audio, "javascript:S4084"), 1);
+    }
+
+    #[test]
+    fn s4084_accepts_caption_tracks_anywhere_in_subtree() {
+        let captioned = jsx_keys(
+            "const el = <video src=\"a.mp4\"><source src=\"a.webm\"/><track kind=\"captions\"/></video>;\n",
+        );
+        assert_eq!(count_key(&captioned, "javascript:S4084"), 0);
+    }
+
+    #[test]
+    fn s4084_requires_the_captions_track_kind() {
+        let subtitles =
+            jsx_keys("const el = <video src=\"a.mp4\"><track kind=\"subtitles\"/></video>;\n");
+        assert_eq!(count_key(&subtitles, "javascript:S4084"), 1);
+    }
+}

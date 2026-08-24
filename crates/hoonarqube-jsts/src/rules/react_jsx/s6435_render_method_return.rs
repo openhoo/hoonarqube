@@ -34,3 +34,28 @@ impl ReactCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6435_flags_render_returning_non_jsx_value() {
+        let findings = jsx_keys("class A {\n  render() {\n    return 42;\n  }\n}\n");
+        assert_eq!(count_key(&findings, "javascript:S6435"), 1);
+    }
+
+    #[test]
+    fn s6435_allows_render_returning_null() {
+        let findings = jsx_keys("class A {\n  render() {\n    return null;\n  }\n}\n");
+        assert_eq!(count_key(&findings, "javascript:S6435"), 0);
+    }
+
+    #[test]
+    fn s6435_nested_function_return_satisfies_probe() {
+        let findings = jsx_keys(
+            "class A {\n  render() {\n    const helper = function () {\n      return null;\n    };\n  }\n}\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S6435"), 0);
+    }
+}

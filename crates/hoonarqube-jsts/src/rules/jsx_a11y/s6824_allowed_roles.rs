@@ -131,3 +131,38 @@ pub(crate) const LIST_CONTAINER_ROLES: [&str; 9] = [
     "toolbar",
     "tree",
 ];
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6824_flags_disallowed_roles_on_restrictive_elements() {
+        let nav_banner = jsx_keys("const el = <nav role=\"banner\"/>;\n");
+        assert_eq!(count_key(&nav_banner, "javascript:S6824"), 1);
+
+        let li_gridcell = jsx_keys("const el = <li role=\"gridcell\">x</li>;\n");
+        assert_eq!(count_key(&li_gridcell, "javascript:S6824"), 1);
+    }
+
+    #[test]
+    fn s6824_accepts_listed_roles_and_unrestricted_elements() {
+        let section_status = jsx_keys("const el = <section role=\"status\">x</section>;\n");
+        assert_eq!(count_key(&section_status, "javascript:S6824"), 0);
+
+        let row_role = jsx_keys("const el = <tr role=\"row\"/>;\n");
+        assert_eq!(count_key(&row_role, "javascript:S6824"), 0);
+
+        let unrestricted = jsx_keys("const el = <div role=\"banner\"/>;\n");
+        assert_eq!(count_key(&unrestricted, "javascript:S6824"), 0);
+    }
+
+    #[test]
+    fn s6824_allows_presentation_on_headings_but_skips_custom_tags() {
+        let heading_presentation = jsx_keys("const el = <h2 role=\"presentation\">Title</h2>;\n");
+        assert_eq!(count_key(&heading_presentation, "javascript:S6824"), 0);
+
+        let custom = jsx_keys("const el = <Nav role=\"banner\"/>;\n");
+        assert_eq!(count_key(&custom, "javascript:S6824"), 0);
+    }
+}

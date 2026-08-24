@@ -401,4 +401,91 @@ mod tests {
         let fn_tail = js_keys("function f() {\n  return 1;\n}\n");
         assert_eq!(count_key(&fn_tail, "javascript:S3626"), 0);
     }
+
+    #[test]
+    fn s2376_flags_unpaired_getters_on_classes_and_objects() {
+        assert_eq!(
+            count_key(
+                &js_keys(
+                    "class A {\n  get a() {\n    return 1;\n  }\n  get b() {\n    return 2;\n  }\n}\n"
+                ),
+                "javascript:S2376"
+            ),
+            2
+        );
+        assert_eq!(
+            count_key(
+                &js_keys("const o = {\n  get n() {\n    return 1;\n  },\n  set n(v) {},\n};\n"),
+                "javascript:S2376"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn s3626_flags_trailing_jumps_in_try_and_loop_bodies() {
+        let try_tail = js_keys(
+            "function f() {\n  try {\n    a();\n    return 1;\n  } finally {\n    b();\n  }\n}\n",
+        );
+        assert_eq!(count_key(&try_tail, "javascript:S3626"), 1);
+
+        assert_eq!(
+            count_key(
+                &js_keys("do {\n  f();\n  continue;\n} while (a);\n"),
+                "javascript:S3626"
+            ),
+            1
+        );
+        assert_eq!(
+            count_key(
+                &js_keys("function f() {\n  for (;;) {\n    g();\n    return 1;\n  }\n}\n"),
+                "javascript:S3626"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn s3626_spares_if_branches_and_labeled_blocks() {
+        assert_eq!(
+            count_key(
+                &js_keys("function f(a) {\n  if (a) {\n    return 1;\n  }\n  return 0;\n}\n"),
+                "javascript:S3626"
+            ),
+            0
+        );
+        assert_eq!(
+            count_key(
+                &js_keys("function f() {\n  blk: {\n    break blk;\n  }\n}\n"),
+                "javascript:S3626"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn s3525_and_s3531_check_arrow_right_sides_and_generator_methods() {
+        assert_eq!(
+            count_key(
+                &js_keys("Type.prototype.method = () => {};\n"),
+                "javascript:S3525"
+            ),
+            1
+        );
+        assert_eq!(
+            count_key(&js_keys("Type.prototype.count = 1;\n"), "javascript:S3525"),
+            0
+        );
+        assert_eq!(
+            count_key(&js_keys("class A {\n  *gen() {}\n}\n"), "javascript:S3531"),
+            1
+        );
+        assert_eq!(
+            count_key(
+                &js_keys("class A {\n  *gen() {\n    yield 1;\n  }\n}\n"),
+                "javascript:S3531"
+            ),
+            0
+        );
+    }
 }

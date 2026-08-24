@@ -26,3 +26,28 @@ impl ReactCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6775_flags_default_for_optional_prop() {
+        let findings = js_keys("C.propTypes = {a: PropTypes.string};\nC.defaultProps = {a: 'x'};\n");
+        assert_eq!(count_key(&findings, "javascript:S6775"), 1);
+    }
+
+    #[test]
+    fn s6775_allows_default_for_required_prop() {
+        let findings = js_keys(
+            "C.propTypes = {a: PropTypes.string.isRequired};\nC.defaultProps = {a: 'x'};\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S6775"), 0);
+    }
+
+    #[test]
+    fn s6775_ignores_defaults_without_any_declarations() {
+        let findings = js_keys("C.defaultProps = {a: 'x'};\n");
+        assert_eq!(count_key(&findings, "javascript:S6775"), 0);
+    }
+}

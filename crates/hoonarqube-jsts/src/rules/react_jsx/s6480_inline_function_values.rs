@@ -36,3 +36,32 @@ impl ReactCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6480_flags_inline_arrow_attribute_value() {
+        let findings = jsx_keys("const el = <button onClick={() => save()}>x</button>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6480"), 1);
+    }
+
+    #[test]
+    fn s6480_allows_handler_reference_value() {
+        let findings = jsx_keys("const el = <button onClick={handler}>x</button>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6480"), 0);
+    }
+
+    #[test]
+    fn s6480_flags_bound_handler_value() {
+        let findings = jsx_keys("const el = <button onClick={handler.bind(this)}>x</button>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6480"), 1);
+    }
+
+    #[test]
+    fn s6480_ignores_non_bind_call_value() {
+        let findings = jsx_keys("const el = <button onClick={save()}>x</button>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6480"), 0);
+    }
+}

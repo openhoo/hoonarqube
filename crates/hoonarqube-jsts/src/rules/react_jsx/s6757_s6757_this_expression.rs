@@ -19,3 +19,26 @@ impl ReactCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6757_flags_this_inside_function_component() {
+        let findings = jsx_keys("function C() {\n  console.log(this);\n  return <span></span>;\n}\n");
+        assert_eq!(count_key(&findings, "javascript:S6757"), 1);
+    }
+
+    #[test]
+    fn s6757_allows_this_inside_class_method() {
+        let findings = js_keys("class Widget {\n  save() {\n    this.x();\n  }\n}\n");
+        assert_eq!(count_key(&findings, "javascript:S6757"), 0);
+    }
+
+    #[test]
+    fn s6757_ignores_this_in_non_component_function() {
+        let findings = js_keys("function helper() {\n  console.log(this);\n}\n");
+        assert_eq!(count_key(&findings, "javascript:S6757"), 0);
+    }
+}

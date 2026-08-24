@@ -37,3 +37,38 @@ impl A11yCollector<'_> {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6852_flags_interactive_roles_without_tab_index() {
+        let span = jsx_keys("const el = <span role=\"checkbox\"/>;\n");
+        assert_eq!(count_key(&span, "javascript:S6852"), 1);
+
+        let list_item = jsx_keys("const el = <li role=\"option\">One</li>;\n");
+        assert_eq!(count_key(&list_item, "javascript:S6852"), 1);
+    }
+
+    #[test]
+    fn s6852_accepts_tabbable_and_natively_focusable_elements() {
+        let tabbable = jsx_keys("const el = <span role=\"checkbox\" tabIndex={0}/>;\n");
+        assert_eq!(count_key(&tabbable, "javascript:S6852"), 0);
+
+        let lowercase = jsx_keys("const el = <div role=\"radio\" tabindex=\"0\"/>;\n");
+        assert_eq!(count_key(&lowercase, "javascript:S6852"), 0);
+
+        let native_button = jsx_keys("const el = <button role=\"button\"/>;\n");
+        assert_eq!(count_key(&native_button, "javascript:S6852"), 0);
+    }
+
+    #[test]
+    fn s6852_skips_spread_elements_and_custom_components() {
+        let spread = jsx_keys("const el = <div {...rest} role=\"button\"/>;\n");
+        assert_eq!(count_key(&spread, "javascript:S6852"), 0);
+
+        let custom = jsx_keys("const el = <FancyButton role=\"button\"/>;\n");
+        assert_eq!(count_key(&custom, "javascript:S6852"), 0);
+    }
+}

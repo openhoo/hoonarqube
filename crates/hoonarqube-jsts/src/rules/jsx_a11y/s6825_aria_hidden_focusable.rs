@@ -40,3 +40,35 @@ impl A11yCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6825_flags_hidden_selects_and_tabbable_elements() {
+        let hidden_select = jsx_keys("const el = <select aria-hidden=\"true\"/>;\n");
+        assert_eq!(count_key(&hidden_select, "javascript:S6825"), 1);
+
+        let tabbable = jsx_keys("const el = <div aria-hidden=\"true\" tabindex=\"0\"/>;\n");
+        assert_eq!(count_key(&tabbable, "javascript:S6825"), 1);
+    }
+
+    #[test]
+    fn s6825_accepts_false_values_static_elements_and_negative_indices() {
+        let not_hidden = jsx_keys("const el = <button aria-hidden=\"false\">Go</button>;\n");
+        assert_eq!(count_key(&not_hidden, "javascript:S6825"), 0);
+
+        let static_element = jsx_keys("const el = <p aria-hidden=\"true\">text</p>;\n");
+        assert_eq!(count_key(&static_element, "javascript:S6825"), 0);
+
+        let negative = jsx_keys("const el = <div aria-hidden=\"true\" tabIndex={-1}/>;\n");
+        assert_eq!(count_key(&negative, "javascript:S6825"), 0);
+    }
+
+    #[test]
+    fn s6825_skips_spread_elements() {
+        let spread = jsx_keys("const el = <button {...rest} aria-hidden=\"true\"/>;\n");
+        assert_eq!(count_key(&spread, "javascript:S6825"), 0);
+    }
+}

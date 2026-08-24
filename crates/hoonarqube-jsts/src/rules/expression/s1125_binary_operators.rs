@@ -50,3 +50,29 @@ pub(crate) fn check_binary_operators(sink: &mut IssueSink, it: &BinaryExpression
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s1125_flags_boolean_literal_equality_operands() {
+        let findings = js_keys("let a = x == true;\nlet b = y != false;\n");
+        assert_eq!(count_key(&findings, "javascript:S1125"), 2);
+        assert_eq!(count_key(&findings, "javascript:S1440"), 2);
+    }
+
+    #[test]
+    fn s1125_allows_comparisons_without_boolean_literals() {
+        let findings = js_keys("let a = x === y;\nlet b = flag ? 1 : 2;\n");
+        assert_eq!(count_key(&findings, "javascript:S1125"), 0);
+    }
+
+    #[test]
+    fn s1125_nan_comparison_yields_dedicated_rules_not_s1125() {
+        let findings = js_keys("if (x === NaN) {}\n");
+        assert_eq!(count_key(&findings, "javascript:S1125"), 0);
+        assert_eq!(count_key(&findings, "javascript:S2688"), 1);
+        assert_eq!(count_key(&findings, "javascript:S6679"), 1);
+    }
+}

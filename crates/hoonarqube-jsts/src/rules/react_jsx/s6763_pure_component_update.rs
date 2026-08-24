@@ -35,3 +35,30 @@ impl ReactCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6763_flags_should_component_update_on_pure_component() {
+        let findings = js_keys(
+            "class A extends PureComponent {\n  shouldComponentUpdate() {}\n  render() {\n    return null;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S6763"), 1);
+    }
+
+    #[test]
+    fn s6763_allows_should_component_update_on_plain_component() {
+        let findings = js_keys("class A extends Component {\n  shouldComponentUpdate() {}\n}\n");
+        assert_eq!(count_key(&findings, "javascript:S6763"), 0);
+    }
+
+    #[test]
+    fn s6763_flags_member_expression_pure_component_base() {
+        let findings = js_keys(
+            "class A extends React.PureComponent {\n  shouldComponentUpdate() {}\n}\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S6763"), 1);
+    }
+}

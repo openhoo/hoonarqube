@@ -47,3 +47,29 @@ pub(crate) const ABSTRACT_ROLES: [&str; 12] = [
     "widget",
     "window",
 ];
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6821_flags_widget_and_window_roles() {
+        let widget = jsx_keys("const el = <nav role=\"widget\"/>;\n");
+        assert_eq!(count_key(&widget, "javascript:S6821"), 1);
+
+        let window_role = jsx_keys("const el = <section role=\"window\"/>;\n");
+        assert_eq!(count_key(&window_role, "javascript:S6821"), 1);
+    }
+
+    #[test]
+    fn s6821_accepts_concrete_and_dynamic_roles() {
+        let concrete = jsx_keys("const el = <section role=\"region\"/>;\n");
+        assert_eq!(count_key(&concrete, "javascript:S6821"), 0);
+
+        let dynamic = jsx_keys("let r = 'widget';\nconst el = <div role={r}/>;\n");
+        assert_eq!(count_key(&dynamic, "javascript:S6821"), 0);
+
+        let no_role = jsx_keys("const el = <nav/>;\n");
+        assert_eq!(count_key(&no_role, "javascript:S6821"), 0);
+    }
+}

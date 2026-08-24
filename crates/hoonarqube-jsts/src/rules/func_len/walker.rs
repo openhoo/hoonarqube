@@ -97,3 +97,48 @@ impl<'a> Visit<'a> for FunctionLengthCollector<'_> {
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_function_lengths(ctx.program, ctx.index, ctx.language, ctx.rules)
 }
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s138_flags_function_exceeding_configured_line_budget() {
+        let rules = RuleOptions {
+            maximum_function_lines: 2,
+            ..RuleOptions::default()
+        };
+        let flagged = keys_with_rules("function big() {\n  a();\n  b();\n  c();\n}\n", &rules);
+        assert_eq!(count_key(&flagged, "javascript:S138"), 1);
+        let line = flagged
+            .iter()
+            .find(|(key, _)| key == "javascript:S138")
+            .map(|(_, line)| *line);
+        assert_eq!(line, Some(1));
+    }
+
+    #[test]
+    fn s138_allows_functions_at_exact_boundary_length() {
+        let rules = RuleOptions {
+            maximum_function_lines: 4,
+            ..RuleOptions::default()
+        };
+        let at_limit = keys_with_rules("function big() {\n  a();\n  b();\n  c();\n}\n", &rules);
+        assert_eq!(count_key(&at_limit, "javascript:S138"), 0);
+    }
+
+    #[test]
+    fn s138_checks_arrows_and_methods_default_budget_passes_short_functions() {
+        let rules = RuleOptions {
+            maximum_function_lines: 1,
+            ..RuleOptions::default()
+        };
+        let flagged = keys_with_rules(
+            "const handler = () => {\n  step();\n  step();\n};\nclass K {\n  go() {\n    a();\n    b();\n  }\n}\n",
+            &rules,
+        );
+        assert_eq!(count_key(&flagged, "javascript:S138"), 2);
+
+        let tiny = js_keys("function tiny(value) {\n  return value;\n}\n");
+        assert_eq!(count_key(&tiny, "javascript:S138"), 0);
+    }
+}

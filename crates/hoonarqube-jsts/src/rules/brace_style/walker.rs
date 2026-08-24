@@ -138,4 +138,46 @@ mod tests {
             0
         );
     }
+
+    #[test]
+    fn s1105_flags_braces_on_their_own_line_across_constructs() {
+        let flagged = |source: &str| -> Vec<(u32, u32)> {
+            let report = js(source);
+            report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S1105"))
+                .map(|issue| (issue.range.start.line, issue.range.start.column))
+                .collect()
+        };
+        // Function body brace.
+        assert_eq!(flagged("function f()\n{\n  return 1;\n}\n"), vec![(2, 0)]);
+        // Class body brace.
+        assert_eq!(flagged("class A\n{\n  m() {}\n}\n"), vec![(2, 0)]);
+        // `else` branch block brace.
+        assert_eq!(
+            flagged("if (a) {\n  b();\n} else\n{\n  c();\n}\n"),
+            vec![(4, 0)]
+        );
+    }
+
+    #[test]
+    fn s1105_switch_header_brace_skips_parenthesis_groups() {
+        // The `{` on the next line is located past both closing parens.
+        assert_eq!(
+            count_key(
+                &js_keys("switch ((x))\n{\n  case 1:\n    break;\n}\n"),
+                "javascript:S1105"
+            ),
+            1
+        );
+        // Same-line header brace over nested parens stays clean.
+        assert_eq!(
+            count_key(
+                &js_keys("switch ((x)) { case 1: break; }\n"),
+                "javascript:S1105"
+            ),
+            0
+        );
+    }
 }

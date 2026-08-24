@@ -84,4 +84,39 @@ mod tests {
         let tie = js_keys("const a = () => {\n  return 1;\n};\nconst b = () => 2;\n");
         assert_eq!(count_key(&tie, "javascript:S3524"), 1);
     }
+
+    #[test]
+    fn s3524_flags_expression_bodies_when_blocks_dominate() {
+        assert_eq!(
+            count_key(
+                &js_keys(
+                    "const a = () => {\n  return 1;\n};\nconst b = () => {\n  return 2;\n};\nconst c = () => 3;\n"
+                ),
+                "javascript:S3524"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn s3524_allows_uniform_styles_and_counts_nested_arrows() {
+        assert_eq!(
+            count_key(
+                &js_keys(
+                    "const a = () => {\n  return 1;\n};\nconst b = () => {\n  return 2;\n};\nconst c = () => {\n  return 3;\n};\n"
+                ),
+                "javascript:S3524"
+            ),
+            0
+        );
+        // Three arrows: outer expression, inner block, sibling expression —
+        // the single block-bodied arrow is the minority.
+        assert_eq!(
+            count_key(
+                &js_keys("const outer = () => () => {\n  return 1;\n};\nconst other = () => 2;\n"),
+                "javascript:S3524"
+            ),
+            1
+        );
+    }
 }

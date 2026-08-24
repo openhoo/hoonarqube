@@ -575,4 +575,139 @@ function clean() {
             .collect();
         assert_eq!(s1763, vec![3]);
     }
+    #[test]
+    fn s1119_flags_any_label_and_unlabeled_jumps_pass() {
+        let flagged = js_keys("outer: while (a) {\n  break outer;\n}\n");
+        assert_eq!(count_key(&flagged, "javascript:S1119"), 1);
+
+        let unlabeled = js_keys("while (a) {\n  break;\n}\n");
+        assert_eq!(count_key(&unlabeled, "javascript:S1119"), 0);
+    }
+
+    #[test]
+    fn s1199_flags_nested_bare_block_single_one_passes() {
+        let nested = js_keys("{\n  {\n    g();\n  }\n}\n");
+        assert_eq!(count_key(&nested, "javascript:S1199"), 1);
+
+        let single = js_keys("{\n  g();\n}\n");
+        assert_eq!(count_key(&single, "javascript:S1199"), 0);
+    }
+
+    #[test]
+    fn s1126_flags_boolean_ternary_returns_js_only() {
+        let boolean = js_keys("function f(c) {\n  return c ? true : false;\n}\n");
+        assert_eq!(count_key(&boolean, "javascript:S1126"), 1);
+
+        let numeric = js_keys("function f(c) {\n  return c ? 1 : 2;\n}\n");
+        assert_eq!(count_key(&numeric, "javascript:S1126"), 0);
+
+        let typescript = ts_keys("function f(c) {\n  return c ? true : false;\n}\n");
+        assert_eq!(count_key(&typescript, "typescript:S1126"), 0);
+    }
+
+    #[test]
+    fn s1154_and_s2201_flag_discarded_pure_results_consumed_calls_pass() {
+        let flagged = js_keys("text.toUpperCase();\nitems.filter(isEven);\n");
+        assert_eq!(count_key(&flagged, "javascript:S1154"), 1);
+        assert_eq!(count_key(&flagged, "javascript:S2201"), 1);
+
+        let consumed =
+            js_keys("const upper = text.toUpperCase();\nconst evens = items.filter(isEven);\n");
+        assert_eq!(count_key(&consumed, "javascript:S1154"), 0);
+        assert_eq!(count_key(&consumed, "javascript:S2201"), 0);
+
+        let opaque = js_keys("text.mutate();\n");
+        assert_eq!(count_key(&opaque, "javascript:S1154"), 0);
+        assert_eq!(count_key(&opaque, "javascript:S2201"), 0);
+    }
+
+    #[test]
+    fn s108_flags_empty_block_commented_or_populated_blocks_pass() {
+        let empty = js_keys("if (a) {\n}\n");
+        assert_eq!(count_key(&empty, "javascript:S108"), 1);
+
+        let commented = js_keys("if (a) {\n  /* intentionally blank */\n}\n");
+        assert_eq!(count_key(&commented, "javascript:S108"), 0);
+
+        let populated = js_keys("if (a) {\n  g();\n}\n");
+        assert_eq!(count_key(&populated, "javascript:S108"), 0);
+    }
+
+    #[test]
+    fn s2681_flags_multiline_unbraced_body_only() {
+        let multiline = js_keys("if (a)\n  g(\n    b);\n");
+        assert_eq!(count_key(&multiline, "javascript:S2681"), 1);
+        assert_eq!(count_key(&multiline, "javascript:S121"), 1);
+
+        let oneline = js_keys("if (a) g(b);\n");
+        assert_eq!(count_key(&oneline, "javascript:S2681"), 0);
+
+        let braced = js_keys("if (a) {\n  g(b);\n}\n");
+        assert_eq!(count_key(&braced, "javascript:S2681"), 0);
+        assert_eq!(count_key(&braced, "javascript:S121"), 0);
+    }
+
+    #[test]
+    fn s3863_flags_adjacent_duplicate_imports_gapped_pair_passes() {
+        let adjacent = js_keys("import { a } from 'm';\nimport { b } from 'm';\n");
+        assert_eq!(count_key(&adjacent, "javascript:S3863"), 1);
+
+        let gapped = js_keys("import { a } from 'm';\n\nimport { b } from 'm';\n");
+        assert_eq!(count_key(&gapped, "javascript:S3863"), 0);
+
+        let separated =
+            js_keys("import { a } from 'm';\nimport { x } from 'o';\nimport { b } from 'm';\n");
+        assert_eq!(count_key(&separated, "javascript:S3863"), 0);
+    }
+
+    #[test]
+    fn s1066_and_s6660_collapse_edges_stay_clean() {
+        let wide = js_keys("if (a) {\n  g();\n  h();\n}\n");
+        assert_eq!(count_key(&wide, "javascript:S1066"), 0);
+        assert_eq!(count_key(&wide, "javascript:S6660"), 0);
+
+        let inner_with_else = js_keys(
+            "if (a) {\n  g();\n} else {\n  if (b) {\n    h();\n  } else {\n    k();\n  }\n}\n",
+        );
+        assert_eq!(count_key(&inner_with_else, "javascript:S6660"), 0);
+
+        let else_if = js_keys("if (a) {\n  g();\n} else if (b) {\n  h();\n}\n");
+        assert_eq!(count_key(&else_if, "javascript:S6660"), 0);
+    }
+
+    #[test]
+    fn statement_compliant_fixture_emits_none_of_the_family_keys() {
+        let source = "\
+const limit = 10;
+let total = 0;
+
+function accumulate(values) {
+  for (const value of values) {
+    total += pick(value);
+  }
+  return total;
+}
+
+function pick(value) {
+  if (value > 0) {
+    return value;
+  }
+  return -1;
+}
+
+export { accumulate };
+";
+        let flagged = js_keys(source);
+        for key in [
+            "S108", "S121", "S2681", "S909", "S1066", "S1116", "S1119", "S1126", "S1154", "S1199",
+            "S1321", "S1525", "S1848", "S2201", "S2208", "S3504", "S3696", "S3863", "S3984",
+            "S6660", "S6836", "S6859",
+        ] {
+            assert_eq!(
+                count_key(&flagged, &format!("javascript:{key}")),
+                0,
+                "unexpected {key}"
+            );
+        }
+    }
 }

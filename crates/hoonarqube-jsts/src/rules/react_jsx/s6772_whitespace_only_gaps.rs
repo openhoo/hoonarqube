@@ -48,3 +48,32 @@ pub(crate) fn jsx_child_element_tag<'a>(child: &'a JSXChild<'a>) -> Option<&'a s
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6772_flags_whitespace_only_gap_between_inline_siblings() {
+        let findings = jsx_keys("const el = <div><span>a</span> <b>c</b></div>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6772"), 1);
+    }
+
+    #[test]
+    fn s6772_allows_gap_between_block_elements() {
+        let findings = jsx_keys("const el = <div><p>a</p> <p>b</p></div>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6772"), 0);
+    }
+
+    #[test]
+    fn s6772_flags_newline_gap_between_inline_siblings() {
+        let findings = jsx_keys("const el = <div><span>a</span>\n<b>c</b></div>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6772"), 1);
+    }
+
+    #[test]
+    fn s6772_allows_explicit_text_separation() {
+        let findings = jsx_keys("const el = <div><span>a</span> text <b>c</b></div>;\n");
+        assert_eq!(count_key(&findings, "javascript:S6772"), 0);
+    }
+}

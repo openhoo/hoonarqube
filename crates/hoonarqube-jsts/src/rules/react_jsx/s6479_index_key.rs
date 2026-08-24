@@ -36,3 +36,27 @@ impl ReactCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6479_flags_index_as_key_in_map_callback() {
+        let findings = jsx_keys("items.map((item, index) => <li key={index}></li>);\n");
+        assert_eq!(count_key(&findings, "javascript:S6479"), 1);
+    }
+
+    #[test]
+    fn s6479_allows_stable_key_in_map_callback() {
+        let findings = jsx_keys("items.map((item, index) => <li key={item.id}></li>);\n");
+        assert_eq!(count_key(&findings, "javascript:S6479"), 0);
+    }
+
+    #[test]
+    fn s6479_index_outside_key_misses_but_missing_key_reports_s6477() {
+        let findings = jsx_keys("items.map((item, index) => <li title={index}></li>);\n");
+        assert_eq!(count_key(&findings, "javascript:S6479"), 0);
+        assert_eq!(count_key(&findings, "javascript:S6477"), 1);
+    }
+}

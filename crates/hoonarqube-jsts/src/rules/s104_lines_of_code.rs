@@ -47,3 +47,25 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
         ctx.rules,
     )
 }
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn lines_of_code_counts_statements_not_blank_or_comment_lines() {
+        let rules = RuleOptions {
+            maximum_lines_of_code: 2,
+            ..RuleOptions::default()
+        };
+        // Four physical lines, but only two code lines: within the threshold.
+        let within = keys_with_rules("let a = 1;\n\n// filler\nlet b = 2;\n", &rules);
+        assert_eq!(count_key(&within, "javascript:S104"), 0);
+
+        // Blank and comment lines still do not count toward three statements.
+        let over = keys_with_rules(
+            "let a = 1;\n\n// filler\nlet b = 2;\n\n// filler\nlet c = 3;\n",
+            &rules,
+        );
+        assert_eq!(count_key(&over, "javascript:S104"), 1);
+    }
+}

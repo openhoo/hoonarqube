@@ -575,4 +575,102 @@ mod tests {
         let array = js_keys("for (const v of [1, 2]) {\n  f(v);\n}\n");
         assert_eq!(count_key(&array, "javascript:S4138"), 0);
     }
+    #[test]
+    fn s888_empty_init_for_with_loose_test_still_flags_lte_passes() {
+        let loose = js_keys("for (; i == n;) {\n  f();\n}\n");
+        assert_eq!(count_key(&loose, "javascript:S888"), 1);
+
+        let lte = js_keys("for (let i = 0; i <= n; i++) {}\n");
+        assert_eq!(count_key(&lte, "javascript:S888"), 0);
+    }
+
+    #[test]
+    fn s1264_nested_counted_loops_and_while_forms_pass() {
+        let nested = js_keys(
+            "for (let i = 0; i < n; i++) {\n  for (let j = 0; j < m; j++) {\n    f(i, j);\n  }\n}\n",
+        );
+        assert_eq!(count_key(&nested, "javascript:S1264"), 0);
+
+        let while_form = js_keys("while (a) {\n  break;\n}\n");
+        assert_eq!(count_key(&while_form, "javascript:S1264"), 0);
+    }
+
+    #[test]
+    fn s2251_increment_away_from_bound_flags_towards_decrement_passes() {
+        let towards = js_keys("for (let i = n; i > 0; i--) {}\n");
+        assert_eq!(count_key(&towards, "javascript:S2251"), 0);
+
+        let upward_away = js_keys("for (let i = 0; i > n; i++) {}\n");
+        assert_eq!(count_key(&upward_away, "javascript:S2251"), 1);
+    }
+
+    #[test]
+    fn s1994_prefix_update_on_other_counter_flags_compound_self_update_passes() {
+        let prefix_other = js_keys("let j = 0;\nfor (let i = 0; i < n; --j) {}\n");
+        assert_eq!(count_key(&prefix_other, "javascript:S1994"), 1);
+
+        let subtract_self = js_keys("for (let i = 0; i < n; i -= 1) {}\n");
+        assert_eq!(count_key(&subtract_self, "javascript:S1994"), 0);
+    }
+
+    #[test]
+    fn s2310_compound_assignment_to_counter_flags_other_target_passes() {
+        let compound = js_keys("for (let i = 0; i < n; i++) {\n  i += 2;\n}\n");
+        assert_eq!(count_key(&compound, "javascript:S2310"), 1);
+
+        let other_target =
+            js_keys("let total = 0;\nfor (let i = 0; i < n; i++) {\n  total += i;\n}\n");
+        assert_eq!(count_key(&other_target, "javascript:S2310"), 0);
+    }
+
+    #[test]
+    fn s135_counts_continue_like_break_but_return_is_not_counted() {
+        let continues_only = js_keys(
+            "while (a) {\n  if (b) {\n    continue;\n  }\n  if (c) {\n    continue;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&continues_only, "javascript:S135"), 1);
+
+        // A bare `return` is not one of the counted direct exit points here.
+        let with_return = js_keys("function f(a) {\n  while (a) {\n    return 1;\n  }\n}\n");
+        assert_eq!(count_key(&with_return, "javascript:S135"), 0);
+
+        let mixed = js_keys(
+            "function f(a, b) {\n  while (a) {\n    if (b) {\n      break;\n    }\n    continue;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&mixed, "javascript:S135"), 1);
+    }
+
+    #[test]
+    fn s1751_for_loop_terminal_break_uncovered_conditional_guard_passes() {
+        // This subset flags single-iteration `while` forms only.
+        let early_break = js_keys("for (let i = 0; i < n; i++) {\n  f(i);\n  break;\n}\n");
+        assert_eq!(count_key(&early_break, "javascript:S1751"), 0);
+
+        let conditional_break = js_keys("while (x) {\n  if (y) {\n    break;\n  }\n  f();\n}\n");
+        assert_eq!(count_key(&conditional_break, "javascript:S1751"), 0);
+    }
+
+    #[test]
+    fn s2189_conditional_break_terminates_endless_loop() {
+        let guarded = js_keys("while (true) {\n  if (done) {\n    break;\n  }\n  f();\n}\n");
+        assert_eq!(count_key(&guarded, "javascript:S2189"), 0);
+    }
+
+    #[test]
+    fn s1535_bare_for_in_flags_even_without_body_use() {
+        let bare = js_keys("for (const k in obj) {}\n");
+        assert_eq!(count_key(&bare, "javascript:S1535"), 1);
+    }
+
+    #[test]
+    fn s4139_for_of_over_array_does_not_trigger_for_in_rule() {
+        let for_of = js_keys("for (const v of ['a', 'b']) {\n  f(v);\n}\n");
+        assert_eq!(count_key(&for_of, "javascript:S4139"), 0);
+    }
+
+    #[test]
+    fn s4138_string_iterable_passes() {
+        let chars = js_keys("for (const ch of 'ab') {\n  f(ch);\n}\n");
+        assert_eq!(count_key(&chars, "javascript:S4138"), 0);
+    }
 }

@@ -286,4 +286,55 @@ mod tests {
         let unordered = js_keys("function f(a = 1, b) { return b; }\n");
         assert_eq!(count_key(&unordered, "javascript:S1788"), 1);
     }
+
+    #[test]
+    fn s1515_and_s1530_flag_function_declarations_in_loop_blocks() {
+        let keys = js_keys("while (a) {\n  function inner() {}\n}\n");
+        assert_eq!(count_key(&keys, "javascript:S1515"), 1);
+        assert_eq!(count_key(&keys, "javascript:S1530"), 1);
+
+        // A declaration two blocks deep is still flagged once.
+        assert_eq!(
+            count_key(
+                &js_keys("{\n  if (a) {\n    function deep() {}\n  }\n}\n"),
+                "javascript:S1530"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn s1788_flags_every_parameter_after_the_first_default() {
+        assert_eq!(
+            count_key(
+                &js_keys("function f(a = 1, b, c = 2, d) { return a; }\n"),
+                "javascript:S1788"
+            ),
+            2
+        );
+    }
+
+    #[test]
+    fn s2004_flags_each_function_beyond_four_nesting_levels() {
+        assert_eq!(
+            count_key(
+                &js_keys(
+                    "function a() {\n  const b = () => {\n    const c = () => {\n      const d = () => {\n        const e = () => {\n          const g = () => {};\n        };\n      };\n    };\n  };\n}\n"
+                ),
+                "javascript:S2004"
+            ),
+            2
+        );
+    }
+
+    #[test]
+    fn empty_function_like_nodes_stay_unflagged() {
+        let keys = js_keys(
+            "function f() {}\nconst g = () => {};\nconst h = function () {};\nclass A {\n  m() {}\n  static {}\n}\n",
+        );
+        assert_eq!(count_key(&keys, "javascript:S1515"), 0);
+        assert_eq!(count_key(&keys, "javascript:S1530"), 0);
+        assert_eq!(count_key(&keys, "javascript:S1788"), 0);
+        assert_eq!(count_key(&keys, "javascript:S2004"), 0);
+    }
 }

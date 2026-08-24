@@ -91,4 +91,21 @@ mod tests {
             1
         );
     }
+    #[test]
+    fn file_header_rule_disabled_without_configured_format() {
+        let rules = RuleOptions::default();
+        assert!(rules.header_format.is_empty());
+        let findings = keys_with_rules("let a = 1;\n", &rules);
+        assert_eq!(count_key(&findings, "javascript:S1451"), 0);
+    }
+
+    #[test]
+    fn file_header_must_appear_at_the_very_start() {
+        let rules = RuleOptions {
+            header_format: "// License\n".to_string(),
+            ..RuleOptions::default()
+        };
+        let late = keys_with_rules("let a = 1;\n// License\n", &rules);
+        assert_eq!(count_key(&late, "javascript:S1451"), 1);
+    }
 }

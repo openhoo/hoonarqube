@@ -20,3 +20,26 @@ impl ReactCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6749_flags_fragment_wrapping_single_element() {
+        let findings = jsx_keys("const el = (<><span></span></>);\n");
+        assert_eq!(count_key(&findings, "javascript:S6749"), 1);
+    }
+
+    #[test]
+    fn s6749_allows_fragment_with_two_children() {
+        let findings = jsx_keys("const el = (<><span></span><b></b></>);\n");
+        assert_eq!(count_key(&findings, "javascript:S6749"), 0);
+    }
+
+    #[test]
+    fn s6749_flags_fragment_wrapping_single_expression() {
+        let findings = jsx_keys("let item = 1;\nconst el = (<>{item}</>);\n");
+        assert_eq!(count_key(&findings, "javascript:S6749"), 1);
+    }
+}
