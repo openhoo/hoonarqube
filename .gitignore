@@ -1,2 +1,4 @@
 /target/
 /.oracle/
+!.oracle/sonar/projects/**/expected.jsonl
+!tools/oracle/**

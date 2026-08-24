@@ -48,6 +48,15 @@ enum Command {
         #[arg(long)]
         format: Option<String>,
     },
+    /// Apply safe automatic fixes for mechanical rules in place.
+    ///
+    /// Currently supported: trailing whitespace, missing final newline, and
+    /// leading tab expansion.
+    Fix {
+        /// Files or directories to fix in place.
+        #[arg(required = true)]
+        paths: Vec<std::path::PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -104,7 +113,71 @@ fn main() -> ExitCode {
         Command::Analyze { paths, format } => {
             run_analyze(catalog, paths, format.as_deref(), cli.json)
         }
+        Command::Fix { paths } => run_fix(paths),
     }
+}
+
+/// Applies safe mechanical fixes for one file; returns the number applied.
+fn fix_file(path: &std::path::Path) -> usize {
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return 0;
+    };
+    let mut fixed = source.clone();
+    let mut applied: Vec<&'static str> = Vec::new();
+
+    let trimmed: String = fixed
+        .lines()
+        .map(|l| l.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if trimmed != fixed {
+        applied.push("stripped trailing whitespace");
+        fixed = trimmed;
+    }
+    if !fixed.is_empty() && !fixed.ends_with('\n') {
+        applied.push("added missing final newline");
+        fixed.push('\n');
+    }
+    if fixed.lines().any(|l| l.starts_with('\t')) {
+        applied.push("expanded leading tabs to spaces");
+        fixed = fixed
+            .lines()
+            .map(|l| {
+                let tabs = l.len() - l.trim_start_matches('\t').len();
+                format!("{}{}", " ".repeat(tabs * 4), l.trim_start_matches('\t'))
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    if !applied.is_empty() {
+        std::fs::write(path, &fixed).expect("write back fixed source");
+    }
+    applied.len()
+}
+
+fn run_fix(paths: &[std::path::PathBuf]) -> ExitCode {
+    let mut files = Vec::new();
+    for p in paths {
+        if p.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(p) {
+                let mut children: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+                children.sort();
+                for child in children {
+                    if child.extension().is_some_and(|e| e == "py") {
+                        files.push(child);
+                    }
+                }
+            }
+        } else {
+            files.push(p.clone());
+        }
+    }
+    let total: usize = files.iter().map(|f| fix_file(f)).sum();
+    println!(
+        "applied {total} mechanical fix(es) across {} file(s)",
+        files.len()
+    );
+    ExitCode::SUCCESS
 }
 
 fn run_rules(catalog: &Catalog, cmd: &RulesCommand, json: bool) -> ExitCode {
