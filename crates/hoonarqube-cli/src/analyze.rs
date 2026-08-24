@@ -11,7 +11,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use hoonarqube_catalog::Catalog;
-use hoonarqube_core::{self, AnalyzerOptions as CoreOptions};
+use hoonarqube_core::AnalyzerOptions as CoreOptions;
 use hoonarqube_ir::FileReport;
 
 /// Result of analyzing one input file.
@@ -137,8 +137,8 @@ fn walk_directory(
     }
 }
 
-/// One source of truth for extension dispatch:
-/// [`hoonarqube_jsts::language_for_extension`] for JS/TS, `.cs` for C#.
+/// One source of truth for extension dispatch, via the core registry:
+/// [`hoonarqube_core::language_for_path`] covers Python, JS/TS, and C#.
 fn is_analyzable_file(path: &Path) -> bool {
     hoonarqube_core::language_for_path(path).is_some()
 }
