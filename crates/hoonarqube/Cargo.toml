@@ -9,5 +9,10 @@ repository.workspace = true
 [lib]
 path = "src/lib.rs"
 
+[dependencies]
+hoonarqube-catalog = { path = "../hoonarqube-catalog" }
+hoonarqube-core = { path = "../hoonarqube-core" }
+hoonarqube-ir = { path = "../hoonarqube-ir" }
+
 [lints]
 workspace = true
