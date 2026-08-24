@@ -50,20 +50,21 @@ Invariants:
 Audited by `cargo run -p xtask -- catalog coverage [--lang <id>] [--strict]`
 against the frozen catalog:
 
-| Language | Implemented | Total | Coverage |
-|---|---|---|---|
-| JavaScript | 406 | 406 | 100% |
-| TypeScript | 409 | 412 | 99.3% |
-| Python | 334 | 335 | 99.7% |
-| C# | 461 | 467 | 98.7% |
+| Language | Implemented | Infra gaps | Total | Actionable coverage |
+|---|---|---|---|---|
+| JavaScript | 404 | 2 | 406 | 100% |
+| TypeScript | 407 | 5 | 412 | 100% |
+| Python | 334 | 1 | 335 | 100% |
+| C# | 460 | 7 | 467 | 100% |
 
 ### Documented gaps
 
 The uncovered keys require infrastructure outside this repository's scope; each is recorded as a
 skip note next to the nearest related implementation:
 
-- External deprecated-API database — `javascript:S1874`.
-- Cross-file module resolution — `javascript:S4328`, `S6627`.
+- External deprecated-API database — `javascript:S1874`, `typescript:S1874`.
+- Cross-file module resolution — `javascript:S6627`, `typescript:S4328`,
+  `typescript:S6627`.
 - TypeScript-checker-grade type semantics — `typescript:S4325`, `S6606`.
 - Roslyn-grade type lattice / inheritance coupling graphs — `csharpsquid:S110`, `S1200`,
   `S1944`, `S3242`, `S3246`, `S4047`.

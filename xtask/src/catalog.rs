@@ -417,23 +417,27 @@ pub fn coverage(lang: Option<&str>, strict: bool) -> Result<()> {
 /// One language's rule classification against its analyzer crate source.
 struct LanguageCoverage {
     name: &'static str,
+    /// Keys with an implementation marker.
     implemented: usize,
+    /// Keys without a marker that are actionable in-repository.
     missing: Vec<String>,
+    /// Keys requiring out-of-repository infrastructure; documented skips.
+    infra: Vec<String>,
 }
 
 impl LanguageCoverage {
     fn total(&self) -> usize {
-        self.implemented + self.missing.len()
+        self.implemented + self.missing.len() + self.infra.len()
     }
 
-    /// Whether any frozen rule lacks an implementation marker.
+    /// Whether any actionable frozen rule lacks an implementation marker.
     fn has_gaps(&self) -> bool {
         !self.missing.is_empty()
     }
 
-    /// Coverage percentage, counting an empty catalog as fully covered.
+    /// Coverage percentage over actionable rules; empty catalog = covered.
     fn percent(&self) -> f64 {
-        let total = self.total();
+        let total = self.implemented + self.missing.len();
         if total == 0 {
             return 100.0;
         }
@@ -462,13 +466,53 @@ fn coverage_language(name: &'static str, language_id: &str) -> Result<LanguageCo
         ));
     }
     let keys = coverage_keys(name, language_id)?;
-    let missing = missing_rules(&keys, &source);
-    let implemented = keys.len() - missing.len();
+    // Markers are matched against the full source (comments included): rule
+    // keys legitimately appear in doc comments, section markers, and test
+    // fixtures. Keys known to require out-of-repository infrastructure are
+    // reported separately instead of as plain gaps.
+    // Infra classification takes precedence over marker matching: a key that
+    // only appears in a documented skip note must not count as implemented.
+    let (infra_keys, actionable_keys): (Vec<_>, Vec<_>) = keys
+        .iter()
+        .partition(|key| infra_rules(name).contains(&key.as_str()));
+    let infra = infra_keys.into_iter().cloned().collect::<Vec<_>>();
+    let actionable: Vec<String> = actionable_keys.into_iter().cloned().collect();
+    let missing = missing_rules(&actionable, &source);
+    let implemented = actionable.len() - missing.len();
     Ok(LanguageCoverage {
         name,
         implemented,
         missing,
+        infra,
     })
+}
+
+/// Rule keys whose implementation requires infrastructure outside this
+/// repository (external datasets, real type-checker engines, cross-file or
+/// runtime-configuration context). They are excluded from the actionable gap
+/// count and listed separately.
+fn infra_rules(name: &str) -> &'static [&'static str] {
+    match name {
+        "javascript" => &["javascript:S1874", "javascript:S6627"],
+        "typescript" => &[
+            "typescript:S1874",
+            "typescript:S4325",
+            "typescript:S4328",
+            "typescript:S6606",
+            "typescript:S6627",
+        ],
+        "python" => &["python:S6786"],
+        "csharp" => &[
+            "csharpsquid:S110",
+            "csharpsquid:S1200",
+            "csharpsquid:S1944",
+            "csharpsquid:S3242",
+            "csharpsquid:S3246",
+            "csharpsquid:S4047",
+            "csharpsquid:S6802",
+        ],
+        _ => &[],
+    }
 }
 
 /// Recursively collects `*.rs` paths under one analyzer crate's `src` tree.
@@ -531,31 +575,35 @@ fn missing_rules(keys: &[String], source: &str) -> Vec<String> {
 /// Strips the repository prefix (`python:BackticksUsage` -> `BackticksUsage`,
 /// `csharpsquid:S103` -> `S103`); a prefix-less key marks itself.
 fn rule_key_marker(external_key: &str) -> &str {
-    external_key
-        .split_once(':')
-        .map_or(external_key, |(_, marker)| marker)
+    match external_key.split_once(':') {
+        Some((_, marker)) => marker,
+        None => external_key,
+    }
 }
 
-/// Prints the per-language coverage table followed by the missing-key lists.
 fn print_coverage(rows: &[LanguageCoverage]) {
-    println!("language      implemented  missing  total  coverage");
+    println!("language      implemented  missing  infra  total  coverage");
     for row in rows {
         println!(
-            "{:<12} {:>11} {:>7} {:>6} {:>8.1}%",
+            "{:<12} {:>11} {:>7} {:>5} {:>6} {:>8.1}%",
             row.name,
             row.implemented,
             row.missing.len(),
+            row.infra.len(),
             row.total(),
             row.percent(),
         );
     }
     for row in rows {
-        if row.missing.is_empty() {
+        if row.missing.is_empty() && row.infra.is_empty() {
             continue;
         }
-        println!("\n{} missing rules:", row.name);
+        println!("\n{}:", row.name);
         for key in &row.missing {
             println!("  {key}");
+        }
+        for key in &row.infra {
+            println!("  {key} (requires out-of-repository infrastructure)");
         }
     }
 }
@@ -1053,6 +1101,7 @@ mod tests {
             name: "python",
             implemented: 0,
             missing: Vec::new(),
+            infra: Vec::new(),
         };
         assert!((row.percent() - 100.0).abs() < 1e-9);
         assert!(!row.has_gaps());
