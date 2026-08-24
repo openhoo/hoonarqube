@@ -35,15 +35,13 @@ mod tests {
 
     #[test]
     fn s4002_ignores_finalizers_on_plain_types() {
-        let report =
-            analyze_default("class A\n{\n    ~A()\n    {\n    }\n}\n");
+        let report = analyze_default("class A\n{\n    ~A()\n    {\n    }\n}\n");
         assert!(with_key(&report, "csharpsquid:S4002").is_empty());
     }
 
     #[test]
     fn s4002_matches_unqualified_disposable_base() {
-        let report =
-            analyze_default("class A : IDisposable\n{\n    ~A()\n    {\n    }\n}\n");
+        let report = analyze_default("class A : IDisposable\n{\n    ~A()\n    {\n    }\n}\n");
         let flagged = with_key(&report, "csharpsquid:S4002");
         assert_eq!(flagged.len(), 1);
         assert_eq!(flagged[0].range.start.line, 3);

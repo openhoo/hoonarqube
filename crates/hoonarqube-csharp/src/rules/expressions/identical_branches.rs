@@ -1,7 +1,7 @@
 use super::support::block_statements;
+use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::structure::{else_alternative, embedded_bodies, is_else_alternative};
-use crate::CsLanguage;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 

@@ -1,8 +1,8 @@
 use super::support::comparisons;
 use super::support::expression_name;
 use super::support::operator_of;
-use crate::cst::{issue, range_of};
 use crate::CsLanguage;
+use crate::cst::{issue, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 

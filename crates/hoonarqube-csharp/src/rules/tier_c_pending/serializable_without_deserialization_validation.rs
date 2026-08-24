@@ -53,8 +53,9 @@ mod tests {
 
     #[test]
     fn s5766_flags_each_unvalidated_serializable_class() {
-        let report =
-            analyze_default("[Serializable]\nclass First\n{\n}\n[Serializable]\nclass Second\n{\n}\n");
+        let report = analyze_default(
+            "[Serializable]\nclass First\n{\n}\n[Serializable]\nclass Second\n{\n}\n",
+        );
         let flagged = with_key(&report, "csharpsquid:S5766");
         assert_eq!(flagged.len(), 2);
         assert_eq!(flagged[0].range.start.line, 2);

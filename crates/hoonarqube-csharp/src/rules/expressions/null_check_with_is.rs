@@ -56,8 +56,9 @@ mod tests {
 
     #[test]
     fn s4201_plain_method_has_no_findings() {
-        let report =
-            analyze_default("class A\n{\n    void M(object x)\n    {\n        Keep(x);\n    }\n}\n");
+        let report = analyze_default(
+            "class A\n{\n    void M(object x)\n    {\n        Keep(x);\n    }\n}\n",
+        );
         assert!(with_key(&report, "csharpsquid:S4201").is_empty());
     }
 

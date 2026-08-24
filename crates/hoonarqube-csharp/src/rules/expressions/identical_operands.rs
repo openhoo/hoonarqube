@@ -1,7 +1,7 @@
 use super::support::binary_operands;
 use super::support::operator_of;
-use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::CsLanguage;
+use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 

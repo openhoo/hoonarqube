@@ -1,8 +1,8 @@
 use super::support::field_and_property_names;
 use super::support::first_named_child;
+use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::naming::TYPE_DECLARATION_KINDS;
-use crate::CsLanguage;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 

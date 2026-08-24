@@ -65,9 +65,8 @@ mod tests {
 
     #[test]
     fn s2931_disposable_bases_from_the_table_exempt_the_class() {
-        let report = analyze_default(
-            "class Cache : MemoryStream\n{\n    private FileStream stream;\n}\n",
-        );
+        let report =
+            analyze_default("class Cache : MemoryStream\n{\n    private FileStream stream;\n}\n");
         assert!(with_key(&report, "csharpsquid:S2931").is_empty());
     }
 

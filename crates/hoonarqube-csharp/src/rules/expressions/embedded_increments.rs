@@ -1,6 +1,6 @@
 use super::support::operator_of;
-use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
 use crate::CsLanguage;
+use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 

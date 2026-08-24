@@ -68,8 +68,7 @@ mod tests {
 
     #[test]
     fn s3366_ignores_constructor_without_this() {
-        let report =
-            analyze_default("class C\n{\n    public C()\n    {\n    }\n}\n");
+        let report = analyze_default("class C\n{\n    public C()\n    {\n    }\n}\n");
         assert!(with_key(&report, "csharpsquid:S3366").is_empty());
     }
 
@@ -86,4 +85,3 @@ mod tests {
         assert_eq!(lines, vec![5, 6]);
     }
 }
-
