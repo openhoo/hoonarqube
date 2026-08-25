@@ -60,14 +60,6 @@ mod tests {
             "import re\nre.compile(r'a{1,}b')\n",
             "python:S6353"
         ));
-    }
-
-    #[test]
-    fn s6353_flags_open_range_forms() {
-        assert!(regex_finds(
-            "import re\nre.compile(r'a{1,}b')\n",
-            "python:S6353"
-        ));
         // {0,1} → ? is S6353 (concise equivalent), not S6396.
         assert!(regex_finds(
             "import re\nre.compile(r'a{0,1}b')\n",
