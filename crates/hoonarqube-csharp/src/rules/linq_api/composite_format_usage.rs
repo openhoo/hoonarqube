@@ -16,23 +16,38 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some((literal, template, budget)) = composite_template(call, source) else {
             continue;
         };
-        if !composite_template_is_valid(template) {
-            issues.push(issue(
-                language,
-                "S3457",
-                "Fix this malformed composite format string.",
-                range_of(literal),
-            ));
-        } else if !template.contains('{') && budget > 0 {
-            issues.push(issue(
-                language,
-                "S3457",
-                "Pass the arguments directly instead of using this format string.",
-                range_of(literal),
-            ));
+        if let Some(problem) = composite_usage_issue(language, literal, template, budget) {
+            issues.push(problem);
         }
     }
     issues
+}
+
+/// Issue worth raising for one invocation: malformed slots, or a
+/// slot-less format string that still receives arguments.
+fn composite_usage_issue(
+    language: CsLanguage,
+    literal: Node<'_>,
+    template: &str,
+    budget: usize,
+) -> Option<Issue> {
+    if !composite_template_is_valid(template) {
+        return Some(issue(
+            language,
+            "S3457",
+            "Fix this malformed composite format string.",
+            range_of(literal),
+        ));
+    }
+    if !template.contains('{') && budget > 0 {
+        return Some(issue(
+            language,
+            "S3457",
+            "Pass the arguments directly instead of using this format string.",
+            range_of(literal),
+        ));
+    }
+    None
 }
 
 /// Composite-format brace scan honoring doubled-brace escapes.

@@ -53,21 +53,14 @@ fn is_valid_regex(pattern: &str) -> bool {
             '(' => {
                 depth += 1;
                 if chars.get(i + 1) == Some(&'?') {
-                    // Group header such as `(?:`, `(?=`, `(?<=`, `(?<name>`:
-                    // consume through its terminator so inner quantifier
-                    // positions stay correct.
-                    let mut j = i + 2;
-                    while j < chars.len() && !matches!(chars[j], ':' | '=' | '!' | '>' | ')') {
-                        j += 1;
+                    let Some(end) = group_header_end(&chars, i) else {
+                        return false;
+                    };
+                    if chars[end] == ')' {
+                        // A header ending on `)` (such as `(?)`) closed its group.
+                        depth -= 1;
                     }
-                    match chars.get(j) {
-                        Some(')') => {
-                            depth -= 1;
-                            i = j + 1;
-                        }
-                        Some(_) => i = j + 1,
-                        None => return false,
-                    }
+                    i = end + 1;
                 } else {
                     i += 1;
                 }
@@ -94,18 +87,8 @@ fn is_valid_regex(pattern: &str) -> bool {
                 }
             }
             '{' => {
-                let mut j = i + 1;
-                while j < chars.len() && chars[j].is_ascii_digit() {
-                    j += 1;
-                }
-                if j < chars.len() && chars[j] == ',' {
-                    j += 1;
-                    while j < chars.len() && chars[j].is_ascii_digit() {
-                        j += 1;
-                    }
-                }
-                if atom && j < chars.len() && chars[j] == '}' && j > i + 1 {
-                    i = j + 1;
+                if let Some(end) = bounded_repeat_end(&chars, i).filter(|_| atom) {
+                    i = end + 1;
                 } else {
                     i += 1;
                 }
@@ -118,6 +101,32 @@ fn is_valid_regex(pattern: &str) -> bool {
         }
     }
     depth == 0
+}
+
+/// End index of the terminator of a `(?` group header such as `(?:`,
+/// `(?=`, `(?<=`, or `(?<name>`; `None` when the pattern ends first.
+fn group_header_end(chars: &[char], open: usize) -> Option<usize> {
+    let mut j = open + 2;
+    while j < chars.len() && !matches!(chars[j], ':' | '=' | '!' | '>' | ')') {
+        j += 1;
+    }
+    chars.get(j).map(|_| j)
+}
+
+/// End index of a bounded quantifier `{2}`, `{2,}`, or `{2,4}` whose
+/// `{` sits at `start`; `None` when the braces do not close into one.
+fn bounded_repeat_end(chars: &[char], start: usize) -> Option<usize> {
+    let mut j = start + 1;
+    while j < chars.len() && chars[j].is_ascii_digit() {
+        j += 1;
+    }
+    if j < chars.len() && chars[j] == ',' {
+        j += 1;
+        while j < chars.len() && chars[j].is_ascii_digit() {
+            j += 1;
+        }
+    }
+    (j < chars.len() && chars[j] == '}' && j > start + 1).then_some(j)
 }
 
 /// Scans one `[...]` character class starting at `start`, advancing `i`
