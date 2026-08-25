@@ -1,7 +1,7 @@
 // Rule module s1291_nosonar (generated).
 
 use crate::context::AnalysisContext;
-use crate::support::{IssueSink, RuleScope, ScannedComment, scan_comments, source_slice};
+use crate::support::{IssueSink, RuleScope, ScannedComment, source_slice};
 use hoonarqube_ir::Issue;
 
 /// `S1291`: the `NOSONAR` suppression marker.
@@ -22,7 +22,7 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
         language: ctx.language,
         issues: Vec::new(),
     };
-    for comment in scan_comments(ctx.source) {
+    for &comment in &ctx.comments {
         let body = source_slice(ctx.source, comment.body);
         check_nosonar(&mut sink, comment, body);
     }

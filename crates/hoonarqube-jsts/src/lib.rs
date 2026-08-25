@@ -28,7 +28,9 @@
 
 // --- split:generated imports ---
 use crate::context::{AnalysisContext, RuleOptions};
-use crate::support::{LineIndex, extension_of, file_metrics, sort_issues, source_type_for};
+use crate::support::{
+    LineIndex, extension_of, file_metrics, scan_comments, sort_issues, source_type_for,
+};
 // --- split:end imports ---
 mod context;
 mod engine;
@@ -59,33 +61,67 @@ impl JstsLanguage {
     }
 }
 
-/// Maps a file extension to a language; `.js .jsx .mjs .cjs` map to
-/// JavaScript, `.ts .tsx .mts .cts` to TypeScript, anything else to `None`.
-#[must_use]
-pub fn language_for_extension(ext: &str) -> Option<JstsLanguage> {
-    match ext {
-        "js" | "jsx" | "mjs" | "cjs" => Some(JstsLanguage::JavaScript),
-        "ts" | "tsx" | "mts" | "cts" => Some(JstsLanguage::TypeScript),
-        _ => None,
-    }
-}
-
 /// Knobs for the JS/TS analyzer; defaults mirror the frozen catalog
 /// `ParameterFact` defaults (`maximumLineLength` default `180` for both
 /// `javascript:S103` and `typescript:S103`).
 ///
-/// The public shape is deliberately stable (`hoonarqube-cli` constructs this
-/// struct literally); the remaining catalog parameters live in the private
-/// [`RuleOptions`] until the CLI bundle threads them through.
+/// The struct stays `Eq` because `hoonarqube-core` bundles it in an `Eq`
+/// container; that is why the one non-`Eq` catalog parameter
+/// (`randomnessSensibility` for `S6418`, an `f64`) remains on the private
+/// [`RuleOptions`] carrier.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalyzerOptions {
     pub maximum_line_length: u32,
+    /// `javascript:S104` / `typescript:S104` `maximum`.
+    pub maximum_lines_of_code: u32,
+    /// `S138` `max`.
+    pub maximum_function_lines: u32,
+    /// `S1451` `headerFormat`; empty disables the file-header check.
+    pub header_format: String,
+    /// `S1451` `isRegularExpression`.
+    pub header_is_regular_expression: bool,
+    /// `S139` `pattern`.
+    pub comment_pattern: String,
+    /// `S2068` `passwordWords`, comma-separated in catalog order.
+    pub password_words: Vec<String>,
+    /// `S6418` `secretWords`, comma-separated.
+    pub secret_words: Vec<String>,
+    /// `S100` naming `format` for functions.
+    pub format_functions: String,
+    /// `S101` naming `format` for classes.
+    pub format_classes: String,
+    /// `S117` naming `format` for local variables.
+    pub format_variables: String,
+    /// `S1192` `threshold`.
+    pub duplicate_string_threshold: usize,
+    /// `S1192` `ignoreStrings`, comma-separated.
+    pub ignored_strings: Vec<String>,
+    /// `S1441` `singleQuotes`.
+    pub single_quotes: bool,
+    /// `S6747` `whitelist`, comma-separated.
+    pub jsx_attribute_whitelist: Vec<String>,
 }
 
 impl Default for AnalyzerOptions {
     fn default() -> Self {
+        // `RuleOptions::default()` is the single source of catalog defaults.
+        let rules = RuleOptions::default();
         Self {
             maximum_line_length: 180,
+            maximum_lines_of_code: rules.maximum_lines_of_code,
+            maximum_function_lines: rules.maximum_function_lines,
+            header_format: rules.header_format,
+            header_is_regular_expression: rules.header_is_regular_expression,
+            comment_pattern: rules.comment_pattern,
+            password_words: rules.password_words,
+            secret_words: rules.secret_words,
+            format_functions: rules.format_functions,
+            format_classes: rules.format_classes,
+            format_variables: rules.format_variables,
+            duplicate_string_threshold: rules.duplicate_string_threshold,
+            ignored_strings: rules.ignored_strings,
+            single_quotes: rules.single_quotes,
+            jsx_attribute_whitelist: rules.jsx_attribute_whitelist,
         }
     }
 }
@@ -97,10 +133,9 @@ pub fn analyze(
     language: JstsLanguage,
     options: &AnalyzerOptions,
 ) -> hoonarqube_ir::FileReport {
-    // Catalog-backed rule parameters beyond `maximumLineLength` are not
-    // threaded through the CLI bundle yet; the library defaults mirror the
-    // frozen catalog values (see `RuleOptions`).
-    let rules = RuleOptions::default();
+    // Every catalog parameter except the non-`Eq` `randomnessSensibility`
+    // is threaded through `AnalyzerOptions` (see the struct docs).
+    let rules = RuleOptions::from(options);
     analyze_with_rules(path, source, language, options, &rules)
 }
 
@@ -119,6 +154,9 @@ fn analyze_with_rules(
     )
     .parse();
     let index = LineIndex::new(source);
+    // One comment-scan pass shared by every comment-consuming check and by
+    // `file_metrics` (previously up to seven identical scans per file).
+    let comments = scan_comments(source);
     let body = parsed.program.body.as_slice();
     let ctx = AnalysisContext {
         path: &path,
@@ -128,6 +166,7 @@ fn analyze_with_rules(
         language,
         options,
         rules,
+        comments,
     };
     let mut issues = Vec::new();
     // `S2260` (`ParsingError`) hook: `parsed.errors` is deliberately not
@@ -136,46 +175,20 @@ fn analyze_with_rules(
     let _ = &parsed.diagnostics;
     issues.extend(rules::run_all(&ctx));
     sort_issues(&mut issues);
+    let metrics = file_metrics(body, source, &index, &ctx.comments);
 
     hoonarqube_ir::FileReport {
         path,
         language: language.prefix().to_string(),
         issues,
-        metrics: file_metrics(body, source, &index),
+        metrics,
     }
 }
 
-pub(crate) use crate::rules::batch2d::collectors::{
-    ClassAccessorCollector, DuplicationCollector, FunctionMetricsCollector,
-    KeywordPlacementCollector, PromiseFlowCollector,
-};
-pub(crate) use crate::rules::batch5::collectors::{SecurityHotspotCollector, TsTypeCollector};
-use crate::rules::batch5::collectors_hotspots::{
-    MiscCollector, check_default_export_name, check_self_imports,
-};
-pub(crate) use crate::rules::expression::collectors::{
-    check_collection_and_object_calls, check_logging_and_binding_calls,
-};
-pub(crate) use crate::rules::jsx_a11y::collectors::{
-    IMPLICIT_ROLES, INTERACTIVE_ROLES, NON_INTERACTIVE_ROLES, jsx_has_attribute,
-    language_tag_is_valid,
-};
+// Kept only because `rules/one_stmt/s122_suite.rs` still imports these two
+// items through the crate root; every other consumer imports rule-internal
+// items by owning-module path.
 pub(crate) use crate::rules::one_stmt::collectors::{check_class_methods, check_one};
-pub(crate) use crate::rules::react_jsx::collectors::{
-    REACT_DOM_ATTRIBUTES, expression_returns_jsx,
-};
-pub(crate) use crate::rules::regex_family::collectors::{
-    REGEX_COMPLEXITY_THRESHOLD, emit_concise_class_rewrite, emit_space_runs_in_sequence,
-    flag_single_char_alternation, for_every_sequence, is_bare_control_character,
-};
-pub(crate) use crate::rules::shared::is_literal_expression;
-pub(crate) use crate::rules::statement::collectors::is_error_type_name;
-pub(crate) use crate::rules::tier_b::collectors::{
-    ClassRuleCollector, TrailingCommaList, TrailingCommaListCollector,
-};
-
-#[cfg(test)]
-use crate::rules::switch_flow::walker::MAX_SWITCH_CASES;
 
 #[cfg(test)]
 mod tests;

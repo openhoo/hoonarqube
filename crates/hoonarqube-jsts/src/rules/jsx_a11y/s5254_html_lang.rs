@@ -1,8 +1,8 @@
+use super::collectors::language_tag_is_valid;
 use super::walker::{
     A11yCollector, attribute_static_value, jsx_element_tag, jsx_find_attribute,
     jsx_has_spread_attribute,
 };
-use crate::language_tag_is_valid;
 use crate::support::RuleScope;
 use oxc_ast::ast::JSXElement;
 use oxc_span::GetSpan;

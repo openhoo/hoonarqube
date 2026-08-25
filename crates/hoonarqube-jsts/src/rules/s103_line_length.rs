@@ -53,6 +53,7 @@ mod tests {
         // Exactly at the limit: clean. One more character: flagged.
         let options = AnalyzerOptions {
             maximum_line_length: 13,
+            ..AnalyzerOptions::default()
         };
         let at_limit = analyze(
             PathBuf::from("test.js"),
@@ -82,6 +83,7 @@ mod tests {
     fn line_length_flags_only_the_offending_lines() {
         let options = AnalyzerOptions {
             maximum_line_length: 5,
+            ..AnalyzerOptions::default()
         };
         let report = analyze(
             PathBuf::from("test.js"),
@@ -104,6 +106,7 @@ mod tests {
     fn line_length_counts_characters_not_bytes() {
         let options = AnalyzerOptions {
             maximum_line_length: 10,
+            ..AnalyzerOptions::default()
         };
         // Nine characters (fifteen bytes): char semantics stay within limit.
         let at_limit = analyze(

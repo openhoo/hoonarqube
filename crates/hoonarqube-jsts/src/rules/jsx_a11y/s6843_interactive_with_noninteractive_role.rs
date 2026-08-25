@@ -1,8 +1,8 @@
+use super::collectors::NON_INTERACTIVE_ROLES;
 use super::walker::{
     A11yCollector, explicit_role, is_interactive_element, jsx_element_tag, jsx_find_attribute,
     jsx_has_spread_attribute, jsx_tag_is_intrinsic,
 };
-use crate::NON_INTERACTIVE_ROLES;
 use crate::support::RuleScope;
 use oxc_ast::ast::JSXElement;
 use oxc_span::GetSpan;

@@ -1,20 +1,26 @@
 // Family walker for 'jsx_a11y' (generated).
+use super::collectors::INTERACTIVE_ROLES;
+use super::collectors::jsx_has_attribute;
 use super::s6819_s6822_role_duplicates::implicit_role;
-use crate::INTERACTIVE_ROLES;
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
-use crate::jsx_has_attribute;
 use crate::support::IssueSink;
 use crate::support::LineIndex;
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
-    Expression, JSXAttribute, JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXElement,
-    JSXElementName, JSXOpeningElement, JSXText,
+    Expression, JSXAttribute, JSXAttributeItem, JSXAttributeValue, JSXElement, JSXOpeningElement,
+    JSXText,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::walk_jsx_element;
 use oxc_span::{GetSpan, Span};
 use std::collections::BTreeSet;
+
+// Shared JSX helpers live in `rules::shared`; re-exported so the sibling rule
+// modules importing them via `super::walker` keep their paths.
+pub(crate) use crate::rules::shared::{
+    jsx_attribute_name, jsx_element_tag, jsx_find_attribute, jsx_tag_is_intrinsic,
+};
 
 /// All Batch4 JSX accessibility checks in one traversal (groups A1-A3).
 fn check_jsx_accessibility_rules(
@@ -146,34 +152,6 @@ impl Visit<'_> for SubtreeFacts {
     }
 }
 
-/// Tag name of a JSX element when spelled as a plain identifier (`div`,
-/// `Widget`); namespaced, member, and `this` names have none.
-pub(crate) fn jsx_element_tag<'a>(name: &'a JSXElementName<'a>) -> Option<&'a str> {
-    match name {
-        JSXElementName::Identifier(identifier) => Some(identifier.name.as_str()),
-        JSXElementName::IdentifierReference(reference) => Some(&reference.name),
-        _ => None,
-    }
-}
-
-/// Whether a tag starts lowercase (intrinsic HTML/SVG spelling).
-pub(crate) fn jsx_tag_is_intrinsic(tag: &str) -> bool {
-    tag.starts_with(|ch: char| ch.is_ascii_lowercase())
-}
-
-/// First attribute with the given name on an opening tag, if any.
-pub(crate) fn jsx_find_attribute<'a>(
-    opening: &'a JSXOpeningElement<'a>,
-    name: &str,
-) -> Option<&'a JSXAttribute<'a>> {
-    opening.attributes.iter().find_map(|item| match item {
-        JSXAttributeItem::Attribute(attribute) if jsx_attribute_name(attribute) == Some(name) => {
-            Some(&**attribute)
-        }
-        _ => None,
-    })
-}
-
 /// Whether the opening tag carries a spread attribute (unknown props).
 pub(crate) fn jsx_has_spread_attribute(opening: &JSXOpeningElement<'_>) -> bool {
     opening
@@ -186,15 +164,6 @@ pub(crate) fn jsx_has_spread_attribute(opening: &JSXOpeningElement<'_>) -> bool 
 pub(crate) fn explicit_role<'x>(opening: &'x JSXOpeningElement<'x>) -> Option<&'x str> {
     let value = attribute_static_value(jsx_find_attribute(opening, "role")?)?;
     value.split_whitespace().last()
-}
-
-/// Tag name of a JSX attribute (`ref`, `children`, ...); namespaced names
-/// (`xlink:href`) have no plain name.
-pub(crate) fn jsx_attribute_name<'a>(attribute: &'a JSXAttribute<'a>) -> Option<&'a str> {
-    match &attribute.name {
-        JSXAttributeName::Identifier(identifier) => Some(identifier.name.as_str()),
-        JSXAttributeName::NamespacedName(_) => None,
-    }
 }
 
 /// Integer content of an attribute value: numeric literals or strings that

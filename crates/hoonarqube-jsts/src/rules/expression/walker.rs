@@ -1,4 +1,5 @@
 // Family walker for 'expression' (generated).
+use super::collectors::{check_collection_and_object_calls, check_logging_and_binding_calls};
 use super::s1125_binary_operators::check_binary_operators;
 use super::s1313_string_literal_raw::check_string_literal_raw;
 use super::s1314_numeric_literal::check_numeric_literal;
@@ -10,10 +11,10 @@ use super::s3003_relational_strings::check_relational_strings;
 use super::s3981_length_comparison::check_length_comparison;
 use super::s4125_typeof_literal::check_typeof_literal;
 use super::s6644_redundant_ternary::check_redundant_ternary;
+use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::rules::shared::{call_property, is_equality_operator, regex_pattern_text};
 use crate::support::{IssueSink, LineIndex, RuleScope, callee_name, identifier_name};
-use crate::{JstsLanguage, check_collection_and_object_calls, check_logging_and_binding_calls};
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     ArrayExpression, ArrayExpressionElement, AssignmentExpression, BinaryExpression,

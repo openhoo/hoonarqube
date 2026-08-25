@@ -1,12 +1,13 @@
 // Family walker for 'batch2d' (generated).
+use super::collectors::{
+    ClassAccessorCollector, DuplicationCollector, FunctionMetricsCollector,
+    KeywordPlacementCollector, PromiseFlowCollector,
+};
 use super::s3512_es_idioms::check_es_idioms;
+use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::engine::scope_model::collect_array_binding_names;
 use crate::support::{IssueSink, LineIndex};
-use crate::{
-    ClassAccessorCollector, DuplicationCollector, FunctionMetricsCollector, JstsLanguage,
-    KeywordPlacementCollector, PromiseFlowCollector,
-};
 use hoonarqube_ir::Issue;
 use oxc_ast_visit::Visit;
 

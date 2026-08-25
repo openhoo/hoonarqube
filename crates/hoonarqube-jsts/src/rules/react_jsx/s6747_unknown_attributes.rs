@@ -1,5 +1,6 @@
-use super::walker::{ReactCollector, jsx_attribute_name, jsx_element_tag, jsx_tag_is_intrinsic};
-use crate::REACT_DOM_ATTRIBUTES;
+use super::collectors::REACT_DOM_ATTRIBUTES;
+use super::walker::ReactCollector;
+use crate::rules::shared::{jsx_attribute_name, jsx_element_tag, jsx_tag_is_intrinsic};
 use crate::support::RuleScope;
 use oxc_ast::ast::JSXAttributeItem;
 use oxc_ast::ast::JSXElement;

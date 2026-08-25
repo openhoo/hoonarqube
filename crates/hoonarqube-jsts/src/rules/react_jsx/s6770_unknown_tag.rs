@@ -1,4 +1,5 @@
-use super::walker::{ReactCollector, jsx_element_tag, jsx_tag_is_intrinsic};
+use super::walker::ReactCollector;
+use crate::rules::shared::{jsx_element_tag, jsx_tag_is_intrinsic};
 use crate::support::RuleScope;
 use oxc_ast::ast::JSXElement;
 use oxc_span::GetSpan;

@@ -1,7 +1,8 @@
 // Family walker for 'duplicate' (generated).
+use crate::JstsLanguage;
 use crate::context::AnalysisContext;
+use crate::rules::shared::is_literal_expression;
 use crate::support::{IssueSink, LineIndex, RuleScope};
-use crate::{JstsLanguage, is_literal_expression};
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     Expression, FunctionBody, IfStatement, ReturnStatement, Statement, SwitchStatement,

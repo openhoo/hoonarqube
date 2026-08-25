@@ -3,7 +3,7 @@ pub(crate) use super::AnalyzerOptions;
 pub(crate) use super::JstsLanguage;
 pub(crate) use super::RuleOptions;
 pub(crate) use super::analyze;
-pub(crate) use super::language_for_extension;
+pub(crate) use hoonarqube_core::{Language, language_for_extension};
 pub(crate) use std::fmt::Write as _;
 pub(crate) use std::path::PathBuf;
 

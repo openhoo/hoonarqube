@@ -44,9 +44,7 @@ pub(crate) fn source_type_for(language: JstsLanguage, extension: Option<&str>) -
     source_type
 }
 
-pub(crate) fn to_u32(value: usize) -> u32 {
-    u32::try_from(value).unwrap_or(u32::MAX)
-}
+pub(crate) use hoonarqube_ir::u32_saturating as to_u32;
 
 /// Byte-offset line index; positions follow the `SonarQube` convention
 /// (`line` 1-based, `column` 0-based byte offset within the line).
@@ -92,31 +90,13 @@ impl LineIndex {
     }
 }
 
-pub(crate) fn sort_issues(issues: &mut [Issue]) {
-    issues.sort_by(|a, b| {
-        (
-            a.range.start.line,
-            a.range.start.column,
-            a.range.end.line,
-            a.range.end.column,
-            a.rule_key.as_str(),
-            a.message.as_str(),
-        )
-            .cmp(&(
-                b.range.start.line,
-                b.range.start.column,
-                b.range.end.line,
-                b.range.end.column,
-                b.rule_key.as_str(),
-                b.message.as_str(),
-            ))
-    });
-}
+pub(crate) use hoonarqube_ir::sort_issues;
 
 pub(crate) fn file_metrics(
     body: &[Statement<'_>],
     source: &str,
     index: &LineIndex,
+    comments: &[ScannedComment],
 ) -> hoonarqube_ir::FileMetrics {
     let lines = if source.is_empty() {
         0
@@ -125,14 +105,16 @@ pub(crate) fn file_metrics(
     };
 
     // Code lines derive from statement spans; the oxc lexer skips comments
-    // entirely (no trivia tokens exist), so comment rows come from a small
-    // string/template/regex-aware source scanner instead.
+    // entirely (no trivia tokens exist), so comment rows derive from the one
+    // scanner pass stored on `AnalysisContext` (`covered_lines` spans every
+    // row a comment token covers, including multi-line block interiors).
     let code_lines: BTreeSet<u32> = body
         .iter()
         .flat_map(|statement| index.covered_lines(statement.span()))
         .collect();
-    let comment_rows: BTreeSet<u32> = scan_comment_lines(source)
-        .into_iter()
+    let comment_rows: BTreeSet<u32> = comments
+        .iter()
+        .flat_map(|comment| index.covered_lines(comment.token))
         .filter(|row| !code_lines.contains(row))
         .collect();
 
@@ -151,20 +133,14 @@ pub(crate) struct ScannedComment {
     pub(crate) body: Span,
 }
 
-/// One-pass scanner over raw source collecting the rows that contain comment
-/// text. Understands `'…'`, `"…"`, template literals with `${}` nesting, and
-/// a regex-literal heuristic (`/` after an operator, opening delimiter, or
-/// keyword such as `return` starts a regex, not a division).
+/// One-pass scanner over raw source collecting comments with their byte
+/// spans, in source order. Understands `'…'`, `"…"`, template literals with
+/// `${}` nesting, and a regex-literal heuristic (`/` after an operator,
+/// opening delimiter, or keyword such as `return` starts a regex, not a
+/// division).
 ///
-/// Rows are 1-based to match [`LineIndex`].
-pub(crate) fn scan_comment_lines(source: &str) -> Vec<u32> {
-    let mut scan = Scanner::new(source);
-    scan.run();
-    scan.rows
-}
-
-/// Scans all comments with their byte spans, in source order. The comment
-/// rows behind [`scan_comment_lines`] derive from the same pass.
+/// Runs once per analyzed file in `analyze_with_rules`; rule checks consume
+/// the resulting slice stored on `AnalysisContext`.
 pub(crate) fn scan_comments(source: &str) -> Vec<ScannedComment> {
     let mut scan = Scanner::new(source);
     scan.run();
@@ -191,8 +167,6 @@ pub(crate) struct Scanner {
     pub(crate) template_stack: Vec<ScanState>,
     pub(crate) prev_significant: Option<char>,
     pub(crate) prev_word: String,
-    pub(crate) rows: Vec<u32>,
-    pub(crate) last_pushed_row: u32,
     pub(crate) comments: Vec<ScannedComment>,
     /// `(token start, body start)` of the comment currently being consumed.
     pub(crate) open_comment: Option<(u32, u32)>,
@@ -215,15 +189,12 @@ impl Scanner {
             template_stack: Vec::new(),
             prev_significant: None,
             prev_word: String::new(),
-            rows: Vec::new(),
-            last_pushed_row: u32::MAX,
             comments: Vec::new(),
             open_comment: None,
         }
     }
 
     pub(crate) fn run(&mut self) {
-        let mut row = 0_u32;
         let mut i = 0;
         while i < self.chars.len() {
             let c = self.chars[i];
@@ -231,19 +202,13 @@ impl Scanner {
                 if self.state == ScanState::LineComment {
                     self.close_comment(self.offsets[i]);
                     self.state = ScanState::Code;
-                } else if self.state == ScanState::BlockComment {
-                    self.push_row(row);
                 }
                 i += 1;
-                row += 1;
-                continue;
+            } else {
+                let next = self.chars.get(i + 1).copied();
+                let (jump, _) = self.step(i, c, next);
+                i += jump;
             }
-            let next = self.chars.get(i + 1).copied();
-            let (jump, comment_start) = self.step(i, c, next);
-            if comment_start {
-                self.push_row(row);
-            }
-            i += jump;
         }
         // Unterminated `//` or `/* …` at end of file still yields a span.
         self.close_comment(self.source_len);
@@ -264,13 +229,6 @@ impl Scanner {
                 token: Span::new(token_start, end),
                 body: Span::new(body_start, end),
             });
-        }
-    }
-
-    pub(crate) fn push_row(&mut self, row: u32) {
-        if self.last_pushed_row != row {
-            self.rows.push(row + 1);
-            self.last_pushed_row = row;
         }
     }
 

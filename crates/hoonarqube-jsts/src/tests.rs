@@ -1,33 +1,15 @@
 use crate::test_support::*;
 #[test]
 fn extensions_map_to_languages() {
-    assert_eq!(language_for_extension("js"), Some(JstsLanguage::JavaScript));
-    assert_eq!(
-        language_for_extension("jsx"),
-        Some(JstsLanguage::JavaScript)
-    );
-    assert_eq!(
-        language_for_extension("mjs"),
-        Some(JstsLanguage::JavaScript)
-    );
-    assert_eq!(
-        language_for_extension("cjs"),
-        Some(JstsLanguage::JavaScript)
-    );
-    assert_eq!(language_for_extension("ts"), Some(JstsLanguage::TypeScript));
-    assert_eq!(
-        language_for_extension("tsx"),
-        Some(JstsLanguage::TypeScript)
-    );
-    assert_eq!(
-        language_for_extension("mts"),
-        Some(JstsLanguage::TypeScript)
-    );
-    assert_eq!(
-        language_for_extension("cts"),
-        Some(JstsLanguage::TypeScript)
-    );
-    assert_eq!(language_for_extension("py"), None);
+    assert_eq!(language_for_extension("js"), Some(Language::JavaScript));
+    assert_eq!(language_for_extension("jsx"), Some(Language::JavaScript));
+    assert_eq!(language_for_extension("mjs"), Some(Language::JavaScript));
+    assert_eq!(language_for_extension("cjs"), Some(Language::JavaScript));
+    assert_eq!(language_for_extension("ts"), Some(Language::TypeScript));
+    assert_eq!(language_for_extension("tsx"), Some(Language::TypeScript));
+    assert_eq!(language_for_extension("mts"), Some(Language::TypeScript));
+    assert_eq!(language_for_extension("cts"), Some(Language::TypeScript));
+    assert_eq!(language_for_extension("py"), Some(Language::Python));
 }
 
 #[test]
@@ -205,23 +187,11 @@ fn loc_and_function_length_boundaries_honor_rule_options() {
         maximum_function_lines: 2,
         ..RuleOptions::default()
     };
-    let report = super::analyze_with_rules(
-        PathBuf::from("test.js"),
-        "a();\nb();\nc();\nd();\n",
-        JstsLanguage::JavaScript,
-        &AnalyzerOptions::default(),
-        &strict,
-    );
+    let report = js_with_rules("a();\nb();\nc();\nd();\n", &strict);
     assert_eq!(count_key(&report_keys(&report), "javascript:S104"), 1);
 
     let long_function = "function f() {\n  a();\n  b();\n  c();\n}\n";
-    let flagged = super::analyze_with_rules(
-        PathBuf::from("test.js"),
-        long_function,
-        JstsLanguage::JavaScript,
-        &AnalyzerOptions::default(),
-        &strict,
-    );
+    let flagged = js_with_rules(long_function, &strict);
     assert_eq!(count_key(&report_keys(&flagged), "javascript:S138"), 1);
 
     let relaxed = RuleOptions {
@@ -229,13 +199,7 @@ fn loc_and_function_length_boundaries_honor_rule_options() {
         maximum_function_lines: 200,
         ..RuleOptions::default()
     };
-    let clean = super::analyze_with_rules(
-        PathBuf::from("test.js"),
-        long_function,
-        JstsLanguage::JavaScript,
-        &AnalyzerOptions::default(),
-        &relaxed,
-    );
+    let clean = js_with_rules(long_function, &relaxed);
     assert_eq!(count_key(&report_keys(&clean), "javascript:S138"), 0);
 }
 
@@ -344,28 +308,7 @@ function clean() {
     assert_eq!(s1488, vec![2, 6]);
 }
 
-// ----- Regex-literal family (Batch3, check_regex_family) -----
-
-// ===== Batch4 group R1 tests: React/JSX structural rules =====
-
-// ===== Batch4 group A1 tests: JSX accessibility rules =====
-
-// ===== Batch4 group A2 tests: role and value accessibility rules =====
-
-// ===== Batch4 group A3 tests: interaction-matrix accessibility rules =====
-
-// ---- Batch-5 security-hotspot fixtures ----
-
-// ---- Batch-5 test-framework fixtures ----
-
-// ---- Batch-5 misc Tier-A fixtures ----
-
-// --- Tier B: scope/symbol table rules ---
-
-// --- Tier B remainder group 1: dataflow-lite ---
-
-// --- Tier B remainder group 2: targeted dataflow queries ---
-
-// --- Tier B remainder group 3: CFG-lite ---
-
-// --- Tier B remainder group 4: trivia ---
+// Tests for the regex-literal, React/JSX, jsx-a11y, Batch-5 hotspot,
+// and Tier-B rule families live in their per-rule modules
+// (`rules/react_jsx`, `rules/jsx_a11y`, `rules/batch5`, `rules/tier_b`,
+// `rules/regex_family`, ...), not in this file.

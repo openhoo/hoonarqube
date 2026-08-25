@@ -1,4 +1,5 @@
-use super::walker::{ReactCollector, jsx_element_tag};
+use super::walker::ReactCollector;
+use crate::rules::shared::jsx_element_tag;
 use crate::support::RuleScope;
 use oxc_ast::ast::JSXChild;
 use oxc_span::GetSpan;

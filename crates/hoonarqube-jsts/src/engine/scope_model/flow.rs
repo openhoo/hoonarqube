@@ -230,7 +230,6 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
     fn visit_if_statement(&mut self, node: &IfStatement<'p>) {
         self.visit_expression(&node.test);
         let pre = self.env.clone();
-        let pre_join = self.env.clone();
         let saved_depth = self.depth;
         self.depth += 1;
         self.visit_statement(&node.consequent);
@@ -239,7 +238,7 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
             Some(alternate) => {
                 self.status = TbHalt::Live;
                 self.visit_statement(alternate);
-                (std::mem::replace(&mut self.env, pre_join), self.status)
+                (std::mem::replace(&mut self.env, pre.clone()), self.status)
             }
             None => (pre.clone(), TbHalt::Live),
         };
@@ -250,14 +249,13 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
     fn visit_conditional_expression(&mut self, node: &ConditionalExpression<'p>) {
         self.visit_expression(&node.test);
         let pre = self.env.clone();
-        let pre_join = self.env.clone();
         let saved_depth = self.depth;
         self.depth += 1;
         self.visit_expression(&node.consequent);
         let then_state = (std::mem::replace(&mut self.env, pre.clone()), self.status);
         self.status = TbHalt::Live;
         self.visit_expression(&node.alternate);
-        let else_state = (std::mem::replace(&mut self.env, pre_join), self.status);
+        let else_state = (std::mem::replace(&mut self.env, pre.clone()), self.status);
         self.depth = saved_depth;
         self.join(then_state, else_state, pre);
     }
@@ -265,7 +263,6 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
     fn visit_switch_statement(&mut self, node: &SwitchStatement<'p>) {
         self.visit_expression(&node.discriminant);
         let pre = self.env.clone();
-        let pre_fallback = self.env.clone();
         let saved_depth = self.depth;
         self.depth += 1;
         let mut joined: Option<TbEnv<'p>> = None;
@@ -288,12 +285,11 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
         // A default-less switch or a final break keeps executing after the
         // switch, so treat the join point as live regardless.
         self.status = TbHalt::Live;
-        self.env = joined.unwrap_or(pre_fallback);
+        self.env = joined.unwrap_or(pre);
     }
 
     fn visit_try_statement(&mut self, node: &TryStatement<'p>) {
         let pre = self.env.clone();
-        let pre_join = self.env.clone();
         let saved_depth = self.depth;
         self.depth += 1;
         self.process_statements(&node.block.body);
@@ -306,7 +302,7 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
                 let handler_depth = std::mem::replace(&mut self.depth, 0);
                 self.visit_catch_clause(handler);
                 self.depth = handler_depth;
-                (std::mem::replace(&mut self.env, pre_join), self.status)
+                (std::mem::replace(&mut self.env, pre.clone()), self.status)
             }
             None => (pre.clone(), TbHalt::Live),
         };

@@ -1,7 +1,7 @@
 // Rule module s1134_s1135_task_tags (generated).
 
 use crate::context::AnalysisContext;
-use crate::support::{IssueSink, RuleScope, ScannedComment, scan_comments, source_slice, to_u32};
+use crate::support::{IssueSink, RuleScope, ScannedComment, source_slice, to_u32};
 use hoonarqube_ir::Issue;
 use oxc_span::Span;
 
@@ -54,7 +54,7 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
         language: ctx.language,
         issues: Vec::new(),
     };
-    for comment in scan_comments(ctx.source) {
+    for &comment in &ctx.comments {
         let body = source_slice(ctx.source, comment.body);
         check_flagged_tags(&mut sink, comment, body);
     }

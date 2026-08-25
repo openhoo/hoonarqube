@@ -104,16 +104,33 @@ enum BindingFact {
 }
 
 impl<'p> CdkFile<'p> {
-    pub(crate) fn build(program: &'p Program<'p>) -> Self {
+    /// Cheap first stage: collects only the import table, which already
+    /// answers whether the file touches CDK at all.
+    pub(crate) fn collect_imports(program: &'p Program<'p>) -> Self {
         let mut import_pass = ImportPass::default();
         import_pass.visit_program(program);
-        let mut fact_pass = WriteFactPass {
-            file: Self {
-                imports: import_pass.imports,
-                writes: Vec::new(),
-                object_digests: Vec::new(),
-            },
-        };
+        Self {
+            imports: import_pass.imports,
+            writes: Vec::new(),
+            object_digests: Vec::new(),
+        }
+    }
+
+    /// Whether any import/`require` binding roots in `aws-cdk-lib` or an
+    /// `@aws-cdk/*` package. Every check's FQN resolution can only root in
+    /// these modules, so a file without them can never produce findings.
+    pub(crate) fn uses_cdk(&self) -> bool {
+        self.imports.iter().any(|binding| {
+            binding.module == "aws-cdk-lib"
+                || binding.module.starts_with("aws-cdk-lib/")
+                || binding.module.starts_with("@aws-cdk/")
+        })
+    }
+
+    /// Expensive second stage: runs the write-fact pass plus the uniqueness
+    /// sweep; callers should gate on [`Self::uses_cdk`] first.
+    pub(crate) fn build(self, program: &'p Program<'p>) -> Self {
+        let mut fact_pass = WriteFactPass { file: self };
         fact_pass.visit_program(program);
         let mut file = fact_pass.file;
         // Only bindings declared exactly once resolve uniquely, mirroring the

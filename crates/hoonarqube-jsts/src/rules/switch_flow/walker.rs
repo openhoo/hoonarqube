@@ -173,6 +173,7 @@ pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
 
 #[cfg(test)]
 mod tests {
+    use super::MAX_SWITCH_CASES;
     use crate::test_support::*;
 
     #[test]
@@ -262,10 +263,10 @@ mod tests {
             source
         };
 
-        let at_limit = js_keys(&build(crate::MAX_SWITCH_CASES));
+        let at_limit = js_keys(&build(MAX_SWITCH_CASES));
         assert_eq!(count_key(&at_limit, "javascript:S1479"), 0);
 
-        let over_limit = js_keys(&build(crate::MAX_SWITCH_CASES + 1));
+        let over_limit = js_keys(&build(MAX_SWITCH_CASES + 1));
         assert_eq!(count_key(&over_limit, "javascript:S1479"), 1);
     }
 

@@ -3,7 +3,6 @@ use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::support::{
     IssueSink, LineIndex, RuleScope, ScannedComment, binding_identifier_name, identifier_name,
-    scan_comments,
 };
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
@@ -18,7 +17,7 @@ use oxc_span::{GetSpan, Span};
 
 fn check_exception_handling(
     program: &oxc_ast::ast::Program<'_>,
-    source: &str,
+    comments: &[ScannedComment],
     index: &LineIndex,
     language: JstsLanguage,
 ) -> Vec<Issue> {
@@ -28,7 +27,7 @@ fn check_exception_handling(
             language,
             issues: Vec::new(),
         },
-        comments: scan_comments(source),
+        comments,
     };
     collector.visit_program(program);
     collector.sink.issues
@@ -37,7 +36,7 @@ fn check_exception_handling(
 /// `S2486`, `S2737`, and `S2432` in one traversal.
 struct ExceptionHandlingCollector<'index> {
     sink: IssueSink<'index>,
-    comments: Vec<ScannedComment>,
+    comments: &'index [ScannedComment],
 }
 
 impl<'a> Visit<'a> for ExceptionHandlingCollector<'a> {
@@ -63,7 +62,7 @@ impl<'a> Visit<'a> for ExceptionHandlingCollector<'a> {
         // explaining why the exception is ignored.
         if it.body.body.is_empty() {
             let inner = Span::new(it.body.span.start + 1, it.body.span.end.saturating_sub(1));
-            if !span_contains_comment(&self.comments, inner) {
+            if !span_contains_comment(self.comments, inner) {
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S2486",
@@ -133,7 +132,7 @@ fn span_contains_comment(comments: &[ScannedComment], span: Span) -> bool {
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_exception_handling(ctx.program, ctx.source, ctx.index, ctx.language)
+    check_exception_handling(ctx.program, &ctx.comments, ctx.index, ctx.language)
 }
 
 #[cfg(test)]

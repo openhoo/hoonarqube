@@ -1,9 +1,10 @@
 // Family walker for 'statement' (generated).
+use super::collectors::is_error_type_name;
+use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::support::{
     IssueSink, LineIndex, RuleScope, constructor_name, source_slice, static_property_name,
 };
-use crate::{JstsLanguage, is_error_type_name};
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     BlockStatement, CallExpression, ContinueStatement, DebuggerStatement, EmptyStatement,

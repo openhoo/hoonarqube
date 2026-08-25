@@ -30,12 +30,18 @@ use shared::CdkFile;
 
 /// Runs every aws-cdk rule against the context.
 pub(crate) fn run_all(ctx: &AnalysisContext) -> Vec<Issue> {
+    // Import table first: without any CDK module binding no check's FQN can
+    // resolve, so skip the write-fact pass and the whole dispatch.
+    let imports_only = CdkFile::collect_imports(ctx.program);
+    if !imports_only.uses_cdk() {
+        return Vec::new();
+    }
+    let file = imports_only.build(ctx.program);
     let mut sink = IssueSink {
         index: ctx.index,
         language: ctx.language,
         issues: Vec::new(),
     };
-    let file = CdkFile::build(ctx.program);
     let mut pass = shared::RulePass {
         file: &file,
         sink: &mut sink,

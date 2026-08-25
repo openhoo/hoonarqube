@@ -195,12 +195,9 @@ impl<'a> TbBuilder<'a, '_> {
 
     /// `for (let v of xs)` assigns `v` although no assignment node exists.
     pub(crate) fn mark_loop_bindings(&mut self, declaration: &VariableDeclaration<'a>, span: Span) {
-        let kind = match declaration.kind {
-            VariableDeclarationKind::Const => return,
-            VariableDeclarationKind::Let => TbKind::Let,
-            _ => TbKind::Var,
-        };
-        let _ = kind;
+        if matches!(declaration.kind, VariableDeclarationKind::Const) {
+            return;
+        }
         for declarator in &declaration.declarations {
             if let BindingPattern::BindingIdentifier(identifier) = &declarator.id {
                 self.model.events.push(TbEvent {

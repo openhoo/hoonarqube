@@ -1,7 +1,7 @@
 // Rule module s125_commented_out_code (generated).
 
 use crate::context::AnalysisContext;
-use crate::support::{IssueSink, RuleScope, ScannedComment, scan_comments, source_slice};
+use crate::support::{IssueSink, RuleScope, ScannedComment, source_slice};
 use hoonarqube_ir::Issue;
 
 /// `S125`: heuristics for comments that look like commented-out code:
@@ -53,7 +53,7 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
         language: ctx.language,
         issues: Vec::new(),
     };
-    for comment in scan_comments(ctx.source) {
+    for &comment in &ctx.comments {
         let body = source_slice(ctx.source, comment.body);
         check_commented_out_code(&mut sink, comment, body);
     }

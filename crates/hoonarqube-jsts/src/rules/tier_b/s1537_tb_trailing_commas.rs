@@ -1,6 +1,6 @@
 // Rule module s1537_tb_trailing_commas (generated).
-use crate::support::{IssueSink, LineIndex, RuleScope, ScannedComment, scan_comments, to_u32};
-use crate::{TrailingCommaList, TrailingCommaListCollector};
+use super::collectors::{TrailingCommaList, TrailingCommaListCollector};
+use crate::support::{IssueSink, LineIndex, RuleScope, ScannedComment, to_u32};
 use oxc_ast_visit::Visit;
 use oxc_span::Span;
 
@@ -9,9 +9,9 @@ pub(crate) fn check_tb_trailing_commas(
     program: &oxc_ast::ast::Program<'_>,
     source: &str,
     index: &LineIndex,
+    comments: &[ScannedComment],
     sink: &mut IssueSink<'_>,
 ) {
-    let comments = scan_comments(source);
     for list in collect_trailing_comma_lists(program) {
         let closer = list.container.end - 1;
         let Some(last_element) = list.last_element else {
@@ -24,7 +24,7 @@ pub(crate) fn check_tb_trailing_commas(
             continue;
         }
         let single_line = index.pos(last_element.end).line == index.pos(closer).line;
-        let trailing_comma = last_significant_char(source, last_element.end, closer, &comments)
+        let trailing_comma = last_significant_char(source, last_element.end, closer, comments)
             .filter(|&(_, byte)| byte == b',');
         if single_line {
             if let Some((comma_offset, _)) = trailing_comma {

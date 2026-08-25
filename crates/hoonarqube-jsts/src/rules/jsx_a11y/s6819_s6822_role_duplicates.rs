@@ -1,8 +1,8 @@
+use super::collectors::IMPLICIT_ROLES;
 use super::walker::{
     A11yCollector, attribute_static_value, explicit_role, jsx_element_tag, jsx_find_attribute,
     jsx_tag_is_intrinsic,
 };
-use crate::IMPLICIT_ROLES;
 use crate::support::RuleScope;
 use oxc_ast::ast::JSXElement;
 use oxc_ast::ast::JSXOpeningElement;

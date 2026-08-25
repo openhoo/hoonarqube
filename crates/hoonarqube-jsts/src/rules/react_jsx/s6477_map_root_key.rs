@@ -1,4 +1,5 @@
-use super::walker::{ReactCollector, jsx_find_attribute};
+use super::walker::ReactCollector;
+use crate::rules::shared::jsx_find_attribute;
 use crate::support::RuleScope;
 use oxc_ast::ast::JSXAttributeItem;
 use oxc_ast::ast::JSXElement;

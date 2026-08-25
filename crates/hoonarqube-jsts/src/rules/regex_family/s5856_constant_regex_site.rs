@@ -4,11 +4,11 @@ use crate::engine::pattern_parser::{
     contains_unbounded_quantifier, grapheme_component_kind, node_can_match_empty,
     parse_regex_pattern, pattern_complexity, sequence_can_match_empty, walk_pattern_nodes,
 };
-use crate::support::{IssueSink, RuleScope};
-use crate::{
+use crate::rules::regex_family::collectors::{
     REGEX_COMPLEXITY_THRESHOLD, emit_concise_class_rewrite, emit_space_runs_in_sequence,
     flag_single_char_alternation, for_every_sequence, is_bare_control_character,
 };
+use crate::support::{IssueSink, RuleScope};
 
 // ----- Shared-walker rule drivers -----
 

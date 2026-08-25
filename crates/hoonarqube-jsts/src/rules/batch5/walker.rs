@@ -1,11 +1,10 @@
 // Family walker for 'batch5' (generated).
+use super::collectors::{SecurityHotspotCollector, TsTypeCollector};
+use super::collectors_hotspots::{MiscCollector, check_default_export_name, check_self_imports};
 use super::s2187_test_framework_rules::check_test_framework_rules;
+use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::support::{IssueSink, LineIndex};
-use crate::{
-    JstsLanguage, MiscCollector, SecurityHotspotCollector, TsTypeCollector,
-    check_default_export_name, check_self_imports,
-};
 use hoonarqube_ir::Issue;
 use oxc_ast_visit::Visit;
 use std::path::Path;

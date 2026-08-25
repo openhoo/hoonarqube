@@ -1,7 +1,7 @@
 // Family walker for 'react_jsx' (generated).
+use super::collectors::expression_returns_jsx;
 use crate::JstsLanguage;
 use crate::context::{AnalysisContext, RuleOptions};
-use crate::expression_returns_jsx;
 use crate::rules::shared::argument_expression;
 use crate::rules::shared::call_property;
 use crate::rules::shared::duplicated_key_name;
@@ -27,15 +27,10 @@ use oxc_ast::ast::ForStatement;
 use oxc_ast::ast::FunctionBody;
 use oxc_ast::ast::IfStatement;
 use oxc_ast::ast::ImportDeclaration;
-use oxc_ast::ast::JSXAttribute;
-use oxc_ast::ast::JSXAttributeItem;
-use oxc_ast::ast::JSXAttributeName;
 use oxc_ast::ast::JSXChild;
 use oxc_ast::ast::JSXElement;
-use oxc_ast::ast::JSXElementName;
 use oxc_ast::ast::JSXExpressionContainer;
 use oxc_ast::ast::JSXFragment;
-use oxc_ast::ast::JSXOpeningElement;
 use oxc_ast::ast::JSXText;
 use oxc_ast::ast::MethodDefinition;
 use oxc_ast::ast::MethodDefinitionKind;
@@ -515,19 +510,6 @@ pub(crate) fn body_returns_jsx(body: &FunctionBody<'_>) -> bool {
     scanner.satisfied
 }
 
-/// First attribute with the given name on an opening tag, if any.
-pub(crate) fn jsx_find_attribute<'a>(
-    opening: &'a JSXOpeningElement<'a>,
-    name: &str,
-) -> Option<&'a JSXAttribute<'a>> {
-    opening.attributes.iter().find_map(|item| match item {
-        JSXAttributeItem::Attribute(attribute) if jsx_attribute_name(attribute) == Some(name) => {
-            Some(&**attribute)
-        }
-        _ => None,
-    })
-}
-
 /// `setFoo` shape: a `set` prefix followed by an uppercase letter.
 pub(crate) fn is_state_setter_name(name: &str) -> bool {
     name.strip_prefix("set")
@@ -540,30 +522,6 @@ pub(crate) fn capitalize_first(name: &str) -> String {
     match chars.next() {
         Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
         None => String::new(),
-    }
-}
-
-/// Tag name of a JSX element when spelled as a plain identifier (`div`,
-/// `Widget`); namespaced, member, and `this` names have none.
-pub(crate) fn jsx_element_tag<'a>(name: &'a JSXElementName<'a>) -> Option<&'a str> {
-    match name {
-        JSXElementName::Identifier(identifier) => Some(identifier.name.as_str()),
-        JSXElementName::IdentifierReference(reference) => Some(&reference.name),
-        _ => None,
-    }
-}
-
-/// Whether a tag starts lowercase (intrinsic HTML/SVG spelling).
-pub(crate) fn jsx_tag_is_intrinsic(tag: &str) -> bool {
-    tag.starts_with(|ch: char| ch.is_ascii_lowercase())
-}
-
-/// Tag name of a JSX attribute (`ref`, `children`, ...); namespaced names
-/// (`xlink:href`) have no plain name.
-pub(crate) fn jsx_attribute_name<'a>(attribute: &'a JSXAttribute<'a>) -> Option<&'a str> {
-    match &attribute.name {
-        JSXAttributeName::Identifier(identifier) => Some(identifier.name.as_str()),
-        JSXAttributeName::NamespacedName(_) => None,
     }
 }
 

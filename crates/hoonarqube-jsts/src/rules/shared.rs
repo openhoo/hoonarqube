@@ -1,8 +1,8 @@
 // Helpers shared across rule families (hoisted from rule-specific modules).
 use crate::support::static_property_name;
 use oxc_ast::ast::{
-    BinaryOperator, CallExpression, Expression, MemberExpression, PropertyKey, RegExpLiteral,
-    Statement,
+    BinaryOperator, CallExpression, Expression, JSXAttribute, JSXAttributeItem, JSXAttributeName,
+    JSXElementName, JSXOpeningElement, MemberExpression, PropertyKey, RegExpLiteral, Statement,
 };
 
 /// `console` members flagged by `S106`.
@@ -136,4 +136,41 @@ pub(crate) fn call_property<'r, 'a>(
     let member = call.callee.as_member_expression()?;
     let property = static_property_name(member)?;
     Some((property, member))
+}
+
+/// Tag name of a JSX element when spelled as a plain identifier (`div`,
+/// `Widget`); namespaced, member, and `this` names have none.
+pub(crate) fn jsx_element_tag<'a>(name: &'a JSXElementName<'a>) -> Option<&'a str> {
+    match name {
+        JSXElementName::Identifier(identifier) => Some(identifier.name.as_str()),
+        JSXElementName::IdentifierReference(reference) => Some(&reference.name),
+        _ => None,
+    }
+}
+
+/// Whether a tag starts lowercase (intrinsic HTML/SVG spelling).
+pub(crate) fn jsx_tag_is_intrinsic(tag: &str) -> bool {
+    tag.starts_with(|ch: char| ch.is_ascii_lowercase())
+}
+
+/// First attribute with the given name on an opening tag, if any.
+pub(crate) fn jsx_find_attribute<'a>(
+    opening: &'a JSXOpeningElement<'a>,
+    name: &str,
+) -> Option<&'a JSXAttribute<'a>> {
+    opening.attributes.iter().find_map(|item| match item {
+        JSXAttributeItem::Attribute(attribute) if jsx_attribute_name(attribute) == Some(name) => {
+            Some(&**attribute)
+        }
+        _ => None,
+    })
+}
+
+/// Tag name of a JSX attribute (`ref`, `children`, ...); namespaced names
+/// (`xlink:href`) have no plain name.
+pub(crate) fn jsx_attribute_name<'a>(attribute: &'a JSXAttribute<'a>) -> Option<&'a str> {
+    match &attribute.name {
+        JSXAttributeName::Identifier(identifier) => Some(identifier.name.as_str()),
+        JSXAttributeName::NamespacedName(_) => None,
+    }
 }
