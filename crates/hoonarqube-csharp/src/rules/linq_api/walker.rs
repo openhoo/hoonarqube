@@ -98,7 +98,9 @@ pub(crate) fn linq_api_issues(root: Node<'_>, source: &str, language: CsLanguage
     issues.extend(check_overlapping_optional_overloads(root, source, language));
     issues.extend(check_explicit_rethrows(root, language));
     issues.extend(check_indexer_parameter_types(root, source, language));
-    issues.extend(check_array_arguments_for_params_calls(root, language));
+    issues.extend(check_array_arguments_for_params_calls(
+        root, source, language,
+    ));
     issues.extend(check_readonly_primitive_fields(root, source, language));
     issues.extend(check_assembly_versions(root, source, language));
     issues.extend(check_public_list_signatures(root, source, language));

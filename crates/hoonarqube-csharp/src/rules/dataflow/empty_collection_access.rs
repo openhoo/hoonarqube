@@ -80,7 +80,7 @@ fn is_empty_collection_creation(node: Node<'_>, source: &str) -> bool {
             !ranks.is_empty()
                 && ranks.iter().all(|rank| {
                     let sizes = collect_kinds(*rank, &["integer_literal"]);
-                    sizes.is_empty() || sizes.iter().all(|size| node_text(*size, source) == "0")
+                    !sizes.is_empty() && sizes.iter().all(|size| node_text(*size, source) == "0")
                 })
         }
         "implicit_array_creation_expression" => {
@@ -161,6 +161,13 @@ mod tests {
     fn s4158_unknown_type_construction_is_ignored() {
         let report = analyze_default(
             "class C {\n    void M() {\n        var first = new Weird()[0];\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+    #[test]
+    fn s4158_runtime_sized_array_stays_clean() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        var first = new int[GetCount()][0];\n    }\n}\n",
         );
         assert!(with_key(&report, KEY).is_empty());
     }

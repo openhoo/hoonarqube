@@ -39,11 +39,9 @@ struct CallArgumentOrderCollector<'index> {
 
 impl<'a> Visit<'a> for CallArgumentOrderCollector<'_> {
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
-        let mut checked_callee = false;
         if let Some(callee) = callee_name(it)
             && let Some(parameters) = self.params_by_name.get(callee)
         {
-            checked_callee = true;
             let argument_names: Vec<Option<&str>> = it
                 .arguments
                 .iter()
@@ -78,9 +76,10 @@ impl<'a> Visit<'a> for CallArgumentOrderCollector<'_> {
                 }
             }
         }
-        if !checked_callee {
-            walk_call_expression(self, it);
-        }
+        // Each call node is visited exactly once, so unconditional descent
+        // cannot double-report; it does catch swaps nested in the arguments
+        // of an already-checked callee.
+        walk_call_expression(self, it);
     }
 }
 
@@ -91,6 +90,18 @@ pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
+
+    #[test]
+    fn s2234_checks_calls_nested_in_matched_callee_arguments() {
+        let source = "\
+function scale(a, b) {}
+function draw(width, height) {}
+draw(scale(b, a), width);
+";
+        // The inner swapped call must be found even though its parent callee
+        // `draw` is itself a known same-file function.
+        assert_eq!(count_key(&js_keys(source), "javascript:S2234"), 1);
+    }
 
     #[test]
     fn swapped_call_arguments_detected_by_name_match() {

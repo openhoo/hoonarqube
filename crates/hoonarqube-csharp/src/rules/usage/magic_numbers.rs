@@ -25,19 +25,20 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 }
 
 /// Whether a numeric literal's value is exactly -1, 0, or 1.
+#[allow(clippy::float_cmp)] // 0.0/1.0 are exactly representable; exact match is the intent
 fn is_small_allowed_number(text: &str) -> bool {
     if let Some(value) = integer_literal_value(text) {
         return value <= 1;
     }
-    // Real literals: spell out zero and one textually to stay exact.
-    let base = text.trim_end_matches(|c: char| c.is_ascii_alphabetic());
-    let Some((integer, fraction)) = base.split_once('.') else {
-        return false;
-    };
-    let normalized = integer.trim_start_matches('0');
-    let fraction_all_zero = fraction.bytes().all(|digit| digit == b'0');
-    (normalized.is_empty() && fraction_all_zero)
-        || (normalized == "1" && (fraction.is_empty() || fraction_all_zero))
+    // Real literals: compare parsed values; 0.0 and 1.0 are exactly
+    // representable, so equality stays deterministic across spellings
+    // (exponents, suffixes, digit separators).
+    let base = text
+        .strip_suffix(['f', 'F', 'd', 'D', 'm', 'M'])
+        .unwrap_or(text);
+    base.replace('_', "")
+        .parse::<f64>()
+        .is_ok_and(|value| value == 0.0 || value == 1.0)
 }
 
 /// Contexts where even large numbers are not magic: enumeration members,
@@ -71,6 +72,14 @@ mod tests {
     fn s109_allows_exact_zero_and_one_real_spellings() {
         let report = analyze_default(
             "class C\n{\n    void M()\n    {\n        double a = 0.0;\n        double b = 0.00f;\n        double c = 1.000m;\n        double d = 01.00;\n        double e = -1.0;\n        Use(a, b, c, d, e);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S109").is_empty());
+    }
+
+    #[test]
+    fn s109_allows_exponent_spellings_of_zero_and_one() {
+        let report = analyze_default(
+            "class C\n{\n    double M()\n    {\n        double a = 1e0;\n        double b = 0e0;\n        double c = 1.0e0;\n        return a + b + c;\n    }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S109").is_empty());
     }

@@ -85,15 +85,23 @@ pub(crate) struct ClassFrame {
     pub(crate) private_members: Vec<(String, Span)>,
     /// Keys of a static `propTypes = {…}` object (`S6767`).
     pub(crate) prop_type_keys: Vec<(String, Span)>,
+    /// Identity assigned per pushed class, used to attribute member usages.
+    pub(crate) frame_id: usize,
 }
 
 /// One file-wide pass collecting private members, component methods, and
-/// `propTypes` keys together with every member-property name used anywhere.
+/// `propTypes` keys together with every member-property name used, each
+/// attributed to its innermost enclosing class (`None` = outside any class)
+/// so unrelated classes cannot suppress each other's findings.
 pub(crate) struct ClassRuleCollector<'index> {
     pub(crate) sink: IssueSink<'index>,
     pub(crate) frames: Vec<ClassFrame>,
-    pub(crate) used_properties: Vec<String>,
-    pub(crate) props_accessed: Vec<String>,
+    /// Exited class frames, kept for deferred finishing after the whole
+    /// program was visited (post-class usages must be visible by then).
+    pub(crate) finished_frames: Vec<ClassFrame>,
+    pub(crate) next_frame_id: usize,
+    pub(crate) used_properties: Vec<(String, Option<usize>)>,
+    pub(crate) props_accessed: Vec<(String, Option<usize>)>,
 }
 
 impl<'a> Visit<'a> for ClassRuleCollector<'_> {
@@ -105,13 +113,16 @@ impl<'a> Visit<'a> for ClassRuleCollector<'_> {
                 Expression::Identifier(name) => Some(name.name.to_string()),
                 _ => None,
             });
+        let frame_id = self.next_frame_id;
+        self.next_frame_id += 1;
         self.frames.push(ClassFrame {
             super_name,
+            frame_id,
             ..ClassFrame::default()
         });
         oxc_ast_visit::walk::walk_class(self, class);
         let frame = self.frames.pop().expect("class frame pushed above");
-        self.finish_class_frame(&frame);
+        self.finished_frames.push(frame);
     }
 
     fn visit_method_definition(&mut self, method: &MethodDefinition<'a>) {
@@ -132,12 +143,10 @@ impl<'a> Visit<'a> for ClassRuleCollector<'_> {
         let name = property_key_name(&definition.key);
         if let Some(frame) = self.frames.last_mut() {
             match &definition.key {
-                PropertyKey::PrivateIdentifier(_) => {
-                    if let Some(name) = name {
-                        frame
-                            .private_members
-                            .push((name.to_string(), definition.span));
-                    }
+                PropertyKey::PrivateIdentifier(ident) => {
+                    frame
+                        .private_members
+                        .push((ident.name.to_string(), definition.span));
                 }
                 _ => {
                     if definition.accessibility == Some(TSAccessibility::Private)
@@ -169,14 +178,16 @@ impl<'a> Visit<'a> for ClassRuleCollector<'_> {
     }
 
     fn visit_member_expression(&mut self, member: &MemberExpression<'a>) {
+        let context = self.frames.last().map(|frame| frame.frame_id);
         if let Some(name) = static_property_name(member) {
-            self.used_properties.push(name.to_string());
+            self.used_properties.push((name.to_string(), context));
             if expression_through_this_link(member.object(), "props") {
-                self.props_accessed.push(name.to_string());
+                self.props_accessed.push((name.to_string(), context));
             }
         }
         if let MemberExpression::PrivateFieldExpression(field) = member {
-            self.used_properties.push(field.field.name.to_string());
+            self.used_properties
+                .push((field.field.name.to_string(), context));
         }
         oxc_ast_visit::walk::walk_member_expression(self, member);
     }
@@ -471,13 +482,26 @@ impl<'a> Visit<'a> for NamedGroupCollector {
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
-        if let Some(name) = callee_member_name(call)
-            && matches!(name, "match" | "matchAll" | "exec")
-            && let Some(argument) = call.arguments.first()
-            && let Some(expression) = argument.as_expression()
-            && let Expression::RegExpLiteral(regexp) = unparenthesized(expression)
+        if let Some(member) = call.callee.as_member_expression()
+            && let Some(name) = static_property_name(member)
         {
-            self.grouped_literals.push(regexp.span);
+            // Regex literal as the `.exec` receiver: `RegExp.prototype.exec`
+            // takes the subject as argument and returns a result exposing
+            // `groups`.
+            if name == "exec"
+                && let Expression::RegExpLiteral(regexp) = unparenthesized(member_object(member))
+            {
+                self.grouped_literals.push(regexp.span);
+            }
+            // Regex literal as argument 0 of `String.prototype.match`/
+            // `.matchAll`, whose result also exposes `groups`.
+            if matches!(name, "match" | "matchAll")
+                && let Some(argument) = call.arguments.first()
+                && let Some(expression) = argument.as_expression()
+                && let Expression::RegExpLiteral(regexp) = unparenthesized(expression)
+            {
+                self.grouped_literals.push(regexp.span);
+            }
         }
         oxc_ast_visit::walk::walk_call_expression(self, call);
     }

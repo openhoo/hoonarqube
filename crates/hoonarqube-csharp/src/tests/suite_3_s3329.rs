@@ -136,8 +136,9 @@ fn s4058_requires_comparison_mode() {
         "class A\n{\n    void M()\n    {\n        same = string.Compare(first, second) == 0;\n        equal = first.Equals(second);\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S4058");
-    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged.len(), 2);
     assert_eq!(flagged[0].range.start.line, 5);
+    assert_eq!(flagged[1].range.start.line, 6);
 }
 
 #[test]
@@ -489,7 +490,7 @@ fn s3876_indexes_by_string_or_integer() {
 #[test]
 fn s3878_passes_elements_to_params_calls() {
     let report = analyze_default(
-        "class A\n{\n    void M()\n    {\n        Use(new[] { 1, 2 });\n        Use(existing);\n        Use(new int[] { 3 });\n    }\n}\n",
+        "class A\n{\n    void M()\n    {\n        text = string.Format(\"{0}\", new[] { 1, 2 });\n        plain = Use(existing);\n        joined = string.Join(\"-\", new int[] { 3 });\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S3878");
     assert_eq!(flagged.len(), 2);

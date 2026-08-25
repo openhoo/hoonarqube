@@ -25,12 +25,10 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some(owner) = enclosing_type(lock_statement) else {
             continue;
         };
-        let field = type_members(owner)
-            .into_iter()
-            .find(|member| member.kind() == "field_declaration")
-            .filter(|field_declaration| {
-                field_declarator_names(*field_declaration, source).contains(&name)
-            });
+        let field = type_members(owner).into_iter().find(|member| {
+            member.kind() == "field_declaration"
+                && field_declarator_names(*member, source).contains(&name)
+        });
         let Some(field) = field else {
             continue;
         };
@@ -54,6 +52,13 @@ mod tests {
     fn s2445_flags_static_mutable_lock_fields() {
         let report = analyze_default(
             "class A\n{\n    static object shared;\n    void M()\n    {\n        lock (shared) { Work(); }\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S2445").len(), 1);
+    }
+    #[test]
+    fn s2445_flags_lock_on_field_in_later_declaration() {
+        let report = analyze_default(
+            "class A\n{\n    static object first;\n    static object second;\n    void M()\n    {\n        lock (second) { Work(); }\n    }\n}\n",
         );
         assert_eq!(with_key(&report, "csharpsquid:S2445").len(), 1);
     }

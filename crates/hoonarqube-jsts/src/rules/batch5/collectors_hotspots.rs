@@ -13,16 +13,16 @@ use oxc_ast::ast::CallExpression;
 use oxc_ast::ast::ExportDefaultDeclarationKind;
 use oxc_ast::ast::Expression;
 use oxc_ast::ast::ExpressionStatement;
-use oxc_ast::ast::FunctionBody;
 use oxc_ast::ast::Statement;
 use oxc_ast::ast::ThisExpression;
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::walk_catch_clause;
 use oxc_ast_visit::walk::{
-    walk_call_expression, walk_expression_statement, walk_function_body, walk_program,
+    walk_call_expression, walk_expression_statement, walk_function, walk_program,
     walk_this_expression,
 };
 use oxc_span::{GetSpan, Span};
+use oxc_syntax::scope::ScopeFlags;
 use std::path::Path;
 
 /// Fragments whose absence in a callback body means `S2699` flags it.
@@ -51,10 +51,12 @@ impl<'a> Visit<'a> for MiscCollector<'_> {
         walk_this_expression(self, it);
     }
 
-    fn visit_function_body(&mut self, it: &FunctionBody<'a>) {
-        // Regular functions create a new `this` binding; arrows do not.
+    fn visit_function(&mut self, it: &oxc_ast::ast::Function<'a>, flags: ScopeFlags) {
+        // Regular functions create a new `this` binding; arrows do not, so
+        // block-bodied arrows must not raise the depth (`S2990` treats
+        // top-level-arrow `this` as the global `this`).
         self.function_depth += 1;
-        walk_function_body(self, it);
+        walk_function(self, it, flags);
         self.function_depth -= 1;
     }
 }
@@ -699,6 +701,24 @@ mod tests {
 
         let in_function: &str = "function f() { return this; }\n";
         assert_eq!(count_key(&js_keys(in_function), "javascript:S2990"), 0);
+
+        // Arrows do not bind `this`: a block-bodied top-level arrow's `this`
+        // is still the global/module `this` and must be flagged.
+        let in_top_level_arrow: &str = "const f = () => { console.log(this); }\n";
+        assert_eq!(
+            count_key(&js_keys(in_top_level_arrow), "javascript:S2990"),
+            1
+        );
+
+        let in_nested_regular_function_of_arrow: &str =
+            "const f = () => { (function () { return this; }); }\n";
+        assert_eq!(
+            count_key(
+                &js_keys(in_nested_regular_function_of_arrow),
+                "javascript:S2990"
+            ),
+            0
+        );
     }
 
     #[test]

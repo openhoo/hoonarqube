@@ -4,15 +4,15 @@ use crate::rules::expressions::{
     enclosing_type, expression_name, first_named_child, invocation_function,
     member_declarations_of_kind,
 };
-use crate::rules::tier_c::local_inheritance_graph;
+use crate::rules::tier_c::{graph_reaches, local_inheritance_graph};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S4039 — calls to members that only exist as explicit
-/// interface implementations on a file-local base. Subset: bare or
-/// `this.`-qualified invocations inside a file-local derived class whose
-/// base chain declares the member only explicitly and which does not
-/// declare the member itself; nested types and cross-file bases stay
+/// interface implementations on a file-local base. Subset: bare invocations
+/// inside a file-local derived class whose base chain declares the member
+/// only explicitly and which does not declare the member itself;
+/// `this.`-qualified calls, nested types, and cross-file bases stay
 /// uncovered.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let explicit: std::collections::HashMap<&str, std::collections::HashSet<&str>> =
@@ -86,22 +86,11 @@ fn base_explicitly_implements(
     start: &str,
     member: &str,
 ) -> bool {
-    let mut seen = std::collections::HashSet::new();
-    let mut queue: Vec<&str> = graph.get(start).cloned().unwrap_or_default();
-    while let Some(current) = queue.pop() {
-        if explicit
+    graph_reaches(graph, start, |current| {
+        explicit
             .get(current)
             .is_some_and(|names| names.contains(member))
-        {
-            return true;
-        }
-        if seen.insert(current)
-            && let Some(successors) = graph.get(current)
-        {
-            queue.extend(successors.iter().copied());
-        }
-    }
-    false
+    })
 }
 
 #[cfg(test)]
@@ -109,10 +98,9 @@ mod tests {
     use crate::tests::{analyze_default, with_key};
 
     #[test]
-    fn s4039_this_qualified_calls_stay_unflagged_in_this_subset() {
-        // The rule doc mentions `this.`-qualified invocations, but the
-        // current implementation only flags bare calls; assert observed
-        // behavior (see family report discrepancy).
+    fn s4039_this_qualified_calls_stay_uncovered() {
+        // The receiver match requires a bare `identifier` function, so
+        // `this.Greet()` stays outside the subset today.
         let report = analyze_default(
             "interface IGreeter\n{\n    void Greet();\n}\nclass BaseGreeter : IGreeter\n{\n    void IGreeter.Greet()\n    {\n    }\n}\nclass DerivedGreeter : BaseGreeter\n{\n    public void Run()\n    {\n        this.Greet();\n    }\n}\n",
         );

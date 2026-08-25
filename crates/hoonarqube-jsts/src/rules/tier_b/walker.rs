@@ -1,4 +1,5 @@
 // Family walker for 'tier_b' (generated).
+use super::collectors::ClassRuleCollector;
 use super::s930_tb_arity::check_tb_arity;
 use super::s1117_tb_shadowing::check_tb_shadowing;
 use super::s1128_tb_unused_imports::check_tb_unused_imports;
@@ -31,10 +32,10 @@ use super::s5876_tb_session_regeneration::check_tb_session_regeneration;
 use super::s6486_tb_unstable_keys::check_tb_unstable_keys;
 use super::s6522_tb_import_reassigned::check_tb_import_reassigned;
 use super::s6544_tb_promise_chains::check_tb_promise_chains;
+use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::engine::scope_model::{TbFlow, TbHalt, build_tb_model};
-use crate::support::{IssueSink, LineIndex};
-use crate::{ClassRuleCollector, JstsLanguage};
+use crate::support::{IssueSink, LineIndex, ScannedComment};
 use hoonarqube_ir::Issue;
 use oxc_ast_visit::Visit;
 use std::collections::HashMap;
@@ -45,6 +46,7 @@ fn check_tier_b_rules(
     source: &str,
     index: &LineIndex,
     language: JstsLanguage,
+    comments: &[ScannedComment],
 ) -> Vec<Issue> {
     let mut sink = IssueSink {
         index,
@@ -87,7 +89,7 @@ fn check_tier_b_rules(
     check_tb_session_regeneration(program, source, &mut sink);
     check_tb_unstable_keys(program, &mut sink);
     check_tb_promise_chains(program, &mut sink);
-    check_tb_trailing_commas(program, source, index, &mut sink);
+    check_tb_trailing_commas(program, source, index, comments, &mut sink);
     check_tb_shell_commands(program, &mut sink);
     check_tb_named_groups(program, &mut sink);
     sink.issues
@@ -119,15 +121,30 @@ fn check_tb_class_rules<'a>(program: &'a oxc_ast::ast::Program<'a>, sink: &mut I
             issues: Vec::new(),
         },
         frames: Vec::new(),
+        finished_frames: Vec::new(),
+        next_frame_id: 0,
         used_properties: Vec::new(),
         props_accessed: Vec::new(),
     };
     collector.visit_program(program);
+    // All classes are finished only after the whole program was visited so
+    // that usages appearing after a class declaration (`const a = new A();`
+    // `a.go();`) are already attributed when the frame is judged.
+    let frames = std::mem::take(&mut collector.finished_frames);
+    for frame in &frames {
+        collector.finish_class_frame(frame);
+    }
     sink.issues.append(&mut collector.sink.issues);
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_tier_b_rules(ctx.program, ctx.source, ctx.index, ctx.language)
+    check_tier_b_rules(
+        ctx.program,
+        ctx.source,
+        ctx.index,
+        ctx.language,
+        &ctx.comments,
+    )
 }
 
 #[cfg(test)]

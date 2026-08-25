@@ -25,7 +25,9 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 let Some(receiver) = invocation_receiver(node) else {
                     return;
                 };
-                let name = expression_name(receiver, source).unwrap_or("");
+                let Some(name) = expression_name(receiver, source) else {
+                    return;
+                };
                 let under_using = nearest_ancestor_of_kinds(node, &["using_statement"])
                     .is_some_and(|using| {
                         collect_kinds(using, &["variable_declarator"])
@@ -108,6 +110,13 @@ mod tests {
     fn s3966_non_dispose_callees_are_ignored() {
         let report = analyze_default(
             "class C {\n    void M(Gate gate) {\n        gate.Flush();\n        gate.Flush();\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+    #[test]
+    fn s3966_distinct_unresolvable_receivers_stay_clean() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        Make().Dispose();\n        Other().Dispose();\n    }\n}\n",
         );
         assert!(with_key(&report, KEY).is_empty());
     }

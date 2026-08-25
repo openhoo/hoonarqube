@@ -9,9 +9,11 @@ pub(crate) fn check_tb_named_groups(program: &oxc_ast::ast::Program<'_>, sink: &
     let mut collector = NamedGroupCollector::default();
     collector.visit_program(program);
     for (span, pattern) in &collector.literals {
+        // Loop-invariant: whether this literal is consumed through a result
+        // object exposing `groups` (checked once, not per group name).
+        let via_consuming_call = collector.grouped_literals.contains(span);
         for name in defined_group_names(pattern) {
-            let exposed = pattern.contains(&format!(r"\k<{name}>"))
-                || collector.grouped_literals.contains(span);
+            let exposed = pattern.contains(&format!(r"\k<{name}>")) || via_consuming_call;
             if !exposed {
                 sink.emit_span(
                     RuleScope::Both,
@@ -52,7 +54,33 @@ fn defined_group_names(pattern: &str) -> Vec<&str> {
 #[derive(Default)]
 pub(crate) struct NamedGroupCollector {
     pub(crate) literals: Vec<(Span, String)>,
-    /// Regex literals passed to `.match`/`.matchAll`/`.exec`, whose result
-    /// object exposes `groups`.
+    /// Regex literals consumed as a `.exec` receiver or passed to
+    /// `.match`/`.matchAll`, whose result object exposes `groups`.
     pub(crate) grouped_literals: Vec<Span>,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn consuming_calls_expose_named_groups() {
+        // `.exec` receiver: result exposes `groups`.
+        let direct_exec = js_keys("const m = /(?<x>a)b/.exec(s);\n");
+        assert_eq!(count_key(&direct_exec, "javascript:S5860"), 0);
+
+        // `String.prototype.match` / `.matchAll` argument: same exposure.
+        let string_match = js_keys("const m = s.match(/(?<x>a)/);\n");
+        assert_eq!(count_key(&string_match, "javascript:S5860"), 0);
+        let string_match_all = js_keys("for (const m of s.matchAll(/(?<x>a)/g)) {}\n");
+        assert_eq!(count_key(&string_match_all, "javascript:S5860"), 0);
+    }
+
+    #[test]
+    fn exec_on_unrelated_object_still_flags_the_regex_argument() {
+        // `foo.exec(...)` is not `RegExp.prototype.exec`; its argument gets
+        // no exemption.
+        let foreign_exec = js_keys("const m = foo.exec(/(?<x>a)/);\n");
+        assert_eq!(count_key(&foreign_exec, "javascript:S5860"), 1);
+    }
 }

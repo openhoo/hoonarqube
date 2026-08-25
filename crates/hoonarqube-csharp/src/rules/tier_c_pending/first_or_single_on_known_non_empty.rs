@@ -68,7 +68,22 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     }
                 }
                 "identifier" if identifier_write(node) == Some(WriteKind::Store) => {
-                    populated.remove(node_text(node, source));
+                    // A declarator's own name is not a reassignment when the
+                    // already-credited non-empty initializer populates it.
+                    let credited_by_initializer = node.parent().is_some_and(|parent| {
+                        parent.kind() == "variable_declarator"
+                            && collect_kinds(parent, &["initializer_expression"])
+                                .into_iter()
+                                .next()
+                                .is_some_and(|initializer| {
+                                    initializer
+                                        .children(&mut initializer.walk())
+                                        .any(|child| child.is_named())
+                                })
+                    });
+                    if !credited_by_initializer {
+                        populated.remove(node_text(node, source));
+                    }
                 }
                 _ => {}
             }
@@ -100,14 +115,13 @@ mod tests {
     }
 
     #[test]
-    fn s7130_collection_initializers_do_not_populate_in_this_subset() {
-        // The rule doc mentions non-empty collection initializers, but no
-        // initializer form populates a receiver today; assert observed
-        // behavior (see family report discrepancy).
+    fn s7130_non_empty_collection_initializers_populate() {
         let report = analyze_default(
             "void A()\n{\n    var ids = new List<int> { 1 };\n    var first = ids.FirstOrDefault();\n}\nvoid B()\n{\n    var ids = new List<int> { };\n    var first = ids.FirstOrDefault();\n}\n",
         );
-        assert!(with_key(&report, "csharpsquid:S7130").is_empty());
+        let flagged = with_key(&report, "csharpsquid:S7130");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 4);
     }
 
     #[test]

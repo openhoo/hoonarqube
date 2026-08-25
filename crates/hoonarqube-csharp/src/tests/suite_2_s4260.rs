@@ -522,9 +522,6 @@ fn s3264_flags_events_that_are_never_raised() {
 #[test]
 fn s3251_flags_partial_methods_without_implementations() {
     let orphan = analyze_default("partial class C\n{\n    partial void OnRaise();\n}\n");
-    for f in &orphan.issues {
-        println!("DBGA {}", f.rule_key);
-    }
     let flagged = with_key(&orphan, "csharpsquid:S3251");
     assert_eq!(flagged.len(), 1);
     assert!(flagged[0].message.contains("'OnRaise'"));
@@ -651,9 +648,6 @@ fn s2743_flags_static_fields_inside_generic_types() {
 #[test]
 fn s3906_keeps_event_handler_delegates_void() {
     let returning = analyze_default("delegate int Op(object sender, MyEventArgs e);\n");
-    for f in &returning.issues {
-        println!("DBGB {}", f.rule_key);
-    }
     let flagged = with_key(&returning, "csharpsquid:S3906");
     assert_eq!(flagged.len(), 1);
     assert!(flagged[0].message.contains("'void'"));

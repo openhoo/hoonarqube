@@ -9,9 +9,9 @@ use tree_sitter::Node;
 
 /// csharpsquid:S2952 — `Dispose` methods disposing objects that are not
 /// members of their class. Subset: `.Dispose()` calls inside any method
-/// named `Dispose` whose receiver is a bare identifier or `this.Name`
-/// access missing from the class's field inventory; inherited members and
-/// other receiver shapes stay uncovered.
+/// named `Dispose` whose receiver is a bare identifier missing from the
+/// class's field inventory; inherited members, `this.`-qualified receivers,
+/// and other receiver shapes stay uncovered.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for class in collect_kinds(root, &["class_declaration", "struct_declaration"]) {
@@ -59,10 +59,9 @@ mod tests {
     use crate::tests::{analyze_default, with_key};
 
     #[test]
-    fn s2952_this_qualified_receivers_stay_unflagged_in_this_subset() {
-        // The rule doc mentions `this.Name` receivers, but the current
-        // implementation only extracts bare identifiers; assert observed
-        // behavior (see family report discrepancy).
+    fn s2952_this_qualified_receivers_stay_uncovered() {
+        // The `this` token is anonymous in this grammar, so the extractor's
+        // bare-identifier subset does not see `this.helper` receivers yet.
         let report = analyze_default(
             "class Worker : IDisposable\n{\n    public void Dispose()\n    {\n        this.helper.Dispose();\n    }\n}\n",
         );
