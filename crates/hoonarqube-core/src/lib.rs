@@ -58,10 +58,11 @@ pub fn language_for_path(path: &Path) -> Option<Language> {
     Some(*language)
 }
 
-/// Re-exported per-language option types for consumers constructing
-/// [`AnalyzerOptions`] field-by-field.
+/// C# analyzer knobs, re-exported for consumers constructing [`AnalyzerOptions`] field-by-field.
 pub use hoonarqube_csharp::AnalyzerOptions as CSharpAnalyzerOptions;
+/// JavaScript/TypeScript analyzer knobs, re-exported for consumers constructing [`AnalyzerOptions`] field-by-field.
 pub use hoonarqube_jsts::AnalyzerOptions as JstsAnalyzerOptions;
+/// Python analyzer knobs, re-exported for consumers constructing [`AnalyzerOptions`] field-by-field.
 pub use hoonarqube_python::AnalyzerOptions as PythonAnalyzerOptions;
 
 /// Per-language analyzer knobs; [`Default`] matches each analyzer crate's

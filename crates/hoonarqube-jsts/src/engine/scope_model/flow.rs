@@ -1,0 +1,539 @@
+use super::{
+    ArrowFunctionBody, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator,
+    AssignmentTarget, BindingIdentifier, BindingPattern, BlockStatement, BreakStatement,
+    CatchClause, ConditionalExpression, ContinueStatement, DoWhileStatement, Expression,
+    ForInStatement, ForOfStatement, ForStatement, FormalParameters, Function, GetSpan, HashMap,
+    IfStatement, IssueSink, MemberExpression, ReturnStatement, RuleScope, ScopeFlags,
+    SimpleAssignmentTarget, Span, Statement, StaticBlock, SwitchStatement, ThrowStatement,
+    TryStatement, UpdateExpression, VariableDeclaration, VariableDeclarationKind,
+    VariableDeclarator, Visit, WhileStatement, source_slice, unparenthesized,
+    walk_for_in_statement, walk_for_of_statement, walk_for_statement,
+};
+
+/// Reachability of the code following the current point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TbHalt {
+    Live,
+    /// `break`/`continue`: only the innermost loop body ends here.
+    Jumped,
+    /// `return`/`throw`: everything after is unreachable.
+    Exited,
+}
+
+/// One tracked value: where it was written and what it came from.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TbPending {
+    /// Identifier that received this value.
+    pub(crate) site: Span,
+    /// Value expression; `None` for compound writes and updates.
+    pub(crate) value: Option<Span>,
+    /// Value arrived from a parameter or loop variable (`S1226`).
+    pub(crate) initial: bool,
+}
+
+pub(crate) type TbEnv<'a> = HashMap<&'a str, TbPending>;
+
+/// Straight-line per-function value tracker feeding `S1854`, `S2123`,
+/// `S1226`, and `S4165`. Writes inside a branch are recorded but never
+/// reported there; branch joins keep an entry only when both paths hold the
+/// same write, so conditionally-live values are never flagged.
+pub(crate) struct TbFlow<'p, 's, 'i> {
+    pub(crate) source: &'s str,
+    pub(crate) sink: &'s mut IssueSink<'i>,
+    pub(crate) env: TbEnv<'p>,
+    pub(crate) status: TbHalt,
+    /// Branch nesting depth; findings emit only at depth 0.
+    pub(crate) depth: u32,
+    pub(crate) mutable_decl: bool,
+}
+
+impl<'p> TbFlow<'p, '_, '_> {
+    pub(crate) fn read(&mut self, name: &'p str) {
+        self.env.remove(name);
+    }
+
+    pub(crate) fn write(&mut self, name: &'p str, site: Span, value: Option<Span>, initial: bool) {
+        let previous = self.env.get(name).copied();
+        if self.depth == 0
+            && let Some(previous) = previous
+            && !initial
+        {
+            if previous.initial {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S1226",
+                    &format!(
+                        "Assign '{name}' to a new variable instead of overwriting its incoming value."
+                    ),
+                    site,
+                );
+            } else {
+                let same_value = matches!(
+                    (previous.value, value),
+                    (Some(old), Some(new))
+                        if source_slice(self.source, old) == source_slice(self.source, new)
+                );
+                if same_value {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S4165",
+                        &format!("Remove this redundant assignment of the same value to '{name}'."),
+                        site,
+                    );
+                } else {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S1854",
+                        &format!("Remove this unused assignment of '{name}'."),
+                        previous.site,
+                    );
+                }
+            }
+        }
+        self.env.insert(
+            name,
+            TbPending {
+                site,
+                value,
+                initial,
+            },
+        );
+    }
+
+    pub(crate) fn seed_parameter(&mut self, pattern: Option<&BindingPattern<'p>>) {
+        if let Some(BindingPattern::BindingIdentifier(identifier)) = pattern {
+            let name = identifier.name.as_str();
+            self.env.insert(
+                name,
+                TbPending {
+                    site: identifier.span,
+                    value: None,
+                    initial: true,
+                },
+            );
+        }
+    }
+
+    pub(crate) fn enter_function(&mut self, parameters: &FormalParameters<'p>) {
+        self.env.clear();
+        self.status = TbHalt::Live;
+        for parameter in &parameters.items {
+            self.seed_parameter(Some(&parameter.pattern));
+        }
+        if let Some(rest) = &parameters.rest {
+            self.seed_parameter(Some(&rest.rest.argument));
+        }
+    }
+
+    pub(crate) fn process_statements(&mut self, statements: &[Statement<'p>]) {
+        for statement in statements {
+            if self.status != TbHalt::Live {
+                return;
+            }
+            self.visit_statement(statement);
+        }
+    }
+
+    /// Merges two branch outcomes; `pre` is the environment before branching.
+    pub(crate) fn join(
+        &mut self,
+        then_state: (TbEnv<'p>, TbHalt),
+        else_state: (TbEnv<'p>, TbHalt),
+        pre: TbEnv<'p>,
+    ) {
+        match (then_state.1, else_state.1) {
+            (TbHalt::Live, TbHalt::Live) => {
+                self.env = intersect_envs(then_state.0, &else_state.0);
+                self.status = TbHalt::Live;
+            }
+            (TbHalt::Live, _) => {
+                self.env = then_state.0;
+                self.status = TbHalt::Live;
+            }
+            (_, TbHalt::Live) => {
+                self.env = else_state.0;
+                self.status = TbHalt::Live;
+            }
+            (_, TbHalt::Exited) | (TbHalt::Exited, _) => {
+                self.env = pre;
+                self.status = TbHalt::Exited;
+            }
+            _ => {
+                self.env = pre;
+                self.status = TbHalt::Jumped;
+            }
+        }
+    }
+
+    /// Loop bodies may re-read every value on the next iteration, and values
+    /// written inside may be read by the test or update expressions, so all
+    /// tracking is dropped at the loop boundary.
+    pub(crate) fn end_loop(&mut self) {
+        self.env.clear();
+        if self.status != TbHalt::Exited {
+            self.status = TbHalt::Live;
+        }
+    }
+}
+
+impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
+    fn visit_program(&mut self, program: &oxc_ast::ast::Program<'p>) {
+        self.process_statements(&program.body);
+    }
+
+    fn visit_block_statement(&mut self, block: &BlockStatement<'p>) {
+        self.process_statements(&block.body);
+    }
+
+    fn visit_static_block(&mut self, block: &StaticBlock<'p>) {
+        let saved = (std::mem::take(&mut self.env), self.status, self.depth);
+        self.status = TbHalt::Live;
+        self.process_statements(&block.body);
+        self.env = saved.0;
+        self.status = saved.1;
+        self.depth = saved.2;
+    }
+
+    fn visit_function(&mut self, function: &Function<'p>, _flags: ScopeFlags) {
+        let saved = (std::mem::take(&mut self.env), self.status, self.depth);
+        self.enter_function(&function.params);
+        if let Some(body) = &function.body {
+            self.process_statements(&body.statements);
+        }
+        self.env = saved.0;
+        self.status = saved.1;
+        self.depth = saved.2;
+    }
+
+    fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'p>) {
+        let saved = (std::mem::take(&mut self.env), self.status, self.depth);
+        self.enter_function(&arrow.params);
+        if let ArrowFunctionBody::FunctionBody(body) = &arrow.body {
+            self.process_statements(&body.statements);
+        } else if let Some(expression) = arrow.body.as_expression() {
+            self.visit_expression(expression);
+        }
+        self.env = saved.0;
+        self.status = saved.1;
+        self.depth = saved.2;
+    }
+
+    fn visit_catch_clause(&mut self, clause: &CatchClause<'p>) {
+        let saved = (std::mem::take(&mut self.env), self.status, self.depth);
+        self.seed_parameter(clause.param.as_ref().map(|param| &param.pattern));
+        self.process_statements(&clause.body.body);
+        self.env = saved.0;
+        self.status = saved.1;
+        self.depth = saved.2;
+    }
+
+    fn visit_if_statement(&mut self, node: &IfStatement<'p>) {
+        self.visit_expression(&node.test);
+        let pre = self.env.clone();
+        let pre_join = self.env.clone();
+        let saved_depth = self.depth;
+        self.depth += 1;
+        self.visit_statement(&node.consequent);
+        let then_state = (std::mem::replace(&mut self.env, pre.clone()), self.status);
+        let else_state = match &node.alternate {
+            Some(alternate) => {
+                self.status = TbHalt::Live;
+                self.visit_statement(alternate);
+                (std::mem::replace(&mut self.env, pre_join), self.status)
+            }
+            None => (pre.clone(), TbHalt::Live),
+        };
+        self.depth = saved_depth;
+        self.join(then_state, else_state, pre);
+    }
+
+    fn visit_conditional_expression(&mut self, node: &ConditionalExpression<'p>) {
+        self.visit_expression(&node.test);
+        let pre = self.env.clone();
+        let pre_join = self.env.clone();
+        let saved_depth = self.depth;
+        self.depth += 1;
+        self.visit_expression(&node.consequent);
+        let then_state = (std::mem::replace(&mut self.env, pre.clone()), self.status);
+        self.status = TbHalt::Live;
+        self.visit_expression(&node.alternate);
+        let else_state = (std::mem::replace(&mut self.env, pre_join), self.status);
+        self.depth = saved_depth;
+        self.join(then_state, else_state, pre);
+    }
+
+    fn visit_switch_statement(&mut self, node: &SwitchStatement<'p>) {
+        self.visit_expression(&node.discriminant);
+        let pre = self.env.clone();
+        let pre_fallback = self.env.clone();
+        let saved_depth = self.depth;
+        self.depth += 1;
+        let mut joined: Option<TbEnv<'p>> = None;
+        for case in &node.cases {
+            self.env = pre.clone();
+            self.status = TbHalt::Live;
+            if let Some(test) = &case.test {
+                self.visit_expression(test);
+            }
+            self.process_statements(&case.consequent);
+            if self.status == TbHalt::Live {
+                let current = std::mem::replace(&mut self.env, pre.clone());
+                joined = Some(match joined {
+                    None => current,
+                    Some(existing) => intersect_envs(existing, &current),
+                });
+            }
+        }
+        self.depth = saved_depth;
+        // A default-less switch or a final break keeps executing after the
+        // switch, so treat the join point as live regardless.
+        self.status = TbHalt::Live;
+        self.env = joined.unwrap_or(pre_fallback);
+    }
+
+    fn visit_try_statement(&mut self, node: &TryStatement<'p>) {
+        let pre = self.env.clone();
+        let pre_join = self.env.clone();
+        let saved_depth = self.depth;
+        self.depth += 1;
+        self.process_statements(&node.block.body);
+        let try_state = (std::mem::replace(&mut self.env, pre.clone()), self.status);
+        let handler_state = match &node.handler {
+            Some(handler) => {
+                self.status = TbHalt::Live;
+                // The catch body runs on its own straight-line path, so its
+                // writes are reportable even though the try block is not.
+                let handler_depth = std::mem::replace(&mut self.depth, 0);
+                self.visit_catch_clause(handler);
+                self.depth = handler_depth;
+                (std::mem::replace(&mut self.env, pre_join), self.status)
+            }
+            None => (pre.clone(), TbHalt::Live),
+        };
+        self.depth = saved_depth;
+        self.join(try_state, handler_state, pre);
+        if let Some(finalizer) = &node.finalizer {
+            self.visit_block_statement(finalizer);
+        }
+    }
+
+    fn visit_while_statement(&mut self, node: &WhileStatement<'p>) {
+        for name in subtree_names(&[&node.test], &[&node.body]) {
+            self.env.remove(name);
+        }
+        self.visit_expression(&node.test);
+        self.visit_statement(&node.body);
+        self.end_loop();
+    }
+
+    fn visit_do_while_statement(&mut self, node: &DoWhileStatement<'p>) {
+        for name in subtree_names(&[&node.test], &[&node.body]) {
+            self.env.remove(name);
+        }
+        self.visit_statement(&node.body);
+        self.visit_expression(&node.test);
+        self.end_loop();
+    }
+
+    fn visit_for_statement(&mut self, node: &ForStatement<'p>) {
+        let mut parts: Vec<&Expression<'p>> = Vec::new();
+        if let Some(test) = &node.test {
+            parts.push(test);
+        }
+        if let Some(update) = &node.update {
+            parts.push(update);
+        }
+        for name in subtree_names(&parts, &[&node.body]) {
+            self.env.remove(name);
+        }
+        walk_for_statement(self, node);
+        self.end_loop();
+    }
+
+    fn visit_for_in_statement(&mut self, node: &ForInStatement<'p>) {
+        for name in subtree_names(&[&node.right], &[&node.body]) {
+            self.env.remove(name);
+        }
+        walk_for_in_statement(self, node);
+        self.end_loop();
+    }
+
+    fn visit_for_of_statement(&mut self, node: &ForOfStatement<'p>) {
+        for name in subtree_names(&[&node.right], &[&node.body]) {
+            self.env.remove(name);
+        }
+        walk_for_of_statement(self, node);
+        self.end_loop();
+    }
+
+    fn visit_break_statement(&mut self, _: &BreakStatement<'p>) {
+        self.status = TbHalt::Jumped;
+    }
+
+    fn visit_continue_statement(&mut self, _: &ContinueStatement<'p>) {
+        self.status = TbHalt::Jumped;
+    }
+
+    fn visit_return_statement(&mut self, node: &ReturnStatement<'p>) {
+        if let Some(argument) = &node.argument {
+            self.visit_expression(argument);
+        }
+        self.status = TbHalt::Exited;
+    }
+
+    fn visit_throw_statement(&mut self, node: &ThrowStatement<'p>) {
+        self.visit_expression(&node.argument);
+        self.status = TbHalt::Exited;
+    }
+
+    fn visit_assignment_expression(&mut self, assign: &AssignmentExpression<'p>) {
+        if let Some(update_span) = self_overwrite_target(assign) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S2123",
+                "This increment/decrement result is unused; the variable is overwritten immediately.",
+                update_span,
+            );
+            if let Some((name, _)) = tb_assignment_target(&assign.left) {
+                self.read(name);
+            }
+            return;
+        }
+        self.visit_expression(&assign.right);
+        if let Some((name, span)) = tb_assignment_target(&assign.left) {
+            if assign.operator != AssignmentOperator::Assign {
+                self.read(name);
+            }
+            self.write(name, span, Some(assign.right.span()), false);
+        } else {
+            self.visit_assignment_target(&assign.left);
+        }
+    }
+
+    fn visit_update_expression(&mut self, update: &UpdateExpression<'p>) {
+        match &update.argument {
+            SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+                let name = identifier.name.as_str();
+                self.read(name);
+                self.write(name, identifier.span, None, false);
+            }
+            other => self.visit_simple_assignment_target(other),
+        }
+    }
+
+    fn visit_variable_declaration(&mut self, declaration: &VariableDeclaration<'p>) {
+        let saved = self.mutable_decl;
+        self.mutable_decl = declaration.kind != VariableDeclarationKind::Const;
+        for declarator in &declaration.declarations {
+            self.visit_variable_declarator(declarator);
+        }
+        self.mutable_decl = saved;
+    }
+
+    fn visit_variable_declarator(&mut self, declarator: &VariableDeclarator<'p>) {
+        if let Some(init) = &declarator.init {
+            self.visit_expression(init);
+        }
+        match &declarator.id {
+            BindingPattern::BindingIdentifier(identifier) => {
+                let name = identifier.name.as_str();
+                if self.mutable_decl {
+                    let value = declarator.init.as_ref().map(GetSpan::span);
+                    self.write(name, identifier.span, value, false);
+                } else {
+                    self.env.remove(name);
+                }
+            }
+            pattern => {
+                for name in bound_names(pattern) {
+                    self.env.remove(name);
+                }
+            }
+        }
+    }
+}
+
+pub(crate) fn intersect_envs<'p>(left: TbEnv<'p>, right: &TbEnv<'p>) -> TbEnv<'p> {
+    left.into_iter()
+        .filter(|(name, pending)| {
+            right
+                .get(name)
+                .is_some_and(|other| other.site == pending.site)
+        })
+        .collect()
+}
+
+pub(crate) fn tb_assignment_target<'data>(
+    target: &AssignmentTarget<'data>,
+) -> Option<(&'data str, Span)> {
+    match target {
+        AssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+            Some((identifier.name.as_str(), identifier.span))
+        }
+        _ => None,
+    }
+}
+
+/// Span of the `++`/`--` when an assignment overwrites its own updated
+/// operand (`x = x++`, `x += x--`): the update's effect is discarded (`S2123`).
+pub(crate) fn self_overwrite_target(assign: &AssignmentExpression<'_>) -> Option<Span> {
+    let (target_name, _) = tb_assignment_target(&assign.left)?;
+    let Expression::UpdateExpression(update) = unparenthesized(&assign.right) else {
+        return None;
+    };
+    let SimpleAssignmentTarget::AssignmentTargetIdentifier(operand) = &update.argument else {
+        return None;
+    };
+    (operand.name.as_str() == target_name).then_some(update.span)
+}
+
+#[derive(Default)]
+pub(crate) struct TbReferenceNames<'a> {
+    pub(crate) names: Vec<&'a str>,
+}
+
+impl<'a> Visit<'a> for TbReferenceNames<'a> {
+    fn visit_identifier_reference(&mut self, reference: &oxc_ast::ast::IdentifierReference<'a>) {
+        self.names.push(reference.name.as_str());
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct TbBoundNames<'a> {
+    pub(crate) names: Vec<&'a str>,
+}
+
+impl<'a> Visit<'a> for TbBoundNames<'a> {
+    fn visit_binding_identifier(&mut self, identifier: &BindingIdentifier<'a>) {
+        self.names.push(identifier.name.as_str());
+    }
+}
+
+pub(crate) fn bound_names<'a>(pattern: &'a BindingPattern<'a>) -> Vec<&'a str> {
+    let mut collector = TbBoundNames::default();
+    collector.visit_binding_pattern(pattern);
+    collector.names
+}
+
+/// Names read or written anywhere in the given expression/statement parts.
+pub(crate) fn subtree_names<'a>(
+    expressions: &[&Expression<'a>],
+    statements: &[&Statement<'a>],
+) -> Vec<&'a str> {
+    let mut collector = TbReferenceNames::default();
+    for expression in expressions {
+        collector.visit_expression(expression);
+    }
+    for statement in statements {
+        collector.visit_statement(statement);
+    }
+    collector.names
+}
+
+pub(crate) fn member_optional(member: &MemberExpression<'_>) -> bool {
+    match member {
+        MemberExpression::StaticMemberExpression(expression) => expression.optional,
+        MemberExpression::ComputedMemberExpression(expression) => expression.optional,
+        MemberExpression::PrivateFieldExpression(expression) => expression.optional,
+    }
+}

@@ -429,6 +429,96 @@ fn print_table(results: &[LanguageBenchmark]) {
     }
 }
 
+/// Counts Python issues over one benchmark source.
+fn python_issue_count(source: &str, options: &PythonOptions) -> u64 {
+    to_u64(
+        hoonarqube_python::analyze(PathBuf::from("bench_fixture.py"), source, options)
+            .issues
+            .len(),
+    )
+}
+
+/// Counts JavaScript issues over one benchmark source.
+fn javascript_issue_count(source: &str, options: &JstsOptions) -> u64 {
+    jsts_issue_count(
+        source,
+        PathBuf::from("bench_fixture.js"),
+        JstsLanguage::JavaScript,
+        options,
+    )
+}
+
+/// Counts TypeScript issues over one benchmark source.
+fn typescript_issue_count(source: &str, options: &JstsOptions) -> u64 {
+    jsts_issue_count(
+        source,
+        PathBuf::from("bench_fixture.ts"),
+        JstsLanguage::TypeScript,
+        options,
+    )
+}
+
+/// Shared issue counting for both script-language variants.
+fn jsts_issue_count(
+    source: &str,
+    path: PathBuf,
+    language: JstsLanguage,
+    options: &JstsOptions,
+) -> u64 {
+    to_u64(
+        hoonarqube_jsts::analyze(path, source, language, options)
+            .issues
+            .len(),
+    )
+}
+
+/// Counts C# issues over one benchmark source.
+fn csharp_issue_count(source: &str, options: &CsharpOptions) -> u64 {
+    to_u64(
+        hoonarqube_csharp::analyze(
+            PathBuf::from("bench_fixture.cs"),
+            source,
+            CsLanguage::CSharp,
+            options,
+        )
+        .issues
+        .len(),
+    )
+}
+
+/// Generates every seeded fixture and benchmarks all four language analyzers.
+fn run_benchmarks(iterations: u32) -> Vec<LanguageBenchmark> {
+    let python_options = PythonOptions::default();
+    let jsts_options = JstsOptions::default();
+    let csharp_options = CsharpOptions::default();
+
+    let python_source = python_fixture(&mut Rng::new(0x5059_5448_4F4E_0001));
+    let javascript_source = javascript_fixture(&mut Rng::new(0x4A41_5641_5350_0001));
+    let typescript_source = typescript_fixture(&mut Rng::new(0x5453_4A53_5243_0001));
+    let csharp_source = csharp_fixture(&mut Rng::new(0x4353_4841_5250_0001));
+
+    vec![
+        bench_language("python", &python_source, iterations, &mut |source| {
+            python_issue_count(source, &python_options)
+        }),
+        bench_language(
+            "javascript",
+            &javascript_source,
+            iterations,
+            &mut |source| javascript_issue_count(source, &jsts_options),
+        ),
+        bench_language(
+            "typescript",
+            &typescript_source,
+            iterations,
+            &mut |source| typescript_issue_count(source, &jsts_options),
+        ),
+        bench_language("csharp", &csharp_source, iterations, &mut |source| {
+            csharp_issue_count(source, &csharp_options)
+        }),
+    ]
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
     let iterations = match parse_iterations(&args) {
@@ -440,80 +530,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let python_options = PythonOptions::default();
-    let jsts_options = JstsOptions::default();
-    let csharp_options = CsharpOptions::default();
-
-    let mut python_rng = Rng::new(0x5059_5448_4F4E_0001);
-    let mut javascript_rng = Rng::new(0x4A41_5641_5350_0001);
-    let mut typescript_rng = Rng::new(0x5453_4A53_5243_0001);
-    let mut csharp_rng = Rng::new(0x4353_4841_5250_0001);
-
-    let python_source = python_fixture(&mut python_rng);
-    let javascript_source = javascript_fixture(&mut javascript_rng);
-    let typescript_source = typescript_fixture(&mut typescript_rng);
-    let csharp_source = csharp_fixture(&mut csharp_rng);
-
-    let results = vec![
-        bench_language("python", &python_source, iterations, &mut |source| {
-            to_u64(
-                hoonarqube_python::analyze(
-                    PathBuf::from("bench_fixture.py"),
-                    source,
-                    &python_options,
-                )
-                .issues
-                .len(),
-            )
-        }),
-        bench_language(
-            "javascript",
-            &javascript_source,
-            iterations,
-            &mut |source| {
-                to_u64(
-                    hoonarqube_jsts::analyze(
-                        PathBuf::from("bench_fixture.js"),
-                        source,
-                        JstsLanguage::JavaScript,
-                        &jsts_options,
-                    )
-                    .issues
-                    .len(),
-                )
-            },
-        ),
-        bench_language(
-            "typescript",
-            &typescript_source,
-            iterations,
-            &mut |source| {
-                to_u64(
-                    hoonarqube_jsts::analyze(
-                        PathBuf::from("bench_fixture.ts"),
-                        source,
-                        JstsLanguage::TypeScript,
-                        &jsts_options,
-                    )
-                    .issues
-                    .len(),
-                )
-            },
-        ),
-        bench_language("csharp", &csharp_source, iterations, &mut |source| {
-            to_u64(
-                hoonarqube_csharp::analyze(
-                    PathBuf::from("bench_fixture.cs"),
-                    source,
-                    CsLanguage::CSharp,
-                    &csharp_options,
-                )
-                .issues
-                .len(),
-            )
-        }),
-    ];
-
+    let results = run_benchmarks(iterations);
     print_table(&results);
 
     if results.iter().any(|result| result.findings == 0) {
