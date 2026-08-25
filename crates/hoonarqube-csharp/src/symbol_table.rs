@@ -60,7 +60,7 @@ pub(crate) struct TypeSymbol<'t> {
 pub(crate) struct Reference<'t> {
     pub(crate) name: &'t str,
     pub(crate) node: Node<'t>,
-    pub(crate) introduces_binding: bool,
+    introduces_binding: bool,
 }
 
 /// One field write site (`x = …`, `x += …`, `++x`, `x--`, `this.x = …`).
@@ -94,7 +94,7 @@ impl<'t> UsageSymbols<'t> {
             .collect()
     }
 
-    pub(crate) fn member_names_of(&self, owner: Node<'t>) -> std::collections::HashSet<&'t str> {
+    fn member_names_of(&self, owner: Node<'t>) -> std::collections::HashSet<&'t str> {
         self.members
             .iter()
             .filter(|member| member.owner == owner)

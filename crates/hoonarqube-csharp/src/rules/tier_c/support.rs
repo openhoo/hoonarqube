@@ -15,7 +15,7 @@ pub(crate) const FLOATING_TYPES: [&str; 4] = ["float", "double", "decimal", "Hal
 
 /// Element expressions of an explicit, implicit, or collection-style array
 /// literal.
-pub(crate) fn collection_element_expressions(expression: Node<'_>) -> Vec<Node<'_>> {
+fn collection_element_expressions(expression: Node<'_>) -> Vec<Node<'_>> {
     match expression.kind() {
         "array_creation_expression" | "implicit_array_creation_expression" => {
             let Some(initializer) = collect_kinds(expression, &["initializer_expression"])
@@ -118,7 +118,7 @@ pub(crate) fn local_type_declarations(root: Node<'_>) -> Vec<Node<'_>> {
 }
 
 /// Field declarators (name identifier, declarator) declared directly by a type.
-pub(crate) fn field_declarators(type_node: Node<'_>) -> Vec<(Node<'_>, Node<'_>)> {
+fn field_declarators(type_node: Node<'_>) -> Vec<(Node<'_>, Node<'_>)> {
     member_declarations_of_kind(type_node, "field_declaration")
         .into_iter()
         .flat_map(|field| collect_kinds(field, &["variable_declarator"]))
@@ -236,7 +236,7 @@ pub(crate) fn parameter_default_value(parameter: Node<'_>) -> Option<Node<'_>> {
 }
 
 /// Whether a proper `parameter` node carries the `params` modifier.
-pub(crate) fn has_params_modifier(parameter: Node<'_>, source: &str) -> bool {
+fn has_params_modifier(parameter: Node<'_>, source: &str) -> bool {
     let mut cursor = parameter.walk();
     parameter.children(&mut cursor).any(|child| {
         child.kind() == "params"

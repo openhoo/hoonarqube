@@ -5,7 +5,7 @@ use tree_sitter::Node;
 
 /// `Microsoft.Extensions.Logging`-style structured-logging entry points
 /// (`ILogger.Log*`, Serilog-style `Log.*`).
-pub(crate) const LOG_METHOD_NAMES: [&str; 7] = [
+const LOG_METHOD_NAMES: [&str; 7] = [
     "Log",
     "LogTrace",
     "LogDebug",
@@ -26,7 +26,7 @@ pub(crate) const LOG_LEVEL_LIMITS: [(&str, u32); 4] = [
 
 /// Whether an invocation looks like structured logging through a logger
 /// member (`logger.LogError(...)`, `Log.Information(...)`).
-pub(crate) fn is_logging_call(invocation: Node<'_>, source: &str) -> bool {
+fn is_logging_call(invocation: Node<'_>, source: &str) -> bool {
     callee_name(invocation, source).is_some_and(|name| {
         LOG_METHOD_NAMES.contains(&name) && invocation_receiver(invocation).is_some()
     })

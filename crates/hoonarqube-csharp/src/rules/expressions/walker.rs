@@ -65,11 +65,7 @@ pub(crate) fn expression_issues(root: Node<'_>, source: &str, language: CsLangua
 }
 
 /// Gathers every Tier-A6 constant-fold pattern issue.
-pub(crate) fn constant_fold_issues(
-    root: Node<'_>,
-    source: &str,
-    language: CsLanguage,
-) -> Vec<Issue> {
+fn constant_fold_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_identical_operands(root, source, language));
     issues.extend(check_repeated_chain_conditions(root, source, language));

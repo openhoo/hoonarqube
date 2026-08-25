@@ -9,7 +9,7 @@ pub(crate) mod concise_declarations;
 pub(crate) mod double_element_writes;
 pub(crate) mod duplicate_casts;
 pub(crate) mod format_argument_counts;
-pub(crate) mod linq_receivers;
+mod linq_receivers;
 pub(crate) mod regular_number_patterns;
 pub(crate) mod setters_assign_value;
 pub(crate) mod string_arguments_at_uri_overloads;

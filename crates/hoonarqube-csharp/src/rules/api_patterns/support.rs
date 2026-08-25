@@ -22,7 +22,7 @@ pub(crate) fn attribute_argument_texts<'a>(node: Node<'_>, source: &'a str) -> V
 
 /// Validation that throws argument exceptions eagerly: a `throw` of an
 /// `Argument*` exception or a `ThrowIf*` guard call.
-pub(crate) fn is_validation_statement(statement: Node<'_>, source: &str) -> bool {
+fn is_validation_statement(statement: Node<'_>, source: &str) -> bool {
     let throws_argument_exception = statement.kind() == "throw_statement"
         && collect_kinds(statement, &["object_creation_expression"])
             .into_iter()

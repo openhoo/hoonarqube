@@ -105,8 +105,7 @@ pub(crate) fn is_regex_creation(creation: Node<'_>, source: &str) -> bool {
 }
 
 /// Methods of `System.Text.RegularExpressions.Regex` taking a pattern.
-pub(crate) const REGEX_PATTERN_METHODS: [&str; 5] =
-    ["IsMatch", "Match", "Matches", "Replace", "Split"];
+const REGEX_PATTERN_METHODS: [&str; 5] = ["IsMatch", "Match", "Matches", "Replace", "Split"];
 
 /// The pattern argument of a static `Regex.Method(...)` call, if any.
 pub(crate) fn regex_static_pattern<'t>(invocation: Node<'t>, source: &str) -> Option<Node<'t>> {

@@ -159,7 +159,7 @@ pub(crate) fn null_check_name<'a>(comparison: Node<'_>, source: &'a str) -> Opti
 }
 
 /// Attribute spellings that mark a method as part of a test suite.
-pub(crate) const TEST_ATTRIBUTE_NAMES: [&str; 10] = [
+const TEST_ATTRIBUTE_NAMES: [&str; 10] = [
     "Test",
     "Fact",
     "Theory",

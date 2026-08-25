@@ -54,11 +54,7 @@ pub(crate) fn contract_issues(root: Node<'_>, source: &str, language: CsLanguage
 }
 
 /// Gathers every Tier-A7 attribute-contract issue.
-pub(crate) fn attribute_contract_issues(
-    root: Node<'_>,
-    source: &str,
-    language: CsLanguage,
-) -> Vec<Issue> {
+fn attribute_contract_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_obsolete_tracked(root, source, language));
     issues.extend(check_obsolete_without_reason(root, source, language));
@@ -85,11 +81,7 @@ pub(crate) fn attribute_contract_issues(
 }
 
 /// Gathers every Tier-A8 member-contract issue.
-pub(crate) fn member_contract_issues(
-    root: Node<'_>,
-    source: &str,
-    language: CsLanguage,
-) -> Vec<Issue> {
+fn member_contract_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_gc_collect_calls(root, source, language));
     issues.extend(check_exit_method_calls(root, source, language));
