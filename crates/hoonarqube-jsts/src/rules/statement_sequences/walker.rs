@@ -8,7 +8,7 @@ use oxc_ast::ast::{BlockStatement, FunctionBody};
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{walk_block_statement, walk_function_body, walk_program};
 
-pub(crate) fn check_statement_sequences(
+fn check_statement_sequences(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -26,8 +26,8 @@ pub(crate) fn check_statement_sequences(
 
 /// `S1488` and `S1763` over program bodies, block bodies, and function
 /// bodies.
-pub(crate) struct StatementSequenceCollector<'index> {
-    pub(crate) sink: IssueSink<'index>,
+struct StatementSequenceCollector<'index> {
+    sink: IssueSink<'index>,
 }
 
 impl<'a> Visit<'a> for StatementSequenceCollector<'_> {

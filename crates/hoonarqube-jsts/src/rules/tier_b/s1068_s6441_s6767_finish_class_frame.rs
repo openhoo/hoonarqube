@@ -2,7 +2,7 @@ use super::collectors::{ClassFrame, ClassRuleCollector};
 use crate::support::RuleScope;
 
 /// React lifecycle names invoked by the framework itself (`S6441`).
-pub(crate) const LIFECYCLE_METHODS: &[&str] = &[
+const LIFECYCLE_METHODS: &[&str] = &[
     "constructor",
     "render",
     "componentDidMount",

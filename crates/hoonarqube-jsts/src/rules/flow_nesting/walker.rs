@@ -18,7 +18,7 @@ use oxc_ast_visit::walk::{
 };
 use oxc_span::{GetSpan, Span};
 
-pub(crate) fn check_flow_nesting_rules(
+fn check_flow_nesting_rules(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -38,16 +38,16 @@ pub(crate) fn check_flow_nesting_rules(
 
 /// `S107`, `S134`, and `S1143` in one traversal. Tracks control-flow nesting
 /// depth and `finally` membership, both reset at every function boundary.
-pub(crate) struct ControlFlowNestingCollector<'index> {
-    pub(crate) sink: IssueSink<'index>,
+struct ControlFlowNestingCollector<'index> {
+    sink: IssueSink<'index>,
     /// Number of control-flow constructs enclosing the current node (`S134`).
-    pub(crate) flow_depth: u32,
+    flow_depth: u32,
     /// > 0 while walking inside a `finally` clause (`S1143`).
-    pub(crate) finally_depth: u32,
+    finally_depth: u32,
 }
 
 impl ControlFlowNestingCollector<'_> {
-    pub(crate) fn check_parameter_count(&mut self, params: &FormalParameters<'_>) {
+    fn check_parameter_count(&mut self, params: &FormalParameters<'_>) {
         let count = params.items.len() + usize::from(params.rest.is_some());
         if count > MAX_FUNCTION_PARAMETERS {
             self.sink.emit_span(
@@ -64,21 +64,21 @@ impl ControlFlowNestingCollector<'_> {
 
     /// Zeroes the per-function state; returns the saved values for
     /// [`Self::leave_function`].
-    pub(crate) fn enter_function(&mut self) -> (u32, u32) {
+    fn enter_function(&mut self) -> (u32, u32) {
         let saved = (self.flow_depth, self.finally_depth);
         self.flow_depth = 0;
         self.finally_depth = 0;
         saved
     }
 
-    pub(crate) fn leave_function(&mut self, saved: (u32, u32)) {
+    fn leave_function(&mut self, saved: (u32, u32)) {
         self.flow_depth = saved.0;
         self.finally_depth = saved.1;
     }
 
     /// `S134`: flags a construct entered while already `MAX` deep, i.e. one
     /// whose own nesting level exceeds `MAX_CONTROL_FLOW_NESTING`.
-    pub(crate) fn check_nesting(&mut self, span: Span) {
+    fn check_nesting(&mut self, span: Span) {
         if self.flow_depth >= MAX_CONTROL_FLOW_NESTING {
             self.sink.emit_span(
                 RuleScope::Both,
@@ -92,7 +92,7 @@ impl ControlFlowNestingCollector<'_> {
         }
     }
 
-    pub(crate) fn check_finally_jump(&mut self, span: Span) {
+    fn check_finally_jump(&mut self, span: Span) {
         if self.finally_depth > 0 {
             self.sink.emit_span(
                 RuleScope::Both,
@@ -105,7 +105,7 @@ impl ControlFlowNestingCollector<'_> {
 
     /// Counts parameters and resets nesting around one whole function-like
     /// subtree.
-    pub(crate) fn function_scope(
+    fn function_scope(
         &mut self,
         params: Option<&FormalParameters<'_>>,
         walk_children: impl FnOnce(&mut Self),
@@ -251,7 +251,7 @@ impl<'a> Visit<'a> for ControlFlowNestingCollector<'_> {
 }
 
 impl ControlFlowNestingCollector<'_> {
-    pub(crate) fn nested_flow(&mut self, span: Span, walk_children: impl FnOnce(&mut Self)) {
+    fn nested_flow(&mut self, span: Span, walk_children: impl FnOnce(&mut Self)) {
         self.check_nesting(span);
         self.flow_depth += 1;
         walk_children(self);
@@ -261,11 +261,11 @@ impl ControlFlowNestingCollector<'_> {
 
 /// `S134`: control-flow statements nested deeper than this are flagged
 /// (frozen catalog default of `maximumNestingLevel`).
-pub(crate) const MAX_CONTROL_FLOW_NESTING: u32 = 3;
+const MAX_CONTROL_FLOW_NESTING: u32 = 3;
 
 /// `S107`: functions carrying more parameters than this are flagged (frozen
 /// catalog default of `maximumFunctionParameters`).
-pub(crate) const MAX_FUNCTION_PARAMETERS: usize = 7;
+const MAX_FUNCTION_PARAMETERS: usize = 7;
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_flow_nesting_rules(ctx.program, ctx.index, ctx.language)

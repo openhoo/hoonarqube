@@ -8,7 +8,7 @@ use oxc_ast::ast::CallExpression;
 use oxc_ast::ast::Expression;
 use oxc_span::GetSpan;
 
-pub(crate) fn is_plain_literal(expression: &Expression<'_>) -> bool {
+fn is_plain_literal(expression: &Expression<'_>) -> bool {
     matches!(
         expression,
         Expression::StringLiteral(_)

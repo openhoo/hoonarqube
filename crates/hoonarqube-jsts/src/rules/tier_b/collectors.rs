@@ -183,13 +183,13 @@ impl<'a> Visit<'a> for ClassRuleCollector<'_> {
 }
 
 /// All Tier-B checks that run over the scope model.
-pub(crate) const SQL_SINK_METHODS: [&str; 3] = ["query", "execute", "exec"];
+const SQL_SINK_METHODS: [&str; 3] = ["query", "execute", "exec"];
 
-pub(crate) const WRITE_ONLY_METHODS: [&str; 4] = ["push", "unshift", "set", "add"];
+const WRITE_ONLY_METHODS: [&str; 4] = ["push", "unshift", "set", "add"];
 
-pub(crate) const IN_PLACE_ARRAY_METHODS: [&str; 4] = ["sort", "reverse", "splice", "fill"];
+const IN_PLACE_ARRAY_METHODS: [&str; 4] = ["sort", "reverse", "splice", "fill"];
 
-pub(crate) const FS_WRITE_FUNCTIONS: [&str; 7] = [
+const FS_WRITE_FUNCTIONS: [&str; 7] = [
     "open",
     "openSync",
     "writeFile",
@@ -199,7 +199,7 @@ pub(crate) const FS_WRITE_FUNCTIONS: [&str; 7] = [
     "mkdir",
 ];
 
-pub(crate) fn is_dynamic_sql(expression: &Expression<'_>) -> bool {
+fn is_dynamic_sql(expression: &Expression<'_>) -> bool {
     match expression {
         Expression::TemplateLiteral(template) => !template.expressions.is_empty(),
         Expression::BinaryExpression(binary) if binary.operator == BinaryOperator::Addition => {
@@ -209,14 +209,14 @@ pub(crate) fn is_dynamic_sql(expression: &Expression<'_>) -> bool {
     }
 }
 
-pub(crate) fn sql_operand_is_untrusted(expression: &Expression<'_>) -> bool {
+fn sql_operand_is_untrusted(expression: &Expression<'_>) -> bool {
     !matches!(
         unparenthesized(expression),
         Expression::StringLiteral(_) | Expression::NumericLiteral(_)
     )
 }
 
-pub(crate) fn is_empty_collection_init(init: &Expression<'_>) -> bool {
+fn is_empty_collection_init(init: &Expression<'_>) -> bool {
     match init {
         Expression::ArrayExpression(array) => array.elements.is_empty(),
         Expression::ObjectExpression(object) => object.properties.is_empty(),
@@ -247,7 +247,7 @@ pub(crate) fn in_place_array_call<'data>(
     }
 }
 
-pub(crate) fn permissive_mode(raw: &str) -> bool {
+fn permissive_mode(raw: &str) -> bool {
     let parsed = if let Some(octal) = raw.strip_prefix("0o") {
         u32::from_str_radix(octal, 8).ok()
     } else if raw.starts_with("0x") {
@@ -258,7 +258,7 @@ pub(crate) fn permissive_mode(raw: &str) -> bool {
     matches!(parsed, Some(value) if value <= 0o777 && value & 0o022 != 0)
 }
 
-pub(crate) fn tmpdir_path(expression: &Expression<'_>) -> bool {
+fn tmpdir_path(expression: &Expression<'_>) -> bool {
     match expression {
         Expression::StringLiteral(literal) => literal.value.contains("/tmp"),
         Expression::TemplateLiteral(template) => {
@@ -282,7 +282,7 @@ pub(crate) fn tmpdir_path(expression: &Expression<'_>) -> bool {
     }
 }
 
-pub(crate) fn has_exclusive_flag(call: &CallExpression<'_>) -> bool {
+fn has_exclusive_flag(call: &CallExpression<'_>) -> bool {
     call.arguments.iter().skip(1).any(|argument| {
         argument
             .as_expression()
@@ -290,7 +290,7 @@ pub(crate) fn has_exclusive_flag(call: &CallExpression<'_>) -> bool {
     })
 }
 
-pub(crate) fn flag_grants_exclusive(expression: &Expression<'_>) -> bool {
+fn flag_grants_exclusive(expression: &Expression<'_>) -> bool {
     match expression {
         Expression::StringLiteral(literal) => literal.value.contains('x'),
         Expression::ObjectExpression(object) => object.properties.iter().any(|property| {
@@ -309,7 +309,7 @@ pub(crate) fn flag_grants_exclusive(expression: &Expression<'_>) -> bool {
 }
 
 /// `(property name, property span)` when an assignment targets `this.X`.
-pub(crate) fn this_member_target<'d>(target: &AssignmentTarget<'d>) -> Option<(&'d str, Span)> {
+fn this_member_target<'d>(target: &AssignmentTarget<'d>) -> Option<(&'d str, Span)> {
     let AssignmentTarget::StaticMemberExpression(member) = target else {
         return None;
     };
@@ -319,7 +319,7 @@ pub(crate) fn this_member_target<'d>(target: &AssignmentTarget<'d>) -> Option<(&
     Some((member.property.name.as_str(), member.property.span()))
 }
 
-pub(crate) fn is_static_regex_source(expression: &Expression<'_>) -> bool {
+fn is_static_regex_source(expression: &Expression<'_>) -> bool {
     match expression {
         Expression::StringLiteral(_)
         | Expression::RegExpLiteral(_)
@@ -332,7 +332,7 @@ pub(crate) fn is_static_regex_source(expression: &Expression<'_>) -> bool {
     }
 }
 
-pub(crate) fn is_login_path(expression: &Expression<'_>) -> bool {
+fn is_login_path(expression: &Expression<'_>) -> bool {
     match expression {
         Expression::StringLiteral(literal) => {
             let path = literal.value.to_ascii_lowercase();

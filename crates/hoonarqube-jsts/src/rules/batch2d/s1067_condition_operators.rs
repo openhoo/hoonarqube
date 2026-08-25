@@ -6,7 +6,7 @@ use oxc_span::GetSpan;
 
 /// `S1067`: conditions carrying more boolean operators than this are
 /// flagged (frozen catalog default of the `max` parameter).
-pub(crate) const MAX_CONDITION_OPERATORS: usize = 3;
+const MAX_CONDITION_OPERATORS: usize = 3;
 
 impl DuplicationCollector<'_> {
     /// `S1067`: conditions with more operators than the catalog maximum.

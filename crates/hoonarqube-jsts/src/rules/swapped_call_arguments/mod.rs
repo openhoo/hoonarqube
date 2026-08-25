@@ -1,5 +1,5 @@
 // Family 'swapped_call_arguments' (generated).
-pub(crate) mod walker;
+mod walker;
 
 use crate::Issue;
 use crate::context::AnalysisContext;

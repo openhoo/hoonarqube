@@ -4,7 +4,7 @@ use oxc_ast::ast::TSUnionType;
 use oxc_span::GetSpan;
 
 /// `S4622` catalog parameter `threshold` default: maximum union members.
-pub(crate) const MAX_UNION_TYPE_MEMBERS: usize = 3;
+const MAX_UNION_TYPE_MEMBERS: usize = 3;
 
 // Generated per-rule checks (moved out of traversal overrides).
 impl TsTypeCollector<'_, '_> {

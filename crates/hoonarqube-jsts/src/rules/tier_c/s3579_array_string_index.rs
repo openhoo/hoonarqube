@@ -34,7 +34,7 @@ impl TierCLiteralCollector<'_> {
 }
 
 /// Member names whose call results are arrays (`S3579` receivers).
-pub(crate) const ARRAY_RETURNING_APIS: [&str; 11] = [
+const ARRAY_RETURNING_APIS: [&str; 11] = [
     "split", "slice", "concat", "join", "reverse", "sort", "filter", "map", "splice", "flat",
     "flatMap",
 ];

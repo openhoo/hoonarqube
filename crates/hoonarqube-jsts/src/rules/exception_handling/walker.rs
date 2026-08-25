@@ -16,7 +16,7 @@ use oxc_ast_visit::walk::{
 };
 use oxc_span::{GetSpan, Span};
 
-pub(crate) fn check_exception_handling(
+fn check_exception_handling(
     program: &oxc_ast::ast::Program<'_>,
     source: &str,
     index: &LineIndex,
@@ -35,9 +35,9 @@ pub(crate) fn check_exception_handling(
 }
 
 /// `S2486`, `S2737`, and `S2432` in one traversal.
-pub(crate) struct ExceptionHandlingCollector<'index> {
-    pub(crate) sink: IssueSink<'index>,
-    pub(crate) comments: Vec<ScannedComment>,
+struct ExceptionHandlingCollector<'index> {
+    sink: IssueSink<'index>,
+    comments: Vec<ScannedComment>,
 }
 
 impl<'a> Visit<'a> for ExceptionHandlingCollector<'a> {
@@ -98,8 +98,8 @@ impl<'a> Visit<'a> for ExceptionHandlingCollector<'a> {
 /// Finds `return <value>` statements outside nested functions; used to skip
 /// function subtrees while scanning setter bodies.
 #[derive(Default)]
-pub(crate) struct ReturnValueScanner {
-    pub(crate) found: bool,
+struct ReturnValueScanner {
+    found: bool,
 }
 
 impl<'a> Visit<'a> for ReturnValueScanner {
@@ -126,7 +126,7 @@ impl<'a> Visit<'a> for ReturnValueScanner {
 }
 
 /// Whether any scanned comment lies inside `span` (overlap counts).
-pub(crate) fn span_contains_comment(comments: &[ScannedComment], span: Span) -> bool {
+fn span_contains_comment(comments: &[ScannedComment], span: Span) -> bool {
     comments
         .iter()
         .any(|comment| comment.token.start < span.end && span.start < comment.token.end)

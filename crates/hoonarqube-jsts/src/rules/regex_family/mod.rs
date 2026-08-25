@@ -1,8 +1,8 @@
 // Family 'regex_family' (generated).
 pub(crate) mod collectors;
-pub(crate) mod s5856_constant_regex_site;
-pub(crate) mod s6328_replacement_groups;
-pub(crate) mod walker;
+mod s5856_constant_regex_site;
+mod s6328_replacement_groups;
+mod walker;
 
 use crate::Issue;
 use crate::context::AnalysisContext;

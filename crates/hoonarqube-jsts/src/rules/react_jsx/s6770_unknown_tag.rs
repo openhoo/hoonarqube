@@ -22,7 +22,7 @@ impl ReactCollector<'_> {
 }
 
 /// Known intrinsic tag names (`S6770`): HTML plus a common SVG surface.
-pub(crate) const HTML_TAG_ALLOWLIST: &[&str] = &[
+const HTML_TAG_ALLOWLIST: &[&str] = &[
     "a",
     "abbr",
     "acronym",

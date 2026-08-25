@@ -1,6 +1,6 @@
 // Family 'statement' (generated).
 pub(crate) mod collectors;
-pub(crate) mod walker;
+mod walker;
 
 use crate::Issue;
 use crate::context::AnalysisContext;

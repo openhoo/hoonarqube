@@ -6,7 +6,7 @@ use hoonarqube_ir::Issue;
 use oxc_span::Span;
 
 /// `S1134` (FIXME) and `S1135` (TODO) task tags.
-pub(crate) fn check_flagged_tags(sink: &mut IssueSink, comment: ScannedComment, body: &str) {
+fn check_flagged_tags(sink: &mut IssueSink, comment: ScannedComment, body: &str) {
     for (tag, rule, message) in [
         (
             "FIXME",
@@ -32,7 +32,7 @@ pub(crate) fn check_flagged_tags(sink: &mut IssueSink, comment: ScannedComment, 
 }
 
 /// First whole-word occurrence of `tag` in a comment body.
-pub(crate) fn find_tag(body: &str, tag: &str) -> Option<usize> {
+fn find_tag(body: &str, tag: &str) -> Option<usize> {
     let bytes = body.as_bytes();
     let mut search_from = 0;
     while let Some(relative) = body[search_from..].find(tag) {

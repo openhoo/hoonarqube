@@ -58,7 +58,7 @@ pub(crate) fn emit_space_runs_in_sequence(
     flush_space_run(sink, site, run.take());
 }
 
-pub(crate) fn flush_space_run(sink: &mut IssueSink, site: &RegexSite, run: Option<(usize, u32)>) {
+fn flush_space_run(sink: &mut IssueSink, site: &RegexSite, run: Option<(usize, u32)>) {
     let Some((start, len)) = run.filter(|&(_, length)| length >= 2) else {
         return;
     };

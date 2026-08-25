@@ -39,7 +39,7 @@ impl A11yCollector<'_> {
 }
 
 /// Keyboard handlers that pair with `onClick` for `S6848`.
-pub(crate) const KEYBOARD_HANDLERS: [&str; 3] = ["onKeyDown", "onKeyPress", "onKeyUp"];
+const KEYBOARD_HANDLERS: [&str; 3] = ["onKeyDown", "onKeyPress", "onKeyUp"];
 
 #[cfg(test)]
 mod tests {

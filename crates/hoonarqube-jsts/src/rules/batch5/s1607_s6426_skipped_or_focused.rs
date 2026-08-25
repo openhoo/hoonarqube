@@ -11,10 +11,10 @@ pub(crate) const TEST_FRAMEWORK_GLOBALS: [&str; 5] =
     ["describe", "it", "test", "context", "specify"];
 
 /// Skipped-test spellings `S1607` flags.
-pub(crate) const SKIPPED_TEST_NAMES: [&str; 3] = ["xit", "xdescribe", "xcontext"];
+const SKIPPED_TEST_NAMES: [&str; 3] = ["xit", "xdescribe", "xcontext"];
 
 /// Focused-test spellings `S6426` flags.
-pub(crate) const FOCUSED_TEST_NAMES: [&str; 2] = ["fit", "fdescribe"];
+const FOCUSED_TEST_NAMES: [&str; 2] = ["fit", "fdescribe"];
 
 impl TestFrameworkCollector<'_, '_> {
     /// `S1607` and `S6426`: skipped and focused test spellings.

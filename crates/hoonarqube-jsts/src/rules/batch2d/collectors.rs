@@ -112,10 +112,10 @@ impl<'a> Visit<'a> for ReturnMixScanner {
 pub(crate) struct ComplexityWalker {
     pub(crate) cognitive: u32,
     pub(crate) cyclomatic: u32,
-    pub(crate) nesting: u32,
+    nesting: u32,
     /// Operator of the logical chain currently walked; entering a chain (or
     /// switching operators mid-chain) adds one increment.
-    pub(crate) logic_chain: Option<LogicalOperator>,
+    logic_chain: Option<LogicalOperator>,
 }
 
 impl<'a> Visit<'a> for ComplexityWalker {
@@ -700,7 +700,7 @@ impl DuplicationCollector<'_> {
 
 /// Whether an expression is entirely string literals joined by `+`
 /// (`S3512`).
-pub(crate) fn is_pure_string_concat(expression: &Expression<'_>) -> bool {
+fn is_pure_string_concat(expression: &Expression<'_>) -> bool {
     match unparenthesized(expression) {
         Expression::BinaryExpression(binary) if binary.operator == BinaryOperator::Addition => {
             is_pure_string_concat(&binary.left) && is_pure_string_concat(&binary.right)
@@ -736,7 +736,7 @@ impl<'a> Visit<'a> for RootedMemberScanner<'_> {
     }
 }
 
-pub(crate) fn function_params_shadow_arguments(params: &FormalParameters<'_>) -> bool {
+fn function_params_shadow_arguments(params: &FormalParameters<'_>) -> bool {
     params
         .items
         .iter()

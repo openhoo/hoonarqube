@@ -5,7 +5,7 @@ use oxc_ast::ast::TSType;
 use oxc_span::GetSpan;
 
 /// `S4782` helper: does the type union contain the `undefined` keyword?
-pub(crate) fn union_contains_undefined(ts_type: &TSType<'_>) -> bool {
+fn union_contains_undefined(ts_type: &TSType<'_>) -> bool {
     match ts_type {
         TSType::TSUnionType(union) => union
             .types

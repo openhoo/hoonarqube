@@ -4,7 +4,7 @@ use oxc_ast::ast::TSIntersectionType;
 use oxc_ast::ast::TSType;
 use oxc_span::GetSpan;
 
-pub(crate) fn type_is_objectish(ts_type: &TSType<'_>) -> bool {
+fn type_is_objectish(ts_type: &TSType<'_>) -> bool {
     match ts_type {
         TSType::TSParenthesizedType(inner) => type_is_objectish(&inner.type_annotation),
         TSType::TSTypeLiteral(_)

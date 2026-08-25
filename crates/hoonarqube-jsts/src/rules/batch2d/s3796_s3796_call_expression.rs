@@ -11,7 +11,7 @@ use oxc_span::GetSpan;
 /// `S3796`: array methods whose callbacks are expected to return values.
 /// `forEach` is deliberately absent — its callbacks legitimately produce
 /// nothing, so they never carry a missing-return defect.
-pub(crate) const ARRAY_CALLBACK_METHODS: [&str; 10] = [
+const ARRAY_CALLBACK_METHODS: [&str; 10] = [
     "every",
     "filter",
     "find",
@@ -26,7 +26,7 @@ pub(crate) const ARRAY_CALLBACK_METHODS: [&str; 10] = [
 
 /// Whether one function body carries no value-returning statement outside
 /// nested functions (`S3796`).
-pub(crate) fn lacks_valued_return(body: &FunctionBody<'_>) -> bool {
+fn lacks_valued_return(body: &FunctionBody<'_>) -> bool {
     let mut scanner = ReturnMixScanner::default();
     scanner.visit_function_body(body);
     scanner.valued_spans.is_empty()

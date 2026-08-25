@@ -37,7 +37,7 @@ impl A11yCollector<'_> {
 
 /// Roles each restrictive element permits (`S6824`); elements outside this
 /// table accept any explicit role.
-pub(crate) const ALLOWED_ROLES_BY_ELEMENT: &[(&str, &[&str])] = &[
+const ALLOWED_ROLES_BY_ELEMENT: &[(&str, &[&str])] = &[
     ("article", &["article", "feed", "none", "presentation"]),
     (
         "aside",
@@ -120,7 +120,7 @@ pub(crate) const ALLOWED_ROLES_BY_ELEMENT: &[(&str, &[&str])] = &[
 ];
 
 /// Roles a list container (`ol`/`ul`) may take (`S6824`).
-pub(crate) const LIST_CONTAINER_ROLES: [&str; 9] = [
+const LIST_CONTAINER_ROLES: [&str; 9] = [
     "group",
     "list",
     "menu",

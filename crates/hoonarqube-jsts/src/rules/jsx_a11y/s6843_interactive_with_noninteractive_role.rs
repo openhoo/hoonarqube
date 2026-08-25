@@ -36,7 +36,7 @@ impl A11yCollector<'_> {
 }
 
 /// Whether an explicit role is a purely structural or document role.
-pub(crate) fn is_non_interactive_role(role: &str) -> bool {
+fn is_non_interactive_role(role: &str) -> bool {
     NON_INTERACTIVE_ROLES.contains(&role)
 }
 

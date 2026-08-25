@@ -36,7 +36,7 @@ pub(crate) fn check_replacement_groups(
 
 /// Scans replacement-string text for group references; `$$` escapes are
 /// skipped and numeric references take up to two digits, like JavaScript.
-pub(crate) fn replacement_group_references(text: &str) -> Vec<GroupReference> {
+fn replacement_group_references(text: &str) -> Vec<GroupReference> {
     let bytes = text.as_bytes();
     let mut references = Vec::new();
     let mut i = 0;
@@ -76,7 +76,7 @@ pub(crate) fn replacement_group_references(text: &str) -> Vec<GroupReference> {
     references
 }
 
-pub(crate) fn reference_exists(reference: &GroupReference, parsed: &ParsedRegex) -> bool {
+fn reference_exists(reference: &GroupReference, parsed: &ParsedRegex) -> bool {
     match reference {
         GroupReference::Index(index) => {
             *index > 0 && u32::try_from(parsed.capture_count).is_ok_and(|count| *index <= count)

@@ -1,5 +1,5 @@
 // Family 'flow_nesting' (generated).
-pub(crate) mod walker;
+mod walker;
 
 use crate::Issue;
 use crate::context::AnalysisContext;

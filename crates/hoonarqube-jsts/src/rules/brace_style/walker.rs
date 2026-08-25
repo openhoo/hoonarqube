@@ -12,7 +12,7 @@ use oxc_ast_visit::walk::{
 };
 use oxc_span::{GetSpan, Span};
 
-pub(crate) fn check_brace_style(
+fn check_brace_style(
     program: &oxc_ast::ast::Program<'_>,
     source: &str,
     index: &LineIndex,
@@ -32,15 +32,15 @@ pub(crate) fn check_brace_style(
 
 /// `S1105` (1tbs opening-brace placement) over block bodies, function
 /// bodies, class bodies, and switch headers.
-pub(crate) struct BraceStyleCollector<'a, 'index> {
-    pub(crate) sink: IssueSink<'index>,
-    pub(crate) source: &'a str,
+struct BraceStyleCollector<'a, 'index> {
+    sink: IssueSink<'index>,
+    source: &'a str,
 }
 
 impl BraceStyleCollector<'_, '_> {
     /// Flags `brace_offset` (the `{`) when the nearest preceding token ends
     /// on an earlier line.
-    pub(crate) fn check_opening_brace(&mut self, brace_offset: u32) {
+    fn check_opening_brace(&mut self, brace_offset: u32) {
         let Some(previous) = previous_non_trivia_offset(self.source, brace_offset) else {
             return;
         };
@@ -59,7 +59,7 @@ impl BraceStyleCollector<'_, '_> {
     /// The switch header's `{`: the first non-trivia byte after the
     /// discriminant, skipping the header's closing parenthesis group(s)
     /// (`switch (x)`, `switch ((x))`) — nothing else may sit between them.
-    pub(crate) fn switch_opening_brace_offset(&self, it: &SwitchStatement<'_>) -> Option<u32> {
+    fn switch_opening_brace_offset(&self, it: &SwitchStatement<'_>) -> Option<u32> {
         let bytes = self.source.as_bytes();
         let mut i = usize::try_from(it.discriminant.span().end)
             .ok()?

@@ -40,7 +40,7 @@ use oxc_ast_visit::Visit;
 use std::collections::HashMap;
 
 /// All Tier-B checks that run over the scope model.
-pub(crate) fn check_tier_b_rules(
+fn check_tier_b_rules(
     program: &oxc_ast::ast::Program<'_>,
     source: &str,
     index: &LineIndex,
@@ -94,7 +94,7 @@ pub(crate) fn check_tier_b_rules(
 }
 
 /// `S1854` / `S2123` / `S1226` / `S4165` over the straight-line tracker.
-pub(crate) fn check_tb_flow_rules<'p>(
+fn check_tb_flow_rules<'p>(
     program: &'p oxc_ast::ast::Program<'p>,
     source: &str,
     sink: &mut IssueSink<'_>,
@@ -111,10 +111,7 @@ pub(crate) fn check_tb_flow_rules<'p>(
 }
 
 /// S1068 + S6441 + S6767 entry point; findings land directly in `sink`.
-pub(crate) fn check_tb_class_rules<'a>(
-    program: &'a oxc_ast::ast::Program<'a>,
-    sink: &mut IssueSink<'a>,
-) {
+fn check_tb_class_rules<'a>(program: &'a oxc_ast::ast::Program<'a>, sink: &mut IssueSink<'a>) {
     let mut collector = ClassRuleCollector {
         sink: IssueSink {
             index: sink.index,

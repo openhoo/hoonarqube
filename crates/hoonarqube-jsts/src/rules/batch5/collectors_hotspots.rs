@@ -61,7 +61,7 @@ impl<'a> Visit<'a> for MiscCollector<'_> {
 
 /// Case- and separator-insensitive form used to compare declared names with
 /// file names.
-pub(crate) fn normalized_name(name: &str) -> String {
+fn normalized_name(name: &str) -> String {
     name.chars()
         .filter(|character| character.is_alphanumeric())
         .collect::<String>()
@@ -69,9 +69,7 @@ pub(crate) fn normalized_name(name: &str) -> String {
 }
 
 /// Declared name of a default export, if it is statically knowable.
-pub(crate) fn default_export_name<'a>(
-    program: &'a oxc_ast::ast::Program<'a>,
-) -> Option<(&'a str, Span)> {
+fn default_export_name<'a>(program: &'a oxc_ast::ast::Program<'a>) -> Option<(&'a str, Span)> {
     for statement in &program.body {
         let Statement::ExportDefaultDeclaration(export) = statement else {
             continue;
@@ -127,7 +125,7 @@ pub(crate) fn check_default_export_name(
 }
 
 /// Module specifier of an import, stripped of its relative marker.
-pub(crate) fn relative_module_stem(specifier: &str) -> Option<String> {
+fn relative_module_stem(specifier: &str) -> Option<String> {
     let stripped = specifier.strip_prefix("./").unwrap_or(specifier);
     if stripped.starts_with('.') || specifier.starts_with('/') {
         return None;

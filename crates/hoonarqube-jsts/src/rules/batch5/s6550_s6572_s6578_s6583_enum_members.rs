@@ -8,12 +8,12 @@ use oxc_span::GetSpan;
 
 /// Value of one enum member initializer for the `S6578` duplicate check.
 #[derive(PartialEq)]
-pub(crate) enum EnumMemberValue {
+enum EnumMemberValue {
     Number(f64),
     Text(String),
 }
 
-pub(crate) fn enum_initializer_is_literal(initializer: &Expression<'_>) -> bool {
+fn enum_initializer_is_literal(initializer: &Expression<'_>) -> bool {
     match unparenthesized(initializer) {
         Expression::NumericLiteral(_)
         | Expression::StringLiteral(_)
@@ -30,7 +30,7 @@ pub(crate) fn enum_initializer_is_literal(initializer: &Expression<'_>) -> bool 
     }
 }
 
-pub(crate) fn enum_member_value(initializer: &Expression<'_>) -> Option<EnumMemberValue> {
+fn enum_member_value(initializer: &Expression<'_>) -> Option<EnumMemberValue> {
     match unparenthesized(initializer) {
         Expression::NumericLiteral(literal) => Some(EnumMemberValue::Number(literal.value)),
         Expression::StringLiteral(literal) => {

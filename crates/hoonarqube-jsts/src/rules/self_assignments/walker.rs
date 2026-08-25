@@ -10,7 +10,7 @@ use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::walk_assignment_expression;
 use oxc_span::GetSpan;
 
-pub(crate) fn check_self_assignments(
+fn check_self_assignments(
     program: &oxc_ast::ast::Program<'_>,
     source: &str,
     index: &LineIndex,
@@ -29,9 +29,9 @@ pub(crate) fn check_self_assignments(
 }
 
 /// `S1656`: assignments whose both sides are identical.
-pub(crate) struct SelfAssignmentCollector<'a, 'index> {
-    pub(crate) sink: IssueSink<'index>,
-    pub(crate) source: &'a str,
+struct SelfAssignmentCollector<'a, 'index> {
+    sink: IssueSink<'index>,
+    source: &'a str,
 }
 
 impl<'a> Visit<'a> for SelfAssignmentCollector<'a, '_> {

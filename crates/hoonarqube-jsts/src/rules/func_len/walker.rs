@@ -14,7 +14,7 @@ use oxc_ast_visit::walk::{
 };
 use oxc_span::{GetSpan, Span};
 
-pub(crate) fn check_function_lengths(
+fn check_function_lengths(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -35,13 +35,13 @@ pub(crate) fn check_function_lengths(
 /// `S138`: functions whose span covers more than `max` physical lines
 /// (`end_line - start_line`, blank/comment trimming approximate per the
 /// classification artifact).
-pub(crate) struct FunctionLengthCollector<'index> {
-    pub(crate) sink: IssueSink<'index>,
-    pub(crate) maximum_function_lines: u32,
+struct FunctionLengthCollector<'index> {
+    sink: IssueSink<'index>,
+    maximum_function_lines: u32,
 }
 
 impl FunctionLengthCollector<'_> {
-    pub(crate) fn check_length(&mut self, span: Span) {
+    fn check_length(&mut self, span: Span) {
         let start_line = self.sink.index.pos(span.start).line;
         let end_line = self.sink.index.pos(span.end).line;
         let length = end_line - start_line;

@@ -21,7 +21,7 @@ use oxc_ast_visit::walk::{
 };
 use oxc_span::{GetSpan, Span};
 
-pub(crate) fn check_binding_rules(
+fn check_binding_rules(
     program: &oxc_ast::ast::Program<'_>,
     source: &str,
     index: &LineIndex,
@@ -47,17 +47,17 @@ pub(crate) fn check_binding_rules(
 /// Binding, pattern, class, and interface batch rules in one traversal:
 /// `S2137`, `S2138`, `S6645`, `S6650`, `S1527`, `S3799`, `S2094`, `S4023`,
 /// `S4124`, `S6647`, `S1186`, `S2068`, and `S6418`.
-pub(crate) struct BindingCollector<'a, 'index> {
-    pub(crate) sink: IssueSink<'index>,
-    pub(crate) source: &'a str,
-    pub(crate) rules: &'a RuleOptions,
+struct BindingCollector<'a, 'index> {
+    sink: IssueSink<'index>,
+    source: &'a str,
+    rules: &'a RuleOptions,
     /// Depth inside call arguments; empty functions there are conventional
     /// callbacks and exempt from `S1186`.
-    pub(crate) callback_argument_depth: u32,
+    callback_argument_depth: u32,
     /// Depth inside `override` methods, also exempt from `S1186`.
-    pub(crate) override_depth: u32,
+    override_depth: u32,
     /// Depth inside constructors, whose emptiness is `S6647`'s domain.
-    pub(crate) constructor_depth: u32,
+    constructor_depth: u32,
 }
 
 impl<'a> Visit<'a> for BindingCollector<'a, '_> {
@@ -218,7 +218,7 @@ impl<'a> Visit<'a> for BindingCollector<'a, '_> {
 
 impl BindingCollector<'_, '_> {
     /// `S2137` bindings and `S1527` future reserved words.
-    pub(crate) fn check_binding_name(&mut self, pattern: &BindingPattern<'_>, span: Span) {
+    fn check_binding_name(&mut self, pattern: &BindingPattern<'_>, span: Span) {
         let Some(name) = binding_identifier_name(pattern) else {
             return;
         };
@@ -241,7 +241,7 @@ impl BindingCollector<'_, '_> {
     }
 
     /// `S2138` and `S6645`: explicit `undefined` initializers.
-    pub(crate) fn check_declarator_init(&mut self, it: &VariableDeclarator<'_>) {
+    fn check_declarator_init(&mut self, it: &VariableDeclarator<'_>) {
         let initializes_to_undefined = match &it.init {
             Some(Expression::Identifier(identifier)) => identifier.name == "undefined",
             Some(Expression::UnaryExpression(unary)) => unary.operator == UnaryOperator::Void,
@@ -267,7 +267,7 @@ impl BindingCollector<'_, '_> {
     }
 
     /// `S6650`: `{ a: a }` destructuring renames.
-    pub(crate) fn check_renamed_binding(&mut self, pattern: &BindingPattern<'_>) {
+    fn check_renamed_binding(&mut self, pattern: &BindingPattern<'_>) {
         if let BindingPattern::ObjectPattern(object_pattern) = pattern {
             for property in &object_pattern.properties {
                 if !property.shorthand
@@ -289,7 +289,7 @@ impl BindingCollector<'_, '_> {
     }
 
     /// `S3799`: zero-element destructuring patterns.
-    pub(crate) fn check_empty_pattern(&mut self, pattern: &BindingPattern<'_>) {
+    fn check_empty_pattern(&mut self, pattern: &BindingPattern<'_>) {
         let is_empty = match pattern {
             BindingPattern::ObjectPattern(object_pattern) => {
                 object_pattern.properties.is_empty() && object_pattern.rest.is_none()
@@ -309,7 +309,7 @@ impl BindingCollector<'_, '_> {
 
     /// `S2068` (password words) and `S6418` (high-entropy secrets next to
     /// secret-suggesting names).
-    pub(crate) fn check_credential_pair(
+    fn check_credential_pair(
         &mut self,
         context_name: Option<&str>,
         value: Option<&Expression<'_>>,
@@ -349,7 +349,7 @@ impl BindingCollector<'_, '_> {
     }
 
     /// `S1186`: empty function bodies outside callback conventions.
-    pub(crate) fn check_empty_function_body(&mut self, statements: &[Statement<'_>], span: Span) {
+    fn check_empty_function_body(&mut self, statements: &[Statement<'_>], span: Span) {
         if statements.is_empty()
             && self.callback_argument_depth == 0
             && self.override_depth == 0
@@ -366,7 +366,7 @@ impl BindingCollector<'_, '_> {
 }
 
 /// ECMAScript 3 future reserved words flagged by `S1527` (JavaScript-only).
-pub(crate) const FUTURE_RESERVED_WORDS: [&str; 17] = [
+const FUTURE_RESERVED_WORDS: [&str; 17] = [
     "abstract",
     "boolean",
     "byte",
@@ -387,12 +387,11 @@ pub(crate) const FUTURE_RESERVED_WORDS: [&str; 17] = [
 ];
 
 /// Names whose binding or assignment `S2137` forbids.
-pub(crate) const RESERVED_BINDING_NAMES: [&str; 5] =
-    ["undefined", "NaN", "Infinity", "eval", "arguments"];
+const RESERVED_BINDING_NAMES: [&str; 5] = ["undefined", "NaN", "Infinity", "eval", "arguments"];
 
 /// Whether a binding name matches one of the configured words
 /// (case-insensitively).
-pub(crate) fn name_contains_any(name: &str, words: &[String]) -> bool {
+fn name_contains_any(name: &str, words: &[String]) -> bool {
     let lowered = name.to_lowercase();
     words.iter().any(|word| lowered.contains(word))
 }

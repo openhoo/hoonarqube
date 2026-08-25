@@ -14,7 +14,7 @@ use oxc_ast::ast::VariableDeclarator;
 use oxc_span::GetSpan;
 
 /// `S6590` helper: is the annotation a readonly-shaped type?
-pub(crate) fn annotation_is_readonly_shaped(annotation: &TSTypeAnnotation<'_>) -> bool {
+fn annotation_is_readonly_shaped(annotation: &TSTypeAnnotation<'_>) -> bool {
     match &annotation.type_annotation {
         TSType::TSTypeOperatorType(operator) => {
             operator.operator == TSTypeOperatorOperator::Readonly
@@ -28,7 +28,7 @@ pub(crate) fn annotation_is_readonly_shaped(annotation: &TSTypeAnnotation<'_>) -
 }
 
 /// `S6590` helper: array/object literal built only from literal members.
-pub(crate) fn is_const_candidate(expression: &Expression<'_>) -> bool {
+fn is_const_candidate(expression: &Expression<'_>) -> bool {
     let literal_element = |element: &ArrayExpressionElement<'_>| {
         matches!(
             element,

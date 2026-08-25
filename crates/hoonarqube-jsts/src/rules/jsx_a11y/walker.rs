@@ -17,7 +17,7 @@ use oxc_span::{GetSpan, Span};
 use std::collections::BTreeSet;
 
 /// All Batch4 JSX accessibility checks in one traversal (groups A1-A3).
-pub(crate) fn check_jsx_accessibility_rules(
+fn check_jsx_accessibility_rules(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -258,7 +258,7 @@ pub(crate) fn is_interactive_role(role: &str) -> bool {
 
 /// Effective role of an element: explicit attribute value or the tag's
 /// implicit role.
-pub(crate) fn resolved_role(tag: &str, opening: &JSXOpeningElement) -> Option<String> {
+fn resolved_role(tag: &str, opening: &JSXOpeningElement) -> Option<String> {
     explicit_role(opening)
         .map(str::to_string)
         .or_else(|| implicit_role(tag, opening).map(str::to_string))

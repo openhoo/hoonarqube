@@ -115,7 +115,7 @@ fn collect_super_call_spans(body: &FunctionBody<'_>) -> (Vec<Span>, Vec<Span>) {
     (top_level_spans, nested_spans)
 }
 
-pub(crate) fn is_super_call_statement(statement: &Statement<'_>) -> bool {
+fn is_super_call_statement(statement: &Statement<'_>) -> bool {
     matches!(statement, Statement::ExpressionStatement(expr)
         if matches!(unparenthesized(&expr.expression), Expression::CallExpression(call)
             if matches!(call.callee, Expression::Super(_))))

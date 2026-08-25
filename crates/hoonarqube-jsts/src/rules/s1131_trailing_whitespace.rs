@@ -5,7 +5,7 @@ use crate::context::AnalysisContext;
 use crate::support::to_u32;
 use hoonarqube_ir::Issue;
 
-pub(crate) fn check_trailing_whitespace(source: &str, language: JstsLanguage) -> Vec<Issue> {
+fn check_trailing_whitespace(source: &str, language: JstsLanguage) -> Vec<Issue> {
     let rule_key = format!("{}:S1131", language.prefix());
     let mut issues = Vec::new();
     for (zero_based, chunk) in source.split_inclusive('\n').enumerate() {

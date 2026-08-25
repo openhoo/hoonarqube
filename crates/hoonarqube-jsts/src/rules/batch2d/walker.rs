@@ -16,7 +16,7 @@ use oxc_ast_visit::Visit;
 /// `S1534`, `S1536`, `S1541`) and the ES2015+ idiom section (`S3358`,
 /// `S3498`, `S3499`, `S3512`, `S3513`, `S3514`, `S3523`, `S4158`,
 /// `S6582`, `S6594`).
-pub(crate) fn check_batch2d_rules(
+fn check_batch2d_rules(
     program: &oxc_ast::ast::Program<'_>,
     source: &str,
     index: &LineIndex,
@@ -31,7 +31,7 @@ pub(crate) fn check_batch2d_rules(
     issues
 }
 
-pub(crate) fn check_function_metrics(
+fn check_function_metrics(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -47,7 +47,7 @@ pub(crate) fn check_function_metrics(
     collector.sink.issues
 }
 
-pub(crate) fn check_class_accessors(
+fn check_class_accessors(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -63,7 +63,7 @@ pub(crate) fn check_class_accessors(
     collector.sink.issues
 }
 
-pub(crate) fn check_keyword_placement(
+fn check_keyword_placement(
     program: &oxc_ast::ast::Program<'_>,
     source: &str,
     index: &LineIndex,
@@ -82,7 +82,7 @@ pub(crate) fn check_keyword_placement(
     collector.sink.issues
 }
 
-pub(crate) fn check_promise_flows(
+fn check_promise_flows(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -99,7 +99,7 @@ pub(crate) fn check_promise_flows(
     collector.sink.issues
 }
 
-pub(crate) fn check_duplications(
+fn check_duplications(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,

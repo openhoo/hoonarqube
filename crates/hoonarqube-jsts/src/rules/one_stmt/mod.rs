@@ -1,7 +1,7 @@
 // Family 'one_stmt' (generated).
 pub(crate) mod collectors;
-pub(crate) mod s122_suite;
-pub(crate) mod walker;
+mod s122_suite;
+mod walker;
 
 use crate::Issue;
 use crate::context::AnalysisContext;

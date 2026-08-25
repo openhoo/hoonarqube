@@ -15,7 +15,7 @@ use oxc_ast_visit::walk::{
 };
 use oxc_span::{GetSpan, Span};
 
-pub(crate) fn check_function_contexts(
+fn check_function_contexts(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -38,19 +38,19 @@ pub(crate) fn check_function_contexts(
 /// declarations placed in nested blocks), `S1788` (default parameter before
 /// a regular one), and `S2004` (function nesting beyond
 /// [`MAX_FUNCTION_NESTING`] levels) in one traversal.
-pub(crate) struct FunctionContextCollector<'index> {
-    pub(crate) sink: IssueSink<'index>,
+struct FunctionContextCollector<'index> {
+    sink: IssueSink<'index>,
     /// Depth of `BlockStatement`s below the nearest function or program
     /// root (`S1530`); reset per function.
-    pub(crate) block_depth: u32,
+    block_depth: u32,
     /// > 0 while walking inside a loop *body* (`S1515`); reset per function.
-    pub(crate) loop_body_depth: u32,
+    loop_body_depth: u32,
     /// Number of enclosing functions (`S2004`).
-    pub(crate) function_depth: u32,
+    function_depth: u32,
 }
 
 impl FunctionContextCollector<'_> {
-    pub(crate) fn check_parameter_order(&mut self, params: &FormalParameters<'_>) {
+    fn check_parameter_order(&mut self, params: &FormalParameters<'_>) {
         let mut defaulted = false;
         for item in &params.items {
             if param_has_default(item) {
@@ -68,7 +68,7 @@ impl FunctionContextCollector<'_> {
 
     /// Walks the shared `for-in`/`for-of` header left side: either a target
     /// declaration or an assignment/expression target.
-    pub(crate) fn visit_for_header_left(&mut self, left: &ForStatementLeft<'_>) {
+    fn visit_for_header_left(&mut self, left: &ForStatementLeft<'_>) {
         match left {
             ForStatementLeft::VariableDeclaration(declaration) => {
                 self.visit_variable_declaration(declaration);
@@ -84,7 +84,7 @@ impl FunctionContextCollector<'_> {
     /// Shared entry for every function-like node: flags creation context
     /// (`S1515`, `S2004`), checks parameter order (`S1788`), then resets
     /// block/loop state for the subtree.
-    pub(crate) fn enter_function(
+    fn enter_function(
         &mut self,
         span: Span,
         params: Option<&FormalParameters<'_>>,
@@ -228,11 +228,11 @@ impl<'a> Visit<'a> for FunctionContextCollector<'_> {
 
 /// `S2004`: functions nested deeper than this many levels are flagged
 /// (frozen catalog default of `max`).
-pub(crate) const MAX_FUNCTION_NESTING: u32 = 4;
+const MAX_FUNCTION_NESTING: u32 = 4;
 
 /// Whether the parameter carries a default value (`= expr`) or a
 /// destructuring default at its top level.
-pub(crate) fn param_has_default(item: &FormalParameter<'_>) -> bool {
+fn param_has_default(item: &FormalParameter<'_>) -> bool {
     item.initializer.is_some() || matches!(item.pattern, BindingPattern::AssignmentPattern(_))
 }
 

@@ -13,7 +13,7 @@ use oxc_span::GetSpan;
 
 /// Identifier compared against `null`/`undefined` by one side of an `&&`
 /// guard (`S6582`).
-pub(crate) fn null_guard_target<'a>(expression: &'a Expression<'a>) -> Option<&'a str> {
+fn null_guard_target<'a>(expression: &'a Expression<'a>) -> Option<&'a str> {
     let Expression::BinaryExpression(binary) = unparenthesized(expression) else {
         return None;
     };

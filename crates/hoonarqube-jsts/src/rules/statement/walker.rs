@@ -20,7 +20,7 @@ use oxc_ast_visit::walk::{
 };
 use oxc_span::{GetSpan, Span};
 
-pub(crate) fn check_statement_rules(
+fn check_statement_rules(
     program: &oxc_ast::ast::Program<'_>,
     source: &str,
     index: &LineIndex,
@@ -44,13 +44,13 @@ pub(crate) fn check_statement_rules(
 /// `S1525`, `S108`, `S1199`, `S121`, `S2681`, `S6660`, `S1066`, `S6836`,
 /// `S1116`, `S3696`, `S3984`, `S1848`, `S1154`, `S2201`, `S1126`, `S3504`,
 /// `S2208`, `S6859`, and `S3863`.
-pub(crate) struct StatementCollector<'a, 'index> {
-    pub(crate) sink: IssueSink<'index>,
-    pub(crate) source: &'a str,
+struct StatementCollector<'a, 'index> {
+    sink: IssueSink<'index>,
+    source: &'a str,
     /// Depth of `BlockStatement`s nested directly inside `BlockStatement`s;
     /// reset at function boundaries for `S1199`.
-    pub(crate) bare_block_depth: u32,
-    pub(crate) last_import: Option<(String, u32)>,
+    bare_block_depth: u32,
+    last_import: Option<(String, u32)>,
 }
 
 impl<'a> Visit<'a> for StatementCollector<'a, '_> {
@@ -221,11 +221,11 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
 impl StatementCollector<'_, '_> {
     /// `S108`: empty blocks are flagged unless their span interior still
     /// holds comments the parser dropped.
-    pub(crate) fn check_empty_block(&mut self, block: &BlockStatement<'_>) {
+    fn check_empty_block(&mut self, block: &BlockStatement<'_>) {
         self.check_empty_block_span(block.span());
     }
 
-    pub(crate) fn check_empty_block_span(&mut self, span: Span) {
+    fn check_empty_block_span(&mut self, span: Span) {
         let interior = Span::new(span.start + 1, span.end.saturating_sub(1));
         let interior_text = source_slice(self.source, interior);
         if interior_text.trim().is_empty() {
@@ -236,7 +236,7 @@ impl StatementCollector<'_, '_> {
 
     /// `S121` (unbraced control-structure bodies) and `S2681` (the same
     /// bodies spanning several lines).
-    pub(crate) fn check_control_structure_body(&mut self, body: &Statement<'_>) {
+    fn check_control_structure_body(&mut self, body: &Statement<'_>) {
         if matches!(body, Statement::BlockStatement(_)) {
             return;
         }
@@ -258,7 +258,7 @@ impl StatementCollector<'_, '_> {
 
     /// `S1066`: an `if` whose consequent block holds exactly one `if`.
     /// `S6660`: an `else` block holding exactly one `if`.
-    pub(crate) fn check_collapsible_if(&mut self, it: &IfStatement<'_>) {
+    fn check_collapsible_if(&mut self, it: &IfStatement<'_>) {
         if let Statement::BlockStatement(block) = &it.consequent
             && block.body.len() == 1
             && matches!(&block.body[0], Statement::IfStatement(_))
@@ -285,7 +285,7 @@ impl StatementCollector<'_, '_> {
     }
 
     /// `S6836`: lexical declarations leading a switch case.
-    pub(crate) fn check_case_leading_declaration(&mut self, first: &Statement<'_>) {
+    fn check_case_leading_declaration(&mut self, first: &Statement<'_>) {
         let lexical = match first {
             Statement::VariableDeclaration(declaration) => {
                 declaration.kind != VariableDeclarationKind::Var
@@ -304,7 +304,7 @@ impl StatementCollector<'_, '_> {
     }
 
     /// `S1848` (discarded instantiation) and `S3984` (discarded `Error`).
-    pub(crate) fn check_discarded_new(&mut self, new: &NewExpression<'_>) {
+    fn check_discarded_new(&mut self, new: &NewExpression<'_>) {
         self.sink.emit_span(
             RuleScope::Both,
             "S1848",
@@ -323,7 +323,7 @@ impl StatementCollector<'_, '_> {
 
     /// `S1154` and `S2201`: bare statements calling known side-effect-free
     /// APIs.
-    pub(crate) fn check_discarded_pure_call(&mut self, call: &CallExpression<'_>) {
+    fn check_discarded_pure_call(&mut self, call: &CallExpression<'_>) {
         let Some(member) = call.callee.as_member_expression() else {
             return;
         };
@@ -348,7 +348,7 @@ impl StatementCollector<'_, '_> {
     }
 
     /// `S2208`: `import * as` namespace specifiers.
-    pub(crate) fn check_namespace_import(&mut self, it: &ImportDeclaration<'_>) {
+    fn check_namespace_import(&mut self, it: &ImportDeclaration<'_>) {
         if let Some(specifiers) = &it.specifiers {
             for specifier in specifiers {
                 if matches!(
@@ -367,7 +367,7 @@ impl StatementCollector<'_, '_> {
     }
 
     /// `S6859`: absolute import paths.
-    pub(crate) fn check_absolute_import_path(&mut self, it: &ImportDeclaration<'_>) {
+    fn check_absolute_import_path(&mut self, it: &ImportDeclaration<'_>) {
         if it.source.value.starts_with('/') {
             self.sink.emit_span(
                 RuleScope::Both,
@@ -380,7 +380,7 @@ impl StatementCollector<'_, '_> {
 
     /// `S3863`: adjacent imports of the same module (adjacency approximated
     /// by line distance of at most one line).
-    pub(crate) fn check_duplicate_import(&mut self, it: &ImportDeclaration<'_>) {
+    fn check_duplicate_import(&mut self, it: &ImportDeclaration<'_>) {
         let module = it.source.value.to_string();
         let start_line = self.sink.index.pos(it.span().start).line;
         if let Some((last_module, last_end_line)) = &self.last_import
@@ -400,7 +400,7 @@ impl StatementCollector<'_, '_> {
 
 /// Known side-effect-free array/string APIs whose bare statement call `S2201`
 /// flags (callbacks are assumed pure in this subset).
-pub(crate) const SIDE_EFFECT_FREE_APIS: [&str; 20] = [
+const SIDE_EFFECT_FREE_APIS: [&str; 20] = [
     "concat",
     "every",
     "filter",
@@ -424,7 +424,7 @@ pub(crate) const SIDE_EFFECT_FREE_APIS: [&str; 20] = [
 ];
 
 /// Known-pure string methods whose bare statement call `S1154` flags.
-pub(crate) const PURE_STRING_METHODS: [&str; 15] = [
+const PURE_STRING_METHODS: [&str; 15] = [
     "toUpperCase",
     "toLowerCase",
     "trim",

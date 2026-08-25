@@ -9,7 +9,7 @@ use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::walk_call_expression;
 use oxc_span::GetSpan;
 
-pub(crate) fn check_call_argument_lines(
+fn check_call_argument_lines(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -26,8 +26,8 @@ pub(crate) fn check_call_argument_lines(
 }
 
 /// `S1472`: calls whose first argument starts on a later line than the call.
-pub(crate) struct CallArgumentCollector<'index> {
-    pub(crate) sink: IssueSink<'index>,
+struct CallArgumentCollector<'index> {
+    sink: IssueSink<'index>,
 }
 
 impl<'a> Visit<'a> for CallArgumentCollector<'_> {

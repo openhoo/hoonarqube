@@ -5,7 +5,7 @@ use crate::support::to_u32;
 use crate::{AnalyzerOptions, JstsLanguage};
 use hoonarqube_ir::Issue;
 
-pub(crate) fn check_line_length(
+fn check_line_length(
     source: &str,
     language: JstsLanguage,
     options: &AnalyzerOptions,

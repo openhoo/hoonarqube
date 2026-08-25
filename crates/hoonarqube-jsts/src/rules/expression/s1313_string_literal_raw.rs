@@ -45,7 +45,7 @@ pub(crate) fn check_string_literal_raw(sink: &mut IssueSink, it: &StringLiteral<
 
 /// Whether `text` is exactly a dotted-quad IPv4 address (no octal-style
 /// leading zeros, each octet at most 255).
-pub(crate) fn is_ipv4_like(text: &str) -> bool {
+fn is_ipv4_like(text: &str) -> bool {
     let parts: Vec<&str> = text.split('.').collect();
     parts.len() == 4
         && parts.iter().all(|part| {
@@ -58,7 +58,7 @@ pub(crate) fn is_ipv4_like(text: &str) -> bool {
 }
 
 /// A backslash followed by a character that does not need escaping.
-pub(crate) fn has_unnecessary_escape(raw: &str) -> bool {
+fn has_unnecessary_escape(raw: &str) -> bool {
     let chars: Vec<char> = raw.chars().collect();
     let meaningful = [
         b'n', b't', b'r', b'b', b'f', b'v', b'x', b'u', b'\\', b'\'', b'"', b'`', b'0',

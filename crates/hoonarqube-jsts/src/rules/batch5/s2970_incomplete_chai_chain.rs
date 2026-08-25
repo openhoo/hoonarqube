@@ -5,7 +5,7 @@ use oxc_ast::ast::Expression;
 use oxc_span::GetSpan;
 
 /// Chai language chains (properties that assert nothing by themselves).
-pub(crate) const CHAI_LANGUAGE_PROPS: [&str; 14] = [
+const CHAI_LANGUAGE_PROPS: [&str; 14] = [
     "to", "be", "been", "is", "that", "which", "and", "has", "have", "with", "at", "of", "same",
     "not",
 ];

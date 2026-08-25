@@ -25,7 +25,7 @@ impl ReactCollector<'_> {
 }
 
 /// `S6791`: pre-16.3 lifecycle names superseded by `UNSAFE_`-prefixed ones.
-pub(crate) const LEGACY_LIFECYCLE_METHODS: [&str; 3] = [
+const LEGACY_LIFECYCLE_METHODS: [&str; 3] = [
     "componentWillMount",
     "componentWillReceiveProps",
     "componentWillUpdate",

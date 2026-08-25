@@ -33,7 +33,7 @@ impl A11yCollector<'_> {
 // matrices.
 
 /// Abstract roles that must never reach an element's `role` attribute.
-pub(crate) const ABSTRACT_ROLES: [&str; 12] = [
+const ABSTRACT_ROLES: [&str; 12] = [
     "command",
     "composite",
     "input",

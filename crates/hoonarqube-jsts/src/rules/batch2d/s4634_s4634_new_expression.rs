@@ -12,7 +12,7 @@ use oxc_span::GetSpan;
 
 /// Whether every top-level statement of the executor immediately calls its
 /// own resolve/reject parameter.
-pub(crate) fn settles_immediately(body: &FunctionBody<'_>, param: &str) -> bool {
+fn settles_immediately(body: &FunctionBody<'_>, param: &str) -> bool {
     !body.statements.is_empty()
         && body.statements.iter().all(|statement| {
             statement_as_expression(statement).is_some_and(|expression| {
@@ -26,7 +26,7 @@ pub(crate) fn settles_immediately(body: &FunctionBody<'_>, param: &str) -> bool 
 /// doing any asynchronous work: every block statement is an immediate call
 /// of its own resolve/reject parameter, or (for expression-bodied arrows)
 /// the whole body is that call.
-pub(crate) fn promise_executor_settles_immediately(argument: &Expression<'_>) -> bool {
+fn promise_executor_settles_immediately(argument: &Expression<'_>) -> bool {
     match argument {
         Expression::FunctionExpression(function) => {
             let Some(body) = function.body.as_deref() else {

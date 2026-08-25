@@ -67,7 +67,7 @@ impl TierCLiteralCollector<'_> {
     }
 
     /// Flags first arguments that cannot be stringified meaningfully.
-    pub(crate) fn check_string_expecting_builtin(&mut self, call: &CallExpression<'_>, name: &str) {
+    fn check_string_expecting_builtin(&mut self, call: &CallExpression<'_>, name: &str) {
         let Some(argument) = call.arguments.first().and_then(argument_expression) else {
             return;
         };

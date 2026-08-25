@@ -7,7 +7,7 @@ use hoonarqube_ir::Issue;
 /// `S125`: heuristics for comments that look like commented-out code:
 /// statement keyword starts, a trailing `;` with an assignment or call, or
 /// balanced non-empty braces plus a `;`.
-pub(crate) fn check_commented_out_code(sink: &mut IssueSink, comment: ScannedComment, body: &str) {
+fn check_commented_out_code(sink: &mut IssueSink, comment: ScannedComment, body: &str) {
     if !looks_like_code(body) {
         return;
     }
@@ -19,7 +19,7 @@ pub(crate) fn check_commented_out_code(sink: &mut IssueSink, comment: ScannedCom
     );
 }
 
-pub(crate) fn looks_like_code(body: &str) -> bool {
+fn looks_like_code(body: &str) -> bool {
     let trimmed = body.trim();
     if trimmed.len() < 4
         || ["TODO", "FIXME", "NOSONAR"]
@@ -43,7 +43,7 @@ pub(crate) fn looks_like_code(body: &str) -> bool {
 }
 
 /// Keywords whose comment prefix suggests commented-out code for `S125`.
-pub(crate) const CODE_START_KEYWORDS: [&str; 11] = [
+const CODE_START_KEYWORDS: [&str; 11] = [
     "if", "for", "while", "switch", "var", "let", "const", "function", "return", "import", "export",
 ];
 

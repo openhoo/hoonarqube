@@ -8,7 +8,7 @@ use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{walk_call_expression, walk_new_expression};
 use oxc_span::{GetSpan, Span};
 
-pub(crate) fn check_eval_usage(
+fn check_eval_usage(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -24,10 +24,10 @@ pub(crate) fn check_eval_usage(
 
 /// Collects `eval(...)` calls and `new Function(...)` expressions anywhere in
 /// the tree, anchored at the callee span.
-pub(crate) struct EvalUsageCollector<'index> {
-    pub(crate) index: &'index LineIndex,
-    pub(crate) language: JstsLanguage,
-    pub(crate) issues: Vec<Issue>,
+struct EvalUsageCollector<'index> {
+    index: &'index LineIndex,
+    language: JstsLanguage,
+    issues: Vec<Issue>,
 }
 
 impl<'a> Visit<'a> for EvalUsageCollector<'_> {
@@ -51,7 +51,7 @@ impl<'a> Visit<'a> for EvalUsageCollector<'_> {
 }
 
 impl EvalUsageCollector<'_> {
-    pub(crate) fn push(&mut self, message: &str, span: Span) {
+    fn push(&mut self, message: &str, span: Span) {
         self.issues.push(Issue {
             rule_key: format!("{}:S1523", self.language.prefix()),
             message: message.to_string(),

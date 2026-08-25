@@ -5,7 +5,7 @@ use crate::support::{IssueSink, RuleScope, ScannedComment, scan_comments, source
 use hoonarqube_ir::Issue;
 
 /// `S1291`: the `NOSONAR` suppression marker.
-pub(crate) fn check_nosonar(sink: &mut IssueSink, comment: ScannedComment, body: &str) {
+fn check_nosonar(sink: &mut IssueSink, comment: ScannedComment, body: &str) {
     if body.contains("NOSONAR") {
         sink.emit_span(
             RuleScope::Both,

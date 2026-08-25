@@ -5,11 +5,7 @@ use crate::context::{AnalysisContext, RuleOptions};
 use crate::engine::pattern_parser::regex_prefix_match;
 use hoonarqube_ir::Issue;
 
-pub(crate) fn check_file_header(
-    source: &str,
-    language: JstsLanguage,
-    rules: &RuleOptions,
-) -> Vec<Issue> {
+fn check_file_header(source: &str, language: JstsLanguage, rules: &RuleOptions) -> Vec<Issue> {
     // An empty `headerFormat` disables the rule, mirroring the catalog's
     // null default.
     if rules.header_format.is_empty() {

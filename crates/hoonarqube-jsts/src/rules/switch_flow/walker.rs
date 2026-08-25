@@ -10,7 +10,7 @@ use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{walk_switch_case, walk_switch_statement};
 use oxc_span::GetSpan;
 
-pub(crate) fn check_switch_flow(
+fn check_switch_flow(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -33,13 +33,13 @@ pub(crate) fn check_switch_flow(
 /// (missing `default`), `S4524` (default not last), `S3616` (sequence or
 /// logical-OR case test), `S1479` (too many cases), `S1301` (switch
 /// convertible to `if`), and `S1821` (switch nested inside a case).
-pub(crate) struct SwitchFlowCollector<'index> {
-    pub(crate) sink: IssueSink<'index>,
+struct SwitchFlowCollector<'index> {
+    sink: IssueSink<'index>,
     /// Set while visiting the `alternate` of an enclosing `if`; detects
     /// chains whose last link lacks a final `else` (`S126`).
-    pub(crate) in_else_if_chain: bool,
+    in_else_if_chain: bool,
     /// Number of enclosing `SwitchCase` consequents (`S1821`).
-    pub(crate) case_depth: u32,
+    case_depth: u32,
 }
 
 impl<'a> Visit<'a> for SwitchFlowCollector<'_> {
@@ -143,7 +143,7 @@ impl<'a> Visit<'a> for SwitchFlowCollector<'_> {
 
 /// `S1301`: switches with at most this many tested cases are flagged as
 /// convertible to `if` (frozen catalog default).
-pub(crate) const MAX_TINY_SWITCH_CASES: usize = 2;
+const MAX_TINY_SWITCH_CASES: usize = 2;
 
 // ===== Batch2b: statement-shape and control-flow walks =====
 //
@@ -158,7 +158,7 @@ pub(crate) const MAX_SWITCH_CASES: usize = 30;
 
 /// Whether a case test uses a sequence expression or a logical OR
 /// (`S3616`).
-pub(crate) fn case_test_is_sequence_or_or(test: &Expression<'_>) -> bool {
+fn case_test_is_sequence_or_or(test: &Expression<'_>) -> bool {
     match unparenthesized(test) {
         Expression::SequenceExpression(_) => true,
         Expression::LogicalExpression(logical) => logical.operator == LogicalOperator::Or,
@@ -169,7 +169,7 @@ pub(crate) fn case_test_is_sequence_or_or(test: &Expression<'_>) -> bool {
 /// Whether a statement terminates unconditionally for `S128`: a direct
 /// jump, a block whose last statement jumps, or an `if/else` where both
 /// branches jump.
-pub(crate) fn statement_ends_with_jump(stmt: &Statement<'_>) -> bool {
+fn statement_ends_with_jump(stmt: &Statement<'_>) -> bool {
     match stmt {
         Statement::BreakStatement(_)
         | Statement::ContinueStatement(_)

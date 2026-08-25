@@ -39,12 +39,11 @@ impl A11yCollector<'_> {
 }
 
 /// Numeric ARIA attributes validated as non-negative integers (`S6793`).
-pub(crate) const NUMERIC_ARIA_PROPERTIES: [&str; 3] =
-    ["aria-level", "aria-posinset", "aria-setsize"];
+const NUMERIC_ARIA_PROPERTIES: [&str; 3] = ["aria-level", "aria-posinset", "aria-setsize"];
 
 /// Token-set ARIA attributes and their accepted literal values (`S6793`);
 /// `"true"`/`"false"` are valid for every entry.
-pub(crate) const TOKEN_ARIA_PROPERTIES: &[(&str, &[&str])] = &[
+const TOKEN_ARIA_PROPERTIES: &[(&str, &[&str])] = &[
     (
         "aria-current",
         &["page", "step", "location", "date", "time"],
@@ -60,7 +59,7 @@ pub(crate) const TOKEN_ARIA_PROPERTIES: &[(&str, &[&str])] = &[
 ];
 
 /// Strictly boolean-valued ARIA attributes (`S6793`).
-pub(crate) const BOOLEAN_ARIA_PROPERTIES: [&str; 13] = [
+const BOOLEAN_ARIA_PROPERTIES: [&str; 13] = [
     "aria-atomic",
     "aria-busy",
     "aria-checked",

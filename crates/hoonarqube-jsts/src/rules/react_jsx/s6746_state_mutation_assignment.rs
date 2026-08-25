@@ -54,7 +54,7 @@ impl ReactCollector<'_> {
 }
 
 /// In-place array mutations flagged on `this.state` chains (`S6746`).
-pub(crate) const STATE_MUTATION_METHODS: [&str; 9] = [
+const STATE_MUTATION_METHODS: [&str; 9] = [
     "push",
     "pop",
     "shift",
@@ -67,7 +67,7 @@ pub(crate) const STATE_MUTATION_METHODS: [&str; 9] = [
 ];
 
 /// Whether a member chain passes through a `this.state` link (`S6746`).
-pub(crate) fn expression_through_this_state(expression: &Expression<'_>) -> bool {
+fn expression_through_this_state(expression: &Expression<'_>) -> bool {
     expression_through_this_link(expression, "state")
 }
 

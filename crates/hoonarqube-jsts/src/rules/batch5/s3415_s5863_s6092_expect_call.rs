@@ -9,13 +9,13 @@ use oxc_ast::ast::Expression;
 use oxc_span::GetSpan;
 
 /// Chai matcher methods counted by the `S6092` chain check.
-pub(crate) const CHAI_MATCHER_METHODS: [&str; 10] = [
+const CHAI_MATCHER_METHODS: [&str; 10] = [
     "equal", "eql", "match", "include", "contain", "keys", "property", "lengthOf", "above", "below",
 ];
 
 /// Walks `expect(x).to.equal(y)`-style callees down to their `expect` root,
 /// collecting member links outermost-first across chained matcher calls.
-pub(crate) fn deconstruct_expect_chain<'a>(
+fn deconstruct_expect_chain<'a>(
     expression: &'a Expression<'a>,
     links: &mut Vec<&'a str>,
 ) -> Option<&'a Expression<'a>> {

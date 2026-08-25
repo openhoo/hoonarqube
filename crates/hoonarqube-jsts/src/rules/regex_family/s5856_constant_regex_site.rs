@@ -48,7 +48,7 @@ pub(crate) fn check_constant_regex_site(sink: &mut IssueSink, site: &RegexSite) 
 
 /// `S6324`: bare C0 control characters other than the tab/newline
 /// conventions.
-pub(crate) fn check_control_characters(sink: &mut IssueSink, site: &RegexSite) {
+fn check_control_characters(sink: &mut IssueSink, site: &RegexSite) {
     for (offset, ch) in site.pattern.char_indices() {
         if is_bare_control_character(ch) {
             sink.emit_span(
@@ -63,7 +63,7 @@ pub(crate) fn check_control_characters(sink: &mut IssueSink, site: &RegexSite) {
 
 /// `S5867`: `\p{…}` / `\P{…}` / `\u{…}` without the `u` (or `v`) flag
 /// behave nothing like their intent.
-pub(crate) fn check_unicode_constructs_without_u_flag(sink: &mut IssueSink, site: &RegexSite) {
+fn check_unicode_constructs_without_u_flag(sink: &mut IssueSink, site: &RegexSite) {
     if site.has_flag('u') || site.has_flag('v') {
         return;
     }
@@ -85,11 +85,7 @@ pub(crate) fn check_unicode_constructs_without_u_flag(sink: &mut IssueSink, site
 
 /// `S2639`: `[]` never matches anything and `[^]` matches everything —
 /// both are defects.
-pub(crate) fn check_empty_character_class(
-    sink: &mut IssueSink,
-    site: &RegexSite,
-    parsed: &ParsedRegex,
-) {
+fn check_empty_character_class(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     for alternative in &parsed.alternatives {
         walk_pattern_nodes(alternative, &mut |node| {
             if let PatternNode::Class {
@@ -109,11 +105,7 @@ pub(crate) fn check_empty_character_class(
 }
 
 /// `S6323`: an alternation branch that can never participate (`|`, `(a|)`).
-pub(crate) fn check_empty_alternatives(
-    sink: &mut IssueSink,
-    site: &RegexSite,
-    parsed: &ParsedRegex,
-) {
+fn check_empty_alternatives(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     for pos in &parsed.empty_branch_positions {
         sink.emit_span(
             RuleScope::Both,
@@ -125,7 +117,7 @@ pub(crate) fn check_empty_alternatives(
 }
 
 /// `S6331`: a wholly empty group `()` / `(?:)`.
-pub(crate) fn check_empty_groups(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+fn check_empty_groups(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     for alternative in &parsed.alternatives {
         walk_pattern_nodes(alternative, &mut |node| {
             if let PatternNode::Group {
@@ -151,11 +143,7 @@ pub(crate) fn check_empty_groups(sink: &mut IssueSink, site: &RegexSite, parsed:
 
 /// `S5869`: repeated characters inside `[...]`. Case-insensitive folding is
 /// out of subset scope.
-pub(crate) fn check_duplicate_class_members(
-    sink: &mut IssueSink,
-    site: &RegexSite,
-    parsed: &ParsedRegex,
-) {
+fn check_duplicate_class_members(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     for alternative in &parsed.alternatives {
         walk_pattern_nodes(alternative, &mut |node| {
             let PatternNode::Class { items, .. } = node else {
@@ -181,11 +169,7 @@ pub(crate) fn check_duplicate_class_members(
 }
 
 /// `S6397`: `[a]` asserts no more than `a`.
-pub(crate) fn check_single_member_class(
-    sink: &mut IssueSink,
-    site: &RegexSite,
-    parsed: &ParsedRegex,
-) {
+fn check_single_member_class(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     for alternative in &parsed.alternatives {
         walk_pattern_nodes(alternative, &mut |node| {
             if let PatternNode::Class {
@@ -207,7 +191,7 @@ pub(crate) fn check_single_member_class(
 
 /// `S6353`: `{1}` / `{1,1}` quantifiers and duplicate-only classes with a
 /// concise rewrite.
-pub(crate) fn check_concise_shapes(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+fn check_concise_shapes(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     for alternative in &parsed.alternatives {
         walk_pattern_nodes(alternative, &mut |node| match node {
             PatternNode::Quantified {
@@ -235,7 +219,7 @@ pub(crate) fn check_concise_shapes(sink: &mut IssueSink, site: &RegexSite, parse
 }
 
 /// `S6326`: runs of two or more spaces outside character classes.
-pub(crate) fn check_space_runs(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+fn check_space_runs(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     for alternative in &parsed.alternatives {
         for_every_sequence(alternative, &mut |sequence| {
             emit_space_runs_in_sequence(sink, site, sequence);
@@ -245,11 +229,7 @@ pub(crate) fn check_space_runs(sink: &mut IssueSink, site: &RegexSite, parsed: &
 
 /// `S5842`: a consuming quantifier over an empty-matchable group loops
 /// forever (`(a*)+`). Subset: `min >= 1` over non-lookaround groups.
-pub(crate) fn check_empty_string_repetition(
-    sink: &mut IssueSink,
-    site: &RegexSite,
-    parsed: &ParsedRegex,
-) {
+fn check_empty_string_repetition(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     for alternative in &parsed.alternatives {
         walk_pattern_nodes(alternative, &mut |node| {
             if let PatternNode::Quantified {
@@ -280,7 +260,7 @@ pub(crate) fn check_empty_string_repetition(
 
 /// `S6019`: a reluctant quantifier directly followed by something that can
 /// match empty renders the laziness pointless.
-pub(crate) fn check_pointless_reluctant_quantifier(
+fn check_pointless_reluctant_quantifier(
     sink: &mut IssueSink,
     site: &RegexSite,
     parsed: &ParsedRegex,
@@ -313,11 +293,7 @@ pub(crate) fn check_pointless_reluctant_quantifier(
 
 /// `S6035`: every branch of an alternation being one literal char is a
 /// character class in disguise (`a|b|c`).
-pub(crate) fn check_single_char_alternation(
-    sink: &mut IssueSink,
-    site: &RegexSite,
-    parsed: &ParsedRegex,
-) {
+fn check_single_char_alternation(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     flag_single_char_alternation(sink, &parsed.alternatives, site.whole_pattern_span());
     for alternative in &parsed.alternatives {
         walk_pattern_nodes(alternative, &mut |node| {
@@ -336,11 +312,7 @@ pub(crate) fn check_single_char_alternation(
 
 /// `S5850`: `^a|b$` — anchors under a top-level alternation bind to one
 /// branch only unless the branches are grouped.
-pub(crate) fn check_anchor_precedence(
-    sink: &mut IssueSink,
-    site: &RegexSite,
-    parsed: &ParsedRegex,
-) {
+fn check_anchor_precedence(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     if parsed.alternatives.len() < 2 {
         return;
     }
@@ -384,11 +356,7 @@ pub(crate) fn check_anchor_precedence(
 /// modifiers, and regional indicators inside `[...]` match one scalar, not
 /// the grapheme the pattern author sees. Subset: UTF-16 surrogate pairs
 /// cannot appear as `char`s and stay out of scope.
-pub(crate) fn check_misleading_class_characters(
-    sink: &mut IssueSink,
-    site: &RegexSite,
-    parsed: &ParsedRegex,
-) {
+fn check_misleading_class_characters(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     for alternative in &parsed.alternatives {
         walk_pattern_nodes(alternative, &mut |node| {
             let PatternNode::Class { start, end, .. } = node else {
@@ -431,7 +399,7 @@ pub(crate) fn check_misleading_class_characters(
 
 /// `S5843`: complexity budget exceeded (subset scoring, see
 /// [`pattern_complexity`]).
-pub(crate) fn check_regex_complexity(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+fn check_regex_complexity(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     let score = pattern_complexity(&parsed.alternatives);
     if score > REGEX_COMPLEXITY_THRESHOLD {
         sink.emit_span(
@@ -448,11 +416,7 @@ pub(crate) fn check_regex_complexity(sink: &mut IssueSink, site: &RegexSite, par
 /// `S5852`: unbounded quantifiers nested inside unbounded quantifiers
 /// (`(a+)+`) risk exponential backtracking. Conservative subset: any
 /// containment counts; disjointness analysis stays out of scope.
-pub(crate) fn check_exponential_backtracking(
-    sink: &mut IssueSink,
-    site: &RegexSite,
-    parsed: &ParsedRegex,
-) {
+fn check_exponential_backtracking(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     for alternative in &parsed.alternatives {
         walk_pattern_nodes(alternative, &mut |node| {
             if let PatternNode::Quantified {

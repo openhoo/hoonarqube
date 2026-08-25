@@ -36,7 +36,7 @@ pub(crate) fn check_suite(
     }
 }
 
-pub(crate) fn check_nested_bodies(
+fn check_nested_bodies(
     stmt: &Statement<'_>,
     index: &LineIndex,
     language: JstsLanguage,

@@ -50,7 +50,7 @@ pub(crate) fn check_assignment_rules(sink: &mut IssueSink, it: &AssignmentExpres
 
 /// Walks a member chain: is its root a built-in global (or `prototype`),
 /// and does any link assign through `.prototype`?
-pub(crate) fn member_builtin_conflict(expression: &Expression<'_>) -> (bool, bool) {
+fn member_builtin_conflict(expression: &Expression<'_>) -> (bool, bool) {
     match expression {
         Expression::Identifier(identifier) => {
             let name = identifier.name.as_ref();

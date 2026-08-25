@@ -21,7 +21,7 @@ use oxc_ast_visit::walk::{
 };
 use oxc_span::{GetSpan, Span};
 
-pub(crate) fn check_naming_rules(
+fn check_naming_rules(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -69,12 +69,12 @@ pub(crate) fn check_naming_rules(
 
 /// `S1441` (quote style per `singleQuotes`) and `S1192` (duplicated string
 /// literals, aggregated after the traversal).
-pub(crate) struct StringStyleCollector<'index> {
-    pub(crate) sink: IssueSink<'index>,
-    pub(crate) single_quotes: bool,
-    pub(crate) duplicate_threshold: usize,
-    pub(crate) ignored_strings: Vec<String>,
-    pub(crate) string_occurrences: Vec<(String, Span)>,
+struct StringStyleCollector<'index> {
+    sink: IssueSink<'index>,
+    single_quotes: bool,
+    duplicate_threshold: usize,
+    ignored_strings: Vec<String>,
+    string_occurrences: Vec<(String, Span)>,
 }
 
 impl<'a> Visit<'a> for StringStyleCollector<'_> {
@@ -90,7 +90,7 @@ impl<'a> Visit<'a> for StringStyleCollector<'_> {
 }
 
 impl StringStyleCollector<'_> {
-    pub(crate) fn check_quote_style(&mut self, literal: &StringLiteral<'_>) {
+    fn check_quote_style(&mut self, literal: &StringLiteral<'_>) {
         let Some(raw) = literal.raw.as_ref().map(oxc_ast::ast::Str::as_str) else {
             return;
         };
@@ -114,7 +114,7 @@ impl StringStyleCollector<'_> {
         );
     }
 
-    pub(crate) fn record_occurrence(&mut self, literal: &StringLiteral<'_>) {
+    fn record_occurrence(&mut self, literal: &StringLiteral<'_>) {
         let value = literal.value.as_str();
         if value.chars().count() < 2 || self.ignored_strings.iter().any(|word| word == value) {
             return;
@@ -125,7 +125,7 @@ impl StringStyleCollector<'_> {
 
     /// One `S1192` issue per over-duplicated value, anchored at the first
     /// occurrence.
-    pub(crate) fn report_duplicates(&mut self) {
+    fn report_duplicates(&mut self) {
         let mut groups: Vec<(String, Vec<Span>)> = Vec::new();
         for (value, span) in &self.string_occurrences {
             match groups.iter_mut().find(|(known, _)| known == value) {
@@ -152,12 +152,12 @@ impl StringStyleCollector<'_> {
 
 /// `S109`: numeric literals outside the catalog-allowed contexts — const
 /// initializers, computed array indexes, and `-1..=2` parameter defaults.
-pub(crate) struct MagicNumberCollector<'index> {
-    pub(crate) sink: IssueSink<'index>,
-    pub(crate) const_initializer_depth: u32,
-    pub(crate) index_depth: u32,
-    pub(crate) default_depth: u32,
-    pub(crate) negation_depth: u32,
+struct MagicNumberCollector<'index> {
+    sink: IssueSink<'index>,
+    const_initializer_depth: u32,
+    index_depth: u32,
+    default_depth: u32,
+    negation_depth: u32,
 }
 
 impl<'a> Visit<'a> for MagicNumberCollector<'_> {
@@ -225,9 +225,9 @@ impl<'a> Visit<'a> for MagicNumberCollector<'_> {
 /// (variable, parameter, and property-key names), and `S2430` (lowercase
 /// constructor callees). The first three compare against the catalog
 /// `format` regular expressions.
-pub(crate) struct NameFormatCollector<'a, 'index> {
-    pub(crate) sink: IssueSink<'index>,
-    pub(crate) rules: &'a RuleOptions,
+struct NameFormatCollector<'a, 'index> {
+    sink: IssueSink<'index>,
+    rules: &'a RuleOptions,
 }
 
 impl<'a> Visit<'a> for NameFormatCollector<'a, '_> {
@@ -349,7 +349,7 @@ impl<'a> Visit<'a> for NameFormatCollector<'a, '_> {
 }
 
 impl NameFormatCollector<'_, '_> {
-    pub(crate) fn check_function_name(&mut self, id: Option<&BindingIdentifier<'_>>) {
+    fn check_function_name(&mut self, id: Option<&BindingIdentifier<'_>>) {
         let Some(id) = id else {
             return;
         };
@@ -362,21 +362,14 @@ impl NameFormatCollector<'_, '_> {
         );
     }
 
-    pub(crate) fn check_type_name(&mut self, kind: &str, id: Option<&BindingIdentifier<'_>>) {
+    fn check_type_name(&mut self, kind: &str, id: Option<&BindingIdentifier<'_>>) {
         let Some(id) = id else {
             return;
         };
         self.check_name("S101", kind, &id.name, id.span, &self.rules.format_classes);
     }
 
-    pub(crate) fn check_name(
-        &mut self,
-        rule: &str,
-        kind: &str,
-        name: &str,
-        span: Span,
-        format: &str,
-    ) {
+    fn check_name(&mut self, rule: &str, kind: &str, name: &str, span: Span, format: &str) {
         if !regex_search(format, name) {
             self.sink.emit_span(
                 RuleScope::Both,
@@ -390,7 +383,7 @@ impl NameFormatCollector<'_, '_> {
 
 /// Whether `raw` contains a backslash escaping `delimiter`, which makes a
 /// quote-style switch unsafe (`S1441` tolerance).
-pub(crate) fn escapes_delimiter(raw: &str, delimiter: char) -> bool {
+fn escapes_delimiter(raw: &str, delimiter: char) -> bool {
     let mut chars = raw.chars();
     while let Some(current) = chars.next() {
         if current == '\\' && chars.next() == Some(delimiter) {

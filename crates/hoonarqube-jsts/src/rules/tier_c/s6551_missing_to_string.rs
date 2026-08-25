@@ -42,7 +42,7 @@ impl<'a> TierCCoercionCollector<'_, '_> {
     }
 
     /// Span of an identifier bound to a file-local class lacking `toString`.
-    pub(crate) fn tracked_instance(&self, expression: &Expression<'_>) -> Option<Span> {
+    fn tracked_instance(&self, expression: &Expression<'_>) -> Option<Span> {
         match unparenthesized(expression) {
             Expression::Identifier(identifier)
                 if self.census.instances.contains_key(identifier.name.as_str()) =>
@@ -55,7 +55,7 @@ impl<'a> TierCCoercionCollector<'_, '_> {
 }
 
 /// Whether the operand is textual, so `+` coerces its other side to string.
-pub(crate) fn is_string_operand(expression: &Expression<'_>) -> bool {
+fn is_string_operand(expression: &Expression<'_>) -> bool {
     matches!(
         unparenthesized(expression),
         Expression::StringLiteral(_) | Expression::TemplateLiteral(_)

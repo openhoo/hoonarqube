@@ -35,8 +35,7 @@ impl A11yCollector<'_> {
 }
 
 /// Redundant image alt texts (`S6851`).
-pub(crate) const REDUNDANT_ALT_WORDS: [&str; 6] =
-    ["image", "photo", "picture", "grafik", "bild", "logo"];
+const REDUNDANT_ALT_WORDS: [&str; 6] = ["image", "photo", "picture", "grafik", "bild", "logo"];
 
 #[cfg(test)]
 mod tests {

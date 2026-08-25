@@ -26,7 +26,7 @@ pub(crate) fn check_tb_named_groups(program: &oxc_ast::ast::Program<'_>, sink: &
 
 /// `(?<name>…)` definitions inside one pattern; lookbehind `(?<=`/`(?<!`
 /// does not define a group.
-pub(crate) fn defined_group_names(pattern: &str) -> Vec<&str> {
+fn defined_group_names(pattern: &str) -> Vec<&str> {
     let mut names = Vec::new();
     let mut cursor = 0;
     while let Some(offset) = pattern[cursor..].find("(?<") {

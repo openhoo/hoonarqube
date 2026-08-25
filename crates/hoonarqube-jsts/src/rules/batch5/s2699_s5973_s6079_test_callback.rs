@@ -9,7 +9,7 @@ use crate::support::callee_name;
 use oxc_ast::ast::CallExpression;
 
 /// Whether trimmed text still holds statements after the last `done()` call.
-pub(crate) fn statements_follow_done(text: &str) -> bool {
+fn statements_follow_done(text: &str) -> bool {
     let Some(position) = text.rfind("done()") else {
         return false;
     };

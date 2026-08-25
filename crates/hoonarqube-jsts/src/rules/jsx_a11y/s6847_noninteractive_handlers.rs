@@ -37,7 +37,7 @@ impl A11yCollector<'_> {
 }
 
 /// Interaction handler props the matrix rules consider (`S6847`).
-pub(crate) const INTERACTION_HANDLERS: [&str; 8] = [
+const INTERACTION_HANDLERS: [&str; 8] = [
     "onChange",
     "onClick",
     "onDoubleClick",

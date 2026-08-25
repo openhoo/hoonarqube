@@ -32,7 +32,7 @@ struct ImportBinding<'p> {
 
 /// Pre-computed value shape, either digested from a variable initializer or
 /// read live from an expression handed to a rule callback.
-pub(crate) enum Fact {
+enum Fact {
     Bool(bool),
     Str(String),
     Num(f64),
@@ -51,12 +51,12 @@ pub(crate) enum Fact {
 
 /// A fact together with the span it was computed from (for reporting).
 pub(crate) struct SpannedFact {
-    pub(crate) span: Span,
-    pub(crate) fact: Fact,
+    span: Span,
+    fact: Fact,
 }
 
 impl SpannedFact {
-    pub(crate) fn opaque(span: Span) -> Self {
+    fn opaque(span: Span) -> Self {
         Self {
             span,
             fact: Fact::Opaque,

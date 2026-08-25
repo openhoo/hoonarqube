@@ -11,7 +11,7 @@ use oxc_ast_visit::walk::walk_call_expression;
 use oxc_span::GetSpan;
 use std::collections::BTreeMap;
 
-pub(crate) fn check_swapped_call_arguments(
+fn check_swapped_call_arguments(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -32,9 +32,9 @@ pub(crate) fn check_swapped_call_arguments(
 
 /// `S2234`: calls of same-file functions where one adjacent swap increases
 /// the number of argument names matching parameter names.
-pub(crate) struct CallArgumentOrderCollector<'index> {
-    pub(crate) sink: IssueSink<'index>,
-    pub(crate) params_by_name: BTreeMap<String, Vec<String>>,
+struct CallArgumentOrderCollector<'index> {
+    sink: IssueSink<'index>,
+    params_by_name: BTreeMap<String, Vec<String>>,
 }
 
 impl<'a> Visit<'a> for CallArgumentOrderCollector<'_> {

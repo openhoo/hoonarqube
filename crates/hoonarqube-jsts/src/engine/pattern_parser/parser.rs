@@ -24,34 +24,34 @@ pub(crate) fn parse_regex_pattern(pattern: &str, unicode_mode: bool) -> Result<P
     })
 }
 
-pub(crate) struct PatternParser<'p> {
+struct PatternParser<'p> {
     /// The raw pattern text, for verbatim quantifier slices.
-    pub(crate) source: &'p str,
-    pub(crate) chars: Vec<(usize, char)>,
-    pub(crate) pos: usize,
-    pub(crate) captures: Vec<Option<String>>,
-    pub(crate) unicode_mode: bool,
-    pub(crate) empty_branch_positions: Vec<usize>,
+    source: &'p str,
+    chars: Vec<(usize, char)>,
+    pos: usize,
+    captures: Vec<Option<String>>,
+    unicode_mode: bool,
+    empty_branch_positions: Vec<usize>,
 }
 
 impl PatternParser<'_> {
-    pub(crate) fn peek(&self) -> Option<char> {
+    fn peek(&self) -> Option<char> {
         self.chars.get(self.pos).map(|&(_, ch)| ch)
     }
 
-    pub(crate) fn bump(&mut self) -> Option<char> {
+    fn bump(&mut self) -> Option<char> {
         let ch = self.peek()?;
         self.pos += 1;
         Some(ch)
     }
 
-    pub(crate) fn current_offset(&self) -> usize {
+    fn current_offset(&self) -> usize {
         self.chars
             .get(self.pos)
             .map_or_else(|| self.end_offset(), |&(off, _)| off)
     }
 
-    pub(crate) fn end_offset(&self) -> usize {
+    fn end_offset(&self) -> usize {
         self.chars
             .last()
             .map_or(0, |&(off, ch)| off + ch.len_utf8())
@@ -59,7 +59,7 @@ impl PatternParser<'_> {
 
     /// Alternation body of the whole pattern (`terminator: None`) or of one
     /// group (`terminator: Some(')')`, consumed here).
-    pub(crate) fn parse_alternatives(
+    fn parse_alternatives(
         &mut self,
         terminator: Option<char>,
     ) -> Result<Vec<Vec<PatternNode>>, ()> {
@@ -99,10 +99,7 @@ impl PatternParser<'_> {
         Ok(alternatives)
     }
 
-    pub(crate) fn parse_sequence(
-        &mut self,
-        terminator: Option<char>,
-    ) -> Result<Vec<PatternNode>, ()> {
+    fn parse_sequence(&mut self, terminator: Option<char>) -> Result<Vec<PatternNode>, ()> {
         let mut nodes: Vec<PatternNode> = Vec::new();
         loop {
             match self.peek() {
@@ -145,7 +142,7 @@ impl PatternParser<'_> {
     /// `Ok(None)` when the upcoming text is not a quantifier (malformed
     /// braces stay literal characters, per Annex B); `Err` for a definite
     /// `{m,n}` reversal in unicode mode.
-    pub(crate) fn try_parse_quantifier(&mut self) -> Result<Option<(u32, Option<u32>)>, ()> {
+    fn try_parse_quantifier(&mut self) -> Result<Option<(u32, Option<u32>)>, ()> {
         match self.peek() {
             Some('*') => {
                 self.pos += 1;
@@ -164,7 +161,7 @@ impl PatternParser<'_> {
         }
     }
 
-    pub(crate) fn try_parse_brace_quantifier(&mut self) -> Result<Option<(u32, Option<u32>)>, ()> {
+    fn try_parse_brace_quantifier(&mut self) -> Result<Option<(u32, Option<u32>)>, ()> {
         let save = self.pos;
         self.pos += 1; // `{`
         let Some(min) = self.parse_decimal() else {
@@ -203,7 +200,7 @@ impl PatternParser<'_> {
         Ok(Some((min, max)))
     }
 
-    pub(crate) fn parse_decimal(&mut self) -> Option<u32> {
+    fn parse_decimal(&mut self) -> Option<u32> {
         let mut value: Option<u32> = None;
         while let Some(digit) = self.peek().and_then(|next| next.to_digit(10)) {
             value = Some(value.unwrap_or(0).saturating_mul(10).saturating_add(digit));
@@ -212,7 +209,7 @@ impl PatternParser<'_> {
         value
     }
 
-    pub(crate) fn parse_atom(&mut self) -> Result<PatternNode, ()> {
+    fn parse_atom(&mut self) -> Result<PatternNode, ()> {
         let Some(&(pos, ch)) = self.chars.get(self.pos) else {
             return Err(());
         };
@@ -234,7 +231,7 @@ impl PatternParser<'_> {
         }
     }
 
-    pub(crate) fn parse_group(&mut self, start: usize) -> Result<PatternNode, ()> {
+    fn parse_group(&mut self, start: usize) -> Result<PatternNode, ()> {
         let kind = if self.peek() == Some('?') {
             self.pos += 1;
             match self.peek() {
@@ -283,7 +280,7 @@ impl PatternParser<'_> {
         })
     }
 
-    pub(crate) fn parse_group_name(&mut self) -> Result<String, ()> {
+    fn parse_group_name(&mut self) -> Result<String, ()> {
         let mut name = String::new();
         loop {
             match self.bump() {
@@ -298,7 +295,7 @@ impl PatternParser<'_> {
         Ok(name)
     }
 
-    pub(crate) fn parse_escape(&mut self, backslash_pos: usize) -> Result<PatternNode, ()> {
+    fn parse_escape(&mut self, backslash_pos: usize) -> Result<PatternNode, ()> {
         let Some(&(char_pos, ch)) = self.chars.get(self.pos) else {
             return Err(()); // trailing backslash
         };
@@ -422,7 +419,7 @@ impl PatternParser<'_> {
     }
 
     /// `\u{HexDigits}` or `\uHHHH` in unicode mode; `u` already consumed.
-    pub(crate) fn parse_unicode_escape(&mut self) -> Result<char, ()> {
+    fn parse_unicode_escape(&mut self) -> Result<char, ()> {
         if self.peek() == Some('{') {
             self.pos += 1;
             let mut value: u32 = 0;
@@ -447,7 +444,7 @@ impl PatternParser<'_> {
     }
 
     /// Exactly `count` hex digits in unicode mode; `x`/`u` already consumed.
-    pub(crate) fn parse_hex_escape(&mut self, count: usize) -> Result<char, ()> {
+    fn parse_hex_escape(&mut self, count: usize) -> Result<char, ()> {
         let mut value: u32 = 0;
         for _ in 0..count {
             let nibble = self.peek().and_then(|next| next.to_digit(16)).ok_or(())?;
@@ -457,7 +454,7 @@ impl PatternParser<'_> {
         char::from_u32(value).ok_or(())
     }
 
-    pub(crate) fn skip_property_body(&mut self) -> Result<(), ()> {
+    fn skip_property_body(&mut self) -> Result<(), ()> {
         self.pos += 1; // `{`
         loop {
             match self.bump() {
@@ -468,7 +465,7 @@ impl PatternParser<'_> {
         }
     }
 
-    pub(crate) fn parse_class(&mut self, start: usize) -> Result<PatternNode, ()> {
+    fn parse_class(&mut self, start: usize) -> Result<PatternNode, ()> {
         let negated = if self.peek() == Some('^') {
             self.pos += 1;
             true
@@ -506,7 +503,7 @@ impl PatternParser<'_> {
 
     /// Extends a lone class char into `low-high` when a dash and a further
     /// single char follow; otherwise rewinds so `-` stays literal.
-    pub(crate) fn try_parse_class_range(
+    fn try_parse_class_range(
         &mut self,
         low: char,
         low_pos: usize,
@@ -540,7 +537,7 @@ impl PatternParser<'_> {
         }))
     }
 
-    pub(crate) fn parse_class_item(&mut self, pos: usize, ch: char) -> Result<ClassItem, ()> {
+    fn parse_class_item(&mut self, pos: usize, ch: char) -> Result<ClassItem, ()> {
         if ch != '\\' {
             self.pos += 1;
             return Ok(ClassItem::Char { ch, pos });

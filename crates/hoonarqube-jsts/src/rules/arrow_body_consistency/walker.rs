@@ -8,7 +8,7 @@ use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::walk_arrow_function_expression;
 use oxc_span::{GetSpan, Span};
 
-pub(crate) fn check_arrow_body_consistency(
+fn check_arrow_body_consistency(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -50,9 +50,9 @@ pub(crate) fn check_arrow_body_consistency(
 /// `S3524`: arrow functions mixing concise-expression and block bodies
 /// within one file; each arrow of the minority style is flagged (ties favor
 /// block bodies).
-pub(crate) struct ArrowStyleCollector<'index> {
-    pub(crate) sink: IssueSink<'index>,
-    pub(crate) arrows: Vec<(Span, bool)>,
+struct ArrowStyleCollector<'index> {
+    sink: IssueSink<'index>,
+    arrows: Vec<(Span, bool)>,
 }
 
 impl<'a> Visit<'a> for ArrowStyleCollector<'_> {

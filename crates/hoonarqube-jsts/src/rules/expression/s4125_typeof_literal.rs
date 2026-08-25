@@ -36,7 +36,7 @@ pub(crate) fn check_typeof_literal(sink: &mut IssueSink, it: &BinaryExpression<'
 }
 
 /// The only values `typeof` may yield; `S4125` flags comparisons outside it.
-pub(crate) const TYPEOF_VALUES: [&str; 8] = [
+const TYPEOF_VALUES: [&str; 8] = [
     "undefined",
     "object",
     "boolean",

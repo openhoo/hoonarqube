@@ -33,7 +33,7 @@ impl ReactCollector<'_> {
 
 /// Whether an intrinsic-element attribute is a known DOM/React name
 /// (`S6747`): table, configured extras, `data-*`/`aria-*`, and handlers.
-pub(crate) fn attribute_is_known(name: &str, whitelist: &[String]) -> bool {
+fn attribute_is_known(name: &str, whitelist: &[String]) -> bool {
     name.starts_with("data-")
         || name.starts_with("aria-")
         || (name.starts_with("on") && name[2..].starts_with(|ch: char| ch.is_ascii_alphabetic()))

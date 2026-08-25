@@ -21,7 +21,7 @@ use oxc_ast_visit::walk::{
 use oxc_span::{GetSpan, Span};
 
 /// All Tier-C operator/literal and function-census rules in one traversal.
-pub(crate) fn check_tier_c_rules(
+fn check_tier_c_rules(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -235,11 +235,11 @@ impl<'a> Visit<'a> for TierCLiteralCollector<'_> {
 /// Tier-C collector for mixed optional chains (`S6523`): an optional `?.`
 /// access followed, toward the result side, by a plain member or index
 /// access of the same chain.
-pub(crate) struct TierCOptionalChainCollector<'index> {
+struct TierCOptionalChainCollector<'index> {
     pub(crate) sink: IssueSink<'index>,
     /// Spans of every analyzed suffix whose optional flags mix; reduced to
     /// the maximal chains once traversal finishes.
-    pub(crate) mixed_chains: Vec<Span>,
+    mixed_chains: Vec<Span>,
 }
 
 impl<'a> Visit<'a> for TierCOptionalChainCollector<'_> {

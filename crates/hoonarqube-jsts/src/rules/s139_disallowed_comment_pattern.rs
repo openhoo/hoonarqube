@@ -13,7 +13,7 @@ use hoonarqube_ir::Issue;
 /// consequently fires on benign explanatory notes (oracle-js `s139_good.js`).
 /// We keep the narrower configurable-pattern policy: a trailing comment is
 /// only flagged when its body matches the configured pattern.
-pub(crate) fn check_disallowed_comment_pattern(
+fn check_disallowed_comment_pattern(
     sink: &mut IssueSink,
     source: &str,
     comment: ScannedComment,

@@ -1,25 +1,25 @@
 // Family 'aws_cdk': AWS CDK construct-prop call-shape checks (library-config
 // Tier-B inspection). Semantics mirror the upstream SonarJS AWS rules; every
 // check is a conservative, file-local syntactic subset documented on the rule.
-pub(crate) mod s6249_s3_insecure_http;
-pub(crate) mod s6252_s3_versioning;
-pub(crate) mod s6265_s3_public_access;
-pub(crate) mod s6270_iam_public_access;
-pub(crate) mod s6275_ebs_encryption;
-pub(crate) mod s6281_s3_public_access_block;
-pub(crate) mod s6302_all_privileges;
-pub(crate) mod s6303_rds_encryption;
-pub(crate) mod s6304_all_resources;
-pub(crate) mod s6308_opensearch_encryption;
-pub(crate) mod s6317_wildcard_action_scope;
-pub(crate) mod s6319_sagemaker_encryption;
-pub(crate) mod s6321_admin_ports_open_world;
-pub(crate) mod s6327_sns_encryption;
-pub(crate) mod s6329_public_network_access;
-pub(crate) mod s6330_sqs_encryption;
-pub(crate) mod s6332_efs_encryption;
-pub(crate) mod s6333_api_gateway_authorization;
-pub(crate) mod shared;
+mod s6249_s3_insecure_http;
+mod s6252_s3_versioning;
+mod s6265_s3_public_access;
+mod s6270_iam_public_access;
+mod s6275_ebs_encryption;
+mod s6281_s3_public_access_block;
+mod s6302_all_privileges;
+mod s6303_rds_encryption;
+mod s6304_all_resources;
+mod s6308_opensearch_encryption;
+mod s6317_wildcard_action_scope;
+mod s6319_sagemaker_encryption;
+mod s6321_admin_ports_open_world;
+mod s6327_sns_encryption;
+mod s6329_public_network_access;
+mod s6330_sqs_encryption;
+mod s6332_efs_encryption;
+mod s6333_api_gateway_authorization;
+mod shared;
 
 use crate::Issue;
 use crate::context::AnalysisContext;

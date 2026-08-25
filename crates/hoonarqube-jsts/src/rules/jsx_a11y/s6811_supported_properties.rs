@@ -39,7 +39,7 @@ impl A11yCollector<'_> {
 }
 
 /// Global ARIA properties valid on every role (`S6811` exemptions).
-pub(crate) const GLOBAL_ARIA_PROPERTIES: [&str; 18] = [
+const GLOBAL_ARIA_PROPERTIES: [&str; 18] = [
     "aria-atomic",
     "aria-busy",
     "aria-controls",
@@ -62,7 +62,7 @@ pub(crate) const GLOBAL_ARIA_PROPERTIES: [&str; 18] = [
 
 /// Every ARIA property this subset knows (`S6811` only judges names it
 /// recognizes; unknown names stay silent).
-pub(crate) const KNOWN_ARIA_PROPERTIES: [&str; 24] = [
+const KNOWN_ARIA_PROPERTIES: [&str; 24] = [
     "aria-activedescendant",
     "aria-autocomplete",
     "aria-checked",
@@ -90,7 +90,7 @@ pub(crate) const KNOWN_ARIA_PROPERTIES: [&str; 24] = [
 ];
 
 /// Non-global ARIA properties each explicit role supports (`S6811`).
-pub(crate) const ROLE_SUPPORTED_PROPERTIES: &[(&str, &[&str])] = &[
+const ROLE_SUPPORTED_PROPERTIES: &[(&str, &[&str])] = &[
     ("button", &["aria-expanded", "aria-pressed"]),
     ("checkbox", &["aria-checked", "aria-readonly"]),
     (

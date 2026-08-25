@@ -28,7 +28,7 @@ use oxc_span::{GetSpan, Span};
 /// `S6353`, `S6326`, `S6324`, `S5842`, `S6019`, `S6035`, `S5850`, `S5867`,
 /// `S5868`, `S5843`, and `S5852`, plus context rules `S6325`, `S6328`, and
 /// `S6351`.
-pub(crate) fn check_regex_family(
+fn check_regex_family(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -48,19 +48,15 @@ pub(crate) fn check_regex_family(
 /// Drives [`check_constant_regex_site`] over every constant regex and adds
 /// the context-sensitive rules: `S6325` (constructor preference), `S6328`
 /// (replacement groups), and `S6351` (stateful global regexes in loops).
-pub(crate) struct RegexFamilyCollector<'index> {
-    pub(crate) sink: IssueSink<'index>,
-    pub(crate) loop_depth: u32,
+struct RegexFamilyCollector<'index> {
+    sink: IssueSink<'index>,
+    loop_depth: u32,
 }
 
 impl RegexFamilyCollector<'_> {
     /// `S6325`: a fully constant `RegExp` constructor call prefers literal
     /// notation (upstream `prefer-regex-literals` primary message).
-    pub(crate) fn check_constructor(
-        &mut self,
-        arguments: &[oxc_ast::ast::Argument<'_>],
-        span: Span,
-    ) {
+    fn check_constructor(&mut self, arguments: &[oxc_ast::ast::Argument<'_>], span: Span) {
         let Some(site) = constructor_regex_site(arguments) else {
             return;
         };
@@ -75,7 +71,7 @@ impl RegexFamilyCollector<'_> {
 
     /// `S6328`: `.replace(/…/, "…")` pairs cross-check replacement group
     /// references against the pattern's captures.
-    pub(crate) fn check_replacement_pair(&mut self, call: &CallExpression<'_>) {
+    fn check_replacement_pair(&mut self, call: &CallExpression<'_>) {
         let Some(regex) = regex_literal_argument(call.arguments.first()) else {
             return;
         };
@@ -94,11 +90,7 @@ impl RegexFamilyCollector<'_> {
 
     /// `S6351` subset: a `/g` regex literal feeding `.test()` or `.exec()`
     /// inside a loop carries hidden `lastIndex` state.
-    pub(crate) fn check_stateful_global_regex(
-        &mut self,
-        object_member: &MemberExpression<'_>,
-        span: Span,
-    ) {
+    fn check_stateful_global_regex(&mut self, object_member: &MemberExpression<'_>, span: Span) {
         if self.loop_depth == 0 {
             return;
         }

@@ -83,7 +83,7 @@ impl ReactCollector<'_> {
 
 /// Property name of a `this.<property>` callee, if the call target is
 /// exactly that shape.
-pub(crate) fn callee_this_property<'a>(call: &'a CallExpression<'a>) -> Option<&'a str> {
+fn callee_this_property<'a>(call: &'a CallExpression<'a>) -> Option<&'a str> {
     match &call.callee {
         Expression::StaticMemberExpression(member)
             if matches!(&member.object, Expression::ThisExpression(_)) =>
@@ -96,7 +96,7 @@ pub(crate) fn callee_this_property<'a>(call: &'a CallExpression<'a>) -> Option<&
 
 /// Whether a module export name spells `expected` (`import {a as b}` keeps
 /// the imported spelling).
-pub(crate) fn module_export_name_is(name: &ModuleExportName<'_>, expected: &str) -> bool {
+fn module_export_name_is(name: &ModuleExportName<'_>, expected: &str) -> bool {
     match name {
         ModuleExportName::IdentifierName(identifier) => identifier.name == expected,
         ModuleExportName::IdentifierReference(reference) => reference.name == expected,

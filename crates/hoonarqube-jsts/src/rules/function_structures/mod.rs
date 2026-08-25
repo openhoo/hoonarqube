@@ -1,6 +1,6 @@
 // Family 'function_structures' (generated).
-pub(crate) mod s2376_class_getter_pairing;
-pub(crate) mod walker;
+mod s2376_class_getter_pairing;
+mod walker;
 
 use crate::Issue;
 use crate::context::AnalysisContext;

@@ -6,7 +6,7 @@ use crate::support::LineIndex;
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::Statement;
 
-pub(crate) fn check_one_statement_per_line(
+fn check_one_statement_per_line(
     body: &[Statement<'_>],
     index: &LineIndex,
     language: JstsLanguage,

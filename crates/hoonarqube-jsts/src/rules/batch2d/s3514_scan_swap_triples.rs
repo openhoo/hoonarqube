@@ -13,9 +13,7 @@ use oxc_span::GetSpan;
 
 /// The plain `=` assignment expression of an expression statement, if any
 /// (`S3514`).
-pub(crate) fn swap_assignment<'a>(
-    statement: &'a Statement<'a>,
-) -> Option<&'a AssignmentExpression<'a>> {
+fn swap_assignment<'a>(statement: &'a Statement<'a>) -> Option<&'a AssignmentExpression<'a>> {
     match statement {
         Statement::ExpressionStatement(expression_statement) => {
             match unparenthesized(&expression_statement.expression) {
@@ -34,7 +32,7 @@ pub(crate) fn swap_assignment<'a>(
 /// The `temp = saved` seed of a swap triple: either a plain assignment
 /// statement or a single-declarator declaration (`let t = a;`) with plain
 /// identifier sides (`S3514`).
-pub(crate) fn swap_seed<'a>(statement: &'a Statement<'a>) -> Option<(&'a str, &'a str)> {
+fn swap_seed<'a>(statement: &'a Statement<'a>) -> Option<(&'a str, &'a str)> {
     match statement {
         Statement::ExpressionStatement(expression_statement) => {
             match unparenthesized(&expression_statement.expression) {

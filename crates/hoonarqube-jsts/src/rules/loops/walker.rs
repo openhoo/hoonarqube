@@ -19,7 +19,7 @@ use oxc_ast_visit::walk::{
 };
 use oxc_span::{GetSpan, Span};
 
-pub(crate) fn check_loop_rules(
+fn check_loop_rules(
     program: &oxc_ast::ast::Program<'_>,
     source: &str,
     index: &LineIndex,
@@ -39,37 +39,37 @@ pub(crate) fn check_loop_rules(
 }
 
 /// Loop-shape rules in one traversal.
-pub(crate) struct LoopFlowCollector<'a, 'index> {
-    pub(crate) sink: IssueSink<'index>,
-    pub(crate) source: &'a str,
+struct LoopFlowCollector<'a, 'index> {
+    sink: IssueSink<'index>,
+    source: &'a str,
     /// One frame per lexically enclosing visited loop.
-    pub(crate) frames: Vec<LoopFrame>,
+    frames: Vec<LoopFrame>,
 }
 
 impl<'a> LoopFlowCollector<'a, '_> {
-    pub(crate) fn push_frame(&mut self) {
+    fn push_frame(&mut self) {
         self.frames.push(LoopFrame::default());
     }
 
-    pub(crate) fn pop_frame(&mut self) -> LoopFrame {
+    fn pop_frame(&mut self) -> LoopFrame {
         self.frames.pop().unwrap_or_default()
     }
 
     /// Whether any enclosing loop declares `name` as its counter.
-    pub(crate) fn inside_counter_scope(&self, name: &str) -> bool {
+    fn inside_counter_scope(&self, name: &str) -> bool {
         self.frames
             .iter()
             .any(|frame| frame.counters.iter().any(|counter| counter == name))
     }
 
-    pub(crate) fn note_jump(&mut self, terminator: bool) {
+    fn note_jump(&mut self, terminator: bool) {
         if let Some(frame) = self.frames.last_mut() {
             frame.jumps += 1;
             frame.terminators |= terminator;
         }
     }
 
-    pub(crate) fn flag_many_jumps(&mut self, jumps: u32, span: Span) {
+    fn flag_many_jumps(&mut self, jumps: u32, span: Span) {
         if jumps > 1 {
             self.sink.emit_span(
                 RuleScope::Both,
@@ -81,7 +81,7 @@ impl<'a> LoopFlowCollector<'a, '_> {
     }
 
     /// Loop-exit checks shared by counted loops (`for`, `while`, `do`).
-    pub(crate) fn finish_loop(&mut self, span: Span, endless: bool) {
+    fn finish_loop(&mut self, span: Span, endless: bool) {
         let frame = self.pop_frame();
         self.flag_many_jumps(frame.jumps, span);
         if endless && !frame.terminators {
@@ -95,7 +95,7 @@ impl<'a> LoopFlowCollector<'a, '_> {
     }
 
     /// Name of the counter declared by the loop's init clause (`let i = 0`).
-    pub(crate) fn counter_name(it: &ForStatement<'a>) -> Option<String> {
+    fn counter_name(it: &ForStatement<'a>) -> Option<String> {
         match it.init.as_ref()? {
             ForStatementInit::VariableDeclaration(declaration) => {
                 let declarator = declaration.declarations.first()?;
@@ -106,10 +106,7 @@ impl<'a> LoopFlowCollector<'a, '_> {
     }
 
     /// Operator relating the counter to a bound in the loop test.
-    pub(crate) fn test_bound_operator(
-        test: Option<&Expression<'_>>,
-        counter: &str,
-    ) -> Option<BinaryOperator> {
+    fn test_bound_operator(test: Option<&Expression<'_>>, counter: &str) -> Option<BinaryOperator> {
         let Expression::BinaryExpression(binary) = unparenthesized(test?) else {
             return None;
         };
@@ -119,7 +116,7 @@ impl<'a> LoopFlowCollector<'a, '_> {
     }
 
     /// `S2251`: the update moves the counter away from the tested bound.
-    pub(crate) fn check_counter_direction(
+    fn check_counter_direction(
         &mut self,
         it: &ForStatement<'a>,
         counter: &str,
@@ -148,7 +145,7 @@ impl<'a> LoopFlowCollector<'a, '_> {
     }
 
     /// `S1994`: the update clause never mentions the declared counter.
-    pub(crate) fn check_counter_updated(&mut self, it: &ForStatement<'a>, counter: &str) {
+    fn check_counter_updated(&mut self, it: &ForStatement<'a>, counter: &str) {
         if let Some(update) = &it.update
             && !span_contains_word(self.source, update.span(), counter)
         {
@@ -162,7 +159,7 @@ impl<'a> LoopFlowCollector<'a, '_> {
     }
 
     /// `S1751` constant-false form.
-    pub(crate) fn check_constant_test(&mut self, test: Option<&Expression<'_>>, span: Span) {
+    fn check_constant_test(&mut self, test: Option<&Expression<'_>>, span: Span) {
         if is_constant_false(test) {
             self.sink.emit_span(
                 RuleScope::Both,
@@ -176,7 +173,7 @@ impl<'a> LoopFlowCollector<'a, '_> {
     /// `S1751` terminal-break form: a block body whose last statement is a
     /// bare break, provided no continue anywhere in the body can loop back
     /// to another iteration.
-    pub(crate) fn check_single_iteration_body(&mut self, body: &Statement<'a>) {
+    fn check_single_iteration_body(&mut self, body: &Statement<'a>) {
         let Statement::BlockStatement(block) = body else {
             return;
         };
@@ -373,8 +370,8 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
 
 /// Detects any `continue` below a loop body for the `S1751` exemption.
 #[derive(Default)]
-pub(crate) struct ContinueScanner {
-    pub(crate) found: bool,
+struct ContinueScanner {
+    found: bool,
 }
 
 impl<'a> Visit<'a> for ContinueScanner {
@@ -385,21 +382,21 @@ impl<'a> Visit<'a> for ContinueScanner {
 
 /// Per-loop state collected while [`LoopFlowCollector`] walks one loop.
 #[derive(Default)]
-pub(crate) struct LoopFrame {
+struct LoopFrame {
     /// Break/continue statements seen directly in this loop (`S135`).
-    pub(crate) jumps: u32,
+    jumps: u32,
     /// Any break/return/throw seen anywhere below (`S2189`).
-    pub(crate) terminators: bool,
+    terminators: bool,
     /// A `hasOwnProperty` reference was seen (`S1535`).
-    pub(crate) has_own_guard: bool,
+    has_own_guard: bool,
     /// Names of counters declared by this loop's init clause (`S2310`).
-    pub(crate) counters: Vec<String>,
+    counters: Vec<String>,
 }
 
 /// Whether `span`'s raw text contains `word` delimited by non-identifier
 /// characters (used where the AST shape alone cannot tell which names an
 /// arbitrary update expression references).
-pub(crate) fn span_contains_word(source: &str, span: Span, word: &str) -> bool {
+fn span_contains_word(source: &str, span: Span, word: &str) -> bool {
     let text = source_slice(source, span);
     let bytes = text.as_bytes();
     let mut search_from = 0;
@@ -417,7 +414,7 @@ pub(crate) fn span_contains_word(source: &str, span: Span, word: &str) -> bool {
 }
 
 /// Whether the expression is the boolean literal `false`.
-pub(crate) fn is_constant_false(expression: Option<&Expression<'_>>) -> bool {
+fn is_constant_false(expression: Option<&Expression<'_>>) -> bool {
     matches!(
         expression.map(unparenthesized),
         Some(Expression::BooleanLiteral(literal)) if !literal.value
@@ -425,7 +422,7 @@ pub(crate) fn is_constant_false(expression: Option<&Expression<'_>>) -> bool {
 }
 
 /// Whether the expression is the boolean literal `true`.
-pub(crate) fn is_constant_true(expression: Option<&Expression<'_>>) -> bool {
+fn is_constant_true(expression: Option<&Expression<'_>>) -> bool {
     match expression.map(unparenthesized) {
         Some(Expression::BooleanLiteral(literal)) => literal.value,
         _ => false,

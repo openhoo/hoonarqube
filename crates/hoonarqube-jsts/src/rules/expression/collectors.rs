@@ -133,7 +133,7 @@ pub(crate) fn check_collection_and_object_calls(
 
 /// Whether the `.bind(this)` receiver is an arrow function, possibly inside
 /// parentheses (`(() => 1).bind(this)`).
-pub(crate) fn bind_target_is_arrow(expression: &Expression<'_>) -> bool {
+fn bind_target_is_arrow(expression: &Expression<'_>) -> bool {
     match expression {
         Expression::ArrowFunctionExpression(_) => true,
         Expression::ParenthesizedExpression(parenthesized) => {

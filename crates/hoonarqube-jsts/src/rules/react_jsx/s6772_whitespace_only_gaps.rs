@@ -35,14 +35,14 @@ impl ReactCollector<'_> {
 
 /// Tags whose adjacent collapsible whitespace behaves inconsistently
 /// (`S6772`).
-pub(crate) const INLINE_TAGS: [&str; 36] = [
+const INLINE_TAGS: [&str; 36] = [
     "a", "abbr", "b", "bdi", "bdo", "br", "button", "cite", "code", "data", "dfn", "em", "i",
     "img", "input", "kbd", "label", "mark", "q", "rp", "rt", "ruby", "s", "samp", "select", "slot",
     "small", "span", "strong", "sub", "sup", "time", "u", "textarea", "var", "wbr",
 ];
 
 /// Element tag behind a child position, if it is a plain element.
-pub(crate) fn jsx_child_element_tag<'a>(child: &'a JSXChild<'a>) -> Option<&'a str> {
+fn jsx_child_element_tag<'a>(child: &'a JSXChild<'a>) -> Option<&'a str> {
     match child {
         JSXChild::Element(element) => jsx_element_tag(&element.opening_element.name),
         _ => None,

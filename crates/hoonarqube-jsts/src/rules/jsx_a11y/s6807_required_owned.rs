@@ -39,7 +39,7 @@ impl A11yCollector<'_> {
 }
 
 /// Roles that require owned descendant roles (`S6807`).
-pub(crate) const ROLE_REQUIRED_CHILDREN: &[(&str, &[&str])] = &[
+const ROLE_REQUIRED_CHILDREN: &[(&str, &[&str])] = &[
     ("grid", &["row"]),
     ("list", &["listitem"]),
     ("listbox", &["option"]),

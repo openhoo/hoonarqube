@@ -31,7 +31,7 @@ use oxc_ast_visit::walk::{
 };
 use oxc_span::GetSpan;
 
-pub(crate) fn check_expression_rules(
+fn check_expression_rules(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -58,12 +58,12 @@ pub(crate) fn check_expression_rules(
 /// `S1528`, `S1533`, `S2428`, `S3834`, `S4624`, `S3786`, `S1516`, `S6535`,
 /// `S6657`, `S1314`, `S6534`, `S1313`, `S4140`, and `S1110`-adjacent
 /// parenthesized-expression checks (`S1110`, `S3812`).
-pub(crate) struct ExpressionCollector<'index> {
-    pub(crate) sink: IssueSink<'index>,
-    pub(crate) contexts: Vec<ExpressionContext>,
-    pub(crate) ternary_depth: u32,
+struct ExpressionCollector<'index> {
+    sink: IssueSink<'index>,
+    contexts: Vec<ExpressionContext>,
+    ternary_depth: u32,
     /// Nesting depth of template literals for `S4624`.
-    pub(crate) template_depth: u32,
+    template_depth: u32,
 }
 
 impl<'a> Visit<'a> for ExpressionCollector<'_> {
@@ -311,14 +311,14 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
 /// Boolean-context stack for the condition-sensitive rules (`S1529`,
 /// `S6509`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ExpressionContext {
+enum ExpressionContext {
     /// Directly in an `if`/ternary test or a logical operand.
     Condition,
     /// Operand of a `!` operator.
     Negation,
 }
 
-pub(crate) fn is_bitwise_operator(operator: BinaryOperator) -> bool {
+fn is_bitwise_operator(operator: BinaryOperator) -> bool {
     matches!(
         operator,
         BinaryOperator::BitwiseAnd
@@ -342,7 +342,7 @@ pub(crate) fn is_equality_operator(operator: BinaryOperator) -> bool {
 
 /// Member-call rules: `S106`, `S1442`, `S6637`, `S6676`, `S6666`, `S6959`,
 /// `S2871`, `S6653`, `S2685`, `S6654`, and `S6661`.
-pub(crate) fn check_member_calls(sink: &mut IssueSink, it: &CallExpression<'_>) {
+fn check_member_calls(sink: &mut IssueSink, it: &CallExpression<'_>) {
     let Some((property, member)) = call_property(it) else {
         return;
     };
@@ -351,7 +351,7 @@ pub(crate) fn check_member_calls(sink: &mut IssueSink, it: &CallExpression<'_>) 
 }
 
 /// Legacy octal escapes (`\101`), including `\0`-prefixed forms.
-pub(crate) fn has_octal_escape(text: &str) -> bool {
+fn has_octal_escape(text: &str) -> bool {
     let chars: Vec<char> = text.chars().collect();
     chars
         .windows(2)

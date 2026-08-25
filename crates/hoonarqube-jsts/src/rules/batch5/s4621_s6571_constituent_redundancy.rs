@@ -8,7 +8,7 @@ use oxc_span::GetSpan;
 /// Classification of one union/intersection constituent for the redundancy
 /// checks `S6571` (keyword-level subsumption) and `S4621` (structural
 /// equality).
-pub(crate) enum Constituent {
+enum Constituent {
     /// A keyword type (`string`, `number`, ...) with its canonical name.
     Keyword(&'static str),
     /// A literal type (`'a'`, `42`, `true`) with the primitive subsuming it.
@@ -17,7 +17,7 @@ pub(crate) enum Constituent {
     Other,
 }
 
-pub(crate) fn constituent_kind(ts_type: &TSType<'_>) -> Constituent {
+fn constituent_kind(ts_type: &TSType<'_>) -> Constituent {
     match ts_type {
         TSType::TSAnyKeyword(_) => Constituent::Keyword("any"),
         TSType::TSBigIntKeyword(_) => Constituent::Keyword("bigint"),
@@ -46,7 +46,7 @@ pub(crate) fn constituent_kind(ts_type: &TSType<'_>) -> Constituent {
     }
 }
 
-pub(crate) fn keyword_name(ts_type: &TSType<'_>) -> Option<&'static str> {
+fn keyword_name(ts_type: &TSType<'_>) -> Option<&'static str> {
     match constituent_kind(ts_type) {
         Constituent::Keyword(name) => Some(name),
         _ => None,

@@ -7,7 +7,7 @@ use oxc_ast::ast::Expression;
 use oxc_span::GetSpan;
 
 /// `S7059` helper: is the callee an async function/arrow expression?
-pub(crate) fn callee_is_async_function(callee: &Expression<'_>) -> bool {
+fn callee_is_async_function(callee: &Expression<'_>) -> bool {
     match unparenthesized(callee) {
         Expression::ArrowFunctionExpression(arrow) => arrow.r#async,
         Expression::FunctionExpression(function) => function.r#async,

@@ -8,7 +8,7 @@ use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{walk_expression, walk_expression_statement};
 use oxc_span::GetSpan;
 
-pub(crate) fn check_embedded_effects(
+fn check_embedded_effects(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -31,12 +31,12 @@ pub(crate) fn check_embedded_effects(
 /// Updates and assignments are only tolerated as the direct root expression
 /// of an `ExpressionStatement` or in a `for` header init/update slot; the
 /// `expr_depth` counter distinguishes those roots from deeper embedding.
-pub(crate) struct EmbeddedEffectCollector<'index> {
-    pub(crate) sink: IssueSink<'index>,
+struct EmbeddedEffectCollector<'index> {
+    sink: IssueSink<'index>,
     /// Distance of the current expression below its statement root: `1` for
     /// the root itself, increasing per nesting level, `0` outside
     /// statement-root contexts (initializers, conditions, arguments, ...).
-    pub(crate) expr_depth: u32,
+    expr_depth: u32,
 }
 
 impl<'a> Visit<'a> for EmbeddedEffectCollector<'_> {
@@ -121,7 +121,7 @@ impl<'a> Visit<'a> for EmbeddedEffectCollector<'_> {
 /// identifiers, templates without substitutions, and pure operators over
 /// such operands. Calls, assignments, `delete`, tagged templates, and any
 /// unrecognized shape are treated as effectful.
-pub(crate) fn is_pointless_expression(expression: &Expression<'_>) -> bool {
+fn is_pointless_expression(expression: &Expression<'_>) -> bool {
     match expression {
         Expression::BooleanLiteral(_)
         | Expression::NullLiteral(_)

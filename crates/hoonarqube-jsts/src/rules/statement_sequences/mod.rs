@@ -1,6 +1,6 @@
 // Family 'statement_sequences' (generated).
 pub(crate) mod s1488_scan_statement_sequence;
-pub(crate) mod walker;
+mod walker;
 
 use crate::Issue;
 use crate::context::AnalysisContext;

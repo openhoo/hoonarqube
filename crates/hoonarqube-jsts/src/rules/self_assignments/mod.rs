@@ -1,5 +1,5 @@
 // Family 'self_assignments' (generated).
-pub(crate) mod walker;
+mod walker;
 
 use crate::Issue;
 use crate::context::AnalysisContext;

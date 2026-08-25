@@ -21,7 +21,7 @@ use oxc_ast_visit::walk::{
 };
 use oxc_span::{GetSpan, Span};
 
-pub(crate) fn check_function_structures(
+fn check_function_structures(
     program: &oxc_ast::ast::Program<'_>,
     source: &str,
     index: &LineIndex,
@@ -41,22 +41,18 @@ pub(crate) fn check_function_structures(
 }
 
 /// `S3001`, `S3525`, `S3531`, `S3626`, and `S2376` in one traversal.
-pub(crate) struct FunctionStructureCollector<'a, 'index> {
-    pub(crate) sink: IssueSink<'index>,
-    pub(crate) source: &'a str,
+struct FunctionStructureCollector<'a, 'index> {
+    sink: IssueSink<'index>,
+    source: &'a str,
     /// Set while visiting a block that sits directly in a statement list
     /// (`S3626` bare-block case).
-    pub(crate) next_block_is_bare: bool,
+    next_block_is_bare: bool,
 }
 
 impl<'a> FunctionStructureCollector<'a, '_> {
     /// Enters a function-like node: checks its generator body (`S3531`) and
     /// resets bare-block tracking for the subtree.
-    pub(crate) fn enter_function(
-        &mut self,
-        function: &Function<'_>,
-        walk_children: impl FnOnce(&mut Self),
-    ) {
+    fn enter_function(&mut self, function: &Function<'_>, walk_children: impl FnOnce(&mut Self)) {
         if function.generator {
             let mut scanner = YieldScanner::default();
             if let Some(body) = &function.body {
@@ -79,7 +75,7 @@ impl<'a> FunctionStructureCollector<'a, '_> {
 
     /// Flags the last statement of a statement list when it is an
     /// unconditional jump (`S3626`).
-    pub(crate) fn flag_trailing_jump(&mut self, statements: &[Statement<'_>]) {
+    fn flag_trailing_jump(&mut self, statements: &[Statement<'_>]) {
         let Some(last) = statements.last() else {
             return;
         };
@@ -101,7 +97,7 @@ impl<'a> FunctionStructureCollector<'a, '_> {
 
     /// Walks a loop body: trailing-jump check plus non-bare traversal of its
     /// block statements.
-    pub(crate) fn visit_loop_body(&mut self, body: &Statement<'a>) {
+    fn visit_loop_body(&mut self, body: &Statement<'a>) {
         if let Statement::BlockStatement(block) = body {
             self.flag_trailing_jump(&block.body);
             for statement in &block.body {
@@ -323,8 +319,8 @@ impl<'a> Visit<'a> for FunctionStructureCollector<'a, '_> {
 
 /// Finds `yield` expressions outside nested functions; used for `S3531`.
 #[derive(Default)]
-pub(crate) struct YieldScanner {
-    pub(crate) found: bool,
+struct YieldScanner {
+    found: bool,
 }
 
 impl<'a> Visit<'a> for YieldScanner {

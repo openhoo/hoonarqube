@@ -8,7 +8,7 @@ use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{walk_labeled_statement, walk_switch_case};
 use oxc_span::GetSpan;
 
-pub(crate) fn check_label_usage(
+fn check_label_usage(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -26,10 +26,10 @@ pub(crate) fn check_label_usage(
 }
 
 /// `S1219` and `S1439` in one traversal.
-pub(crate) struct LabelUsageCollector<'index> {
-    pub(crate) sink: IssueSink<'index>,
+struct LabelUsageCollector<'index> {
+    sink: IssueSink<'index>,
     /// > 0 while walking inside a switch clause (`S1219`).
-    pub(crate) switch_case_depth: u32,
+    switch_case_depth: u32,
 }
 
 impl<'a> Visit<'a> for LabelUsageCollector<'_> {
@@ -62,7 +62,7 @@ impl<'a> Visit<'a> for LabelUsageCollector<'_> {
 
 /// Whether the labeled statement body is a loop or a switch (`S1439`
 /// tolerance set).
-pub(crate) fn label_target_is_loop_or_switch(statement: &Statement<'_>) -> bool {
+fn label_target_is_loop_or_switch(statement: &Statement<'_>) -> bool {
     matches!(
         statement,
         Statement::WhileStatement(_)

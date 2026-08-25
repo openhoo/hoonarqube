@@ -48,11 +48,11 @@ impl A11yCollector<'_> {
 
 /// Input types whose autocomplete accepts their matching contact token
 /// (`S6840`).
-pub(crate) const AUTOCOMPLETE_TYPE_TOKENS: &[(&str, &str)] =
+const AUTOCOMPLETE_TYPE_TOKENS: &[(&str, &str)] =
     &[("email", "email"), ("tel", "tel"), ("url", "url")];
 
 /// Autocomplete tokens valid on every autofill-capable element (`S6840`).
-pub(crate) const AUTOCOMPLETE_GENERAL_TOKENS: [&str; 14] = [
+const AUTOCOMPLETE_GENERAL_TOKENS: [&str; 14] = [
     "address-line1",
     "address-line2",
     "country",

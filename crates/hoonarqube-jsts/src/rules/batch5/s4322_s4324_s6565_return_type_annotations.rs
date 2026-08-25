@@ -53,11 +53,10 @@ impl TsTypeCollector<'_, '_> {
 }
 
 /// `S4324`: wrapper object type names that must not appear in return types.
-pub(crate) const WRAPPER_TYPE_NAMES: [&str; 5] =
-    ["String", "Number", "Boolean", "Symbol", "BigInt"];
+const WRAPPER_TYPE_NAMES: [&str; 5] = ["String", "Number", "Boolean", "Symbol", "BigInt"];
 
 /// `S4322` helper: name of the single reference-typed parameter, if any.
-pub(crate) fn single_reference_parameter<'a>(params: &FormalParameters<'a>) -> Option<&'a str> {
+fn single_reference_parameter<'a>(params: &FormalParameters<'a>) -> Option<&'a str> {
     if params.items.len() != 1 {
         return None;
     }

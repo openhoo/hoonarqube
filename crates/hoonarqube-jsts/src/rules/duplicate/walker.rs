@@ -11,7 +11,7 @@ use oxc_ast_visit::Visit;
 use oxc_span::{ContentEq, GetSpan, Span};
 use std::collections::BTreeSet;
 
-pub(crate) fn check_duplicate_rules(
+fn check_duplicate_rules(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
@@ -41,13 +41,13 @@ pub(crate) fn check_duplicate_rules(
 /// branches and conditions), and `S3516` (invariant literal returns),
 /// collected in one traversal; `S4144` (identical function bodies) is
 /// resolved afterwards through span-free subtree equality (`ContentEq`).
-pub(crate) struct DuplicateCollector<'a, 'index> {
-    pub(crate) sink: IssueSink<'index>,
-    pub(crate) if_statements: Vec<&'a IfStatement<'a>>,
-    pub(crate) function_bodies: Vec<&'a FunctionBody<'a>>,
-    pub(crate) return_groups: Vec<Vec<&'a ReturnStatement<'a>>>,
-    pub(crate) current_return_group: Option<usize>,
-    pub(crate) group_stack: Vec<Option<usize>>,
+struct DuplicateCollector<'a, 'index> {
+    sink: IssueSink<'index>,
+    if_statements: Vec<&'a IfStatement<'a>>,
+    function_bodies: Vec<&'a FunctionBody<'a>>,
+    return_groups: Vec<Vec<&'a ReturnStatement<'a>>>,
+    current_return_group: Option<usize>,
+    group_stack: Vec<Option<usize>>,
 }
 
 impl<'a> Visit<'a> for DuplicateCollector<'a, '_> {
@@ -99,7 +99,7 @@ impl<'a> Visit<'a> for DuplicateCollector<'a, '_> {
 }
 
 impl<'a> DuplicateCollector<'a, '_> {
-    pub(crate) fn check_switch_cases(&mut self, it: &SwitchStatement<'a>) {
+    fn check_switch_cases(&mut self, it: &SwitchStatement<'a>) {
         let cases = &it.cases;
         if cases.len() < 2 {
             return;
@@ -158,7 +158,7 @@ impl<'a> DuplicateCollector<'a, '_> {
     /// Resolves the deferred if-chain rules once every `IfStatement` has
     /// been collected; chains are processed from their heads only so no
     /// link is reported twice.
-    pub(crate) fn check_if_chains(&mut self) {
+    fn check_if_chains(&mut self) {
         let statements = std::mem::take(&mut self.if_statements);
         let chained_starts: BTreeSet<u32> = statements
             .iter()
@@ -173,7 +173,7 @@ impl<'a> DuplicateCollector<'a, '_> {
             }
         }
     }
-    pub(crate) fn check_single_chain(&mut self, head: &'a IfStatement<'a>) {
+    fn check_single_chain(&mut self, head: &'a IfStatement<'a>) {
         // `S1871`: any link whose own branches are structurally equal.
         let mut current = head;
         loop {
@@ -238,7 +238,7 @@ impl<'a> DuplicateCollector<'a, '_> {
 
     /// `S4144`: function bodies identical to an earlier body in the same
     /// file; single-line bodies count as trivial and are skipped.
-    pub(crate) fn check_similar_functions(&mut self) {
+    fn check_similar_functions(&mut self) {
         let bodies = std::mem::take(&mut self.function_bodies);
         for (position, body) in bodies.iter().enumerate() {
             if !self.spans_multiple_lines(body.span) {
@@ -260,7 +260,7 @@ impl<'a> DuplicateCollector<'a, '_> {
     }
 
     /// `S3516`: functions whose returns all yield the same literal.
-    pub(crate) fn check_invariant_returns(&mut self) {
+    fn check_invariant_returns(&mut self) {
         let groups = std::mem::take(&mut self.return_groups);
         for returns in groups {
             let Some(second) = returns.get(1) else {
@@ -296,7 +296,7 @@ impl<'a> DuplicateCollector<'a, '_> {
         }
     }
 
-    pub(crate) fn spans_multiple_lines(&self, span: Span) -> bool {
+    fn spans_multiple_lines(&self, span: Span) -> bool {
         let start = self.sink.index.pos(span.start).line;
         let end = self.sink.index.pos(span.end).line;
         start != end
@@ -304,7 +304,7 @@ impl<'a> DuplicateCollector<'a, '_> {
 }
 
 /// Elementwise span-free equality of two statement lists.
-pub(crate) fn statements_equal(left: &[Statement<'_>], right: &[Statement<'_>]) -> bool {
+fn statements_equal(left: &[Statement<'_>], right: &[Statement<'_>]) -> bool {
     left.len() == right.len()
         && left
             .iter()
@@ -312,7 +312,7 @@ pub(crate) fn statements_equal(left: &[Statement<'_>], right: &[Statement<'_>]) 
             .all(|(left_item, right_item)| left_item.content_eq(right_item))
 }
 
-pub(crate) fn is_empty_block(statement: &Statement<'_>) -> bool {
+fn is_empty_block(statement: &Statement<'_>) -> bool {
     matches!(statement, Statement::BlockStatement(block) if block.body.is_empty())
 }
 

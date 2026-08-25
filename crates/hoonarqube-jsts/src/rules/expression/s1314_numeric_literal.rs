@@ -30,7 +30,7 @@ pub(crate) fn check_numeric_literal(sink: &mut IssueSink, it: &NumericLiteral<'_
     }
 }
 
-pub(crate) fn loses_precision(digits: &str) -> bool {
+fn loses_precision(digits: &str) -> bool {
     if digits.contains('.') || digits.contains('e') || digits.contains('E') {
         let significant = digits.chars().filter(char::is_ascii_digit).count();
         return significant > 17;

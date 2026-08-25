@@ -27,7 +27,7 @@ pub(crate) fn chain_mixes_optional(member: &MemberExpression<'_>) -> bool {
 /// Keeps only spans not contained in another candidate: whenever a chain
 /// suffix mixes optionality, its enclosing head chain mixes too, so the
 /// maximal spans correspond exactly to the reported chains.
-pub(crate) fn maximal_spans(mut spans: Vec<Span>) -> Vec<Span> {
+fn maximal_spans(mut spans: Vec<Span>) -> Vec<Span> {
     spans.sort_by(|left, right| {
         left.start
             .cmp(&right.start)

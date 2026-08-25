@@ -33,7 +33,7 @@ impl ReactCollector<'_> {
 }
 
 /// Whether the opening tag carries a spread attribute (unknown props).
-pub(crate) fn jsx_has_spread_attribute(opening: &JSXOpeningElement<'_>) -> bool {
+fn jsx_has_spread_attribute(opening: &JSXOpeningElement<'_>) -> bool {
     opening
         .attributes
         .iter()

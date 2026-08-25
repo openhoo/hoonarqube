@@ -8,7 +8,7 @@ use oxc_ast::ast::Statement;
 use oxc_span::GetSpan;
 use std::collections::BTreeSet;
 
-pub(crate) fn check_too_many_lines_of_code(
+fn check_too_many_lines_of_code(
     body: &[Statement<'_>],
     index: &LineIndex,
     language: JstsLanguage,

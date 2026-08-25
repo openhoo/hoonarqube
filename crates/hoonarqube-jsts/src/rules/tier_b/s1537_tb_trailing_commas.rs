@@ -46,9 +46,7 @@ pub(crate) fn check_tb_trailing_commas(
     }
 }
 
-pub(crate) fn collect_trailing_comma_lists(
-    program: &oxc_ast::ast::Program<'_>,
-) -> Vec<TrailingCommaList> {
+fn collect_trailing_comma_lists(program: &oxc_ast::ast::Program<'_>) -> Vec<TrailingCommaList> {
     let mut collector = TrailingCommaListCollector::default();
     collector.visit_program(program);
     collector.lists
@@ -59,7 +57,7 @@ pub(crate) fn collect_trailing_comma_lists(
 /// any sibling-gap heuristic only fires on legitimate semicolon-free style.
 /// Last non-whitespace byte inside `source[start..end]`, ignoring comment text.
 /// (The skipped `S1438` rule is why no semicolon findings exist.)
-pub(crate) fn last_significant_char(
+fn last_significant_char(
     source: &str,
     start: u32,
     end: u32,

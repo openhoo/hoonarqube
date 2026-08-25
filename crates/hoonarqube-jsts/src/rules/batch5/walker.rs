@@ -14,7 +14,7 @@ use std::path::Path;
 // --- rules, and misc Tier A ---
 
 /// Entry point for all Batch5 rules; fans out into the per-section checks.
-pub(crate) fn check_batch5_rules<'a>(
+fn check_batch5_rules<'a>(
     path: &'a Path,
     program: &'a oxc_ast::ast::Program<'a>,
     source: &'a str,
@@ -34,7 +34,7 @@ pub(crate) fn check_batch5_rules<'a>(
 }
 
 /// All Batch5 TypeScript-only type-system rules in one traversal.
-pub(crate) fn check_ts_type_rules(
+fn check_ts_type_rules(
     program: &oxc_ast::ast::Program<'_>,
     source: &str,
     index: &LineIndex,
@@ -56,7 +56,7 @@ pub(crate) fn check_ts_type_rules(
 }
 
 /// All Batch5 security-hotspot rules in one traversal.
-pub(crate) fn check_security_hotspot_rules(
+fn check_security_hotspot_rules(
     program: &oxc_ast::ast::Program<'_>,
     source: &str,
     index: &LineIndex,
@@ -76,7 +76,7 @@ pub(crate) fn check_security_hotspot_rules(
 
 /// Whether `path` looks like a test file (`foo.test.js`, `foo.spec.ts`, or
 /// anywhere under a `__tests__` directory).
-pub(crate) fn is_test_file(path: &Path) -> bool {
+fn is_test_file(path: &Path) -> bool {
     let stem_is_test =
         path.file_stem()
             .and_then(|stem| stem.to_str())
@@ -93,7 +93,7 @@ pub(crate) fn is_test_file(path: &Path) -> bool {
 }
 
 /// All Batch5 misc Tier-A rules in one pass.
-pub(crate) fn check_misc_rules(
+fn check_misc_rules(
     path: &Path,
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,

@@ -63,7 +63,7 @@ use std::collections::BTreeMap;
 /// `S6790`, `S6791`, `S6957`, `S6763`, `S6746`, `S6766`, `S6438`, `S6480`,
 /// `S6477`, `S6479`, `S6770`, `S6435`, `S6439`, `S6440`, `S6442`, `S6481`,
 /// `S6478`, `S6756`, `S6757`, `S6772`, `S6774`, `S6775`, and `S6747`.
-pub(crate) fn check_react_jsx_rules(
+fn check_react_jsx_rules(
     program: &oxc_ast::ast::Program<'_>,
     source: &str,
     index: &LineIndex,
@@ -296,7 +296,7 @@ impl<'a> Visit<'a> for ReactCollector<'_> {
 impl ReactCollector<'_> {
     /// `S6775` collection: records `X.propTypes` / `X.defaultProps`
     /// object assignments for the post-pass.
-    pub(crate) fn collect_prop_metadata(&mut self, assignment: &AssignmentExpression<'_>) {
+    fn collect_prop_metadata(&mut self, assignment: &AssignmentExpression<'_>) {
         if assignment.operator != AssignmentOperator::Assign {
             return;
         }
@@ -349,7 +349,7 @@ impl ReactCollector<'_> {
 
 /// Which side of the prop-metadata cross-check an assignment feeds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PropSide {
+enum PropSide {
     Declaration,
     Default,
 }
@@ -461,7 +461,7 @@ pub(crate) fn map_callback_frame(call: &CallExpression<'_>) -> Option<MapFrame> 
 }
 
 /// Whether a `useXxx`-shaped callee names a hook.
-pub(crate) fn call_argument_function_count(call: &CallExpression<'_>) -> usize {
+fn call_argument_function_count(call: &CallExpression<'_>) -> usize {
     call.arguments
         .iter()
         .filter_map(argument_expression)
@@ -476,9 +476,7 @@ pub(crate) fn call_argument_function_count(call: &CallExpression<'_>) -> usize {
 
 /// Component frame for a declarator-initialized function or arrow:
 /// whether it returns JSX plus its binding span (`S6478`).
-pub(crate) fn declarator_component_frame(
-    declarator: &VariableDeclarator<'_>,
-) -> Option<(bool, Span)> {
+fn declarator_component_frame(declarator: &VariableDeclarator<'_>) -> Option<(bool, Span)> {
     let init = declarator.init.as_ref()?;
     if !matches!(
         init,
@@ -495,7 +493,7 @@ pub(crate) fn declarator_component_frame(
 }
 
 /// Whether a class renders (a `render` method returning JSX or null).
-pub(crate) fn class_returns_jsx(class: &Class<'_>) -> bool {
+fn class_returns_jsx(class: &Class<'_>) -> bool {
     class.body.body.iter().any(|element| {
         let ClassElement::MethodDefinition(method) = element else {
             return false;
@@ -580,7 +578,7 @@ pub(crate) fn jsx_attribute_name<'a>(attribute: &'a JSXAttribute<'a>) -> Option<
 }
 
 /// Whether a member chain contains a link spelled `link`.
-pub(crate) fn member_chain_has_link(expression: &Expression<'_>, link: &str) -> bool {
+fn member_chain_has_link(expression: &Expression<'_>, link: &str) -> bool {
     match expression {
         Expression::StaticMemberExpression(member) => {
             member.property.name == link || member_chain_has_link(&member.object, link)

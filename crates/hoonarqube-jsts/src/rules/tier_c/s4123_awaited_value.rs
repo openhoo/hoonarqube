@@ -42,7 +42,7 @@ impl TierCAwaitCollector<'_, '_> {
         }
     }
 
-    pub(crate) fn is_known_sync_local(&self, name: &str) -> bool {
+    fn is_known_sync_local(&self, name: &str) -> bool {
         self.census
             .functions
             .get(name)
@@ -51,12 +51,12 @@ impl TierCAwaitCollector<'_, '_> {
 }
 
 /// Member roots whose calls are synchronous (`S4123`).
-pub(crate) const SYNC_MEMBER_ROOTS: [&str; 7] = [
+const SYNC_MEMBER_ROOTS: [&str; 7] = [
     "Math", "Object", "JSON", "Reflect", "Array", "Date", "Number",
 ];
 
 /// Plain globals whose calls are synchronous (`S4123`).
-pub(crate) const SYNC_GLOBAL_APIS: [&str; 9] = [
+const SYNC_GLOBAL_APIS: [&str; 9] = [
     "parseInt",
     "parseFloat",
     "isNaN",
