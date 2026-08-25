@@ -1,4 +1,5 @@
 use crate::engine::rx::RegexSite;
+use crate::engine::rx::RxParsed;
 use crate::engine::rx::RxUnit;
 use crate::engine::rx::parse_regex;
 use crate::support::issue_at;
@@ -33,70 +34,95 @@ pub(crate) fn check_replacement_references(
         };
         match back.ch {
             'g' => {
-                let mut cursor = position + 2;
-                if repl.units.get(cursor).map(|u| u.ch) != Some('<') {
-                    position += 1;
-                    continue;
-                }
-                cursor += 1;
-                let start = cursor;
-                let digits_or_name = |units: &[RxUnit], from: usize| -> Option<usize> {
-                    units[from..].iter().position(|u| u.ch == '>')
-                };
-                if let Some(close) = digits_or_name(&repl.units, start) {
-                    let body: String = repl.units[start..start + close]
-                        .iter()
-                        .map(|u| u.ch)
-                        .collect();
-                    let span = TextRange::new(repl.units[start].at, repl.units[start + close].at);
-                    let invalid = if body.chars().all(|c| c.is_ascii_digit()) && !body.is_empty() {
-                        body.parse::<u32>()
-                            .is_ok_and(|number| number > parsed.capture_count)
-                    } else {
-                        !parsed.names.iter().any(|name| name == &body)
-                    };
-                    if invalid {
-                        issues.push(issue_at(
-                            "python:S6328",
-                            "Reference an existing group in this replacement string.",
-                            span,
-                            index,
-                            source,
-                        ));
-                    }
-                    position = start + close + 1;
-                    continue;
-                }
-                position += 1;
+                position =
+                    check_named_reference(&parsed, &repl.units, position, index, source, issues);
             }
             '0'..='9' => {
-                let digits: String = repl.units[position + 1..]
-                    .iter()
-                    .take(2)
-                    .take_while(|u| u.ch.is_ascii_digit())
-                    .map(|u| u.ch)
-                    .collect();
-                let span = TextRange::new(
-                    back.at,
-                    back.at + TextSize::from(to_u32(digits.len().max(1))),
+                position += check_numeric_reference(
+                    back,
+                    &repl.units[position + 1..],
+                    parsed.capture_count,
+                    index,
+                    source,
+                    issues,
                 );
-                if let Ok(number) = digits.parse::<u32>()
-                    && number != 0
-                    && number > parsed.capture_count
-                {
-                    issues.push(issue_at(
-                        "python:S6328",
-                        "Reference an existing group in this replacement string.",
-                        span,
-                        index,
-                        source,
-                    ));
-                }
-                position += 1 + digits.len();
             }
             _ => position += 1,
         }
     }
+}
+
+/// Validates a `\g<name|digits>` reference; returns the next scan position.
+fn check_named_reference(
+    parsed: &RxParsed,
+    units: &[RxUnit],
+    slash: usize,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) -> usize {
+    let mut cursor = slash + 2;
+    if units.get(cursor).map(|u| u.ch) != Some('<') {
+        return slash + 1;
+    }
+    cursor += 1;
+    let start = cursor;
+    let Some(close) = units[start..].iter().position(|u| u.ch == '>') else {
+        return slash + 1;
+    };
+    let body: String = units[start..start + close].iter().map(|u| u.ch).collect();
+    let span = TextRange::new(units[start].at, units[start + close].at);
+    let invalid = if body.chars().all(|c| c.is_ascii_digit()) && !body.is_empty() {
+        body.parse::<u32>()
+            .is_ok_and(|number| number > parsed.capture_count)
+    } else {
+        !parsed.names.iter().any(|name| name == &body)
+    };
+    if invalid {
+        issues.push(issue_at(
+            "python:S6328",
+            "Reference an existing group in this replacement string.",
+            span,
+            index,
+            source,
+        ));
+    }
+    start + close + 1
+}
+
+/// Validates a `\N` group reference against the capture count; returns how
+/// many units the escape consumed.
+fn check_numeric_reference(
+    back: &RxUnit,
+    rest: &[RxUnit],
+    capture_count: u32,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) -> usize {
+    let digits: String = rest
+        .iter()
+        .take(2)
+        .take_while(|u| u.ch.is_ascii_digit())
+        .map(|u| u.ch)
+        .collect();
+    let span = TextRange::new(
+        back.at,
+        back.at + TextSize::from(to_u32(digits.len().max(1))),
+    );
+    if let Ok(number) = digits.parse::<u32>()
+        && number != 0
+        && number > capture_count
+    {
+        issues.push(issue_at(
+            "python:S6328",
+            "Reference an existing group in this replacement string.",
+            span,
+            index,
+            source,
+        ));
+    }
+    1 + digits.len()
 }
 
 #[cfg(test)]

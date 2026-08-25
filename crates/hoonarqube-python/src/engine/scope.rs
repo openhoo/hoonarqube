@@ -9,10 +9,17 @@ use crate::support::is_tf_function;
 use crate::support::named_parameters;
 use crate::support::push_parameter_exprs;
 use crate::support::stmt_exprs;
+use ruff_python_ast::Comprehension;
 use ruff_python_ast::ExceptHandler;
 use ruff_python_ast::Expr;
+use ruff_python_ast::ExprLambda;
+use ruff_python_ast::ExprNamed;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
+use ruff_python_ast::StmtGlobal;
+use ruff_python_ast::StmtIf;
+use ruff_python_ast::StmtNonlocal;
+use ruff_python_ast::StmtWith;
 use ruff_python_ast::token::TokenKind;
 use ruff_python_parser::Parsed;
 use ruff_text_size::Ranged;
@@ -201,22 +208,8 @@ pub(crate) fn collect_scope_stmt(
         Stmt::Import(_) | Stmt::ImportFrom(_) => {
             record_import_stmt(table, current, stmt, loop_depth);
         }
-        Stmt::Global(global_stmt) => {
-            table.scopes[current].global_names.extend(
-                global_stmt
-                    .names
-                    .iter()
-                    .map(|name| name.as_str().to_string()),
-            );
-        }
-        Stmt::Nonlocal(nonlocal_stmt) => {
-            table.scopes[current].nonlocal_names.extend(
-                nonlocal_stmt
-                    .names
-                    .iter()
-                    .map(|name| name.as_str().to_string()),
-            );
-        }
+        Stmt::Global(global_stmt) => record_global_stmt(table, current, global_stmt),
+        Stmt::Nonlocal(nonlocal_stmt) => record_nonlocal_stmt(table, current, nonlocal_stmt),
         Stmt::For(loop_stmt) => {
             record_expr_loads(table, current, &loop_stmt.iter, false, loop_depth);
             record_store_target(
@@ -234,25 +227,8 @@ pub(crate) fn collect_scope_stmt(
             collect_scope_stmts(table, current, &while_stmt.body, loop_depth + 1);
             collect_scope_stmts(table, current, &while_stmt.orelse, loop_depth);
         }
-        Stmt::If(if_stmt) => {
-            record_expr_loads(table, current, &if_stmt.test, false, loop_depth);
-            collect_scope_stmts(table, current, &if_stmt.body, loop_depth);
-            for clause in &if_stmt.elif_else_clauses {
-                if let Some(test) = clause.test.as_ref() {
-                    record_expr_loads(table, current, test, false, loop_depth);
-                }
-                collect_scope_stmts(table, current, &clause.body, loop_depth);
-            }
-        }
-        Stmt::With(with_stmt) => {
-            for item in &with_stmt.items {
-                record_expr_loads(table, current, &item.context_expr, false, loop_depth);
-                if let Some(vars) = item.optional_vars.as_deref() {
-                    record_store_target(table, current, vars, BindingKind::Assignment, loop_depth);
-                }
-            }
-            collect_scope_stmts(table, current, &with_stmt.body, loop_depth);
-        }
+        Stmt::If(if_stmt) => collect_if_stmt(table, current, if_stmt, loop_depth),
+        Stmt::With(with_stmt) => collect_with_stmt(table, current, with_stmt, loop_depth),
         Stmt::Try(try_stmt) => {
             collect_try_stmt(table, current, try_stmt, loop_depth);
         }
@@ -271,6 +247,54 @@ pub(crate) fn collect_scope_stmt(
             }
         }
     }
+}
+
+/// Records names exported to module/global scope by a `global` statement.
+fn record_global_stmt(table: &mut SymbolTable, current: usize, global_stmt: &StmtGlobal) {
+    table.scopes[current].global_names.extend(
+        global_stmt
+            .names
+            .iter()
+            .map(|name| name.as_str().to_string()),
+    );
+}
+
+/// Records names bound to enclosing function scopes by a `nonlocal` statement.
+fn record_nonlocal_stmt(table: &mut SymbolTable, current: usize, nonlocal_stmt: &StmtNonlocal) {
+    table.scopes[current].nonlocal_names.extend(
+        nonlocal_stmt
+            .names
+            .iter()
+            .map(|name| name.as_str().to_string()),
+    );
+}
+
+/// Scans an `if` statement: its test plus every elif/else clause body.
+fn collect_if_stmt(table: &mut SymbolTable, current: usize, if_stmt: &StmtIf, loop_depth: u32) {
+    record_expr_loads(table, current, &if_stmt.test, false, loop_depth);
+    collect_scope_stmts(table, current, &if_stmt.body, loop_depth);
+    for clause in &if_stmt.elif_else_clauses {
+        if let Some(test) = clause.test.as_ref() {
+            record_expr_loads(table, current, test, false, loop_depth);
+        }
+        collect_scope_stmts(table, current, &clause.body, loop_depth);
+    }
+}
+
+/// Scans a `with` statement: context expressions, `as` targets, and body.
+fn collect_with_stmt(
+    table: &mut SymbolTable,
+    current: usize,
+    with_stmt: &StmtWith,
+    loop_depth: u32,
+) {
+    for item in &with_stmt.items {
+        record_expr_loads(table, current, &item.context_expr, false, loop_depth);
+        if let Some(vars) = item.optional_vars.as_deref() {
+            record_store_target(table, current, vars, BindingKind::Assignment, loop_depth);
+        }
+    }
+    collect_scope_stmts(table, current, &with_stmt.body, loop_depth);
 }
 
 pub(crate) fn record_assignment_stmt(
@@ -587,67 +611,36 @@ pub(crate) fn record_scope_creating_expr(
 ) {
     match expr {
         Expr::Named(named) => {
-            record_expr_loads(table, current, &named.value, in_annotation, loop_depth);
-            let mut target_scope = current;
-            while matches!(table.scopes[target_scope].kind, ScopeKind::Comprehension) {
-                match table.scopes[target_scope].parent {
-                    Some(parent) => target_scope = parent,
-                    None => break,
-                }
-            }
-            if let Expr::Name(target) = named.target.as_ref() {
-                bind_symbol(
-                    &mut table.scopes[target_scope],
-                    target.id.as_str(),
-                    target.range(),
-                    BindingKind::Assignment,
-                    loop_depth,
-                );
-            }
+            record_walrus_binding(table, current, named, in_annotation, loop_depth);
         }
         Expr::Lambda(lambda) => {
-            let fn_scope = push_symbol_scope(table, ScopeKind::Function, current);
-            if let Some(parameters) = &lambda.parameters {
-                for parameter in named_parameters(parameters) {
-                    bind_symbol(
-                        &mut table.scopes[fn_scope],
-                        parameter.parameter.name.as_str(),
-                        parameter.parameter.name.range(),
-                        BindingKind::Parameter,
-                        0,
-                    );
-                }
-            }
-            record_expr_loads(table, fn_scope, &lambda.body, in_annotation, 0);
+            record_lambda_scope(table, current, lambda, in_annotation);
         }
         Expr::ListComp(comp) => {
-            let results = [comp.elt.as_ref()];
-            record_comprehension_scope(
+            record_sequence_comprehension(
                 table,
                 current,
-                &results,
+                &comp.elt,
                 &comp.generators,
                 in_annotation,
                 loop_depth,
             );
         }
         Expr::SetComp(comp) => {
-            let results = [comp.elt.as_ref()];
-            record_comprehension_scope(
+            record_sequence_comprehension(
                 table,
                 current,
-                &results,
+                &comp.elt,
                 &comp.generators,
                 in_annotation,
                 loop_depth,
             );
         }
         Expr::Generator(comp) => {
-            let results = [comp.elt.as_ref()];
-            record_comprehension_scope(
+            record_sequence_comprehension(
                 table,
                 current,
-                &results,
+                &comp.elt,
                 &comp.generators,
                 in_annotation,
                 loop_depth,
@@ -670,6 +663,77 @@ pub(crate) fn record_scope_creating_expr(
         }
         _ => {}
     }
+}
+
+/// Binds a walrus target in the nearest non-comprehension ancestor scope
+/// after scanning its value in place.
+fn record_walrus_binding(
+    table: &mut SymbolTable,
+    current: usize,
+    named: &ExprNamed,
+    in_annotation: bool,
+    loop_depth: u32,
+) {
+    record_expr_loads(table, current, &named.value, in_annotation, loop_depth);
+    let mut target_scope = current;
+    while matches!(table.scopes[target_scope].kind, ScopeKind::Comprehension) {
+        match table.scopes[target_scope].parent {
+            Some(parent) => target_scope = parent,
+            None => break,
+        }
+    }
+    if let Expr::Name(target) = named.target.as_ref() {
+        bind_symbol(
+            &mut table.scopes[target_scope],
+            target.id.as_str(),
+            target.range(),
+            BindingKind::Assignment,
+            loop_depth,
+        );
+    }
+}
+
+/// Binds lambda parameters in a fresh function scope and scans its body there.
+fn record_lambda_scope(
+    table: &mut SymbolTable,
+    current: usize,
+    lambda: &ExprLambda,
+    in_annotation: bool,
+) {
+    let fn_scope = push_symbol_scope(table, ScopeKind::Function, current);
+    if let Some(parameters) = &lambda.parameters {
+        for parameter in named_parameters(parameters) {
+            bind_symbol(
+                &mut table.scopes[fn_scope],
+                parameter.parameter.name.as_str(),
+                parameter.parameter.name.range(),
+                BindingKind::Parameter,
+                0,
+            );
+        }
+    }
+    record_expr_loads(table, fn_scope, &lambda.body, in_annotation, 0);
+}
+
+/// Shared path for list/set/generator comprehensions whose sole result
+/// expression is evaluated inside the new comprehension scope.
+fn record_sequence_comprehension(
+    table: &mut SymbolTable,
+    current: usize,
+    elt: &Expr,
+    generators: &[Comprehension],
+    in_annotation: bool,
+    loop_depth: u32,
+) {
+    let results = [elt];
+    record_comprehension_scope(
+        table,
+        current,
+        &results,
+        generators,
+        in_annotation,
+        loop_depth,
+    );
 }
 
 pub(crate) fn record_comprehension_scope(

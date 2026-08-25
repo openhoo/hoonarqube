@@ -370,6 +370,20 @@ pub(crate) fn check_tier_a_battery_2(
     options: &AnalyzerOptions,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
+    tier_a2_general_checks(parsed, index, source, options, &mut issues);
+    tier_a2_data_science_checks(parsed, index, source, &mut issues);
+    tier_a2_web_async_typing_checks(parsed, index, source, options, &mut issues);
+    issues
+}
+
+/// Tier-A battery 2: builtin IO, hashing, regex, and numeric-shape checks.
+fn tier_a2_general_checks(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    options: &AnalyzerOptions,
+    issues: &mut Vec<Issue>,
+) {
     issues.extend(check_duplicated_string_literals(
         parsed, index, source, options,
     ));
@@ -382,6 +396,15 @@ pub(crate) fn check_tier_a_battery_2(
     issues.extend(check_world_writable_modes(parsed, index, source));
     issues.extend(check_deprecated_utc_helpers(parsed, index, source));
     issues.extend(check_nan_comparisons(parsed, index, source));
+}
+
+/// Tier-A battery 2: scientific-stack checks (numpy, pandas, scikit, torch).
+fn tier_a2_data_science_checks(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
     issues.extend(check_isclose_zero_tolerance(parsed, index, source));
     issues.extend(check_single_arg_np_where(parsed, index, source));
     issues.extend(check_deprecated_numpy_aliases(parsed, index, source));
@@ -412,6 +435,16 @@ pub(crate) fn check_tier_a_battery_2(
     issues.extend(check_torch_load_weights_only(parsed, index, source));
     issues.extend(check_einops_patterns(parsed, index, source));
     issues.extend(check_named_steps_bypass(parsed, index, source));
+}
+
+/// Tier-A battery 2: Django/web, async hygiene, typing, and quality checks.
+fn tier_a2_web_async_typing_checks(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    options: &AnalyzerOptions,
+    issues: &mut Vec<Issue>,
+) {
     issues.extend(check_django_string_field_null(parsed, index, source));
     issues.extend(check_django_model_str(parsed, index, source));
     issues.extend(check_render_locals(parsed, index, source));
@@ -461,7 +494,6 @@ pub(crate) fn check_tier_a_battery_2(
     issues.extend(check_unconditional_assertions(parsed, index, source));
     issues.extend(check_unseeded_randomness(parsed, index, source));
     issues.extend(check_sync_os_calls_in_async(parsed, index, source));
-    issues
 }
 
 /// Aggregates every regex-family check over one file.
@@ -595,6 +627,19 @@ pub(crate) fn check_tier_c_security_battery(
     source: &str,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
+    tier_c_core_security_checks(parsed, index, source, &mut issues);
+    tier_c_web_crypto_checks(parsed, index, source, &mut issues);
+    tier_c_cloud_data_checks(parsed, index, source, &mut issues);
+    issues
+}
+
+/// Tier-C battery: transport, auth, and protocol-level checks.
+fn tier_c_core_security_checks(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
     issues.extend(check_s4792_logger_configuration(parsed, index, source));
     issues.extend(check_s4823_command_line_arguments(parsed, index, source));
     issues.extend(check_s4829_standard_input(parsed, index, source));
@@ -621,6 +666,15 @@ pub(crate) fn check_tier_c_security_battery(
         "Add the \"HttpOnly\" flag to this cookie.",
         "httponly",
     ));
+}
+
+/// Tier-C battery: injection, templating, cryptography, and secret checks.
+fn tier_c_web_crypto_checks(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
     issues.extend(check_s4502_csrf_disabled(parsed, index, source));
     issues.extend(check_s5122_cors_wildcard(parsed, index, source));
     issues.extend(check_s5247_autoescaping_disabled(parsed, index, source));
@@ -642,6 +696,15 @@ pub(crate) fn check_tier_c_security_battery(
     issues.extend(check_s6377_weak_xml_signature_transforms(
         parsed, index, source,
     ));
+}
+
+/// Tier-C battery: cloud/IAM posture plus collection and type-safety checks.
+fn tier_c_cloud_data_checks(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
     issues.extend(check_s4828_signal_parameters(parsed, index, source));
     issues.extend(check_s1523_dynamic_code_execution(parsed, index, source));
     issues.extend(check_s2257_custom_cryptography(parsed, index, source));
@@ -683,7 +746,6 @@ pub(crate) fn check_tier_c_security_battery(
     issues.extend(check_s5707_raise_from_non_exception(parsed, index, source));
     issues.extend(check_s5632_raising_non_exceptions(parsed, index, source));
     issues.extend(check_s5708_excepting_non_exceptions(parsed, index, source));
-    issues
 }
 
 // ---------------------------------------------------------------------------
