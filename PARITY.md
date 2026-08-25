@@ -84,7 +84,7 @@ An eleven-crate workspace behind a single public facade:
 | `hoonarqube-python` | Python analyzer (ruff parser) |
 | `hoonarqube-jsts` | JavaScript/TypeScript/JSX/TSX analyzer (oxc) |
 | `hoonarqube-csharp` | C# analyzer (tree-sitter-c-sharp) |
-| `hoonarqube-dataflow` | Generic intra-procedural engine: CFG builder, worklist solvers, dominators |
+| `hoonarqube-dataflow` | Generic intra-procedural engine: CFG builder, worklist solvers, dominators (not yet wired into any analyzer; reserved for future Tier-B adoption) |
 | `hoonarqube-cli` | `analyze` (text / JSON / SonarQube generic-issue JSON) and `fix` subcommands |
 | `hoonarqube-bench` | Multi-language throughput benchmark over seeded synthetic fixtures |
 | `xtask` | Catalog capture/import/audit plus implemented-rule coverage reporting |

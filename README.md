@@ -13,7 +13,7 @@ SonarQube Generic Issue Import JSON.
 | `hoonarqube-python` | Python analyzer (ruff parser) |
 | `hoonarqube-jsts` | JavaScript/TypeScript/JSX/TSX analyzer (oxc) |
 | `hoonarqube-csharp` | C# analyzer (tree-sitter-c-sharp) |
-| `hoonarqube-dataflow` | Generic intra-procedural engine: CFG builder, worklist solvers, dominators |
+| `hoonarqube-dataflow` | Generic intra-procedural engine: CFG builder, worklist solvers, dominators (not yet wired into any analyzer; reserved for future Tier-B adoption) |
 | `hoonarqube-cli` | `analyze` subcommand: text / JSON / SonarQube generic-issue output |
 | `hoonarqube-bench` | Multi-language throughput benchmark over seeded synthetic fixtures |
 | `xtask` | Catalog audit + implemented-rule coverage reporting |
