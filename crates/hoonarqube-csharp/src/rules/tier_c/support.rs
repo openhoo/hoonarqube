@@ -183,6 +183,18 @@ pub(crate) fn override_base_pairs<'t>(
     root: Node<'t>,
     source: &'t str,
 ) -> Vec<(Node<'t>, Node<'t>)> {
+    matched_method_pairs(root, source, |modifiers| {
+        has_modifier(modifiers, "override")
+    })
+}
+
+/// Same-name method pairs across a type's first file-local base, selected by
+/// a predicate over the derived method's modifiers.
+pub(crate) fn matched_method_pairs<'t>(
+    root: Node<'t>,
+    source: &'t str,
+    select: impl Fn(&[&str]) -> bool,
+) -> Vec<(Node<'t>, Node<'t>)> {
     let types = local_type_table(root, source);
     let mut pairs = Vec::new();
     for declaration in local_type_declarations(root) {
@@ -205,7 +217,7 @@ pub(crate) fn override_base_pairs<'t>(
                 })
                 .collect();
         for method in member_declarations_of_kind(declaration, "method_declaration") {
-            if !has_modifier(&modifiers_of(method, source), "override") {
+            if !select(&modifiers_of(method, source)) {
                 continue;
             }
             if let Some(name) = method.child_by_field_name("name")
@@ -314,4 +326,25 @@ pub(crate) fn local_inheritance_graph<'a>(
         }
     }
     graph
+}
+
+/// Seen-set BFS over an inheritance graph; `hits` decides the terminal node.
+pub(crate) fn graph_reaches(
+    graph: &std::collections::HashMap<&str, Vec<&str>>,
+    start: &str,
+    hits: impl Fn(&str) -> bool,
+) -> bool {
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut queue: Vec<&str> = graph.get(start).cloned().unwrap_or_default();
+    while let Some(current) = queue.pop() {
+        if hits(current) {
+            return true;
+        }
+        if seen.insert(current)
+            && let Some(successors) = graph.get(current)
+        {
+            queue.extend(successors.iter().copied());
+        }
+    }
+    false
 }

@@ -4,8 +4,8 @@ use super::*;
 
 #[test]
 fn extensions_map_to_csharp() {
-    assert_eq!(language_for_extension("cs"), Some(CsLanguage::CSharp));
-    assert_eq!(language_for_extension("py"), None);
+    assert_eq!(language_for_extension("cs"), Some(Language::CSharp));
+    assert_eq!(language_for_extension("py"), Some(Language::Python));
 }
 
 #[test]
@@ -1542,11 +1542,7 @@ fn s1309_tracks_suppressions_and_pragmas() {
 
 #[test]
 fn s1607_flags_ignored_tests() {
-    let ignored = analyze_default(
-        "[Fact(Ignore = \"broken\")]\nvoid T() { }\n"
-            .replace("[Fact(Ignore = \"broken\")]", "[Ignore]")
-            .as_str(),
-    );
+    let ignored = analyze_default("[Ignore]\nvoid T() { }\n");
     assert_eq!(with_key(&ignored, "csharpsquid:S1607").len(), 1);
 
     let active = analyze_default("class Tests\n{\n    [Fact]\n    void T() { }\n}\n");

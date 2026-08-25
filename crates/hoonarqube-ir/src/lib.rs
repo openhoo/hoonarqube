@@ -21,6 +21,13 @@ pub struct Pos {
     pub column: u32,
 }
 
+/// Canonical `usize` → `u32` conversion for position offsets coming from
+/// `usize`-based parser APIs; saturates at `u32::MAX`.
+#[must_use]
+pub fn u32_saturating(value: usize) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
+}
+
 /// Half-open-inclusive source span; invariant `start <= end` lexicographic.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Range {
@@ -36,6 +43,29 @@ pub struct Issue {
     pub rule_key: String,
     pub message: String,
     pub range: Range,
+}
+
+/// Canonical `SonarQube` issue ordering: start position, then end position
+/// lexicographic, then rule key, then message.
+pub fn sort_issues(issues: &mut [Issue]) {
+    issues.sort_by(|a, b| {
+        (
+            a.range.start.line,
+            a.range.start.column,
+            a.range.end.line,
+            a.range.end.column,
+            a.rule_key.as_str(),
+            a.message.as_str(),
+        )
+            .cmp(&(
+                b.range.start.line,
+                b.range.start.column,
+                b.range.end.line,
+                b.range.end.column,
+                b.rule_key.as_str(),
+                b.message.as_str(),
+            ))
+    });
 }
 
 /// SonarQube-style size metrics for one file.

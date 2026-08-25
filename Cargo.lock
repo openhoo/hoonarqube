@@ -709,6 +709,7 @@ dependencies = [
 name = "hoonarqube-csharp"
 version = "0.0.0"
 dependencies = [
+ "hoonarqube-core",
  "hoonarqube-ir",
  "tree-sitter",
  "tree-sitter-c-sharp",
@@ -730,6 +731,7 @@ dependencies = [
 name = "hoonarqube-jsts"
 version = "0.0.0"
 dependencies = [
+ "hoonarqube-core",
  "hoonarqube-ir",
  "oxc_allocator",
  "oxc_ast",

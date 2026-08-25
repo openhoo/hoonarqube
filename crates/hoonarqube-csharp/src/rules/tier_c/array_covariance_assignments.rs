@@ -1,4 +1,4 @@
-use super::support::local_inheritance_graph;
+use super::support::{graph_reaches, local_inheritance_graph};
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of, simple_name};
 use crate::rules::expressions::creation_type_text;
@@ -28,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 };
                 let created = simple_name(creation_type_text(value, source).split('[').next()?);
                 let covariant = created != element
-                    && graph_reaches(&graph, created, element);
+                    && graph_reaches(&graph, created, |current| current == element);
                 if covariant {
                     return declarator.child_by_field_name("name");
                 }
@@ -44,27 +44,6 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             )
         })
         .collect()
-}
-
-/// Whether `descendant` reaches `ancestor` through the file-local base graph.
-fn graph_reaches(
-    graph: &std::collections::HashMap<&str, Vec<&str>>,
-    descendant: &str,
-    ancestor: &str,
-) -> bool {
-    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let mut queue: Vec<&str> = graph.get(descendant).cloned().unwrap_or_default();
-    while let Some(current) = queue.pop() {
-        if current == ancestor {
-            return true;
-        }
-        if seen.insert(current)
-            && let Some(successors) = graph.get(current)
-        {
-            queue.extend(successors.iter().copied());
-        }
-    }
-    false
 }
 
 #[cfg(test)]

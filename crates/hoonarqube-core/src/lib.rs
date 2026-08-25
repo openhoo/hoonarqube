@@ -47,15 +47,25 @@ const EXTENSIONS: &[(&str, Language)] = &[
     ("cs", Language::CSharp),
 ];
 
+/// Maps a bare file extension to its language; matched case-insensitively
+/// so `PY` resolves like `py`. `None` when no analyzer claims the extension.
+///
+/// Single source of truth for the workspace: analyzer-crate tests resolve
+/// their extensions through this function instead of private tables.
+#[must_use]
+pub fn language_for_extension(ext: &str) -> Option<Language> {
+    let (_, language) = EXTENSIONS
+        .iter()
+        .find(|(candidate, _)| ext.eq_ignore_ascii_case(candidate))?;
+    Some(*language)
+}
+
 /// Maps a file path to its language by extension; `None` when no analyzer
 /// claims the extension.
 #[must_use]
 pub fn language_for_path(path: &Path) -> Option<Language> {
     let ext = path.extension()?.to_str()?;
-    let (_, language) = EXTENSIONS
-        .iter()
-        .find(|(candidate, _)| ext.eq_ignore_ascii_case(candidate))?;
-    Some(*language)
+    language_for_extension(ext)
 }
 
 /// C# analyzer knobs, re-exported for consumers constructing [`AnalyzerOptions`] field-by-field.

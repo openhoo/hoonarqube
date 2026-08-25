@@ -1,6 +1,7 @@
 pub(crate) use std::path::PathBuf;
 
-pub(crate) use crate::{AnalyzerOptions, CsLanguage, analyze, language_for_extension};
+pub(crate) use crate::{AnalyzerOptions, CsLanguage, analyze};
+pub(crate) use hoonarqube_core::{Language, language_for_extension};
 
 pub(crate) fn with_key<'a>(
     report: &'a hoonarqube_ir::FileReport,

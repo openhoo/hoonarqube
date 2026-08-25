@@ -10,7 +10,6 @@
 
 use std::path::PathBuf;
 
-use hoonarqube_ir::Issue;
 use tree_sitter::Parser;
 
 /// Knobs for the C# analyzer; defaults mirror the frozen catalog
@@ -119,15 +118,6 @@ impl Default for AnalyzerOptions {
     }
 }
 
-/// Maps a file extension to a language; `.cs` is C#, anything else is `None`.
-#[must_use]
-pub fn language_for_extension(ext: &str) -> Option<CsLanguage> {
-    match ext {
-        "cs" => Some(CsLanguage::CSharp),
-        _ => None,
-    }
-}
-
 /// Language marker; one variant today, keeps call sites future-proof.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CsLanguage {
@@ -199,7 +189,7 @@ pub fn analyze(
     issues.extend(rules::tier_c::tier_c_heuristic_issues(
         root, source, language,
     ));
-    sort_issues(&mut issues);
+    hoonarqube_ir::sort_issues(&mut issues);
 
     hoonarqube_ir::FileReport {
         path,
@@ -217,27 +207,6 @@ fn parse(source: &str) -> tree_sitter::Tree {
     parser
         .parse(source, None)
         .expect("parse always yields a tree")
-}
-
-fn sort_issues(issues: &mut [Issue]) {
-    issues.sort_by(|a, b| {
-        (
-            a.range.start.line,
-            a.range.start.column,
-            a.range.end.line,
-            a.range.end.column,
-            a.rule_key.as_str(),
-            a.message.as_str(),
-        )
-            .cmp(&(
-                b.range.start.line,
-                b.range.start.column,
-                b.range.end.line,
-                b.range.end.column,
-                b.rule_key.as_str(),
-                b.message.as_str(),
-            ))
-    });
 }
 
 mod cst;

@@ -5,9 +5,7 @@ use crate::CsLanguage;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
-pub(crate) fn to_u32(value: usize) -> u32 {
-    u32::try_from(value).unwrap_or(u32::MAX)
-}
+pub(crate) use hoonarqube_ir::u32_saturating as to_u32;
 
 /// Pre-order walk over every named and anonymous child node.
 pub(crate) fn walk_all<'t>(node: Node<'t>, visit: &mut impl FnMut(Node<'t>)) {

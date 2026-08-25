@@ -1,4 +1,4 @@
-use super::support::attribute_applications;
+use super::support::tracked_attribute_nodes;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, issue, node_text, range_of};
 use hoonarqube_ir::Issue;
@@ -7,17 +7,25 @@ use tree_sitter::Node;
 /// csharpsquid:S6513 — coverage exclusions need a justification string.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for (name, args, node) in attribute_applications(root, source) {
-        let justified = args.is_some_and(|args| {
-            collect_kinds(args, &["string_literal"])
-                .iter()
-                .any(|literal| node_text(*literal, source).len() > 2)
-        });
-        if matches!(
-            name,
-            "ExcludeFromCodeCoverage" | "ExcludeFromCodeCoverageAttribute"
-        ) && !justified
-        {
+    for node in tracked_attribute_nodes(
+        root,
+        source,
+        &[
+            "ExcludeFromCodeCoverage",
+            "ExcludeFromCodeCoverageAttribute",
+        ],
+    ) {
+        let mut cursor = node.walk();
+        let justified = node
+            .children(&mut cursor)
+            .filter(tree_sitter::Node::is_named)
+            .nth(1)
+            .is_some_and(|args| {
+                collect_kinds(args, &["string_literal"])
+                    .iter()
+                    .any(|literal| node_text(*literal, source).len() > 2)
+            });
+        if !justified {
             issues.push(issue(
                 language,
                 "S6513",
