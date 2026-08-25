@@ -11,6 +11,7 @@ use ruff_text_size::TextRange;
 
 pub(crate) fn check_rx_style_shapes(
     parsed: &RxParsed,
+    source: &str,
     verbose: bool,
     options: &AnalyzerOptions,
     push: &mut dyn FnMut(&str, &str, TextRange),
@@ -36,7 +37,7 @@ pub(crate) fn check_rx_style_shapes(
         }
         // python:S6396 / python:S6353 — curly-quantifier conciseness.
         if let Some(quant) = &item.quant {
-            check_curly_quantifier(quant, push);
+            check_curly_quantifier(quant, source, push);
         }
     });
     // Class-level checks.

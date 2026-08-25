@@ -2994,7 +2994,7 @@ pub(crate) fn run_structural_regex_rules(
     };
     check_rx_syntax_shapes(parsed, units, verbose, &mut push);
     check_rx_repetition_hazards(parsed, &mut push);
-    check_rx_style_shapes(parsed, verbose, options, &mut push);
+    check_rx_style_shapes(parsed, source, verbose, options, &mut push);
 }
 
 // --- style shapes (S6353, S6396, S6397, S5869, S5868, S5843, S5857) ----------
