@@ -81,7 +81,7 @@ pub(crate) fn check_s3699_used_void_outputs(
 
 /// Whether the undecorated, non-async function provably returns nothing:
 /// no `return <value>` and no `yield` anywhere in its body.
-pub(crate) fn is_void_function(function: &ruff_python_ast::StmtFunctionDef) -> bool {
+fn is_void_function(function: &ruff_python_ast::StmtFunctionDef) -> bool {
     if function.is_async || !function.decorator_list.is_empty() {
         return false;
     }
@@ -104,7 +104,7 @@ pub(crate) fn is_void_function(function: &ruff_python_ast::StmtFunctionDef) -> b
 
 /// Names of module-level functions satisfying [`is_void_function`]. Duplicate
 /// definitions shadow one another and are dropped as ambiguous.
-pub(crate) fn collect_void_function_names(module: &[Stmt]) -> HashSet<String> {
+fn collect_void_function_names(module: &[Stmt]) -> HashSet<String> {
     let mut counts: HashMap<String, usize> = HashMap::new();
     for stmt in module {
         if let Stmt::FunctionDef(function) = stmt {

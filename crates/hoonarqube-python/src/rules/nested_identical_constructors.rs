@@ -39,7 +39,7 @@ pub(crate) fn check_nested_identical_constructors(
 // --- python:S7508 — redundant identical nested constructors ----------------------
 
 /// Name of a collection-constructor call (`list`, `set`, `tuple`, `frozenset`).
-pub(crate) fn constructor_name(expr: &Expr) -> Option<&str> {
+fn constructor_name(expr: &Expr) -> Option<&str> {
     let Expr::Call(call) = expr else { return None };
     let name = called_name(&call.func)?;
     matches!(name, "list" | "set" | "tuple" | "frozenset").then_some(name)

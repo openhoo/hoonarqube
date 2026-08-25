@@ -31,7 +31,7 @@ pub(crate) fn constant_truth(expr: &Expr) -> Option<bool> {
     }
 }
 
-pub(crate) const BUILTIN_NAMES: &[&str] = &[
+const BUILTIN_NAMES: &[&str] = &[
     "abs",
     "all",
     "any",

@@ -10,7 +10,7 @@ pub(crate) const CLASS_METACHARACTERS: [char; 15] = [
     '\\', '^', '$', '.', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}', '-',
 ];
 
-pub(crate) const GRAPHEME_RANGES: [(char, char); 6] = [
+const GRAPHEME_RANGES: [(char, char); 6] = [
     ('\u{0300}', '\u{036F}'),
     ('\u{200D}', '\u{200D}'),
     ('\u{FE00}', '\u{FE0F}'),

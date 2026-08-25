@@ -43,7 +43,7 @@ pub(crate) fn check_duplicate_call_arguments(
 // --- migrated from support/mod.rs (S5549) ---
 // --- python:S5549 — identical arguments repeated within one call ------------------
 
-pub(crate) fn trivially_repeatable(left: &Expr, right: &Expr) -> bool {
+fn trivially_repeatable(left: &Expr, right: &Expr) -> bool {
     excluded_identical_pair(left, right)
         || (is_none_literal(left) && is_none_literal(right))
         || (matches!(left, Expr::BooleanLiteral(_)) && matches!(right, Expr::BooleanLiteral(_)))

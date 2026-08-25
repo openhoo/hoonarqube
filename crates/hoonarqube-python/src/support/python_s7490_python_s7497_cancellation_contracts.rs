@@ -71,7 +71,7 @@ pub(crate) fn decode_escape(
 
 /// Unknown escapes keep both characters verbatim, exactly like Python; this
 /// is what lets `\d` reach the regex parser intact.
-pub(crate) fn decode_unknown_escape(
+fn decode_unknown_escape(
     body: &str,
     backslash: usize,
     base: TextSize,
@@ -100,7 +100,7 @@ pub(crate) fn decode_unknown_escape(
 
 /// String-level octal escape (`\0` … `\777`); the produced character is
 /// flagged for python:S6537.
-pub(crate) fn decode_octal_escape(
+fn decode_octal_escape(
     body: &str,
     backslash: usize,
     base: TextSize,
@@ -126,7 +126,7 @@ pub(crate) fn decode_octal_escape(
 }
 
 /// `\xHH`, `\uHHHH`, `\UHHHHHHHH`; invalid forms stay verbatim like Python.
-pub(crate) fn decode_hex_escape(
+fn decode_hex_escape(
     body: &str,
     backslash: usize,
     base: TextSize,

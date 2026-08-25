@@ -44,10 +44,10 @@ pub(crate) fn check_s2257_custom_cryptography(
 // --- migrated from support/mod.rs (S2257) ---
 // --- python:S2257 — custom cryptographic algorithms -----------------------------
 
-pub(crate) const CUSTOM_CRYPTO_NAME_WORDS: [&str; 7] =
+const CUSTOM_CRYPTO_NAME_WORDS: [&str; 7] =
     ["encrypt", "decrypt", "cipher", "xor", "crypt", "rc4", "des"];
 
-pub(crate) fn contains_bitwise_xor(suite: &[Stmt]) -> bool {
+fn contains_bitwise_xor(suite: &[Stmt]) -> bool {
     let mut found = false;
     for_each_stmt_expr(suite, &mut |expr| {
         if let Expr::BinOp(binop) = expr

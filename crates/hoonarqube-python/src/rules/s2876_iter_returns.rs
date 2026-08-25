@@ -66,7 +66,7 @@ pub(crate) fn check_s2876_iter_returns(
 // --- python:S2876 — "__iter__" should return an iterator ----------------------
 
 /// Free functions whose results are provably not iterators.
-pub(crate) const NON_ITERATOR_RETURNS: [&str; 23] = [
+const NON_ITERATOR_RETURNS: [&str; 23] = [
     "len",
     "abs",
     "sum",

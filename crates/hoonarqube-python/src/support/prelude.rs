@@ -57,7 +57,7 @@ pub(crate) fn sort_issues(issues: &mut [Issue]) {
 
 /// Lines whose byte interval intersects `range`; multi-line tokens such as
 /// triple-quoted strings legitimately span several lines.
-pub(crate) fn covered_lines<'a>(
+fn covered_lines<'a>(
     range: TextRange,
     index: &'a LineIndex,
     source: &'a str,

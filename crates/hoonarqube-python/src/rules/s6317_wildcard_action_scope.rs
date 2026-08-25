@@ -38,7 +38,7 @@ pub(crate) fn check_s6317_wildcard_action_scope(
 // --- migrated from support/mod.rs (S6317) ---
 // --- python:S6317 — wildcard-scoped actions in policies ---------------------------
 
-pub(crate) fn action_scope_wildcards(value: &Expr) -> bool {
+fn action_scope_wildcards(value: &Expr) -> bool {
     match value {
         Expr::List(list) => list.elts.iter().any(action_scope_wildcards),
         Expr::StringLiteral(_) => {

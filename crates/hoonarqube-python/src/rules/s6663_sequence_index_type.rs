@@ -38,7 +38,7 @@ pub(crate) fn check_s6663_sequence_index_type(
 // --- migrated from support/mod.rs (S6663) ---
 // --- python:S6663 — sequence indexes must provide __index__ ------------------------
 
-pub(crate) fn is_float_literal(expr: &Expr) -> bool {
+fn is_float_literal(expr: &Expr) -> bool {
     matches!(
         expr,
         Expr::NumberLiteral(number)

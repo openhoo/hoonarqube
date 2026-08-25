@@ -75,10 +75,10 @@ pub(crate) fn check_s2638_override_contracts(
 // --- python:S2638 — method overrides should not change contracts --------------
 
 /// Decorators whose paired accessors legitimately differ between overrides.
-pub(crate) const PROPERTY_FAMILY_DECORATORS: [&str; 5] =
+const PROPERTY_FAMILY_DECORATORS: [&str; 5] =
     ["property", "setter", "getter", "deleter", "cachedproperty"];
 
-pub(crate) fn is_property_family(function: &ruff_python_ast::StmtFunctionDef) -> bool {
+fn is_property_family(function: &ruff_python_ast::StmtFunctionDef) -> bool {
     PROPERTY_FAMILY_DECORATORS
         .iter()
         .any(|name| has_decorator(function, name))

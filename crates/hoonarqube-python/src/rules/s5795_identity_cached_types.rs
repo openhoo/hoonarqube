@@ -40,4 +40,4 @@ pub(crate) fn check_s5795_identity_cached_types(
 // --- migrated from support/mod.rs (S5795) ---
 // --- python:S5795 — identity comparisons with cached types -------------------------
 
-pub(crate) const IDENTITY_UNSAFE_KINDS: [&str; 3] = ["number", "string", "bytes"];
+const IDENTITY_UNSAFE_KINDS: [&str; 3] = ["number", "string", "bytes"];

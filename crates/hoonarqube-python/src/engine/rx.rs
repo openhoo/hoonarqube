@@ -146,7 +146,7 @@ pub(crate) fn rx_equivalent(left: &RxNode, right: &RxNode) -> bool {
     }
 }
 
-pub(crate) fn rx_seq_equivalent(left: &RxSeq, right: &RxSeq) -> bool {
+fn rx_seq_equivalent(left: &RxSeq, right: &RxSeq) -> bool {
     left.items.len() == right.items.len()
         && left
             .items
@@ -155,7 +155,7 @@ pub(crate) fn rx_seq_equivalent(left: &RxSeq, right: &RxSeq) -> bool {
             .all(|(a, b)| rx_item_equivalent(a, b))
 }
 
-pub(crate) fn rx_item_equivalent(left: &RxItem, right: &RxItem) -> bool {
+fn rx_item_equivalent(left: &RxItem, right: &RxItem) -> bool {
     left.atom == right.atom
         && match (&left.quant, &right.quant) {
             (None, None) => true,
@@ -252,7 +252,7 @@ pub(crate) struct RxError {
     pub(crate) span: TextRange,
 }
 
-pub(crate) type RxResult<T> = Result<T, RxError>;
+type RxResult<T> = Result<T, RxError>;
 
 /// Back reference recorded during parsing for python:S6001.
 #[derive(Debug, Clone)]
@@ -277,12 +277,12 @@ pub(crate) struct RxParser<'a> {
     pub(crate) capture_count: u32,
     pub(crate) visible_numbers: Vec<u32>,
     pub(crate) visible_names: Vec<String>,
-    pub(crate) all_names: Vec<String>,
+    all_names: Vec<String>,
     pub(crate) backrefs: Vec<RxBackrefRecord>,
     pub(crate) octals: Vec<RxOctalRecord>,
 }
 
-pub(crate) const RX_MAX_DEPTH: u32 = 48;
+const RX_MAX_DEPTH: u32 = 48;
 
 impl<'a> RxParser<'a> {
     fn new(units: &'a [RxUnit]) -> Self {
@@ -1068,7 +1068,7 @@ impl<'a> RxParser<'a> {
 }
 
 /// Head classification returned by [`RxParser::parse_group_head`].
-pub(crate) enum GroupHead {
+enum GroupHead {
     /// Body-less atoms whose span is already final (`(?#…)`, `(?flags)`).
     Complete(RxAtom),
     /// `(?P=name)` terminates the atom itself.
@@ -1079,7 +1079,7 @@ pub(crate) enum GroupHead {
     Capture(Option<String>),
 }
 
-pub(crate) fn atom_span_end(atom: &RxAtom, start: TextSize) -> TextSize {
+fn atom_span_end(atom: &RxAtom, start: TextSize) -> TextSize {
     match atom {
         RxAtom::Group(group) => group.span.end(),
         RxAtom::Class(class) => class.span.end(),
@@ -1117,7 +1117,7 @@ pub(crate) struct RegexSite {
     pub(crate) verbose: bool,
 }
 
-pub(crate) fn decode_regex_literal(expr: &Expr, source: &str) -> Option<RegexLiteral> {
+fn decode_regex_literal(expr: &Expr, source: &str) -> Option<RegexLiteral> {
     let Expr::StringLiteral(literal) = expr else {
         return None;
     };
@@ -1214,14 +1214,14 @@ pub(crate) fn rx_atom_nullable(atom: &RxAtom) -> bool {
     }
 }
 
-pub(crate) fn rx_node_nullable(node: &RxNode) -> bool {
+fn rx_node_nullable(node: &RxNode) -> bool {
     match node {
         RxNode::Alternation(branches) => branches.iter().any(rx_seq_nullable),
         RxNode::Seq(seq) => rx_seq_nullable(seq),
     }
 }
 
-pub(crate) fn rx_seq_nullable(seq: &RxSeq) -> bool {
+fn rx_seq_nullable(seq: &RxSeq) -> bool {
     seq.items.iter().all(|item| match &item.quant {
         Some(quant) => quant.min == 0 || rx_atom_nullable(&item.atom),
         None => rx_atom_nullable(&item.atom),
@@ -1289,7 +1289,7 @@ pub(crate) enum RxSet {
     },
 }
 
-pub(crate) fn esc_class_members(class: RxEscClass) -> Option<RxSet> {
+fn esc_class_members(class: RxEscClass) -> Option<RxSet> {
     let members = |exact: &[char], ranges: &[(char, char)]| RxSet::Members {
         exact: exact.iter().copied().collect(),
         ranges: ranges.to_vec(),
@@ -1316,10 +1316,7 @@ pub(crate) fn esc_class_members(class: RxEscClass) -> Option<RxSet> {
     }
 }
 
-pub(crate) fn class_item_member(
-    item: &RxClassItem,
-    out: &mut (BTreeSet<char>, Vec<(char, char)>),
-) -> bool {
+fn class_item_member(item: &RxClassItem, out: &mut (BTreeSet<char>, Vec<(char, char)>)) -> bool {
     match item {
         RxClassItem::Char(ch) => {
             out.0.insert(*ch);
@@ -1392,7 +1389,7 @@ pub(crate) fn rx_node_first_set(node: &RxNode) -> Option<RxSet> {
 }
 
 /// First mandatory character of a branch: skip leading nullable items.
-pub(crate) fn rx_branch_first_set(seq: &RxSeq) -> Option<RxSet> {
+fn rx_branch_first_set(seq: &RxSeq) -> Option<RxSet> {
     for item in &seq.items {
         let nullable = match &item.quant {
             Some(quant) => quant.min == 0 || rx_atom_nullable(&item.atom),
@@ -1406,7 +1403,7 @@ pub(crate) fn rx_branch_first_set(seq: &RxSeq) -> Option<RxSet> {
     None
 }
 
-pub(crate) fn rx_union_sets(left: RxSet, right: RxSet) -> Option<RxSet> {
+fn rx_union_sets(left: RxSet, right: RxSet) -> Option<RxSet> {
     match (left, right) {
         (RxSet::All, _) | (_, RxSet::All) => Some(RxSet::All),
         (
@@ -1577,7 +1574,7 @@ pub(crate) fn rx_branch_covered_by(earlier: &RxSeq, later: &RxSeq) -> bool {
     false
 }
 
-pub(crate) fn class_contains_char(class: &RxClass, ch: char) -> bool {
+fn class_contains_char(class: &RxClass, ch: char) -> bool {
     class.items.iter().any(|item| match item {
         RxClassItem::Char(member) => member == &ch,
         RxClassItem::Range(low, high) => low <= &ch && &ch <= high,
@@ -1741,7 +1738,7 @@ pub(crate) fn rx_complexity(node: &RxNode, level: u32) -> u32 {
     }
 }
 
-pub(crate) fn rx_item_complexity(item: &RxItem, level: u32) -> u32 {
+fn rx_item_complexity(item: &RxItem, level: u32) -> u32 {
     let mut cost = match &item.atom {
         RxAtom::Class(_) | RxAtom::Backref(_) | RxAtom::NamedRef(_) => 1,
         RxAtom::Group(group)

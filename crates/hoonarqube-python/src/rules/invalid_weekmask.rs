@@ -54,6 +54,6 @@ pub(crate) fn check_invalid_weekmask(
 // --- migrated from support/mod.rs (S6900) ---
 // --- python:S6900 — invalid NumPy weekmasks ---------------------------------------
 
-pub(crate) fn weekmask_is_valid(mask: &str) -> bool {
+fn weekmask_is_valid(mask: &str) -> bool {
     mask.len() == 7 && mask.bytes().all(|byte| byte == b'0' || byte == b'1')
 }

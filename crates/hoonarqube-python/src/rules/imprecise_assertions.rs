@@ -34,7 +34,7 @@ pub(crate) fn check_imprecise_assertions(
 // --- migrated from support/mod.rs (S5906) ---
 // --- python:S5906 / python:S5914 — imprecise and unconditional asserts ---------------
 
-pub(crate) fn preferred_assertion(call: &ruff_python_ast::ExprCall) -> Option<&'static str> {
+fn preferred_assertion(call: &ruff_python_ast::ExprCall) -> Option<&'static str> {
     let args = &call.arguments.args;
     match called_name(&call.func) {
         Some("assertEqual" | "assertNotEqual") if args.len() == 2 => {

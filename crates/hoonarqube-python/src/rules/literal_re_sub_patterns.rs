@@ -39,6 +39,6 @@ pub(crate) fn check_literal_re_sub_patterns(
 // --- migrated from support/mod.rs (S5361) ---
 // --- python:S5361 — re.sub with a metacharacter-free pattern --------------------
 
-pub(crate) const REGEX_METACHARACTERS: [char; 14] = [
+const REGEX_METACHARACTERS: [char; 14] = [
     '\\', '^', '$', '.', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}',
 ];

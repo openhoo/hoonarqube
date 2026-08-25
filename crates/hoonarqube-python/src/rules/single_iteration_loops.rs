@@ -37,7 +37,7 @@ pub(crate) fn check_single_iteration_loops(
 // --- migrated from support/mod.rs (S1751) ---
 // --- python:S1751 — loops running at most once --------------------------------
 
-pub(crate) fn suite_has_direct_continue(suite: &[Stmt]) -> bool {
+fn suite_has_direct_continue(suite: &[Stmt]) -> bool {
     suite.iter().any(|stmt| match stmt {
         Stmt::Continue(_) => true,
         Stmt::For(_) | Stmt::While(_) | Stmt::FunctionDef(_) | Stmt::ClassDef(_) => false,

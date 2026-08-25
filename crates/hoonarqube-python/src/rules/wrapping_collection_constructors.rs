@@ -38,7 +38,7 @@ pub(crate) fn check_wrapping_collection_constructors(
 // --- migrated from support/mod.rs (S7496) ---
 // --- python:S7496 — constructor wrapping an existing literal/comprehension ----
 
-pub(crate) fn wrapping_redundancy(func_name: &str, argument: &Expr) -> bool {
+fn wrapping_redundancy(func_name: &str, argument: &Expr) -> bool {
     match func_name {
         "list" => matches!(argument, Expr::List(_) | Expr::ListComp(_)),
         "set" => matches!(argument, Expr::Set(_) | Expr::SetComp(_)),

@@ -6,9 +6,7 @@ use crate::support::{
 };
 use ruff_python_ast::Expr;
 
-pub(crate) fn call_subtree_dicts(
-    call: &ruff_python_ast::ExprCall,
-) -> Vec<&ruff_python_ast::ExprDict> {
+fn call_subtree_dicts(call: &ruff_python_ast::ExprCall) -> Vec<&ruff_python_ast::ExprDict> {
     let mut found = Vec::new();
     let mut stack: Vec<&Expr> = call.arguments.args.iter().collect();
     stack.extend(call.arguments.keywords.iter().map(|keyword| &keyword.value));

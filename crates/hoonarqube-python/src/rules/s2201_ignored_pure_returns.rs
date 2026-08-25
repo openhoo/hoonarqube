@@ -53,12 +53,12 @@ pub(crate) fn check_s2201_ignored_pure_returns(
 // --- migrated from support/mod.rs (S2201) ---
 // --- python:S2201 — return values from pure calls should not be ignored ------
 
-pub(crate) const PURE_FREE_FUNCTIONS: [&str; 13] = [
+const PURE_FREE_FUNCTIONS: [&str; 13] = [
     "sorted", "reversed", "abs", "len", "repr", "ascii", "hash", "bin", "oct", "hex", "chr", "ord",
     "divmod",
 ];
 
-pub(crate) const PURE_STRING_METHODS: [&str; 46] = [
+const PURE_STRING_METHODS: [&str; 46] = [
     "upper",
     "lower",
     "capitalize",
@@ -109,7 +109,7 @@ pub(crate) const PURE_STRING_METHODS: [&str; 46] = [
 
 /// Whether the expression is a string literal or a call chain over pure
 /// `str` methods rooted at a string literal (`"a,b".strip().split(",")`).
-pub(crate) fn is_pure_string_expression(expr: &Expr) -> bool {
+fn is_pure_string_expression(expr: &Expr) -> bool {
     match expr {
         Expr::StringLiteral(_) => true,
         Expr::Call(call) => matches!(

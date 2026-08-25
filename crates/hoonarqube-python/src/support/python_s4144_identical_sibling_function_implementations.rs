@@ -6,7 +6,7 @@ use ruff_python_ast::Stmt;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
-pub(crate) fn body_is_trivial(body: &[Stmt]) -> bool {
+fn body_is_trivial(body: &[Stmt]) -> bool {
     match body.len() {
         0 => true,
         1 => matches!(&body[0], Stmt::Pass(_) | Stmt::Expr(_)),

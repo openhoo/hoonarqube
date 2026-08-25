@@ -838,144 +838,144 @@ pub(crate) fn check_structural_battery(
     issues
 }
 
-pub(crate) mod all_exports_exist;
+mod all_exports_exist;
 
-pub(crate) mod any_all_list_comprehension;
+mod any_all_list_comprehension;
 
-pub(crate) mod any_type_hints;
+mod any_type_hints;
 
-pub(crate) mod assertion_at_end_of_except;
+mod assertion_at_end_of_except;
 
 pub(crate) mod assign_plus_minus;
 
-pub(crate) mod async_timeout_parameters;
+mod async_timeout_parameters;
 
-pub(crate) mod async_without_awaits;
+mod async_without_awaits;
 
-pub(crate) mod autograd_variable_usage;
+mod autograd_variable_usage;
 
-pub(crate) mod bare_generic_hints;
+mod bare_generic_hints;
 
-pub(crate) mod base_estimator_underscore_attributes;
+mod base_estimator_underscore_attributes;
 
-pub(crate) mod blocking_sleep_in_async;
+mod blocking_sleep_in_async;
 
-pub(crate) mod boolean_except_clauses;
+mod boolean_except_clauses;
 
-pub(crate) mod boundary_slice_comparisons;
+mod boundary_slice_comparisons;
 
-pub(crate) mod cancellation_scope_checkpoints;
+mod cancellation_scope_checkpoints;
 
-pub(crate) mod collapsible_ifs;
+mod collapsible_ifs;
 
-pub(crate) mod class_field_names;
+mod class_field_names;
 
-pub(crate) mod class_names;
+mod class_names;
 
-pub(crate) mod classmethod_parameter_names;
+mod classmethod_parameter_names;
 
 pub(crate) mod cleartext_protocols;
 
-pub(crate) mod closure_captures_loop_variable;
+mod closure_captures_loop_variable;
 
 pub(crate) mod complexity;
 
 pub(crate) mod commented_code;
 
-pub(crate) mod confusing_type_checks;
+mod confusing_type_checks;
 
-pub(crate) mod confusing_walrus_placement;
+mod confusing_walrus_placement;
 
-pub(crate) mod constant_conditions;
+mod constant_conditions;
 
-pub(crate) mod constant_dict_comprehension_values;
+mod constant_dict_comprehension_values;
 
-pub(crate) mod constant_none_comparisons;
+mod constant_none_comparisons;
 
-pub(crate) mod constant_populated_dict_loop;
+mod constant_populated_dict_loop;
 
-pub(crate) mod control_flow_in_nurseries;
+mod control_flow_in_nurseries;
 
-pub(crate) mod cookie_flag;
+mod cookie_flag;
 
-pub(crate) mod copy_only_comprehensions;
+mod copy_only_comprehensions;
 
-pub(crate) mod curly_quantifier;
+mod curly_quantifier;
 
-pub(crate) mod dataframe_values_attribute;
+mod dataframe_values_attribute;
 
-pub(crate) mod dataloader_workers;
+mod dataloader_workers;
 
-pub(crate) mod datetime_component_ranges;
+mod datetime_component_ranges;
 
-pub(crate) mod dead_stores;
+mod dead_stores;
 
-pub(crate) mod debug_features;
+mod debug_features;
 
-pub(crate) mod defaultdict_keyword_factory;
+mod defaultdict_keyword_factory;
 
-pub(crate) mod deprecated_numpy_aliases;
+mod deprecated_numpy_aliases;
 
-pub(crate) mod deprecated_utc_helpers;
+mod deprecated_utc_helpers;
 
-pub(crate) mod disclosed_secret_keys;
+mod disclosed_secret_keys;
 
-pub(crate) mod django_model_str;
+mod django_model_str;
 
-pub(crate) mod django_string_field_null;
+mod django_string_field_null;
 
-pub(crate) mod doubled_prefix_operators;
+mod doubled_prefix_operators;
 
-pub(crate) mod dunder_all_strings;
+mod dunder_all_strings;
 
-pub(crate) mod duplicate_branches;
+mod duplicate_branches;
 
-pub(crate) mod duplicate_call_arguments;
+mod duplicate_call_arguments;
 
-pub(crate) mod duplicate_conditions;
+mod duplicate_conditions;
 
-pub(crate) mod duplicate_dict_keys;
+mod duplicate_dict_keys;
 
-pub(crate) mod duplicate_set_elements;
+mod duplicate_set_elements;
 
-pub(crate) mod duplicated_string_literals;
-pub(crate) mod empty_blocks;
+mod duplicated_string_literals;
+mod empty_blocks;
 
-pub(crate) mod einops_patterns;
+mod einops_patterns;
 
-pub(crate) mod empty_collection_constructors;
-pub(crate) mod empty_functions;
+mod empty_collection_constructors;
+mod empty_functions;
 
 pub(crate) mod ends_with_newline;
 
-pub(crate) mod estimator_hyperparameters;
+mod estimator_hyperparameters;
 
-pub(crate) mod except_star_groups;
+mod except_star_groups;
 
-pub(crate) mod exception_inheritance;
+mod exception_inheritance;
 
-pub(crate) mod exit_reraises_argument;
+mod exit_reraises_argument;
 
-pub(crate) mod exit_signatures;
+mod exit_signatures;
 
-pub(crate) mod explicit_test_skips;
+mod explicit_test_skips;
 
-pub(crate) mod float_equality_comparisons;
+mod float_equality_comparisons;
 
-pub(crate) mod fresh_object_identity_checks;
+mod fresh_object_identity_checks;
 
-pub(crate) mod function_lengths;
+mod function_lengths;
 
-pub(crate) mod function_parameter_counts;
+mod function_parameter_counts;
 
-pub(crate) mod f_string_nesting;
-pub(crate) mod function_return_counts;
+mod f_string_nesting;
+mod function_return_counts;
 
-pub(crate) mod gather_validate_indices;
+mod gather_validate_indices;
 
-pub(crate) mod generator_into_constructor;
+mod generator_into_constructor;
 
-pub(crate) mod generator_return_values;
+mod generator_return_values;
 
 pub(crate) mod hardcoded_credentials;
 
@@ -983,473 +983,473 @@ pub(crate) mod hardcoded_ips;
 
 pub(crate) mod hardcoded_secrets;
 
-pub(crate) mod identical_if_else_branches;
+mod identical_if_else_branches;
 
-pub(crate) mod identical_operands;
+mod identical_operands;
 
-pub(crate) mod identical_sibling_functions;
+mod identical_sibling_functions;
 
-pub(crate) mod imprecise_assertions;
+mod imprecise_assertions;
 
-pub(crate) mod incompatible_assert_literals;
+mod incompatible_assert_literals;
 
-pub(crate) mod inconsistent_returns;
+mod inconsistent_returns;
 
-pub(crate) mod infinite_recursion;
+mod infinite_recursion;
 
-pub(crate) mod init_return_values;
+mod init_return_values;
 
-pub(crate) mod input_in_async;
+mod input_in_async;
 
-pub(crate) mod insecure_temp_files;
+mod insecure_temp_files;
 
-pub(crate) mod instance_self_parameters;
+mod instance_self_parameters;
 
 pub(crate) mod invalid_string_escapes;
 
-pub(crate) mod invalid_weekmask;
+mod invalid_weekmask;
 
-pub(crate) mod invariant_returns;
+mod invariant_returns;
 
-pub(crate) mod inverted_boolean_checks;
+mod inverted_boolean_checks;
 
-pub(crate) mod isclose_zero_tolerance;
+mod isclose_zero_tolerance;
 
 pub(crate) mod issue_tags;
 
-pub(crate) mod items_only_keys_needed;
+mod items_only_keys_needed;
 
-pub(crate) mod json_response_safe_flag;
+mod json_response_safe_flag;
 
-pub(crate) mod jwt_secret_arguments;
+mod jwt_secret_arguments;
 
-pub(crate) mod keras_model_input_shape;
+mod keras_model_input_shape;
 
 pub(crate) mod keyword_parentheses;
 
-pub(crate) mod known_value_comparisons;
+mod known_value_comparisons;
 
-pub(crate) mod lambda_assignments;
+mod lambda_assignments;
 
 pub(crate) mod license_header;
 
 pub(crate) mod line_length;
 
-pub(crate) mod lines_of_code;
+mod lines_of_code;
 
-pub(crate) mod list_wrapped_iteration;
+mod list_wrapped_iteration;
 
-pub(crate) mod literal_re_sub_patterns;
+mod literal_re_sub_patterns;
 
-pub(crate) mod long_dataframe_chains;
+mod long_dataframe_chains;
 
-pub(crate) mod long_sleeps;
+mod long_sleeps;
 
-pub(crate) mod loop_else_without_break;
+mod loop_else_without_break;
 
 pub(crate) mod lowercase_long_suffix;
 
-pub(crate) mod manual_key_iteration;
+mod manual_key_iteration;
 
-pub(crate) mod map_lambda_calls;
+mod map_lambda_calls;
 
-pub(crate) mod meaningless_size_comparisons;
+mod meaningless_size_comparisons;
 
-pub(crate) mod method_and_function_names;
+mod method_and_function_names;
 
-pub(crate) mod methods_missing_parameters;
+mod methods_missing_parameters;
 
-pub(crate) mod missing_docstrings;
-pub(crate) mod missing_eval_after_load;
+mod missing_docstrings;
+mod missing_eval_after_load;
 
-pub(crate) mod missing_parameter_annotations;
+mod missing_parameter_annotations;
 
-pub(crate) mod missing_return_annotations;
+mod missing_return_annotations;
 
 pub(crate) mod mixed_string_concatenation;
 
-pub(crate) mod modelform_meta_fields;
+mod modelform_meta_fields;
 
 pub(crate) mod module_name;
 
-pub(crate) mod mutable_default_mutation;
+mod mutable_default_mutation;
 
-pub(crate) mod named_group_references;
+mod named_group_references;
 
-pub(crate) mod named_steps_bypass;
+mod named_steps_bypass;
 
-pub(crate) mod nan_comparisons;
+mod nan_comparisons;
 
-pub(crate) mod member_name_matches_class;
+mod member_name_matches_class;
 
-pub(crate) mod needless_pass;
+mod needless_pass;
 
-pub(crate) mod nested_bodies;
+mod nested_bodies;
 
-pub(crate) mod nested_conditional_expressions;
+mod nested_conditional_expressions;
 
-pub(crate) mod nested_estimator_parameters;
+mod nested_estimator_parameters;
 
-pub(crate) mod nested_identical_constructors;
+mod nested_identical_constructors;
 
-pub(crate) mod nesting_depths;
+mod nesting_depths;
 
-pub(crate) mod nn_module_super_init;
+mod nn_module_super_init;
 
-pub(crate) mod no_effect_statements;
+mod no_effect_statements;
 
 pub(crate) mod no_sonar;
 
 pub(crate) mod noqa_comments;
 
-pub(crate) mod notimplemented_raises;
+mod notimplemented_raises;
 
-pub(crate) mod np_array_generator;
+mod np_array_generator;
 
 pub(crate) mod one_statement_per_line;
 
-pub(crate) mod only_reraise_handlers;
+mod only_reraise_handlers;
 
-pub(crate) mod old_style_classes;
-pub(crate) mod open_modes;
+mod old_style_classes;
+mod open_modes;
 
-pub(crate) mod overwritten_collection_items;
+mod overwritten_collection_items;
 
-pub(crate) mod overwritten_parameters;
+mod overwritten_parameters;
 
-pub(crate) mod pandas_inplace;
+mod pandas_inplace;
 
-pub(crate) mod parameter_and_local_names;
+mod parameter_and_local_names;
 
 pub(crate) mod parsing_errors;
 
-pub(crate) mod pep695_generic_classes;
+mod pep695_generic_classes;
 
-pub(crate) mod percent_argument_counts;
+mod percent_argument_counts;
 
-pub(crate) mod percent_argument_types;
+mod percent_argument_types;
 
-pub(crate) mod pipeline_memory_missing;
+mod pipeline_memory_missing;
 
 pub(crate) mod pre_increment_decrement;
 
-pub(crate) mod property_accessor_arities;
+mod property_accessor_arities;
 
 pub(crate) mod py2_backticks;
 
 pub(crate) mod py2_inequality;
 
-pub(crate) mod pytz_timezone_usage;
+mod pytz_timezone_usage;
 
-pub(crate) mod pytz_tzinfo_kwarg;
+mod pytz_tzinfo_kwarg;
 
-pub(crate) mod raise_and_jump_flow;
+mod raise_and_jump_flow;
 
-pub(crate) mod random_state_usage;
+mod random_state_usage;
 
-pub(crate) mod read_without_dtype;
+mod read_without_dtype;
 
-pub(crate) mod reduction_axis_missing;
-pub(crate) mod redundant_parentheses;
+mod reduction_axis_missing;
+mod redundant_parentheses;
 
-pub(crate) mod redundant_jump_statements;
+mod redundant_jump_statements;
 
-pub(crate) mod redundant_typevars;
+mod redundant_typevars;
 
-pub(crate) mod render_locals;
-pub(crate) mod similar_names_scope;
+mod render_locals;
+mod similar_names_scope;
 
-pub(crate) mod replacement_references;
+mod replacement_references;
 
-pub(crate) mod route_decorator_ordering;
+mod route_decorator_ordering;
 
-pub(crate) mod rx_alternation_nodes;
+mod rx_alternation_nodes;
 
-pub(crate) mod rx_alternation_shapes;
+mod rx_alternation_shapes;
 
-pub(crate) mod rx_anchor_order;
+mod rx_anchor_order;
 
-pub(crate) mod rx_class;
+mod rx_class;
 
-pub(crate) mod rx_empty_groups;
+mod rx_empty_groups;
 
-pub(crate) mod rx_lazy_quantifiers;
+mod rx_lazy_quantifiers;
 
-pub(crate) mod rx_overlapping_repeats;
+mod rx_overlapping_repeats;
 
-pub(crate) mod rx_pointless_groups;
+mod rx_pointless_groups;
 
-pub(crate) mod rx_possessive_deadlock;
+mod rx_possessive_deadlock;
 
-pub(crate) mod rx_redundant_alternatives;
+mod rx_redundant_alternatives;
 
 pub(crate) mod rx_repetition_hazards;
 
-pub(crate) mod rx_space_runs;
+mod rx_space_runs;
 
 pub(crate) mod rx_style_shapes;
 
 pub(crate) mod rx_syntax_shapes;
 
-pub(crate) mod s1523_dynamic_code_execution;
+mod s1523_dynamic_code_execution;
 
-pub(crate) mod s2053_static_salt;
+mod s2053_static_salt;
 
-pub(crate) mod s2077_sql_formatting;
+mod s2077_sql_formatting;
 
-pub(crate) mod s2115_empty_database_password;
+mod s2115_empty_database_password;
 
-pub(crate) mod s2201_ignored_pure_returns;
+mod s2201_ignored_pure_returns;
 
-pub(crate) mod s2245_prng_security_contexts;
+mod s2245_prng_security_contexts;
 
-pub(crate) mod s2257_custom_cryptography;
+mod s2257_custom_cryptography;
 
-pub(crate) mod s2638_override_contracts;
+mod s2638_override_contracts;
 
-pub(crate) mod s2755_xxe_parsers;
+mod s2755_xxe_parsers;
 
-pub(crate) mod s2876_iter_returns;
+mod s2876_iter_returns;
 
-pub(crate) mod s3329_static_cbc_iv;
+mod s3329_static_cbc_iv;
 
-pub(crate) mod s3403_identity_dissimilar_types;
+mod s3403_identity_dissimilar_types;
 
-pub(crate) mod s3699_used_void_outputs;
+mod s3699_used_void_outputs;
 
-pub(crate) mod s3752_route_methods;
+mod s3752_route_methods;
 
-pub(crate) mod s3862_iterating_non_iterables;
+mod s3862_iterating_non_iterables;
 
-pub(crate) mod s4423_weak_ssl_protocols;
+mod s4423_weak_ssl_protocols;
 
-pub(crate) mod s4426_weak_key_generation;
+mod s4426_weak_key_generation;
 
-pub(crate) mod s4433_ldap_unauthenticated;
+mod s4433_ldap_unauthenticated;
 
-pub(crate) mod s4502_csrf_disabled;
+mod s4502_csrf_disabled;
 
-pub(crate) mod s4721_shell_commands;
+mod s4721_shell_commands;
 
-pub(crate) mod s4787_encrypting_data;
+mod s4787_encrypting_data;
 
-pub(crate) mod s4792_logger_configuration;
+mod s4792_logger_configuration;
 
-pub(crate) mod s4823_command_line_arguments;
+mod s4823_command_line_arguments;
 
-pub(crate) mod s4828_signal_parameters;
+mod s4828_signal_parameters;
 
-pub(crate) mod s4829_standard_input;
+mod s4829_standard_input;
 
-pub(crate) mod s4830_certificate_verification;
+mod s4830_certificate_verification;
 
-pub(crate) mod s5122_cors_wildcard;
+mod s5122_cors_wildcard;
 
-pub(crate) mod s5247_autoescaping_disabled;
+mod s5247_autoescaping_disabled;
 
-pub(crate) mod s5300_sending_emails;
+mod s5300_sending_emails;
 
-pub(crate) mod s5344_plaintext_passwords;
+mod s5344_plaintext_passwords;
 
-pub(crate) mod s5439_global_autoescape_disabled;
+mod s5439_global_autoescape_disabled;
 
-pub(crate) mod s5443_public_temp_files;
+mod s5443_public_temp_files;
 
-pub(crate) mod s5527_hostname_verification;
+mod s5527_hostname_verification;
 
-pub(crate) mod s5542_weak_modes_and_paddings;
+mod s5542_weak_modes_and_paddings;
 
-pub(crate) mod s5547_weak_ciphers;
+mod s5547_weak_ciphers;
 
-pub(crate) mod s5607_incompatible_operator_pairs;
+mod s5607_incompatible_operator_pairs;
 
-pub(crate) mod s5632_raising_non_exceptions;
+mod s5632_raising_non_exceptions;
 
-pub(crate) mod s5642_membership_operands;
+mod s5642_membership_operands;
 
-pub(crate) mod s5644_literal_item_operations;
+mod s5644_literal_item_operations;
 
-pub(crate) mod s5655_argument_kind_mismatches;
+mod s5655_argument_kind_mismatches;
 
-pub(crate) mod s5659_jwt_signing;
+mod s5659_jwt_signing;
 
-pub(crate) mod s5707_raise_from_non_exception;
+mod s5707_raise_from_non_exception;
 
-pub(crate) mod s5708_excepting_non_exceptions;
+mod s5708_excepting_non_exceptions;
 
-pub(crate) mod s5713_parent_child_except_pairs;
+mod s5713_parent_child_except_pairs;
 
-pub(crate) mod s5756_non_callable_callees;
+mod s5756_non_callable_callees;
 
-pub(crate) mod s5795_identity_cached_types;
+mod s5795_identity_cached_types;
 
-pub(crate) mod s5886_return_hint_mismatches;
+mod s5886_return_hint_mismatches;
 
-pub(crate) mod s5890_annotated_assignment_kinds;
+mod s5890_annotated_assignment_kinds;
 
-pub(crate) mod s6245_s3_encryption_configuration;
+mod s6245_s3_encryption_configuration;
 
-pub(crate) mod s6252_s3_versioning;
+mod s6252_s3_versioning;
 
-pub(crate) mod s6265_s3_public_acl;
+mod s6265_s3_public_acl;
 
-pub(crate) mod s6270_public_resource_policy;
+mod s6270_public_resource_policy;
 
-pub(crate) mod s6275_ebs_encryption;
+mod s6275_ebs_encryption;
 
-pub(crate) mod s6281_s3_public_access_block;
+mod s6281_s3_public_access_block;
 
-pub(crate) mod s6302_all_privileges_policy;
+mod s6302_all_privileges_policy;
 
-pub(crate) mod s6303_rds_encryption;
+mod s6303_rds_encryption;
 
-pub(crate) mod s6304_all_resources_policy;
+mod s6304_all_resources_policy;
 
-pub(crate) mod s6308_opensearch_encryption;
+mod s6308_opensearch_encryption;
 
-pub(crate) mod s6317_wildcard_action_scope;
+mod s6317_wildcard_action_scope;
 
-pub(crate) mod s6319_sagemaker_encryption;
+mod s6319_sagemaker_encryption;
 
-pub(crate) mod s6321_admin_ports_open_world;
+mod s6321_admin_ports_open_world;
 
-pub(crate) mod s6327_sns_encryption;
+mod s6327_sns_encryption;
 
-pub(crate) mod s6329_public_network_access;
+mod s6329_public_network_access;
 
-pub(crate) mod s6330_sqs_encryption;
+mod s6330_sqs_encryption;
 
-pub(crate) mod s6332_efs_encryption;
+mod s6332_efs_encryption;
 
-pub(crate) mod s6333_api_gateway_authorization;
+mod s6333_api_gateway_authorization;
 
-pub(crate) mod s6377_weak_xml_signature_transforms;
+mod s6377_weak_xml_signature_transforms;
 
-pub(crate) mod s6463_unrestricted_egress;
+mod s6463_unrestricted_egress;
 
-pub(crate) mod s6662_unhashable_collection_literals;
+mod s6662_unhashable_collection_literals;
 
-pub(crate) mod s6663_sequence_index_type;
+mod s6663_sequence_index_type;
 
-pub(crate) mod s6785_graphql_depth_limiting;
+mod s6785_graphql_depth_limiting;
 
-pub(crate) mod s930_arity_mismatches;
+mod s930_arity_mismatches;
 
-pub(crate) mod s935_bare_returns;
+mod s935_bare_returns;
 
-pub(crate) mod self_assignment;
+mod self_assignment;
 
-pub(crate) mod shadowed_builtins;
+mod shadowed_builtins;
 
-pub(crate) mod single_arg_np_where;
+mod single_arg_np_where;
 
-pub(crate) mod single_iteration_loops;
+mod single_iteration_loops;
 
-pub(crate) mod single_task_nurseries;
+mod single_task_nurseries;
 
-pub(crate) mod skip_without_reason;
+mod skip_without_reason;
 
-pub(crate) mod sleep_in_async_loop;
+mod sleep_in_async_loop;
 
-pub(crate) mod sleep_zero_checkpoint;
+mod sleep_zero_checkpoint;
 
-pub(crate) mod sorted_reversed_shapes;
+mod sorted_reversed_shapes;
 
-pub(crate) mod special_method_arities;
+mod special_method_arities;
 
-pub(crate) mod static_candidates;
+mod static_candidates;
 
-pub(crate) mod strftime_hour_markers;
+mod strftime_hour_markers;
 
 pub(crate) mod suite;
 
-pub(crate) mod swallowed_cancellations;
+mod swallowed_cancellations;
 
-pub(crate) mod swallowed_system_exit;
+mod swallowed_system_exit;
 
-pub(crate) mod sync_file_ops_in_async;
+mod sync_file_ops_in_async;
 
-pub(crate) mod sync_http_in_async;
+mod sync_http_in_async;
 
-pub(crate) mod sync_open_without_async_with;
+mod sync_open_without_async_with;
 
-pub(crate) mod sync_os_calls_in_async;
+mod sync_os_calls_in_async;
 
-pub(crate) mod sync_subprocess_in_async;
+mod sync_subprocess_in_async;
 
-pub(crate) mod tf_function_global_captures;
+mod tf_function_global_captures;
 
-pub(crate) mod tf_function_recursion;
+mod tf_function_recursion;
 
-pub(crate) mod tf_function_side_effects;
+mod tf_function_side_effects;
 
-pub(crate) mod tf_variable_creation;
+mod tf_variable_creation;
 
-pub(crate) mod to_datetime_ambiguity;
+mod to_datetime_ambiguity;
 
-pub(crate) mod torch_load_weights_only;
+mod torch_load_weights_only;
 
-pub(crate) mod trailing_comments;
+mod trailing_comments;
 
 pub(crate) mod trailing_whitespace;
 
-pub(crate) mod tuple_assertions;
+mod tuple_assertions;
 
-pub(crate) mod type_equality_comparisons;
+mod type_equality_comparisons;
 
-pub(crate) mod typealias_assignments;
+mod typealias_assignments;
 
-pub(crate) mod typevar_annotated_functions;
+mod typevar_annotated_functions;
 
-pub(crate) mod typing_alias_hints;
+mod typing_alias_hints;
 
-pub(crate) mod typing_union_hints;
+mod typing_union_hints;
 
-pub(crate) mod unbounded_archive_extraction;
+mod unbounded_archive_extraction;
 
-pub(crate) mod unconditional_assertions;
+mod unconditional_assertions;
 
-pub(crate) mod undefined_names;
+mod undefined_names;
 
-pub(crate) mod unqualified_merge;
+mod unqualified_merge;
 
-pub(crate) mod unraised_exceptions;
+mod unraised_exceptions;
 
-pub(crate) mod unreachable_code;
+mod unreachable_code;
 
-pub(crate) mod unreachable_except_blocks;
+mod unreachable_except_blocks;
 
-pub(crate) mod unreachable_test_methods;
+mod unreachable_test_methods;
 
-pub(crate) mod unread_private_attributes;
+mod unread_private_attributes;
 
-pub(crate) mod unreferenced_asyncio_tasks;
+mod unreferenced_asyncio_tasks;
 
-pub(crate) mod unseeded_randomness;
+mod unseeded_randomness;
 
-pub(crate) mod unused_imports;
+mod unused_imports;
 
-pub(crate) mod unused_locals;
+mod unused_locals;
 
-pub(crate) mod unused_nested_definitions;
+mod unused_nested_definitions;
 
-pub(crate) mod unused_parameters;
+mod unused_parameters;
 
-pub(crate) mod unused_private_methods;
+mod unused_private_methods;
 
-pub(crate) mod unused_private_nested_classes;
+mod unused_private_nested_classes;
 
-pub(crate) mod use_before_definition;
+mod use_before_definition;
 
-pub(crate) mod weak_hashing;
+mod weak_hashing;
 
-pub(crate) mod wildcard_imports;
+mod wildcard_imports;
 
-pub(crate) mod world_writable_modes;
+mod world_writable_modes;
 
-pub(crate) mod wrapping_collection_constructors;
+mod wrapping_collection_constructors;
 
-pub(crate) mod yield_return_outside_function;
+mod yield_return_outside_function;
 
 // --- migrated from support/mod.rs (S2092) ---
 // --- python:S2092 / S3330 — cookie "secure" and "HttpOnly" flags --------------

@@ -33,7 +33,7 @@ pub(crate) fn check_infinite_recursion(
 // --- migrated from support/mod.rs (S2190) ---
 // --- python:S2190 — infinite recursion ---------------------------------------
 
-pub(crate) fn straight_line_self_call(suite: &[Stmt], name: &str) -> bool {
+fn straight_line_self_call(suite: &[Stmt], name: &str) -> bool {
     for stmt in suite {
         match stmt {
             Stmt::Expr(expr_stmt) => {

@@ -59,8 +59,7 @@ pub(crate) fn check_s5547_weak_ciphers(
 // --- migrated from support/mod.rs (S5547) ---
 // --- python:S5547 — robust cipher algorithms ------------------------------------
 
-pub(crate) const WEAK_CIPHER_ALGORITHMS: [&str; 6] =
-    ["DES", "DES3", "ARC2", "ARC4", "Blowfish", "IDEA"];
+const WEAK_CIPHER_ALGORITHMS: [&str; 6] = ["DES", "DES3", "ARC2", "ARC4", "Blowfish", "IDEA"];
 
 #[cfg(test)]
 mod tests {

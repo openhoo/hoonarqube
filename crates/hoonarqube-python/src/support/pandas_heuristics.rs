@@ -48,7 +48,7 @@ pub(crate) fn collect_dataframe_variables(module_body: &[Stmt]) -> Vec<String> {
 }
 
 /// Number of consecutive attribute/method segments in a receiver chain.
-pub(crate) fn method_chain_length(expr: &Expr) -> u32 {
+fn method_chain_length(expr: &Expr) -> u32 {
     match expr {
         // Every `x.m` access is one hop; the surrounding `(...)` call merges
         // into that hop instead of adding another.

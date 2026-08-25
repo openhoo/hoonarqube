@@ -38,7 +38,7 @@ pub(crate) fn looks_like_exception_name(name: &str) -> bool {
     name.ends_with("Error") || name.ends_with("Warning") || name.ends_with("Exception")
 }
 
-pub(crate) fn is_builtin_exception_base(expr: &Expr) -> bool {
+fn is_builtin_exception_base(expr: &Expr) -> bool {
     let tail = match expr {
         Expr::Name(name) => Some(name.id.as_str()),
         Expr::Attribute(attribute) => Some(attribute.attr.as_str()),

@@ -87,7 +87,7 @@ pub(crate) fn module_classes(module: &[Stmt]) -> HashMap<&str, &ruff_python_ast:
 
 /// Whether `candidate` is a transitive file-local ancestor of `class_name`;
 /// cycles in the (invalid) inheritance graph are cut by the visited set.
-pub(crate) fn has_file_local_ancestor(
+fn has_file_local_ancestor(
     class_name: &str,
     candidate: &str,
     classes: &HashMap<&str, &ruff_python_ast::StmtClassDef>,

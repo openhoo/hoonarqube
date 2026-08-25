@@ -187,10 +187,10 @@ pub fn analyze(
     }
 }
 
-pub(crate) mod context;
-pub(crate) mod engine;
-pub(crate) mod rules;
-pub(crate) mod support;
+mod context;
+mod engine;
+mod rules;
+mod support;
 
 #[cfg(test)]
 mod test_support;

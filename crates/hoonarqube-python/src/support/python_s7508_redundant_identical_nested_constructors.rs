@@ -129,7 +129,7 @@ pub(crate) fn has_boto3_binding(module_body: &[Stmt]) -> bool {
 }
 
 /// Whether any name inside the expression tree equals one of `names`.
-pub(crate) fn expr_chain_mentions(expr: &Expr, names: &[&str]) -> bool {
+fn expr_chain_mentions(expr: &Expr, names: &[&str]) -> bool {
     let mut found = false;
     for_each_expr(expr, &mut |child| {
         if let Expr::Name(name) = child {

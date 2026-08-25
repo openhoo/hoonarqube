@@ -44,7 +44,7 @@ pub(crate) fn check_s6265_s3_public_acl(
 // --- migrated from support/mod.rs (S6265) ---
 // --- python:S6265 — S3 buckets not granted to all users -------------------------
 
-pub(crate) const ALL_USERS_GRANT_URI: &str = "http://acs.amazonaws.com/groups/global/AllUsers";
+const ALL_USERS_GRANT_URI: &str = "http://acs.amazonaws.com/groups/global/AllUsers";
 
 #[cfg(test)]
 mod tests {

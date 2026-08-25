@@ -39,7 +39,7 @@ pub(crate) fn check_s6329_public_network_access(
 // --- migrated from support/mod.rs (S6329) ---
 // --- python:S6329 — public network access disabled ----------------------------------
 
-pub(crate) const PUBLIC_NETWORK_FLAGS: [&str; 3] = [
+const PUBLIC_NETWORK_FLAGS: [&str; 3] = [
     "PubliclyAccessible",
     "MapPublicIpOnLaunch",
     "AssociatePublicIpAddress",

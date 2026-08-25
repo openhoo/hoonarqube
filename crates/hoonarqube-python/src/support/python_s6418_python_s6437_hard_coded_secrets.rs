@@ -108,7 +108,7 @@ pub(crate) fn invalid_escape_offsets(raw: &str) -> Vec<usize> {
     offsets
 }
 
-pub(crate) fn is_valid_escape_byte(byte: u8) -> bool {
+fn is_valid_escape_byte(byte: u8) -> bool {
     matches!(
         byte,
         b'\\'

@@ -44,7 +44,7 @@ pub(crate) fn check_s6281_s3_public_access_block(
 // --- migrated from support/mod.rs (S6281) ---
 // --- python:S6281 — S3 public access fully blocked --------------------------------
 
-pub(crate) const PUBLIC_ACCESS_BLOCK_KEYS: [&str; 4] = [
+const PUBLIC_ACCESS_BLOCK_KEYS: [&str; 4] = [
     "BlockPublicAcls",
     "BlockPublicPolicy",
     "IgnorePublicAcls",

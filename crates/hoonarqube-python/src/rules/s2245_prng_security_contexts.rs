@@ -49,11 +49,11 @@ pub(crate) fn check_s2245_prng_security_contexts(
 // --- migrated from support/mod.rs (S2245) ---
 // --- python:S2245 — PRNGs in security contexts ---------------------------------
 
-pub(crate) const SECURITY_CONTEXT_WORDS: [&str; 8] = [
+const SECURITY_CONTEXT_WORDS: [&str; 8] = [
     "token", "password", "secret", "key", "nonce", "salt", "cert", "auth",
 ];
 
-pub(crate) const PRNG_FUNCTIONS: [&str; 8] = [
+const PRNG_FUNCTIONS: [&str; 8] = [
     "random",
     "randint",
     "randrange",

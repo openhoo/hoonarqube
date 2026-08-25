@@ -37,7 +37,7 @@ pub(crate) fn check_async_without_awaits(
 // --- migrated from support/mod.rs (S7503) ---
 // --- python:S7503 — async function without async features ---------------------------
 
-pub(crate) fn async_features_present(function: &ruff_python_ast::StmtFunctionDef) -> bool {
+fn async_features_present(function: &ruff_python_ast::StmtFunctionDef) -> bool {
     let mut found = false;
     for_each_stmt_in_scope(function.body.as_slice(), &mut |stmt| {
         match stmt {

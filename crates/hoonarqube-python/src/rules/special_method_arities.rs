@@ -41,7 +41,7 @@ pub(crate) fn check_special_method_arities(
 // --- migrated from support/mod.rs (S5722) ---
 // --- python:S5722 — special method arity --------------------------------------
 
-pub(crate) const ARITY_ONE_DUNDERS: [&str; 17] = [
+const ARITY_ONE_DUNDERS: [&str; 17] = [
     "__str__",
     "__repr__",
     "__len__",
@@ -61,7 +61,7 @@ pub(crate) const ARITY_ONE_DUNDERS: [&str; 17] = [
     "__complex__",
 ];
 
-pub(crate) const ARITY_TWO_DUNDERS: [&str; 39] = [
+const ARITY_TWO_DUNDERS: [&str; 39] = [
     "__add__",
     "__sub__",
     "__mul__",
@@ -103,10 +103,10 @@ pub(crate) const ARITY_TWO_DUNDERS: [&str; 39] = [
     "__delete__",
 ];
 
-pub(crate) const ARITY_THREE_DUNDERS: [&str; 4] =
+const ARITY_THREE_DUNDERS: [&str; 4] =
     ["__setitem__", "__setattr__", "__delattr__", "__set_name__"];
 
-pub(crate) fn required_special_method_arity(name: &str) -> Option<usize> {
+fn required_special_method_arity(name: &str) -> Option<usize> {
     if ARITY_ONE_DUNDERS.contains(&name) {
         Some(1)
     } else if ARITY_TWO_DUNDERS.contains(&name) {

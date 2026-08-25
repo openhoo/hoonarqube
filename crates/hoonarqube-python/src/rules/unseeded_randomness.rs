@@ -36,7 +36,7 @@ pub(crate) fn check_unseeded_randomness(
 // --- migrated from support/mod.rs (S6709) ---
 // --- python:S6709 — unseeded randomness (file-level presence heuristic) ---------------
 
-pub(crate) fn random_entry_point(path: &str) -> bool {
+fn random_entry_point(path: &str) -> bool {
     let random_module = path.starts_with("random.") && path != "random.seed";
     let numpy_random = (path.starts_with("np.random.") || path.starts_with("numpy.random."))
         && !["seed", "default_rng", "Generator", "RandomState"]
@@ -44,7 +44,7 @@ pub(crate) fn random_entry_point(path: &str) -> bool {
     random_module || numpy_random
 }
 
-pub(crate) fn seeding_call(path: &str) -> bool {
+fn seeding_call(path: &str) -> bool {
     path.contains("seed") || path.ends_with("default_rng") || path.ends_with("manual_seed")
 }
 

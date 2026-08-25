@@ -90,8 +90,8 @@ pub(crate) struct SymbolScope {
     pub(crate) parent: Option<usize>,
     pub(crate) bindings: HashMap<String, Vec<Binding>>,
     pub(crate) loads: Vec<(String, TextRange, bool)>,
-    pub(crate) global_names: Vec<String>,
-    pub(crate) nonlocal_names: Vec<String>,
+    global_names: Vec<String>,
+    nonlocal_names: Vec<String>,
 }
 
 impl SymbolScope {
@@ -149,7 +149,7 @@ pub(crate) struct FileFacts {
     pub(crate) has_wildcard_import: bool,
 }
 
-pub(crate) fn bind_symbol(
+fn bind_symbol(
     scope: &mut SymbolScope,
     name: &str,
     range: TextRange,
@@ -167,7 +167,7 @@ pub(crate) fn bind_symbol(
         });
 }
 
-pub(crate) fn push_symbol_scope(table: &mut SymbolTable, kind: ScopeKind, parent: usize) -> usize {
+fn push_symbol_scope(table: &mut SymbolTable, kind: ScopeKind, parent: usize) -> usize {
     table.scopes.push(SymbolScope::new(kind, Some(parent)));
     table.scopes.len() - 1
 }
@@ -184,23 +184,13 @@ pub(crate) fn build_symbol_table(parsed: &Parsed<ModModule>) -> SymbolTable {
     table
 }
 
-pub(crate) fn collect_scope_stmts(
-    table: &mut SymbolTable,
-    current: usize,
-    suite: &[Stmt],
-    loop_depth: u32,
-) {
+fn collect_scope_stmts(table: &mut SymbolTable, current: usize, suite: &[Stmt], loop_depth: u32) {
     for stmt in suite {
         collect_scope_stmt(table, current, stmt, loop_depth);
     }
 }
 
-pub(crate) fn collect_scope_stmt(
-    table: &mut SymbolTable,
-    current: usize,
-    stmt: &Stmt,
-    loop_depth: u32,
-) {
+fn collect_scope_stmt(table: &mut SymbolTable, current: usize, stmt: &Stmt, loop_depth: u32) {
     match stmt {
         Stmt::Assign(_) | Stmt::AnnAssign(_) | Stmt::AugAssign(_) => {
             record_assignment_stmt(table, current, stmt, loop_depth);
@@ -297,12 +287,7 @@ fn collect_with_stmt(
     collect_scope_stmts(table, current, &with_stmt.body, loop_depth);
 }
 
-pub(crate) fn record_assignment_stmt(
-    table: &mut SymbolTable,
-    current: usize,
-    stmt: &Stmt,
-    loop_depth: u32,
-) {
+fn record_assignment_stmt(table: &mut SymbolTable, current: usize, stmt: &Stmt, loop_depth: u32) {
     match stmt {
         Stmt::Assign(assign) => {
             for target in &assign.targets {
@@ -344,12 +329,7 @@ pub(crate) fn record_assignment_stmt(
     }
 }
 
-pub(crate) fn record_import_stmt(
-    table: &mut SymbolTable,
-    current: usize,
-    stmt: &Stmt,
-    loop_depth: u32,
-) {
+fn record_import_stmt(table: &mut SymbolTable, current: usize, stmt: &Stmt, loop_depth: u32) {
     let aliases: &[ruff_python_ast::Alias] = match stmt {
         Stmt::Import(import_stmt) => &import_stmt.names,
         Stmt::ImportFrom(import_from) => {
@@ -377,7 +357,7 @@ pub(crate) fn record_import_stmt(
     }
 }
 
-pub(crate) fn collect_try_stmt(
+fn collect_try_stmt(
     table: &mut SymbolTable,
     current: usize,
     try_stmt: &ruff_python_ast::StmtTry,
@@ -404,7 +384,7 @@ pub(crate) fn collect_try_stmt(
     collect_scope_stmts(table, current, &try_stmt.finalbody, loop_depth);
 }
 
-pub(crate) fn collect_function_def(
+fn collect_function_def(
     table: &mut SymbolTable,
     current: usize,
     function: &ruff_python_ast::StmtFunctionDef,
@@ -456,7 +436,7 @@ pub(crate) fn collect_function_def(
     collect_scope_stmts(table, fn_scope, &function.body, 0);
 }
 
-pub(crate) fn collect_class_def(
+fn collect_class_def(
     table: &mut SymbolTable,
     current: usize,
     class: &ruff_python_ast::StmtClassDef,
@@ -496,7 +476,7 @@ pub(crate) fn collect_class_def(
 
 /// Records a binding-position expression: plain names become stores while
 /// attribute/subscript roots stay reads of their container.
-pub(crate) fn record_store_target(
+fn record_store_target(
     table: &mut SymbolTable,
     current: usize,
     target: &Expr,
@@ -538,7 +518,7 @@ pub(crate) fn record_store_target(
     }
 }
 
-pub(crate) fn record_self_attribute_write(
+fn record_self_attribute_write(
     table: &mut SymbolTable,
     attribute: &ruff_python_ast::ExprAttribute,
     range: TextRange,
@@ -556,7 +536,7 @@ pub(crate) fn record_self_attribute_write(
     }
 }
 
-pub(crate) fn record_expr_loads(
+fn record_expr_loads(
     table: &mut SymbolTable,
     current: usize,
     expr: &Expr,
@@ -602,7 +582,7 @@ pub(crate) fn record_expr_loads(
 /// Handles the expressions that open a nested scope: walrus targets bind in
 /// the nearest non-comprehension ancestor, lambdas bind their parameters, and
 /// comprehensions evaluate their iterables in the enclosing scope.
-pub(crate) fn record_scope_creating_expr(
+fn record_scope_creating_expr(
     table: &mut SymbolTable,
     current: usize,
     expr: &Expr,
@@ -736,7 +716,7 @@ fn record_sequence_comprehension(
     );
 }
 
-pub(crate) fn record_comprehension_scope(
+fn record_comprehension_scope(
     table: &mut SymbolTable,
     current: usize,
     results: &[&Expr],
@@ -763,7 +743,7 @@ pub(crate) fn record_comprehension_scope(
     }
 }
 
-pub(crate) fn resolve_symbol_loads(table: &mut SymbolTable) {
+fn resolve_symbol_loads(table: &mut SymbolTable) {
     let mut resolved = Vec::new();
     for scope_idx in 0..table.scopes.len() {
         let entries: Vec<(String, TextRange, bool)> = table.scopes[scope_idx].loads.clone();
@@ -784,7 +764,7 @@ pub(crate) fn resolve_symbol_loads(table: &mut SymbolTable) {
 /// Resolves a name from `start` through the scope chain. Functions and
 /// comprehensions cannot see through an intervening class scope; unresolved
 /// names fall back to the builtin table (`None`).
-pub(crate) fn resolve_name(table: &SymbolTable, start: usize, name: &str) -> Option<usize> {
+fn resolve_name(table: &SymbolTable, start: usize, name: &str) -> Option<usize> {
     let mut cursor = start;
     loop {
         let scope = &table.scopes[cursor];

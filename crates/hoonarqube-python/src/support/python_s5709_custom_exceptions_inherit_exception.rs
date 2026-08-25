@@ -45,7 +45,7 @@ pub(crate) fn scan_flow_statements(
     }
 }
 
-pub(crate) fn flag_flow_jump(
+fn flag_flow_jump(
     stmt: &Stmt,
     state: FlowState,
     issues: &mut Vec<Issue>,
@@ -71,7 +71,7 @@ pub(crate) fn flag_flow_jump(
     }
 }
 
-pub(crate) fn flag_flow_raise(
+fn flag_flow_raise(
     raised: &ruff_python_ast::StmtRaise,
     state: FlowState,
     issues: &mut Vec<Issue>,
@@ -95,7 +95,7 @@ pub(crate) fn flag_flow_raise(
     issues.push(issue_at(key, message, raised.range(), index, source));
 }
 
-pub(crate) fn scan_flow_nested_bodies(
+fn scan_flow_nested_bodies(
     stmt: &Stmt,
     state: FlowState,
     issues: &mut Vec<Issue>,

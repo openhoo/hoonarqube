@@ -39,7 +39,7 @@ pub(crate) fn check_invariant_returns(
 // --- python:S3516 — invariant function returns --------------------------------
 
 /// Normalized texts of direct non-None constant `return` values.
-pub(crate) fn direct_constant_return_texts(suite: &[Stmt], source: &str) -> Vec<String> {
+fn direct_constant_return_texts(suite: &[Stmt], source: &str) -> Vec<String> {
     let mut texts = Vec::new();
     for_each_stmt_in_scope(suite, &mut |stmt| {
         if let Stmt::Return(return_stmt) = stmt

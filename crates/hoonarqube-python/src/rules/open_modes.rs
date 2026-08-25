@@ -46,7 +46,7 @@ pub(crate) fn check_open_modes(
 // --- migrated from support/mod.rs (S5828) ---
 // --- python:S5828 — invalid open modes ---------------------------------------
 
-pub(crate) fn open_mode_is_valid(mode: &str) -> bool {
+fn open_mode_is_valid(mode: &str) -> bool {
     let mut primary = 0;
     let mut plus = 0;
     let mut binary = 0;

@@ -33,7 +33,7 @@ pub(crate) fn check_deprecated_numpy_aliases(
 // --- migrated from support/mod.rs (S6730) ---
 // --- python:S6730 — deprecated NumPy scalar aliases ------------------------------
 
-pub(crate) const DEPRECATED_NUMPY_ALIASES: [&str; 16] = [
+const DEPRECATED_NUMPY_ALIASES: [&str; 16] = [
     "np.int",
     "np.float",
     "np.bool",

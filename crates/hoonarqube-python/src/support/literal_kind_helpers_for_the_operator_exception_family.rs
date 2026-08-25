@@ -4,7 +4,7 @@ use crate::support::literal_kind;
 use ruff_python_ast::Expr;
 
 /// Kinds that support neither membership, item access, nor iteration.
-pub(crate) const NON_SUPPORTING_KINDS: [&str; 2] = ["number", "boolean"];
+const NON_SUPPORTING_KINDS: [&str; 2] = ["number", "boolean"];
 
 pub(crate) fn is_non_supporting_kind(kind: &str) -> bool {
     NON_SUPPORTING_KINDS.contains(&kind)

@@ -43,7 +43,7 @@ pub(crate) fn check_datetime_component_ranges(
 
 /// Inclusive upper bounds per constructor slot: year, month, day, hour,
 /// minute, second, microsecond.
-pub(crate) fn datetime_component_limit(constructor: &str, position: usize) -> Option<(i64, i64)> {
+fn datetime_component_limit(constructor: &str, position: usize) -> Option<(i64, i64)> {
     let constructor = match constructor {
         "date" => "datetime.date",
         "time" => "datetime.time",

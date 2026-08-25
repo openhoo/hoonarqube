@@ -41,4 +41,4 @@ pub(crate) fn check_s6321_admin_ports_open_world(
 // --- migrated from support/mod.rs (S6321) ---
 // --- python:S6321 — administration services restricted by IP ----------------------
 
-pub(crate) const ADMIN_PORTS: [i64; 2] = [22, 3389];
+const ADMIN_PORTS: [i64; 2] = [22, 3389];

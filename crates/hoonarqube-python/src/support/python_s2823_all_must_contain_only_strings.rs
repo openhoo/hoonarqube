@@ -52,7 +52,7 @@ pub(crate) fn len_zero_verdict_swapped(
         )
 }
 
-pub(crate) fn is_len_call(expr: &Expr) -> bool {
+fn is_len_call(expr: &Expr) -> bool {
     matches!(expr, Expr::Call(call) if called_name(&call.func) == Some("len") && call.arguments.args.len() == 1)
 }
 
@@ -68,7 +68,7 @@ pub(crate) fn excluded_identical_pair(left: &Expr, right: &Expr) -> bool {
     is_small_int_literal(left) && is_small_int_literal(right)
 }
 
-pub(crate) fn is_small_int_literal(expr: &Expr) -> bool {
+fn is_small_int_literal(expr: &Expr) -> bool {
     matches!(
         expr,
         Expr::NumberLiteral(number)
@@ -194,7 +194,7 @@ pub(crate) fn visit_suites_for_no_effect(
     }
 }
 
-pub(crate) fn statement_has_no_effect(expr: &Expr) -> bool {
+fn statement_has_no_effect(expr: &Expr) -> bool {
     match expr {
         Expr::NoneLiteral(_)
         | Expr::BooleanLiteral(_)
@@ -233,7 +233,7 @@ pub(crate) fn exception_type_names(type_expr: Option<&Expr>) -> Vec<String> {
     names
 }
 
-pub(crate) fn collect_exception_names(expr: &Expr, names: &mut Vec<String>) {
+fn collect_exception_names(expr: &Expr, names: &mut Vec<String>) {
     match expr {
         Expr::Name(name) => names.push(name.id.to_string()),
         Expr::Attribute(attribute) => names.push(attribute.attr.to_string()),

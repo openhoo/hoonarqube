@@ -63,10 +63,9 @@ pub(crate) fn is_nursery_block(with_stmt: &ruff_python_ast::StmtWith) -> bool {
             .any(|item| nursery_context_expression(&item.context_expr))
 }
 
-pub(crate) const NURSERY_START_CALLS: [&str; 4] =
-    ["start_soon", "start_soon_nursery", "spawn", "create_task"];
+const NURSERY_START_CALLS: [&str; 4] = ["start_soon", "start_soon_nursery", "spawn", "create_task"];
 
-pub(crate) fn nursery_started_tasks(with_stmt: &ruff_python_ast::StmtWith) -> usize {
+fn nursery_started_tasks(with_stmt: &ruff_python_ast::StmtWith) -> usize {
     let mut count = 0;
     for_each_stmt_in_scope(with_stmt.body.as_slice(), &mut |stmt| {
         for expr in stmt_exprs(stmt) {

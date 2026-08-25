@@ -44,7 +44,7 @@ pub(crate) fn check_cancellation_scope_checkpoints(
 // --- migrated from support/mod.rs (S7490) ---
 // --- python:S7490 / python:S7497 — cancellation contracts -----------------------
 
-pub(crate) fn suite_contains_checkpoint(suite: &[Stmt]) -> bool {
+fn suite_contains_checkpoint(suite: &[Stmt]) -> bool {
     let mut found = false;
     for_each_stmt_expr(suite, &mut |expr| {
         found |= matches!(expr, Expr::Await(_));
@@ -52,7 +52,7 @@ pub(crate) fn suite_contains_checkpoint(suite: &[Stmt]) -> bool {
     found
 }
 
-pub(crate) fn is_call_context_tail(item: &ruff_python_ast::WithItem, tails: &[&str]) -> bool {
+fn is_call_context_tail(item: &ruff_python_ast::WithItem, tails: &[&str]) -> bool {
     let Expr::Call(call) = &item.context_expr else {
         return false;
     };

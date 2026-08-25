@@ -29,7 +29,7 @@ pub(crate) fn check_s4423_weak_ssl_protocols(
 // --- migrated from support/mod.rs (S4423) ---
 // --- python:S4423 — weak SSL/TLS protocols ------------------------------------
 
-pub(crate) const WEAK_PROTOCOL_CONSTANTS: [&str; 4] = [
+const WEAK_PROTOCOL_CONSTANTS: [&str; 4] = [
     "PROTOCOL_SSLv2",
     "PROTOCOL_SSLv3",
     "PROTOCOL_TLSv1",

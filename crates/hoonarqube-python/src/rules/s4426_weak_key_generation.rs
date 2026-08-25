@@ -56,9 +56,9 @@ pub(crate) fn check_s4426_weak_key_generation(
 // --- migrated from support/mod.rs (S4426) ---
 // --- python:S4426 — cryptographic key generation based on strong parameters --
 
-pub(crate) const STRONG_MINIMUM_KEY_BITS: i64 = 2048;
+const STRONG_MINIMUM_KEY_BITS: i64 = 2048;
 
-pub(crate) const WEAK_ELLIPTIC_CURVES: [&str; 2] = ["SECP192R1", "SECP224R1"];
+const WEAK_ELLIPTIC_CURVES: [&str; 2] = ["SECP192R1", "SECP224R1"];
 
 #[cfg(test)]
 mod tests {

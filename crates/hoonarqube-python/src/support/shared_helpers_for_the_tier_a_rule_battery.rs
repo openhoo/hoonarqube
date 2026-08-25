@@ -11,7 +11,7 @@ use ruff_text_size::Ranged;
 use ruff_text_size::TextRange;
 use ruff_text_size::TextSize;
 
-pub(crate) const PYTHON_KEYWORDS: [&str; 35] = [
+const PYTHON_KEYWORDS: [&str; 35] = [
     "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue",
     "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import",
     "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while",
@@ -144,7 +144,7 @@ pub(crate) fn child_exprs(expr: &Expr) -> Vec<&Expr> {
     children
 }
 
-pub(crate) fn push_generator_exprs<'a>(
+fn push_generator_exprs<'a>(
     generators: &'a [ruff_python_ast::Comprehension],
     children: &mut Vec<&'a Expr>,
 ) {
@@ -316,7 +316,7 @@ pub(crate) fn shannon_entropy(text: &str) -> f64 {
 }
 
 /// Maximal runs of characters satisfying `predicate`.
-pub(crate) fn maximal_runs<'a>(
+fn maximal_runs<'a>(
     text: &'a str,
     predicate: impl Fn(char) -> bool + 'a,
 ) -> impl Iterator<Item = &'a str> + 'a {
@@ -336,7 +336,7 @@ pub(crate) fn significant_tokens(
 
 /// Source regions that must be ignored by raw-text scans: comments, string
 /// literals, and whole f-string/t-string regions including their interiors.
-pub(crate) fn masked_spans(parsed: &Parsed<ModModule>) -> Vec<TextRange> {
+fn masked_spans(parsed: &Parsed<ModModule>) -> Vec<TextRange> {
     let mut spans = Vec::new();
     let mut depth = 0u32;
     let mut open_region: Option<TextSize> = None;
@@ -400,7 +400,7 @@ pub(crate) fn ip_addresses(text: &str) -> Vec<String> {
     found
 }
 
-pub(crate) fn parse_ipv4(run: &str) -> Option<String> {
+fn parse_ipv4(run: &str) -> Option<String> {
     const EXEMPT: [&str; 3] = ["0.0.0.0", "127.0.0.1", "255.255.255.255"];
     let octets: Vec<&str> = run.split('.').collect();
     let valid = octets.len() == 4
@@ -417,7 +417,7 @@ pub(crate) fn parse_ipv4(run: &str) -> Option<String> {
     }
 }
 
-pub(crate) fn parse_ipv6(run: &str) -> Option<String> {
+fn parse_ipv6(run: &str) -> Option<String> {
     if run == "::" || run == "::1" {
         return None;
     }

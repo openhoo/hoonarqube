@@ -37,7 +37,7 @@ pub(crate) fn dict_string_entry<'a>(
     })
 }
 
-pub(crate) fn is_wildcard_string(expr: &Expr) -> bool {
+fn is_wildcard_string(expr: &Expr) -> bool {
     string_literal_text(expr).as_deref() == Some("*")
 }
 

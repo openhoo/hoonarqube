@@ -36,7 +36,7 @@ pub(crate) fn check_unraised_exceptions(
 // --- migrated from support/mod.rs (S3984) ---
 // --- python:S3984 — exception instantiated but never raised ---------------------
 
-pub(crate) fn exception_constructor_name(call: &ruff_python_ast::ExprCall) -> Option<&str> {
+fn exception_constructor_name(call: &ruff_python_ast::ExprCall) -> Option<&str> {
     let name = called_name(&call.func)?;
     let known_builtin = matches!(
         name,

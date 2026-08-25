@@ -42,7 +42,7 @@ pub(crate) fn check_inconsistent_returns(
 // --- migrated from support/mod.rs (S3801) ---
 // --- python:S3801 — inconsistent return values --------------------------------
 
-pub(crate) fn suite_contains_yield(suite: &[Stmt]) -> bool {
+fn suite_contains_yield(suite: &[Stmt]) -> bool {
     let mut found = false;
     for_each_stmt_expr(suite, &mut |expr| {
         found |= matches!(expr, Expr::Yield(_) | Expr::YieldFrom(_));
@@ -50,7 +50,7 @@ pub(crate) fn suite_contains_yield(suite: &[Stmt]) -> bool {
     found
 }
 
-pub(crate) fn direct_return_kinds(suite: &[Stmt]) -> (usize, usize) {
+fn direct_return_kinds(suite: &[Stmt]) -> (usize, usize) {
     let mut valued = 0;
     let mut empty = 0;
     for_each_stmt_in_scope(suite, &mut |stmt| {

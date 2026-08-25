@@ -40,7 +40,7 @@ pub(crate) fn check_unreachable_test_methods(
 // --- migrated from support/mod.rs (S5899) ---
 // --- python:S5899 — unreachable test methods ------------------------------------
 
-pub(crate) fn is_test_case_base(expr: &Expr) -> bool {
+fn is_test_case_base(expr: &Expr) -> bool {
     let tail = match expr {
         Expr::Name(name) => Some(name.id.as_str()),
         Expr::Attribute(attribute) => Some(attribute.attr.as_str()),

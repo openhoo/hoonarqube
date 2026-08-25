@@ -43,7 +43,7 @@ pub(crate) fn check_notimplemented_raises(
 // --- migrated from support/mod.rs (S5712) ---
 // --- python:S5712 — special methods raising NotImplementedError ---------------
 
-pub(crate) const PROTOCOL_DUNDERS: [&str; 34] = [
+const PROTOCOL_DUNDERS: [&str; 34] = [
     "__add__",
     "__sub__",
     "__mul__",
@@ -80,7 +80,7 @@ pub(crate) const PROTOCOL_DUNDERS: [&str; 34] = [
     "__hash__",
 ];
 
-pub(crate) fn is_notimplemented_error_expr(expr: &Expr) -> bool {
+fn is_notimplemented_error_expr(expr: &Expr) -> bool {
     match expr {
         Expr::Name(name) => name.id.as_str() == "NotImplementedError",
         Expr::Call(call) => {

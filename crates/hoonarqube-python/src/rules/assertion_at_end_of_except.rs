@@ -38,7 +38,7 @@ pub(crate) fn check_assertion_at_end_of_except(
 // --- migrated from support/mod.rs (S5915) ---
 // --- python:S5915 — assertion at end of except block ---------------------------
 
-pub(crate) fn is_unittest_assert_call(stmt: &Stmt) -> bool {
+fn is_unittest_assert_call(stmt: &Stmt) -> bool {
     let Stmt::Expr(value) = stmt else {
         return false;
     };

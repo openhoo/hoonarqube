@@ -187,7 +187,7 @@ pub(crate) fn count_own_returns(stmts: &[Stmt]) -> usize {
 }
 
 /// Keyword introducing a python:S134 nesting construct.
-pub(crate) fn nesting_keyword(stmt: &Stmt) -> Option<&'static str> {
+fn nesting_keyword(stmt: &Stmt) -> Option<&'static str> {
     match stmt {
         Stmt::If(_) => Some("if"),
         Stmt::For(loop_stmt) => Some(if loop_stmt.is_async {
@@ -206,7 +206,7 @@ pub(crate) fn nesting_keyword(stmt: &Stmt) -> Option<&'static str> {
     }
 }
 
-pub(crate) fn flag_excess_nesting(
+fn flag_excess_nesting(
     stmt: &Stmt,
     level: u32,
     options: &AnalyzerOptions,
