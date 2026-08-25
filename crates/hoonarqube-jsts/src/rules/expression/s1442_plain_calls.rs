@@ -1,5 +1,5 @@
 // Rule module s1442_plain_calls (generated).
-use super::walker::call_property;
+use crate::rules::shared::call_property;
 use crate::support::{IssueSink, RuleScope, callee_name, member_rooted_at};
 use oxc_ast::ast::{CallExpression, Expression};
 use oxc_span::GetSpan;

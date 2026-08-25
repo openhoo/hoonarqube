@@ -1,6 +1,6 @@
 // Residual rule machinery for 'batch5' (extracted from lib.rs).
 use super::collectors::TsTypeCollector;
-use crate::rules::duplicate::collectors::is_literal_expression;
+use crate::rules::shared::is_literal_expression;
 use crate::support::RuleScope;
 use crate::support::unparenthesized;
 use oxc_ast::ast::ArrayExpressionElement;

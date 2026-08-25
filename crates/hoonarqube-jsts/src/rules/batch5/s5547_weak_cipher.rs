@@ -1,7 +1,7 @@
 use crate::rules::batch5::collectors::SecurityHotspotCollector;
 use crate::rules::batch5::collectors::WEAK_CIPHER_FAMILIES;
 use crate::rules::batch5::collectors::first_string_argument;
-use crate::rules::tier_c::walker::sink_callee_name;
+use crate::rules::shared::sink_callee_name;
 use crate::support::RuleScope;
 use oxc_ast::ast::CallExpression;
 use oxc_span::GetSpan;

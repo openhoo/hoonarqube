@@ -1,13 +1,9 @@
 // Residual rule machinery for 'expression' (extracted from lib.rs).
-use crate::rules::expression::s1528_constructor_calls::argument_expression;
+use crate::rules::shared::CONSOLE_METHODS;
+use crate::rules::shared::argument_expression;
 use crate::support::{IssueSink, RuleScope, member_object, member_root_name, member_rooted_at};
 use oxc_ast::ast::{CallExpression, Expression, MemberExpression};
 use oxc_span::GetSpan;
-
-/// `console` members flagged by `S106`.
-pub(crate) const CONSOLE_METHODS: [&str; 8] = [
-    "log", "info", "warn", "error", "debug", "trace", "dir", "table",
-];
 
 /// `S106`, `S1442`, `S6637`, and `S6676`.
 pub(crate) fn check_logging_and_binding_calls(

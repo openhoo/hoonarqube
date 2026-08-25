@@ -1,4 +1,5 @@
-use super::walker::{TierCLiteralCollector, sink_callee_name};
+use super::walker::TierCLiteralCollector;
+use crate::rules::shared::sink_callee_name;
 use crate::support::RuleScope;
 use crate::support::member_object;
 use crate::support::unparenthesized;

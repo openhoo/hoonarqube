@@ -7,7 +7,7 @@ use crate::engine::pattern_parser::{
     constructor_regex_site, literal_string_value, parse_regex_pattern, regex_flags_text,
     regex_literal_argument, regex_site_from_literal,
 };
-use crate::rules::expression::walker::call_property;
+use crate::rules::shared::call_property;
 use crate::support::{
     IssueSink, LineIndex, RuleScope, callee_name, constructor_name, member_object, unparenthesized,
 };

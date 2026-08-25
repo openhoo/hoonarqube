@@ -1,7 +1,7 @@
 // Residual rule machinery for 'batch2d' (extracted from lib.rs).
 use crate::rules::batch2d::s3512_es_idioms::EsIdiomCollector;
-use crate::rules::expression::s1528_constructor_calls::argument_expression;
-use crate::rules::expression::walker::call_property;
+use crate::rules::shared::argument_expression;
+use crate::rules::shared::call_property;
 use crate::support::RuleScope;
 use oxc_ast::ast::CallExpression;
 use oxc_ast::ast::Expression;

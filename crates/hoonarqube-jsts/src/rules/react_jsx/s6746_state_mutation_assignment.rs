@@ -1,5 +1,5 @@
 use super::walker::ReactCollector;
-use crate::rules::expression::walker::call_property;
+use crate::rules::shared::{call_property, expression_through_this_link};
 use crate::support::RuleScope;
 use crate::support::member_object;
 use oxc_ast::ast::AssignmentExpression;
@@ -69,24 +69,6 @@ const STATE_MUTATION_METHODS: [&str; 9] = [
 /// Whether a member chain passes through a `this.state` link (`S6746`).
 fn expression_through_this_state(expression: &Expression<'_>) -> bool {
     expression_through_this_link(expression, "state")
-}
-
-/// Whether a member chain passes through a `this.<link>` access.
-pub(crate) fn expression_through_this_link(expression: &Expression<'_>, link: &str) -> bool {
-    match expression {
-        Expression::StaticMemberExpression(member) => {
-            (matches!(&member.object, Expression::ThisExpression(_))
-                && member.property.name == link)
-                || expression_through_this_link(&member.object, link)
-        }
-        Expression::ComputedMemberExpression(member) => {
-            expression_through_this_link(&member.object, link)
-        }
-        Expression::PrivateFieldExpression(member) => {
-            expression_through_this_link(&member.object, link)
-        }
-        _ => false,
-    }
 }
 
 #[cfg(test)]

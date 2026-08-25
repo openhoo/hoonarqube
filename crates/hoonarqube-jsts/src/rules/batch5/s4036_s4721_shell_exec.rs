@@ -2,7 +2,7 @@ use crate::rules::batch5::collectors::PATH_LOOKUP_APIS;
 use crate::rules::batch5::collectors::SHELL_EXEC_NAMES;
 use crate::rules::batch5::collectors::SecurityHotspotCollector;
 use crate::rules::batch5::collectors::first_string_argument;
-use crate::rules::tier_c::walker::sink_callee_name;
+use crate::rules::shared::sink_callee_name;
 use crate::support::RuleScope;
 use oxc_ast::ast::CallExpression;
 use oxc_span::GetSpan;

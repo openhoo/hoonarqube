@@ -1,6 +1,6 @@
 use super::collectors::{FunctionMetricsCollector, ReturnMixScanner};
-use crate::rules::expression::s1528_constructor_calls::argument_expression;
-use crate::rules::expression::walker::call_property;
+use crate::rules::shared::argument_expression;
+use crate::rules::shared::call_property;
 use crate::support::RuleScope;
 use oxc_ast::ast::CallExpression;
 use oxc_ast::ast::Expression;

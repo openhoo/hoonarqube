@@ -1,7 +1,7 @@
 // Family walker for 'loops' (generated).
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
-use crate::rules::expression::walker::call_property;
+use crate::rules::shared::call_property;
 use crate::support::{
     IssueSink, LineIndex, RuleScope, assignment_target_name, binding_identifier_name, callee_name,
     identifier_name, is_identifier_byte, source_slice, unparenthesized, update_target_name,

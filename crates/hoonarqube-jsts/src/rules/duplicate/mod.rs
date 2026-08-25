@@ -1,5 +1,4 @@
 // Family 'duplicate' (generated).
-pub(crate) mod collectors;
 mod walker;
 
 use crate::Issue;

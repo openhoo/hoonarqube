@@ -11,17 +11,16 @@ use super::s3981_length_comparison::check_length_comparison;
 use super::s4125_typeof_literal::check_typeof_literal;
 use super::s6644_redundant_ternary::check_redundant_ternary;
 use crate::context::AnalysisContext;
-use crate::support::{
-    IssueSink, LineIndex, RuleScope, callee_name, identifier_name, static_property_name,
-};
+use crate::rules::shared::{call_property, is_equality_operator, regex_pattern_text};
+use crate::support::{IssueSink, LineIndex, RuleScope, callee_name, identifier_name};
 use crate::{JstsLanguage, check_collection_and_object_calls, check_logging_and_binding_calls};
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     ArrayExpression, ArrayExpressionElement, AssignmentExpression, BinaryExpression,
     BinaryOperator, CallExpression, ConditionalExpression, Expression, IfStatement,
-    LogicalExpression, LogicalOperator, MemberExpression, NewExpression, NumericLiteral,
-    ParenthesizedExpression, RegExpLiteral, SequenceExpression, StringLiteral, TemplateLiteral,
-    UnaryExpression, UnaryOperator,
+    LogicalExpression, LogicalOperator, NewExpression, NumericLiteral, ParenthesizedExpression,
+    RegExpLiteral, SequenceExpression, StringLiteral, TemplateLiteral, UnaryExpression,
+    UnaryOperator,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
@@ -330,16 +329,6 @@ fn is_bitwise_operator(operator: BinaryOperator) -> bool {
     )
 }
 
-pub(crate) fn is_equality_operator(operator: BinaryOperator) -> bool {
-    matches!(
-        operator,
-        BinaryOperator::Equality
-            | BinaryOperator::Inequality
-            | BinaryOperator::StrictEquality
-            | BinaryOperator::StrictInequality
-    )
-}
-
 /// Member-call rules: `S106`, `S1442`, `S6637`, `S6676`, `S6666`, `S6959`,
 /// `S2871`, `S6653`, `S2685`, `S6654`, and `S6661`.
 fn check_member_calls(sink: &mut IssueSink, it: &CallExpression<'_>) {
@@ -358,23 +347,11 @@ fn has_octal_escape(text: &str) -> bool {
         .any(|window| window[0] == '\\' && ('1'..='7').contains(&window[1]))
 }
 
-pub(crate) fn regex_pattern_text<'a>(literal: &'a RegExpLiteral<'a>) -> &'a str {
-    literal.regex.pattern.text.as_str()
-}
-
 pub(crate) fn numeric_literal_value(expression: &Expression<'_>) -> Option<f64> {
     match expression {
         Expression::NumericLiteral(literal) => Some(literal.value),
         _ => None,
     }
-}
-
-pub(crate) fn call_property<'r, 'a>(
-    call: &'r CallExpression<'a>,
-) -> Option<(&'r str, &'r MemberExpression<'a>)> {
-    let member = call.callee.as_member_expression()?;
-    let property = static_property_name(member)?;
-    Some((property, member))
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {

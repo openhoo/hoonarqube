@@ -2,7 +2,7 @@
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::engine::scope_model::FunctionParamMapCollector;
-use crate::rules::expression::s1528_constructor_calls::argument_expression;
+use crate::rules::shared::argument_expression;
 use crate::support::{IssueSink, LineIndex, RuleScope, callee_name, identifier_name};
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::CallExpression;

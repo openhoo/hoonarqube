@@ -1,5 +1,5 @@
 use super::walker::{ReactCollector, ThisStateReferenceScanner};
-use crate::rules::expression::s1528_constructor_calls::argument_expression;
+use crate::rules::shared::argument_expression;
 use crate::support::RuleScope;
 use oxc_ast::ast::CallExpression;
 use oxc_ast::ast::Expression;

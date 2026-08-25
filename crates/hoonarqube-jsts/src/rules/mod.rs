@@ -33,6 +33,7 @@ mod s1291_nosonar;
 mod s139_disallowed_comment_pattern;
 mod s1451_file_header;
 mod self_assignments;
+pub(crate) mod shared;
 pub(crate) mod statement;
 mod statement_sequences;
 mod swapped_call_arguments;

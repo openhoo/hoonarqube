@@ -1,4 +1,5 @@
-use super::walker::{ReactCollector, ThisPropsScanner, duplicated_key_name};
+use super::walker::{ReactCollector, ThisPropsScanner};
+use crate::rules::shared::duplicated_key_name;
 use crate::support::RuleScope;
 use oxc_ast::ast::Class;
 use oxc_ast::ast::ClassElement;

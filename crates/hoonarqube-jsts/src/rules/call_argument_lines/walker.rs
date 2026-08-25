@@ -1,7 +1,7 @@
 // Family walker for 'call_argument_lines' (generated).
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
-use crate::rules::expression::s1528_constructor_calls::argument_expression;
+use crate::rules::shared::argument_expression;
 use crate::support::{IssueSink, LineIndex, RuleScope};
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::CallExpression;

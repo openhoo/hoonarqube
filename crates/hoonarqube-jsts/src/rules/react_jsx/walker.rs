@@ -1,10 +1,11 @@
 // Family walker for 'react_jsx' (generated).
-use super::s6746_state_mutation_assignment::expression_through_this_link;
 use crate::JstsLanguage;
 use crate::context::{AnalysisContext, RuleOptions};
 use crate::expression_returns_jsx;
-use crate::rules::expression::s1528_constructor_calls::argument_expression;
-use crate::rules::expression::walker::call_property;
+use crate::rules::shared::argument_expression;
+use crate::rules::shared::call_property;
+use crate::rules::shared::duplicated_key_name;
+use crate::rules::shared::expression_through_this_link;
 use crate::support::IssueSink;
 use crate::support::LineIndex;
 use crate::support::binding_identifier_name;
@@ -40,7 +41,6 @@ use oxc_ast::ast::MethodDefinition;
 use oxc_ast::ast::MethodDefinitionKind;
 use oxc_ast::ast::ObjectPropertyKind;
 use oxc_ast::ast::PropertyDefinition;
-use oxc_ast::ast::PropertyKey;
 use oxc_ast::ast::ReturnStatement;
 use oxc_ast::ast::SimpleAssignmentTarget;
 use oxc_ast::ast::Statement;
@@ -540,16 +540,6 @@ pub(crate) fn capitalize_first(name: &str) -> String {
     match chars.next() {
         Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
         None => String::new(),
-    }
-}
-
-/// Normalized key name for duplicate detection: static identifiers plus
-/// their quoted-string spellings (`{a: 1, "a": 2}` collide).
-pub(crate) fn duplicated_key_name<'data>(key: &PropertyKey<'data>) -> Option<&'data str> {
-    match key {
-        PropertyKey::StaticIdentifier(identifier) => Some(identifier.name.as_str()),
-        PropertyKey::StringLiteral(literal) => Some(literal.value.as_str()),
-        _ => None,
     }
 }
 

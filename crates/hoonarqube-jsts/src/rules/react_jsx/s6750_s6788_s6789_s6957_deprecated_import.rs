@@ -1,5 +1,5 @@
 use super::walker::ReactCollector;
-use crate::rules::expression::walker::call_property;
+use crate::rules::shared::call_property;
 use crate::support::RuleScope;
 use crate::support::member_root_name;
 use oxc_ast::ast::CallExpression;

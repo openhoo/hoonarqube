@@ -1,6 +1,6 @@
 // Residual rule machinery for 'batch2d' (extracted from lib.rs).
 use crate::rules::batch2d::s3512_es_idioms::EsIdiomCollector;
-use crate::rules::react_jsx::walker::duplicated_key_name;
+use crate::rules::shared::duplicated_key_name;
 use crate::support::IssueSink;
 use crate::support::LineIndex;
 use crate::support::binding_identifier_name;

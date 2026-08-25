@@ -1,4 +1,5 @@
-use super::walker::{ReactCollector, duplicated_key_name};
+use super::walker::ReactCollector;
+use crate::rules::shared::duplicated_key_name;
 use crate::support::RuleScope;
 use oxc_ast::ast::Class;
 use oxc_ast::ast::ClassElement;

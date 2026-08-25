@@ -3,7 +3,7 @@ use crate::engine::scope_model::function_body_span;
 use crate::engine::scope_model::function_parameters;
 use crate::engine::scope_model::parameter_names;
 use crate::rules::batch5::s2187_test_framework_rules::TestFrameworkCollector;
-use crate::rules::expression::s1528_constructor_calls::argument_expression;
+use crate::rules::shared::argument_expression;
 use crate::support::RuleScope;
 use crate::support::callee_name;
 use oxc_ast::ast::CallExpression;

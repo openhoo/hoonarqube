@@ -1,6 +1,6 @@
 use crate::rules::batch5::collectors::SecurityHotspotCollector;
 use crate::rules::batch5::collectors::first_string_argument;
-use crate::rules::tier_c::walker::sink_callee_name;
+use crate::rules::shared::sink_callee_name;
 use crate::support::RuleScope;
 use crate::support::expression_root_name;
 use crate::support::identifier_name;

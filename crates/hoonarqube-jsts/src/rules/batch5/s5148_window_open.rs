@@ -1,6 +1,6 @@
 use crate::rules::batch5::collectors::SecurityHotspotCollector;
-use crate::rules::expression::s1528_constructor_calls::argument_expression;
-use crate::rules::tier_c::walker::sink_callee_name;
+use crate::rules::shared::argument_expression;
+use crate::rules::shared::sink_callee_name;
 use crate::support::RuleScope;
 use crate::support::unparenthesized;
 use oxc_ast::ast::CallExpression;

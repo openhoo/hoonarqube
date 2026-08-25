@@ -163,35 +163,6 @@ pub(crate) fn check_self_imports(
     issues
 }
 
-pub(crate) const SHELL_EXEC_FUNCTIONS: [&str; 5] =
-    ["exec", "execSync", "spawn", "spawnSync", "execFile"];
-
-pub(crate) fn static_command_text(expression: &Expression<'_>) -> Option<String> {
-    match expression {
-        Expression::StringLiteral(literal) => Some(literal.value.to_string()),
-        Expression::TemplateLiteral(template) if template.expressions.is_empty() => Some(
-            template
-                .quasis
-                .iter()
-                .map(|quasi| quasi.value.raw.to_string())
-                .collect(),
-        ),
-        _ => None,
-    }
-}
-
-pub(crate) fn is_unpinned_npm_install(command: &str) -> bool {
-    let tokens: Vec<&str> = command.split_whitespace().collect();
-    if tokens.first() != Some(&"npm") || !matches!(tokens.get(1), Some(&"install" | &"i" | &"add"))
-    {
-        return false;
-    }
-    tokens[2..]
-        .iter()
-        .filter(|token| !token.starts_with('-'))
-        .any(|token| !token.contains('@') && !token.contains('#') && !token.contains("://"))
-}
-
 impl<'a> Visit<'a> for TestFrameworkCollector<'_, '_> {
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
         self.check_skipped_or_focused(it);

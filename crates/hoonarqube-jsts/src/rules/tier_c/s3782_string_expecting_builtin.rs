@@ -2,7 +2,7 @@ use super::walker::TierCLiteralCollector;
 use crate::engine::scope_model::LiteralKind;
 use crate::engine::scope_model::kind_is_numeric;
 use crate::engine::scope_model::literal_kind;
-use crate::rules::expression::s1528_constructor_calls::argument_expression;
+use crate::rules::shared::argument_expression;
 use crate::support::RuleScope;
 use crate::support::callee_name;
 use crate::support::expression_root_name;

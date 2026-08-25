@@ -1,7 +1,7 @@
 // Residual rule machinery for 'batch2d' (extracted from lib.rs).
 use super::collectors::RootedMemberScanner;
 use crate::rules::batch2d::s3512_es_idioms::EsIdiomCollector;
-use crate::rules::expression::walker::is_equality_operator;
+use crate::rules::shared::is_equality_operator;
 use crate::support::RuleScope;
 use crate::support::identifier_name;
 use crate::support::unparenthesized;

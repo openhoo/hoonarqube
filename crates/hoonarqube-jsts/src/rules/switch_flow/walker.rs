@@ -1,6 +1,7 @@
 // Family walker for 'switch_flow' (generated).
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
+use crate::rules::shared::statement_ends_with_jump;
 use crate::support::{IssueSink, LineIndex, RuleScope, unparenthesized};
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
@@ -162,27 +163,6 @@ fn case_test_is_sequence_or_or(test: &Expression<'_>) -> bool {
     match unparenthesized(test) {
         Expression::SequenceExpression(_) => true,
         Expression::LogicalExpression(logical) => logical.operator == LogicalOperator::Or,
-        _ => false,
-    }
-}
-
-/// Whether a statement terminates unconditionally for `S128`: a direct
-/// jump, a block whose last statement jumps, or an `if/else` where both
-/// branches jump.
-fn statement_ends_with_jump(stmt: &Statement<'_>) -> bool {
-    match stmt {
-        Statement::BreakStatement(_)
-        | Statement::ContinueStatement(_)
-        | Statement::ReturnStatement(_)
-        | Statement::ThrowStatement(_) => true,
-        Statement::BlockStatement(block) => block.body.last().is_some_and(statement_ends_with_jump),
-        Statement::IfStatement(if_statement) => {
-            statement_ends_with_jump(&if_statement.consequent)
-                && if_statement
-                    .alternate
-                    .as_ref()
-                    .is_some_and(statement_ends_with_jump)
-        }
         _ => false,
     }
 }

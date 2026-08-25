@@ -1,4 +1,5 @@
 // Rule module s1488_scan_statement_sequence (generated).
+use crate::rules::shared::statement_ends_with_jump;
 use crate::support::{IssueSink, RuleScope, binding_identifier_name, identifier_name};
 use oxc_ast::ast::{Declaration, Statement};
 use oxc_span::GetSpan;
@@ -52,27 +53,6 @@ pub(crate) fn scan_statement_sequence(sink: &mut IssueSink<'_>, statements: &[St
         if let Some(message) = message {
             sink.emit_span(RuleScope::Both, "S1488", &message, declarator.span());
         }
-    }
-}
-
-/// Whether a statement terminates unconditionally for `S128`: a direct
-/// jump, a block whose last statement jumps, or an `if/else` where both
-/// branches jump.
-pub(crate) fn statement_ends_with_jump(stmt: &Statement<'_>) -> bool {
-    match stmt {
-        Statement::BreakStatement(_)
-        | Statement::ContinueStatement(_)
-        | Statement::ReturnStatement(_)
-        | Statement::ThrowStatement(_) => true,
-        Statement::BlockStatement(block) => block.body.last().is_some_and(statement_ends_with_jump),
-        Statement::IfStatement(if_statement) => {
-            statement_ends_with_jump(&if_statement.consequent)
-                && if_statement
-                    .alternate
-                    .as_ref()
-                    .is_some_and(statement_ends_with_jump)
-        }
-        _ => false,
     }
 }
 

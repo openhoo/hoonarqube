@@ -1,4 +1,5 @@
 // Rule module s1528_constructor_calls (generated).
+use crate::rules::shared::argument_expression;
 use crate::support::{IssueSink, RuleScope, constructor_name};
 use oxc_ast::ast::{Expression, NewExpression};
 use oxc_span::GetSpan;
@@ -46,12 +47,6 @@ pub(crate) fn check_constructor_calls(sink: &mut IssueSink, it: &NewExpression<'
             it.callee.span(),
         );
     }
-}
-
-pub(crate) fn argument_expression<'r, 'a>(
-    argument: &'r oxc_ast::ast::Argument<'a>,
-) -> Option<&'r Expression<'a>> {
-    argument.as_expression()
 }
 
 #[cfg(test)]

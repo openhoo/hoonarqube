@@ -1,5 +1,5 @@
-use crate::rules::expression::s1528_constructor_calls::argument_expression;
-use crate::rules::react_jsx::walker::duplicated_key_name;
+use crate::rules::shared::argument_expression;
+use crate::rules::shared::duplicated_key_name;
 use crate::support::IssueSink;
 use crate::support::unparenthesized;
 use oxc_ast::ast::ArrowFunctionExpression;

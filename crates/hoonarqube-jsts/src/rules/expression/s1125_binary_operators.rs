@@ -1,5 +1,5 @@
 // Rule module s1125_binary_operators (generated).
-use super::walker::is_equality_operator;
+use crate::rules::shared::is_equality_operator;
 use crate::support::{IssueSink, RuleScope, identifier_name};
 use oxc_ast::ast::{BinaryExpression, BinaryOperator, Expression};
 use oxc_span::GetSpan;

@@ -153,7 +153,6 @@ pub(crate) use crate::rules::batch5::collectors::{SecurityHotspotCollector, TsTy
 use crate::rules::batch5::collectors_hotspots::{
     MiscCollector, check_default_export_name, check_self_imports,
 };
-pub(crate) use crate::rules::duplicate::collectors::is_literal_expression;
 pub(crate) use crate::rules::expression::collectors::{
     check_collection_and_object_calls, check_logging_and_binding_calls,
 };
@@ -169,6 +168,7 @@ pub(crate) use crate::rules::regex_family::collectors::{
     REGEX_COMPLEXITY_THRESHOLD, emit_concise_class_rewrite, emit_space_runs_in_sequence,
     flag_single_char_alternation, for_every_sequence, is_bare_control_character,
 };
+pub(crate) use crate::rules::shared::is_literal_expression;
 pub(crate) use crate::rules::statement::collectors::is_error_type_name;
 pub(crate) use crate::rules::tier_b::collectors::{
     ClassRuleCollector, TrailingCommaList, TrailingCommaListCollector,

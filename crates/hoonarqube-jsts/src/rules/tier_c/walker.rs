@@ -272,16 +272,6 @@ impl<'a> Visit<'a> for TierCCoercionCollector<'_, '_> {
     }
 }
 
-/// Callee name for sink checks: plain identifier or last static member link
-/// (`crypto.createHash` -> `createHash`).
-pub(crate) fn sink_callee_name<'a>(callee: &'a Expression<'_>) -> Option<&'a str> {
-    match callee {
-        Expression::Identifier(identifier) => Some(&identifier.name),
-        Expression::StaticMemberExpression(member) => Some(&member.property.name),
-        _ => None,
-    }
-}
-
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_tier_c_rules(ctx.program, ctx.index, ctx.language)
 }

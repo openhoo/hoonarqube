@@ -1,5 +1,5 @@
 use super::collectors::{FunctionMetricsCollector, ReturnMixScanner};
-use crate::rules::statement_sequences::s1488_scan_statement_sequence::statement_ends_with_jump;
+use crate::rules::shared::statement_ends_with_jump;
 use crate::support::RuleScope;
 use oxc_ast::ast::FunctionBody;
 use oxc_ast_visit::Visit;

@@ -1,6 +1,6 @@
 use crate::rules::batch5::collectors::SecurityHotspotCollector;
 use crate::rules::batch5::collectors::boolean_property;
-use crate::rules::expression::s1528_constructor_calls::argument_expression;
+use crate::rules::shared::argument_expression;
 use crate::support::RuleScope;
 use crate::support::expression_root_name;
 use crate::support::unparenthesized;

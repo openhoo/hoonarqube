@@ -1,5 +1,5 @@
 use super::walker::{ReactCollector, capitalize_first, is_state_setter_name};
-use crate::rules::expression::s1528_constructor_calls::argument_expression;
+use crate::rules::shared::argument_expression;
 use crate::support::RuleScope;
 use crate::support::callee_name;
 use crate::support::identifier_name;

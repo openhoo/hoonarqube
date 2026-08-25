@@ -1,6 +1,6 @@
 use crate::rules::batch5::collectors::ARCHIVE_EXTRACT_APIS;
 use crate::rules::batch5::collectors::SecurityHotspotCollector;
-use crate::rules::tier_c::walker::sink_callee_name;
+use crate::rules::shared::sink_callee_name;
 use crate::support::RuleScope;
 use oxc_ast::ast::CallExpression;
 use oxc_span::GetSpan;

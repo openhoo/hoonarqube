@@ -1,5 +1,6 @@
 // Rule module s2692_index_of_comparisons (generated).
-use super::walker::{call_property, numeric_literal_value};
+use super::walker::numeric_literal_value;
+use crate::rules::shared::call_property;
 use crate::support::{IssueSink, RuleScope};
 use oxc_ast::ast::{BinaryExpression, BinaryOperator, Expression};
 use oxc_span::GetSpan;
