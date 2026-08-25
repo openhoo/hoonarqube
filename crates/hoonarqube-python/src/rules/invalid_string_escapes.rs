@@ -45,3 +45,26 @@ pub(crate) fn check_invalid_string_escapes(
     });
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s1717_flags_non_raw_with_invalid_escape() {
+        let flagged = scan("msg = \"bad \\q escape\"\n");
+        assert!(!findings(&flagged, "python:S1717").is_empty());
+    }
+
+    #[test]
+    fn s1717_raw_string_is_clean() {
+        let flagged = scan("msg = r\"bad \\q escape\"\n");
+        assert!(findings(&flagged, "python:S1717").is_empty());
+    }
+
+    #[test]
+    fn s1717_implicit_concat_checks_each_part() {
+        let flagged = scan("msg = r\"\\d\\w\" \"\\q\"\n");
+        assert!(!findings(&flagged, "python:S1717").is_empty());
+    }
+}

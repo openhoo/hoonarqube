@@ -96,4 +96,21 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].range.start.line, 5);
     }
+    #[test]
+    fn s7514_inner_loop_break_is_clean() {
+        let flagged = scan("async with nursery:\n    for x in xs:\n        break\n");
+        assert!(findings(&flagged, "python:S7514").is_empty());
+    }
+
+    #[test]
+    fn s7514_inner_loop_continue_is_clean() {
+        let flagged = scan("async with nursery:\n    for x in xs:\n        continue\n");
+        assert!(findings(&flagged, "python:S7514").is_empty());
+    }
+
+    #[test]
+    fn s7514_return_inside_nested_def_is_clean() {
+        let flagged = scan("async with nursery:\n    def inner():\n        return\n");
+        assert!(findings(&flagged, "python:S7514").is_empty());
+    }
 }

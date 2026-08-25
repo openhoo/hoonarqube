@@ -27,3 +27,26 @@ pub(crate) fn check_hardcoded_ips(
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s1313_flags_ipv4_and_ipv6() {
+        let flagged = scan("ip = \"192.168.1.1\"\nhost = \"2001:db8::1\"\n");
+        assert!(!findings(&flagged, "python:S1313").is_empty());
+    }
+
+    #[test]
+    fn s1313_time_strings_are_clean() {
+        let flagged = scan("t = \"10:00\"\n");
+        assert!(findings(&flagged, "python:S1313").is_empty());
+    }
+
+    #[test]
+    fn s1313_localhost_is_exempt() {
+        let flagged = scan("ip = \"127.0.0.1\"\n");
+        assert!(findings(&flagged, "python:S1313").is_empty());
+    }
+}

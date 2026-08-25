@@ -52,3 +52,20 @@ pub(crate) fn direct_constant_return_texts(suite: &[Stmt], source: &str) -> Vec<
     });
     texts
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s3516_flags_method_with_invariant_returns() {
+        let flagged = scan("class C:\n    def m(self):\n        return 1\n        return 1\n");
+        assert!(!findings(&flagged, "python:S3516").is_empty());
+    }
+
+    #[test]
+    fn s3516_module_function_still_flagged() {
+        let flagged = scan("def f():\n    return 1\n    return 1\n");
+        assert!(!findings(&flagged, "python:S3516").is_empty());
+    }
+}

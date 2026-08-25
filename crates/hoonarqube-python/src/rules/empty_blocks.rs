@@ -65,3 +65,26 @@ fn visit_nested_non_function(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s108_flags_empty_if_inside_function() {
+        let flagged = scan("def f():\n    if x:\n        pass\n");
+        assert!(!findings(&flagged, "python:S108").is_empty());
+    }
+
+    #[test]
+    fn s108_function_body_with_pass_is_clean() {
+        let flagged = scan("def f():\n    pass\n");
+        assert!(findings(&flagged, "python:S108").is_empty());
+    }
+
+    #[test]
+    fn s108_flags_empty_for_inside_method() {
+        let flagged = scan("class C:\n    def m(self):\n        for x in xs:\n            pass\n");
+        assert!(!findings(&flagged, "python:S108").is_empty());
+    }
+}

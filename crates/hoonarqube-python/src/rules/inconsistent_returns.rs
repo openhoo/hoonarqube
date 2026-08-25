@@ -63,3 +63,22 @@ pub(crate) fn direct_return_kinds(suite: &[Stmt]) -> (usize, usize) {
     });
     (valued, empty)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s3801_flags_method_with_inconsistent_returns() {
+        let flagged = scan(
+            "class C:\n    def m(self):\n        if x:\n            return 1\n        return\n",
+        );
+        assert!(!findings(&flagged, "python:S3801").is_empty());
+    }
+
+    #[test]
+    fn s3801_module_function_still_flagged() {
+        let flagged = scan("def f():\n    if x:\n        return 1\n    return\n");
+        assert!(!findings(&flagged, "python:S3801").is_empty());
+    }
+}

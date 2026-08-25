@@ -54,4 +54,16 @@ mod tests {
             "class C:\n    @classmethod\n    def build(cls):\n        return cls\n";
         assert!(findings(&scan(classmethod_clean), "python:S5720").is_empty());
     }
+    #[test]
+    fn s5720_dunder_new_is_exempt() {
+        let flagged =
+            scan("class C:\n    def __new__(cls):\n        return super().__new__(cls)\n");
+        assert!(findings(&flagged, "python:S5720").is_empty());
+    }
+
+    #[test]
+    fn s5720_dunder_init_subclass_is_exempt() {
+        let flagged = scan("class C:\n    def __init_subclass__(cls):\n        pass\n");
+        assert!(findings(&flagged, "python:S5720").is_empty());
+    }
 }
