@@ -650,7 +650,10 @@ pub(crate) fn parse_ipv6(run: &str) -> Option<String> {
         return None;
     }
     let groups: Vec<&str> = run.split(':').filter(|group| !group.is_empty()).collect();
-    let valid = groups.len() >= 3
+    let has_double_colon = run.contains("::");
+    // Full form: 8 groups. Compressed form: `::` with 1+ visible groups.
+    // Without `::`, fewer than 8 groups is a time stamp or MAC-style run.
+    let valid = (groups.len() == 8 || (has_double_colon && !groups.is_empty()))
         && groups
             .iter()
             .all(|group| group.len() <= 4 && group.bytes().all(|byte| byte.is_ascii_hexdigit()));

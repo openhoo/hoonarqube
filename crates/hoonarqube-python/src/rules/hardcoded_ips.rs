@@ -50,3 +50,20 @@ mod tests {
         assert!(findings(&flagged, "python:S1313").is_empty());
     }
 }
+
+#[cfg(test)]
+mod compressed_ipv6_tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s1313_flags_compressed_ipv6_link_local() {
+        let flagged = scan("H = \"fe80::1\"\n");
+        assert!(!findings(&flagged, "python:S1313").is_empty());
+    }
+
+    #[test]
+    fn s1313_time_stamps_still_clean_with_compression_fix() {
+        // HH:MM:SS has 3 groups but no double colon → still clean.
+        assert!(findings(&scan("T = \"12:34:56\"\n"), "python:S1313").is_empty());
+    }
+}
