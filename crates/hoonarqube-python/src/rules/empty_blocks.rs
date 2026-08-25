@@ -36,8 +36,27 @@ fn visit_suite(suite: &[Stmt], issues: &mut Vec<Issue>, index: &LineIndex, sourc
         return;
     }
     for stmt in suite {
-        // Function bodies are python:S1186's subject; their suites never
-        // satisfy this rule even when they hold only `pass`.
+        // Function bodies are python:S1186's subject, but nested suites
+        // inside them (if/for/while/try) are still checked here.
+        if let Stmt::FunctionDef(s) = stmt {
+            visit_nested_non_function(s.body.as_slice(), issues, index, source);
+            continue;
+        }
+        for body in child_bodies(stmt) {
+            visit_suite(body, issues, index, source);
+        }
+    }
+}
+
+/// Visits suites inside a function body, skipping direct function definitions
+/// (those belong to S1186) but checking all other nested suites.
+fn visit_nested_non_function(
+    suite: &[Stmt],
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    for stmt in suite {
         if matches!(stmt, Stmt::FunctionDef(_)) {
             continue;
         }

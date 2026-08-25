@@ -20,6 +20,11 @@ pub(crate) fn check_instance_self_parameters(
         if has_decorator(function, "staticmethod") || has_decorator(function, "classmethod") {
             return;
         }
+        // Dunder methods that conventionally take `cls` or no first param.
+        const EXEMPT_DUNDERS: [&str; 3] = ["__new__", "__init_subclass__", "__class_getitem__"];
+        if EXEMPT_DUNDERS.contains(&function.name.id.as_str()) {
+            return;
+        }
         if let Some(first) = positional_parameters(&function.parameters).first()
             && first.name.as_str() != "self"
         {

@@ -1,5 +1,6 @@
 use crate::support::constant_truth;
 use crate::support::expr_normalized_text;
+use crate::support::for_each_stmt;
 use crate::support::for_each_stmt_in_scope;
 use crate::support::is_none_literal;
 use crate::support::issue_at;
@@ -16,7 +17,7 @@ pub(crate) fn check_invariant_returns(
     source: &str,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt_in_scope(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
         if let Stmt::FunctionDef(function) = stmt {
             let returns = direct_constant_return_texts(&function.body, source);
             let identical = returns.len() >= 2 && returns.windows(2).all(|pair| pair[0] == pair[1]);

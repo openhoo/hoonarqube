@@ -1,3 +1,4 @@
+use crate::support::for_each_stmt;
 use crate::support::for_each_stmt_expr;
 use crate::support::for_each_stmt_in_scope;
 use crate::support::is_none_literal;
@@ -16,7 +17,7 @@ pub(crate) fn check_inconsistent_returns(
     source: &str,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt_in_scope(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
         let Stmt::FunctionDef(function) = stmt else {
             return;
         };
