@@ -521,6 +521,18 @@ impl<'a> TbBuilder<'a, '_> {
             }
         }
     }
+    /// Declaration heads record their per-iteration writes while that scope
+    /// is still on the chain, so they resolve onto the loop binding instead
+    /// of degrading to implicit globals.
+    fn visit_for_head(&mut self, left: &oxc_ast::ast::ForStatementLeft<'a>, loop_span: Span) {
+        match left {
+            oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) => {
+                self.visit_variable_declaration(declaration);
+                self.mark_loop_bindings(declaration, loop_span);
+            }
+            left => self.visit_for_statement_left(left),
+        }
+    }
 }
 
 impl<'a> Visit<'a> for TbBuilder<'a, '_> {
@@ -556,20 +568,30 @@ impl<'a> Visit<'a> for TbBuilder<'a, '_> {
 
     fn visit_for_in_statement(&mut self, statement: &oxc_ast::ast::ForInStatement<'a>) {
         self.push_scope(TbScopeKind::Block, statement.span);
-        walk_for_in_statement(self, statement);
-        self.pop_scope();
-        if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) = &statement.left {
-            self.mark_loop_bindings(declaration, statement.span);
+        self.visit_for_head(&statement.left, statement.span);
+        // The iterable resolves in the enclosing scope: the loop-head
+        // binding is not yet initialized where the iterable evaluates.
+        let head = self.stack.pop();
+        self.visit_expression(&statement.right);
+        if let Some(id) = head {
+            self.stack.push(id);
         }
+        self.visit_statement(&statement.body);
+        self.pop_scope();
     }
 
     fn visit_for_of_statement(&mut self, statement: &oxc_ast::ast::ForOfStatement<'a>) {
         self.push_scope(TbScopeKind::Block, statement.span);
-        walk_for_of_statement(self, statement);
-        self.pop_scope();
-        if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) = &statement.left {
-            self.mark_loop_bindings(declaration, statement.span);
+        self.visit_for_head(&statement.left, statement.span);
+        // The iterable resolves in the enclosing scope: the loop-head
+        // binding is not yet initialized where the iterable evaluates.
+        let head = self.stack.pop();
+        self.visit_expression(&statement.right);
+        if let Some(id) = head {
+            self.stack.push(id);
         }
+        self.visit_statement(&statement.body);
+        self.pop_scope();
     }
 
     fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
@@ -1630,4 +1652,84 @@ pub(crate) fn class_declares_to_string(class: &Class<'_>) -> bool {
         }
         _ => false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use oxc_allocator::Allocator;
+    use oxc_parser::Parser;
+    use oxc_span::SourceType;
+
+    fn binding<'m>(model: &'m TbModel<'_>, name: &str, global: bool) -> &'m TbBinding<'m> {
+        model
+            .bindings
+            .iter()
+            .find(|binding| binding.name == name && binding.global == global)
+            .unwrap_or_else(|| panic!("no `{name}` binding with global={global}"))
+    }
+    fn with_model(source: &str, check: impl FnOnce(&TbModel<'_>)) {
+        let allocator = Allocator::default();
+        let parsed = Parser::new(&allocator, source, SourceType::mjs()).parse();
+        let model = build_tb_model(&parsed.program);
+        check(&model);
+    }
+    /// The per-iteration write of a `for (let v of …)` / `for (let v in …)`
+    /// head must resolve onto the loop binding itself: its event is recorded
+    #[test]
+    fn loop_head_let_write_lands_on_the_binding() {
+        for source in [
+            "let xs = [1];\nfor (let v of xs) {\n}\n",
+            "let xs = [1];\nfor (let v in xs) {\n}\n",
+        ] {
+            with_model(source, |model| {
+                let binding = binding(model, "v", false);
+                assert_eq!(binding.kind, TbKind::Let);
+                assert_eq!(
+                    binding.writes.len(),
+                    1,
+                    "per-iteration write must resolve in the loop scope",
+                );
+                assert!(
+                    !model.implicit_globals.iter().any(|(name, _)| *name == "v"),
+                    "`v` is declared; its write must not look implicit",
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn loop_head_var_write_still_lands_on_the_hoisted_binding() {
+        with_model("let xs = [1];\nfor (var w of xs) {\n}\n", |model| {
+            let binding = binding(model, "w", true);
+            assert_eq!(binding.kind, TbKind::Var);
+            assert_eq!(binding.writes.len(), 1);
+            assert!(!model.implicit_globals.iter().any(|(name, _)| *name == "w"));
+        });
+    }
+
+    /// `const x = 1; for (const x of [x]) {}` — the iterable's `x` refers
+    /// to the outer binding: the loop-head binding is not yet initialized
+    /// where the iterable evaluates (TDZ), so it must not shadow there.
+    #[test]
+    fn iterable_resolves_outside_the_loop_head_scope() {
+        with_model("const x = 1;\nfor (const x of [x]) {\n}\n", |model| {
+            let outer = binding(model, "x", true);
+            let head = binding(model, "x", false);
+            assert_eq!(outer.reads.len(), 1, "iterable must read the outer `x`");
+            assert!(
+                head.reads.is_empty(),
+                "iterable must not see the head binding"
+            );
+        });
+    }
+
+    #[test]
+    fn body_and_closures_still_see_the_loop_head_binding() {
+        let source = "const fns = [];\nfor (const x of [1]) {\n    fns.push(() => x);\n}\n";
+        with_model(source, |model| {
+            let head = binding(model, "x", false);
+            assert_eq!(head.reads.len(), 1, "the arrow body reads the head binding");
+        });
+    }
 }

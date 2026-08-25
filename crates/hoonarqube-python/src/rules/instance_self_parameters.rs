@@ -10,6 +10,8 @@ use ruff_text_size::Ranged;
 
 // --- python:S5720 — `self` must be the first instance-method parameter --------
 
+const EXEMPT_DUNDERS: [&str; 3] = ["__new__", "__init_subclass__", "__class_getitem__"];
+
 pub(crate) fn check_instance_self_parameters(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
@@ -21,7 +23,6 @@ pub(crate) fn check_instance_self_parameters(
             return;
         }
         // Dunder methods that conventionally take `cls` or no first param.
-        const EXEMPT_DUNDERS: [&str; 3] = ["__new__", "__init_subclass__", "__class_getitem__"];
         if EXEMPT_DUNDERS.contains(&function.name.id.as_str()) {
             return;
         }

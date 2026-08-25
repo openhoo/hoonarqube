@@ -54,9 +54,9 @@ fn counter_entry_value<'a>(loop_header: Node<'_>, source: &'a str) -> Option<(&'
 }
 
 /// Entry-time falsity of a loop condition: a literal `false`, a
-/// relational self-comparison (`x < x` is false for every value,
-/// `NaN` included), or a `for` whose folded start/bound pair already
-/// fails its own relation.
+/// relational self-comparison (`x < x` and `x > x` are false for
+/// every value, `NaN` included), or a `for` whose folded
+/// start/bound pair already fails its own relation.
 fn condition_false_at_entry(loop_header: Node<'_>, source: &str) -> bool {
     let Some(condition) = loop_header.child_by_field_name("condition") else {
         // `for (;;)` relies on escapes; the infinite-loop pass judges it.
@@ -74,7 +74,7 @@ fn condition_false_at_entry(loop_header: Node<'_>, source: &str) -> bool {
     };
     let left_text = node_text(left, source);
     let right_text = node_text(right, source);
-    if matches!(operator, "<" | "<=" | ">" | ">=") && left_text == right_text {
+    if matches!(operator, "<" | ">") && left_text == right_text {
         return true;
     }
     let (entry, bound) = match (
@@ -127,24 +127,36 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].range.start.line, 3);
 
-        // NOTE: a reflexive `5 >= 5` header would be ideal here, but the
-        // self-comparison shortcut pins it as always-false (impl subset,
-        // logged upstream); a folded strictly-holding relation proves the
-        // same boundary instead.
         let holding = analyze_default(
             "class C {\n    void M() {\n        while (3 < 5) {\n            Run();\n        }\n    }\n}\n",
         );
         assert!(with_key(&holding, KEY).is_empty());
+
+        // A reflexive relation that holds is an infinite loop, not an
+        // entry-dead body: the folded path proves it clean.
+        let reflexive = analyze_default(
+            "class C {\n    void M() {\n        while (5 >= 5) {\n            Spin();\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&reflexive, KEY).is_empty());
     }
 
     #[test]
     fn relational_self_comparison_is_false_for_every_value() {
         let report = analyze_default(
-            "class C {\n    void M(int pace) {\n        while (pace < pace) {\n            Stall();\n        }\n    }\n}\n",
+            "class C {\n    void M(int pace) {\n        while (pace < pace) {\n            Stall();\n        }\n        while (pace > pace) {\n            Stall();\n        }\n    }\n}\n",
         );
         let found = with_key(&report, KEY);
-        assert_eq!(found.len(), 1);
+        assert_eq!(found.len(), 2);
         assert_eq!(found[0].range.start.line, 3);
+        assert_eq!(found[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn reflexive_le_ge_self_comparisons_are_not_entry_false() {
+        let report = analyze_default(
+            "class C {\n    void M(int pace) {\n        while (pace <= pace) {\n            Stall();\n        }\n        while (pace >= pace) {\n            Stall();\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
     }
 
     #[test]
@@ -164,5 +176,31 @@ mod tests {
             "class C {\n    void M() {\n        do {\n            Once();\n        } while (false);\n    }\n}\n",
         );
         assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn do_false_with_complex_entry_condition_stays_exempt() {
+        // `do` bodies run before their condition, so even a folded-false
+        // complex entry condition must not strand them.
+        let report = analyze_default(
+            "class C {\n    void M(bool flag) {\n        do {\n            Once();\n        } while (flag && false);\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+
+        let folded = analyze_default(
+            "class C {\n    void M() {\n        do {\n            Once();\n        } while (false && Check());\n    }\n}\n",
+        );
+        assert!(with_key(&folded, KEY).is_empty());
+    }
+
+    #[test]
+    fn inner_while_false_inside_do_body_still_flags() {
+        // The exemption covers only the do's own trailing condition.
+        let report = analyze_default(
+            "class C {\n    void M() {\n        do {\n            while (false) {\n                Skip();\n            }\n        } while (Keep());\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 4);
     }
 }

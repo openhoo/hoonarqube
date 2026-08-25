@@ -1,5 +1,4 @@
 use crate::support::for_each_nursery_block;
-use crate::support::for_each_stmt_in_scope;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
@@ -68,10 +67,8 @@ fn scan_nursery_body(
             }
             Stmt::Try(s) => {
                 scan_nursery_body(s.body.as_slice(), loop_depth, issues, index, source);
-                for handler in &s.handlers {
-                    if let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler {
-                        scan_nursery_body(h.body.as_slice(), loop_depth, issues, index, source);
-                    }
+                for ruff_python_ast::ExceptHandler::ExceptHandler(h) in &s.handlers {
+                    scan_nursery_body(h.body.as_slice(), loop_depth, issues, index, source);
                 }
                 scan_nursery_body(s.orelse.as_slice(), loop_depth, issues, index, source);
                 scan_nursery_body(s.finalbody.as_slice(), loop_depth, issues, index, source);

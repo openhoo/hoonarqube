@@ -650,7 +650,7 @@ pub(crate) fn parse_ipv6(run: &str) -> Option<String> {
         return None;
     }
     let groups: Vec<&str> = run.split(':').filter(|group| !group.is_empty()).collect();
-    let valid = groups.len() >= 2
+    let valid = groups.len() >= 3
         && groups
             .iter()
             .all(|group| group.len() <= 4 && group.bytes().all(|byte| byte.is_ascii_hexdigit()));

@@ -1363,3 +1363,46 @@ pub(crate) enum GroupReference {
     Index(u32),
     Name(String),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Unterminated character classes are definite syntax errors for the
+    /// pattern-tree parser and compile to nothing for the tolerant catalog
+    /// matcher — either way the scan must terminate instead of hanging or
+    /// panicking on the missing `]`.
+    #[test]
+    fn unterminated_character_class_terminates_as_error() {
+        for pattern in ["[", "[^", "[a-", "[\\", "ab[", "[a-\\"] {
+            assert!(
+                parse_regex_pattern(pattern, false).is_err(),
+                "`{pattern}` should be a definite syntax error",
+            );
+            assert!(
+                parse_regex_pattern(pattern, true).is_err(),
+                "`{pattern}` in unicode mode should be a definite syntax error",
+            );
+            assert!(
+                parse_regex(pattern).is_none(),
+                "`{pattern}` should not compile"
+            );
+            assert!(
+                !regex_search(pattern, "needle"),
+                "`{pattern}` should match nothing"
+            );
+        }
+    }
+
+    #[test]
+    fn terminated_classes_still_parse_and_match() {
+        assert!(parse_regex_pattern("[abc]", false).is_ok());
+        assert!(parse_regex_pattern("[^abc]", false).is_ok());
+        // Annex B: a trailing dash stays literal even next to a shorthand.
+        assert!(parse_regex_pattern("[\\d-a]", false).is_ok());
+        assert!(regex_search("[abc]", "b"));
+        assert!(!regex_search("[abc]", "x"));
+        // A leading `]` is a literal class member, not a terminator.
+        assert!(regex_search("[]]", "]"));
+    }
+}

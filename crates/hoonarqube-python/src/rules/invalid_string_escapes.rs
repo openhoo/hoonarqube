@@ -7,7 +7,6 @@ use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
-use ruff_text_size::Ranged;
 use ruff_text_size::TextRange;
 use ruff_text_size::TextSize;
 
@@ -22,7 +21,7 @@ pub(crate) fn check_invalid_string_escapes(
         if let Expr::StringLiteral(literal) = expr {
             // Check each concatenation part independently: a raw-suffixed
             // part must not suppress scanning of adjacent non-raw parts.
-            for part in literal.value.iter() {
+            for part in &literal.value {
                 if matches!(
                     part.flags.prefix(),
                     ruff_python_ast::str_prefix::StringLiteralPrefix::Raw { .. }
