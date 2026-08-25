@@ -305,32 +305,14 @@ impl PatternParser<'_> {
         self.pos += 1;
         match ch {
             'd' | 'D' | 'w' | 'W' | 's' | 'S' => {
-                let (negated, kind) = match ch {
-                    'D' => (true, ShorthandClass::Digit),
-                    'W' => (true, ShorthandClass::Word),
-                    'S' => (true, ShorthandClass::Space),
-                    'd' => (false, ShorthandClass::Digit),
-                    'w' => (false, ShorthandClass::Word),
-                    _ => (false, ShorthandClass::Space),
-                };
+                let (negated, kind) = Self::shorthand_negated_and_kind(ch);
                 Ok(PatternNode::ClassEscape {
                     negated,
                     kind,
                     pos: backslash_pos,
                 })
             }
-            'p' | 'P' => match self.peek() {
-                Some('{') => {
-                    self.skip_property_body()?;
-                    Ok(PatternNode::PropertyEscape {
-                        negated: ch == 'P',
-                        pos: backslash_pos,
-                    })
-                }
-                None => Err(()),
-                Some(_) if self.unicode_mode => Err(()),
-                Some(_) => Ok(PatternNode::Literal { ch, pos: char_pos }),
-            },
+            'p' | 'P' => self.property_escape_node(backslash_pos, char_pos, ch),
             'b' => Ok(PatternNode::Anchor {
                 kind: AnchorKind::WordBoundary,
                 pos: backslash_pos,
@@ -350,30 +332,68 @@ impl PatternParser<'_> {
                 self.parse_group_name()?;
                 Ok(PatternNode::BackReference { pos: backslash_pos })
             }
-            'n' => Ok(PatternNode::Literal {
-                ch: '\n',
+            _ => self.simple_escape_node(char_pos, ch),
+        }
+    }
+
+    /// Negation flag and class kind for the `\d`/`\w`/`\s` family.
+    fn shorthand_negated_and_kind(ch: char) -> (bool, ShorthandClass) {
+        match ch {
+            'D' => (true, ShorthandClass::Digit),
+            'W' => (true, ShorthandClass::Word),
+            'S' => (true, ShorthandClass::Space),
+            'd' => (false, ShorthandClass::Digit),
+            'w' => (false, ShorthandClass::Word),
+            _ => (false, ShorthandClass::Space),
+        }
+    }
+
+    /// Character produced by a plain control escape (`\n`, `\t`, `\0`, …);
+    /// `None` for escapes that keep the escaped character itself.
+    fn simple_escape_char(esc: char) -> Option<char> {
+        match esc {
+            'n' => Some('\n'),
+            't' => Some('\t'),
+            'r' => Some('\r'),
+            'f' => Some('\u{000C}'),
+            'v' => Some('\u{000B}'),
+            '0' => Some('\0'),
+            _ => None,
+        }
+    }
+
+    /// `\p{…}` property escapes; a bare letter stays literal outside
+    /// unicode mode.
+    fn property_escape_node(
+        &mut self,
+        backslash_pos: usize,
+        char_pos: usize,
+        ch: char,
+    ) -> Result<PatternNode, ()> {
+        match self.peek() {
+            Some('{') => {
+                self.skip_property_body()?;
+                Ok(PatternNode::PropertyEscape {
+                    negated: ch == 'P',
+                    pos: backslash_pos,
+                })
+            }
+            None => Err(()),
+            Some(_) if self.unicode_mode => Err(()),
+            Some(_) => Ok(PatternNode::Literal { ch, pos: char_pos }),
+        }
+    }
+
+    /// Control-character escapes, unicode-mode `\u`/`\x`/`\c`, and the
+    /// identity fallback for every other escaped character.
+    fn simple_escape_node(&mut self, char_pos: usize, ch: char) -> Result<PatternNode, ()> {
+        if let Some(escaped) = Self::simple_escape_char(ch) {
+            return Ok(PatternNode::Literal {
+                ch: escaped,
                 pos: char_pos,
-            }),
-            't' => Ok(PatternNode::Literal {
-                ch: '\t',
-                pos: char_pos,
-            }),
-            'r' => Ok(PatternNode::Literal {
-                ch: '\r',
-                pos: char_pos,
-            }),
-            'f' => Ok(PatternNode::Literal {
-                ch: '\u{000C}',
-                pos: char_pos,
-            }),
-            'v' => Ok(PatternNode::Literal {
-                ch: '\u{000B}',
-                pos: char_pos,
-            }),
-            '0' => Ok(PatternNode::Literal {
-                ch: '\0',
-                pos: char_pos,
-            }),
+            });
+        }
+        match ch {
             'u' if self.unicode_mode => Ok(PatternNode::Literal {
                 ch: self.parse_unicode_escape()?,
                 pos: char_pos,
@@ -382,17 +402,22 @@ impl PatternParser<'_> {
                 ch: self.parse_hex_escape(2)?,
                 pos: char_pos,
             }),
-            'c' if self.unicode_mode => match self.peek() {
-                Some(letter) if letter.is_ascii_alphabetic() => {
-                    self.pos += 1;
-                    Ok(PatternNode::Literal {
-                        ch: (letter.to_ascii_uppercase() as u8 ^ 0x40) as char,
-                        pos: char_pos,
-                    })
-                }
-                _ => Err(()),
-            },
+            'c' if self.unicode_mode => self.control_escape_node(char_pos),
             _ => Ok(PatternNode::Literal { ch, pos: char_pos }),
+        }
+    }
+
+    /// `\cLetter` control character in unicode mode.
+    fn control_escape_node(&mut self, char_pos: usize) -> Result<PatternNode, ()> {
+        match self.peek() {
+            Some(letter) if letter.is_ascii_alphabetic() => {
+                self.pos += 1;
+                Ok(PatternNode::Literal {
+                    ch: (letter.to_ascii_uppercase() as u8 ^ 0x40) as char,
+                    pos: char_pos,
+                })
+            }
+            _ => Err(()),
         }
     }
 
@@ -525,92 +550,60 @@ impl PatternParser<'_> {
             return Err(()); // trailing backslash
         };
         self.pos += 1;
-        Ok(match esc {
-            'd' => ClassItem::Shorthand {
-                negated: false,
-                kind: ShorthandClass::Digit,
-                pos,
-            },
-            'D' => ClassItem::Shorthand {
-                negated: true,
-                kind: ShorthandClass::Digit,
-                pos,
-            },
-            'w' => ClassItem::Shorthand {
-                negated: false,
-                kind: ShorthandClass::Word,
-                pos,
-            },
-            'W' => ClassItem::Shorthand {
-                negated: true,
-                kind: ShorthandClass::Word,
-                pos,
-            },
-            's' => ClassItem::Shorthand {
-                negated: false,
-                kind: ShorthandClass::Space,
-                pos,
-            },
-            'S' => ClassItem::Shorthand {
-                negated: true,
-                kind: ShorthandClass::Space,
-                pos,
-            },
-            'p' | 'P' => match self.peek() {
-                Some('{') => {
-                    self.skip_property_body()?;
-                    ClassItem::Property {
-                        negated: esc == 'P',
-                        pos,
-                    }
-                }
-                None => return Err(()),
-                Some(_) if self.unicode_mode => return Err(()),
-                Some(_) => ClassItem::Char {
-                    ch: esc,
-                    pos: char_pos,
-                },
-            },
-            'b' => ClassItem::Char {
+        match esc {
+            'd' | 'D' | 'w' | 'W' | 's' | 'S' => {
+                let (negated, kind) = Self::shorthand_negated_and_kind(esc);
+                Ok(ClassItem::Shorthand { negated, kind, pos })
+            }
+            'p' | 'P' => self.class_property_item(pos, char_pos, esc),
+            // Outside classes `\b` anchors; inside classes it is backspace.
+            'b' => Ok(ClassItem::Char {
                 ch: '\u{0008}',
                 pos: char_pos,
-            },
-            'n' => ClassItem::Char {
-                ch: '\n',
-                pos: char_pos,
-            },
-            't' => ClassItem::Char {
-                ch: '\t',
-                pos: char_pos,
-            },
-            'r' => ClassItem::Char {
-                ch: '\r',
-                pos: char_pos,
-            },
-            'f' => ClassItem::Char {
-                ch: '\u{000C}',
-                pos: char_pos,
-            },
-            'v' => ClassItem::Char {
-                ch: '\u{000B}',
-                pos: char_pos,
-            },
-            '0' => ClassItem::Char {
-                ch: '\0',
-                pos: char_pos,
-            },
-            'u' if self.unicode_mode => ClassItem::Char {
-                ch: self.parse_unicode_escape()?,
-                pos: char_pos,
-            },
-            'x' if self.unicode_mode => ClassItem::Char {
-                ch: self.parse_hex_escape(2)?,
-                pos: char_pos,
-            },
-            _ => ClassItem::Char {
+            }),
+            _ => self.class_mapped_item(char_pos, esc),
+        }
+    }
+
+    /// `\p{…}` inside a class; a bare letter stays literal outside unicode
+    /// mode.
+    fn class_property_item(
+        &mut self,
+        pos: usize,
+        char_pos: usize,
+        esc: char,
+    ) -> Result<ClassItem, ()> {
+        match self.peek() {
+            Some('{') => {
+                self.skip_property_body()?;
+                Ok(ClassItem::Property {
+                    negated: esc == 'P',
+                    pos,
+                })
+            }
+            None => Err(()),
+            Some(_) if self.unicode_mode => Err(()),
+            Some(_) => Ok(ClassItem::Char {
                 ch: esc,
                 pos: char_pos,
-            },
-        })
+            }),
+        }
+    }
+
+    /// Control-character escapes and, in unicode mode, `\u`/`\x`; every
+    /// other escape keeps the escaped character itself.
+    fn class_mapped_item(&mut self, char_pos: usize, esc: char) -> Result<ClassItem, ()> {
+        if let Some(mapped) = Self::simple_escape_char(esc) {
+            return Ok(ClassItem::Char {
+                ch: mapped,
+                pos: char_pos,
+            });
+        }
+        let ch = match esc {
+            'u' if self.unicode_mode => self.parse_unicode_escape()?,
+            'x' if self.unicode_mode => self.parse_hex_escape(2)?,
+            _ => esc,
+        };
+        Ok(ClassItem::Char { ch, pos: char_pos })
     }
 }

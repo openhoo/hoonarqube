@@ -29,40 +29,73 @@ pub(crate) fn check_tier_c_rules(
     let mut census = FunctionCensus::default();
     census.visit_program(program);
     let mut collector = TierCLiteralCollector {
-        sink: IssueSink {
-            index,
-            language,
-            issues: Vec::new(),
-        },
+        sink: tier_c_sink(index, language),
     };
     collector.visit_program(program);
+    let await_issues = await_collector_issues(program, index, language, &census);
+    let usage_issues = call_usage_collector_issues(program, index, language, &census);
+    let chain_issues = optional_chain_collector_issues(program, index, language);
+    let mut class_census = ClassCensus::default();
+    class_census.visit_program(program);
+    let coercion_issues = coercion_collector_issues(program, index, language, &class_census);
+    collector.sink.issues.extend(await_issues);
+    collector.sink.issues.extend(usage_issues);
+    collector.sink.issues.extend(coercion_issues);
+    collector.sink.issues.extend(chain_issues);
+    flag_mixed_return_kinds(&mut collector.sink.issues, index, language, &census);
+    flag_behavior_selector_parameters(&mut collector.sink.issues, index, language, &census);
+    collector.sink.issues
+}
+
+/// Fresh empty sink bound to the analysis location and language.
+fn tier_c_sink(index: &LineIndex, language: JstsLanguage) -> IssueSink<'_> {
+    IssueSink {
+        index,
+        language,
+        issues: Vec::new(),
+    }
+}
+
+/// Await-over-non-promise findings, driven by the function census.
+fn await_collector_issues(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+    census: &FunctionCensus,
+) -> Vec<Issue> {
     let mut await_collector = TierCAwaitCollector {
-        sink: IssueSink {
-            index,
-            language,
-            issues: Vec::new(),
-        },
-        census: &census,
+        sink: tier_c_sink(index, language),
+        census,
     };
     await_collector.visit_program(program);
-    collector.sink.issues.extend(await_collector.sink.issues);
+    await_collector.sink.issues
+}
+
+/// Direct-call suppression and void-result findings from the function
+/// census.
+fn call_usage_collector_issues(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+    census: &FunctionCensus,
+) -> Vec<Issue> {
     let mut usage_collector = TierCCallUsageCollector {
-        sink: IssueSink {
-            index,
-            language,
-            issues: Vec::new(),
-        },
-        census: &census,
+        sink: tier_c_sink(index, language),
+        census,
         suppress_span: None,
     };
     usage_collector.visit_program(program);
-    collector.sink.issues.extend(usage_collector.sink.issues);
+    usage_collector.sink.issues
+}
+
+/// Optional-chain findings, including the deferred mixed-chain reports.
+fn optional_chain_collector_issues(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+) -> Vec<Issue> {
     let mut chain_collector = TierCOptionalChainCollector {
-        sink: IssueSink {
-            index,
-            language,
-            issues: Vec::new(),
-        },
+        sink: tier_c_sink(index, language),
         mixed_chains: Vec::new(),
     };
     chain_collector.visit_program(program);
@@ -70,26 +103,37 @@ pub(crate) fn check_tier_c_rules(
         &mut chain_collector.sink,
         std::mem::take(&mut chain_collector.mixed_chains),
     );
-    let mut class_census = ClassCensus::default();
-    class_census.visit_program(program);
+    chain_collector.sink.issues
+}
+
+/// Type-coercion findings against the class hierarchy census.
+fn coercion_collector_issues(
+    program: &oxc_ast::ast::Program<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+    class_census: &ClassCensus,
+) -> Vec<Issue> {
     let mut coercion_collector = TierCCoercionCollector {
-        sink: IssueSink {
-            index,
-            language,
-            issues: Vec::new(),
-        },
-        census: &class_census,
+        sink: tier_c_sink(index, language),
+        census: class_census,
     };
     coercion_collector.visit_program(program);
-    collector.sink.issues.extend(coercion_collector.sink.issues);
-    collector.sink.issues.extend(chain_collector.sink.issues);
-    // `S3800`: file-local functions whose returns mix literal kinds.
+    coercion_collector.sink.issues
+}
+
+/// `S3800`: file-local functions whose returns mix literal kinds.
+fn flag_mixed_return_kinds(
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    language: JstsLanguage,
+    census: &FunctionCensus,
+) {
     for facts in census.functions.values() {
         let mut kinds = facts.return_kinds.clone();
         kinds.sort();
         kinds.dedup();
         if kinds.len() > 1 {
-            collector.sink.issues.push(span_issue(
+            issues.push(span_issue(
                 index,
                 format!("{}:S3800", language.prefix()),
                 "Refactor this function so that it always returns the same type.",
@@ -97,10 +141,18 @@ pub(crate) fn check_tier_c_rules(
             ));
         }
     }
-    // `S2301`: parameters that only select the function's behavior.
+}
+
+/// `S2301`: parameters that only select the function's behavior.
+fn flag_behavior_selector_parameters(
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    language: JstsLanguage,
+    census: &FunctionCensus,
+) {
     for facts in census.functions.values() {
         if let Some(span) = facts.selector_span {
-            collector.sink.issues.push(span_issue(
+            issues.push(span_issue(
                 index,
                 format!("{}:S2301", language.prefix()),
                 "This parameter only selects the behavior of this function; split it instead.",
@@ -108,7 +160,6 @@ pub(crate) fn check_tier_c_rules(
             ));
         }
     }
-    collector.sink.issues
 }
 
 /// Tier-C collector for call-usage checks driven by the function census.
