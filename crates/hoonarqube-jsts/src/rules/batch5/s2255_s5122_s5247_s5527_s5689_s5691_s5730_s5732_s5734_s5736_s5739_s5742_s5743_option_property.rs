@@ -51,6 +51,17 @@ impl SecurityHotspotCollector<'_, '_> {
             return;
         };
         let lowered_value = value.to_ascii_lowercase();
+        self.report_header_value(header, call, value, &lowered_value);
+    }
+
+    /// Reports the hotspot triggered by a security-header value, if any.
+    fn report_header_value(
+        &mut self,
+        header: &str,
+        call: &CallExpression<'_>,
+        value: &str,
+        lowered_value: &str,
+    ) {
         match header.to_ascii_lowercase().as_str() {
             "set-cookie" => self.sink.emit_span(
                 RuleScope::Both,
@@ -88,7 +99,7 @@ impl SecurityHotspotCollector<'_, '_> {
                     );
                 }
             }
-            "referrer-policy" if UNSAFE_REFERRER_POLICIES.contains(&lowered_value.as_str()) => {
+            "referrer-policy" if UNSAFE_REFERRER_POLICIES.contains(&lowered_value) => {
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S5736",
