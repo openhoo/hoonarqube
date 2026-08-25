@@ -1,25 +1,23 @@
+use crate::engine::file_context::FileContext;
 use crate::support::binding_target_names;
-use crate::support::for_each_stmt;
 use crate::support::issue_at;
 use crate::support::matches_field_name;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 /// Fields assigned directly in a class body are python:S116.
 pub(crate) fn check_class_field_names(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for stmt in &file_ctx.stmts {
         let Stmt::ClassDef(class) = stmt else {
-            return;
+            continue;
         };
         for member in &class.body {
             let targets: Vec<&Expr> = match member {
@@ -45,6 +43,6 @@ pub(crate) fn check_class_field_names(
                 }
             }
         }
-    });
+    }
     issues
 }

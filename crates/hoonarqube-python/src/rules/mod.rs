@@ -1,4 +1,5 @@
 use crate::AnalyzerOptions;
+use crate::engine::file_context::FileContext;
 use crate::engine::rx::collect_regex_sites;
 use crate::engine::rx::parse_regex;
 use crate::engine::scope::build_symbol_table;
@@ -292,70 +293,75 @@ pub(crate) fn check_tier_a_battery(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_needless_pass(parsed, index, source));
     issues.extend(check_dunder_all_strings(parsed, index, source));
-    issues.extend(check_loop_else_without_break(parsed, index, source));
-    issues.extend(check_nested_conditional_expressions(parsed, index, source));
-    issues.extend(check_redundant_jump_statements(parsed, index, source));
-    issues.extend(check_identical_if_else_branches(parsed, index, source));
-    issues.extend(check_meaningless_size_comparisons(parsed, index, source));
-    issues.extend(check_unreachable_code(parsed, index, source));
+    issues.extend(check_loop_else_without_break(index, source, file_ctx));
+    issues.extend(check_nested_conditional_expressions(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_redundant_jump_statements(index, source, file_ctx));
+    issues.extend(check_identical_if_else_branches(index, source, file_ctx));
+    issues.extend(check_meaningless_size_comparisons(index, source, file_ctx));
+    issues.extend(check_unreachable_code(parsed, index, source, file_ctx));
     issues.extend(check_identical_operands(parsed, index, source));
-    issues.extend(check_duplicate_conditions(parsed, index, source));
-    issues.extend(check_duplicate_branches(parsed, index, source));
-    issues.extend(check_inverted_boolean_checks(parsed, index, source));
-    issues.extend(check_self_assignment(parsed, index, source));
-    issues.extend(check_wildcard_imports(parsed, index, source));
-    issues.extend(check_doubled_prefix_operators(parsed, index, source));
-    issues.extend(check_confusing_walrus_placement(parsed, index, source));
-    issues.extend(check_constant_none_comparisons(parsed, index, source));
-    issues.extend(check_fresh_object_identity_checks(parsed, index, source));
-    issues.extend(check_tuple_assertions(parsed, index, source));
-    issues.extend(check_type_equality_comparisons(parsed, index, source));
-    issues.extend(check_lambda_assignments(parsed, index, source));
-    issues.extend(check_boundary_slice_comparisons(parsed, index, source));
-    issues.extend(check_float_equality_comparisons(parsed, index, source));
+    issues.extend(check_duplicate_conditions(index, source, file_ctx));
+    issues.extend(check_duplicate_branches(index, source, file_ctx));
+    issues.extend(check_inverted_boolean_checks(index, source, file_ctx));
+    issues.extend(check_self_assignment(index, source, file_ctx));
+    issues.extend(check_wildcard_imports(index, source, file_ctx));
+    issues.extend(check_doubled_prefix_operators(index, source, file_ctx));
+    issues.extend(check_confusing_walrus_placement(index, source, file_ctx));
+    issues.extend(check_constant_none_comparisons(index, source, file_ctx));
+    issues.extend(check_fresh_object_identity_checks(index, source, file_ctx));
+    issues.extend(check_tuple_assertions(index, source, file_ctx));
+    issues.extend(check_type_equality_comparisons(index, source, file_ctx));
+    issues.extend(check_lambda_assignments(index, source, file_ctx));
+    issues.extend(check_boundary_slice_comparisons(index, source, file_ctx));
+    issues.extend(check_float_equality_comparisons(index, source, file_ctx));
     issues.extend(check_no_effect_statements(parsed, index, source));
-    issues.extend(check_exit_signatures(parsed, index, source));
-    issues.extend(check_init_return_values(parsed, index, source));
-    issues.extend(check_only_reraise_handlers(parsed, index, source));
-    issues.extend(check_notimplemented_raises(parsed, index, source));
+    issues.extend(check_exit_signatures(index, source, file_ctx));
+    issues.extend(check_init_return_values(index, source, file_ctx));
+    issues.extend(check_only_reraise_handlers(index, source, file_ctx));
+    issues.extend(check_notimplemented_raises(index, source, file_ctx));
     issues.extend(check_methods_missing_parameters(parsed, index, source));
     issues.extend(check_instance_self_parameters(parsed, index, source));
-    issues.extend(check_special_method_arities(parsed, index, source));
+    issues.extend(check_special_method_arities(index, source, file_ctx));
     issues.extend(check_property_accessor_arities(parsed, index, source));
-    issues.extend(check_exception_inheritance(parsed, index, source));
-    issues.extend(check_boolean_except_clauses(parsed, index, source));
+    issues.extend(check_exception_inheritance(index, source, file_ctx));
+    issues.extend(check_boolean_except_clauses(index, source, file_ctx));
     issues.extend(check_raise_and_jump_flow(parsed, index, source));
-    issues.extend(check_exit_reraises_argument(parsed, index, source));
-    issues.extend(check_swallowed_system_exit(parsed, index, source));
-    issues.extend(check_closure_captures_loop_variable(parsed, index, source));
+    issues.extend(check_exit_reraises_argument(index, source, file_ctx));
+    issues.extend(check_swallowed_system_exit(index, source, file_ctx));
+    issues.extend(check_closure_captures_loop_variable(
+        index, source, file_ctx,
+    ));
     issues.extend(check_classmethod_parameter_names(parsed, index, source));
     issues.extend(check_yield_return_outside_function(parsed, index, source));
-    issues.extend(check_generator_return_values(parsed, index, source));
-    issues.extend(check_unreachable_test_methods(parsed, index, source));
-    issues.extend(check_assertion_at_end_of_except(parsed, index, source));
-    issues.extend(check_duplicate_dict_keys(parsed, index, source));
-    issues.extend(check_duplicate_set_elements(parsed, index, source));
-    issues.extend(check_empty_collection_constructors(parsed, index, source));
+    issues.extend(check_generator_return_values(index, source, file_ctx));
+    issues.extend(check_unreachable_test_methods(index, source, file_ctx));
+    issues.extend(check_assertion_at_end_of_except(index, source, file_ctx));
+    issues.extend(check_duplicate_dict_keys(index, source, file_ctx));
+    issues.extend(check_duplicate_set_elements(index, source, file_ctx));
+    issues.extend(check_empty_collection_constructors(index, source, file_ctx));
     issues.extend(check_wrapping_collection_constructors(
-        parsed, index, source,
+        index, source, file_ctx,
     ));
-    issues.extend(check_generator_into_constructor(parsed, index, source));
+    issues.extend(check_generator_into_constructor(index, source, file_ctx));
     issues.extend(check_copy_only_comprehensions(parsed, index, source));
-    issues.extend(check_list_wrapped_iteration(parsed, index, source));
-    issues.extend(check_map_lambda_calls(parsed, index, source));
+    issues.extend(check_list_wrapped_iteration(index, source, file_ctx));
+    issues.extend(check_map_lambda_calls(index, source, file_ctx));
     issues.extend(check_constant_dict_comprehension_values(
-        parsed, index, source,
+        index, source, file_ctx,
     ));
-    issues.extend(check_defaultdict_keyword_factory(parsed, index, source));
-    issues.extend(check_nested_identical_constructors(parsed, index, source));
-    issues.extend(check_sorted_reversed_shapes(parsed, index, source));
-    issues.extend(check_manual_key_iteration(parsed, index, source));
-    issues.extend(check_constant_populated_dict_loop(parsed, index, source));
-    issues.extend(check_items_only_keys_needed(parsed, index, source));
+    issues.extend(check_defaultdict_keyword_factory(index, source, file_ctx));
+    issues.extend(check_nested_identical_constructors(index, source, file_ctx));
+    issues.extend(check_sorted_reversed_shapes(index, source, file_ctx));
+    issues.extend(check_manual_key_iteration(index, source, file_ctx));
+    issues.extend(check_constant_populated_dict_loop(index, source, file_ctx));
+    issues.extend(check_items_only_keys_needed(index, source, file_ctx));
     issues
 }
 
@@ -368,11 +374,12 @@ pub(crate) fn check_tier_a_battery_2(
     index: &LineIndex,
     source: &str,
     options: &AnalyzerOptions,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    tier_a2_general_checks(parsed, index, source, options, &mut issues);
-    tier_a2_data_science_checks(parsed, index, source, &mut issues);
-    tier_a2_web_async_typing_checks(parsed, index, source, options, &mut issues);
+    tier_a2_general_checks(parsed, index, source, options, file_ctx, &mut issues);
+    tier_a2_web_async_typing_checks(parsed, index, source, options, file_ctx, &mut issues);
+    tier_a2_data_science_checks(parsed, index, source, file_ctx, &mut issues);
     issues
 }
 
@@ -382,19 +389,20 @@ fn tier_a2_general_checks(
     index: &LineIndex,
     source: &str,
     options: &AnalyzerOptions,
+    file_ctx: &FileContext,
     issues: &mut Vec<Issue>,
 ) {
     issues.extend(check_duplicated_string_literals(
         parsed, index, source, options,
     ));
-    issues.extend(check_open_modes(parsed, index, source));
-    issues.extend(check_weak_hashing(parsed, index, source));
-    issues.extend(check_insecure_temp_files(parsed, index, source));
-    issues.extend(check_unbounded_archive_extraction(parsed, index, source));
-    issues.extend(check_debug_features(parsed, index, source));
-    issues.extend(check_literal_re_sub_patterns(parsed, index, source));
-    issues.extend(check_world_writable_modes(parsed, index, source));
-    issues.extend(check_deprecated_utc_helpers(parsed, index, source));
+    issues.extend(check_open_modes(index, source, file_ctx));
+    issues.extend(check_weak_hashing(index, source, file_ctx));
+    issues.extend(check_insecure_temp_files(index, source, file_ctx));
+    issues.extend(check_unbounded_archive_extraction(index, source, file_ctx));
+    issues.extend(check_debug_features(index, source, file_ctx));
+    issues.extend(check_literal_re_sub_patterns(index, source, file_ctx));
+    issues.extend(check_world_writable_modes(index, source, file_ctx));
+    issues.extend(check_deprecated_utc_helpers(index, source, file_ctx));
     issues.extend(check_nan_comparisons(parsed, index, source));
 }
 
@@ -403,37 +411,38 @@ fn tier_a2_data_science_checks(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
     issues: &mut Vec<Issue>,
 ) {
-    issues.extend(check_isclose_zero_tolerance(parsed, index, source));
-    issues.extend(check_single_arg_np_where(parsed, index, source));
+    issues.extend(check_isclose_zero_tolerance(index, source, file_ctx));
+    issues.extend(check_single_arg_np_where(index, source, file_ctx));
     issues.extend(check_deprecated_numpy_aliases(parsed, index, source));
     issues.extend(check_random_state_usage(parsed, index, source));
-    issues.extend(check_np_array_generator(parsed, index, source));
-    issues.extend(check_pandas_inplace(parsed, index, source));
-    issues.extend(check_unqualified_merge(parsed, index, source));
-    issues.extend(check_read_without_dtype(parsed, index, source));
+    issues.extend(check_np_array_generator(index, source, file_ctx));
+    issues.extend(check_pandas_inplace(index, source, file_ctx));
+    issues.extend(check_unqualified_merge(index, source, file_ctx));
+    issues.extend(check_read_without_dtype(index, source, file_ctx));
     issues.extend(check_dataframe_values_attribute(parsed, index, source));
-    issues.extend(check_long_dataframe_chains(parsed, index, source));
-    issues.extend(check_to_datetime_ambiguity(parsed, index, source));
-    issues.extend(check_invalid_weekmask(parsed, index, source));
-    issues.extend(check_datetime_component_ranges(parsed, index, source));
-    issues.extend(check_strftime_hour_markers(parsed, index, source));
-    issues.extend(check_pytz_tzinfo_kwarg(parsed, index, source));
-    issues.extend(check_pytz_timezone_usage(parsed, index, source));
-    issues.extend(check_reduction_axis_missing(parsed, index, source));
-    issues.extend(check_gather_validate_indices(parsed, index, source));
+    issues.extend(check_long_dataframe_chains(parsed, index, source, file_ctx));
+    issues.extend(check_to_datetime_ambiguity(index, source, file_ctx));
+    issues.extend(check_invalid_weekmask(index, source, file_ctx));
+    issues.extend(check_datetime_component_ranges(index, source, file_ctx));
+    issues.extend(check_strftime_hour_markers(index, source, file_ctx));
+    issues.extend(check_pytz_tzinfo_kwarg(index, source, file_ctx));
+    issues.extend(check_pytz_timezone_usage(index, source, file_ctx));
+    issues.extend(check_reduction_axis_missing(index, source, file_ctx));
+    issues.extend(check_gather_validate_indices(index, source, file_ctx));
     issues.extend(check_keras_model_input_shape(parsed, index, source));
-    issues.extend(check_pipeline_memory_missing(parsed, index, source));
-    issues.extend(check_estimator_hyperparameters(parsed, index, source));
+    issues.extend(check_pipeline_memory_missing(index, source, file_ctx));
+    issues.extend(check_estimator_hyperparameters(index, source, file_ctx));
     issues.extend(check_base_estimator_underscore_attributes(
         parsed, index, source,
     ));
-    issues.extend(check_nn_module_super_init(parsed, index, source));
-    issues.extend(check_autograd_variable_usage(parsed, index, source));
-    issues.extend(check_dataloader_workers(parsed, index, source));
-    issues.extend(check_torch_load_weights_only(parsed, index, source));
-    issues.extend(check_einops_patterns(parsed, index, source));
+    issues.extend(check_nn_module_super_init(index, source, file_ctx));
+    issues.extend(check_autograd_variable_usage(index, source, file_ctx));
+    issues.extend(check_dataloader_workers(index, source, file_ctx));
+    issues.extend(check_torch_load_weights_only(index, source, file_ctx));
+    issues.extend(check_einops_patterns(index, source, file_ctx));
     issues.extend(check_named_steps_bypass(parsed, index, source));
 }
 
@@ -443,56 +452,59 @@ fn tier_a2_web_async_typing_checks(
     index: &LineIndex,
     source: &str,
     options: &AnalyzerOptions,
+    file_ctx: &FileContext,
     issues: &mut Vec<Issue>,
 ) {
-    issues.extend(check_django_string_field_null(parsed, index, source));
-    issues.extend(check_django_model_str(parsed, index, source));
-    issues.extend(check_render_locals(parsed, index, source));
-    issues.extend(check_modelform_meta_fields(parsed, index, source));
-    issues.extend(check_json_response_safe_flag(parsed, index, source));
-    issues.extend(check_route_decorator_ordering(parsed, index, source));
-    issues.extend(check_async_timeout_parameters(parsed, index, source));
+    issues.extend(check_django_string_field_null(index, source, file_ctx));
+    issues.extend(check_django_model_str(index, source, file_ctx));
+    issues.extend(check_render_locals(index, source, file_ctx));
+    issues.extend(check_modelform_meta_fields(index, source, file_ctx));
+    issues.extend(check_json_response_safe_flag(index, source, file_ctx));
+    issues.extend(check_route_decorator_ordering(index, source, file_ctx));
+    issues.extend(check_async_timeout_parameters(index, source, file_ctx));
     issues.extend(check_sleep_in_async_loop(parsed, index, source));
-    issues.extend(check_long_sleeps(parsed, index, source));
+    issues.extend(check_long_sleeps(index, source, file_ctx));
     issues.extend(check_sync_subprocess_in_async(parsed, index, source));
     issues.extend(check_blocking_sleep_in_async(parsed, index, source));
     issues.extend(check_sleep_zero_checkpoint(parsed, index, source));
-    issues.extend(check_any_all_list_comprehension(parsed, index, source));
+    issues.extend(check_any_all_list_comprehension(index, source, file_ctx));
     issues.extend(check_sync_file_ops_in_async(parsed, index, source));
     issues.extend(check_sync_http_in_async(parsed, index, source));
     issues.extend(check_input_in_async(parsed, index, source));
-    issues.extend(check_async_without_awaits(parsed, index, source));
+    issues.extend(check_async_without_awaits(index, source, file_ctx));
     issues.extend(check_single_task_nurseries(parsed, index, source));
     issues.extend(check_control_flow_in_nurseries(parsed, index, source));
     issues.extend(check_missing_return_annotations(
-        parsed, index, source, options,
+        index, source, options, file_ctx,
     ));
     issues.extend(check_missing_parameter_annotations(
-        parsed, index, source, options,
+        index, source, options, file_ctx,
     ));
     issues.extend(check_any_type_hints(parsed, index, source));
     issues.extend(check_bare_generic_hints(parsed, index, source));
     issues.extend(check_typing_alias_hints(parsed, index, source));
     issues.extend(check_typing_union_hints(parsed, index, source));
-    issues.extend(check_pep695_generic_classes(parsed, index, source));
-    issues.extend(check_typealias_assignments(parsed, index, source));
-    issues.extend(check_redundant_typevars(parsed, index, source));
-    issues.extend(check_typevar_annotated_functions(parsed, index, source));
+    issues.extend(check_pep695_generic_classes(index, source, file_ctx));
+    issues.extend(check_typealias_assignments(index, source, file_ctx));
+    issues.extend(check_redundant_typevars(parsed, index, source, file_ctx));
+    issues.extend(check_typevar_annotated_functions(
+        parsed, index, source, file_ctx,
+    ));
     issues.extend(check_except_star_groups(parsed, index, source));
     issues.extend(check_unraised_exceptions(parsed, index, source));
-    issues.extend(check_incompatible_assert_literals(parsed, index, source));
-    issues.extend(check_duplicate_call_arguments(parsed, index, source));
-    issues.extend(check_skip_without_reason(parsed, index, source));
-    issues.extend(check_disclosed_secret_keys(parsed, index, source));
-    issues.extend(check_jwt_secret_arguments(parsed, index, source));
+    issues.extend(check_incompatible_assert_literals(index, source, file_ctx));
+    issues.extend(check_duplicate_call_arguments(index, source, file_ctx));
+    issues.extend(check_skip_without_reason(index, source, file_ctx));
+    issues.extend(check_disclosed_secret_keys(index, source, file_ctx));
+    issues.extend(check_jwt_secret_arguments(index, source, file_ctx));
     issues.extend(check_trailing_comments(parsed, index, source, options));
     issues.extend(check_overwritten_collection_items(parsed, index, source));
     issues.extend(check_identical_sibling_functions(parsed, index, source));
-    issues.extend(check_mutable_default_mutation(parsed, index, source));
-    issues.extend(check_constant_conditions(parsed, index, source));
-    issues.extend(check_imprecise_assertions(parsed, index, source));
-    issues.extend(check_unconditional_assertions(parsed, index, source));
-    issues.extend(check_unseeded_randomness(parsed, index, source));
+    issues.extend(check_mutable_default_mutation(index, source, file_ctx));
+    issues.extend(check_constant_conditions(index, source, file_ctx));
+    issues.extend(check_imprecise_assertions(index, source, file_ctx));
+    issues.extend(check_unconditional_assertions(index, source, file_ctx));
+    issues.extend(check_unseeded_randomness(index, source, file_ctx));
     issues.extend(check_sync_os_calls_in_async(parsed, index, source));
 }
 
@@ -564,6 +576,7 @@ pub(crate) fn check_tier_b_battery(
     index: &LineIndex,
     source: &str,
     options: &AnalyzerOptions,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let table = build_symbol_table(parsed);
     let facts = collect_file_facts(parsed, source);
@@ -578,7 +591,7 @@ pub(crate) fn check_tier_b_battery(
         issues.extend(check_use_before_definition(&table, &facts, index, source));
         issues.extend(check_dead_stores(&table, &facts, options, index, source));
         issues.extend(check_overwritten_parameters(&table, &facts, index, source));
-        issues.extend(check_known_value_comparisons(parsed, index, source));
+        issues.extend(check_known_value_comparisons(index, source, file_ctx));
         issues.extend(check_static_candidates(&table, index, source));
     }
     issues.extend(check_unused_private_methods(&table, &facts, index, source));
@@ -596,27 +609,27 @@ pub(crate) fn check_tier_b_battery(
     issues.extend(check_unread_private_attributes(
         &table, &facts, options, index, source,
     ));
-    issues.extend(check_unreachable_except_blocks(parsed, index, source));
-    issues.extend(check_single_iteration_loops(parsed, index, source));
-    issues.extend(check_infinite_recursion(parsed, index, source));
-    issues.extend(check_explicit_test_skips(parsed, index, source));
-    issues.extend(check_tf_function_recursion(parsed, index, source));
-    issues.extend(check_percent_argument_counts(parsed, index, source));
-    issues.extend(check_percent_argument_types(parsed, index, source));
-    issues.extend(check_invariant_returns(parsed, index, source));
-    issues.extend(check_inconsistent_returns(parsed, index, source));
-    issues.extend(check_confusing_type_checks(parsed, index, source));
+    issues.extend(check_unreachable_except_blocks(index, source, file_ctx));
+    issues.extend(check_single_iteration_loops(index, source, file_ctx));
+    issues.extend(check_infinite_recursion(index, source, file_ctx));
+    issues.extend(check_explicit_test_skips(index, source, file_ctx));
+    issues.extend(check_tf_function_recursion(index, source, file_ctx));
+    issues.extend(check_percent_argument_counts(index, source, file_ctx));
+    issues.extend(check_percent_argument_types(index, source, file_ctx));
+    issues.extend(check_invariant_returns(index, source, file_ctx));
+    issues.extend(check_inconsistent_returns(index, source, file_ctx));
+    issues.extend(check_confusing_type_checks(index, source, file_ctx));
     issues.extend(check_tf_function_global_captures(&table, index, source));
     issues.extend(check_tf_variable_creation(parsed, index, source));
     issues.extend(check_tf_function_side_effects(parsed, index, source));
-    issues.extend(check_missing_eval_after_load(parsed, index, source));
-    issues.extend(check_unreferenced_asyncio_tasks(parsed, index, source));
+    issues.extend(check_missing_eval_after_load(index, source, file_ctx));
+    issues.extend(check_unreferenced_asyncio_tasks(index, source, file_ctx));
     issues.extend(check_sync_open_without_async_with(parsed, index, source));
     issues.extend(check_nested_estimator_parameters(
-        parsed, &table, index, source,
+        parsed, &table, index, source, file_ctx,
     ));
     issues.extend(check_cancellation_scope_checkpoints(parsed, index, source));
-    issues.extend(check_swallowed_cancellations(parsed, index, source));
+    issues.extend(check_swallowed_cancellations(index, source, file_ctx));
     issues
 }
 
@@ -625,11 +638,12 @@ pub(crate) fn check_tier_c_security_battery(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    tier_c_core_security_checks(parsed, index, source, &mut issues);
-    tier_c_web_crypto_checks(parsed, index, source, &mut issues);
-    tier_c_cloud_data_checks(parsed, index, source, &mut issues);
+    tier_c_core_security_checks(parsed, index, source, file_ctx, &mut issues);
+    tier_c_web_crypto_checks(parsed, index, source, file_ctx, &mut issues);
+    tier_c_cloud_data_checks(parsed, index, source, file_ctx, &mut issues);
     issues
 }
 
@@ -638,33 +652,40 @@ fn tier_c_core_security_checks(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
     issues: &mut Vec<Issue>,
 ) {
-    issues.extend(check_s4792_logger_configuration(parsed, index, source));
-    issues.extend(check_s4823_command_line_arguments(parsed, index, source));
-    issues.extend(check_s4829_standard_input(parsed, index, source));
-    issues.extend(check_s4787_encrypting_data(parsed, index, source));
-    issues.extend(check_s5300_sending_emails(parsed, index, source));
-    issues.extend(check_s4721_shell_commands(parsed, index, source));
-    issues.extend(check_s4830_certificate_verification(parsed, index, source));
-    issues.extend(check_s5527_hostname_verification(parsed, index, source));
+    issues.extend(check_s4792_logger_configuration(index, source, file_ctx));
+    issues.extend(check_s4823_command_line_arguments(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s4829_standard_input(index, source, file_ctx));
+    issues.extend(check_s4787_encrypting_data(index, source, file_ctx));
+    issues.extend(check_s5300_sending_emails(index, source, file_ctx));
+    issues.extend(check_s4721_shell_commands(index, source, file_ctx));
+    issues.extend(check_s4830_certificate_verification(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s5527_hostname_verification(index, source, file_ctx));
     issues.extend(check_s4423_weak_ssl_protocols(parsed, index, source));
-    issues.extend(check_s4426_weak_key_generation(parsed, index, source));
+    issues.extend(check_s4426_weak_key_generation(
+        parsed, index, source, file_ctx,
+    ));
     issues.extend(check_cookie_flag(
-        parsed,
         index,
         source,
         "python:S2092",
         "Add the \"secure\" flag to this cookie.",
         "secure",
+        file_ctx,
     ));
     issues.extend(check_cookie_flag(
-        parsed,
         index,
         source,
         "python:S3330",
         "Add the \"HttpOnly\" flag to this cookie.",
         "httponly",
+        file_ctx,
     ));
 }
 
@@ -673,26 +694,27 @@ fn tier_c_web_crypto_checks(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
     issues: &mut Vec<Issue>,
 ) {
-    issues.extend(check_s4502_csrf_disabled(parsed, index, source));
-    issues.extend(check_s5122_cors_wildcard(parsed, index, source));
-    issues.extend(check_s5247_autoescaping_disabled(parsed, index, source));
+    issues.extend(check_s4502_csrf_disabled(index, source, file_ctx));
+    issues.extend(check_s5122_cors_wildcard(index, source, file_ctx));
+    issues.extend(check_s5247_autoescaping_disabled(index, source, file_ctx));
     issues.extend(check_s5439_global_autoescape_disabled(
         parsed, index, source,
     ));
-    issues.extend(check_s4433_ldap_unauthenticated(parsed, index, source));
-    issues.extend(check_s2115_empty_database_password(parsed, index, source));
-    issues.extend(check_s2077_sql_formatting(parsed, index, source));
-    issues.extend(check_s2053_static_salt(parsed, index, source));
-    issues.extend(check_s3329_static_cbc_iv(parsed, index, source));
+    issues.extend(check_s4433_ldap_unauthenticated(index, source, file_ctx));
+    issues.extend(check_s2115_empty_database_password(index, source, file_ctx));
+    issues.extend(check_s2077_sql_formatting(index, source, file_ctx));
+    issues.extend(check_s2053_static_salt(index, source, file_ctx));
+    issues.extend(check_s3329_static_cbc_iv(index, source, file_ctx));
     issues.extend(check_s5542_weak_modes_and_paddings(parsed, index, source));
-    issues.extend(check_s5547_weak_ciphers(parsed, index, source));
-    issues.extend(check_s5659_jwt_signing(parsed, index, source));
-    issues.extend(check_s5344_plaintext_passwords(parsed, index, source));
-    issues.extend(check_s2245_prng_security_contexts(parsed, index, source));
-    issues.extend(check_s5443_public_temp_files(parsed, index, source));
-    issues.extend(check_s2755_xxe_parsers(parsed, index, source));
+    issues.extend(check_s5547_weak_ciphers(index, source, file_ctx));
+    issues.extend(check_s5659_jwt_signing(index, source, file_ctx));
+    issues.extend(check_s5344_plaintext_passwords(index, source, file_ctx));
+    issues.extend(check_s2245_prng_security_contexts(index, source, file_ctx));
+    issues.extend(check_s5443_public_temp_files(index, source, file_ctx));
+    issues.extend(check_s2755_xxe_parsers(index, source, file_ctx));
     issues.extend(check_s6377_weak_xml_signature_transforms(
         parsed, index, source,
     ));
@@ -703,49 +725,64 @@ fn tier_c_cloud_data_checks(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
     issues: &mut Vec<Issue>,
 ) {
-    issues.extend(check_s4828_signal_parameters(parsed, index, source));
-    issues.extend(check_s1523_dynamic_code_execution(parsed, index, source));
-    issues.extend(check_s2257_custom_cryptography(parsed, index, source));
-    issues.extend(check_s6785_graphql_depth_limiting(parsed, index, source));
+    issues.extend(check_s4828_signal_parameters(index, source, file_ctx));
+    issues.extend(check_s1523_dynamic_code_execution(index, source, file_ctx));
+    issues.extend(check_s2257_custom_cryptography(index, source, file_ctx));
+    issues.extend(check_s6785_graphql_depth_limiting(index, source, file_ctx));
     issues.extend(check_s6245_s3_encryption_configuration(
-        parsed, index, source,
+        index, source, file_ctx,
     ));
-    issues.extend(check_s6252_s3_versioning(parsed, index, source));
-    issues.extend(check_s6265_s3_public_acl(parsed, index, source));
+    issues.extend(check_s6252_s3_versioning(index, source, file_ctx));
+    issues.extend(check_s6265_s3_public_acl(index, source, file_ctx));
     issues.extend(check_s6270_public_resource_policy(parsed, index, source));
-    issues.extend(check_s6275_ebs_encryption(parsed, index, source));
-    issues.extend(check_s6281_s3_public_access_block(parsed, index, source));
-    issues.extend(check_s6302_all_privileges_policy(parsed, index, source));
-    issues.extend(check_s6304_all_resources_policy(parsed, index, source));
-    issues.extend(check_s6303_rds_encryption(parsed, index, source));
-    issues.extend(check_s6308_opensearch_encryption(parsed, index, source));
-    issues.extend(check_s6317_wildcard_action_scope(parsed, index, source));
-    issues.extend(check_s6319_sagemaker_encryption(parsed, index, source));
-    issues.extend(check_s6321_admin_ports_open_world(parsed, index, source));
-    issues.extend(check_s6327_sns_encryption(parsed, index, source));
-    issues.extend(check_s6329_public_network_access(parsed, index, source));
-    issues.extend(check_s6330_sqs_encryption(parsed, index, source));
-    issues.extend(check_s6332_efs_encryption(parsed, index, source));
-    issues.extend(check_s6333_api_gateway_authorization(parsed, index, source));
-    issues.extend(check_s6463_unrestricted_egress(parsed, index, source));
-    issues.extend(check_s3752_route_methods(parsed, index, source));
-    issues.extend(check_s5795_identity_cached_types(parsed, index, source));
-    issues.extend(check_s3403_identity_dissimilar_types(parsed, index, source));
-    issues.extend(check_s6663_sequence_index_type(parsed, index, source));
-    issues.extend(check_s5642_membership_operands(parsed, index, source));
-    issues.extend(check_s5644_literal_item_operations(parsed, index, source));
-    issues.extend(check_s3862_iterating_non_iterables(parsed, index, source));
+    issues.extend(check_s6275_ebs_encryption(index, source, file_ctx));
+    issues.extend(check_s6281_s3_public_access_block(index, source, file_ctx));
+    issues.extend(check_s6302_all_privileges_policy(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s6304_all_resources_policy(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s6303_rds_encryption(index, source, file_ctx));
+    issues.extend(check_s6308_opensearch_encryption(index, source, file_ctx));
+    issues.extend(check_s6317_wildcard_action_scope(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s6319_sagemaker_encryption(index, source, file_ctx));
+    issues.extend(check_s6321_admin_ports_open_world(index, source, file_ctx));
+    issues.extend(check_s6327_sns_encryption(index, source, file_ctx));
+    issues.extend(check_s6329_public_network_access(index, source, file_ctx));
+    issues.extend(check_s6330_sqs_encryption(index, source, file_ctx));
+    issues.extend(check_s6332_efs_encryption(index, source, file_ctx));
+    issues.extend(check_s6333_api_gateway_authorization(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s6463_unrestricted_egress(index, source, file_ctx));
+    issues.extend(check_s3752_route_methods(index, source, file_ctx));
+    issues.extend(check_s5795_identity_cached_types(index, source, file_ctx));
+    issues.extend(check_s3403_identity_dissimilar_types(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s6663_sequence_index_type(index, source, file_ctx));
+    issues.extend(check_s5642_membership_operands(index, source, file_ctx));
+    issues.extend(check_s5644_literal_item_operations(index, source, file_ctx));
+    issues.extend(check_s3862_iterating_non_iterables(index, source, file_ctx));
     issues.extend(check_s5607_incompatible_operator_pairs(
-        parsed, index, source,
+        index, source, file_ctx,
     ));
     issues.extend(check_s6662_unhashable_collection_literals(
-        parsed, index, source,
+        index, source, file_ctx,
     ));
-    issues.extend(check_s5707_raise_from_non_exception(parsed, index, source));
-    issues.extend(check_s5632_raising_non_exceptions(parsed, index, source));
-    issues.extend(check_s5708_excepting_non_exceptions(parsed, index, source));
+    issues.extend(check_s5707_raise_from_non_exception(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s5632_raising_non_exceptions(index, source, file_ctx));
+    issues.extend(check_s5708_excepting_non_exceptions(
+        index, source, file_ctx,
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -761,19 +798,20 @@ pub(crate) fn check_tier_c_semantic_battery(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    issues.extend(check_s2201_ignored_pure_returns(parsed, index, source));
+    issues.extend(check_s2201_ignored_pure_returns(index, source, file_ctx));
     issues.extend(check_s5756_non_callable_callees(parsed, index, source));
     issues.extend(check_s3699_used_void_outputs(parsed, index, source));
-    issues.extend(check_s935_bare_returns(parsed, index, source));
+    issues.extend(check_s935_bare_returns(index, source, file_ctx));
     issues.extend(check_s5890_annotated_assignment_kinds(
-        parsed, index, source,
+        index, source, file_ctx,
     ));
-    issues.extend(check_s5886_return_hint_mismatches(parsed, index, source));
+    issues.extend(check_s5886_return_hint_mismatches(index, source, file_ctx));
     issues.extend(check_s930_arity_mismatches(parsed, index, source));
     issues.extend(check_s5655_argument_kind_mismatches(parsed, index, source));
-    issues.extend(check_s2876_iter_returns(parsed, index, source));
+    issues.extend(check_s2876_iter_returns(index, source, file_ctx));
     issues.extend(check_s2638_override_contracts(parsed, index, source));
     issues.extend(check_s5713_parent_child_except_pairs(parsed, index, source));
     issues
@@ -801,11 +839,12 @@ pub(crate) fn check_naming_convention_battery(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_method_and_function_names(parsed, index, source));
-    issues.extend(check_class_names(parsed, index, source));
-    issues.extend(check_class_field_names(parsed, index, source));
+    issues.extend(check_class_names(index, source, file_ctx));
+    issues.extend(check_class_field_names(index, source, file_ctx));
     issues.extend(check_parameter_and_local_names(parsed, index, source));
     issues
 }
@@ -820,6 +859,7 @@ pub(crate) fn check_structural_battery(
     index: &LineIndex,
     source: &str,
     options: &AnalyzerOptions,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_collapsible_ifs(parsed, index, source));
@@ -828,7 +868,7 @@ pub(crate) fn check_structural_battery(
     issues.extend(check_similar_names_scope(parsed, index, source));
     issues.extend(check_empty_blocks(parsed, index, source));
     issues.extend(check_member_name_matches_class(parsed, index, source));
-    issues.extend(check_old_style_classes(parsed, index, source));
+    issues.extend(check_old_style_classes(index, source, file_ctx));
     issues.extend(check_cognitive_complexity(parsed, index, source, options));
     issues.extend(check_function_complexity(parsed, index, source, options));
     issues.extend(check_file_complexity(parsed, index, source, options));

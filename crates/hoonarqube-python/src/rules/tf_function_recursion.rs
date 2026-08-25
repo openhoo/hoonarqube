@@ -1,30 +1,28 @@
+use crate::engine::file_context::FileContext;
 use crate::support::called_name;
-use crate::support::for_each_stmt;
 use crate::support::for_each_stmt_expr;
 use crate::support::is_tf_function;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 // --- python:S6908 — recursion inside tf.function ------------------------------
 
 pub(crate) fn check_tf_function_recursion(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for stmt in &file_ctx.stmts {
         let Stmt::FunctionDef(function) = stmt else {
-            return;
+            continue;
         };
         if !is_tf_function(function) {
-            return;
+            continue;
         }
         let mut flagged = false;
         for_each_stmt_expr(&function.body, &mut |expr| {
@@ -42,6 +40,6 @@ pub(crate) fn check_tf_function_recursion(
                 ));
             }
         });
-    });
+    }
     issues
 }

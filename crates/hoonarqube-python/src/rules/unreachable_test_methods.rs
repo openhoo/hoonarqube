@@ -1,23 +1,23 @@
-use crate::support::for_each_stmt;
+use crate::engine::file_context::FileContext;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 pub(crate) fn check_unreachable_test_methods(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
-        let Stmt::ClassDef(class) = stmt else { return };
+    for stmt in &file_ctx.stmts {
+        let Stmt::ClassDef(class) = stmt else {
+            continue;
+        };
         if !class.bases().iter().any(is_test_case_base) {
-            return;
+            continue;
         }
         for member in &class.body {
             if let Stmt::FunctionDef(function) = member {
@@ -33,7 +33,7 @@ pub(crate) fn check_unreachable_test_methods(
                 }
             }
         }
-    });
+    }
     issues
 }
 

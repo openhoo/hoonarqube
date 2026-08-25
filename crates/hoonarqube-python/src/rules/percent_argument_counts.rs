@@ -1,27 +1,25 @@
-use crate::support::for_each_stmt_expr;
+use crate::engine::file_context::FileContext;
 use crate::support::issue_at;
 use crate::support::string_value_text;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 use ruff_text_size::TextRange;
 
 pub(crate) fn check_percent_argument_counts(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+    for expr in &file_ctx.exprs {
         let Some((format_text, arguments, right_operand, range)) = percent_format_parts(expr)
         else {
-            return;
+            continue;
         };
         let Some(conversions) = percent_conversions(&format_text) else {
-            return;
+            continue;
         };
         if matches!(right_operand, Expr::Dict(_)) {
             if !conversions.is_empty() && !format_text.contains("%(") {
@@ -33,7 +31,7 @@ pub(crate) fn check_percent_argument_counts(
                     source,
                 ));
             }
-            return;
+            continue;
         }
         if conversions.len() != arguments.len() {
             issues.push(issue_at(
@@ -44,7 +42,7 @@ pub(crate) fn check_percent_argument_counts(
                 source,
             ));
         }
-    });
+    }
     issues
 }
 

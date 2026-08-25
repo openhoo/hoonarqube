@@ -1,26 +1,24 @@
-use crate::support::for_each_stmt_expr;
+use crate::engine::file_context::FileContext;
 use crate::support::issue_at;
 use crate::support::percent_conversions;
 use crate::support::percent_format_parts;
 use crate::support::string_value_text;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 
 pub(crate) fn check_percent_argument_types(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+    for expr in &file_ctx.exprs {
         let Some((format_text, arguments, _, range)) = percent_format_parts(expr) else {
-            return;
+            continue;
         };
         let Some(conversions) = percent_conversions(&format_text) else {
-            return;
+            continue;
         };
         for (conversion, argument) in conversions.iter().zip(arguments) {
             let mismatch = match argument {
@@ -56,6 +54,6 @@ pub(crate) fn check_percent_argument_types(
                 break;
             }
         }
-    });
+    }
     issues
 }

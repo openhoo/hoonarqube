@@ -1,6 +1,6 @@
+use crate::engine::file_context::FileContext;
 use crate::support::collect_typevar_names;
 use crate::support::for_each_expr;
-use crate::support::for_each_stmt;
 use crate::support::function_parameters;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
@@ -15,13 +15,14 @@ pub(crate) fn check_typevar_annotated_functions(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let typevars = collect_typevar_names(parsed.syntax().body.as_slice());
     if typevars.is_empty() {
         return Vec::new();
     }
     let mut issues = Vec::new();
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for stmt in &file_ctx.stmts {
         if let Stmt::FunctionDef(function) = stmt {
             let annotations = function_parameters(function)
                 .iter()
@@ -49,7 +50,7 @@ pub(crate) fn check_typevar_annotated_functions(
                 ));
             }
         }
-    });
+    }
     issues
 }
 

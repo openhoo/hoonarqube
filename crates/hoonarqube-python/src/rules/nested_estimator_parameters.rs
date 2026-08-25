@@ -1,6 +1,6 @@
+use crate::engine::file_context::FileContext;
 use crate::engine::scope::SymbolTable;
 use crate::support::KNOWN_STEP_HINTS;
-use crate::support::for_each_stmt_expr;
 use crate::support::issue_at;
 use crate::support::unmasked_segments;
 use hoonarqube_ir::Issue;
@@ -18,6 +18,7 @@ pub(crate) fn check_nested_estimator_parameters(
     table: &SymbolTable,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let sklearn_present = unmasked_segments(parsed, source)
         .iter()
@@ -34,8 +35,8 @@ pub(crate) fn check_nested_estimator_parameters(
         known.insert(site.name.clone());
     }
     let mut issues = Vec::new();
-    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
-        let Expr::Call(call) = expr else { return };
+    for expr in &file_ctx.exprs {
+        let Expr::Call(call) = expr else { continue };
         for keyword in &call.arguments.keywords {
             let Some(arg) = &keyword.arg else { continue };
             let Some(separator) = arg.as_str().find("__") else {
@@ -52,6 +53,6 @@ pub(crate) fn check_nested_estimator_parameters(
                 ));
             }
         }
-    });
+    }
     issues
 }

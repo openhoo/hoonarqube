@@ -1,11 +1,9 @@
+use crate::engine::file_context::FileContext;
 use crate::support::expr_normalized_text;
-use crate::support::for_each_stmt;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ExceptHandler;
-use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
@@ -16,13 +14,13 @@ use ruff_text_size::Ranged;
 // --- python:S1045 — unreachable except blocks --------------------------------
 
 pub(crate) fn check_unreachable_except_blocks(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
-        let Stmt::Try(try_stmt) = stmt else { return };
+    for stmt in &file_ctx.stmts {
+        let Stmt::Try(try_stmt) = stmt else { continue };
         let mut seen_bare = false;
         let mut seen_broad: Option<&'static str> = None;
         let mut seen_types: Vec<String> = Vec::new();
@@ -67,6 +65,6 @@ pub(crate) fn check_unreachable_except_blocks(
             }
             seen_types.push(normalized);
         }
-    });
+    }
     issues
 }

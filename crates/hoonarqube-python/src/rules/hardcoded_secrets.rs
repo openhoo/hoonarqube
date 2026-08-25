@@ -1,6 +1,6 @@
+use crate::engine::file_context::FileContext;
 use crate::support::SECRET_ENTROPY_THRESHOLD;
 use crate::support::SECRET_HIGH_ENTROPY_THRESHOLD;
-use crate::support::for_each_stmt;
 use crate::support::is_secret_name;
 use crate::support::shannon_entropy;
 use crate::support::stmt_targets;
@@ -8,30 +8,28 @@ use crate::support::string_value_text;
 use crate::support::to_range;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 pub(crate) fn check_hardcoded_secrets(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for stmt in &file_ctx.stmts {
         let value = match stmt {
             Stmt::Assign(s) => Some(&*s.value),
             Stmt::AnnAssign(s) => s.value.as_deref(),
             _ => None,
         };
         let Some(Expr::StringLiteral(literal)) = value else {
-            return;
+            continue;
         };
         let text = string_value_text(&literal.value);
         if text.is_empty() {
-            return;
+            continue;
         }
         let named = stmt_targets(stmt)
             .any(|target| matches!(target, Expr::Name(name) if is_secret_name(name.id.as_str())));
@@ -56,7 +54,7 @@ pub(crate) fn check_hardcoded_secrets(
                 range: to_range(literal.range(), index, source),
             });
         }
-    });
+    }
     issues
 }
 

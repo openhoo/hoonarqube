@@ -1,24 +1,22 @@
+use crate::engine::file_context::FileContext;
 use crate::support::comparison_pairs;
-use crate::support::for_each_stmt_expr;
 use crate::support::is_non_supporting_kind;
 use crate::support::issue_at;
 use crate::support::literal_kind;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 // --- python:S5642 — membership tests on unsupported operands ---------------------
 
 pub(crate) fn check_s5642_membership_operands(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+    for expr in &file_ctx.exprs {
         if let Expr::Compare(compare) = expr {
             for (op, _, rhs) in comparison_pairs(compare) {
                 let unsupported = matches!(
@@ -36,6 +34,6 @@ pub(crate) fn check_s5642_membership_operands(
                 }
             }
         }
-    });
+    }
     issues
 }

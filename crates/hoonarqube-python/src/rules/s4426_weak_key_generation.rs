@@ -1,6 +1,6 @@
+use crate::engine::file_context::FileContext;
 use crate::support::dotted_name;
 use crate::support::for_each_attr_load;
-use crate::support::for_each_call;
 use crate::support::int_literal_value;
 use crate::support::is_call_method;
 use crate::support::issue_at;
@@ -14,10 +14,11 @@ pub(crate) fn check_s4426_weak_key_generation(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     const KEY_GENERATORS: [&str; 2] = ["RSA", "DSA"];
     let mut issues = Vec::new();
-    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+    for call in &file_ctx.calls {
         let small_key = is_call_method(call, "generate")
             && dotted_name(&call.func).is_some_and(|p| {
                 p.rsplit_once('.')
@@ -38,7 +39,7 @@ pub(crate) fn check_s4426_weak_key_generation(
                 source,
             ));
         }
-    });
+    }
     for curve in WEAK_ELLIPTIC_CURVES {
         for_each_attr_load(parsed.syntax().body.as_slice(), curve, |attr| {
             issues.push(issue_at(

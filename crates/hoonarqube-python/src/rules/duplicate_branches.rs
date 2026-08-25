@@ -1,43 +1,43 @@
+use crate::engine::file_context::FileContext;
 use crate::support::flag_duplicate_branches;
-use crate::support::for_each_stmt;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ExceptHandler;
-use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 
 // --- python:S1871 — duplicate conditional branches ---------------------------
 
 pub(crate) fn check_duplicate_branches(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| match stmt {
-        Stmt::If(if_stmt) => {
-            let mut branches: Vec<&[Stmt]> = vec![&if_stmt.body];
-            branches.extend(
-                if_stmt
-                    .elif_else_clauses
+    for stmt in &file_ctx.stmts {
+        match stmt {
+            Stmt::If(if_stmt) => {
+                let mut branches: Vec<&[Stmt]> = vec![&if_stmt.body];
+                branches.extend(
+                    if_stmt
+                        .elif_else_clauses
+                        .iter()
+                        .map(|clause| clause.body.as_slice()),
+                );
+                flag_duplicate_branches(&branches, "python:S1871", &mut issues, index, source);
+            }
+            Stmt::Try(try_stmt) => {
+                let handlers: Vec<&[Stmt]> = try_stmt
+                    .handlers
                     .iter()
-                    .map(|clause| clause.body.as_slice()),
-            );
-            flag_duplicate_branches(&branches, "python:S1871", &mut issues, index, source);
+                    .map(|handler| match handler {
+                        ExceptHandler::ExceptHandler(inner) => inner.body.as_slice(),
+                    })
+                    .collect();
+                flag_duplicate_branches(&handlers, "python:S1871", &mut issues, index, source);
+            }
+            _ => {}
         }
-        Stmt::Try(try_stmt) => {
-            let handlers: Vec<&[Stmt]> = try_stmt
-                .handlers
-                .iter()
-                .map(|handler| match handler {
-                    ExceptHandler::ExceptHandler(inner) => inner.body.as_slice(),
-                })
-                .collect();
-            flag_duplicate_branches(&handlers, "python:S1871", &mut issues, index, source);
-        }
-        _ => {}
-    });
+    }
     issues
 }
 

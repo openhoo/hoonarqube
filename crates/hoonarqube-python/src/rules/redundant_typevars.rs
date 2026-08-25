@@ -1,5 +1,5 @@
+use crate::engine::file_context::FileContext;
 use crate::support::called_name;
-use crate::support::for_each_stmt;
 use crate::support::issue_at;
 use crate::support::pep695_aliases_present;
 use hoonarqube_ir::Issue;
@@ -14,12 +14,13 @@ pub(crate) fn check_redundant_typevars(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     if !pep695_aliases_present(parsed, source) {
         return Vec::new();
     }
     let mut issues = Vec::new();
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for stmt in &file_ctx.stmts {
         if let Stmt::Assign(assign) = stmt
             && let Expr::Call(call) = assign.value.as_ref()
             && called_name(&call.func) == Some("TypeVar")
@@ -32,7 +33,7 @@ pub(crate) fn check_redundant_typevars(
                 source,
             ));
         }
-    });
+    }
     issues
 }
 

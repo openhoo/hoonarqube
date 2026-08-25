@@ -108,24 +108,22 @@ pub(crate) fn for_each_call(
 /// session object. The AWS/cdk-family checks only evaluate calls on
 /// resolvable boto3 clients, so they stay silent without such a binding
 /// (stub objects like `client = object()` never qualify).
-pub(crate) fn has_boto3_binding(module_body: &[Stmt]) -> bool {
-    let mut found = false;
-    for_each_call(module_body, &mut |call| {
-        if found {
-            return;
-        }
+pub(crate) fn has_boto3_binding(calls: &[&ruff_python_ast::ExprCall]) -> bool {
+    for call in calls {
         let Expr::Attribute(attribute) = &*call.func else {
-            return;
+            continue;
         };
         match attribute.attr.as_str() {
             "client" | "resource" => {
-                found = expr_chain_mentions(&attribute.value, &["boto3", "session"]);
+                if expr_chain_mentions(&attribute.value, &["boto3", "session"]) {
+                    return true;
+                }
             }
-            "Session" => found = expr_chain_mentions(&attribute.value, &["boto3"]),
+            "Session" if expr_chain_mentions(&attribute.value, &["boto3"]) => return true,
             _ => {}
         }
-    });
-    found
+    }
+    false
 }
 
 /// Whether any name inside the expression tree equals one of `names`.

@@ -1,23 +1,21 @@
-use crate::support::for_each_stmt_expr;
+use crate::engine::file_context::FileContext;
 use crate::support::invalid_escape_offsets;
 use crate::support::to_range;
 use crate::support::to_u32;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::TextRange;
 use ruff_text_size::TextSize;
 
 /// python:S1717 — invalid escape sequences in non-raw string literals.
 pub(crate) fn check_invalid_string_escapes(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+    for expr in &file_ctx.exprs {
         if let Expr::StringLiteral(literal) = expr {
             // Check each concatenation part independently: a raw-suffixed
             // part must not suppress scanning of adjacent non-raw parts.
@@ -42,7 +40,7 @@ pub(crate) fn check_invalid_string_escapes(
                 }
             }
         }
-    });
+    }
     issues
 }
 

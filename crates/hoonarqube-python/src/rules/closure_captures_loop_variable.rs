@@ -1,3 +1,4 @@
+use crate::engine::file_context::FileContext;
 use crate::support::collect_target_names;
 use crate::support::for_each_stmt;
 use crate::support::for_each_stmt_expr;
@@ -6,26 +7,24 @@ use crate::support::loads_any_name;
 use crate::support::stmts_load_any_name;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 // --- python:S1515 — closures capturing loop variables --------------------------
 
 pub(crate) fn check_closure_captures_loop_variable(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
-        let Stmt::For(for_stmt) = stmt else { return };
+    for stmt in &file_ctx.stmts {
+        let Stmt::For(for_stmt) = stmt else { continue };
         let mut targets = Vec::new();
         collect_target_names(&for_stmt.target, &mut targets);
         if targets.is_empty() {
-            return;
+            continue;
         }
         for_each_stmt_expr(&for_stmt.body, &mut |expr| {
             if let Expr::Lambda(lambda) = expr
@@ -53,7 +52,7 @@ pub(crate) fn check_closure_captures_loop_variable(
                 ));
             }
         });
-    });
+    }
     issues
 }
 

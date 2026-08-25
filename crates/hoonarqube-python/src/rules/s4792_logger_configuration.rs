@@ -1,20 +1,18 @@
+use crate::engine::file_context::FileContext;
 use crate::support::call_path_matches;
-use crate::support::for_each_call;
 use crate::support::has_keyword;
 use crate::support::is_call_method;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 // --- python:S4792 — configuring loggers is security-sensitive ----------------
 
 pub(crate) fn check_s4792_logger_configuration(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     const LOGGER_CONFIG_APIS: [&str; 3] = [
         "logging.config.dictConfig",
@@ -22,7 +20,7 @@ pub(crate) fn check_s4792_logger_configuration(
         "logging.config.listen",
     ];
     let mut issues = Vec::new();
-    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+    for call in &file_ctx.calls {
         let configured = call_path_matches(call, &LOGGER_CONFIG_APIS, &[], &[])
             || (is_call_method(call, "basicConfig") && has_keyword(&call.arguments, "handlers"));
         if configured {
@@ -34,7 +32,7 @@ pub(crate) fn check_s4792_logger_configuration(
                 source,
             ));
         }
-    });
+    }
     issues
 }
 

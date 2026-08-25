@@ -1,36 +1,34 @@
+use crate::engine::file_context::FileContext;
 use crate::support::constant_truth;
-use crate::support::for_each_stmt;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
-use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 // --- python:S5918 — tests skipped through early returns ----------------------
 
 pub(crate) fn check_explicit_test_skips(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for stmt in &file_ctx.stmts {
         let Stmt::FunctionDef(function) = stmt else {
-            return;
+            continue;
         };
         if !function.name.as_str().starts_with("test") || function.body.len() < 2 {
-            return;
+            continue;
         }
         let Some(Stmt::If(guard)) = function.body.first() else {
-            return;
+            continue;
         };
         let Some(Stmt::Return(last)) = guard.body.last() else {
-            return;
+            continue;
         };
         if last.value.is_some() || constant_truth(&guard.test) == Some(false) {
-            return;
+            continue;
         }
         issues.push(issue_at(
             "python:S5918",
@@ -39,6 +37,6 @@ pub(crate) fn check_explicit_test_skips(
             index,
             source,
         ));
-    });
+    }
     issues
 }

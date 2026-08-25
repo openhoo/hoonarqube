@@ -1,12 +1,10 @@
 use crate::engine::calls::concrete_hint;
+use crate::engine::file_context::FileContext;
 use crate::support::expr_normalized_text;
 use crate::support::for_each_return_in_scope;
-use crate::support::for_each_stmt;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
-use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
@@ -15,20 +13,20 @@ use ruff_text_size::Ranged;
 /// python:S935 — bare `return` inside a file-local function annotated with a
 /// concrete non-Optional builtin type hands back an implicit `None`.
 pub(crate) fn check_s935_bare_returns(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for stmt in &file_ctx.stmts {
         let Stmt::FunctionDef(function) = stmt else {
-            return;
+            continue;
         };
         let Some(annotation) = function.returns.as_deref() else {
-            return;
+            continue;
         };
         if concrete_hint(annotation).is_none() {
-            return;
+            continue;
         }
         let annotation_text = expr_normalized_text(annotation, source);
         for_each_return_in_scope(&function.body, &mut |returned| {
@@ -45,6 +43,6 @@ pub(crate) fn check_s935_bare_returns(
                 ));
             }
         });
-    });
+    }
     issues
 }

@@ -1,10 +1,8 @@
-use crate::support::for_each_stmt_expr;
+use crate::engine::file_context::FileContext;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
@@ -15,14 +13,14 @@ use ruff_text_size::Ranged;
 // an extension beyond the CE engine and deliberately stays out of scope.
 
 pub(crate) fn check_known_value_comparisons(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+    for expr in &file_ctx.exprs {
         let Expr::Compare(compare) = expr else {
-            return;
+            continue;
         };
         let operands: Vec<&Expr> = std::iter::once(&*compare.left)
             .chain(compare.comparators.iter())
@@ -49,6 +47,6 @@ pub(crate) fn check_known_value_comparisons(
                 ));
             }
         }
-    });
+    }
     issues
 }

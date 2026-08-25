@@ -1,20 +1,18 @@
+use crate::engine::file_context::FileContext;
 use crate::support::call_path_matches;
 use crate::support::dotted_name;
-use crate::support::for_each_call;
 use crate::support::is_call_method;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 // --- python:S4787 — encrypting data is security-sensitive --------------------
 
 pub(crate) fn check_s4787_encrypting_data(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     const ENCRYPTION_APIS: [&str; 4] = [
         "cryptography.fernet.Fernet",
@@ -33,7 +31,7 @@ pub(crate) fn check_s4787_encrypting_data(
         "PKCS1_v1_5",
     ];
     let mut issues = Vec::new();
-    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+    for call in &file_ctx.calls {
         let encrypts = is_call_method(call, "Fernet")
             || call_path_matches(call, &ENCRYPTION_APIS, &["Crypto.Cipher."], &[])
             || (is_call_method(call, "new")
@@ -50,7 +48,7 @@ pub(crate) fn check_s4787_encrypting_data(
                 source,
             ));
         }
-    });
+    }
     issues
 }
 

@@ -1,28 +1,26 @@
+use crate::engine::file_context::FileContext;
 use crate::support::call_source_text;
 use crate::support::called_name;
-use crate::support::for_each_call;
 use crate::support::has_boto3_binding;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 pub(crate) fn check_s6281_s3_public_access_block(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     // CE only evaluates boto3 client calls it can resolve to a real binding;
     // stub objects stay silent.
-    if !has_boto3_binding(parsed.syntax().body.as_slice()) {
+    if !has_boto3_binding(&file_ctx.calls) {
         return Vec::new();
     }
     let mut issues = Vec::new();
-    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+    for call in &file_ctx.calls {
         if called_name(&call.func) != Some("put_public_access_block") {
-            return;
+            continue;
         }
         let call_text = call_source_text(call, source);
         let fully_blocked = PUBLIC_ACCESS_BLOCK_KEYS
@@ -37,7 +35,7 @@ pub(crate) fn check_s6281_s3_public_access_block(
                 source,
             ));
         }
-    });
+    }
     issues
 }
 

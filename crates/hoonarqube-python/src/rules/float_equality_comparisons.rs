@@ -1,23 +1,23 @@
+use crate::engine::file_context::FileContext;
 use crate::support::contains_float_literal;
-use crate::support::for_each_stmt_expr;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 // --- python:S1244 — float equality testing ------------------------------------
 
 pub(crate) fn check_float_equality_comparisons(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
-        let Expr::Compare(compare) = expr else { return };
+    for expr in &file_ctx.exprs {
+        let Expr::Compare(compare) = expr else {
+            continue;
+        };
         let equality = compare.ops.iter().any(|op| {
             matches!(
                 op,
@@ -25,7 +25,7 @@ pub(crate) fn check_float_equality_comparisons(
             )
         });
         if !equality {
-            return;
+            continue;
         }
         let float_involved = contains_float_literal(&compare.left)
             || compare.comparators.iter().any(contains_float_literal);
@@ -38,7 +38,7 @@ pub(crate) fn check_float_equality_comparisons(
                 source,
             ));
         }
-    });
+    }
     issues
 }
 

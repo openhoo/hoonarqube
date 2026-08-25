@@ -1,26 +1,24 @@
+use crate::engine::file_context::FileContext;
 use crate::support::called_name;
 use crate::support::expr_normalized_text;
-use crate::support::for_each_stmt_expr;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 // --- python:S5864 — confusing type checks --------------------------------------
 
 pub(crate) fn check_confusing_type_checks(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
-        let Expr::Call(call) = expr else { return };
+    for expr in &file_ctx.exprs {
+        let Expr::Call(call) = expr else { continue };
         if called_name(&call.func) != Some("isinstance") || call.arguments.args.len() != 2 {
-            return;
+            continue;
         }
         let checked = &call.arguments.args[0];
         let types = &call.arguments.args[1];
@@ -48,6 +46,6 @@ pub(crate) fn check_confusing_type_checks(
                 source,
             ));
         }
-    });
+    }
     issues
 }

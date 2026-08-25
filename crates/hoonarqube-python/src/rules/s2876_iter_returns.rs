@@ -1,13 +1,11 @@
+use crate::engine::file_context::FileContext;
 use crate::support::for_each_return_in_scope;
-use crate::support::for_each_stmt;
 use crate::support::for_each_stmt_expr;
 use crate::support::issue_at;
 use crate::support::typed_literal_kind;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
@@ -15,20 +13,20 @@ use ruff_text_size::Ranged;
 /// collection literals or known non-iterator calls. Generator bodies and
 /// `return self` / `iter(...)` shapes pass by construction.
 pub(crate) fn check_s2876_iter_returns(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for stmt in &file_ctx.stmts {
         let Stmt::ClassDef(class) = stmt else {
-            return;
+            continue;
         };
         let Some(function) = class.body.iter().find_map(|member| match member {
             Stmt::FunctionDef(function) if function.name.as_str() == "__iter__" => Some(function),
             _ => None,
         }) else {
-            return;
+            continue;
         };
         let mut yields = false;
         for_each_stmt_expr(&function.body, &mut |expr| {
@@ -37,7 +35,7 @@ pub(crate) fn check_s2876_iter_returns(
             }
         });
         if yields {
-            return;
+            continue;
         }
         for_each_return_in_scope(&function.body, &mut |returned| {
             let Some(value) = returned.value.as_deref() else {
@@ -58,7 +56,7 @@ pub(crate) fn check_s2876_iter_returns(
                 source,
             ));
         });
-    });
+    }
     issues
 }
 

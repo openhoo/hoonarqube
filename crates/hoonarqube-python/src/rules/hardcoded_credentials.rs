@@ -1,7 +1,7 @@
+use crate::engine::file_context::FileContext;
 use crate::support::CREDENTIAL_WORDS;
 use crate::support::collect_string_contents;
 use crate::support::embeds_credential;
-use crate::support::for_each_stmt;
 use crate::support::name_words;
 use crate::support::to_range;
 use hoonarqube_ir::Issue;
@@ -16,19 +16,20 @@ pub(crate) fn check_hardcoded_credentials(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for stmt in &file_ctx.stmts {
         let (targets, value) = match stmt {
             Stmt::Assign(s) => (s.targets.as_slice(), Some(&*s.value)),
             Stmt::AnnAssign(s) => (std::slice::from_ref(&*s.target), s.value.as_deref()),
-            _ => return,
+            _ => continue,
         };
         let Some(Expr::StringLiteral(literal)) = value else {
-            return;
+            continue;
         };
         if literal.value.is_empty() {
-            return;
+            continue;
         }
         for target in targets {
             if let Expr::Name(name) = target
@@ -41,7 +42,7 @@ pub(crate) fn check_hardcoded_credentials(
                 });
             }
         }
-    });
+    }
     for (text, range) in collect_string_contents(parsed.syntax().body.as_slice()) {
         if embeds_credential(&text) {
             issues.push(Issue {

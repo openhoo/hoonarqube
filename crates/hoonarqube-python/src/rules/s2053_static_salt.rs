@@ -1,28 +1,26 @@
+use crate::engine::file_context::FileContext;
 use crate::support::called_name;
-use crate::support::for_each_call;
 use crate::support::is_static_text_literal;
 use crate::support::issue_at;
 use crate::support::keyword_value;
 use crate::support::static_literal_payload_len;
 use hoonarqube_ir::Issue;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 // --- python:S2053 — unpredictable password-hashing salt ------------------------
 
 pub(crate) fn check_s2053_static_salt(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     const KDF_NAMES: [&str; 3] = ["pbkdf2_hmac", "pbkdf2_hmac_sha256", "scrypt"];
     const MINIMUM_SALT_BYTES: usize = 16;
     let mut issues = Vec::new();
-    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+    for call in &file_ctx.calls {
         if !KDF_NAMES.contains(&called_name(&call.func).unwrap_or_default()) {
-            return;
+            continue;
         }
         let positional_salt = call.arguments.args.get(2);
         let salt_expr = positional_salt.or_else(|| keyword_value(&call.arguments, "salt"));
@@ -40,7 +38,7 @@ pub(crate) fn check_s2053_static_salt(
                 source,
             ));
         }
-    });
+    }
     issues
 }
 

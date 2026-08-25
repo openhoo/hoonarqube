@@ -1,24 +1,22 @@
+use crate::engine::file_context::FileContext;
 use crate::support::called_name;
-use crate::support::for_each_call;
 use crate::support::issue_at;
 use crate::support::keyword_value;
 use crate::support::string_literal_text;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 // --- python:S3752 — HTTP routes restrict allowed methods ---------------------------
 
 pub(crate) fn check_s3752_route_methods(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+    for call in &file_ctx.calls {
         let wildcard_method = called_name(&call.func) == Some("add_route")
             && call
                 .arguments
@@ -40,6 +38,6 @@ pub(crate) fn check_s3752_route_methods(
                 source,
             ));
         }
-    });
+    }
     issues
 }

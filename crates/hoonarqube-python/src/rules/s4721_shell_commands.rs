@@ -1,22 +1,20 @@
+use crate::engine::file_context::FileContext;
 use crate::support::call_path_matches;
 use crate::support::called_name;
-use crate::support::for_each_call;
 use crate::support::is_call_method;
 use crate::support::is_true_literal;
 use crate::support::issue_at;
 use crate::support::keyword_value;
 use hoonarqube_ir::Issue;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 // --- python:S4721 — OS commands should not run through a shell interpreter ---
 
 pub(crate) fn check_s4721_shell_commands(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     const SHELL_RUNNERS: [&str; 2] = ["os.system", "os.popen"];
     const SUBPROCESS_LAUNCHERS: [&str; 6] = [
@@ -28,7 +26,7 @@ pub(crate) fn check_s4721_shell_commands(
         "getoutput",
     ];
     let mut issues = Vec::new();
-    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+    for call in &file_ctx.calls {
         let shells_out = call_path_matches(call, &SHELL_RUNNERS, &[], &[]);
         let forces_shell = is_call_method(call, "getoutput")
             || (SUBPROCESS_LAUNCHERS.contains(&called_name(&call.func).unwrap_or_default())
@@ -42,7 +40,7 @@ pub(crate) fn check_s4721_shell_commands(
                 source,
             ));
         }
-    });
+    }
     issues
 }
 

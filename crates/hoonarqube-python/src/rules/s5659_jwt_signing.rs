@@ -1,24 +1,22 @@
-use crate::support::for_each_call;
+use crate::engine::file_context::FileContext;
 use crate::support::has_keyword;
 use crate::support::is_call_method;
 use crate::support::issue_at;
 use crate::support::keyword_value;
 use crate::support::string_literal_text;
 use hoonarqube_ir::Issue;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 // --- python:S5659 — JWT signed and verified -------------------------------------
 
 pub(crate) fn check_s5659_jwt_signing(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+    for call in &file_ctx.calls {
         let unsigned = is_call_method(call, "encode")
             && keyword_value(&call.arguments, "algorithm")
                 .and_then(string_literal_text)
@@ -34,7 +32,7 @@ pub(crate) fn check_s5659_jwt_signing(
                 source,
             ));
         }
-    });
+    }
     issues
 }
 

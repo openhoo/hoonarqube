@@ -1,3 +1,4 @@
+use crate::engine::file_context::FileContext;
 use crate::support::dict_string_entry;
 use crate::support::for_each_dict_literal;
 use crate::support::has_boto3_binding;
@@ -15,10 +16,11 @@ pub(crate) fn check_s6302_all_privileges_policy(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     // CE only evaluates policies in files with a resolvable boto3 binding;
     // stub-only files stay silent.
-    if !has_boto3_binding(parsed.syntax().body.as_slice()) {
+    if !has_boto3_binding(&file_ctx.calls) {
         return Vec::new();
     }
     let mut issues = Vec::new();

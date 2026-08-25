@@ -1,26 +1,22 @@
-use crate::support::for_each_call;
-use crate::support::for_each_stmt;
-use crate::support::for_each_stmt_expr;
+use crate::engine::file_context::FileContext;
 use crate::support::is_call_method;
 use crate::support::issue_at;
 use crate::support::keyword_value;
 use crate::support::string_literal_text;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 pub(crate) fn check_s5122_cors_wildcard(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     let wildcard = |expr: &Expr| string_literal_text(expr).as_deref() == Some("*");
-    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+    for expr in &file_ctx.exprs {
         if let Expr::Dict(dict) = expr {
             for item in &dict.items {
                 let Some(key) = item.key.as_ref() else {
@@ -39,8 +35,8 @@ pub(crate) fn check_s5122_cors_wildcard(
                 }
             }
         }
-    });
-    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+    }
+    for call in &file_ctx.calls {
         if is_call_method(call, "CORS")
             && keyword_value(&call.arguments, "origins").is_some_and(&wildcard)
         {
@@ -52,8 +48,8 @@ pub(crate) fn check_s5122_cors_wildcard(
                 source,
             ));
         }
-    });
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    }
+    for stmt in &file_ctx.stmts {
         if let Stmt::Assign(assign) = stmt {
             let sets_wildcard = wildcard(&assign.value);
             for target in &assign.targets {
@@ -73,7 +69,7 @@ pub(crate) fn check_s5122_cors_wildcard(
                 }
             }
         }
-    });
+    }
     issues
 }
 

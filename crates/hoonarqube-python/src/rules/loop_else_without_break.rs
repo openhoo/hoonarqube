@@ -1,29 +1,27 @@
-use crate::support::for_each_stmt;
+use crate::engine::file_context::FileContext;
 use crate::support::issue_at;
 use crate::support::suite_can_break;
 use crate::support::suite_span;
 use hoonarqube_ir::Issue;
-use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 
 // --- python:S2836 — loop `else` without `break` -----------------------------
 
 pub(crate) fn check_loop_else_without_break(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for stmt in &file_ctx.stmts {
         let (body, orelse) = match stmt {
             Stmt::For(loop_stmt) => (&loop_stmt.body, &loop_stmt.orelse),
             Stmt::While(loop_stmt) => (&loop_stmt.body, &loop_stmt.orelse),
-            _ => return,
+            _ => continue,
         };
         if orelse.is_empty() || suite_can_break(body) {
-            return;
+            continue;
         }
         issues.push(issue_at(
             "python:S2836",
@@ -32,7 +30,7 @@ pub(crate) fn check_loop_else_without_break(
             index,
             source,
         ));
-    });
+    }
     issues
 }
 

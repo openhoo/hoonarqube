@@ -1,5 +1,5 @@
+use crate::engine::file_context::FileContext;
 use crate::support::child_bodies;
-use crate::support::for_each_stmt;
 use crate::support::is_jump_terminator;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
@@ -15,6 +15,7 @@ pub(crate) fn check_unreachable_code(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     let scan = |suite: &[Stmt], issues: &mut Vec<Issue>| {
@@ -33,11 +34,11 @@ pub(crate) fn check_unreachable_code(
         }
     };
     scan(parsed.syntax().body.as_slice(), &mut issues);
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for stmt in &file_ctx.stmts {
         for body in child_bodies(stmt) {
             scan(body, &mut issues);
         }
-    });
+    }
     issues
 }
 

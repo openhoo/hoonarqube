@@ -1,26 +1,24 @@
+use crate::engine::file_context::FileContext;
 use crate::support::called_name;
-use crate::support::for_each_stmt_expr;
 use crate::support::issue_at;
 use crate::support::single_positional_call;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 pub(crate) fn check_nested_identical_constructors(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+    for expr in &file_ctx.exprs {
         let Some(outer_name) = constructor_name(expr) else {
-            return;
+            continue;
         };
         let Some(outer_argument) = single_positional_call(expr, outer_name) else {
-            return;
+            continue;
         };
         if constructor_name(outer_argument) == Some(outer_name) {
             issues.push(issue_at(
@@ -31,7 +29,7 @@ pub(crate) fn check_nested_identical_constructors(
                 source,
             ));
         }
-    });
+    }
     issues
 }
 

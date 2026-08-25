@@ -1,21 +1,19 @@
+use crate::engine::file_context::FileContext;
 use crate::support::dotted_name;
-use crate::support::for_each_call;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 // --- python:S6979 / S6983 / S6985 / S6984 — PyTorch/einops contracts ------------------
 
 pub(crate) fn check_autograd_variable_usage(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+    for call in &file_ctx.calls {
         if dotted_name(&call.func).as_deref() == Some("torch.autograd.Variable") {
             issues.push(issue_at(
                 "python:S6979",
@@ -25,7 +23,7 @@ pub(crate) fn check_autograd_variable_usage(
                 source,
             ));
         }
-    });
+    }
     issues
 }
 

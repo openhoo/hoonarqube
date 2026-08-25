@@ -1,26 +1,23 @@
-use crate::support::for_each_call;
-use crate::support::for_each_stmt;
+use crate::engine::file_context::FileContext;
 use crate::support::http_verify_disabled;
 use crate::support::is_false_literal;
 use crate::support::issue_at;
 use crate::support::keyword_value;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 // --- python:S5527 — server hostnames verified during SSL/TLS -----------------
 
 pub(crate) fn check_s5527_hostname_verification(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+    for call in &file_ctx.calls {
         let hostname_off = http_verify_disabled(call)
             || keyword_value(&call.arguments, "check_hostname").is_some_and(is_false_literal);
         if hostname_off {
@@ -32,8 +29,8 @@ pub(crate) fn check_s5527_hostname_verification(
                 source,
             ));
         }
-    });
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    }
+    for stmt in &file_ctx.stmts {
         if let Stmt::Assign(assign) = stmt {
             let sets_false = is_false_literal(&assign.value);
             for target in &assign.targets {
@@ -51,7 +48,7 @@ pub(crate) fn check_s5527_hostname_verification(
                 }
             }
         }
-    });
+    }
     issues
 }
 

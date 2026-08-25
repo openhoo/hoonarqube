@@ -5,6 +5,7 @@
 //! the frozen `hoonarqube-catalog` catalog via [`hoonarqube_ir::Issue::rule_key`];
 //! they are deliberately never duplicated here.
 
+use crate::engine::file_context::FileContext;
 #[cfg(test)]
 use crate::engine::rx::RxNode;
 #[cfg(test)]
@@ -141,6 +142,7 @@ pub fn analyze(
     let parsed = parse(source);
     let index = LineIndex::from_source_text(source);
     let metrics = file_metrics(&parsed, source, &index);
+    let file_ctx = FileContext::build(&parsed);
 
     let mut issues = Vec::new();
     issues.extend(check_parsing_errors(&parsed, &index, source));
@@ -154,29 +156,43 @@ pub fn analyze(
     issues.extend(check_module_name(path.as_path(), &index, source));
     issues.extend(check_hardcoded_ips(&parsed, &index, source));
     issues.extend(check_cleartext_protocols(&parsed, &index, source));
-    issues.extend(check_hardcoded_credentials(&parsed, &index, source));
-    issues.extend(check_hardcoded_secrets(&parsed, &index, source));
+    issues.extend(check_hardcoded_credentials(
+        &parsed, &index, source, &file_ctx,
+    ));
+    issues.extend(check_hardcoded_secrets(&index, source, &file_ctx));
     issues.extend(check_commented_code(&parsed, &index, source));
     issues.extend(check_py2_backticks(&parsed, &index, source));
     issues.extend(check_py2_inequality(&parsed, &index, source));
     issues.extend(check_lowercase_long_suffix(&parsed, &index, source));
     issues.extend(check_pre_increment_decrement(&parsed, &index, source));
     issues.extend(check_assign_plus_minus(&parsed, &index, source));
-    issues.extend(check_invalid_string_escapes(&parsed, &index, source));
+    issues.extend(check_invalid_string_escapes(&index, source, &file_ctx));
     issues.extend(check_keyword_parentheses(&parsed, &index, source));
     issues.extend(check_mixed_string_concatenation(&parsed, &index, source));
     issues.extend(check_one_statement_per_line(&parsed, &index, source));
-    issues.extend(check_tier_a_battery(&parsed, &index, source));
-    issues.extend(check_tier_a_battery_2(&parsed, &index, source, options));
-    issues.extend(check_naming_convention_battery(&parsed, &index, source));
+    issues.extend(check_tier_a_battery(&parsed, &index, source, &file_ctx));
+    issues.extend(check_tier_a_battery_2(
+        &parsed, &index, source, options, &file_ctx,
+    ));
+    issues.extend(check_naming_convention_battery(
+        &parsed, &index, source, &file_ctx,
+    ));
     issues.extend(check_size_metric_battery(
         &parsed, &index, source, options, &metrics,
     ));
-    issues.extend(check_tier_b_battery(&parsed, &index, source, options));
+    issues.extend(check_tier_b_battery(
+        &parsed, &index, source, options, &file_ctx,
+    ));
     issues.extend(check_regex_battery(&parsed, &index, source, options));
-    issues.extend(check_tier_c_security_battery(&parsed, &index, source));
-    issues.extend(check_tier_c_semantic_battery(&parsed, &index, source));
-    issues.extend(check_structural_battery(&parsed, &index, source, options));
+    issues.extend(check_tier_c_security_battery(
+        &parsed, &index, source, &file_ctx,
+    ));
+    issues.extend(check_tier_c_semantic_battery(
+        &parsed, &index, source, &file_ctx,
+    ));
+    issues.extend(check_structural_battery(
+        &parsed, &index, source, options, &file_ctx,
+    ));
     sort_issues(&mut issues);
 
     hoonarqube_ir::FileReport {

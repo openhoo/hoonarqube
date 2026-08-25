@@ -1,25 +1,23 @@
+use crate::engine::file_context::FileContext;
 use crate::support::dotted_name;
-use crate::support::for_each_call;
 use crate::support::issue_at;
 use crate::support::string_literal_text;
 use hoonarqube_ir::Issue;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 pub(crate) fn check_literal_re_sub_patterns(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+    for call in &file_ctx.calls {
         if !matches!(
             dotted_name(&call.func).as_deref(),
             Some("re.sub" | "re.subn")
         ) {
-            return;
+            continue;
         }
         if let Some(pattern) = call.arguments.args.first().and_then(string_literal_text)
             && !pattern.chars().any(|c| REGEX_METACHARACTERS.contains(&c))
@@ -32,7 +30,7 @@ pub(crate) fn check_literal_re_sub_patterns(
                 source,
             ));
         }
-    });
+    }
     issues
 }
 

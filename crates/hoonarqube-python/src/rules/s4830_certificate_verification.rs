@@ -1,5 +1,5 @@
+use crate::engine::file_context::FileContext;
 use crate::support::for_each_attr_load;
-use crate::support::for_each_call;
 use crate::support::http_verify_disabled;
 use crate::support::is_call_path;
 use crate::support::issue_at;
@@ -16,9 +16,10 @@ pub(crate) fn check_s4830_certificate_verification(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+    for call in &file_ctx.calls {
         let unverified =
             http_verify_disabled(call) || is_call_path(call, "ssl._create_unverified_context");
         if unverified {
@@ -30,7 +31,7 @@ pub(crate) fn check_s4830_certificate_verification(
                 source,
             ));
         }
-    });
+    }
     for_each_attr_load(parsed.syntax().body.as_slice(), "CERT_NONE", |attr| {
         if matches!(attr.value.as_ref(), Expr::Name(name) if name.id.as_str() == "ssl") {
             issues.push(issue_at(

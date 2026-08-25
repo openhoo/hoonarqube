@@ -1,27 +1,25 @@
+use crate::engine::file_context::FileContext;
 use crate::support::expr_normalized_text;
-use crate::support::for_each_stmt;
 use crate::support::for_each_stmt_expr;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 // --- python:S7517 — manual key/value iteration ------------------------------------
 
 pub(crate) fn check_manual_key_iteration(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
-        let Stmt::For(for_stmt) = stmt else { return };
+    for stmt in &file_ctx.stmts {
+        let Stmt::For(for_stmt) = stmt else { continue };
         let Expr::Name(key) = for_stmt.target.as_ref() else {
-            return;
+            continue;
         };
         let dict_text = expr_normalized_text(&for_stmt.iter, source);
         for_each_stmt_expr(&for_stmt.body, &mut |expr| {
@@ -38,7 +36,7 @@ pub(crate) fn check_manual_key_iteration(
                 ));
             }
         });
-    });
+    }
     issues
 }
 

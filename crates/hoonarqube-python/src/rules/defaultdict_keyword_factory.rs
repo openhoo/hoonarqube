@@ -1,25 +1,23 @@
+use crate::engine::file_context::FileContext;
 use crate::support::called_name;
-use crate::support::for_each_stmt_expr;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 // --- python:S7507 — defaultdict default_factory keyword --------------------------
 
 pub(crate) fn check_defaultdict_keyword_factory(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
-        let Expr::Call(call) = expr else { return };
+    for expr in &file_ctx.exprs {
+        let Expr::Call(call) = expr else { continue };
         if called_name(&call.func) != Some("defaultdict") {
-            return;
+            continue;
         }
         for keyword in &call.arguments.keywords {
             if keyword
@@ -36,6 +34,6 @@ pub(crate) fn check_defaultdict_keyword_factory(
                 ));
             }
         }
-    });
+    }
     issues
 }

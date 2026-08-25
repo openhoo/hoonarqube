@@ -1,25 +1,23 @@
 use crate::AnalyzerOptions;
-use crate::support::for_each_stmt;
+use crate::engine::file_context::FileContext;
 use crate::support::function_parameters;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
-use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 pub(crate) fn check_missing_parameter_annotations(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
     options: &AnalyzerOptions,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     if !options.require_type_hints {
         return Vec::new();
     }
     let mut issues = Vec::new();
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for stmt in &file_ctx.stmts {
         if let Stmt::FunctionDef(function) = stmt {
             for parameter in function_parameters(function) {
                 if parameter.parameter.annotation.is_none() {
@@ -33,7 +31,7 @@ pub(crate) fn check_missing_parameter_annotations(
                 }
             }
         }
-    });
+    }
     issues
 }
 

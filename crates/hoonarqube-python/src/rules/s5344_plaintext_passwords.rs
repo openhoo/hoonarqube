@@ -1,25 +1,22 @@
+use crate::engine::file_context::FileContext;
 use crate::support::CREDENTIAL_WORDS;
 use crate::support::called_name;
-use crate::support::for_each_call;
-use crate::support::for_each_stmt;
 use crate::support::issue_at;
 use crate::support::name_words;
 use crate::support::string_literal_text;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 pub(crate) fn check_s5344_plaintext_passwords(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+    for call in &file_ctx.calls {
         let hashes_password = FAST_HASH_NAMES
             .contains(&called_name(&call.func).unwrap_or_default())
             && call
@@ -37,8 +34,8 @@ pub(crate) fn check_s5344_plaintext_passwords(
                 source,
             ));
         }
-    });
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    }
+    for stmt in &file_ctx.stmts {
         if let Stmt::Assign(assign) = stmt {
             let plaintext = string_literal_text(&assign.value).is_some();
             for target in &assign.targets {
@@ -56,7 +53,7 @@ pub(crate) fn check_s5344_plaintext_passwords(
                 }
             }
         }
-    });
+    }
     issues
 }
 

@@ -1,25 +1,23 @@
+use crate::engine::file_context::FileContext;
 use crate::support::called_name;
-use crate::support::for_each_call;
 use crate::support::has_keyword;
 use crate::support::is_true_literal;
 use crate::support::issue_at;
 use crate::support::keyword_value;
 use hoonarqube_ir::Issue;
-use ruff_python_ast::ModModule;
-use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 pub(crate) fn check_to_datetime_ambiguity(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_call(parsed.syntax().body.as_slice(), &mut |call| {
+    for call in &file_ctx.calls {
         if called_name(&call.func) != Some("to_datetime") || has_keyword(&call.arguments, "format")
         {
-            return;
+            continue;
         }
         let ambiguous = ["dayfirst", "yearfirst"]
             .iter()
@@ -33,6 +31,6 @@ pub(crate) fn check_to_datetime_ambiguity(
                 source,
             ));
         }
-    });
+    }
     issues
 }
