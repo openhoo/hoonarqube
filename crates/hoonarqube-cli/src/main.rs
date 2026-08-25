@@ -117,17 +117,35 @@ fn main() -> ExitCode {
     }
 }
 
-/// Applies safe mechanical fixes for one file; returns the number applied.
-fn fix_file(path: &std::path::Path) -> usize {
-    let Ok(source) = std::fs::read_to_string(path) else {
-        return 0;
+/// Applies safe mechanical fixes for one file: strips trailing spaces and
+/// tabs, adds a missing final newline, and expands leading tabs. Line
+/// terminators (LF or CRLF) are preserved verbatim. Returns the number of
+/// fixes applied, or `None` when the file could not be read or written; the
+/// failure is reported through `warnings`.
+fn fix_file(path: &std::path::Path, warnings: &mut Vec<String>) -> Option<usize> {
+    let source = match std::fs::read_to_string(path) {
+        Ok(source) => source,
+        Err(error) => {
+            warnings.push(format!("cannot read {}: {error}", path.display()));
+            return None;
+        }
     };
     let mut fixed = source.clone();
     let mut applied: Vec<&'static str> = Vec::new();
 
+    // Split on '\n' only so a '\r' stays attached to its line: CRLF
+    // terminators survive the round trip. The '\r' is terminator, not
+    // content, so it is peeled off before trimming spaces/tabs and
+    // re-attached afterwards; LF files keep the plain fast path shape.
     let trimmed: String = fixed
-        .lines()
-        .map(str::trim_end)
+        .split('\n')
+        .map(|line| {
+            let (content, terminator) = match line.strip_suffix('\r') {
+                Some(content) => (content, "\r"),
+                None => (line, ""),
+            };
+            format!("{}{terminator}", content.trim_end_matches([' ', '\t']))
+        })
         .collect::<Vec<_>>()
         .join("\n");
     if trimmed != fixed {
@@ -138,46 +156,57 @@ fn fix_file(path: &std::path::Path) -> usize {
         applied.push("added missing final newline");
         fixed.push('\n');
     }
-    if fixed.lines().any(|l| l.starts_with('\t')) {
+    if fixed.split('\n').any(|line| line.starts_with('\t')) {
         applied.push("expanded leading tabs to spaces");
         fixed = fixed
-            .lines()
-            .map(|l| {
-                let tabs = l.len() - l.trim_start_matches('\t').len();
-                format!("{}{}", " ".repeat(tabs * 4), l.trim_start_matches('\t'))
+            .split('\n')
+            .map(|line| {
+                let tabs = line.len() - line.trim_start_matches('\t').len();
+                format!("{}{}", " ".repeat(tabs * 4), line.trim_start_matches('\t'))
             })
             .collect::<Vec<_>>()
             .join("\n");
     }
-    if !applied.is_empty() {
-        std::fs::write(path, &fixed).expect("write back fixed source");
+    if !applied.is_empty()
+        && let Err(error) = std::fs::write(path, &fixed)
+    {
+        warnings.push(format!("cannot write {}: {error}", path.display()));
+        return None;
     }
-    applied.len()
+    Some(applied.len())
 }
 
+/// Fixes every explicitly passed file plus, for directories, every supported
+/// source file found by the same recursive walk the `analyze` command uses.
+/// Per-file read/write failures are reported as warnings on stderr and make
+/// the command exit nonzero; the summary counts only files that were read.
 fn run_fix(paths: &[std::path::PathBuf]) -> ExitCode {
+    let mut warnings = Vec::new();
     let mut files = Vec::new();
-    for p in paths {
-        if p.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(p) {
-                let mut children: Vec<_> = entries.flatten().map(|e| e.path()).collect();
-                children.sort();
-                for child in children {
-                    if child.extension().is_some_and(|e| e == "py") {
-                        files.push(child);
-                    }
-                }
-            }
+    for path in paths {
+        if path.is_dir() {
+            analyze::collect_files(path, &mut files, &mut warnings);
         } else {
-            files.push(p.clone());
+            files.push(path.clone());
         }
     }
-    let total: usize = files.iter().map(|f| fix_file(f)).sum();
-    println!(
-        "applied {total} mechanical fix(es) across {} file(s)",
-        files.len()
-    );
-    ExitCode::SUCCESS
+    let mut total = 0;
+    let mut processed = 0;
+    for file in &files {
+        if let Some(applied) = fix_file(file, &mut warnings) {
+            processed += 1;
+            total += applied;
+        }
+    }
+    for warning in &warnings {
+        eprintln!("{warning}");
+    }
+    println!("applied {total} mechanical fix(es) across {processed} file(s)");
+    if warnings.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }
 
 fn run_rules(catalog: &Catalog, cmd: &RulesCommand, json: bool) -> ExitCode {
@@ -359,19 +388,28 @@ fn render_text_report(reports: &[hoonarqube_ir::FileReport]) -> String {
 
 /// Builds a `SonarQube` Generic Issue Import document: every finding becomes one
 /// issue with `engineId`/`ruleId`/`severity`/`type` and a single
-/// `primaryLocation`. Positions reuse the IR convention (1-based lines,
-/// 0-based columns); optional fields are omitted rather than emitted as null.
-fn sonar_import_value(reports: &[hoonarqube_ir::FileReport]) -> serde_json::Value {
+/// `primaryLocation`. Severity and type always resolve through the frozen
+/// catalog; the `INFO`/`CODE_SMELL` pair only covers rule keys absent from
+/// it. Positions reuse the IR convention (1-based lines, 0-based columns);
+/// optional fields are omitted rather than emitted as null.
+fn sonar_import_value(
+    catalog: &Catalog,
+    reports: &[hoonarqube_ir::FileReport],
+) -> serde_json::Value {
     let issues: Vec<serde_json::Value> = reports
         .iter()
         .flat_map(|report| {
             let file_path = report.path.display().to_string();
             report.issues.iter().map(move |issue| {
+                let (severity, rule_type) = match catalog.rule(&issue.rule_key) {
+                    Some(record) => (record.severity.as_str(), record.rule_type.as_str()),
+                    None => ("INFO", "CODE_SMELL"),
+                };
                 serde_json::json!({
                     "engineId": "hoonarqube",
                     "ruleId": sonar_rule_id(&issue.rule_key),
-                    "severity": "INFO",
-                    "type": "CODE_SMELL",
+                    "severity": severity,
+                    "type": rule_type,
                     "primaryLocation": {
                         "message": &issue.message,
                         "filePath": file_path,
@@ -428,7 +466,7 @@ fn run_analyze(
         AnalyzeFormat::Json => {
             print_json(&hoonarqube_ir::AnalysisReport { files: reports });
         }
-        AnalyzeFormat::Sonar => print_json(&sonar_import_value(&reports)),
+        AnalyzeFormat::Sonar => print_json(&sonar_import_value(catalog, &reports)),
         AnalyzeFormat::Text => print!("{}", render_text_report(&reports)),
     }
     ExitCode::SUCCESS
@@ -486,15 +524,15 @@ mod tests {
             ),
         ];
 
-        let value = sonar_import_value(&reports);
+        let value = sonar_import_value(embedded(), &reports);
         let issues = value["issues"].as_array().expect("issues array");
         assert_eq!(issues.len(), 2);
 
         let first = &issues[0];
         assert_eq!(first["engineId"], "hoonarqube");
         assert_eq!(first["ruleId"], "S1523");
-        assert_eq!(first["severity"], "INFO");
-        assert_eq!(first["type"], "CODE_SMELL");
+        assert_eq!(first["severity"], "CRITICAL");
+        assert_eq!(first["type"], "SECURITY_HOTSPOT");
         assert_eq!(
             first["primaryLocation"]["message"],
             "Remove this usage of 'eval'."
@@ -506,6 +544,8 @@ mod tests {
         assert_eq!(first["primaryLocation"]["textRange"]["endColumn"], 4);
 
         assert_eq!(issues[1]["ruleId"], "LineLength");
+        assert_eq!(issues[1]["severity"], "MAJOR");
+        assert_eq!(issues[1]["type"], "CODE_SMELL");
         assert_eq!(issues[1]["primaryLocation"]["filePath"], "src/long.py");
 
         // Generic-import optional fields are omitted, never emitted as null.
@@ -514,8 +554,84 @@ mod tests {
 
     #[test]
     fn sonar_import_of_clean_report_has_empty_issue_list() {
-        let value = sonar_import_value(&[]);
+        let value = sonar_import_value(embedded(), &[]);
         assert_eq!(value["issues"].as_array().map(Vec::len), Some(0));
+    }
+
+    #[test]
+    fn sonar_import_falls_back_to_info_for_unknown_rule_keys() {
+        let reports = vec![sample_report(
+            "src/unknown.py",
+            "python",
+            vec![Issue {
+                rule_key: "python:S999999".to_string(),
+                message: "not in the catalog".to_string(),
+                range: Range {
+                    start: Pos { line: 1, column: 0 },
+                    end: Pos { line: 1, column: 1 },
+                },
+            }],
+        )];
+
+        let value = sonar_import_value(embedded(), &reports);
+        let first = &value["issues"][0];
+        assert_eq!(first["severity"], "INFO");
+        assert_eq!(first["type"], "CODE_SMELL");
+    }
+
+    /// Unique temp path for `fix_file` tests; callers clean up after use.
+    fn temp_fix_path(label: &str) -> std::path::PathBuf {
+        static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "hoonarqube-cli-fix-{label}-{}-{id}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn fix_file_preserves_crlf_and_strips_trailing_whitespace() {
+        let path = temp_fix_path("crlf");
+        std::fs::write(&path, "alpha \r\nbeta\t\r\ngamma  ").expect("write fixture");
+        let mut warnings = Vec::new();
+
+        let applied = fix_file(&path, &mut warnings);
+
+        assert_eq!(applied, Some(2));
+        assert!(warnings.is_empty());
+        let fixed = std::fs::read_to_string(&path).expect("read fixed file");
+        assert_eq!(fixed, "alpha\r\nbeta\r\ngamma\n");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn fix_file_leaves_clean_files_untouched() {
+        let path = temp_fix_path("clean");
+        std::fs::write(&path, "x = 1\ny = 2\n").expect("write fixture");
+        let mut warnings = Vec::new();
+
+        let applied = fix_file(&path, &mut warnings);
+
+        assert_eq!(applied, Some(0));
+        assert!(warnings.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read back"),
+            "x = 1\ny = 2\n"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn fix_file_reports_unreadable_paths_as_warnings() {
+        let dir = temp_fix_path("dir");
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let mut warnings = Vec::new();
+
+        assert_eq!(fix_file(&dir, &mut warnings), None);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].starts_with("cannot read "));
+
+        let _ = std::fs::remove_dir(&dir);
     }
 
     #[test]

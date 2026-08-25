@@ -76,6 +76,7 @@ pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundl
         match maximum_line_length("javascript:S103").or(maximum_line_length("typescript:S103")) {
             Some(maximum_line_length) => hoonarqube_core::JstsAnalyzerOptions {
                 maximum_line_length,
+                ..hoonarqube_core::JstsAnalyzerOptions::default()
             },
             None => hoonarqube_core::JstsAnalyzerOptions::default(),
         };
@@ -93,11 +94,17 @@ pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundl
     }
 }
 
-fn walk_directory(
+/// Recursively collects analyzable files under `directory` into `files`.
+///
+/// Shared by the `analyze` and `fix` commands. Preserves the walker's
+/// deterministic order and skip rules: entries are visited sorted by name,
+/// dot-entries are skipped, symlinked directories are never followed, and
+/// symlinked files are accepted. Unreadable directories are reported through
+/// `warnings`.
+pub(crate) fn collect_files(
     directory: &Path,
-    options: &AnalyzerOptionsBundle,
+    files: &mut Vec<PathBuf>,
     warnings: &mut Vec<String>,
-    reports: &mut Vec<FileReport>,
 ) {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
@@ -127,13 +134,26 @@ fn walk_directory(
             // directories are never followed.
             let is_file = fs::metadata(&path).is_ok_and(|metadata| metadata.is_file());
             if is_file && is_analyzable_file(&path) {
-                read_and_analyze(&path, options, warnings, reports);
+                files.push(path);
             }
         } else if file_type.is_dir() {
-            walk_directory(&path, options, warnings, reports);
+            collect_files(&path, files, warnings);
         } else if is_analyzable_file(&path) {
-            read_and_analyze(&path, options, warnings, reports);
+            files.push(path);
         }
+    }
+}
+
+fn walk_directory(
+    directory: &Path,
+    options: &AnalyzerOptionsBundle,
+    warnings: &mut Vec<String>,
+    reports: &mut Vec<FileReport>,
+) {
+    let mut files = Vec::new();
+    collect_files(directory, &mut files, warnings);
+    for path in files {
+        read_and_analyze(&path, options, warnings, reports);
     }
 }
 
