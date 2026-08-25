@@ -33,7 +33,6 @@ pub(crate) fn check_wrapping_collection_constructors(
     issues
 }
 
-// --- migrated from support/mod.rs (S7496) ---
 // --- python:S7496 — constructor wrapping an existing literal/comprehension ----
 
 fn wrapping_redundancy(func_name: &str, argument: &Expr) -> bool {

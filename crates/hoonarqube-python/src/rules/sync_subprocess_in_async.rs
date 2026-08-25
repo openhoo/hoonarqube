@@ -26,7 +26,6 @@ pub(crate) fn check_sync_subprocess_in_async(
     issues
 }
 
-// --- migrated from support/mod.rs (S7487) ---
 // --- python:S7487 / S7493 / S7499 / S7501 / S7488 / S7489 — blocking calls -------
 
 const SYNC_SUBPROCESS_CALLS: [&str; 5] = [

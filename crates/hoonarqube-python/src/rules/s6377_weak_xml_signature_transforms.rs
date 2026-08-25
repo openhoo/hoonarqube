@@ -36,7 +36,6 @@ pub(crate) fn check_s6377_weak_xml_signature_transforms(
     issues
 }
 
-// --- migrated from support/mod.rs (S6377) ---
 // --- python:S6377 — XML signatures validated securely ---------------------------
 
 const WEAK_XML_DIGEST_URI: &str = "http://www.w3.org/2001/04/xmldsig-more#md5";

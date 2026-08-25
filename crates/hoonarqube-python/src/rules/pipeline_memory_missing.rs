@@ -26,7 +26,6 @@ pub(crate) fn check_pipeline_memory_missing(
     issues
 }
 
-// --- migrated from support/mod.rs (S6969) ---
 // --- python:S6969 / S6973 / S6971 — scikit-learn contracts ---------------------------
 
 #[cfg(test)]

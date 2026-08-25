@@ -36,7 +36,6 @@ pub(crate) fn check_constant_conditions(
     issues
 }
 
-// --- migrated from support/mod.rs (S5797) ---
 // --- python:S5797 — constant conditions ---------------------------------------------------
 
 pub(crate) fn constant_truth(expr: &Expr) -> Option<bool> {

@@ -1,5 +1,4 @@
 use crate::engine::file_context::FileContext;
-use crate::support::has_boto3_binding;
 use crate::support::issue_at;
 use crate::support::keyword_value;
 use crate::support::string_literal_text;
@@ -16,7 +15,7 @@ pub(crate) fn check_s6333_api_gateway_authorization(
 ) -> Vec<Issue> {
     // CE only evaluates boto3 client calls it can resolve to a real binding;
     // stub objects stay silent.
-    if !has_boto3_binding(&file_ctx.calls) {
+    if !file_ctx.has_boto3_binding {
         return Vec::new();
     }
     let mut issues = Vec::new();

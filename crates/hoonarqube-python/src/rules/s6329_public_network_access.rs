@@ -1,5 +1,4 @@
 use crate::engine::file_context::FileContext;
-use crate::support::has_boto3_binding;
 use crate::support::issue_at;
 use crate::support::sets_true_flag;
 use hoonarqube_ir::Issue;
@@ -13,7 +12,7 @@ pub(crate) fn check_s6329_public_network_access(
 ) -> Vec<Issue> {
     // CE only evaluates boto3 client calls it can resolve to a real binding;
     // stub objects stay silent.
-    if !has_boto3_binding(&file_ctx.calls) {
+    if !file_ctx.has_boto3_binding {
         return Vec::new();
     }
     let mut issues = Vec::new();
@@ -34,7 +33,6 @@ pub(crate) fn check_s6329_public_network_access(
     issues
 }
 
-// --- migrated from support/mod.rs (S6329) ---
 // --- python:S6329 — public network access disabled ----------------------------------
 
 const PUBLIC_NETWORK_FLAGS: [&str; 3] = [

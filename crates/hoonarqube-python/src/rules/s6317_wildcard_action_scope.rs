@@ -1,7 +1,6 @@
 use crate::engine::file_context::FileContext;
 use crate::support::dict_string_entry;
 use crate::support::for_each_dict_literal;
-use crate::support::has_boto3_binding;
 use crate::support::issue_at;
 use crate::support::string_literal_text;
 use hoonarqube_ir::Issue;
@@ -19,7 +18,7 @@ pub(crate) fn check_s6317_wildcard_action_scope(
 ) -> Vec<Issue> {
     // CE only evaluates policies in files with a resolvable boto3 binding;
     // stub-only files stay silent.
-    if !has_boto3_binding(&file_ctx.calls) {
+    if !file_ctx.has_boto3_binding {
         return Vec::new();
     }
     let mut issues = Vec::new();
@@ -37,7 +36,6 @@ pub(crate) fn check_s6317_wildcard_action_scope(
     issues
 }
 
-// --- migrated from support/mod.rs (S6317) ---
 // --- python:S6317 — wildcard-scoped actions in policies ---------------------------
 
 fn action_scope_wildcards(value: &Expr) -> bool {

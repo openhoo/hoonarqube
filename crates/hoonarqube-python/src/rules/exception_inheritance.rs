@@ -29,7 +29,6 @@ pub(crate) fn check_exception_inheritance(
     issues
 }
 
-// --- migrated from support/mod.rs (S5709) ---
 // --- python:S5709 — custom exceptions inherit Exception -----------------------
 
 pub(crate) fn looks_like_exception_name(name: &str) -> bool {

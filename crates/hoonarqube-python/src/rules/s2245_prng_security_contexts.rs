@@ -44,7 +44,6 @@ pub(crate) fn check_s2245_prng_security_contexts(
     issues
 }
 
-// --- migrated from support/mod.rs (S2245) ---
 // --- python:S2245 — PRNGs in security contexts ---------------------------------
 
 const SECURITY_CONTEXT_WORDS: [&str; 8] = [

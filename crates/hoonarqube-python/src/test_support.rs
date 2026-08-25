@@ -50,3 +50,10 @@ pub(crate) fn findings<'a>(
 pub(crate) fn scan(source: &str) -> hoonarqube_ir::FileReport {
     analyze(PathBuf::from("t.py"), source, &AnalyzerOptions::default())
 }
+
+pub(crate) fn scan_with_options(
+    source: &str,
+    options: &AnalyzerOptions,
+) -> hoonarqube_ir::FileReport {
+    analyze(PathBuf::from("t.py"), source, options)
+}

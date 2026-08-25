@@ -33,7 +33,6 @@ pub(crate) fn check_unraised_exceptions(
     issues
 }
 
-// --- migrated from support/mod.rs (S3984) ---
 // --- python:S3984 — exception instantiated but never raised ---------------------
 
 fn exception_constructor_name(call: &ruff_python_ast::ExprCall) -> Option<&str> {

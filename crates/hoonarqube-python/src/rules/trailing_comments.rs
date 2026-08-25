@@ -43,7 +43,6 @@ pub(crate) fn check_trailing_comments(
     issues
 }
 
-// --- migrated from support/mod.rs (S139) ---
 // --- python:S139 — comments at the end of code lines -----------------------------------
 
 /// Default catalog semantics: `fmt:`/`type:`/`noqa:` directives and

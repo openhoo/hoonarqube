@@ -29,7 +29,6 @@ pub(crate) fn check_imprecise_assertions(
     issues
 }
 
-// --- migrated from support/mod.rs (S5906) ---
 // --- python:S5906 / python:S5914 — imprecise and unconditional asserts ---------------
 
 fn preferred_assertion(call: &ruff_python_ast::ExprCall) -> Option<&'static str> {

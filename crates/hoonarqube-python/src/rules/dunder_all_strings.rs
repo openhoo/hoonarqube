@@ -46,7 +46,6 @@ pub(crate) fn check_dunder_all_strings(
     issues
 }
 
-// --- migrated from support/mod.rs (S2823) ---
 // --- python:S2823 — `__all__` must contain only strings ---------------------
 
 pub(crate) fn is_dunder_all_target(expr: &Expr) -> bool {

@@ -41,7 +41,6 @@ pub(crate) fn check_open_modes(
     issues
 }
 
-// --- migrated from support/mod.rs (S5828) ---
 // --- python:S5828 — invalid open modes ---------------------------------------
 
 fn open_mode_is_valid(mode: &str) -> bool {

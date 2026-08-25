@@ -30,7 +30,6 @@ pub(crate) fn check_reduction_axis_missing(
     issues
 }
 
-// --- migrated from support/mod.rs (S6929) ---
 // --- python:S6929 / python:S6925 — TensorFlow reduction/gather contracts -------------
 
 const NUMPY_REDUCTIONS: [&str; 18] = [

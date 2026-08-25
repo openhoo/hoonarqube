@@ -44,7 +44,6 @@ pub(crate) fn check_overwritten_collection_items(
     issues
 }
 
-// --- migrated from support/mod.rs (S4143) ---
 // --- python:S4143 — collection content replaced unconditionally ------------------------
 
 fn subscript_assignment_key(assign: &ruff_python_ast::StmtAssign, source: &str) -> Option<String> {

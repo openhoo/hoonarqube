@@ -49,7 +49,6 @@ pub(crate) fn check_invalid_weekmask(
     issues
 }
 
-// --- migrated from support/mod.rs (S6900) ---
 // --- python:S6900 — invalid NumPy weekmasks ---------------------------------------
 
 fn weekmask_is_valid(mask: &str) -> bool {

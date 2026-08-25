@@ -41,7 +41,6 @@ pub(crate) fn check_nan_comparisons(
     issues
 }
 
-// --- migrated from support/mod.rs (S6725) ---
 // --- python:S6725 — equality against numpy.nan --------------------------------
 
 fn is_numpy_nan(expr: &Expr) -> bool {

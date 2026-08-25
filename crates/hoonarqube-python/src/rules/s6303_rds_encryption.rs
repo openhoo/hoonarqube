@@ -1,6 +1,5 @@
 use crate::engine::file_context::FileContext;
 use crate::support::called_name;
-use crate::support::has_boto3_binding;
 use crate::support::has_keyword;
 use crate::support::is_false_literal;
 use crate::support::issue_at;
@@ -19,7 +18,7 @@ pub(crate) fn check_s6303_rds_encryption(
     const RDS_CREATORS: [&str; 2] = ["create_db_instance", "create_db_cluster"];
     // CE only evaluates boto3 client calls it can resolve to a real binding;
     // stub objects stay silent.
-    if !has_boto3_binding(&file_ctx.calls) {
+    if !file_ctx.has_boto3_binding {
         return Vec::new();
     }
     let mut issues = Vec::new();

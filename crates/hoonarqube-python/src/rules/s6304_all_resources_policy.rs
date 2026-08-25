@@ -1,7 +1,6 @@
 use crate::engine::file_context::FileContext;
 use crate::support::dict_string_entry;
 use crate::support::for_each_dict_literal;
-use crate::support::has_boto3_binding;
 use crate::support::includes_wildcard;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
@@ -20,7 +19,7 @@ pub(crate) fn check_s6304_all_resources_policy(
 ) -> Vec<Issue> {
     // CE only evaluates policies in files with a resolvable boto3 binding;
     // stub-only files stay silent.
-    if !has_boto3_binding(&file_ctx.calls) {
+    if !file_ctx.has_boto3_binding {
         return Vec::new();
     }
     let mut issues = Vec::new();

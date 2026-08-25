@@ -36,7 +36,6 @@ pub(crate) fn check_special_method_arities(
     issues
 }
 
-// --- migrated from support/mod.rs (S5722) ---
 // --- python:S5722 — special method arity --------------------------------------
 
 const ARITY_ONE_DUNDERS: [&str; 17] = [

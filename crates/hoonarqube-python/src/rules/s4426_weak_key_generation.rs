@@ -54,7 +54,6 @@ pub(crate) fn check_s4426_weak_key_generation(
     issues
 }
 
-// --- migrated from support/mod.rs (S4426) ---
 // --- python:S4426 — cryptographic key generation based on strong parameters --
 
 const STRONG_MINIMUM_KEY_BITS: i64 = 2048;

@@ -27,7 +27,6 @@ pub(crate) fn check_s5247_autoescaping_disabled(
     issues
 }
 
-// --- migrated from support/mod.rs (S5247) ---
 // --- python:S5247 / S5439 — HTML autoescaping disabled ------------------------
 
 /// Jinja shapes that switch autoescaping off.

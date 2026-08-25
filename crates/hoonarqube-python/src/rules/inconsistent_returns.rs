@@ -37,7 +37,6 @@ pub(crate) fn check_inconsistent_returns(
     issues
 }
 
-// --- migrated from support/mod.rs (S3801) ---
 // --- python:S3801 — inconsistent return values --------------------------------
 
 fn suite_contains_yield(suite: &[Stmt]) -> bool {

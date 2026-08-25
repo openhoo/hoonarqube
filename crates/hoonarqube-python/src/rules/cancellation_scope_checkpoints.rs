@@ -41,7 +41,6 @@ pub(crate) fn check_cancellation_scope_checkpoints(
     issues
 }
 
-// --- migrated from support/mod.rs (S7490) ---
 // --- python:S7490 / python:S7497 — cancellation contracts -----------------------
 
 fn suite_contains_checkpoint(suite: &[Stmt]) -> bool {

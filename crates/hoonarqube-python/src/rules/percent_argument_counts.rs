@@ -46,7 +46,6 @@ pub(crate) fn check_percent_argument_counts(
     issues
 }
 
-// --- migrated from support/mod.rs (S2275) ---
 // --- python:S2275 / python:S3457 — printf-style formatting ---------------------
 
 /// Conversion characters of a printf-style format string; `None` marks an

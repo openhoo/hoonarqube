@@ -39,7 +39,6 @@ pub(crate) fn check_s2257_custom_cryptography(
     issues
 }
 
-// --- migrated from support/mod.rs (S2257) ---
 // --- python:S2257 — custom cryptographic algorithms -----------------------------
 
 const CUSTOM_CRYPTO_NAME_WORDS: [&str; 7] =

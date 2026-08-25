@@ -71,7 +71,6 @@ pub(crate) fn check_s5713_parent_child_except_pairs(
     issues
 }
 
-// --- migrated from support/mod.rs (S5713) ---
 // --- python:S5713 — subclass and parent should not share an except clause -----
 
 /// Module-level file-local classes by name.

@@ -1490,6 +1490,3 @@ mod world_writable_modes;
 mod wrapping_collection_constructors;
 
 mod yield_return_outside_function;
-
-// --- migrated from support/mod.rs (S2092) ---
-// --- python:S2092 / S3330 — cookie "secure" and "HttpOnly" flags --------------

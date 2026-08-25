@@ -28,7 +28,6 @@ pub(crate) fn check_infinite_recursion(
     issues
 }
 
-// --- migrated from support/mod.rs (S2190) ---
 // --- python:S2190 — infinite recursion ---------------------------------------
 
 fn straight_line_self_call(suite: &[Stmt], name: &str) -> bool {

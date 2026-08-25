@@ -26,7 +26,6 @@ pub(crate) fn check_s5542_weak_modes_and_paddings(
     issues
 }
 
-// --- migrated from support/mod.rs (S5542) ---
 // --- python:S5542 — weak cipher modes and paddings -----------------------------
 
 const WEAK_MODE_OR_PADDING_NAMES: [&str; 2] = ["MODE_ECB", "PKCS1v15"];

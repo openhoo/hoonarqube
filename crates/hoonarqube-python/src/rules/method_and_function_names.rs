@@ -40,7 +40,6 @@ pub(crate) fn check_method_and_function_names(
     issues
 }
 
-// --- migrated from support/mod.rs (S100) ---
 // ---------------------------------------------------------------------------
 // Tier A — naming conventions (python:S100, python:S101, python:S116,
 // python:S117, python:S1542).

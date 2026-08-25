@@ -50,5 +50,4 @@ pub(crate) fn check_tf_function_global_captures(
     issues
 }
 
-// --- migrated from support/mod.rs (S6911) ---
 // --- python:S6911 / S6918 / S6928 — tf.function contracts ----------------------

@@ -38,7 +38,6 @@ pub(crate) fn check_duplicate_call_arguments(
     issues
 }
 
-// --- migrated from support/mod.rs (S5549) ---
 // --- python:S5549 — identical arguments repeated within one call ------------------
 
 fn trivially_repeatable(left: &Expr, right: &Expr) -> bool {

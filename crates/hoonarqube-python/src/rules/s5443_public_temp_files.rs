@@ -37,7 +37,6 @@ pub(crate) fn check_s5443_public_temp_files(
     issues
 }
 
-// --- migrated from support/mod.rs (S5443) ---
 // --- python:S5443 — temporary files in publicly writable directories -----------
 
 const PUBLIC_TEMP_PREFIXES: [&str; 3] = ["/tmp/", "/var/tmp/", "/dev/shm"];

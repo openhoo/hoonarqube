@@ -33,7 +33,6 @@ pub(crate) fn check_single_task_nurseries(
     issues
 }
 
-// --- migrated from support/mod.rs (S7513) ---
 // --- python:S7513 / python:S7514 — nursery blocks ------------------------------------
 
 pub(crate) fn nursery_context_expression(expr: &Expr) -> bool {

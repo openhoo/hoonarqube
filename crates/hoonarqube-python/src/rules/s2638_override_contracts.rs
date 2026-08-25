@@ -71,7 +71,6 @@ pub(crate) fn check_s2638_override_contracts(
     issues
 }
 
-// --- migrated from support/mod.rs (S2638) ---
 // --- python:S2638 — method overrides should not change contracts --------------
 
 /// Decorators whose paired accessors legitimately differ between overrides.

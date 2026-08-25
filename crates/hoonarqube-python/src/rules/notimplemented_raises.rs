@@ -38,7 +38,6 @@ pub(crate) fn check_notimplemented_raises(
     issues
 }
 
-// --- migrated from support/mod.rs (S5712) ---
 // --- python:S5712 — special methods raising NotImplementedError ---------------
 
 const PROTOCOL_DUNDERS: [&str; 34] = [

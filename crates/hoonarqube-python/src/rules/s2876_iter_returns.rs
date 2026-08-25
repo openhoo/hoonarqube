@@ -60,7 +60,6 @@ pub(crate) fn check_s2876_iter_returns(
     issues
 }
 
-// --- migrated from support/mod.rs (S2876) ---
 // --- python:S2876 — "__iter__" should return an iterator ----------------------
 
 /// Free functions whose results are provably not iterators.

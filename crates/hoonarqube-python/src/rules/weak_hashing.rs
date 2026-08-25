@@ -39,7 +39,6 @@ pub(crate) fn check_weak_hashing(
     issues
 }
 
-// --- migrated from support/mod.rs (S4790) ---
 // --- python:S4790 — weak hashing algorithms -----------------------------------
 
 fn hash_call_is_exempt(call: &ruff_python_ast::ExprCall) -> bool {

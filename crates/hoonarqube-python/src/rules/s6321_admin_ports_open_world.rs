@@ -2,7 +2,6 @@ use crate::engine::file_context::FileContext;
 use crate::support::call_subtree_has_port;
 use crate::support::call_subtree_open_world;
 use crate::support::called_name;
-use crate::support::has_boto3_binding;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
@@ -15,7 +14,7 @@ pub(crate) fn check_s6321_admin_ports_open_world(
 ) -> Vec<Issue> {
     // CE only evaluates boto3 client calls it can resolve to a real binding;
     // stub objects stay silent.
-    if !has_boto3_binding(&file_ctx.calls) {
+    if !file_ctx.has_boto3_binding {
         return Vec::new();
     }
     let mut issues = Vec::new();
@@ -36,7 +35,6 @@ pub(crate) fn check_s6321_admin_ports_open_world(
     issues
 }
 
-// --- migrated from support/mod.rs (S6321) ---
 // --- python:S6321 — administration services restricted by IP ----------------------
 
 const ADMIN_PORTS: [i64; 2] = [22, 3389];

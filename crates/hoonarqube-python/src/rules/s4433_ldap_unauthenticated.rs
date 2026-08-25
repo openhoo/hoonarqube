@@ -49,7 +49,6 @@ pub(crate) fn check_s4433_ldap_unauthenticated(
     issues
 }
 
-// --- migrated from support/mod.rs (S4433) ---
 // --- python:S4433 — LDAP connections should be authenticated -------------------
 
 const LDAP_BIND_METHODS: [&str; 4] = ["simple_bind", "simple_bind_s", "bind", "bind_s"];

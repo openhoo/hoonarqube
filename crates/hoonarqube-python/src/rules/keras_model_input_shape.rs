@@ -48,7 +48,6 @@ pub(crate) fn check_keras_model_input_shape(
     issues
 }
 
-// --- migrated from support/mod.rs (S6919) ---
 // --- python:S6919 / python:S6974 — Keras Model / BaseEstimator subclass contracts ----
 
 pub(crate) fn class_base_paths(class: &ruff_python_ast::StmtClassDef) -> Vec<String> {

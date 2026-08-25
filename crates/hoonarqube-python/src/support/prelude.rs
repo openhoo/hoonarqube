@@ -1,6 +1,5 @@
 // --- pre-section shared items
 
-use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::PySourceType;
 use ruff_python_ast::token::TokenKind;
@@ -15,9 +14,7 @@ pub(crate) fn parse(source: &str) -> Parsed<ModModule> {
     parse_unchecked_source(source, PySourceType::Python)
 }
 
-pub(crate) fn to_u32(value: usize) -> u32 {
-    u32::try_from(value).unwrap_or(u32::MAX)
-}
+pub(crate) use hoonarqube_ir::u32_saturating as to_u32;
 
 pub(crate) fn to_pos(offset: TextSize, index: &LineIndex, source: &str) -> hoonarqube_ir::Pos {
     let location = index.line_column(offset, source);
@@ -34,26 +31,7 @@ pub(crate) fn to_range(range: TextRange, index: &LineIndex, source: &str) -> hoo
     }
 }
 
-pub(crate) fn sort_issues(issues: &mut [Issue]) {
-    issues.sort_by(|a, b| {
-        (
-            a.range.start.line,
-            a.range.start.column,
-            a.range.end.line,
-            a.range.end.column,
-            a.rule_key.as_str(),
-            a.message.as_str(),
-        )
-            .cmp(&(
-                b.range.start.line,
-                b.range.start.column,
-                b.range.end.line,
-                b.range.end.column,
-                b.rule_key.as_str(),
-                b.message.as_str(),
-            ))
-    });
-}
+pub(crate) use hoonarqube_ir::sort_issues;
 
 /// Lines whose byte interval intersects `range`; multi-line tokens such as
 /// triple-quoted strings legitimately span several lines.

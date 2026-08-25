@@ -53,7 +53,6 @@ pub(crate) fn check_mutable_default_mutation(
     issues
 }
 
-// --- migrated from support/mod.rs (S5717) ---
 // --- python:S5717 — modified/assigned parameters ----------------------------------------
 
 const MUTATING_METHODS: [&str; 9] = [

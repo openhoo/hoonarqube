@@ -1,15 +1,13 @@
 use std::path::PathBuf;
 
 use super::{AnalyzerOptions, analyze};
-use crate::test_support::{findings, findings_of, issue, pos, regex_finds, scan};
+use crate::test_support::{
+    findings, findings_of, issue, pos, regex_finds, scan, scan_with_options,
+};
 
 #[test]
 fn one_statement_per_line_flags_only_second_onwards() {
-    let report = analyze(
-        PathBuf::from("test.py"),
-        "a = 1\nb = 2\nc = 3; d = 4\n",
-        &AnalyzerOptions::default(),
-    );
+    let report = scan("a = 1\nb = 2\nc = 3; d = 4\n");
     assert_eq!(
         report.issues,
         vec![
@@ -59,11 +57,7 @@ fn exec_and_print_calls_are_py3_calls_and_not_flagged() {
 
 #[test]
 fn metrics_count_code_comment_and_blank_lines() {
-    let report = analyze(
-        PathBuf::from("test.py"),
-        "x = 1\n# only a comment\n\n",
-        &AnalyzerOptions::default(),
-    );
+    let report = scan("x = 1\n# only a comment\n\n");
     assert_eq!(
         report.metrics,
         hoonarqube_ir::FileMetrics {
@@ -76,11 +70,7 @@ fn metrics_count_code_comment_and_blank_lines() {
 
 #[test]
 fn issue_positions_are_one_based_line_zero_based_column() {
-    let report = analyze(
-        PathBuf::from("test.py"),
-        "if x:\n  y = 1; z = 2\n",
-        &AnalyzerOptions::default(),
-    );
+    let report = scan("if x:\n  y = 1; z = 2\n");
     let split_issues: Vec<_> = report
         .issues
         .iter()
@@ -408,8 +398,7 @@ fn s1192_exclusion_regex_suppresses_matches() {
         duplicate_literal_exclusion_regex: "dup".to_string(),
         ..AnalyzerOptions::default()
     };
-    let report = analyze(
-        PathBuf::from("t.py"),
+    let report = scan_with_options(
         "def run():\n    x = \"dup\" + \"dup\"\n    return \"dup\"\n\n\nrun()\n",
         &options,
     );
@@ -1097,17 +1086,13 @@ fn s1481_honors_the_ignore_pattern_option() {
         unused_local_ignore_pattern: String::from("scratch_*"),
         ..AnalyzerOptions::default()
     };
-    let custom_clean = analyze(
-        PathBuf::from("t.py"),
+    let custom_clean = scan_with_options(
         "def run():\n    scratch_pad = 1\n    leftover = 2\n    return leftover\n\n\nrun()\n",
         &options,
     );
     assert!(findings(&custom_clean, "python:S1481").is_empty());
-    let custom_flagged = analyze(
-        PathBuf::from("t.py"),
-        "def run():\n    scratch_pad = 1\n    leftover = 2\n    return leftover\n\n\nrun()\n",
-        &AnalyzerOptions::default(),
-    );
+    let custom_flagged =
+        scan("def run():\n    scratch_pad = 1\n    leftover = 2\n    return leftover\n\n\nrun()\n");
     assert_eq!(findings(&custom_flagged, "python:S1481").len(), 1);
 }
 
@@ -1129,14 +1114,14 @@ fn s4487_single_underscore_issues_are_opt_in() {
         enable_single_underscore_attribute_issues: true,
         ..AnalyzerOptions::default()
     };
-    let enabled = analyze(PathBuf::from("t.py"), source, &options);
+    let enabled = scan_with_options(source, &options);
     assert_eq!(findings(&enabled, "python:S4487").len(), 1);
 }
 // -----------------------------------------------------------------------
 // regex engine + Tier-B regex rules.
 // -----------------------------------------------------------------------
 
-use super::{RxNode, RxParser, RxUnit, decode_string_part};
+use super::{RxUnit, decode_string_part};
 
 fn rx_units(source: &str) -> Vec<RxUnit> {
     decode_string_part(&format!("r\"{source}\""), ruff_text_size::TextSize::new(0))
@@ -1148,31 +1133,6 @@ fn rx_errors(source: &str) -> usize {
     match super::parse_regex(&units) {
         Ok(_) => 0,
         Err(_) => 1,
-    }
-}
-
-#[test]
-fn tmp_debug4() {
-    let report = scan("import re\nre.search(r'Jack|Peter|', s)\n");
-    eprintln!(
-        "JACK {:?}",
-        report
-            .issues
-            .iter()
-            .map(|i| i.rule_key.clone())
-            .collect::<Vec<_>>()
-    );
-    let u = rx_units(r"Jack|Peter|");
-    match super::parse_regex(&u) {
-        Ok(p) => eprintln!(
-            "JACKPARSE ok root={:?} cap={}",
-            match p.root {
-                RxNode::Alternation(ref b) => format!("alt{}", b.len()),
-                RxNode::Seq(ref q) => format!("seq{}", q.items.len()),
-            },
-            p.capture_count
-        ),
-        Err(e) => eprintln!("JACKPARSE err {:?}", e.span),
     }
 }
 
@@ -1250,10 +1210,6 @@ fn regex_group_numbers_follow_open_order_and_visibility() {
     let parsed_sibling = super::parse_regex(&sibling).expect("parses");
     assert_eq!(parsed_sibling.backrefs.len(), 1);
     assert!(!parsed_sibling.backrefs[0].visible_numbers.contains(&1));
-    let _ = RxNode::Seq;
-    let _ = |parser: &RxParser| {
-        let _ = &parser.pos;
-    };
 }
 
 #[test]
@@ -2118,11 +2074,7 @@ fn s5713_flags_subclass_and_parent_sharing_an_except_clause() {
 }
 #[test]
 fn s100_and_s1542_partition_functions_by_class_nesting() {
-    let report = analyze(
-        PathBuf::from("test.py"),
-        "class C:\n    def BadName(self):\n        pass\n",
-        &AnalyzerOptions::default(),
-    );
+    let report = scan("class C:\n    def BadName(self):\n        pass\n");
     let s100: Vec<_> = report
         .issues
         .iter()
@@ -2133,11 +2085,7 @@ fn s100_and_s1542_partition_functions_by_class_nesting() {
 
     // A def nested inside a method is a nested function: python:S1542,
     // never python:S100. Compliant names stay silent.
-    let nested = analyze(
-        PathBuf::from("test.py"),
-        "class C:\n    def ok(self):\n        def Inner():\n            pass\n",
-        &AnalyzerOptions::default(),
-    );
+    let nested = scan("class C:\n    def ok(self):\n        def Inner():\n            pass\n");
     let s1542: Vec<_> = nested
         .issues
         .iter()
@@ -2155,11 +2103,7 @@ fn s100_and_s1542_partition_functions_by_class_nesting() {
 
 #[test]
 fn s1542_flags_module_and_nested_functions_on_boundary_shapes() {
-    let violating = analyze(
-        PathBuf::from("test.py"),
-        "def Outer():\n    pass\n\n\ndef _ok_name():\n    pass\n",
-        &AnalyzerOptions::default(),
-    );
+    let violating = scan("def Outer():\n    pass\n\n\ndef _ok_name():\n    pass\n");
     let s1542: Vec<_> = violating
         .issues
         .iter()
@@ -2170,11 +2114,7 @@ fn s1542_flags_module_and_nested_functions_on_boundary_shapes() {
 
     // Dunder-style names comply; digits and underscores follow the lead
     // character.
-    let clean = analyze(
-        PathBuf::from("test.py"),
-        "def __enter__():\n    pass\n\n\ndef x_1():\n    pass\n",
-        &AnalyzerOptions::default(),
-    );
+    let clean = scan("def __enter__():\n    pass\n\n\ndef x_1():\n    pass\n");
     assert!(
         clean
             .issues
@@ -2282,7 +2222,7 @@ fn s104_flags_files_exceeding_maximum_lines_of_code() {
     };
 
     // Exactly at the limit: silent.
-    let boundary = analyze(PathBuf::from("test.py"), "a = 1\nb = 2\nc = 3\n", &options);
+    let boundary = scan_with_options("a = 1\nb = 2\nc = 3\n", &options);
     assert!(
         boundary
             .issues
@@ -2291,11 +2231,7 @@ fn s104_flags_files_exceeding_maximum_lines_of_code() {
     );
 
     // One code line over the limit: flagged once, anchored at line 1.
-    let over = analyze(
-        PathBuf::from("test.py"),
-        "a = 1\nb = 2\nc = 3\n\n# comment only\nd = 4\n",
-        &options,
-    );
+    let over = scan_with_options("a = 1\nb = 2\nc = 3\n\n# comment only\nd = 4\n", &options);
     let s104: Vec<_> = over
         .issues
         .iter()
@@ -2313,11 +2249,7 @@ fn s107_flags_functions_exceeding_parameter_budget() {
     };
 
     // Exactly at the limit: silent.
-    let boundary = analyze(
-        PathBuf::from("test.py"),
-        "def f(a, b):\n    pass\n",
-        &options,
-    );
+    let boundary = scan_with_options("def f(a, b):\n    pass\n", &options);
     assert!(
         boundary
             .issues
@@ -2326,11 +2258,7 @@ fn s107_flags_functions_exceeding_parameter_budget() {
     );
 
     // One parameter over: flagged on the function name.
-    let over = analyze(
-        PathBuf::from("test.py"),
-        "def f(a, b, c):\n    pass\n",
-        &options,
-    );
+    let over = scan_with_options("def f(a, b, c):\n    pass\n", &options);
     let s107: Vec<_> = over
         .issues
         .iter()
@@ -2340,11 +2268,7 @@ fn s107_flags_functions_exceeding_parameter_budget() {
     assert_eq!(s107[0].range.start.line, 1);
 
     // Star args and kwargs each count toward the budget.
-    let starred = analyze(
-        PathBuf::from("test.py"),
-        "def f(a, b, *args, **kwargs):\n    pass\n",
-        &options,
-    );
+    let starred = scan_with_options("def f(a, b, *args, **kwargs):\n    pass\n", &options);
     assert_eq!(
         starred
             .issues
@@ -2355,11 +2279,7 @@ fn s107_flags_functions_exceeding_parameter_budget() {
     );
 
     // The catalog default budget keeps ordinary signatures silent.
-    let defaults = analyze(
-        PathBuf::from("test.py"),
-        "def f(a, b, c):\n    pass\n",
-        &AnalyzerOptions::default(),
-    );
+    let defaults = scan("def f(a, b, c):\n    pass\n");
     assert!(
         defaults
             .issues
@@ -2388,10 +2308,8 @@ fn s1142_counts_only_the_functions_own_returns() {
     );
     // A nested definition owns its returns: the outer function stays
     // silent while the inner one is flagged on its own budget.
-    let nested = analyze(
-        PathBuf::from("test.py"),
+    let nested = scan(
         "def outer():\n    def inner():\n        return 1\n        return 2\n        return 3\n        return 4\n    return 0\n",
-        &AnalyzerOptions::default(),
     );
     let s1142: Vec<_> = nested
         .issues
@@ -2409,11 +2327,7 @@ fn s138_flags_functions_exceeding_the_line_budget() {
     };
 
     // Exactly four lines of span: silent.
-    let boundary = analyze(
-        PathBuf::from("test.py"),
-        "def f():\n    a = 1\n    b = 2\n    c = 3\n",
-        &options,
-    );
+    let boundary = scan_with_options("def f():\n    a = 1\n    b = 2\n    c = 3\n", &options);
     assert!(
         boundary
             .issues
@@ -2422,8 +2336,7 @@ fn s138_flags_functions_exceeding_the_line_budget() {
     );
 
     // Five lines of span: flagged once on the function name.
-    let over = analyze(
-        PathBuf::from("test.py"),
+    let over = scan_with_options(
         "def f():\n    a = 1\n    b = 2\n    c = 3\n    d = 4\n",
         &options,
     );
@@ -2436,11 +2349,7 @@ fn s138_flags_functions_exceeding_the_line_budget() {
     assert_eq!(s138[0].range.start.line, 1);
 
     // The catalog default budget keeps ordinary functions silent.
-    let defaults = analyze(
-        PathBuf::from("test.py"),
-        "def f():\n    a = 1\n    b = 2\n    c = 3\n    d = 4\n",
-        &AnalyzerOptions::default(),
-    );
+    let defaults = scan("def f():\n    a = 1\n    b = 2\n    c = 3\n    d = 4\n");
     assert!(
         defaults
             .issues
@@ -2451,10 +2360,8 @@ fn s138_flags_functions_exceeding_the_line_budget() {
 #[test]
 fn s134_flags_constructs_beyond_the_default_four_levels() {
     // Four nested levels stay silent at the catalog default.
-    let boundary = analyze(
-        PathBuf::from("test.py"),
+    let boundary = scan(
         "for a in []:\n    for b in []:\n        while b:\n            if a:\n                pass\n",
-        &AnalyzerOptions::default(),
     );
     assert!(
         boundary
@@ -2464,10 +2371,8 @@ fn s134_flags_constructs_beyond_the_default_four_levels() {
     );
 
     // A fifth level is flagged once, on its own construct.
-    let over = analyze(
-        PathBuf::from("test.py"),
+    let over = scan(
         "for a in []:\n    for b in []:\n        while b:\n            if a:\n                if a:\n                    pass\n",
-        &AnalyzerOptions::default(),
     );
     let s134: Vec<_> = over
         .issues
@@ -2481,10 +2386,8 @@ fn s134_flags_constructs_beyond_the_default_four_levels() {
 #[test]
 fn s134_elif_chains_and_nested_units_do_not_inflate_depth() {
     // An elif chain shares its `if`'s single level.
-    let chain = analyze(
-        PathBuf::from("test.py"),
+    let chain = scan(
         "for a in []:\n    for b in []:\n        while b:\n            if a:\n                pass\n            elif a:\n                pass\n            elif a:\n                pass\n            else:\n                pass\n",
-        &AnalyzerOptions::default(),
     );
     assert!(
         chain
@@ -2494,10 +2397,8 @@ fn s134_elif_chains_and_nested_units_do_not_inflate_depth() {
     );
 
     // Nested definitions are separate units and reset the counter.
-    let units = analyze(
-        PathBuf::from("test.py"),
+    let units = scan(
         "def outer():\n    for a in []:\n        def inner():\n            for b in []:\n                pass\n",
-        &AnalyzerOptions::default(),
     );
     assert!(
         units

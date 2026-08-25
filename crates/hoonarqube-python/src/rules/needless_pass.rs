@@ -21,7 +21,6 @@ pub(crate) fn check_needless_pass(
     issues
 }
 
-// --- migrated from support/mod.rs (S2772) ---
 // ---------------------------------------------------------------------------
 // Tier-A battery entries #48–#110 (python:S2772 … python:S7512).
 //

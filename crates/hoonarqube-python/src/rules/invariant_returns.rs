@@ -33,7 +33,6 @@ pub(crate) fn check_invariant_returns(
     issues
 }
 
-// --- migrated from support/mod.rs (S3516) ---
 // --- python:S3516 — invariant function returns --------------------------------
 
 /// Normalized texts of direct non-None constant `return` values.

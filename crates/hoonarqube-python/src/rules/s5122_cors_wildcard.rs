@@ -73,7 +73,6 @@ pub(crate) fn check_s5122_cors_wildcard(
     issues
 }
 
-// --- migrated from support/mod.rs (S5122) ---
 // --- python:S5122 — CORS policy restricted to trusted origins -----------------
 
 const CORS_WILDCARD_HEADER: &str = "Access-Control-Allow-Origin";

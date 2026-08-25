@@ -1,7 +1,6 @@
 use crate::engine::file_context::FileContext;
 use crate::support::call_subtree_open_world;
 use crate::support::called_name;
-use crate::support::has_boto3_binding;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
@@ -16,7 +15,7 @@ pub(crate) fn check_s6463_unrestricted_egress(
 ) -> Vec<Issue> {
     // CE only evaluates boto3 client calls it can resolve to a real binding;
     // stub objects stay silent.
-    if !has_boto3_binding(&file_ctx.calls) {
+    if !file_ctx.has_boto3_binding {
         return Vec::new();
     }
     let mut issues = Vec::new();

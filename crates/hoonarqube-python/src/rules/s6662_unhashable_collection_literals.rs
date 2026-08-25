@@ -48,7 +48,6 @@ pub(crate) fn check_s6662_unhashable_collection_literals(
     issues
 }
 
-// --- migrated from support/mod.rs (S6662) ---
 // --- python:S6662 — unhashable set members and dict keys ---------------------------
 
 const UNHASHABLE_KINDS: [&str; 3] = ["list", "set", "dict"];

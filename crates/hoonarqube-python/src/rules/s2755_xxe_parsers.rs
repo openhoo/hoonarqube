@@ -37,7 +37,6 @@ pub(crate) fn check_s2755_xxe_parsers(
     issues
 }
 
-// --- migrated from support/mod.rs (S2755) ---
 // --- python:S2755 — XML parsers vulnerable to XXE -------------------------------
 
 const XXE_PARSER_CALLS: [&str; 12] = [

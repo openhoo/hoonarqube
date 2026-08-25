@@ -32,7 +32,6 @@ pub(crate) fn check_async_without_awaits(
     issues
 }
 
-// --- migrated from support/mod.rs (S7503) ---
 // --- python:S7503 — async function without async features ---------------------------
 
 fn async_features_present(function: &ruff_python_ast::StmtFunctionDef) -> bool {

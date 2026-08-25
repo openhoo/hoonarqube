@@ -30,7 +30,6 @@ pub(crate) fn check_deprecated_numpy_aliases(
     issues
 }
 
-// --- migrated from support/mod.rs (S6730) ---
 // --- python:S6730 — deprecated NumPy scalar aliases ------------------------------
 
 const DEPRECATED_NUMPY_ALIASES: [&str; 16] = [

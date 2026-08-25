@@ -104,7 +104,6 @@ fn collect_function_scoped(
     }
 }
 
-// --- migrated from support/mod.rs (S1192) ---
 // ---------------------------------------------------------------------------
 // Tier-A battery entries #111–#193 (python:S1192 … python:S7489).
 //

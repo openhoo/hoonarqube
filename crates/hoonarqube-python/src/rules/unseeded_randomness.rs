@@ -31,7 +31,6 @@ pub(crate) fn check_unseeded_randomness(
     Vec::new()
 }
 
-// --- migrated from support/mod.rs (S6709) ---
 // --- python:S6709 — unseeded randomness (file-level presence heuristic) ---------------
 
 fn random_entry_point(path: &str) -> bool {

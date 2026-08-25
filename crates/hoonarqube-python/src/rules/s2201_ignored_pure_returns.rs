@@ -48,7 +48,6 @@ pub(crate) fn check_s2201_ignored_pure_returns(
     issues
 }
 
-// --- migrated from support/mod.rs (S2201) ---
 // --- python:S2201 — return values from pure calls should not be ignored ------
 
 const PURE_FREE_FUNCTIONS: [&str; 13] = [

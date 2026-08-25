@@ -57,7 +57,6 @@ pub(crate) fn check_s5344_plaintext_passwords(
     issues
 }
 
-// --- migrated from support/mod.rs (S5344) ---
 // --- python:S5344 — passwords not stored in plaintext or fast-hashed ----------
 
 const FAST_HASH_NAMES: [&str; 3] = ["md5", "sha1", "sha"];

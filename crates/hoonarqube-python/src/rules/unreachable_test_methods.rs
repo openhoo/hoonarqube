@@ -37,7 +37,6 @@ pub(crate) fn check_unreachable_test_methods(
     issues
 }
 
-// --- migrated from support/mod.rs (S5899) ---
 // --- python:S5899 — unreachable test methods ------------------------------------
 
 fn is_test_case_base(expr: &Expr) -> bool {

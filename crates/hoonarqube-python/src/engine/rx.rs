@@ -852,9 +852,9 @@ impl<'a> RxParser<'a> {
         Err(self.err_at(self.peek()))
     }
 
-    /// `\xHH` / `\uHHHH` / `\UHHHHHHHH`; incomplete forms are errors.
-    fn parse_hex_escape(&mut self, start: TextSize, width: usize) -> RxResult<(RxAtom, TextSize)> {
-        self.bump(); // 'x'/'u'/'U'
+    /// Hex-digit body of `\xHH` / `\uHHHH` / `\UHHHHHHHH`; the marker has
+    /// already been consumed. Incomplete forms are errors.
+    fn scan_hex_char(&mut self, width: usize) -> RxResult<char> {
         let mut text = String::new();
         for _ in 0..width {
             let Some(unit) = self.peek().filter(|u| u.ch.is_ascii_hexdigit()) else {
@@ -864,25 +864,34 @@ impl<'a> RxParser<'a> {
             self.bump();
         }
         let value = u32::from_str_radix(&text, 16).unwrap_or(0xfffd);
-        Ok((
-            RxAtom::Literal(char::from_u32(value).unwrap_or('\u{fffd}')),
-            start,
-        ))
+        Ok(char::from_u32(value).unwrap_or('\u{fffd}'))
     }
 
-    /// `\N{NAME}`: opaque named character.
-    fn parse_named_char(&mut self, start: TextSize) -> RxResult<(RxAtom, TextSize)> {
-        self.bump(); // 'N'
+    /// Body of `\N{NAME}` after the `'N'`: consume through the closing brace
+    /// and yield an opaque replacement character.
+    fn scan_named_char_body(&mut self) -> RxResult<char> {
         if self.peek().is_none_or(|u| u.ch != '{') {
             return Err(self.err_at(self.peek()));
         }
         while let Some(unit) = self.peek() {
             self.bump();
             if unit.ch == '}' {
-                return Ok((RxAtom::Literal('\u{fffd}'), start));
+                return Ok('\u{fffd}');
             }
         }
         Err(self.err_at(self.peek()))
+    }
+
+    /// `\xHH` / `\uHHHH` / `\UHHHHHHHH`; incomplete forms are errors.
+    fn parse_hex_escape(&mut self, start: TextSize, width: usize) -> RxResult<(RxAtom, TextSize)> {
+        self.bump(); // 'x'/'u'/'U'
+        Ok((RxAtom::Literal(self.scan_hex_char(width)?), start))
+    }
+
+    /// `\N{NAME}`: opaque named character.
+    fn parse_named_char(&mut self, start: TextSize) -> RxResult<(RxAtom, TextSize)> {
+        self.bump(); // 'N'
+        Ok((RxAtom::Literal(self.scan_named_char_body()?), start))
     }
 
     /// Numeric escape: `\0…`/three-octal-digit octal escapes (recorded for
@@ -1003,16 +1012,7 @@ impl<'a> RxParser<'a> {
             'U' => self.class_hex(8),
             'N' => {
                 self.bump();
-                if self.peek().is_none_or(|u| u.ch != '{') {
-                    return Err(self.err_at(self.peek()));
-                }
-                while let Some(inner) = self.peek() {
-                    self.bump();
-                    if inner.ch == '}' {
-                        return Ok(RxClassItem::Char('\u{fffd}'));
-                    }
-                }
-                Err(self.err_at(self.peek()))
+                Ok(RxClassItem::Char(self.scan_named_char_body()?))
             }
             '0'..='7' => self.class_octal(),
             ch if ch.is_ascii_alphabetic() => Err(self.err_at(Some(next))),
@@ -1030,18 +1030,7 @@ impl<'a> RxParser<'a> {
 
     fn class_hex(&mut self, width: usize) -> RxResult<RxClassItem> {
         self.bump(); // 'x'/'u'/'U'
-        let mut text = String::new();
-        for _ in 0..width {
-            let Some(unit) = self.peek().filter(|u| u.ch.is_ascii_hexdigit()) else {
-                return Err(self.err_at(self.peek()));
-            };
-            text.push(unit.ch);
-            self.bump();
-        }
-        let value = u32::from_str_radix(&text, 16).unwrap_or(0xfffd);
-        Ok(RxClassItem::Char(
-            char::from_u32(value).unwrap_or('\u{fffd}'),
-        ))
+        Ok(RxClassItem::Char(self.scan_hex_char(width)?))
     }
 
     /// Octal escapes inside classes are never back references.
@@ -1222,10 +1211,7 @@ fn rx_node_nullable(node: &RxNode) -> bool {
 }
 
 fn rx_seq_nullable(seq: &RxSeq) -> bool {
-    seq.items.iter().all(|item| match &item.quant {
-        Some(quant) => quant.min == 0 || rx_atom_nullable(&item.atom),
-        None => rx_atom_nullable(&item.atom),
-    })
+    seq.items.iter().all(rx_item_nullable_pub)
 }
 
 /// Zero-width atoms: assertions, flags, comments, and lookarounds.
@@ -1248,23 +1234,7 @@ pub(crate) fn rx_atom_zero_width(atom: &RxAtom) -> bool {
 
 /// Whether `item` requires at least one non-empty-width step.
 pub(crate) fn rx_item_consuming(item: &RxItem) -> bool {
-    let lookaround = matches!(
-        &item.atom,
-        RxAtom::Group(group)
-            if matches!(
-                group.kind,
-                RxGroupKind::Lookahead
-                    | RxGroupKind::NegativeLookahead
-                    | RxGroupKind::Lookbehind
-                    | RxGroupKind::NegativeLookbehind
-            )
-    );
-    let zero_width = lookaround
-        || matches!(
-            &item.atom,
-            RxAtom::Anchor(_) | RxAtom::GlobalFlags | RxAtom::Comment
-        );
-    !zero_width && item.quant.as_ref().is_none_or(|quant| quant.min >= 1)
+    !rx_atom_zero_width(&item.atom) && item.quant.as_ref().is_none_or(|quant| quant.min >= 1)
 }
 
 pub(crate) fn rx_is_unbounded_repeat(item: &RxItem) -> bool {
@@ -1726,16 +1696,19 @@ pub(crate) fn rx_complexity(node: &RxNode, level: u32) -> u32 {
             let bars = u32::try_from(branches.len().saturating_sub(1)).unwrap_or(0);
             let mut cost = level.saturating_add(bars.saturating_sub(1));
             for branch in branches {
-                cost += rx_complexity(&RxNode::Seq(branch.clone()), level + 1);
+                cost += rx_seq_complexity(branch, level + 1);
             }
             cost
         }
-        RxNode::Seq(seq) => seq
-            .items
-            .iter()
-            .map(|item| rx_item_complexity(item, level))
-            .sum(),
+        RxNode::Seq(seq) => rx_seq_complexity(seq, level),
     }
+}
+
+fn rx_seq_complexity(seq: &RxSeq, level: u32) -> u32 {
+    seq.items
+        .iter()
+        .map(|item| rx_item_complexity(item, level))
+        .sum()
 }
 
 fn rx_item_complexity(item: &RxItem, level: u32) -> u32 {

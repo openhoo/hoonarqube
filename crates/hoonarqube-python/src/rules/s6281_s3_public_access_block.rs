@@ -1,7 +1,6 @@
 use crate::engine::file_context::FileContext;
 use crate::support::call_source_text;
 use crate::support::called_name;
-use crate::support::has_boto3_binding;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
@@ -14,7 +13,7 @@ pub(crate) fn check_s6281_s3_public_access_block(
 ) -> Vec<Issue> {
     // CE only evaluates boto3 client calls it can resolve to a real binding;
     // stub objects stay silent.
-    if !has_boto3_binding(&file_ctx.calls) {
+    if !file_ctx.has_boto3_binding {
         return Vec::new();
     }
     let mut issues = Vec::new();
@@ -39,7 +38,6 @@ pub(crate) fn check_s6281_s3_public_access_block(
     issues
 }
 
-// --- migrated from support/mod.rs (S6281) ---
 // --- python:S6281 — S3 public access fully blocked --------------------------------
 
 const PUBLIC_ACCESS_BLOCK_KEYS: [&str; 4] = [

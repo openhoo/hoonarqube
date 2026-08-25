@@ -33,7 +33,6 @@ pub(crate) fn check_nested_identical_constructors(
     issues
 }
 
-// --- migrated from support/mod.rs (S7508) ---
 // --- python:S7508 — redundant identical nested constructors ----------------------
 
 /// Name of a collection-constructor call (`list`, `set`, `tuple`, `frozenset`).

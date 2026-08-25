@@ -30,7 +30,6 @@ pub(crate) fn check_generator_into_constructor(
     issues
 }
 
-// --- migrated from support/mod.rs (S7494) ---
 // --- python:S7494 — comprehension over a generator expression -----------------
 
 /// `(name, sole positional argument)` for calls shaped `name(x)` without

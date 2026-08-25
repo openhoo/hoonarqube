@@ -28,7 +28,6 @@ pub(crate) fn check_constant_dict_comprehension_values(
     issues
 }
 
-// --- migrated from support/mod.rs (S7506) ---
 // --- python:S7506 — static value in dict comprehension ---------------------------
 
 /// Constant expression trees: literals and pure operators only.

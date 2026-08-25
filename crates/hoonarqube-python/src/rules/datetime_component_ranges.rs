@@ -36,7 +36,6 @@ pub(crate) fn check_datetime_component_ranges(
     issues
 }
 
-// --- migrated from support/mod.rs (S6882) ---
 // --- python:S6882 — out-of-range date/time components -----------------------------
 
 /// Inclusive upper bounds per constructor slot: year, month, day, hour,

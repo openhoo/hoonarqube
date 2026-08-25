@@ -76,7 +76,6 @@ pub(crate) fn check_s3699_used_void_outputs(
     issues
 }
 
-// --- migrated from support/mod.rs (S3699) ---
 // --- python:S3699 — output of functions returning nothing should not be used -
 
 /// Whether the undecorated, non-async function provably returns nothing:

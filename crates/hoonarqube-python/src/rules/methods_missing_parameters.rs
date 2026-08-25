@@ -31,7 +31,6 @@ pub(crate) fn check_methods_missing_parameters(
     issues
 }
 
-// --- migrated from support/mod.rs (S5719) ---
 // --- python:S5719 — instance/class methods need a positional parameter --------
 
 /// Iterates `(class, function)` for every method directly defined in a class
