@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2053",
                 "Use a random, unpredictable salt for this password hashing call.",
-                range_of(candidate),
+                range_of(candidate, source),
             )
         })
         .collect()

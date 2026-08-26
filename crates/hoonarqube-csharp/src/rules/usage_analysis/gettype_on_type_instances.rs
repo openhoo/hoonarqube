@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3443",
                 "Remove this redundant 'GetType' call; it already returns a System.Type.",
-                range_of(outer),
+                range_of(outer, source),
             ));
         }
     }

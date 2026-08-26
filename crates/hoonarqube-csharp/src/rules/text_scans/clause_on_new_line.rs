@@ -4,7 +4,7 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S3972 — `else`, `catch`, and `finally` start on a new line.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     walk_all(root, &mut |node| {
         let keyword_kinds: &[&str] = match node.kind() {
@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                     language,
                     "S3972",
                     format!("Move this \"{keyword}\" to a new line."),
-                    range_of(child),
+                    range_of(child, source),
                 ));
             }
             previous_end_row = Some(child.end_position().row);

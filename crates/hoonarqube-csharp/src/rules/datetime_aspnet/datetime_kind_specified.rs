@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6562",
                 "Specify the 'DateTimeKind' when constructing this value.",
-                range_of(creation),
+                range_of(creation, source),
             ));
         }
     }

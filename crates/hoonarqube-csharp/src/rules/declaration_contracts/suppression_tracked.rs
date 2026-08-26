@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1309",
                 "Track uses of in-source suppressions.",
-                range_of(pragma),
+                range_of(pragma, source),
             ));
         }
     }

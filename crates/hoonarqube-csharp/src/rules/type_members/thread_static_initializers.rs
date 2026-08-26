@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2996",
                 "Remove this initializer; '[ThreadStatic]' fields must not be initialized.",
-                range_of(declarator),
+                range_of(declarator, source),
             )
         })
         .collect()

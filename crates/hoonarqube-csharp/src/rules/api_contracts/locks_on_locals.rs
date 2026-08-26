@@ -37,7 +37,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6507",
                 "Do not lock on this local variable.",
-                range_of(lock_statement),
+                range_of(lock_statement, source),
             ));
         }
     }

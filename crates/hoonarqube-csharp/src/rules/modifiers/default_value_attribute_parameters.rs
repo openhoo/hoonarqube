@@ -14,7 +14,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3451",
                 "Use '[DefaultParameterValue]' instead of '[DefaultValue]'.",
-                range_of(parameter),
+                range_of(parameter, source),
             ));
         }
     }

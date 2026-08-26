@@ -35,7 +35,7 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
                 "Static field '{}' should not be written from an instance member.",
                 site.name
             ),
-            range_of(site.node),
+            range_of(site.node, source),
         ));
     }
     issues

@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S2360",
                     "Remove this optional parameter's default value.",
-                    range_of(parameter),
+                    range_of(parameter, source),
                 ));
             }
         }

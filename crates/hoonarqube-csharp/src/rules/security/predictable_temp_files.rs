@@ -18,7 +18,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S5445",
                 "Create temporary files with unpredictable names in a private directory.",
-                range_of(invocation),
+                range_of(invocation, source),
             )
         })
         .collect()

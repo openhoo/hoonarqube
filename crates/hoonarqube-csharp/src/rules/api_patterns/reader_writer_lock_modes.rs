@@ -32,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S7131",
                     format!("Call '{wanted_release}' for this lock before returning."),
-                    range_of(*node),
+                    range_of(*node, source),
                 ));
             }
         }

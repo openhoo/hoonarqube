@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4015",
                 "Do not decrease the visibility of this overridden member.",
-                range_of(name),
+                range_of(name, source),
             )
         })
         .collect()

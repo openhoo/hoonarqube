@@ -29,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S4022",
             "Use 'int' as the underlying type of this enum.",
-            range_of(name),
+            range_of(name, source),
         ));
     }
     issues

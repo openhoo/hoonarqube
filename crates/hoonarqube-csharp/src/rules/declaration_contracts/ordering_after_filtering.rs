@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6607",
                 "Apply this ordering after filtering.",
-                range_of(invocation),
+                range_of(invocation, source),
             )
         })
         .collect()

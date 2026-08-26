@@ -20,14 +20,14 @@ fn check_disallowed_comment_pattern(
     body: &str,
     rules: &RuleOptions,
 ) {
-    let line_start = comment.token.start - sink.index.pos(comment.token.start).column;
+    let line_start = sink.index.line_start(comment.token.start);
     let code_before = source
         .get(
             usize::try_from(line_start).unwrap_or(0)
                 ..usize::try_from(comment.token.start).unwrap_or(0),
         )
         .is_some_and(|prefix| prefix.chars().any(|c| !c.is_whitespace()));
-    if !code_before || !regex_search(&rules.comment_pattern, body) {
+    if !code_before || body.contains("NOSONAR") || !regex_search(&rules.comment_pattern, body) {
         return;
     }
     sink.emit_span(
@@ -62,6 +62,15 @@ mod tests {
 
         let own_line = js_keys("// hack\nlet x = 1;\n");
         assert_eq!(count_key(&own_line, "javascript:S139"), 0);
+    }
+
+    #[test]
+    fn nosonar_trailing_comments_are_spared_from_s139() {
+        // The suppression marker is handled by the dedicated `S1291` rule;
+        // the same comment token must not double-report as `S139`.
+        let findings = js_keys("let x = 1; // NOSONAR\n");
+        assert_eq!(count_key(&findings, "javascript:S139"), 0);
+        assert_eq!(count_key(&findings, "javascript:S1291"), 1);
     }
     #[test]
     fn custom_pattern_applies_to_inline_comments_only() {

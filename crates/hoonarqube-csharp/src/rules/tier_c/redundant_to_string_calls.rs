@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1858",
                 "Remove this redundant 'ToString' call.",
-                range_of(call),
+                range_of(call, source),
             )
         })
         .collect()

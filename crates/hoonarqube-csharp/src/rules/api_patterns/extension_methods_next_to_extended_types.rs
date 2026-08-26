@@ -33,7 +33,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4226",
                 "Move this extension method into a dedicated namespace.",
-                range_of(name_anchor(method)),
+                range_of(name_anchor(method), source),
             ));
         }
     }

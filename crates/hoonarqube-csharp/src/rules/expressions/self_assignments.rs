@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1656",
                 "Remove this self-assignment.",
-                range_of(assignment),
+                range_of(assignment, source),
             ));
         }
     }

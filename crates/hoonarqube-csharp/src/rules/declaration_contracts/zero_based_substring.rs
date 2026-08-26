@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4635",
                 "Use a start index instead of this zero-based 'Substring'.",
-                range_of(invocation),
+                range_of(invocation, source),
             )
         })
         .collect()

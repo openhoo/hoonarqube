@@ -28,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6588",
                 "Use 'DateTimeOffset.UnixEpoch' instead of this literal.",
-                range_of(creation),
+                range_of(creation, source),
             ));
         }
     }

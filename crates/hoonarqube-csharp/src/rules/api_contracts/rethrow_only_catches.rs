@@ -5,7 +5,7 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S2737 — a catch clause that only rethrows adds nothing.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     collect_kinds(root, &["catch_clause"])
         .into_iter()
         .filter(|clause| !is_error_tainted(*clause))
@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S2737",
                 "Handle this exception or remove this catch clause.",
-                range_of(clause),
+                range_of(clause, source),
             )
         })
         .collect()

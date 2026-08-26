@@ -49,7 +49,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         language,
                         "S2259",
                         format!("'{name}' is null here; this dereference will throw."),
-                        range_of(base),
+                        range_of(base, source),
                     ));
                 });
                 // Then state updates from this statement's writes.

@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3397",
                 "Remove this 'base.Equals' call from the 'Equals' override.",
-                range_of(invocation),
+                range_of(invocation, source),
             ));
         }
     }

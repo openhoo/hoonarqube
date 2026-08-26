@@ -14,7 +14,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1123",
                 "Document why this code is obsolete with an explanation message.",
-                range_of(node),
+                range_of(node, source),
             ));
         }
     }

@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6930",
                 "Use forward slashes in this route template.",
-                range_of(literal),
+                range_of(literal, source),
             )
         })
         .collect()

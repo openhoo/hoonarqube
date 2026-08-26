@@ -29,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3449",
                 "Use an integer as the right operand of this shift.",
-                range_of(shift),
+                range_of(shift, source),
             )
         })
         .collect()

@@ -39,7 +39,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2234",
                 "Pass the arguments in the same order as the method's parameters.",
-                range_of(call),
+                range_of(call, source),
             )
         })
         .collect()

@@ -60,7 +60,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S3655",
                     format!("Check 'HasValue' before accessing '{name}.Value'."),
-                    range_of(access),
+                    range_of(access, source),
                 ));
             }
         }

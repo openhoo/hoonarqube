@@ -63,7 +63,7 @@ pub(crate) fn linq_api_issues(root: Node<'_>, source: &str, language: CsLanguage
     issues.extend(check_culture_less_comparisons(root, source, language));
     issues.extend(check_culture_less_searches(root, source, language));
     issues.extend(check_hardcoded_connection_passwords(root, source, language));
-    issues.extend(check_weak_identity_locks(root, language));
+    issues.extend(check_weak_identity_locks(root, source, language));
     issues.extend(check_locks_on_locals(root, source, language));
     issues.extend(check_locks_on_mutable_fields(root, source, language));
     issues.extend(check_datetime_key_members(root, source, language));
@@ -78,7 +78,7 @@ pub(crate) fn linq_api_issues(root: Node<'_>, source: &str, language: CsLanguage
     issues.extend(check_dispose_needs_interface(root, source, language));
     issues.extend(check_utility_class_constructors(root, source, language));
     issues.extend(check_reserved_exception_throws(root, source, language));
-    issues.extend(check_throws_in_finally(root, language));
+    issues.extend(check_throws_in_finally(root, source, language));
     issues.extend(check_null_reference_catches(root, source, language));
     issues.extend(check_double_reported_catches(root, source, language));
     issues.extend(check_general_exception_catches(root, source, language));
@@ -91,12 +91,12 @@ pub(crate) fn linq_api_issues(root: Node<'_>, source: &str, language: CsLanguage
     issues.extend(todos);
     issues.extend(check_test_method_signatures(root, source, language));
     issues.extend(check_ignored_generic_exceptions(root, source, language));
-    issues.extend(check_rethrow_only_catches(root, language));
+    issues.extend(check_rethrow_only_catches(root, source, language));
     issues.extend(check_transposed_operators(source, language));
     issues.extend(check_foreach_iteration_casts(root, source, language));
     issues.extend(check_pure_debug_assertions(root, source, language));
     issues.extend(check_overlapping_optional_overloads(root, source, language));
-    issues.extend(check_explicit_rethrows(root, language));
+    issues.extend(check_explicit_rethrows(root, source, language));
     issues.extend(check_indexer_parameter_types(root, source, language));
     issues.extend(check_array_arguments_for_params_calls(
         root, source, language,

@@ -41,7 +41,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2333",
                 "Remove this redundant 'partial' modifier.",
-                range_of(name_anchor(*type_node)),
+                range_of(name_anchor(*type_node), source),
             ));
         }
     }
@@ -56,7 +56,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S2333",
                     "Remove this redundant accessibility modifier.",
-                    range_of(accessor),
+                    range_of(accessor, source),
                 ));
             }
         }

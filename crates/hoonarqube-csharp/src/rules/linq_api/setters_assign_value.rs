@@ -34,7 +34,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3237",
                 "Assign the 'value' keyword in this setter.",
-                range_of(accessor),
+                range_of(accessor, source),
             ));
         }
     }

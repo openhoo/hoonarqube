@@ -4,7 +4,7 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S1659 — one variable declaration per line.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     walk_all(root, &mut |node| {
         if node.kind() != "variable_declaration" {
@@ -27,7 +27,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                     language,
                     "S1659",
                     "Declare each variable on its own line.",
-                    range_of(*declarator),
+                    range_of(*declarator, source),
                 ));
             }
         }

@@ -26,7 +26,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     "Constrain the attribute '{}' with '[AttributeUsage]'.",
                     node_text(name, source)
                 ),
-                range_of(name),
+                range_of(name, source),
             )
         })
         .collect()

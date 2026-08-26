@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S5443",
                 "Do not place files in publicly writable directories.",
-                range_of(literal),
+                range_of(literal, source),
             ));
         }
     }

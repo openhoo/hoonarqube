@@ -43,7 +43,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         format!(
                             "Do not assign the static field '{name}' from an instance constructor."
                         ),
-                        range_of(assignment),
+                        range_of(assignment, source),
                     ));
                 }
             }

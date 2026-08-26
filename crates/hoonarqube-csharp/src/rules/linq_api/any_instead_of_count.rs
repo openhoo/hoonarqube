@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1155",
                 "Use 'Any()' instead of comparing a count with zero.",
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }

@@ -18,7 +18,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S5753",
                 "Keep ASP.NET request validation enabled.",
-                range_of(literal),
+                range_of(literal, source),
             ));
         }
     }
@@ -36,7 +36,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S5753",
                 "Keep ASP.NET request validation enabled.",
-                range_of(invocation),
+                range_of(invocation, source),
             ));
         }
     }

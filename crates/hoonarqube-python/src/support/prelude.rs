@@ -110,20 +110,10 @@ pub(crate) const FIXME_TAG: &str = "fixme";
 
 pub(crate) const TODO_TAG: &str = "todo";
 
-/// Checks the first TODO/FIXME occurrence in the comment for the person
-/// reference pattern `[ ]*\([ _a-zA-Z0-9@.]+\)`.
-pub(crate) fn has_person_reference(lowercased_comment: &str) -> bool {
-    let Some(tag_pos) = lowercased_comment
-        .find(FIXME_TAG)
-        .into_iter()
-        .chain(lowercased_comment.find(TODO_TAG))
-        .min()
-    else {
-        return true;
-    };
-    let rest = lowercased_comment[tag_pos..]
-        .trim_start_matches(|c: char| c.is_ascii_alphabetic())
-        .trim_start_matches(' ');
+/// Checks the text immediately following an anchored TODO/FIXME tag for the
+/// person reference pattern `[ ]*\([ _a-zA-Z0-9@.]+\)` — e.g. `(jane)`.
+pub(crate) fn has_person_reference(text_after_tag: &str) -> bool {
+    let rest = text_after_tag.trim_start_matches(' ');
     let Some(body) = rest.strip_prefix('(').and_then(|r| r.split_once(')')) else {
         return false;
     };

@@ -57,7 +57,7 @@ pub(crate) fn check(
                 "The content of StringBuilder '{}' is never consumed.",
                 node_text(name, source)
             ),
-            range_of(declarator),
+            range_of(declarator, source),
         ));
     }
     issues

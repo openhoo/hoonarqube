@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4423",
                 "Negotiate 'Tls12' or 'Tls13' instead of this deprecated protocol.",
-                range_of(access),
+                range_of(access, source),
             )
         })
         .collect()

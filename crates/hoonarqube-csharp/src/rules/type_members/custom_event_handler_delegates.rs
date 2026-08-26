@@ -37,7 +37,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     "Use 'EventHandler<T>' instead of this custom delegate for '{}'.",
                     node_text(name_node, source)
                 ),
-                range_of(name_node),
+                range_of(name_node, source),
             )
         })
         .collect()

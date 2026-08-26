@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3962",
                 "Declare this field as 'const' instead of 'static readonly'.",
-                range_of(declarator),
+                range_of(declarator, source),
             )
         })
         .collect()

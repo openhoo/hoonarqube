@@ -35,7 +35,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3444",
                 "Remove the inherited members re-declared by this interface.",
-                range_of(name),
+                range_of(name, source),
             )
         })
         .collect()

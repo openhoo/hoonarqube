@@ -37,7 +37,7 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
                 "'{}' does not access instance data and can be marked 'static'.",
                 member.name
             ),
-            range_of(member.anchor),
+            range_of(member.anchor, source),
         ));
     }
     issues

@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S3442",
                     "Change this constructor's visibility to 'protected' or lower.",
-                    range_of(member),
+                    range_of(member, source),
                 ));
             }
         }

@@ -24,15 +24,15 @@ pub(crate) fn text_issues(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_line_length(source, language, options));
-    issues.extend(check_file_loc(root, language, options));
+    issues.extend(check_file_loc(root, source, language, options));
     issues.extend(check_tabs(source, language));
     issues.extend(check_final_newline(source, language));
     issues.extend(check_header(source, language, options));
-    issues.extend(check_close_brace_column(root, language));
-    issues.extend(check_one_statement_per_line(root, language));
-    issues.extend(check_clause_on_new_line(root, language));
-    issues.extend(check_conditional_indentation(root, language));
-    issues.extend(check_declarators_per_line(root, language));
+    issues.extend(check_close_brace_column(root, source, language));
+    issues.extend(check_one_statement_per_line(root, source, language));
+    issues.extend(check_clause_on_new_line(root, source, language));
+    issues.extend(check_conditional_indentation(root, source, language));
+    issues.extend(check_declarators_per_line(root, source, language));
     issues.extend(check_empty_comments(root, source, language));
     issues.extend(check_commented_out_code(root, source, language));
     issues.extend(check_numeric_separators(root, source, language));

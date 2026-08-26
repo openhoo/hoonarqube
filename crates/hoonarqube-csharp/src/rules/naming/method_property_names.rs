@@ -33,7 +33,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S100",
             format!("Rename this {subject} to match the regular expression {NAMING_PATTERN}."),
-            range_of(name),
+            range_of(name, source),
         ));
     });
     issues

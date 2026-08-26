@@ -44,7 +44,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S6673",
                     "Align message-template placeholders with the argument order.",
-                    range_of(literal),
+                    range_of(literal, source),
                 ));
             }
             break;

@@ -60,7 +60,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3937",
                 "Make this sequence of compared numbers regular.",
-                range_of(leaves[0]),
+                range_of(leaves[0], source),
             ));
         }
     }

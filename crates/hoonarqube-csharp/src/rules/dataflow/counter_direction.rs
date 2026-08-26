@@ -41,7 +41,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2251",
                 format!("The counter '{counter}' moves away from this loop's bound."),
-                range_of(for_statement),
+                range_of(for_statement, source),
             ));
         }
     }

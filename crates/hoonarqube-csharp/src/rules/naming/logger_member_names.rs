@@ -59,7 +59,7 @@ pub(crate) fn check(
                     "Rename \"{name_text}\" to match the regular expression \"{}\".",
                     options.logger_name_format
                 ),
-                range_of(name),
+                range_of(name, source),
             ));
         }
     });

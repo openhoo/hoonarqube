@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2699",
                 "Add an assertion to this test method.",
-                range_of(method),
+                range_of(method, source),
             ));
         }
     }

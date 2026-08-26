@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3240",
                 "Replace this comparison with a negation of its operand.",
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }
@@ -41,7 +41,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3240",
                 "Replace this ternary with its condition directly.",
-                range_of(conditional),
+                range_of(conditional, source),
             ));
         }
     }

@@ -12,7 +12,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4061",
                 "Use 'params' instead of '__arglist'.",
-                range_of(identifier),
+                range_of(identifier, source),
             ));
         }
     }

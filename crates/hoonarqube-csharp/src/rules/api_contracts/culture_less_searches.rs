@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1449",
                 "Pass the culture or comparison type to this operation.",
-                range_of(call),
+                range_of(call, source),
             ));
         }
     }

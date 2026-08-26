@@ -43,7 +43,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     "Name this zero-valued '[Flags]' member '{}' 'None' instead.",
                     node_text(name, source)
                 ),
-                range_of(name),
+                range_of(name, source),
             )
         })
         .collect()

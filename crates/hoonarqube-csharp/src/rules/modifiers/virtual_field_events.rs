@@ -14,7 +14,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2290",
                 "Remove the 'virtual' modifier from this event.",
-                range_of(event_field),
+                range_of(event_field, source),
             ));
         }
     }

@@ -44,7 +44,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6800",
                 "Change this parameter's type so it matches the route constraint.",
-                range_of(name),
+                range_of(name, source),
             )
         })
         .collect()

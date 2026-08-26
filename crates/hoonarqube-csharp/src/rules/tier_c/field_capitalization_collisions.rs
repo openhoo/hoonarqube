@@ -15,7 +15,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4025",
                 "Rename this field; it differs from an inherited field only by capitalization.",
-                range_of(node),
+                range_of(node, source),
             )
         })
         .collect()

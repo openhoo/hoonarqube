@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2219",
                 "Use the 'is' type pattern instead of comparing GetType() with typeof().",
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }

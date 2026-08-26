@@ -5,7 +5,12 @@ use tree_sitter::Node;
 
 /// csharpsquid:S134 — control-flow nesting stays within the configured
 /// depth.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage, options: &AnalyzerOptions) -> Vec<Issue> {
+pub(crate) fn check(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
     let mut issues = Vec::new();
     for construct in collect_kinds(root, &NESTING_CONSTRUCT_KINDS) {
         if is_error_tainted(construct) {
@@ -19,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage, options: &AnalyzerOpti
                 language,
                 "S134",
                 format!("Reduce this code's nesting depth ({depth} levels deep)."),
-                range_of(construct),
+                range_of(construct, source),
             ));
         }
     }

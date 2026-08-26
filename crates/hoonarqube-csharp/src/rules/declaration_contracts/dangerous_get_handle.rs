@@ -13,7 +13,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3869",
                 "Remove this 'DangerousGetHandle' call.",
-                range_of(access),
+                range_of(access, source),
             )
         })
         .collect()

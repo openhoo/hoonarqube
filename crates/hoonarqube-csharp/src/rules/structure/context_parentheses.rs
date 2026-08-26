@@ -5,7 +5,7 @@ use tree_sitter::Node;
 
 /// csharpsquid:S3235 — parentheses around return values and arguments
 /// cannot change precedence there and are noise.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for parenthesized in collect_kinds(root, &["parenthesized_expression"]) {
         if is_error_tainted(parenthesized) {
@@ -17,7 +17,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S3235",
                 "Remove these unnecessary parentheses.",
-                range_of(parenthesized),
+                range_of(parenthesized, source),
             ));
         }
     }

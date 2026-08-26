@@ -46,7 +46,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3265",
                 "This enum is not marked [Flags]; avoid bitwise operations on its values.",
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }

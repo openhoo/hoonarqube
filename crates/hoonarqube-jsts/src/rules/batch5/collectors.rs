@@ -247,7 +247,7 @@ pub(crate) const ENCRYPT_API_NAMES: [&str; 6] = [
 ];
 
 /// TLS protocol versions `S4423` flags in string literals.
-pub(crate) const WEAK_TLS_PROTOCOLS: [&str; 4] = ["sslv2", "sslv3", "tlsv1", "tlsv1.0"];
+pub(crate) const WEAK_TLS_PROTOCOLS: [&str; 5] = ["sslv2", "sslv3", "tlsv1", "tlsv1.0", "tlsv1.1"];
 
 /// Elliptic curves `S4426` considers too weak for key generation.
 pub(crate) const WEAK_EC_CURVES: [&str; 8] = [

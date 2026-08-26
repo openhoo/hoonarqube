@@ -33,7 +33,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1643",
                 "Use a 'StringBuilder' instead of '+=' concatenation in this loop.",
-                range_of(assignment),
+                range_of(assignment, source),
             )
         })
         .collect()

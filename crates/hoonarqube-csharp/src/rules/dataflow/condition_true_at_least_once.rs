@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2252",
                 "This loop's body never executes; the condition is false from the start.",
-                range_of(header),
+                range_of(header, source),
             ));
         }
     }

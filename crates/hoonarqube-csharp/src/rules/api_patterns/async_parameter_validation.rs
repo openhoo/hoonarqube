@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S4457",
                     "Validate these parameters before the first 'await' in this method.",
-                    range_of(validation),
+                    range_of(validation, source),
                 ));
             }
         }

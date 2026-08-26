@@ -8,7 +8,7 @@ use tree_sitter::Node;
 /// csharpsquid:S3626 — a jump ending a loop body can never be reached any
 /// differently than falling through. Switch sections require their `break`
 /// and stay clean.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for header in collect_kinds(root, &LOOP_KINDS) {
         if is_error_tainted(header) {
@@ -28,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                     language,
                     "S3626",
                     "Remove this redundant jump.",
-                    range_of(*last),
+                    range_of(*last, source),
                 ));
             }
         }

@@ -15,7 +15,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S4019",
             "Declare this method 'new' or rename it; it hides an inherited member.",
-            range_of(name),
+            range_of(name, source),
         )
     })
     .collect()

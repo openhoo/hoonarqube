@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S5856",
                 "Fix this invalid regular expression.",
-                range_of(anchor),
+                range_of(anchor, source),
             )
         })
         .collect()

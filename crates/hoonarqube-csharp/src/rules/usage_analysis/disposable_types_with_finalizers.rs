@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4002",
                 "Remove this finalizer or implement the dispose pattern correctly.",
-                range_of(name_anchor(destructor)),
+                range_of(name_anchor(destructor), source),
             ));
         }
     }

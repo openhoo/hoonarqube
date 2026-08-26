@@ -7,7 +7,7 @@ use tree_sitter::Node;
 /// csharpsquid:S1751 — loops that provably run at most once: the final
 /// body statement leaves the loop unconditionally. Entry-false
 /// conditions belong to S2252; `do`-while run-once idioms are exempt.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for header in collect_kinds(root, &["while_statement", "for_statement"]) {
         if is_error_tainted(header) {
@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S1751",
                 "This loop will execute at most once.",
-                range_of(header),
+                range_of(header, source),
             ));
         }
     }

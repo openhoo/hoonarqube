@@ -66,7 +66,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S3900",
                     format!("Validate parameter '{name}' against null before using it."),
-                    range_of(dereference),
+                    range_of(dereference, source),
                 ));
             }
         }

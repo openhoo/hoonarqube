@@ -6,7 +6,12 @@ use tree_sitter::Node;
 
 /// csharpsquid:S2436 — generic arity is capped per type (`max`) and per
 /// method (`maxMethod`).
-pub(crate) fn check(root: Node<'_>, language: CsLanguage, options: &AnalyzerOptions) -> Vec<Issue> {
+pub(crate) fn check(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
     const TYPE_KINDS: [&str; 5] = [
         "class_declaration",
         "struct_declaration",
@@ -23,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage, options: &AnalyzerOpti
                     language,
                     "S2436",
                     format!("Reduce the number of type parameters ({count} > {cap})."),
-                    range_of(list),
+                    range_of(list, source),
                 ));
             }
         }
@@ -36,7 +41,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage, options: &AnalyzerOpti
                     language,
                     "S2436",
                     format!("Reduce the number of type parameters ({count} > {cap})."),
-                    range_of(list),
+                    range_of(list, source),
                 ));
             }
         }

@@ -16,7 +16,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some((literal, template, budget)) = composite_template(call, source) else {
             continue;
         };
-        if let Some(problem) = composite_usage_issue(language, literal, template, budget) {
+        if let Some(problem) = composite_usage_issue(language, literal, template, budget, source) {
             issues.push(problem);
         }
     }
@@ -30,13 +30,14 @@ fn composite_usage_issue(
     literal: Node<'_>,
     template: &str,
     budget: usize,
+    source: &str,
 ) -> Option<Issue> {
     if !composite_template_is_valid(template) {
         return Some(issue(
             language,
             "S3457",
             "Fix this malformed composite format string.",
-            range_of(literal),
+            range_of(literal, source),
         ));
     }
     if !template.contains('{') && budget > 0 {
@@ -44,7 +45,7 @@ fn composite_usage_issue(
             language,
             "S3457",
             "Pass the arguments directly instead of using this format string.",
-            range_of(literal),
+            range_of(literal, source),
         ));
     }
     None

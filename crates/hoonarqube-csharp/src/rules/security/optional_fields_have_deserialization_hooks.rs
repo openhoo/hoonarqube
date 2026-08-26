@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3926",
                 "Handle this '[OptionalField]' member in an '[OnDeserialized]' callback.",
-                range_of(field),
+                range_of(field, source),
             ));
         }
     }

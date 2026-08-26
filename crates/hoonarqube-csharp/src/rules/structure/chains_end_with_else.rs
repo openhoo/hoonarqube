@@ -6,7 +6,7 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S126 — `else if` chains end with a terminal `else`.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for head in collect_kinds(root, &["if_statement"]) {
         if is_error_tainted(head) || is_else_alternative(head) {
@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                             language,
                             "S126",
                             "Add an 'else' clause to close this 'else if' chain.",
-                            range_of(current),
+                            range_of(current, source),
                         ));
                     }
                     break;

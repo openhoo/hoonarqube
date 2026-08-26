@@ -58,7 +58,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             }
             // Block scope ends: unread final values stay dead.
             for (name, kind, anchor) in pending {
-                push_dead_store(&mut issues, language, &name, kind, anchor);
+                push_dead_store(&mut issues, language, &name, kind, anchor, source);
             }
         }
     }
@@ -120,7 +120,7 @@ fn register_declaration_stores<'t>(
         };
         let name = node_text(name_node, source);
         if tracked.contains(name) && declarator_initializer(declarator, name_node).is_some() {
-            displace_pending(pending, name, issues, language);
+            displace_pending(pending, name, issues, language, source);
             pending.push((name.to_owned(), WriteKind::Store, declarator));
         }
     }
@@ -142,7 +142,7 @@ fn register_expression_stores<'t>(
         };
         let name = node_text(identifier, source);
         if tracked.contains(name) {
-            displace_pending(pending, name, issues, language);
+            displace_pending(pending, name, issues, language, source);
             pending.push((name.to_owned(), write, identifier));
         }
     }
@@ -155,6 +155,7 @@ fn displace_pending(
     name: &str,
     issues: &mut Vec<Issue>,
     language: CsLanguage,
+    source: &str,
 ) {
     let displaced: Vec<_> = pending
         .iter()
@@ -163,7 +164,7 @@ fn displace_pending(
         .collect();
     pending.retain(|(pending_name, _, _)| pending_name != name);
     for (kind, anchor) in displaced {
-        push_dead_store(issues, language, name, kind, anchor);
+        push_dead_store(issues, language, name, kind, anchor, source);
     }
 }
 
@@ -174,19 +175,20 @@ fn push_dead_store(
     name: &str,
     kind: WriteKind,
     anchor: Node<'_>,
+    source: &str,
 ) {
     match kind {
         WriteKind::Increment => issues.push(issue(
             language,
             "S2123",
             format!("'{name}' is incremented but the new value is never used."),
-            range_of(anchor),
+            range_of(anchor, source),
         )),
         WriteKind::Store => issues.push(issue(
             language,
             "S1854",
             format!("Remove this useless assignment to local variable '{name}'."),
-            range_of(anchor),
+            range_of(anchor, source),
         )),
     }
 }

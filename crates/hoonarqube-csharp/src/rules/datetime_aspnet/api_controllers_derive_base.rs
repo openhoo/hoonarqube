@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6961",
                 "Derive API controllers from 'ControllerBase'.",
-                range_of(class_node),
+                range_of(class_node, source),
             )
         })
         .collect()

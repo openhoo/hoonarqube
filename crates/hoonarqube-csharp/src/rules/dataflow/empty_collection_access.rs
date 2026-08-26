@@ -31,7 +31,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         language,
                         "S4158",
                         "This collection is created empty; accessing its elements will fail at runtime.",
-                        range_of(creation),
+                        range_of(creation, source),
                     ));
                     break;
                 }
@@ -44,7 +44,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                             language,
                             "S4158",
                             "This collection is created empty; accessing its elements will fail at runtime.",
-                            range_of(creation),
+                            range_of(creation, source),
                         ));
                         break;
                     }

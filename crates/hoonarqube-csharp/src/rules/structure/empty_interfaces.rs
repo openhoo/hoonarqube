@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4023",
                 "Add members to this interface or remove it.",
-                range_of(name_anchor(interface)),
+                range_of(name_anchor(interface), source),
             ));
         }
     }

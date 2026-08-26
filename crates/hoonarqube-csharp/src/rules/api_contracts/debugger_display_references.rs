@@ -40,7 +40,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S4545",
                     format!("'DebuggerDisplay' references missing member '{member}'."),
-                    range_of(list),
+                    range_of(list, source),
                 ));
             }
         }

@@ -29,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6967",
                 "Check 'ModelState.IsValid' before using bound model data.",
-                range_of(name_anchor(action)),
+                range_of(name_anchor(action), source),
             )
         })
         .collect()

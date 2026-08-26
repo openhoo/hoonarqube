@@ -29,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3956",
                 "Expose 'IEnumerable<T>' or 'IList<T>' instead of 'List<T>'.",
-                range_of(name_anchor(method)),
+                range_of(name_anchor(method), source),
             ));
         }
     }
@@ -55,7 +55,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S3956",
                     "Expose 'IEnumerable<T>' or 'IList<T>' instead of 'List<T>'.",
-                    range_of(member),
+                    range_of(member, source),
                 ));
             }
         }

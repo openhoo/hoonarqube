@@ -43,7 +43,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S3257",
                     "Use 'var' for this declaration.",
-                    range_of(declarator),
+                    range_of(declarator, source),
                 ));
             }
         }

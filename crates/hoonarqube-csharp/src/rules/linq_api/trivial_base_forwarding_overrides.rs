@@ -32,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1185",
                 "Remove this override; it only forwards to the base member.",
-                range_of(name_anchor(method)),
+                range_of(name_anchor(method), source),
             ));
         }
     }

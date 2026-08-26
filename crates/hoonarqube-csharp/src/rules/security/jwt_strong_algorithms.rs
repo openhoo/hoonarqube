@@ -33,7 +33,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S5659",
                 "Sign and verify JWTs with a strong algorithm such as 'RS256'.",
-                range_of(literal),
+                range_of(literal, source),
             ));
         }
     }

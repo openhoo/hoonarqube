@@ -14,7 +14,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2245",
                 "Use a cryptographically secure random number generator for this security-sensitive value.",
-                range_of(creation),
+                range_of(creation, source),
             )
         })
         .collect()

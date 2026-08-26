@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2187",
                 "Add test methods to this test class.",
-                range_of(class_node),
+                range_of(class_node, source),
             )
         })
         .collect()

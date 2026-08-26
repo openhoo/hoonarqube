@@ -7,7 +7,7 @@ use tree_sitter::Node;
 /// csharpsquid:S2589 — boolean literals next to a short-circuit operator
 /// change nothing about the result. Comparisons against literals and
 /// doubled negations are covered by S1125 and S2761 instead.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for expression in collect_kinds(root, &["binary_expression"]) {
         if is_error_tainted(expression) || !matches!(operator_of(expression), Some("&&" | "||")) {
@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                     language,
                     "S2589",
                     "This boolean literal is gratuitous in a short-circuit operation.",
-                    range_of(operand),
+                    range_of(operand, source),
                 ));
             }
         }

@@ -4,7 +4,7 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S1116 — stray empty statements are removed.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     collect_kinds(root, &["empty_statement"])
         .into_iter()
         .filter(|statement| !is_error_tainted(*statement))
@@ -13,7 +13,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S1116",
                 "Remove this empty statement.",
-                range_of(statement),
+                range_of(statement, source),
             )
         })
         .collect()

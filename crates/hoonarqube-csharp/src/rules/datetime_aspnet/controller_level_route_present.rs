@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6934",
                 "Declare a controller-level '[Route]' for these action templates.",
-                range_of(class_node),
+                range_of(class_node, source),
             ));
         }
     }

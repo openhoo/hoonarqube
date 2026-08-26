@@ -46,7 +46,9 @@ pub(crate) fn usage_analysis_issues<'t>(
     issues.extend(check_instance_writes_to_static_fields(
         source, language, &symbols,
     ));
-    issues.extend(check_inner_statics_shadowing_outer(language, &symbols));
+    issues.extend(check_inner_statics_shadowing_outer(
+        source, language, &symbols,
+    ));
     issues.extend(check_private_methods_called_only_from_nested_types(
         source, language, &symbols,
     ));
@@ -70,7 +72,7 @@ pub(crate) fn usage_analysis_issues<'t>(
         source, language, &symbols,
     ));
     issues.extend(check_bitwise_non_flags_enums(root, source, language));
-    issues.extend(check_this_escaping_constructors(root, language));
+    issues.extend(check_this_escaping_constructors(root, source, language));
     issues.extend(check_gettype_on_type_instances(root, source, language));
     issues.extend(check_unvalidated_public_parameters(root, source, language));
     issues.extend(check_string_uri_overload_delegation(root, source, language));

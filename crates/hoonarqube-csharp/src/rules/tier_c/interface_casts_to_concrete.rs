@@ -44,7 +44,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3215",
                 "Do not cast this interface instance to a concrete type; use its interface or a generic parameter.",
-                range_of(cast),
+                range_of(cast, source),
             )
         })
         .collect()

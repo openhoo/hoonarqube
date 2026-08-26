@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4428",
                 "Add an '[Export]' attribute next to this '[PartCreationPolicy]'.",
-                range_of(type_node),
+                range_of(type_node, source),
             ));
         }
     }

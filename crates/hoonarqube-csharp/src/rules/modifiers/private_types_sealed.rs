@@ -41,7 +41,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S3260",
             "Mark this private type 'sealed'.",
-            range_of(name),
+            range_of(name, source),
         ));
     }
     issues

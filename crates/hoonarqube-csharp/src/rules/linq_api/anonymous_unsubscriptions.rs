@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3244",
                 "Unsubscribe with the original delegate, not a new anonymous one.",
-                range_of(assignment),
+                range_of(assignment, source),
             )
         })
         .collect()

@@ -31,7 +31,7 @@ pub(crate) fn check<'s>(root: Node<'_>, source: &'s str, language: CsLanguage) -
                     language,
                     "S4144",
                     format!("Update this method so it no longer duplicates '{carrier}'."),
-                    range_of(method),
+                    range_of(method, source),
                 ));
             } else {
                 seen.push((name, text));

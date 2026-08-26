@@ -17,7 +17,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S5542",
                 "Encrypt with an authenticated cipher mode and explicit padding.",
-                range_of(access),
+                range_of(access, source),
             )
         })
         .collect()

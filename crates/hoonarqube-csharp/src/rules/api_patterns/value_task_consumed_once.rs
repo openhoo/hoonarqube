@@ -36,7 +36,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S5034",
                     format!("'{name}' is consumed more than once."),
-                    range_of(node),
+                    range_of(node, source),
                 ));
             }
             consumed.insert(name.to_owned());

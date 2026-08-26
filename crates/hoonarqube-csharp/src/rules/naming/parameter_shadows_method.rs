@@ -32,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S3872",
                     "Rename this parameter; it duplicates the name of its method.",
-                    range_of(parameter_name),
+                    range_of(parameter_name, source),
                 ));
             }
         }

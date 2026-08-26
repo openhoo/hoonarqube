@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S4069",
                     format!("Provide a named '{alternative}' method alongside this operator."),
-                    range_of(declaration),
+                    range_of(declaration, source),
                 ));
             }
         }

@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2674",
                 "Check the value returned by this stream read.",
-                range_of(call),
+                range_of(call, source),
             )
         })
         .collect()

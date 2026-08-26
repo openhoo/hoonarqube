@@ -28,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6585",
                 "Format this date with an explicit culture-aware provider.",
-                range_of(argument),
+                range_of(argument, source),
             )
         })
         .collect()

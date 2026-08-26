@@ -6,7 +6,7 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S2761 — prefix operators do not double up.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for unary in collect_kinds(root, &["prefix_unary_expression"]) {
         if is_error_tainted(unary) || !matches!(operator_of(unary), Some("!" | "~" | "+" | "-")) {
@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S2761",
                 "Collapse these doubled prefix operators.",
-                range_of(unary),
+                range_of(unary, source),
             ));
         }
     }

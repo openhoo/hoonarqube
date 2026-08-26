@@ -43,7 +43,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4260",
                 "Match this '[ConstructorArgument]' name with a declared constructor parameter.",
-                range_of(attribute),
+                range_of(attribute, source),
             ));
         }
     }

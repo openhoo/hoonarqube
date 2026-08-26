@@ -36,7 +36,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1698",
                 "Use 'Equals' instead of '=='; this type overrides equality semantics.",
-                range_of(comparison),
+                range_of(comparison, source),
             )
         })
         .collect()

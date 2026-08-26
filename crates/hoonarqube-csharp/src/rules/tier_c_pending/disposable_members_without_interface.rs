@@ -40,7 +40,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2931",
                 "Implement 'IDisposable' on this class; it declares disposable members.",
-                range_of(name),
+                range_of(name, source),
             )
         })
         .collect()

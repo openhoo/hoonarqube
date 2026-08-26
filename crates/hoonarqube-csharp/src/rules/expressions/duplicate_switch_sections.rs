@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S1871",
                     "This branch duplicates the implementation of an earlier one.",
-                    range_of(*section),
+                    range_of(*section, source),
                 ));
             }
         }

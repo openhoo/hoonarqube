@@ -1,18 +1,18 @@
 use crate::CsLanguage;
-use crate::cst::{issue, range_of, walk_all};
+use crate::cst::{issue, pos_of, range_of, walk_all};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S3973 — conditionally executed single lines must be denoted by
 /// indentation: a brace-less body on its own line may not start at or before
 /// its header's column.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     walk_all(root, &mut |node| {
         if !CONDITIONAL_HEADER_KINDS.contains(&node.kind()) {
             return;
         }
-        let header = node.start_position();
+        let header_pos = pos_of(node.start_position(), node.start_byte(), source);
         let mut bodies: Vec<Node> = Vec::new();
         if node.kind() == "if_statement" {
             if let Some(consequence) = node.child_by_field_name("consequence") {
@@ -36,13 +36,13 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
             }
         }
         for body in bodies {
-            let start = body.start_position();
-            if start.row > header.row && start.column <= header.column {
+            let body_pos = pos_of(body.start_position(), body.start_byte(), source);
+            if body_pos.line > header_pos.line && body_pos.column <= header_pos.column {
                 issues.push(issue(
                     language,
                     "S3973",
                     "Indent this statement to make its scope obvious.",
-                    range_of(body),
+                    range_of(body, source),
                 ));
             }
         }

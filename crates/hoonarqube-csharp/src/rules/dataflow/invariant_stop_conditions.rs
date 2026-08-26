@@ -33,7 +33,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S127",
                 "This loop's stop condition is not invariant.",
-                range_of(for_statement),
+                range_of(for_statement, source),
             ));
         }
     }

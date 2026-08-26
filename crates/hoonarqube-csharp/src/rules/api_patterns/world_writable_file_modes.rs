@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2612",
                 "This file mode grants access beyond the owner; restrict it.",
-                range_of(access),
+                range_of(access, source),
             )
         })
         .collect()

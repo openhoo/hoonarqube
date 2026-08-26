@@ -16,7 +16,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6962",
                 "Create 'HttpClient' through 'IHttpClientFactory' instead.",
-                range_of(creation),
+                range_of(creation, source),
             )
         })
         .collect()

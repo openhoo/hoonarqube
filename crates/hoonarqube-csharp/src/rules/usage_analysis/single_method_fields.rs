@@ -42,7 +42,7 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
                     "Field '{}' is used only within one method; make it a local variable instead.",
                     member.name
                 ),
-                range_of(member.anchor),
+                range_of(member.anchor, source),
             ));
         }
     }

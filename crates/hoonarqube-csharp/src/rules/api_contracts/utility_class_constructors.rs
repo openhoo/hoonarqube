@@ -39,7 +39,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S1118",
                     "Hide this constructor or declare the class 'static'.",
-                    range_of(constructor),
+                    range_of(constructor, source),
                 ));
             }
         }

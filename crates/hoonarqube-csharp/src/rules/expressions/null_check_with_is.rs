@@ -43,7 +43,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4201",
                 "Drop the null check; the 'is' type test already rejects null.",
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }

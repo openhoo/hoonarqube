@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6444",
                 "Provide a timeout when constructing this 'Regex'.",
-                range_of(creation),
+                range_of(creation, source),
             ));
         }
     }
@@ -38,7 +38,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6444",
                 "Provide a timeout for this 'Regex' call.",
-                range_of(invocation),
+                range_of(invocation, source),
             ));
         }
     }

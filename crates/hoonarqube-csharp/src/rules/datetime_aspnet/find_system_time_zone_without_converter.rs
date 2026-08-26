@@ -26,7 +26,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6575",
                 "Resolve time zones through 'TimeZoneConverter' for portability.",
-                range_of(invocation),
+                range_of(invocation, source),
             )
         })
         .collect()

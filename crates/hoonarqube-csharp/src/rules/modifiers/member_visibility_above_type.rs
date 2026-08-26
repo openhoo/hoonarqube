@@ -50,7 +50,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3059",
                 "Reduce this member's visibility to match its container.",
-                range_of(member),
+                range_of(member, source),
             ));
         }
     }

@@ -18,7 +18,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4792",
                 "Make sure configuring loggers here is intended; logger configuration is security-sensitive.",
-                range_of(access),
+                range_of(access, source),
             )
         })
         .collect()

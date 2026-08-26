@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3898",
                 "Implement 'IEquatable<T>' on this value type.",
-                range_of(name_anchor(struct_declaration)),
+                range_of(name_anchor(struct_declaration), source),
             ));
         }
     }

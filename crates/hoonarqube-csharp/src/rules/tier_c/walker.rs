@@ -54,7 +54,7 @@ pub(crate) fn tier_c_heuristic_issues(
     issues.extend(check_redundant_casts(root, source, language));
     issues.extend(check_shift_right_operand_kinds(root, source, language));
     issues.extend(check_integer_division_float_targets(root, source, language));
-    issues.extend(check_shared_lock_targets(root, language));
+    issues.extend(check_shared_lock_targets(root, source, language));
     issues.extend(check_self_collection_arguments(root, source, language));
     issues.extend(check_discarded_pure_results(root, source, language));
     issues.extend(check_static_password_salts(root, source, language));

@@ -17,7 +17,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6674",
                 "Fix this malformed message template.",
-                range_of(literal),
+                range_of(literal, source),
             ));
         }
     }

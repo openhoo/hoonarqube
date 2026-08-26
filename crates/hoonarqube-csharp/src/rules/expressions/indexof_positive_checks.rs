@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2692",
                 "Test 'IndexOf' results with '>= 0'; '>' wrongly rejects index 0.",
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }

@@ -18,7 +18,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3060",
                 "Do not combine 'this' with the 'is' operator.",
-                range_of(is_expression),
+                range_of(is_expression, source),
             ));
         }
     }

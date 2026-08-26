@@ -72,7 +72,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4039",
                 "Derived types cannot call this explicit interface implementation; make it protected or implement the interface implicitly.",
-                range_of(call),
+                range_of(call, source),
             )
         })
         .collect()

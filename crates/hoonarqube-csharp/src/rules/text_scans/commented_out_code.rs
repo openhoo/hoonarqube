@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     for comment in line_comments {
         if expected_next_row != Some(comment.start_position().row) {
             if run_has_code {
-                push_commented_out_code(&mut issues, language, run_start);
+                push_commented_out_code(&mut issues, language, run_start, source);
             }
             run_start = Some(comment);
             run_has_code = false;
@@ -31,7 +31,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         expected_next_row = Some(comment.end_position().row + 1);
     }
     if run_has_code {
-        push_commented_out_code(&mut issues, language, run_start);
+        push_commented_out_code(&mut issues, language, run_start, source);
     }
     issues
 }
@@ -55,7 +55,12 @@ fn looks_like_code(line: &str) -> bool {
 }
 
 /// Anchors an S125 issue at the start of a code-like comment run.
-fn push_commented_out_code(issues: &mut Vec<Issue>, language: CsLanguage, start: Option<Node>) {
+fn push_commented_out_code(
+    issues: &mut Vec<Issue>,
+    language: CsLanguage,
+    start: Option<Node>,
+    source: &str,
+) {
     let Some(start) = start else {
         return;
     };
@@ -63,6 +68,6 @@ fn push_commented_out_code(issues: &mut Vec<Issue>, language: CsLanguage, start:
         language,
         "S125",
         "Remove this commented-out code.",
-        range_of(start),
+        range_of(start, source),
     ));
 }

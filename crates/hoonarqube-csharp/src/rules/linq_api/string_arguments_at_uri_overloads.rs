@@ -26,7 +26,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4005",
                 "Create a 'System.Uri' and pass it to this call.",
-                range_of(call),
+                range_of(call, source),
             ));
         }
     }

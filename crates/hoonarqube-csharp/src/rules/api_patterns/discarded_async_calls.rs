@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6966",
                 "Await this asynchronous operation or observe its result.",
-                range_of(call),
+                range_of(call, source),
             )
         })
         .collect()

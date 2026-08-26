@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6675",
                 "Do not use a 'TraceSwitch' level to gate this trace.",
-                range_of(call),
+                range_of(call, source),
             )
         })
         .collect()

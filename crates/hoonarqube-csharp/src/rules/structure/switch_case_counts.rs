@@ -6,7 +6,7 @@ use tree_sitter::Node;
 
 /// csharpsquid:S1301 — switches replace at least three-way dispatch;
 /// smaller ones read better as `if`/`else`.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for switch_statement in collect_kinds(root, &["switch_statement"]) {
         if is_error_tainted(switch_statement) {
@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S1301",
                 "Replace this switch with an 'if'/'else' chain; it has fewer than three cases.",
-                range_of(switch_statement),
+                range_of(switch_statement, source),
             ));
         }
     }

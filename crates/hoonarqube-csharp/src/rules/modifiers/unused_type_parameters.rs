@@ -42,7 +42,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S2326",
                     format!("Remove this unused type parameter \"{name}\"."),
-                    range_of(*parameter),
+                    range_of(*parameter, source),
                 ));
             }
         }

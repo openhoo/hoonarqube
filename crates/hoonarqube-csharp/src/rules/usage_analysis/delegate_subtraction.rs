@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3172",
                 "Subtracting delegates silently removes handlers; unsubscribe with '-=' instead.",
-                range_of(binary),
+                range_of(binary, source),
             ));
         }
     }

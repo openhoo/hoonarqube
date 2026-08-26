@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2629",
                 "Use a constant message template for this log call.",
-                range_of(call),
+                range_of(call, source),
             )
         })
         .collect()

@@ -37,7 +37,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S1168",
                     "Return an empty collection instead of null.",
-                    range_of(return_statement),
+                    range_of(return_statement, source),
                 ));
                 flagged = true;
             }
@@ -54,7 +54,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S1168",
                     "Return an empty collection instead of null.",
-                    range_of(arrow),
+                    range_of(arrow, source),
                 ));
             }
         }

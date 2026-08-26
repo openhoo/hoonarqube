@@ -3,8 +3,8 @@ use crate::JstsLanguage;
 use crate::context::{AnalysisContext, RuleOptions};
 use crate::engine::pattern_parser::{RegexNode, parse_regex, regex_search_parsed};
 use crate::support::{
-    IssueSink, LineIndex, RuleScope, binding_identifier_name, module_export_name_name,
-    property_key_name, shannon_entropy_per_char, span_text_contains,
+    IssueSink, LineIndex, RuleScope, binding_identifier_name, embeds_credential,
+    module_export_name_name, property_key_name, shannon_entropy_per_char, span_text_contains,
 };
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
@@ -339,6 +339,21 @@ impl BindingCollector<'_, '_> {
                 "Remove this hard-coded credential.",
                 literal.span,
             );
+        } else if embeds_credential(text, &self.rules.password_words) {
+            // Value-shape branch shared with the Python family: a string
+            // embedding a `credential=`/`credential:` pair fires even when
+            // the assigned name does not suggest a credential. Gated on the
+            // name check missing so such pairs emit exactly once (Python
+            // currently double-reports them). Known residual divergence:
+            // Python also scans literals outside assignments via
+            // `collect_string_contents`; closing that here would need a
+            // file-wide literal walk.
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S2068",
+                "Review this potentially hard-coded credentials.",
+                literal.span,
+            );
         }
         let lowered = context_name.to_lowercase();
         let name_matches_secret_word = self.secret_words_parsed.iter().any(|word| {
@@ -529,6 +544,22 @@ export { Model };
         );
         assert_eq!(count_key(&boundaries, "javascript:S2068"), 0);
         assert_eq!(count_key(&boundaries, "javascript:S6418"), 0);
+    }
+
+    #[test]
+    fn s2068_flags_embedded_credential_shapes_in_values() {
+        // Mirrors the Python pinned case: the URL value embeds a
+        // `password=` pair even though `loginUrl` names no credential.
+        let embedded = js_keys("const loginUrl = 'https://example.test/login?password=hunter2';\n");
+        assert_eq!(count_key(&embedded, "javascript:S2068"), 1);
+
+        // Prose without a `credential=`/`credential:` shape stays silent.
+        let prose = js_keys("const helpText = 'Pass your token to log in.';\n");
+        assert_eq!(count_key(&prose, "javascript:S2068"), 0);
+
+        // A name hit wins, so the pair emits exactly once.
+        let both = js_keys("const password = 'password=hunter2';\n");
+        assert_eq!(count_key(&both, "javascript:S2068"), 1);
     }
 
     #[test]

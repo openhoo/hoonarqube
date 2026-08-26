@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6968",
                 "Declare '[ProducesResponseType]' for this action's responses.",
-                range_of(name_anchor(action)),
+                range_of(name_anchor(action), source),
             )
         })
         .collect()

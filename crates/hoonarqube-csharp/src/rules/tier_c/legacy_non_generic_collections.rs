@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     "Replace the legacy non-generic collection '{}' with its generic equivalent.",
                     node_text(identifier, source)
                 ),
-                range_of(identifier),
+                range_of(identifier, source),
             )
         })
         .collect()

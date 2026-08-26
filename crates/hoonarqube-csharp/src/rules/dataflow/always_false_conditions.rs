@@ -27,7 +27,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2583",
                 "This condition is always false; the guarded code never runs.",
-                range_of(condition),
+                range_of(condition, source),
             ));
         }
     }

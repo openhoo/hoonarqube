@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4462",
                 "Do not block on async code here.",
-                range_of(access),
+                range_of(access, source),
             ));
         }
     }
@@ -40,7 +40,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4462",
                 "Do not block on async code here.",
-                range_of(invocation),
+                range_of(invocation, source),
             ));
         }
     }

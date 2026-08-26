@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3005",
                 "Mark this field 'static'; '[ThreadStatic]' applies only to static fields.",
-                range_of(name_node),
+                range_of(name_node, source),
             )
         })
         .collect()

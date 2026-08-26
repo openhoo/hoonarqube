@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6678",
                 format!("Rename the placeholder {shown} to PascalCase."),
-                range_of(literal),
+                range_of(literal, source),
             ));
         }
     }

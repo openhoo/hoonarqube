@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S106",
                 "Replace this console output with proper logging.",
-                range_of(node),
+                range_of(node, source),
             )
         })
         .collect()

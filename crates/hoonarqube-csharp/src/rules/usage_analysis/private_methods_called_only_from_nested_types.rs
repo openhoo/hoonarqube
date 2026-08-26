@@ -40,7 +40,7 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
                     "Private method '{}' is only called from nested types.",
                     member.name
                 ),
-                range_of(member.anchor),
+                range_of(member.anchor, source),
             ));
         }
     }

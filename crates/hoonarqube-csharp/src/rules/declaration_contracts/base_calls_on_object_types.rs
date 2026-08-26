@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3249",
                 "Remove this redundant base call; the type extends 'object' directly.",
-                range_of(invocation),
+                range_of(invocation, source),
             ));
         }
     }

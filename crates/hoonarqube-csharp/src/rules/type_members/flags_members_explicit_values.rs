@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     "Give the enumeration member '{}' an explicit value.",
                     node_text(name, source)
                 ),
-                range_of(name),
+                range_of(name, source),
             )
         })
         .collect()

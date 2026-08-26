@@ -27,7 +27,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1764",
                 "Identical sub-expressions are used on both sides of this operator.",
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }

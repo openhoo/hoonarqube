@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4507",
                 "Disable debugging features in production.",
-                range_of(literal),
+                range_of(literal, source),
             ));
         }
     }

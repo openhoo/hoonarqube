@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6580",
                 "Pass an explicit culture when parsing this date or time.",
-                range_of(invocation),
+                range_of(invocation, source),
             )
         })
         .collect()

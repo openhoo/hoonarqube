@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1939",
                 "Remove the redundant entry from this inheritance list.",
-                range_of(name_anchor(declaration)),
+                range_of(name_anchor(declaration), source),
             )
         })
         .collect()

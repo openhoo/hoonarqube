@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S6419",
                     "Keep this class stateless; do not hold mutable instance fields.",
-                    range_of(field),
+                    range_of(field, source),
                 ));
             }
         }

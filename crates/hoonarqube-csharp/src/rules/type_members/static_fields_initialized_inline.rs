@@ -36,7 +36,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S3963",
                     format!("Initialize '{name}' inline instead of in the static constructor."),
-                    range_of(name_node),
+                    range_of(name_node, source),
                 ));
             }
         }

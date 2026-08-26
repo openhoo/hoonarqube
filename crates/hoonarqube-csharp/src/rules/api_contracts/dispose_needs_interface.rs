@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2953",
                 "Implement 'IDisposable' on this type.",
-                range_of(name_anchor(type_node)),
+                range_of(name_anchor(type_node), source),
             )
         })
         .collect()

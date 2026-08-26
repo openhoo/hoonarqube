@@ -48,7 +48,7 @@ pub(crate) fn check(
                     language,
                     "S1699",
                     format!("Constructor calls overridable method '{callee}'."),
-                    range_of(invocation),
+                    range_of(invocation, source),
                 ));
             }
         }

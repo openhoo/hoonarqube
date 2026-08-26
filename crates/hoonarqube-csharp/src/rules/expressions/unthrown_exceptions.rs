@@ -14,7 +14,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3984",
                 "Throw this exception or remove the useless instantiation.",
-                range_of(creation),
+                range_of(creation, source),
             ));
         }
     }

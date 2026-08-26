@@ -5,7 +5,7 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S3445 — `throw ex;` restarts the stack trace at the catch.
-pub(crate) fn check(source_root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(source_root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     collect_kinds(source_root, &["throw_statement"])
         .into_iter()
         .filter(|throw| !is_error_tainted(*throw))
@@ -17,7 +17,7 @@ pub(crate) fn check(source_root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S3445",
                 "Use a bare 'throw;' statement to rethrow.",
-                range_of(throw),
+                range_of(throw, source),
             )
         })
         .collect()

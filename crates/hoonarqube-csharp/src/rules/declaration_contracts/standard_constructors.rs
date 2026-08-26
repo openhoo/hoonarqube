@@ -34,7 +34,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4027",
                 "Provide the standard exception constructors.",
-                range_of(name_anchor(class_declaration)),
+                range_of(name_anchor(class_declaration), source),
             ));
         }
     }

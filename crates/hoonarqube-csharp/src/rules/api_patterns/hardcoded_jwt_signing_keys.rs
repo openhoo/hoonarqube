@@ -37,7 +37,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6781",
                 "Load this signing key from configuration instead of hard-coding it.",
-                range_of(creation),
+                range_of(creation, source),
             )
         })
         .collect()

@@ -17,7 +17,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3450",
                 "Add the '[Optional]' attribute next to '[DefaultParameterValue]'.",
-                range_of(parameter),
+                range_of(parameter, source),
             ));
         }
     }

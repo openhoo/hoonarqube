@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6513",
                 "Document the reason for excluding this code from coverage.",
-                range_of(node),
+                range_of(node, source),
             ));
         }
     }

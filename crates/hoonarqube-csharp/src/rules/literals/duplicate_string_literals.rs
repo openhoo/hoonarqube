@@ -32,7 +32,13 @@ pub(crate) fn check(
         if seen.insert(text) {
             continue; // the first occurrence anchors nothing
         }
-        issue_text(&mut issues, language, text, counts[text], range_of(literal));
+        issue_text(
+            &mut issues,
+            language,
+            text,
+            counts[text],
+            range_of(literal, source),
+        );
     }
     issues
 }

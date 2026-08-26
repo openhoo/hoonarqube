@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3906",
                 "Change the return type of this delegate to 'void'.".to_string(),
-                range_of(name_node),
+                range_of(name_node, source),
             )
         })
         .collect()

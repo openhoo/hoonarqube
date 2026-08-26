@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     "Move the static field '{}' to a non-generic type; it is shared across instantiations.",
                     node_text(name_node, source)
                 ),
-                range_of(name_node),
+                range_of(name_node, source),
             ));
         }
     }

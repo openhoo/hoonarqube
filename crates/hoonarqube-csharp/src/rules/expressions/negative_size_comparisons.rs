@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3981",
                 "Collection sizes are never negative; fix this comparison.",
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }

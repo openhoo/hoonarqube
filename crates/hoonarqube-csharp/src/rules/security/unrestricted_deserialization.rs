@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S5773",
             "Restrict deserialization by keeping 'TypeNameHandling' at 'None'.",
-            range_of(access),
+            range_of(access, source),
         )
     })
     .collect()

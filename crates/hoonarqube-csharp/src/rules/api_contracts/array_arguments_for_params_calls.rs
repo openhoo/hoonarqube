@@ -33,7 +33,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3878",
                 "Pass the elements individually to this 'params' call.",
-                range_of(argument),
+                range_of(argument, source),
             )
         })
         .collect()

@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3011",
                 "Reflecting over non-public members bypasses accessibility checks.",
-                range_of(call),
+                range_of(call, source),
             )
         })
         .collect()

@@ -39,7 +39,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3610",
                 "Remove this redundant comparison; this non-nullable value can never be 'null'.",
-                range_of(operand),
+                range_of(operand, source),
             )
         })
         .collect()

@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S2148",
             "Add digit separators (underscores) to this number.",
-            range_of(node),
+            range_of(node, source),
         ));
     });
     issues

@@ -8,7 +8,12 @@ use tree_sitter::Node;
 
 /// csharpsquid:S1479 — a switch section holds at most the tolerated number
 /// of statements.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage, options: &AnalyzerOptions) -> Vec<Issue> {
+pub(crate) fn check(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
     let mut issues = Vec::new();
     for switch_statement in collect_kinds(root, &["switch_statement"]) {
         if is_error_tainted(switch_statement) {
@@ -24,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage, options: &AnalyzerOpti
                     language,
                     "S1479",
                     format!("Split this 'case' block; it contains {count} statements."),
-                    range_of(section),
+                    range_of(section, source),
                 ));
             }
         }

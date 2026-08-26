@@ -5,7 +5,7 @@ use tree_sitter::Node;
 
 /// csharpsquid:S1110 — a parenthesis pair wrapping only another pair is
 /// redundant.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for parenthesized in collect_kinds(root, &["parenthesized_expression"]) {
         if is_error_tainted(parenthesized) {
@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S1110",
                 "Remove this redundant pair of parentheses.",
-                range_of(parenthesized),
+                range_of(parenthesized, source),
             ));
         }
     }

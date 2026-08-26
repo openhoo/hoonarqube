@@ -40,7 +40,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2330",
                 "Avoid array covariance here; use an explicitly typed array or a common generic collection.",
-                range_of(name),
+                range_of(name, source),
             )
         })
         .collect()

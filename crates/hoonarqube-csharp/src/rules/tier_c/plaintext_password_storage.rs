@@ -26,7 +26,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S5344",
                 "Do not hash passwords with this fast hash; store them under a slow, salted KDF such as PBKDF2 or bcrypt instead.",
-                range_of(hash),
+                range_of(hash, source),
             ));
         }
         if uses_slow_kdf {
@@ -38,7 +38,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S5344",
                     "Do not convert password material into plain bytes; store only its slow, salted hash such as PBKDF2 or bcrypt.",
-                    range_of(call),
+                    range_of(call, source),
                 ));
             }
         }

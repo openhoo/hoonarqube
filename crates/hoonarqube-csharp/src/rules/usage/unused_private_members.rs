@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1144",
                 format!("Remove this unused private {}.", member.kind_word),
-                range_of(member.anchor),
+                range_of(member.anchor, source),
             ));
         }
     }
@@ -42,7 +42,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1144",
                 format!("Remove this unused private {name}."),
-                range_of(name_node),
+                range_of(name_node, source),
             ));
         }
     }

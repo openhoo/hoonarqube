@@ -28,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S2328",
                     "Reference only immutable fields from 'GetHashCode'.",
-                    range_of(method),
+                    range_of(method, source),
                 ));
             }
         }

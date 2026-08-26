@@ -6,7 +6,7 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S3366 — constructors must not publish `this` early.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for constructor in collect_kinds(root, &["constructor_declaration"]) {
         if is_error_tainted(constructor) {
@@ -36,7 +36,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                     language,
                     "S3366",
                     "Constructor leaks 'this' before the object is fully initialized.",
-                    range_of(this_expression),
+                    range_of(this_expression, source),
                 ));
             }
         }

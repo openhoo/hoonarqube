@@ -33,7 +33,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2437",
                 format!("Remove this unnecessary bit operation: {verdict}"),
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }

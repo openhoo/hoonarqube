@@ -30,7 +30,7 @@ pub(crate) fn check(
             language,
             "S2342",
             format!("Rename this enumeration to match the regular expression '{format}'."),
-            range_of(name),
+            range_of(name, source),
         ));
     }
     issues

@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4581",
                 "Generate a new GUID instead of relying on the empty value.",
-                range_of(creation),
+                range_of(creation, source),
             ));
         }
     }

@@ -17,7 +17,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S2925",
                     "Remove this 'Thread.Sleep' from the test.",
-                    range_of(invocation),
+                    range_of(invocation, source),
                 ));
             }
         }

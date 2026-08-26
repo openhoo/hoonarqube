@@ -8,7 +8,7 @@ use tree_sitter::Node;
 /// csharpsquid:S3903 — types live in named namespaces. A compilation unit
 /// holding a single type stays untouched: a lone top-level type is a
 /// common, deliberate layout.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let file_scope_types: Vec<Node> = collect_kinds(root, &TYPE_DECLARATION_KINDS)
         .into_iter()
         .filter(|type_declaration| {
@@ -32,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 "Move this {} into a namespace.",
                 declaration_kind_word(type_declaration.kind())
             ),
-            range_of(name_anchor(type_declaration)),
+            range_of(name_anchor(type_declaration), source),
         ));
     }
     issues

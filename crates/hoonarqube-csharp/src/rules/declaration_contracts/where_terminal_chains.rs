@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2971",
                 "Move this filter into the terminal LINQ call's predicate.",
-                range_of(invocation),
+                range_of(invocation, source),
             )
         })
         .collect()

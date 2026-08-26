@@ -18,7 +18,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S112",
                 "Throw a more specific exception than this reserved type.",
-                range_of(creation),
+                range_of(creation, source),
             )
         })
         .collect()

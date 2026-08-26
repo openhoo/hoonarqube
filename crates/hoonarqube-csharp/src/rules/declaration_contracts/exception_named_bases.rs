@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2166",
                 "Derive this exception-named class from an 'Exception' type.",
-                range_of(name_anchor(class_declaration)),
+                range_of(name_anchor(class_declaration), source),
             ));
         }
     }

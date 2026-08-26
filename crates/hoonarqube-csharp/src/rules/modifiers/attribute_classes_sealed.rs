@@ -29,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S4060",
             "Mark this attribute class 'sealed' or 'abstract'.",
-            range_of(name),
+            range_of(name, source),
         ));
     }
     issues

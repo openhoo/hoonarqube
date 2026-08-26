@@ -40,7 +40,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3897",
                 "Declare 'IEquatable<T>' on this type.",
-                range_of(method),
+                range_of(method, source),
             ));
         }
     }

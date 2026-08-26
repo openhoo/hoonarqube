@@ -16,7 +16,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4040",
                 "Use 'ToUpperInvariant' to normalize this string.",
-                range_of(call),
+                range_of(call, source),
             )
         })
         .collect()

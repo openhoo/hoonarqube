@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         language,
                         "S3874",
                         format!("Remove this '{modifier_kind}' parameter."),
-                        range_of(parameter),
+                        range_of(parameter, source),
                     ));
                 }
             }

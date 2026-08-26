@@ -14,7 +14,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3889",
                 "Do not suspend or resume threads.",
-                range_of(access),
+                range_of(access, source),
             )
         })
         .collect()

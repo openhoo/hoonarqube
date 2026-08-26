@@ -17,7 +17,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2198",
                 "Remove this contradictory comparison of an expression with itself.",
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }

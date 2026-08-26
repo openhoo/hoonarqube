@@ -55,7 +55,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3220",
                 "This call resolves to the 'params' overload; make the intended overload explicit.",
-                range_of(call),
+                range_of(call, source),
             )
         })
         .collect()

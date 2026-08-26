@@ -17,7 +17,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6798",
                 "Mark this '[JSInvokable]' method public.",
-                range_of(name_anchor(method)),
+                range_of(name_anchor(method), source),
             )
         })
         .collect()

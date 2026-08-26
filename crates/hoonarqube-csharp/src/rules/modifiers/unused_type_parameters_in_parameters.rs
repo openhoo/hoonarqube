@@ -26,7 +26,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S4018",
                     format!("Type parameter \"{name}\" never appears in the parameter list."),
-                    range_of(parameter),
+                    range_of(parameter, source),
                 ));
             }
         }

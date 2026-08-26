@@ -166,6 +166,43 @@ mod tests {
     }
 
     #[test]
+    fn same_operator_boolean_chains_count_every_operator_for_cyclomatic() {
+        // Ten `&&` links plus the base point: true complexity 11 > 10.
+        let chained = js_keys(
+            "function f(a){ return a && a.b && a.c && a.d && a.e && a.f && a.g && a.h && a.i && a.j && a.k; }\n",
+        );
+        assert_eq!(count_key(&chained, "javascript:S1541"), 1);
+
+        // Cognitive complexity still weighs one identical-operator sequence
+        // of the same operator once, so the same function stays clean.
+        assert_eq!(count_key(&chained, "javascript:S3776"), 0);
+
+        // Nullish coalescing chains are logical operators too.
+        let nullish = js_keys(
+            "function g(a){ return a ?? a.b ?? a.c ?? a.d ?? a.e ?? a.f ?? a.g ?? a.h ?? a.i ?? a.j ?? a.k; }\n",
+        );
+        assert_eq!(count_key(&nullish, "javascript:S1541"), 1);
+    }
+
+    #[test]
+    fn switch_complexity_counts_case_clauses_only() {
+        let source = |cases: usize| {
+            let mut text = String::from("function f(x) {\n  switch (x) {\n");
+            for i in 0..cases {
+                text.push_str("    case ");
+                text.push_str(&i.to_string());
+                text.push_str(":\n      break;\n");
+            }
+            text.push_str("  }\n}\n");
+            js_keys(&text)
+        };
+        // Nine case clauses + base 1 = 10: clean. The switch head itself
+        // adds no decision point beyond its case clauses.
+        assert_eq!(count_key(&source(9), "javascript:S1541"), 0);
+        assert_eq!(count_key(&source(10), "javascript:S1541"), 1);
+    }
+
+    #[test]
     fn mixed_return_styles_are_flagged() {
         let mixed = js_keys("function f(c) {\n  if (c) {\n    return 1;\n  }\n  return;\n}\n");
         assert_eq!(count_key(&mixed, "javascript:S3801"), 1);

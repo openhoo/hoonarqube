@@ -28,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3597",
                 "Use '[OperationContract]' only on methods of a '[ServiceContract]' type.",
-                range_of(attribute),
+                range_of(attribute, source),
             ));
         }
     }

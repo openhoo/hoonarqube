@@ -27,7 +27,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S3217",
                     "Iterate with the correct element type instead of casting.",
-                    range_of(cast),
+                    range_of(cast, source),
                 ));
             }
         }

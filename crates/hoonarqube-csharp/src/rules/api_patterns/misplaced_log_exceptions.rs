@@ -38,7 +38,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S6668",
                     "Pass the exception directly after the message template.",
-                    range_of(call),
+                    range_of(call, source),
                 ));
             }
         }

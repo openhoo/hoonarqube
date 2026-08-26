@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3216",
                 "Pass 'false' to 'ConfigureAwait'.",
-                range_of(invocation),
+                range_of(invocation, source),
             )
         })
         .collect()

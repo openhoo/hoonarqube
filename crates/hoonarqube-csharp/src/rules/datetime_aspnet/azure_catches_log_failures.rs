@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6423",
                 "Log the failure inside this catch block.",
-                range_of(catch_clause),
+                range_of(catch_clause, source),
             )
         })
         .collect()

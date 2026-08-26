@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S5547",
                 "Use a robust cipher such as 'Aes' instead of this provider.",
-                range_of(identifier),
+                range_of(identifier, source),
             )
         })
         .collect()

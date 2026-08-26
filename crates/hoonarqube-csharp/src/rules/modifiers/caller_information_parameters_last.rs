@@ -28,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S3343",
                     "Move this caller-information parameter to the end of the parameter list.",
-                    range_of(*parameter),
+                    range_of(*parameter, source),
                 ));
             }
         }

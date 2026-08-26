@@ -32,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     "Constrain '{}' or avoid comparing it with null.",
                     node_text(operand, source)
                 ),
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }

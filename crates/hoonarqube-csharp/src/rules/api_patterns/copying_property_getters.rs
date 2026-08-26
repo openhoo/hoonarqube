@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S2365",
                     "This getter copies the collection on every read; expose a read-only view instead.",
-                    range_of(call),
+                    range_of(call, source),
                 ));
             }
         }

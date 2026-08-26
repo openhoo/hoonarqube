@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3996",
                 "Expose this URI-valued property as 'System.Uri'.",
-                range_of(property),
+                range_of(property, source),
             ));
         }
     }

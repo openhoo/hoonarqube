@@ -31,7 +31,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         language,
                         "S3427",
                         "Remove the ambiguity between these overloads.",
-                        range_of(name_anchor(methods[second])),
+                        range_of(name_anchor(methods[second]), source),
                     ));
                 }
             }

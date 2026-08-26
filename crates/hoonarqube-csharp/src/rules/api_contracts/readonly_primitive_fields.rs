@@ -48,7 +48,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3887",
                 "Declare this constant field 'const' instead of 'readonly'.",
-                range_of(field),
+                range_of(field, source),
             ));
         }
     }

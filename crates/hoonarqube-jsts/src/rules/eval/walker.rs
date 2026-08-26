@@ -25,7 +25,7 @@ fn check_eval_usage(
 /// Collects `eval(...)` calls and `new Function(...)` expressions anywhere in
 /// the tree, anchored at the callee span.
 struct EvalUsageCollector<'index> {
-    index: &'index LineIndex,
+    index: &'index LineIndex<'index>,
     language: JstsLanguage,
     issues: Vec<Issue>,
 }

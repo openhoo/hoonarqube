@@ -41,7 +41,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 None
             };
             if let Some(message) = message {
-                issues.push(issue(language, "S4261", message, range_of(name)));
+                issues.push(issue(language, "S4261", message, range_of(name, source)));
             }
         }
     }

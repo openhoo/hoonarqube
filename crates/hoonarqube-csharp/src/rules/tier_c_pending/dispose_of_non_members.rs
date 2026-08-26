@@ -45,7 +45,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         language,
                         "S2952",
                         "Only members of this class should be disposed from its 'Dispose' method.",
-                        range_of(call),
+                        range_of(call, source),
                     ));
                 }
             }

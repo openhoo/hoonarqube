@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2688",
                 "Use 'IsNaN' to test for NaN; equality comparisons never hold.",
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }

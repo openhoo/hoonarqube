@@ -31,7 +31,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S6803",
                     "This component has no route, so its query parameters never bind.",
-                    range_of(name_anchor(property)),
+                    range_of(name_anchor(property), source),
                 ));
             }
         }

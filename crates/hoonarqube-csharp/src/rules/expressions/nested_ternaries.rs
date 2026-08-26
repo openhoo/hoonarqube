@@ -5,7 +5,7 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S3358 — ternaries do not nest.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for conditional in collect_kinds(root, &["conditional_expression"]) {
         if !is_error_tainted(conditional)
@@ -15,7 +15,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S3358",
                 "Extract this nested ternary into its own statement.",
-                range_of(conditional),
+                range_of(conditional, source),
             ));
         }
     }

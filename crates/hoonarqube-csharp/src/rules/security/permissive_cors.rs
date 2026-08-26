@@ -16,7 +16,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S5122",
                 "Restrict CORS responses to trusted origins.",
-                range_of(identifier),
+                range_of(identifier, source),
             )
         })
         .collect();
@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S5122",
                 "Restrict CORS responses to trusted origins.",
-                range_of(literal),
+                range_of(literal, source),
             ));
         }
     }

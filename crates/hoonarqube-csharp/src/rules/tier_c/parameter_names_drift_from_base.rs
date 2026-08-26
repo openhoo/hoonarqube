@@ -39,7 +39,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S927",
                 "Rename this parameter to match the base declaration.",
-                range_of(name),
+                range_of(name, source),
             )
         })
         .collect()

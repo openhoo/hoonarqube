@@ -34,7 +34,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S6672",
                     format!("Use 'ILogger<{type_name}>' for loggers of this type."),
-                    range_of(declaration),
+                    range_of(declaration, source),
                 ));
             }
         }

@@ -13,7 +13,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6670",
                 "Replace this 'Trace' output with proper logging.",
-                range_of(access),
+                range_of(access, source),
             )
         })
         .collect()

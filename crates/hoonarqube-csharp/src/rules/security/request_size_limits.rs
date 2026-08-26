@@ -34,7 +34,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S5693",
                 format!("Keep request bodies at or below {REQUEST_BODY_LIMIT_BYTES} bytes."),
-                range_of(assignment),
+                range_of(assignment, source),
             )
         })
         .collect()

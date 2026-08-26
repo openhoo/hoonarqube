@@ -26,7 +26,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3247",
                 "Cast this expression once and store the result.",
-                range_of(cast),
+                range_of(cast, source),
             ));
         }
     }

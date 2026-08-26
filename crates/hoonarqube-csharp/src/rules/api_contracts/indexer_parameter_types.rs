@@ -27,7 +27,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3876",
                 "Index on a string or integral type.",
-                range_of(indexer),
+                range_of(indexer, source),
             )
         })
         .collect()

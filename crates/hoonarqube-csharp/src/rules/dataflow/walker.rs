@@ -28,7 +28,7 @@ pub(crate) fn dataflow_cfg_issues(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_invariant_stop_conditions(root, source, language));
-    issues.extend(check_single_iteration_loops(root, language));
+    issues.extend(check_single_iteration_loops(root, source, language));
     issues.extend(check_condition_true_at_least_once(root, source, language));
     issues.extend(check_dead_stores(root, source, language));
     issues.extend(check_dynamic_sql(root, source, language));
@@ -37,7 +37,7 @@ pub(crate) fn dataflow_cfg_issues(
     issues.extend(check_counter_direction(root, source, language));
     issues.extend(check_null_dereferences(root, source, language));
     issues.extend(check_always_false_conditions(root, source, language));
-    issues.extend(check_gratuitous_boolean_operands(root, language));
+    issues.extend(check_gratuitous_boolean_operands(root, source, language));
     issues.extend(check_stream_reads_unchecked(root, source, language));
     issues.extend(check_const_local_candidates(root, source, language));
     issues.extend(check_compare_after_assignment(root, source, language));

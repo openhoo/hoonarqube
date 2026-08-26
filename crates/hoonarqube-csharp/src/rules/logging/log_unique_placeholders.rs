@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S6677",
                     format!("Rename the duplicate placeholder {shown}."),
-                    range_of(literal),
+                    range_of(literal, source),
                 ));
             }
         }

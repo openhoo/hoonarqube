@@ -32,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6420",
                 "Create this client once and reuse it across invocations.",
-                range_of(creation),
+                range_of(creation, source),
             )
         })
         .collect()

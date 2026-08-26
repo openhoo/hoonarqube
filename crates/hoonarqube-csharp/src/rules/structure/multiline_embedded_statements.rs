@@ -7,7 +7,7 @@ use tree_sitter::Node;
 
 /// csharpsquid:S2681 — multi-line embedded bodies wear braces so no later
 /// line can masquerade as part of the body.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for header in collect_kinds(root, &EMBEDDED_HEADER_KINDS) {
         if is_error_tainted(header) {
@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                     language,
                     "S2681",
                     "Enclose this multi-line body in curly braces.",
-                    range_of(body),
+                    range_of(body, source),
                 ));
             }
         }

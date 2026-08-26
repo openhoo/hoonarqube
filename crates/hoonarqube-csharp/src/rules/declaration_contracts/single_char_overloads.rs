@@ -33,7 +33,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6610",
                 "Call the char-based overload with this single character.",
-                range_of(invocation),
+                range_of(invocation, source),
             )
         })
         .collect()

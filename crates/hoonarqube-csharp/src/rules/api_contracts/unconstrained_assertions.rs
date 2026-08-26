@@ -16,7 +16,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2970",
                 "Complete this 'Assert.That' with a constraint.",
-                range_of(call),
+                range_of(call, source),
             )
         })
         .collect()

@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                             "Delimit the SQL keyword '{}' with whitespace.",
                             keyword.to_ascii_uppercase()
                         ),
-                        range_of(literal),
+                        range_of(literal, source),
                     )
                 })
         })

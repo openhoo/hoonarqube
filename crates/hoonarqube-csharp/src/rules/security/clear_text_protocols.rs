@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S5332",
                 "Serve this connection over an encrypted channel instead.",
-                range_of(literal),
+                range_of(literal, source),
             ));
         }
     }

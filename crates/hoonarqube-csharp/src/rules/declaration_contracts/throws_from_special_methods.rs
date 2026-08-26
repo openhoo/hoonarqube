@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3877",
                 "Do not throw from this method.",
-                range_of(throw_statement),
+                range_of(throw_statement, source),
             ));
         }
     }

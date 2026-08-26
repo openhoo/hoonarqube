@@ -35,7 +35,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4212",
                 "Reduce the visibility of this serialization constructor.",
-                range_of(constructor),
+                range_of(constructor, source),
             ));
         }
     }

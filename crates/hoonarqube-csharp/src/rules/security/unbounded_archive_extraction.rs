@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S5042",
                 "Bound this archive extraction before running it.",
-                range_of(invocation),
+                range_of(invocation, source),
             )
         })
         .collect()

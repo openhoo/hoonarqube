@@ -57,7 +57,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3997",
                 format!("Delegate this string-based '{name}' overload to the Uri overload."),
-                range_of(name_anchor(method)),
+                range_of(name_anchor(method), source),
             ));
         }
     }

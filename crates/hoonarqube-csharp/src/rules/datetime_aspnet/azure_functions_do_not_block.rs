@@ -16,7 +16,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6422",
                 "Await async work instead of blocking inside an Azure Function.",
-                range_of(call),
+                range_of(call, source),
             )
         })
         .collect()

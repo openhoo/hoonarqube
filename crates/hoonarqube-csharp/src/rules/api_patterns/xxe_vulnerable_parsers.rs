@@ -29,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2755",
                 "Restrict this XML parser's DTD handling to prevent XXE attacks.",
-                range_of(assignment),
+                range_of(assignment, source),
             ));
         }
     }

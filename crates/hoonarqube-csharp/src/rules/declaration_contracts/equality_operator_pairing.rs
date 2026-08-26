@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4050",
                 "Pair this equality operator with '!=' and an 'Equals' override.",
-                range_of(declaration),
+                range_of(declaration, source),
             ));
         }
     }

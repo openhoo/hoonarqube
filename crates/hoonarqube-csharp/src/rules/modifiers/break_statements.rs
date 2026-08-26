@@ -6,7 +6,7 @@ use tree_sitter::Node;
 
 /// csharpsquid:S1227 — bare `break`s belong to loops and switch sections
 /// only.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for statement in collect_kinds(root, &["break_statement"]) {
         let legal_home = has_ancestor_with_kind(
@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S1227",
                 "Remove this 'break'; it exits neither a loop nor a switch section.",
-                range_of(statement),
+                range_of(statement, source),
             ));
         }
     }

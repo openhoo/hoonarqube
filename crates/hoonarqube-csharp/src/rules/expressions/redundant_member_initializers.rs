@@ -34,7 +34,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S3604",
                     "This member initializer assigns the member to itself.",
-                    range_of(entry),
+                    range_of(entry, source),
                 ));
             }
         }

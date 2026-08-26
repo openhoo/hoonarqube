@@ -16,7 +16,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2221",
                 "Catch a more specific exception than 'Exception'.",
-                range_of(clause),
+                range_of(clause, source),
             )
         })
         .collect()

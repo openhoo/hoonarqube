@@ -26,7 +26,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4663",
                 "Remove this empty comment.",
-                range_of(node),
+                range_of(node, source),
             ));
         }
     });

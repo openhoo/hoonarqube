@@ -7,7 +7,7 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S4524 — the `default` clause leads or trails the sections.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for switch_statement in collect_kinds(root, &["switch_statement"]) {
         if is_error_tainted(switch_statement) {
@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S4524",
                 "Move this 'default' clause first or last among the sections.",
-                range_of(sections[index]),
+                range_of(sections[index], source),
             ));
         }
     }

@@ -35,7 +35,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6797",
                 "Use a supported primitive, its nullable form, or an array of those for this query parameter.",
-                range_of(name),
+                range_of(name, source),
             )
         })
         .collect()

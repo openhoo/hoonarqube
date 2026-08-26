@@ -35,7 +35,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S4159",
                     format!("This class exports '{contract}' without implementing it."),
-                    range_of(name_anchor(class_declaration)),
+                    range_of(name_anchor(class_declaration), source),
                 ));
             }
         }

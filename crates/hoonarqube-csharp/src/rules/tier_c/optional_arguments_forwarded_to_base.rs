@@ -41,7 +41,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3466",
                 "Omit this argument; the base declaration already makes it optional.",
-                range_of(call),
+                range_of(call, source),
             )
         })
         .collect()

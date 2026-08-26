@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6421",
                 "Wrap this Function in a try/catch and report the failure.",
-                range_of(name_anchor(method)),
+                range_of(name_anchor(method), source),
             )
         })
         .collect()

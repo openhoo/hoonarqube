@@ -37,7 +37,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6960",
                 "Split this controller; it mixes many actions with several injected services.",
-                range_of(name),
+                range_of(name, source),
             )
         })
         .collect()

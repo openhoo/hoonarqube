@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4502",
                 "Keep antiforgery validation enabled.",
-                range_of(assignment),
+                range_of(assignment, source),
             )
         })
         .collect()

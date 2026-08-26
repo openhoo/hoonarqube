@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4057",
                 "Pass an 'IFormatProvider' to make this conversion culture-independent.",
-                range_of(call),
+                range_of(call, source),
             )
         })
         .collect()

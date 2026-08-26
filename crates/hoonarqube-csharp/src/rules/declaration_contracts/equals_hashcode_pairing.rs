@@ -28,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S1206",
                     format!("Override 'Equals' and 'GetHashCode' together; '{lone}' is alone."),
-                    range_of(method),
+                    range_of(method, source),
                 ));
             }
         }

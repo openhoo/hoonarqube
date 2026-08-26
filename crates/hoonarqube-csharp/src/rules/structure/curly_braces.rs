@@ -6,7 +6,7 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S121 — control structures wrap their bodies in curly braces.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for header in collect_kinds(root, &EMBEDDED_HEADER_KINDS) {
         if is_error_tainted(header) {
@@ -18,7 +18,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                     language,
                     "S121",
                     "Add curly braces around this embedded statement.",
-                    range_of(body),
+                    range_of(body, source),
                 ));
             }
         }

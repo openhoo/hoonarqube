@@ -15,7 +15,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1848",
                 "Either use this created object or remove the instantiation.",
-                range_of(creation),
+                range_of(creation, source),
             ));
         }
     }

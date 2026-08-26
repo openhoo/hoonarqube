@@ -29,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2292",
                 "Replace this trivial property with an auto-implemented one.",
-                range_of(name_anchor(property)),
+                range_of(name_anchor(property), source),
             ));
         }
     }

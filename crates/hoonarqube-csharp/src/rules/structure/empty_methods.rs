@@ -40,7 +40,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S1186",
             format!("Remove this empty {word} or add its implementation."),
-            range_of(name_anchor(member)),
+            range_of(name_anchor(member), source),
         ));
     }
     issues

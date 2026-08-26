@@ -16,7 +16,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2201",
                 "The result of this side-effect-free call is unused; remove the call or use its value.",
-                range_of(expression),
+                range_of(expression, source),
             )
         })
         .collect()

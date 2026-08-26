@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S4143",
                     "Remove this write; it is overwritten by the next statement.",
-                    range_of(pair[0]),
+                    range_of(pair[0], source),
                 ));
             }
         }

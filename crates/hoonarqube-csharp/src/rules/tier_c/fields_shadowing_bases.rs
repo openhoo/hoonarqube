@@ -15,7 +15,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2387",
                 "Rename this field; it hides the field declared in its base class.",
-                range_of(node),
+                range_of(node, source),
             )
         })
         .collect()

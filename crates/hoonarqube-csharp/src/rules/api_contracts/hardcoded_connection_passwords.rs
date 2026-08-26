@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2115",
                 "Do not embed credentials in this connection string.",
-                range_of(literal),
+                range_of(literal, source),
             ));
         }
     }

@@ -36,7 +36,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3927",
                 "Serialization callbacks return void and take exactly one 'StreamingContext'.",
-                range_of(method),
+                range_of(method, source),
             ));
         }
     }

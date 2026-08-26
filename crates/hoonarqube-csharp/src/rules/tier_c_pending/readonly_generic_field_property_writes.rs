@@ -68,7 +68,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S2934",
                     "This property write may mutate a copy; constrain the type parameter to reference types or drop the 'readonly' modifier.",
-                    range_of(assignment),
+                    range_of(assignment, source),
                 ));
             }
         }

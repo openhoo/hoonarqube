@@ -32,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3881",
                 "Add a 'Dispose(bool)' overload to complete the dispose pattern.",
-                range_of(name_anchor(type_node)),
+                range_of(name_anchor(type_node), source),
             ));
         }
         if let Some(dispose) = parameterless {
@@ -43,7 +43,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S3881",
                     "Route this 'Dispose' through 'Dispose(bool)'.",
-                    range_of(dispose),
+                    range_of(dispose, source),
                 ));
             }
         }
@@ -55,7 +55,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S3881",
                     "Call 'Dispose(false)' from this finalizer.",
-                    range_of(destructor),
+                    range_of(destructor, source),
                 ));
             }
         }

@@ -26,7 +26,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3363",
                 "Do not use date/time types for this key member.",
-                range_of(property),
+                range_of(property, source),
             ));
         }
     }
@@ -48,7 +48,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3363",
                 "Do not use date/time types for this key member.",
-                range_of(field),
+                range_of(field, source),
             ));
         }
     }

@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2223",
                 "Make this static field private.",
-                range_of(field),
+                range_of(field, source),
             ));
         }
     }

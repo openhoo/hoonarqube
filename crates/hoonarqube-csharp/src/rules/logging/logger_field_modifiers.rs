@@ -34,7 +34,7 @@ pub(crate) fn check(
                 language,
                 "S1312",
                 "Declare this logger field 'private static readonly'.",
-                range_of(field),
+                range_of(field, source),
             ));
         }
     }

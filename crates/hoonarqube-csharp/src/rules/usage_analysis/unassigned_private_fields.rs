@@ -27,7 +27,7 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
                 "Remove unassigned field '{}' or assign it a value.",
                 member.name
             ),
-            range_of(member.anchor),
+            range_of(member.anchor, source),
         ));
     }
     issues

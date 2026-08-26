@@ -32,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4830",
                 "Validate the certificate chain here instead of accepting everything.",
-                range_of(assignment),
+                range_of(assignment, source),
             ));
         }
     }

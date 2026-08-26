@@ -17,7 +17,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3884",
                 "Do not mutate COM security settings here.",
-                range_of(invocation),
+                range_of(invocation, source),
             )
         })
         .collect()

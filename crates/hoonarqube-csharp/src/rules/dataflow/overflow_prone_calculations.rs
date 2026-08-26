@@ -54,7 +54,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3949",
                 "This calculation overflows the range of 'int'; widen the operands or use a 'checked' block.",
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }

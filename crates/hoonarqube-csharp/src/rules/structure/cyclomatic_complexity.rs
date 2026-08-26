@@ -32,7 +32,7 @@ pub(crate) fn check(
                     "Reduce this function's cyclomatic complexity from {complexity} to at most {}.",
                     options.maximum_function_complexity_threshold
                 ),
-                range_of(name_anchor(function)),
+                range_of(name_anchor(function), source),
             ));
         }
     }

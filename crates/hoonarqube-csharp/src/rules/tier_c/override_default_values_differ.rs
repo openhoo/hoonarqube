@@ -32,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1006",
                 "Make this override's default value match the overridden method.",
-                range_of(name),
+                range_of(name, source),
             )
         })
         .collect()

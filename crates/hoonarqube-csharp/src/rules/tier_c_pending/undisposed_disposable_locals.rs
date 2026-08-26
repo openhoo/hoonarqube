@@ -50,7 +50,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S2930",
                     format!("Dispose this '{name}' instance or wrap it in a 'using' statement."),
-                    range_of(name_node),
+                    range_of(name_node, source),
                 ));
             }
         }

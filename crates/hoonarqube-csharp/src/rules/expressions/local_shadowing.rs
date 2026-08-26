@@ -32,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         language,
                         "S1117",
                         format!("Rename '{name}'; it shadows a member of its enclosing type."),
-                        range_of(declarator),
+                        range_of(declarator, source),
                     ));
                 }
             }

@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4052",
                 "Replace this obsolete base type with a generic collection.",
-                range_of(type_node),
+                range_of(type_node, source),
             )
         })
         .collect()

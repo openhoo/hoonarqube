@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3464",
                 "Remove this inheritance cycle; a type cannot derive from itself.",
-                range_of(*anchor),
+                range_of(*anchor, source),
             ));
         }
     }

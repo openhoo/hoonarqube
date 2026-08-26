@@ -47,7 +47,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3928",
                 "Pass an existing parameter name to this exception.",
-                range_of(creation),
+                range_of(creation, source),
             ));
         }
     }

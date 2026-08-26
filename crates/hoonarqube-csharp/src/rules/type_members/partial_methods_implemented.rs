@@ -32,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3251",
                 format!("Implement or remove this partial method '{name}'."),
-                range_of(method),
+                range_of(method, source),
             )
         })
         .collect()

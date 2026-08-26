@@ -37,7 +37,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3256",
                 "Replace this compound check with 'string.IsNullOrEmpty'.",
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }

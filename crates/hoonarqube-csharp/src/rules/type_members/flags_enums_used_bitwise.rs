@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4070",
                 "Remove '[Flags]' from this enumeration or apply bitwise operations to it.",
-                range_of(name),
+                range_of(name, source),
             )
         })
         .collect()

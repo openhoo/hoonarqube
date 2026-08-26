@@ -29,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2257",
                 "Replace this hand-written cipher routine with a vetted library implementation.",
-                range_of(name),
+                range_of(name, source),
             )
         })
         .collect()

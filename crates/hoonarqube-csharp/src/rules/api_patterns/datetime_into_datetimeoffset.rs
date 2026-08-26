@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S6566",
                     format!("Construct '{name}' from a 'DateTimeOffset' so the offset survives."),
-                    range_of(store),
+                    range_of(store, source),
                 ));
             }
         }

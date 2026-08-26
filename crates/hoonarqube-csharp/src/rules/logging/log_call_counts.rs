@@ -31,7 +31,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S6664",
                     format!("Limit {level}-level logging in this method to {limit} calls."),
-                    range_of(method),
+                    range_of(method, source),
                 ));
             }
         }

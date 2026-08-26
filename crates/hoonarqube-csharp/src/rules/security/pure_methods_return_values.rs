@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3603",
                 "Methods annotated '[Pure]' must return a value.",
-                range_of(attribute),
+                range_of(attribute, source),
             ));
         }
     }

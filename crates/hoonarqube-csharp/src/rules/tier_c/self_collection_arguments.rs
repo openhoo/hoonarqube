@@ -44,7 +44,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2114",
                 "Pass a different collection than the receiver to this method.",
-                range_of(call),
+                range_of(call, source),
             )
         })
         .collect()

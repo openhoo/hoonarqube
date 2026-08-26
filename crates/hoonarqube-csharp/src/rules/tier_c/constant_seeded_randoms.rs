@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4347",
                 "Seed this generator unpredictably; a constant seed produces predictable values.",
-                range_of(creation),
+                range_of(creation, source),
             )
         })
         .collect()

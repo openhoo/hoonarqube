@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2139",
                 "Choose either logging or rethrowing in this catch clause.",
-                range_of(clause),
+                range_of(clause, source),
             )
         })
         .collect()

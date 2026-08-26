@@ -53,7 +53,7 @@ pub(crate) fn tracked_attribute_issues(
 ) -> Vec<Issue> {
     tracked_attribute_nodes(root, source, names)
         .into_iter()
-        .map(|node| issue(language, rule, message, range_of(node)))
+        .map(|node| issue(language, rule, message, range_of(node, source)))
         .collect()
 }
 

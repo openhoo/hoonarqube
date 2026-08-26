@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6965",
                 "Annotate this action with an HTTP verb attribute.",
-                range_of(name_anchor(action)),
+                range_of(name_anchor(action), source),
             )
         })
         .collect()

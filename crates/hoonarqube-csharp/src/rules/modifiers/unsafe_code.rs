@@ -26,7 +26,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S6640",
             "Remove this unsafe block.",
-            range_of(statement),
+            range_of(statement, source),
         ));
     }
     for declaration in collect_kinds(root, &UNSAFE_DECLARATION_KINDS) {
@@ -40,7 +40,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S6640",
             "Remove the 'unsafe' modifier from this declaration.",
-            range_of(anchor),
+            range_of(anchor, source),
         ));
     }
     issues

@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4056",
                 "Call the overload that takes an 'IFormatProvider'.",
-                range_of(call),
+                range_of(call, source),
             ));
         }
     }

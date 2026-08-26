@@ -39,7 +39,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3236",
                 "Omit this caller-information argument; the compiler supplies it.",
-                range_of(arguments[expected]),
+                range_of(arguments[expected], source),
             ));
         }
     }

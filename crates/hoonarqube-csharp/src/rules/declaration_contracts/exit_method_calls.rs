@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1147",
                 "Remove this call to an exit method.",
-                range_of(invocation),
+                range_of(invocation, source),
             ));
         }
     }

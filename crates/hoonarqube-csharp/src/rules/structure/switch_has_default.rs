@@ -6,7 +6,7 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S131 — every `switch` carries a `default` clause.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for switch_statement in collect_kinds(root, &["switch_statement"]) {
         if is_error_tainted(switch_statement) {
@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S131",
                 "Add a 'default' clause to this switch.",
-                range_of(switch_statement),
+                range_of(switch_statement, source),
             ));
         }
     }

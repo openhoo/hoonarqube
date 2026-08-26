@@ -13,7 +13,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3967",
                 "Use a jagged array instead of a multi-dimensional array.",
-                range_of(array_type_node),
+                range_of(array_type_node, source),
             ));
         }
     }

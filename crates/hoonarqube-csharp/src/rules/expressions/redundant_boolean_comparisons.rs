@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1125",
                 "Remove the redundant boolean literal from this comparison.",
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }

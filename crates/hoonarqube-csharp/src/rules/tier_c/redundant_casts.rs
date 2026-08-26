@@ -35,7 +35,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1905",
                 "Remove this redundant cast.",
-                range_of(cast),
+                range_of(cast, source),
             )
         })
         .collect()

@@ -14,7 +14,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2306",
                 format!("Rename \"{text}\"; it collides with a contextual keyword."),
-                range_of(identifier),
+                range_of(identifier, source),
             ));
         }
     }

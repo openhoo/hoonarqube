@@ -38,7 +38,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4055",
                 "Move this literal into a resource so it can be localized.",
-                range_of(assignment),
+                range_of(assignment, source),
             ));
         }
     }

@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2376",
                 "Add a getter to this write-only property.",
-                range_of(name_anchor(property)),
+                range_of(name_anchor(property), source),
             ));
         }
     }

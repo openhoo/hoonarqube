@@ -28,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1994",
                 format!("Update the counter '{counter}' inside this loop's increment."),
-                range_of(for_statement),
+                range_of(for_statement, source),
             ));
         }
     }

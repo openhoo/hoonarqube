@@ -34,7 +34,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4049",
                 "Convert this getter method into a property.",
-                range_of(name_anchor(method)),
+                range_of(name_anchor(method), source),
             ));
         } else if spelled.len() > 3
             && spelled.starts_with("Set")
@@ -48,7 +48,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4049",
                 "Convert this setter method into a property.",
-                range_of(name_anchor(method)),
+                range_of(name_anchor(method), source),
             ));
         }
     }

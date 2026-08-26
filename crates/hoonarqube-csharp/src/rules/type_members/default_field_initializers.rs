@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3052",
                 "Remove this redundant initialization to the default value.",
-                range_of(declarator),
+                range_of(declarator, source),
             )
         })
         .collect()

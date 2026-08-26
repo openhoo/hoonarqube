@@ -28,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3416",
                 "Name this logger after its enclosing type.",
-                range_of(call),
+                range_of(call, source),
             ));
         }
     }

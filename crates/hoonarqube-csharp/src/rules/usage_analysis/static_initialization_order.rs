@@ -48,7 +48,7 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
                         "'{referenced}' is declared after '{}'; static initialization order makes this read unreliable.",
                         field.name
                     ),
-                    range_of(reference),
+                    range_of(reference, source),
                 ));
             }
         }

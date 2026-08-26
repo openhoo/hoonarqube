@@ -14,7 +14,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3902",
                 "Remove this 'GetExecutingAssembly' call.",
-                range_of(access),
+                range_of(access, source),
             )
         })
         .collect()

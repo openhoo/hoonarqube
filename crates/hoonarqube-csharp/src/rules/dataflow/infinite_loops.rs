@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2190",
                 "Add an escape from this loop; it never terminates.",
-                range_of(header),
+                range_of(header, source),
             ));
         }
     }
@@ -65,7 +65,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2190",
                 "Add a termination condition to this recursion.",
-                range_of(last),
+                range_of(last, source),
             ));
         }
     }

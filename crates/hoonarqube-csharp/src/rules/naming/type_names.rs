@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 "Rename this {} to match the regular expression {NAMING_PATTERN}.",
                 declaration_kind_word(type_node.kind())
             ),
-            range_of(name),
+            range_of(name, source),
         ));
     }
     issues

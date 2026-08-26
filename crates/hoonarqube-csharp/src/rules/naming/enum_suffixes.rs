@@ -18,7 +18,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S2344",
                     format!("Remove this \"{suffix}\" suffix."),
-                    range_of(name),
+                    range_of(name, source),
                 ));
                 break;
             }

@@ -6,7 +6,7 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S1244 — floating-point equality needs a tolerance.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for (expression, left, right) in comparisons(root) {
         let float_side = left.kind() == "real_literal" || right.kind() == "real_literal";
@@ -15,7 +15,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S1244",
                 "Compare floating-point values with a tolerance instead of equality.",
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }

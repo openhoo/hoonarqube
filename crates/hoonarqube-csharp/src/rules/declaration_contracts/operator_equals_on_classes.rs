@@ -17,7 +17,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3875",
                 "Do not overload the equality operator on this reference type.",
-                range_of(declaration),
+                range_of(declaration, source),
             ));
         }
     }

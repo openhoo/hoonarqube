@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S3871",
             "Make this exception type public.",
-            range_of(name),
+            range_of(name, source),
         ));
     }
     issues

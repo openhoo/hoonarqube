@@ -9,7 +9,7 @@ use tree_sitter::Node;
 
 /// csharpsquid:S3458 — an empty `case` stack falling straight into
 /// `default` drops its labels.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for switch_statement in collect_kinds(root, &["switch_statement"]) {
         if is_error_tainted(switch_statement) {
@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                     language,
                     "S3458",
                     "Remove this empty 'case'; it falls through to 'default'.",
-                    range_of(pair[0]),
+                    range_of(pair[0], source),
                 ));
             }
         }

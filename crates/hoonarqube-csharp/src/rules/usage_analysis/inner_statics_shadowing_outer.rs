@@ -5,7 +5,7 @@ use hoonarqube_ir::Issue;
 
 /// csharpsquid:S3218 — nested types redeclaring an outer static member
 /// hide it and mislead readers.
-pub(crate) fn check(language: CsLanguage, symbols: &UsageSymbols<'_>) -> Vec<Issue> {
+pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'_>) -> Vec<Issue> {
     let mut issues = Vec::new();
     for type_symbol in &symbols.types {
         let Some(mut ancestor) = type_symbol.parent else {
@@ -30,7 +30,7 @@ pub(crate) fn check(language: CsLanguage, symbols: &UsageSymbols<'_>) -> Vec<Iss
                         "Rename '{}'; it hides a static member of an outer type.",
                         member.name
                     ),
-                    range_of(member.anchor),
+                    range_of(member.anchor, source),
                 ));
             }
         }

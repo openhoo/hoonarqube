@@ -64,7 +64,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         language,
                         "S3353",
                         format!("Declare '{name}' as 'const'."),
-                        range_of(declarator),
+                        range_of(declarator, source),
                     ));
                 }
             }

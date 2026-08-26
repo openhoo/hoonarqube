@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S2372",
                     "A property getter must not throw exceptions.",
-                    range_of(accessor),
+                    range_of(accessor, source),
                 ));
             }
         }

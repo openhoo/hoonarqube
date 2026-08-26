@@ -5,7 +5,7 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S881 — increments and decrements stay standalone.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     const KINDS: [&str; 2] = ["prefix_unary_expression", "postfix_unary_expression"];
     let mut issues = Vec::new();
     for unary in collect_kinds(root, &KINDS) {
@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
             language,
             "S881",
             "Extract this increment or decrement into its own statement.",
-            range_of(unary),
+            range_of(unary, source),
         ));
     }
     issues

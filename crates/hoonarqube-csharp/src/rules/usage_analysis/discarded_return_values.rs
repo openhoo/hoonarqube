@@ -41,7 +41,7 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
                 "No caller uses the return value of '{}'; make it 'void' or capture the result.",
                 member.name
             ),
-            range_of(member.anchor),
+            range_of(member.anchor, source),
         ));
     }
     issues

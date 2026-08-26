@@ -32,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     "'get' and 'set' accessors of '{}' touch different fields ('{read}' vs '{written}').",
                     node_text(property_name, source)
                 ),
-                range_of(property_name),
+                range_of(property_name, source),
             )),
             _ => {}
         }

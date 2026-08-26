@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2479",
                 "Replace this control character with its escape sequence form.",
-                range_of(literal),
+                range_of(literal, source),
             )
         })
         .collect()

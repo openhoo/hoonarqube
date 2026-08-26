@@ -17,7 +17,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S2327",
                     "Merge these try statements sharing identical handlers.",
-                    range_of(pair[1]),
+                    range_of(pair[1], source),
                 ));
             }
         }

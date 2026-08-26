@@ -29,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S4586",
                     "Return 'Task.CompletedTask' instead of null.",
-                    range_of(statement),
+                    range_of(statement, source),
                 ));
             }
         }

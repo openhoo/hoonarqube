@@ -5,7 +5,12 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S104 — file exceeds `maximumFileLocThreshold` lines of code.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage, options: &AnalyzerOptions) -> Vec<Issue> {
+pub(crate) fn check(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
     let mut code_lines = std::collections::BTreeSet::new();
     let mut comment_lines = std::collections::BTreeSet::new();
     collect_line_kinds(root, &mut code_lines, &mut comment_lines);
@@ -23,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage, options: &AnalyzerOpti
         ),
         hoonarqube_ir::Range {
             start: hoonarqube_ir::Pos { line: 1, column: 0 },
-            end: pos_of(root.end_position()),
+            end: pos_of(root.end_position(), root.end_byte(), source),
         },
     )]
 }

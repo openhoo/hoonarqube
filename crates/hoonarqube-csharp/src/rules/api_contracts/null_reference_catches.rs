@@ -16,7 +16,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1696",
                 "Do not catch 'NullReferenceException'.",
-                range_of(clause),
+                range_of(clause, source),
             )
         })
         .collect()

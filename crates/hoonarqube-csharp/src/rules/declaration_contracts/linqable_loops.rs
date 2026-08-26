@@ -61,7 +61,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3267",
                 "Rewrite this loop as a LINQ expression.",
-                range_of(foreach_statement),
+                range_of(foreach_statement, source),
             ));
         }
     }

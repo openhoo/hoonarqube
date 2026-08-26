@@ -16,7 +16,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S1226",
             format!("'{name}' is overwritten before its initial value is ever read."),
-            range_of(assignment),
+            range_of(assignment, source),
         ));
     };
     for callable in collect_kinds(root, &CALLABLE_BODY_OWNER_KINDS) {

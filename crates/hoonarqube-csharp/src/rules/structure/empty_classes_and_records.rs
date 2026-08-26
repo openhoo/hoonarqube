@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     "Add members to this {} or remove it.",
                     declaration_kind_word(type_declaration.kind())
                 ),
-                range_of(name_anchor(type_declaration)),
+                range_of(name_anchor(type_declaration), source),
             ));
         }
     }

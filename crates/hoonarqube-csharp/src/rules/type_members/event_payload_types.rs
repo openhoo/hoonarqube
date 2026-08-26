@@ -51,7 +51,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     "Have the event '{}' carry an 'EventArgs'-derived payload.",
                     node_text(name_node, source)
                 ),
-                range_of(name_node),
+                range_of(name_node, source),
             )
         })
         .collect()

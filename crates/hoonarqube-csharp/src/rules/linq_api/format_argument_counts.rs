@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2275",
                 "Match the format-string slots to the arguments of this call.",
-                range_of(literal),
+                range_of(literal, source),
             ));
         }
     }

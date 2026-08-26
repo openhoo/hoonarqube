@@ -35,7 +35,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         language,
                         "S3994",
                         "Accept a 'System.Uri' instead of a string here.",
-                        range_of(*method),
+                        range_of(*method, source),
                     ));
                 }
             }

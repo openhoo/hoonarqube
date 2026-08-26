@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6561",
                 "Measure elapsed time with 'Stopwatch' instead of 'DateTime.Now'.",
-                range_of(access),
+                range_of(access, source),
             )
         })
         .collect()

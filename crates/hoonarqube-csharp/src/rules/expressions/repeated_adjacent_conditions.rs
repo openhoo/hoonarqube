@@ -27,7 +27,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S2760",
                     "This condition repeats the immediately preceding check.",
-                    range_of(second_condition),
+                    range_of(second_condition, source),
                 ));
             }
         }

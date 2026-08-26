@@ -31,7 +31,7 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
                 member.flavor.word(),
                 member.name
             ),
-            range_of(member.anchor),
+            range_of(member.anchor, source),
         ));
     }
     issues

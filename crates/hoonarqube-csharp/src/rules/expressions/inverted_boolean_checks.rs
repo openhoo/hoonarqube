@@ -6,7 +6,7 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S1940 — negated equality flips into the opposite operator.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for unary in collect_kinds(root, &["prefix_unary_expression"]) {
         if is_error_tainted(unary) || operator_of(unary) != Some("!") {
@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S1940",
                 "Invert this comparison instead of negating it.",
-                range_of(unary),
+                range_of(unary, source),
             ));
         }
     }

@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6618",
                 "Prefer 'string.Create' over this 'FormattableString' flow.",
-                range_of(node),
+                range_of(node, source),
             )
         })
         .collect()

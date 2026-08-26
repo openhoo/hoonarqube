@@ -69,7 +69,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if let Some((suggestion, rule)) = replacement {
             let message =
                 format!("Use '{suggestion}' on this '{receiver_type}' instead of '{callee}'.");
-            issues.push(issue(language, rule, message, range_of(call)));
+            issues.push(issue(language, rule, message, range_of(call, source)));
         }
     }
     issues

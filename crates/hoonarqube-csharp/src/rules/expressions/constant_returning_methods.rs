@@ -41,7 +41,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3400",
                 "Remove this method and declare a constant for its value instead.",
-                range_of(method),
+                range_of(method, source),
             ));
         }
     }

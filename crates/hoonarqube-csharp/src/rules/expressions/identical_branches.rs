@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3923",
                 "Every branch of this conditional performs the same actions.",
-                range_of(header),
+                range_of(header, source),
             ));
         }
     }

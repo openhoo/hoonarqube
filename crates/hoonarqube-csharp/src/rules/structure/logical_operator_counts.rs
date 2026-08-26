@@ -35,7 +35,7 @@ pub(crate) fn check(
                     "Reduce the number of logical operators ({count} > {}).",
                     options.maximum_logical_operators
                 ),
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }

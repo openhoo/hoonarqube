@@ -212,8 +212,8 @@ mod tests {
 
     #[test]
     fn weak_tls_protocol_versions_are_flagged() {
-        let findings = js_keys("const version = 'TLSv1';\n");
-        assert_eq!(count_key(&findings, "javascript:S4423"), 1);
+        let findings = js_keys("const version = 'TLSv1';\nconst older = 'TLSv1.1';\n");
+        assert_eq!(count_key(&findings, "javascript:S4423"), 2);
 
         let clean = js_keys("const version = 'TLSv1.2';\n");
         assert_eq!(count_key(&clean, "javascript:S4423"), 0);

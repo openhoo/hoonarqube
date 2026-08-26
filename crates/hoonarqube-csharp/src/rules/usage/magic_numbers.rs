@@ -18,7 +18,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S109",
                 "Replace this magic number with a named constant.",
-                range_of(literal),
+                range_of(literal, source),
             )
         })
         .collect()

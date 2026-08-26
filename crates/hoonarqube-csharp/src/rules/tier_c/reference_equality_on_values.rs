@@ -51,7 +51,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2995",
                 "'ReferenceEquals' always returns false for value types; compare with '==' or 'Equals' instead.",
-                range_of(call),
+                range_of(call, source),
             )
         })
         .collect()

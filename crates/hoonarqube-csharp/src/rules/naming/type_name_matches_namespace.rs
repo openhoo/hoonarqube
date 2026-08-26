@@ -35,7 +35,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4041",
                 format!("Rename this type; its name matches namespace segment \"{original}\"."),
-                range_of(name),
+                range_of(name, source),
             ));
         }
     }

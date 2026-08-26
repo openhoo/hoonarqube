@@ -17,7 +17,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4426",
                 "Generate this key with 'RSA.Create' at 2048 bits or more.",
-                range_of(identifier),
+                range_of(identifier, source),
             )
         })
         .collect();
@@ -38,7 +38,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4426",
                 "Keep cryptographic keys at 2048 bits or more.",
-                range_of(assignment),
+                range_of(assignment, source),
             ));
         }
     }

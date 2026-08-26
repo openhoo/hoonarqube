@@ -29,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4004",
                 "Make this collection property read-only.",
-                range_of(property),
+                range_of(property, source),
             )
         })
         .collect()

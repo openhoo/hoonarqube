@@ -45,7 +45,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S2184",
                     "Assign this integer division to an integer target, or make one operand floating-point.",
-                    range_of(name),
+                    range_of(name, source),
                 ));
             }
         }

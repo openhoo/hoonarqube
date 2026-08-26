@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3346",
                 "Keep side effects out of 'Debug.Assert'.",
-                range_of(call),
+                range_of(call, source),
             ));
         }
     }

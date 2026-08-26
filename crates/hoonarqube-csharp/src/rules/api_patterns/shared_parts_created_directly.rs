@@ -35,7 +35,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4277",
                 "Resolve this shared MEF part through the container instead of 'new'.",
-                range_of(creation),
+                range_of(creation, source),
             )
         })
         .collect()

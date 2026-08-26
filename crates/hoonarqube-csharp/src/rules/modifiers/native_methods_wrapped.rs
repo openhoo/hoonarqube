@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S4200",
             "Wrap this native method behind a managed API.",
-            range_of(name),
+            range_of(name, source),
         ));
     }
     issues

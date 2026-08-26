@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         language,
                         "S1862",
                         "This condition repeats an earlier check in the same chain.",
-                        range_of(condition),
+                        range_of(condition, source),
                     ));
                 } else {
                     seen.push(text);

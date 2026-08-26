@@ -26,7 +26,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3598",
                 "Remove 'IsOneWay' from this operation or make it return void.",
-                range_of(attribute),
+                range_of(attribute, source),
             ));
         }
     }

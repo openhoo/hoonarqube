@@ -6,7 +6,12 @@ use tree_sitter::Node;
 
 /// csharpsquid:S107 — methods and constructors take at most the tolerated
 /// number of parameters.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage, options: &AnalyzerOptions) -> Vec<Issue> {
+pub(crate) fn check(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
     const KINDS: [&str; 2] = ["method_declaration", "constructor_declaration"];
     let mut issues = Vec::new();
     for method in collect_kinds(root, &KINDS) {
@@ -22,7 +27,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage, options: &AnalyzerOpti
                     "Reduce the number of parameters ({count} > {}).",
                     options.maximum_method_parameters
                 ),
-                range_of(name_anchor(method)),
+                range_of(name_anchor(method), source),
             ));
         }
     }

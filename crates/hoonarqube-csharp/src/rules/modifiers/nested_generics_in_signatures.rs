@@ -5,7 +5,7 @@ use tree_sitter::Node;
 
 /// csharpsquid:S4017 — nested generic types resist inference; signatures
 /// should stay shallow.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for declaration in collect_kinds(
         root,
@@ -29,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
             language,
             "S4017",
             "Refactor this signature to avoid nested generic types.",
-            range_of(anchor),
+            range_of(anchor, source),
         ));
     }
     issues

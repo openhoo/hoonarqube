@@ -32,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S2368",
             "Remove this multi-dimensional array parameter from the public signature.",
-            range_of(name),
+            range_of(name, source),
         ));
     }
     issues

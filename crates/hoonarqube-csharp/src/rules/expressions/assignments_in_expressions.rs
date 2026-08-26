@@ -4,7 +4,7 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S1121 — assignments belong in dedicated statements.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for assignment in collect_kinds(root, &["assignment_expression"]) {
         if is_error_tainted(assignment) {
@@ -18,7 +18,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
             language,
             "S1121",
             "Assign this value in a dedicated statement.",
-            range_of(assignment),
+            range_of(assignment, source),
         ));
     }
     issues

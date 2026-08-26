@@ -24,7 +24,7 @@ pub(crate) fn check(
                 language,
                 "S2068",
                 format!("Review this hard-coded credential assigned through '{name}'."),
-                range_of(anchor),
+                range_of(anchor, source),
             )
         })
         .collect()

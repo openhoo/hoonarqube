@@ -61,7 +61,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         language,
                         "S3440",
                         format!("'{target_name}' was just assigned this exact value; this comparison cannot vary."),
-                        range_of(comparison),
+                        range_of(comparison, source),
                     ));
                 }
             }

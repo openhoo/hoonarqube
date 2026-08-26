@@ -18,7 +18,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1075",
                 "Refactor your code not to use hard-coded URLs.",
-                range_of(literal),
+                range_of(literal, source),
             )
         })
         .collect()

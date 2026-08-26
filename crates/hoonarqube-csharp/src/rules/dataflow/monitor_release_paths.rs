@@ -37,7 +37,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2222",
                 "Release this lock on every path through the code.",
-                range_of(*enter),
+                range_of(*enter, source),
             ));
         }
     }

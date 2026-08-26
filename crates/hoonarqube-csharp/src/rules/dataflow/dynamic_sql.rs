@@ -99,7 +99,7 @@ fn scan_sql_usages<'t>(
             language,
             "S2077",
             "Use a parameterized query or stored procedure for this SQL statement.",
-            range_of(anchor),
+            range_of(anchor, source),
         ));
     };
     walk_except_blocks(statement, &mut |node| match node.kind() {

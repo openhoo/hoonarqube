@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S3168",
             "Return 'Task' instead of 'void' from this async method.",
-            range_of(name),
+            range_of(name, source),
         ));
     }
     issues

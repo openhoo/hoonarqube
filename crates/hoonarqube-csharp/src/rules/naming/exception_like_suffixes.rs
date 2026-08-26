@@ -31,7 +31,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3376",
                 format!("Rename this class so its name ends with \"{tail}\"."),
-                range_of(name),
+                range_of(name, source),
             ));
         }
     }

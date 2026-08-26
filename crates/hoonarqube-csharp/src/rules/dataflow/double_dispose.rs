@@ -43,7 +43,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         language,
                         "S3966",
                         format!("'{name}' is disposed more than once."),
-                        range_of(node),
+                        range_of(node, source),
                     ));
                 } else {
                     disposed.insert(name.to_owned());

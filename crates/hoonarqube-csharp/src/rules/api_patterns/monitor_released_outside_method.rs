@@ -28,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S7133",
                     "Release this lock in the same method that acquired it.",
-                    range_of(*node),
+                    range_of(*node, source),
                 ));
             }
         }

@@ -7,7 +7,7 @@ use tree_sitter::Node;
 
 /// csharpsquid:S1066 — an `else`-less `if` holding exactly one nested `if`
 /// merges into a single condition.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     fn mergeable_block(block: Node<'_>) -> bool {
         let statements = embedded_bodies(block);
         statements.len() == 1
@@ -32,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S1066",
                 "Merge this if statement with the nested one.",
-                range_of(if_statement),
+                range_of(if_statement, source),
             ));
         }
     }

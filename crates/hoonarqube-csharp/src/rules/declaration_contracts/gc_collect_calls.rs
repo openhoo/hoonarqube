@@ -14,7 +14,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1215",
                 "Remove this call to 'GC.Collect'.",
-                range_of(access),
+                range_of(access, source),
             )
         })
         .collect()

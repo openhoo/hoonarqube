@@ -40,7 +40,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                                     language,
                                     "S7130",
                                     "Use 'First' or 'Single' here; this collection is known to be non-empty.",
-                                    range_of(node),
+                                    range_of(node, source),
                                 ));
                         }
                         _ => {}

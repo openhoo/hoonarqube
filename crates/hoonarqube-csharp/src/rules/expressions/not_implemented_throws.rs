@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3717",
                 "Track uses of 'NotImplementedException'.",
-                range_of(throw_statement),
+                range_of(throw_statement, source),
             ));
         }
     }

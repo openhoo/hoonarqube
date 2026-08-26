@@ -17,7 +17,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S3441",
                     "Use the shorthand property form; this assignment repeats the name.",
-                    range_of(value),
+                    range_of(value, source),
                 ));
             }
         }

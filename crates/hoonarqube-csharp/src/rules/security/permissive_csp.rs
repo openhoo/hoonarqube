@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S7039",
                 "Serve a restrictive Content-Security-Policy.",
-                range_of(literal),
+                range_of(literal, source),
             ));
         }
     }

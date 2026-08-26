@@ -39,7 +39,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S3453",
             "Make this class 'static' or give it a non-private constructor.",
-            range_of(name),
+            range_of(name, source),
         ));
     }
     issues

@@ -82,16 +82,16 @@ pub(crate) fn modifier_issues(
         root, source, language,
     ));
     issues.extend(check_enum_underlying_types(root, source, language));
-    issues.extend(check_nested_generics_in_signatures(root, language));
-    issues.extend(check_type_parameter_counts(root, language, options));
+    issues.extend(check_nested_generics_in_signatures(root, source, language));
+    issues.extend(check_type_parameter_counts(root, source, language, options));
     issues.extend(check_unused_type_parameters_in_parameters(
         root, source, language,
     ));
     issues.extend(check_unused_type_parameters(root, source, language));
     issues.extend(check_async_void_methods(root, source, language));
     issues.extend(check_contextual_keyword_identifiers(root, source, language));
-    issues.extend(check_goto_statements(root, language));
-    issues.extend(check_break_statements(root, language));
+    issues.extend(check_goto_statements(root, source, language));
+    issues.extend(check_break_statements(root, source, language));
     issues.extend(check_unsafe_code(root, source, language));
     issues.extend(check_arglist_usage(root, source, language));
     issues

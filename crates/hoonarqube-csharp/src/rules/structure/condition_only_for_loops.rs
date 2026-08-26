@@ -6,7 +6,7 @@ use tree_sitter::Node;
 
 /// csharpsquid:S1264 — a `for` with neither initializer nor update is a
 /// `while`.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for for_statement in collect_kinds(root, &["for_statement"]) {
         if is_error_tainted(for_statement) {
@@ -18,7 +18,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S1264",
                 "Convert this 'for' into a 'while'.",
-                range_of(for_statement),
+                range_of(for_statement, source),
             ));
         }
     }

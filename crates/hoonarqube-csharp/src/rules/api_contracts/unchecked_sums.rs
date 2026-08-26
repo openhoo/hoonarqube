@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2291",
                 "Do not disable overflow checks around 'Sum'.",
-                range_of(statement),
+                range_of(statement, source),
             )
         })
         .collect()

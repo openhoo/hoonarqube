@@ -46,45 +46,49 @@ pub(crate) fn structure_issues(
     options: &AnalyzerOptions,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    issues.extend(check_curly_braces(root, language));
-    issues.extend(check_empty_blocks(root, language));
-    issues.extend(check_empty_statements(root, language));
-    issues.extend(check_redundant_parentheses(root, language));
-    issues.extend(check_context_parentheses(root, language));
-    issues.extend(check_mergeable_ifs(root, language));
-    issues.extend(check_chains_end_with_else(root, language));
-    issues.extend(check_switch_has_default(root, language));
-    issues.extend(check_switch_case_counts(root, language));
+    issues.extend(check_curly_braces(root, source, language));
+    issues.extend(check_empty_blocks(root, source, language));
+    issues.extend(check_empty_statements(root, source, language));
+    issues.extend(check_redundant_parentheses(root, source, language));
+    issues.extend(check_context_parentheses(root, source, language));
+    issues.extend(check_mergeable_ifs(root, source, language));
+    issues.extend(check_chains_end_with_else(root, source, language));
+    issues.extend(check_switch_has_default(root, source, language));
+    issues.extend(check_switch_case_counts(root, source, language));
     issues.extend(check_switch_section_statement_counts(
-        root, language, options,
+        root, source, language, options,
     ));
-    issues.extend(check_switch_section_line_spans(root, language, options));
-    issues.extend(check_nesting_depth(root, language, options));
-    issues.extend(check_nested_code_blocks(root, language));
-    issues.extend(check_function_lengths(root, language, options));
-    issues.extend(check_method_parameter_counts(root, language, options));
+    issues.extend(check_switch_section_line_spans(
+        root, source, language, options,
+    ));
+    issues.extend(check_nesting_depth(root, source, language, options));
+    issues.extend(check_nested_code_blocks(root, source, language));
+    issues.extend(check_function_lengths(root, source, language, options));
+    issues.extend(check_method_parameter_counts(
+        root, source, language, options,
+    ));
     issues.extend(check_cyclomatic_complexity(root, source, language, options));
     issues.extend(check_cognitive_complexity(root, source, language, options));
     issues.extend(check_logical_operator_counts(
         root, source, language, options,
     ));
     issues.extend(check_empty_methods(root, source, language));
-    issues.extend(check_finalizer_throws(root, language));
-    issues.extend(check_empty_finalizers(root, language));
+    issues.extend(check_finalizer_throws(root, source, language));
+    issues.extend(check_empty_finalizers(root, source, language));
     issues.extend(check_property_getter_throws(root, source, language));
     issues.extend(check_write_only_properties(root, source, language));
     issues.extend(check_trivial_properties(root, source, language));
     issues.extend(check_abstract_member_mix(root, source, language));
     issues.extend(check_empty_classes_and_records(root, source, language));
     issues.extend(check_empty_interfaces(root, source, language));
-    issues.extend(check_empty_namespaces(root, language));
-    issues.extend(check_types_outside_namespaces(root, language));
-    issues.extend(check_multiline_embedded_statements(root, language));
-    issues.extend(check_nested_switches(root, language));
-    issues.extend(check_default_clause_position(root, language));
-    issues.extend(check_empty_cases_before_default(root, language));
-    issues.extend(check_empty_default_clauses(root, language));
-    issues.extend(check_condition_only_for_loops(root, language));
+    issues.extend(check_empty_namespaces(root, source, language));
+    issues.extend(check_types_outside_namespaces(root, source, language));
+    issues.extend(check_multiline_embedded_statements(root, source, language));
+    issues.extend(check_nested_switches(root, source, language));
+    issues.extend(check_default_clause_position(root, source, language));
+    issues.extend(check_empty_cases_before_default(root, source, language));
+    issues.extend(check_empty_default_clauses(root, source, language));
+    issues.extend(check_condition_only_for_loops(root, source, language));
     issues.extend(check_for_increment_modifies_counter(root, source, language));
     issues
 }

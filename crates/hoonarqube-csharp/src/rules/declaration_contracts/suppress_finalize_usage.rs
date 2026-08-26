@@ -16,14 +16,14 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S3971",
             "Track uses of 'GC.SuppressFinalize'.",
-            range_of(access),
+            range_of(access, source),
         ));
         if enclosing_type(access).is_none_or(|type_node| !has_destructor(type_node)) {
             issues.push(issue(
                 language,
                 "S3234",
                 "Only call 'GC.SuppressFinalize' when a finalizer is defined.",
-                range_of(access),
+                range_of(access, source),
             ));
         }
     }

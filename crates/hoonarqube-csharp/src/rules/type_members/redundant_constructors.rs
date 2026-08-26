@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3253",
                 "Remove this redundant constructor.",
-                range_of(ctor),
+                range_of(ctor, source),
             ));
         }
     }
@@ -38,7 +38,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3253",
                 "Remove this redundant finalizer.",
-                range_of(dtor),
+                range_of(dtor, source),
             ));
         }
     }

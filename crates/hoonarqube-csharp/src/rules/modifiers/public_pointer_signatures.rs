@@ -35,7 +35,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S4000",
             "Do not expose pointer types in public signatures.",
-            range_of(anchor),
+            range_of(anchor, source),
         ));
     }
     issues

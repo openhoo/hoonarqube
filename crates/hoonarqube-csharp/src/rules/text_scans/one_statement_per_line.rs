@@ -6,7 +6,7 @@ use tree_sitter::Node;
 /// csharpsquid:S122 — statements live on separate lines. Only statements
 /// directly inside statement-list containers count, so embedded bodies such
 /// as `if (x) DoIt();` stay clean.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut statements_per_row: std::collections::BTreeMap<usize, Vec<Node>> =
         std::collections::BTreeMap::new();
     walk_all(root, &mut |node| {
@@ -32,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S122",
                 "Put each statement on its own line.",
-                range_of(*statement),
+                range_of(*statement, source),
             ));
         }
     }

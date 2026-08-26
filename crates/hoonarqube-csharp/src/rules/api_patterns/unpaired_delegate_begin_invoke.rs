@@ -27,7 +27,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S4583",
                     "Call 'EndInvoke' for this 'BeginInvoke'.",
-                    range_of(call),
+                    range_of(call, source),
                 ));
             }
         }

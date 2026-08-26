@@ -52,7 +52,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         language,
                         "S6964",
                         "Make this value-type input nullable or validate presence to prevent under-posting.",
-                        range_of(parameter),
+                        range_of(parameter, source),
                     ));
                 }
             }

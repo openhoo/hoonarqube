@@ -26,7 +26,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S2156",
                     "The 'protected' modifier is useless here: this type is sealed.",
-                    range_of(member),
+                    range_of(member, source),
                 ));
             }
         }

@@ -45,7 +45,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3329",
                 "Generate this initialization vector randomly for each encryption instead of using this constant.",
-                range_of(site),
+                range_of(site, source),
             )
         })
         .collect()

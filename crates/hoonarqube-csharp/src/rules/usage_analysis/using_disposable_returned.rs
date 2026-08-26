@@ -44,7 +44,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                             "'{}' is disposed by its using statement; return it from outside.",
                             node_text(name, source)
                         ),
-                        range_of(return_statement),
+                        range_of(return_statement, source),
                     ));
                 }
             }

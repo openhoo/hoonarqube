@@ -4,7 +4,7 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S3261 — namespaces group declarations.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for namespace in collect_kinds(root, &["namespace_declaration"]) {
         if is_error_tainted(namespace) {
@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S3261",
                 "Remove this empty namespace or populate it.",
-                range_of(namespace),
+                range_of(namespace, source),
             ));
         }
     }

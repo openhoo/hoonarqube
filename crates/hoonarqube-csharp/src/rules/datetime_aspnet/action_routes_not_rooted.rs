@@ -29,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S6931",
                     "Start this route template without a leading slash.",
-                    range_of(attribute),
+                    range_of(attribute, source),
                 ));
             }
         }

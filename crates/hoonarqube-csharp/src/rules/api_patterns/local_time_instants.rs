@@ -18,7 +18,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S6563",
                     format!("Record '{name}' in UTC with 'DateTime.UtcNow'."),
-                    range_of(store),
+                    range_of(store, source),
                 ));
             }
         }

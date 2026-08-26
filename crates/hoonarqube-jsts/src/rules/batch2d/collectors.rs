@@ -105,16 +105,17 @@ impl<'a> Visit<'a> for ReturnMixScanner {
 
 /// Computes the cognitive (`S3776`) and cyclomatic (`S1541`) complexity of
 /// one function unit. Nesting weights follow the Sonar model: control-flow
-/// structures add `1 + nesting`, `else if` chains stay flat, logical
-/// operators count once per consecutive sequence of the same operator, and
-/// nested function units are excluded entirely.
+/// structures add `1 + nesting`, `else if` chains stay flat, and nested
+/// function units are excluded entirely. Logical operators are counted once
+/// per consecutive sequence of the same operator for cognitive complexity,
+/// while every occurrence adds a cyclomatic decision point.
 #[derive(Default)]
 pub(crate) struct ComplexityWalker {
     pub(crate) cognitive: u32,
     pub(crate) cyclomatic: u32,
     nesting: u32,
     /// Operator of the logical chain currently walked; entering a chain (or
-    /// switching operators mid-chain) adds one increment.
+    /// switching operators mid-chain) adds one cognitive increment only.
     logic_chain: Option<LogicalOperator>,
 }
 
@@ -144,12 +145,16 @@ impl<'a> Visit<'a> for ComplexityWalker {
     }
 
     fn visit_switch_statement(&mut self, it: &SwitchStatement<'a>) {
+        // One structural increment here; `enter_nested` would double-count
+        // the switch head and add a spurious cyclomatic point beyond the
+        // case clauses that SonarQube's JS/TS definition counts.
         self.cognitive += 1 + self.nesting;
-        let tested_cases =
-            u32::try_from(it.cases.iter().filter(|case| case.test.is_some()).count())
-                .unwrap_or(u32::MAX);
-        self.cyclomatic += tested_cases;
-        self.enter_nested(|walker| walk_switch_statement(walker, it));
+        let tested_cases = it.cases.iter().filter(|case| case.test.is_some()).count();
+        self.cyclomatic += u32::try_from(tested_cases).unwrap_or(u32::MAX);
+        let saved = self.nesting;
+        self.nesting += 1;
+        walk_switch_statement(self, it);
+        self.nesting = saved;
     }
 
     fn visit_try_statement(&mut self, it: &TryStatement<'a>) {
@@ -182,9 +187,9 @@ impl<'a> Visit<'a> for ComplexityWalker {
     }
 
     fn visit_logical_expression(&mut self, it: &LogicalExpression<'a>) {
+        self.cyclomatic += 1;
         if self.logic_chain != Some(it.operator) {
             self.cognitive += 1;
-            self.cyclomatic += 1;
         }
         let saved_chain = self.logic_chain;
         self.logic_chain = Some(it.operator);
@@ -470,7 +475,7 @@ impl<'a> Visit<'a> for ClassAccessorCollector<'_> {
 pub(crate) struct KeywordPlacementCollector<'a, 'index> {
     pub(crate) sink: IssueSink<'index>,
     pub(crate) source: &'a str,
-    pub(crate) index: &'index LineIndex,
+    pub(crate) index: &'index LineIndex<'index>,
 }
 
 impl<'a> Visit<'a> for KeywordPlacementCollector<'a, '_> {

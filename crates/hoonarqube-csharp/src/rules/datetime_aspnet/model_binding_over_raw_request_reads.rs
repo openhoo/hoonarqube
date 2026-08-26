@@ -14,7 +14,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6932",
                 "Bind this data through a model instead of reading the request.",
-                range_of(access),
+                range_of(access, source),
             )
         })
         .collect()

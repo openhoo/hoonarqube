@@ -44,7 +44,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 format!(
                     "Shift by a non-zero amount below the operand width ({amount} is out of range)."
                 ),
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }

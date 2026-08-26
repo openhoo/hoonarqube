@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         language,
                         "S4136",
                         format!("Move this overload next to the other \"{method_name}\" methods."),
-                        range_of(name),
+                        range_of(name, source),
                     ));
                 }
                 entry.1 = index;

@@ -15,7 +15,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1313",
                 "Refactor this code to not use hard-coded IP addresses.",
-                range_of(literal),
+                range_of(literal, source),
             )
         })
         .collect()

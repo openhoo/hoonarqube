@@ -6,7 +6,7 @@ use tree_sitter::Node;
 
 /// csharpsquid:S108 — blocks are not left empty. Commented placeholder
 /// bodies stay clean; callable bodies belong to S1186 and S3880.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for block in collect_kinds(root, &["block"]) {
         if is_error_tainted(block) {
@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S108",
                 "Either populate this block or remove it.",
-                range_of(block),
+                range_of(block, source),
             ));
         }
     }

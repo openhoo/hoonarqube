@@ -27,7 +27,7 @@ pub(crate) fn check(
                 language,
                 "S6418",
                 "Review this potentially hard-coded secret.",
-                range_of(anchor),
+                range_of(anchor, source),
             )
         })
         .collect()

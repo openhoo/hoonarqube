@@ -36,7 +36,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4433",
                 "Set credentials or a secure authentication type on this LDAP connection.",
-                range_of(creation),
+                range_of(creation, source),
             )
         })
         .collect()

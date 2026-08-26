@@ -7,7 +7,12 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S138 — function bodies stay within the tolerated span.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage, options: &AnalyzerOptions) -> Vec<Issue> {
+pub(crate) fn check(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
     let mut issues = Vec::new();
     for function in collect_kinds(root, &CALLABLE_BODY_OWNER_KINDS) {
         if is_error_tainted(function) {
@@ -22,7 +27,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage, options: &AnalyzerOpti
                 language,
                 "S138",
                 format!("Reduce this function's size; its body spans {height} lines."),
-                range_of(name_anchor(function)),
+                range_of(name_anchor(function), source),
             ));
         }
     }

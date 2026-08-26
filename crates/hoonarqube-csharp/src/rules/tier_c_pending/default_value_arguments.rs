@@ -47,7 +47,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3254",
                 "Remove this argument; it duplicates the parameter's default value.",
-                range_of(argument),
+                range_of(argument, source),
             )
         })
         .collect()

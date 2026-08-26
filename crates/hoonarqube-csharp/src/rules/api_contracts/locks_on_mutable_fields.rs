@@ -37,7 +37,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2445",
                 "Declare this lock field 'readonly'.",
-                range_of(lock_statement),
+                range_of(lock_statement, source),
             ));
         }
     }

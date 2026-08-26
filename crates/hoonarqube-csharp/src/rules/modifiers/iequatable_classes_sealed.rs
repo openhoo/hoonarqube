@@ -29,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S4035",
             "Mark this class 'sealed'; it implements 'IEquatable'.",
-            range_of(name),
+            range_of(name, source),
         ));
     }
     issues

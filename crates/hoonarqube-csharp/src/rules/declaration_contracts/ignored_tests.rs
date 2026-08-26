@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S1607",
                     "Remove this 'Ignore' annotation and fix the test.",
-                    range_of(node),
+                    range_of(node, source),
                 )
             })
         })

@@ -5,7 +5,7 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S3880 — finalizers either work or disappear.
-pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for destructor in collect_kinds(root, &["destructor_declaration"]) {
         if is_error_tainted(destructor) {
@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, language: CsLanguage) -> Vec<Issue> {
                 language,
                 "S3880",
                 "Remove this empty finalizer.",
-                range_of(destructor),
+                range_of(destructor, source),
             ));
         }
     }

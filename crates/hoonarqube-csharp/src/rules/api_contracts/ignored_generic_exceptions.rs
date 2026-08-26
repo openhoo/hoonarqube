@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2486",
                 "Handle this exception or narrow the catch clause.",
-                range_of(clause),
+                range_of(clause, source),
             )
         })
         .collect()

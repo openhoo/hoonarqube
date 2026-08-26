@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4456",
                 "Move this validation out of the iterator; it will not run until enumeration.",
-                range_of(validation),
+                range_of(validation, source),
             ));
         }
     }

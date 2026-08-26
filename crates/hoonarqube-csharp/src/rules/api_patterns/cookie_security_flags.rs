@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S2092",
                     format!("Enable the 'Secure' flag on cookie '{name}'."),
-                    range_of(creation),
+                    range_of(creation, source),
                 ));
             }
             if !cookie_sets_property_true(body, source, name, "HttpOnly") {
@@ -27,7 +27,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S3330",
                     format!("Mark cookie '{name}' 'HttpOnly' to block script access."),
-                    range_of(creation),
+                    range_of(creation, source),
                 ));
             }
         }

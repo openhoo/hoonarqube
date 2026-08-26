@@ -29,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3262",
                 "Add 'params' to this override to match the base declaration.",
-                range_of(name),
+                range_of(name, source),
             )
         })
         .collect()

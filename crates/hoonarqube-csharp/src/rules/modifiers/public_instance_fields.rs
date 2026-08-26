@@ -18,7 +18,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1104",
                 "Make this field private and expose it through a property.",
-                range_of(field),
+                range_of(field, source),
             ));
         }
     }

@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4790",
                 "Use a stronger hash algorithm such as 'SHA256'.",
-                range_of(identifier),
+                range_of(identifier, source),
             )
         })
         .collect()

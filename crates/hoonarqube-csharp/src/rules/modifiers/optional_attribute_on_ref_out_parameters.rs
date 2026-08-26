@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3447",
                 "Remove this '[Optional]' attribute; the parameter is by reference.",
-                range_of(parameter),
+                range_of(parameter, source),
             ));
         }
     }

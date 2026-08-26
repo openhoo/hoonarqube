@@ -41,7 +41,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S4059",
                     format!("Rename this accessor method; it duplicates property \"{original}\"."),
-                    range_of(name),
+                    range_of(name, source),
                 ));
             }
         }

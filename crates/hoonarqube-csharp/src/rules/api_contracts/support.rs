@@ -47,7 +47,7 @@ pub(crate) fn comment_tag_issues(
                 language,
                 "S1134",
                 "Track the work promised by this FIXME tag.",
-                range_of(comment),
+                range_of(comment, source),
             ));
         }
         if upper.contains("TODO") {
@@ -55,7 +55,7 @@ pub(crate) fn comment_tag_issues(
                 language,
                 "S1135",
                 "Track the work promised by this TODO tag.",
-                range_of(comment),
+                range_of(comment, source),
             ));
         }
     }

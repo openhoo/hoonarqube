@@ -29,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3600",
                 "'params' should not be introduced by overrides; remove it from this method.",
-                range_of(name),
+                range_of(name, source),
             )
         })
         .collect()

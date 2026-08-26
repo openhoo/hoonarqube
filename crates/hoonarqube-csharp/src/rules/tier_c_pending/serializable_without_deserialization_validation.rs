@@ -41,7 +41,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S5766",
                 "Validate this type's data during deserialization, e.g. with an '[OnDeserialized]' method or 'IDeserializationCallback'.",
-                range_of(name),
+                range_of(name, source),
             )
         })
         .collect()

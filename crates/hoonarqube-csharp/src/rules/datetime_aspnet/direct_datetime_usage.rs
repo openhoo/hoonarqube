@@ -14,7 +14,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6354",
                 "Inject a testable time provider instead of reading the system clock.",
-                range_of(access),
+                range_of(access, source),
             )
         })
         .collect()

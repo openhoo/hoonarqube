@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S4211",
                 "Apply either 'SecurityCritical' or 'SecuritySafeCritical', not both.",
-                range_of(type_node),
+                range_of(type_node, source),
             ));
         }
     }

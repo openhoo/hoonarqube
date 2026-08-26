@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S4214",
             "Make this P/Invoke method 'internal' or more restricted.",
-            range_of(name),
+            range_of(name, source),
         ));
     }
     issues

@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1128",
                 "Remove this unnecessary 'using'.",
-                range_of(directive),
+                range_of(directive, source),
             )
         })
         .collect()

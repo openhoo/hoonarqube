@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3456",
                 "Index the string directly instead of this array conversion.",
-                range_of(access),
+                range_of(access, source),
             ));
         }
     }
@@ -52,7 +52,7 @@ fn foreach_conversion_issues(
                 language,
                 "S3456",
                 "Iterate the string directly instead of this array conversion.",
-                range_of(foreach_statement),
+                range_of(foreach_statement, source),
             ));
         }
     }

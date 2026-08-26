@@ -39,7 +39,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S6617",
                 "Use 'Contains' instead of this equality lambda.",
-                range_of(invocation),
+                range_of(invocation, source),
             )
         })
         .collect()

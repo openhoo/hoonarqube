@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2386",
                 "Make this field readonly or replace it with a property.",
-                range_of(field),
+                range_of(field, source),
             ));
         }
     }

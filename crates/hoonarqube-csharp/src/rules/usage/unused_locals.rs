@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S1481",
                 "Remove this unused local variable.",
-                range_of(declarator),
+                range_of(declarator, source),
             )
         })
         .collect()

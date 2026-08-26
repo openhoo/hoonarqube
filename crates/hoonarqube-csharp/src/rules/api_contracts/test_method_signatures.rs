@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3433",
                 "Make this test method public.",
-                range_of(method),
+                range_of(method, source),
             ));
         }
         let returns = simple_name(return_type_text(method, source));
@@ -28,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3433",
                 "Test methods must not return values.",
-                range_of(method),
+                range_of(method, source),
             ));
         }
     }

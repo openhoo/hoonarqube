@@ -26,7 +26,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2178",
                 "Use '&&' or '||' for this boolean combination.",
-                range_of(expression),
+                range_of(expression, source),
             ));
         }
     }

@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S3885",
                 "Prefer 'Assembly.Load' over this partial load.",
-                range_of(invocation),
+                range_of(invocation, source),
             )
         })
         .collect()
