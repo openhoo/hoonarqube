@@ -13,14 +13,6 @@ use hoonarqube_catalog::{Catalog, RuleRecord, embedded};
 
 mod analyze;
 
-/// Embedded languages in canonical audit order: `(catalog name, language id)`.
-const LANGUAGE_IDS: [(&str, &str); 4] = [
-    ("csharp", "cs"),
-    ("javascript", "js"),
-    ("typescript", "ts"),
-    ("python", "py"),
-];
-
 #[derive(Parser)]
 #[command(name = "hoonarqube", about = "Hoonarqube analyzer command line")]
 struct Cli {
@@ -114,7 +106,7 @@ fn main() -> ExitCode {
         Command::Analyze { paths, format } => {
             run_analyze(catalog, paths, format.as_deref(), cli.json)
         }
-        Command::Fix { paths } => run_fix(paths),
+        Command::Fix { paths } => run_fix(paths, cli.json),
     }
 }
 
@@ -181,7 +173,10 @@ fn fix_file(path: &std::path::Path, warnings: &mut Vec<String>) -> Option<usize>
 /// source file found by the same recursive walk the `analyze` command uses.
 /// Per-file read/write failures are reported as warnings on stderr and make
 /// the command exit nonzero; the summary counts only files that were read.
-fn run_fix(paths: &[std::path::PathBuf]) -> ExitCode {
+///
+/// With `json`, emits an `{applied, files, warnings}` summary document on
+/// stdout instead of the human summary line; warnings still render on stderr.
+fn run_fix(paths: &[std::path::PathBuf], json: bool) -> ExitCode {
     let mut warnings = Vec::new();
     let mut files = Vec::new();
     for path in paths {
@@ -202,7 +197,15 @@ fn run_fix(paths: &[std::path::PathBuf]) -> ExitCode {
     for warning in &warnings {
         eprintln!("{warning}");
     }
-    println!("applied {total} mechanical fix(es) across {processed} file(s)");
+    if json {
+        print_json(&serde_json::json!({
+            "applied": total,
+            "files": processed,
+            "warnings": warnings,
+        }));
+    } else {
+        println!("applied {total} mechanical fix(es) across {processed} file(s)");
+    }
     if warnings.is_empty() {
         ExitCode::SUCCESS
     } else {
@@ -214,8 +217,13 @@ fn run_rules(catalog: &Catalog, cmd: &RulesCommand, json: bool) -> ExitCode {
     match cmd {
         RulesCommand::List { lang } => match select_language(catalog, lang.as_deref()) {
             Some(languages) => {
-                for rule in languages {
-                    print_rule_row(rule);
+                let rules: Vec<&RuleRecord> = languages.collect();
+                if json {
+                    print_json(&rules);
+                } else {
+                    for rule in rules {
+                        print_rule_row(rule);
+                    }
                 }
                 ExitCode::SUCCESS
             }
@@ -226,15 +234,18 @@ fn run_rules(catalog: &Catalog, cmd: &RulesCommand, json: bool) -> ExitCode {
                 return unknown_language(lang.as_deref().unwrap_or_default());
             };
             let query_lower = query.to_lowercase();
-            let mut printed = false;
-            for rule in languages {
-                if rule_matches(rule, &query_lower) {
-                    print_rule_row(rule);
-                    printed = true;
-                }
-            }
-            if !printed {
+            let matched: Vec<&RuleRecord> = languages
+                .into_iter()
+                .filter(|rule| rule_matches(rule, &query_lower))
+                .collect();
+            if json {
+                print_json(&matched);
+            } else if matched.is_empty() {
                 println!("no matching rules");
+            } else {
+                for rule in &matched {
+                    print_rule_row(rule);
+                }
             }
             ExitCode::SUCCESS
         }
@@ -269,12 +280,11 @@ fn select_language<'a>(
                 .flat_map(|(_, language)| language.rules()),
         ) as Box<dyn Iterator<Item = &'a RuleRecord> + 'a>),
         Some(lang) => {
-            let name = LANGUAGE_IDS
-                .iter()
-                .find(|(_, id)| *id == lang)
-                .map_or(lang, |(name, _)| name);
-            let rules = catalog.language(name)?;
-            Some(Box::new(rules.rules().iter()) as Box<dyn Iterator<Item = &'a RuleRecord> + 'a>)
+            let rules = catalog
+                .languages()
+                .find(|(_, language)| language.name() == lang || language.language_id() == lang)
+                .map(|(_, language)| language.rules())?;
+            Some(Box::new(rules.iter()) as Box<dyn Iterator<Item = &'a RuleRecord> + 'a>)
         }
     }
 }
@@ -713,5 +723,14 @@ mod tests {
             Ok(AnalyzeFormat::Sonar)
         );
         assert_eq!(analyze_format(Some("xml"), true), Err("xml".to_string()));
+    }
+
+    #[test]
+    fn select_language_accepts_catalog_names_and_ids() {
+        let catalog = embedded();
+        let by_id = select_language(catalog, Some("py")).expect("id resolves");
+        let by_name = select_language(catalog, Some("python")).expect("name resolves");
+        assert_eq!(by_id.count(), by_name.count());
+        assert!(select_language(catalog, Some("zz")).is_none());
     }
 }

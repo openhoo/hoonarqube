@@ -1,8 +1,10 @@
 //! Language-registry facade: the single source of truth mapping a source
 //! file to its analyzer by extension.
 //!
-//! Consumers (CLI, bench) dispatch through [`language_for_path`] and
-//! [`analyze`] instead of duplicating extension tables per crate.
+//! Consumers (the CLI) dispatch through [`language_for_path`] and
+//! [`analyze`] instead of duplicating extension tables per crate;
+//! hoonarqube-bench drives the per-language analyzer crates directly to
+//! isolate per-analyzer throughput.
 
 use std::path::Path;
 
@@ -16,20 +18,6 @@ pub enum Language {
     JavaScript,
     TypeScript,
     CSharp,
-}
-
-impl Language {
-    /// Catalog repository prefix used in issue `rule_key`s (e.g.
-    /// `python:S1481`, `csharpsquid:S103`).
-    #[must_use]
-    pub fn repository_prefix(self) -> &'static str {
-        match self {
-            Self::Python => "python",
-            Self::JavaScript => "javascript",
-            Self::TypeScript => "typescript",
-            Self::CSharp => "csharpsquid",
-        }
-    }
 }
 
 /// Extension table; matched case-insensitively so `.PY`/`.CS` style inputs
@@ -159,14 +147,6 @@ mod tests {
     }
 
     #[test]
-    fn repository_prefixes_match_the_frozen_catalog() {
-        assert_eq!(Language::Python.repository_prefix(), "python");
-        assert_eq!(Language::JavaScript.repository_prefix(), "javascript");
-        assert_eq!(Language::TypeScript.repository_prefix(), "typescript");
-        assert_eq!(Language::CSharp.repository_prefix(), "csharpsquid");
-    }
-
-    #[test]
     fn unclaimed_paths_yield_none() {
         assert_eq!(language_for_path(Path::new("notes.txt")), None);
         assert_eq!(language_for_path(Path::new("Makefile")), None);
@@ -184,7 +164,7 @@ mod tests {
             &AnalyzerOptions::default(),
         )
         .unwrap();
-        assert_eq!(report.language, Language::Python.repository_prefix());
+        assert_eq!(report.language, "python");
         assert!(!report.issues.is_empty());
     }
 
@@ -196,7 +176,7 @@ mod tests {
             &AnalyzerOptions::default(),
         )
         .unwrap();
-        assert_eq!(report.language, Language::JavaScript.repository_prefix());
+        assert_eq!(report.language, "javascript");
         assert!(!report.issues.is_empty());
     }
 
@@ -208,7 +188,7 @@ mod tests {
             &AnalyzerOptions::default(),
         )
         .unwrap();
-        assert_eq!(report.language, Language::TypeScript.repository_prefix());
+        assert_eq!(report.language, "typescript");
         assert!(!report.issues.is_empty());
     }
 
@@ -220,7 +200,7 @@ mod tests {
             &AnalyzerOptions::default(),
         )
         .unwrap();
-        assert_eq!(report.language, Language::CSharp.repository_prefix());
+        assert_eq!(report.language, "csharpsquid");
         assert!(!report.issues.is_empty());
     }
 

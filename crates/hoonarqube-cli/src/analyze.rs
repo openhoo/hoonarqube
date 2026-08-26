@@ -2,8 +2,9 @@
 //!
 //! Walks the requested paths, feeds every selected `.py`, `.js`-family, or
 //! `.ts`-family file to its language analyzer, and returns one [`FileReport`]
-//! per file, sorted by path. Non-fatal problems (missing paths, unreadable or
-//! non-UTF-8 files) are recorded as warnings instead of aborting the run.
+//! per file, sorted by path. Non-fatal problems (missing paths, explicitly
+//! passed non-source files, unreadable or non-UTF-8 files) are recorded as
+//! warnings instead of aborting the run.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -14,15 +15,11 @@ use hoonarqube_catalog::Catalog;
 use hoonarqube_core::AnalyzerOptions as CoreOptions;
 use hoonarqube_ir::FileReport;
 
-/// Result of analyzing one input file.
-pub(crate) struct FileOutcome {
-    pub report: FileReport,
-}
-
 /// Per-language analyzer knobs threaded through the walker.
 pub(crate) use hoonarqube_core::AnalyzerOptions as AnalyzerOptionsBundle;
 
-/// Walks `paths`, analyzes each selected file, returns reports sorted by path.
+/// Walks `paths`, analyzes each selected file once (overlapping or repeated
+/// input paths are deduplicated), and returns reports sorted by path.
 ///
 /// `warnings` collects non-fatal skip notes (one line each, no trailing newline).
 pub(crate) fn analyze_paths(
@@ -30,22 +27,31 @@ pub(crate) fn analyze_paths(
     options: &AnalyzerOptionsBundle,
     warnings: &mut Vec<String>,
 ) -> Vec<FileReport> {
-    let mut reports = Vec::new();
+    let mut files = Vec::new();
     for path in paths {
         if !path.exists() {
             warnings.push(format!("path does not exist: {}", path.display()));
         } else if path.is_dir() {
-            walk_directory(path, options, warnings, &mut reports);
+            collect_files(path, &mut files, warnings);
         } else if is_analyzable_file(path) {
-            read_and_analyze(path, options, warnings, &mut reports);
+            files.push(path.clone());
+        } else {
+            warnings.push(format!(
+                "skipping unsupported file type: {}",
+                path.display()
+            ));
         }
     }
-    let mut outcomes: Vec<FileOutcome> = reports
-        .into_iter()
-        .map(|report| FileOutcome { report })
-        .collect();
-    outcomes.sort_by(|a, b| a.report.path.cmp(&b.report.path));
-    outcomes.into_iter().map(|outcome| outcome.report).collect()
+    // Explicit arguments may overlap walked directories (`src src/main.py`);
+    // each file is analyzed once so reports and summary counts stay accurate.
+    files.sort();
+    files.dedup();
+    let mut reports = Vec::new();
+    for path in &files {
+        read_and_analyze(path, options, warnings, &mut reports);
+    }
+    reports.sort_by(|a, b| a.path.cmp(&b.path));
+    reports
 }
 
 /// Builds analyzer options from the frozen catalog's per-rule parameter
@@ -141,19 +147,6 @@ pub(crate) fn collect_files(
         } else if is_analyzable_file(&path) {
             files.push(path);
         }
-    }
-}
-
-fn walk_directory(
-    directory: &Path,
-    options: &AnalyzerOptionsBundle,
-    warnings: &mut Vec<String>,
-    reports: &mut Vec<FileReport>,
-) {
-    let mut files = Vec::new();
-    collect_files(directory, &mut files, warnings);
-    for path in files {
-        read_and_analyze(&path, options, warnings, reports);
     }
 }
 
@@ -289,6 +282,37 @@ mod tests {
         assert!(reports.is_empty());
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].starts_with("path does not exist: "));
+    }
+
+    #[test]
+    fn deduplicates_overlapping_explicit_and_walked_paths() {
+        let fix = TempDir::new("overlap");
+        fix.write("a.py", "x = 1\n");
+        fix.write("b.py", "y = 2\n");
+
+        let mut warnings = Vec::new();
+        let reports = analyze_paths(
+            &[fix.0.clone(), fix.0.join("a.py"), fix.0.join("a.py")],
+            &AnalyzerOptionsBundle::default(),
+            &mut warnings,
+        );
+
+        let paths: Vec<_> = reports.iter().map(|r| r.path.clone()).collect();
+        assert_eq!(paths, vec![fix.0.join("a.py"), fix.0.join("b.py")]);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn warns_when_an_explicit_path_is_not_a_source_file() {
+        let fix = TempDir::new("nonsource");
+        let readme = fix.write("README.md", "# notes\n");
+
+        let mut warnings = Vec::new();
+        let reports = analyze_paths(&[readme], &AnalyzerOptionsBundle::default(), &mut warnings);
+
+        assert!(reports.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].starts_with("skipping unsupported file type: "));
     }
 
     #[test]
