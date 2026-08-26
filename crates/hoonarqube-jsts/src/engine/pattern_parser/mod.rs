@@ -12,6 +12,13 @@ pub(crate) use parser::*;
 pub(crate) use site::*;
 pub(crate) use tree::*;
 
+/// Group-nesting cap shared by both regex parsers (`PatternParser` for
+/// pattern trees, `RegexParser` for catalog patterns), mirroring the Python
+/// crate's `RX_MAX_DEPTH`: beyond this depth parsing bails out instead of
+/// risking stack exhaustion on runaway nesting such as tens of thousands
+/// of `(` levels inside one literal.
+pub(crate) const MAX_GROUP_DEPTH: u32 = 48;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -52,5 +59,22 @@ mod tests {
         assert!(!regex_search("[abc]", "x"));
         // A leading `]` is a literal class member, not a terminator.
         assert!(regex_search("[]]", "]"));
+    }
+
+    #[test]
+    fn runaway_group_nesting_bails_out_without_crashing() {
+        // ~10k nested groups: far past the depth cap for both parsers, and
+        // exactly the shape that previously recursed without any bound.
+        let deep = format!("^(?:{}x{})$", "(?:".repeat(10_000), ")".repeat(10_000));
+        assert!(parse_regex_pattern(&deep, false).is_err());
+        assert!(parse_regex_pattern(&deep, true).is_err());
+        assert!(parse_regex(&deep).is_none());
+        assert!(!regex_search(&deep, "x"));
+
+        // Nesting just under the cap still parses normally.
+        let under = (MAX_GROUP_DEPTH - 1) as usize;
+        let shallow = format!("^{}x{}$", "(?:".repeat(under), ")".repeat(under));
+        assert!(parse_regex_pattern(&shallow, false).is_ok());
+        assert!(regex_search(&shallow, "x"));
     }
 }

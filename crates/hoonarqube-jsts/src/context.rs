@@ -93,7 +93,7 @@ pub(crate) struct AnalysisContext<'a> {
     pub(crate) path: &'a std::path::Path,
     pub(crate) source: &'a str,
     pub(crate) program: &'a oxc_ast::ast::Program<'a>,
-    pub(crate) index: &'a LineIndex,
+    pub(crate) index: &'a LineIndex<'a>,
     pub(crate) language: JstsLanguage,
     pub(crate) options: &'a AnalyzerOptions,
     pub(crate) rules: &'a RuleOptions,

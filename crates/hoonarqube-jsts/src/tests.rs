@@ -109,11 +109,17 @@ fn jsx_input_parses_cleanly() {
 }
 
 #[test]
-fn broken_source_neither_panics_nor_emits_parse_errors() {
+fn broken_source_neither_panics_nor_hides_parse_errors() {
+    // `javascript:S2260` / `typescript:S2260` are catalog-backed; recoverable
+    // parse errors surface as issues while the partial AST is still analyzed
+    // tolerantly instead of failing the run.
     let report = js("function {(:\n    ???\n");
-    // No catalog-backed parse-error rule exists for js/ts; the analyzer
-    // reports the file with zero issues instead of failing the run.
-    assert!(report.issues.is_empty());
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|issue| issue.rule_key.ends_with(":S2260"))
+    );
 }
 
 #[test]
@@ -226,9 +232,19 @@ fn javascript_only_rules_do_not_fire_for_typescript() {
 }
 
 #[test]
-fn parse_errors_never_surface_as_issues() {
-    let broken = js_keys("function {(:\n    ???\n");
-    assert!(broken.iter().all(|(key, _)| !key.ends_with(":S2260")));
+fn parse_errors_emit_s2260() {
+    let report = js_with_rules("function {(:\n    ???\n", &RuleOptions::default());
+    let parse_errors: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key.ends_with(":S2260"))
+        .collect();
+    assert!(!parse_errors.is_empty());
+    assert!(
+        parse_errors
+            .iter()
+            .all(|issue| issue.message.starts_with("Fix this syntax error: "))
+    );
 }
 
 // ===== Batch2b tests: statement-shape and control-flow walks =====

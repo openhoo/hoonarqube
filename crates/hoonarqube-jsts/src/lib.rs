@@ -8,12 +8,13 @@
 //! catalog via [`hoonarqube_ir::Issue::rule_key`], never duplicated here.
 //!
 //! Parsing is tolerant: a partial `Program` is analyzed even when the parser
-//! reports recoverable errors, and parse errors themselves emit no issues (the
-//! frozen js/ts catalogs contain no `ParsingError` rule).
+//! reports recoverable errors, and those errors surface as
+//! `{javascript|typescript}:S2260` issues while the partial AST below is
+//! still analyzed tolerantly.
 //!
 //! # Documented coverage gaps (INFRA skips)
 //!
-//! Seven rule keys of the frozen js/ts catalogs are intentionally not
+//! Nine rule keys of the frozen js/ts catalogs are intentionally not
 //! implemented because the analysis infrastructure they require does not
 //! exist in this crate; the coverage audit gaps are explained here in code:
 //!
@@ -29,11 +30,15 @@
 //! - `typescript:S4325` / `typescript:S6606` (checker-grade type checks):
 //!   detection needs TypeScript-checker-grade type semantics, which the
 //!   embedded oxc-based single-file analysis does not provide.
-
+//! - `javascript:S1438` / `typescript:S1438` (semicolons): automatic
+//!   semicolon insertion cannot be reconstructed from oxc's tolerant parse —
+//!   hazard continuations merge into one statement, so any sibling-gap
+//!   heuristic only fires on legitimate semicolon-free style.
 use crate::context::{AnalysisContext, RuleOptions};
 use crate::support::{
-    LineIndex, extension_of, file_metrics, scan_comments, sort_issues, source_type_for,
+    LineIndex, extension_of, file_metrics, scan_comments, sort_issues, source_type_for, span_issue,
 };
+
 mod context;
 mod engine;
 mod rules;
@@ -177,10 +182,22 @@ fn analyze_with_rules(
         comments,
     };
     let mut issues = Vec::new();
-    // `S2260` (`ParsingError`) hook: `parsed.errors` is deliberately not
-    // reported — see the module documentation for the tolerant-parse
-    // decision; the partial AST below is analyzed regardless.
-    let _ = &parsed.diagnostics;
+    // `S2260` (`ParsingError`): recoverable parse errors surface as issues,
+    // mirroring the Python family's parsing-error reporting. Only
+    // error-severity diagnostics count (parser warnings are not findings),
+    // and the partial AST below is still analyzed tolerantly.
+    issues.extend(parsed.diagnostics.errors().map(|diagnostic| {
+        let span = diagnostic
+            .labels
+            .first()
+            .map_or(oxc_span::Span::sized(0, 0), oxc_span::LabeledSpan::span);
+        span_issue(
+            &index,
+            format!("{}:S2260", language.prefix()),
+            format!("Fix this syntax error: {diagnostic}."),
+            span,
+        )
+    }));
     issues.extend(rules::run_all(&ctx));
     sort_issues(&mut issues);
     let metrics = file_metrics(body, source, &index, &ctx.comments);

@@ -1,3 +1,5 @@
+use super::MAX_GROUP_DEPTH;
+
 /// Whether a `/` at this point starts a regex literal instead of a division.
 pub(crate) fn regex_can_start(prev: Option<char>, word: &str) -> bool {
     match prev {
@@ -69,10 +71,11 @@ pub(crate) fn skip_regex_literal(chars: &[char], mut i: usize) -> usize {
 /// Minimal backtracking regex matcher for catalog string parameters
 /// (`S139` `pattern`, `S1451` regular-expression header formats, `S6418`
 /// `secretWords`). Supported: literals, `.`, `[…]` classes with ranges and
-/// negation, `\d \D \w \W \s \S \t \n \r \\` escapes, `(…)` groups,
+/// negation, `\d \D \w \W \s \S \t \n \r \\` escapes, `(…)`/`(?:…)` groups,
 /// alternation, `* + ? {m} {m,} {m,n}` quantifiers, and `^`/`$` anchors
 /// bound to the whole subject. Patterns using anything else fail to compile
-/// and match nothing (tolerant, never panics).
+/// and match nothing (tolerant, never panics); so do patterns whose group
+/// nesting runs past [`MAX_GROUP_DEPTH`].
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RegexNode {
@@ -194,6 +197,7 @@ pub(crate) fn parse_regex(pattern: &str) -> Option<Vec<Vec<RegexNode>>> {
     let mut parser = RegexParser {
         chars: pattern.chars().collect(),
         pos: 0,
+        depth: 0,
     };
     let alternatives = parser.parse_group_body()?;
     parser.expect_end()?;
@@ -203,6 +207,8 @@ pub(crate) fn parse_regex(pattern: &str) -> Option<Vec<Vec<RegexNode>>> {
 pub(crate) struct RegexParser {
     pub(crate) chars: Vec<char>,
     pub(crate) pos: usize,
+    /// Current `(` nesting level; bounded by [`MAX_GROUP_DEPTH`].
+    pub(crate) depth: u32,
 }
 
 impl RegexParser {
@@ -229,8 +235,20 @@ impl RegexParser {
         (self.pos == self.chars.len()).then_some(())
     }
 
-    /// Alternatives up to an unmatched closing parenthesis.
+    /// Alternatives up to an unmatched closing parenthesis. Group nesting
+    /// beyond [`MAX_GROUP_DEPTH`] compiles to nothing instead of risking
+    /// stack exhaustion on runaway input.
     pub(crate) fn parse_group_body(&mut self) -> Option<Vec<Vec<RegexNode>>> {
+        if self.depth >= MAX_GROUP_DEPTH {
+            return None;
+        }
+        self.depth += 1;
+        let parsed = self.parse_group_body_inner();
+        self.depth -= 1;
+        parsed
+    }
+
+    fn parse_group_body_inner(&mut self) -> Option<Vec<Vec<RegexNode>>> {
         let mut alternatives = vec![self.parse_sequence()?];
         while self.eat('|') {
             alternatives.push(self.parse_sequence()?);
@@ -311,6 +329,11 @@ impl RegexParser {
     pub(crate) fn parse_atom(&mut self) -> Option<RegexNode> {
         match self.bump()? {
             '(' => {
+                // A `(?:` head opens a plain non-capturing group; captures are
+                // not tracked by this matcher, so it parses exactly like `(`.
+                if self.peek() == Some('?') && self.chars.get(self.pos + 1) == Some(&':') {
+                    self.pos += 2;
+                }
                 let alternatives = self.parse_group_body()?;
                 if !self.eat(')') {
                     return None;

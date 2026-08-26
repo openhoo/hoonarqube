@@ -45,29 +45,52 @@ pub(crate) fn source_type_for(language: JstsLanguage, extension: Option<&str>) -
 
 pub(crate) use hoonarqube_ir::u32_saturating as to_u32;
 
-/// Byte-offset line index; positions follow the `SonarQube` convention
-/// (`line` 1-based, `column` 0-based byte offset within the line).
-pub(crate) struct LineIndex {
+/// Character-offset line index; positions follow the `SonarQube` convention
+/// (`line` 1-based, `column` 0-based **character** offset within the line,
+/// not a byte offset). Keeps the source text so columns match the crate's
+/// character-counting text scans (`S103` line length, tab columns) and the
+/// Python family's Utf32 code-point columns for multi-byte content.
+pub(crate) struct LineIndex<'src> {
     pub(crate) line_starts: Vec<u32>,
+    source: &'src str,
 }
 
-impl LineIndex {
-    pub(crate) fn new(source: &str) -> Self {
+impl<'src> LineIndex<'src> {
+    pub(crate) fn new(source: &'src str) -> Self {
         let mut line_starts = vec![0_u32];
         for (offset, byte) in source.bytes().enumerate() {
             if byte == b'\n' {
                 line_starts.push(to_u32(offset + 1));
             }
         }
-        Self { line_starts }
+        Self {
+            line_starts,
+            source,
+        }
+    }
+
+    /// Byte offset where the line containing `offset` begins (for callers
+    /// that slice raw source bytes rather than report columns).
+    pub(crate) fn line_start(&self, offset: u32) -> u32 {
+        self.line_starts[self.line_of(offset) - 1]
     }
 
     pub(crate) fn pos(&self, offset: u32) -> hoonarqube_ir::Pos {
-        let line = self.line_starts.partition_point(|&start| start <= offset);
+        let line = self.line_of(offset);
+        let line_start = self.line_starts[line - 1];
+        let column = to_u32(
+            self.source[line_start as usize..offset as usize]
+                .chars()
+                .count(),
+        );
         hoonarqube_ir::Pos {
             line: to_u32(line),
-            column: offset - self.line_starts[line - 1],
+            column,
         }
+    }
+
+    fn line_of(&self, offset: u32) -> usize {
+        self.line_starts.partition_point(|&start| start <= offset)
     }
 
     pub(crate) fn range(&self, span: Span) -> hoonarqube_ir::Range {
@@ -349,7 +372,7 @@ pub(crate) fn span_issue(
 /// Central issue emitter: applies catalog scope gating, the language rule-key
 /// prefix, and `LineIndex` positioning for every batch rule.
 pub(crate) struct IssueSink<'index> {
-    pub(crate) index: &'index LineIndex,
+    pub(crate) index: &'index LineIndex<'index>,
     pub(crate) language: JstsLanguage,
     pub(crate) issues: Vec<Issue>,
 }
@@ -431,6 +454,30 @@ pub(crate) fn shannon_entropy_per_char(value: &str) -> f64 {
             -probability * probability.log2()
         })
         .sum()
+}
+
+/// Whether a string literal's value embeds a `credential=` / `credential:`
+/// pair for one of `words` — the value-shape scan shared with the Python
+/// family's `embeds_credential` (`S2068`). Matching is case-insensitive;
+/// only spaces and tabs may separate word, separator, and first value
+/// character, mirroring the reference implementation.
+pub(crate) fn embeds_credential(text: &str, words: &[String]) -> bool {
+    let lower = text.to_lowercase();
+    words.iter().any(|word| {
+        let word = word.to_lowercase();
+        lower.match_indices(word.as_str()).any(|(position, _)| {
+            let rest = lower[position + word.len()..].trim_start_matches([' ', '\t']);
+            let Some(separator) = rest.chars().next() else {
+                return false;
+            };
+            (separator == '=' || separator == ':')
+                && rest[1..]
+                    .trim_start_matches([' ', '\t'])
+                    .chars()
+                    .next()
+                    .is_some_and(|ch| !ch.is_whitespace())
+        })
+    })
 }
 
 pub(crate) fn source_slice(source: &str, span: Span) -> &str {

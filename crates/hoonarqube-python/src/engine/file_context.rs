@@ -4,7 +4,7 @@
 //! [`FileContext`] materializes those shared views exactly once per analyzed
 //! file. Each bucket reproduces the element sequence of the canonical walker
 //! helper it replaces (`for_each_stmt`, `for_each_stmt_expr`, `for_each_call`)
-//! because the collection pass recurses over the very same
+//! because the collection pass traverses the very same
 //! [`child_bodies`]/[`child_exprs`] primitives — iteration order, and
 //! therefore issue emission order before the final sort, is identical by
 //! construction.
@@ -69,43 +69,78 @@ impl<'a> FileContext<'a> {
             imports: Vec::new(),
             has_boto3_binding: false,
         };
-        collect_stmts(parsed.syntax().body.as_slice(), &mut ctx);
+        collect_all(parsed.syntax().body.as_slice(), &mut ctx);
         ctx.has_boto3_binding = has_boto3_binding(&ctx.calls);
         ctx
     }
 }
 
-/// Depth-first statement collection; mirrors `for_each_stmt`
-/// (`visit`, then each body in `child_bodies` order).
-fn collect_stmts<'a>(stmts: &'a [Stmt], ctx: &mut FileContext<'a>) {
-    for stmt in stmts {
-        ctx.stmts.push(stmt);
-        match stmt {
-            Stmt::FunctionDef(function) => ctx.functions.push(function),
-            Stmt::ClassDef(class) => ctx.classes.push(class),
-            Stmt::Import(import) => ctx.imports.push(AnyImport::Plain(import)),
-            Stmt::ImportFrom(import_from) => ctx.imports.push(AnyImport::From(import_from)),
-            _ => {}
-        }
-        for expr in stmt_exprs(stmt) {
-            collect_exprs(expr, ctx);
-        }
-        for body in child_bodies(stmt) {
-            collect_stmts(body, ctx);
+/// Pending work items for the explicit-stack collection walk.
+enum Work<'a> {
+    Stmt(&'a Stmt),
+    Expr(&'a Expr),
+}
+/// Collects every inventory in one explicit-stack pre-order pass; mirrors the
+/// recursive walker sequence (`visit`, then `stmt_exprs`, then each
+/// `child_bodies` slice in order, every subtree drained before the next item)
+/// while keeping traversal state on the heap so pathological AST nesting
+/// cannot overflow the thread stack.
+fn collect_all<'a>(body: &'a [Stmt], ctx: &mut FileContext<'a>) {
+    let mut work: Vec<Work<'a>> = body.iter().rev().map(Work::Stmt).collect();
+    while let Some(item) = work.pop() {
+        match item {
+            Work::Stmt(stmt) => {
+                ctx.stmts.push(stmt);
+                match stmt {
+                    Stmt::FunctionDef(function) => ctx.functions.push(function),
+                    Stmt::ClassDef(class) => ctx.classes.push(class),
+                    Stmt::Import(import) => ctx.imports.push(AnyImport::Plain(import)),
+                    Stmt::ImportFrom(import_from) => ctx.imports.push(AnyImport::From(import_from)),
+                    _ => {}
+                }
+                // Bodies go onto the stack first so the statement's own
+                // expressions pop — and fully drain — ahead of them.
+                for body_slice in child_bodies(stmt).into_iter().rev() {
+                    work.extend(body_slice.iter().rev().map(Work::Stmt));
+                }
+                for expr in stmt_exprs(stmt).into_iter().rev() {
+                    work.push(Work::Expr(expr));
+                }
+            }
+            Work::Expr(expr) => {
+                ctx.exprs.push(expr);
+                match expr {
+                    Expr::Call(call) => ctx.calls.push(call),
+                    Expr::StringLiteral(string) => ctx.strings.push(string),
+                    _ => {}
+                }
+                work.extend(child_exprs(expr).into_iter().rev().map(Work::Expr));
+            }
         }
     }
 }
 
-/// Pre-order expression collection; mirrors `for_each_expr`
-/// (`visit`, then each child in `child_exprs` order).
-fn collect_exprs<'a>(expr: &'a Expr, ctx: &mut FileContext<'a>) {
-    ctx.exprs.push(expr);
-    match expr {
-        Expr::Call(call) => ctx.calls.push(call),
-        Expr::StringLiteral(string) => ctx.strings.push(string),
-        _ => {}
-    }
-    for child in child_exprs(expr) {
-        collect_exprs(child, ctx);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::support::parse;
+
+    /// Regression: collection survives arbitrarily deep expression nesting
+    /// via the heap-grown explicit stack where the former per-frame recursion
+    /// overflowed the thread stack, still yielding full pre-order inventories.
+    /// Nesting uses chained unary negations because ruff's AST keeps no node
+    /// for grouping parentheses (`((((1))))` parses as a bare literal).
+    #[test]
+    fn deep_expression_nesting_collects_iteratively() {
+        let depth = 50_000_usize;
+        let source = format!("value = {}1", "-".repeat(depth));
+        let parsed = parse(&source);
+        let ctx = FileContext::build(&parsed);
+        assert_eq!(ctx.stmts.len(), 1);
+        assert_eq!(ctx.exprs.len(), depth + 2); // unaries + literal + target
+        // The traversal above stays on the heap, but end-of-test drop glue
+        // would still recurse once per nesting level and overflow the small
+        // test-thread stack, so the deep chain is deliberately leaked.
+        std::mem::forget(parsed);
     }
 }

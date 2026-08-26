@@ -49,7 +49,10 @@ fn check_tier_c_rules(
 }
 
 /// Fresh empty sink bound to the analysis location and language.
-fn tier_c_sink(index: &LineIndex, language: JstsLanguage) -> IssueSink<'_> {
+fn tier_c_sink<'index>(
+    index: &'index LineIndex<'index>,
+    language: JstsLanguage,
+) -> IssueSink<'index> {
     IssueSink {
         index,
         language,

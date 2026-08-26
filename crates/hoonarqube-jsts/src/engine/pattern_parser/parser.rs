@@ -1,19 +1,24 @@
-use super::{AnchorKind, ClassItem, GroupKind, ParsedRegex, PatternNode, ShorthandClass};
+use super::{
+    AnchorKind, ClassItem, GroupKind, MAX_GROUP_DEPTH, ParsedRegex, PatternNode, ShorthandClass,
+};
 
 /// Parses the literal-syntax subset of ECMAScript regex patterns. Returns
 /// `Err` only for definite syntax errors — unbalanced parentheses,
 /// unterminated character classes, quantifiers with nothing to repeat,
-/// unknown `(?…)` headers, reversed class ranges, and malformed `\u`/`\x`
-/// forms in unicode mode. Anything merely unfamiliar parses conservatively
-/// so the walker never invents findings (tolerant, never panics).
+/// unknown `(?…)` headers, reversed class ranges, malformed `\u`/`\x`
+/// forms in unicode mode — and for runaway group nesting beyond
+/// [`MAX_GROUP_DEPTH`] (degenerate input; bailing out keeps the scan
+/// bounded). Anything merely unfamiliar parses conservatively so the
+/// walker never invents findings (tolerant, never panics).
 pub(crate) fn parse_regex_pattern(pattern: &str, unicode_mode: bool) -> Result<ParsedRegex, ()> {
     let mut parser = PatternParser {
         source: pattern,
         chars: pattern.char_indices().collect(),
         pos: 0,
         captures: Vec::new(),
-        unicode_mode,
+        group_depth: 0,
         empty_branch_positions: Vec::new(),
+        unicode_mode,
     };
     let alternatives = parser.parse_alternatives(None)?;
     Ok(ParsedRegex {
@@ -31,6 +36,8 @@ struct PatternParser<'p> {
     pos: usize,
     captures: Vec<Option<String>>,
     unicode_mode: bool,
+    /// Current `(` nesting level; bounded by [`MAX_GROUP_DEPTH`].
+    group_depth: u32,
     empty_branch_positions: Vec<usize>,
 }
 
@@ -232,6 +239,19 @@ impl PatternParser<'_> {
     }
 
     fn parse_group(&mut self, start: usize) -> Result<PatternNode, ()> {
+        // Runaway group nesting must not exhaust the stack: bail past the
+        // cap (mirroring the Python crate's `RX_MAX_DEPTH` guard) and let
+        // the `Err` degrade to "no structural findings".
+        if self.group_depth >= MAX_GROUP_DEPTH {
+            return Err(());
+        }
+        self.group_depth += 1;
+        let parsed = self.parse_group_inner(start);
+        self.group_depth -= 1;
+        parsed
+    }
+
+    fn parse_group_inner(&mut self, start: usize) -> Result<PatternNode, ()> {
         let kind = if self.peek() == Some('?') {
             self.pos += 1;
             match self.peek() {
