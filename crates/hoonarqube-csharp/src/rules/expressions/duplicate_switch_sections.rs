@@ -16,15 +16,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         };
         let sections = switch_sections_of(switch_body);
+        let texts: Vec<String> = sections
+            .iter()
+            .map(|section| section_text(*section, source))
+            .collect();
         for (index, section) in sections.iter().enumerate() {
-            let text = section_text(*section, source);
+            let text = &texts[index];
             if text.is_empty() {
                 continue;
             }
-            if sections[..index]
-                .iter()
-                .any(|earlier| section_text(*earlier, source) == text)
-            {
+            if texts[..index].iter().any(|earlier| earlier == text) {
                 issues.push(issue(
                     language,
                     "S1871",

@@ -8,10 +8,10 @@ use tree_sitter::Node;
 
 /// csharpsquid:S4144 — sibling methods sharing one verbatim body; later
 /// duplicates are flagged against the first carrier.
-pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check<'s>(root: Node<'_>, source: &'s str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for type_node in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
-        let mut seen: Vec<(&str, String)> = Vec::new();
+        let mut seen: Vec<(&'s str, &'s str)> = Vec::new();
         for method in member_declarations_of_kind(type_node, "method_declaration") {
             if is_error_tainted(method) || is_attributed(method, source) {
                 continue;
@@ -26,7 +26,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             let name = method
                 .child_by_field_name("name")
                 .map_or("", |name| node_text(name, source));
-            if let Some((carrier, _)) = seen.iter().find(|(_, earlier)| earlier.as_str() == text) {
+            if let Some((carrier, _)) = seen.iter().find(|(_, earlier)| *earlier == text) {
                 issues.push(issue(
                     language,
                     "S4144",
@@ -34,7 +34,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     range_of(method),
                 ));
             } else {
-                seen.push((name, text.to_string()));
+                seen.push((name, text));
             }
         }
     }
