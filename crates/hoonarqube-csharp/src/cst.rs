@@ -7,12 +7,18 @@ use tree_sitter::Node;
 
 pub(crate) use hoonarqube_ir::u32_saturating as to_u32;
 
-/// Pre-order walk over every named and anonymous child node.
+/// Pre-order walk over every named and anonymous child node. Explicit
+/// work-stack instead of recursion: tree-sitter mirrors arbitrary input
+/// nesting in its tree, and children are pushed in reverse so visitation
+/// stays in exact document order.
 pub(crate) fn walk_all<'t>(node: Node<'t>, visit: &mut impl FnMut(Node<'t>)) {
-    visit(node);
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        walk_all(child, visit);
+    let mut pending = vec![node];
+    while let Some(current) = pending.pop() {
+        visit(current);
+        let mut cursor = current.walk();
+        let mut children: Vec<Node<'t>> = current.children(&mut cursor).collect();
+        children.reverse();
+        pending.extend(children);
     }
 }
 
@@ -31,17 +37,30 @@ pub(crate) fn node_text<'a>(node: Node<'_>, source: &'a str) -> &'a str {
     node.utf8_text(source.as_bytes()).unwrap_or("")
 }
 
-pub(crate) fn pos_of(point: tree_sitter::Point) -> hoonarqube_ir::Pos {
+/// Maps a tree-sitter point into an IR position. `column` counts characters
+/// from the row start, matching this crate's text-scan emitters and the
+/// character-based SonarQube/Roslyn text-range convention;
+/// `tree_sitter::Point::column` itself is a UTF-8 byte offset within the
+/// row and is consumed here only to locate the row-start byte, never
+/// emitted directly.
+pub(crate) fn pos_of(
+    point: tree_sitter::Point,
+    byte_offset: usize,
+    source: &str,
+) -> hoonarqube_ir::Pos {
+    let row_start = byte_offset - point.column;
     hoonarqube_ir::Pos {
         line: to_u32(point.row) + 1,
-        column: to_u32(point.column),
+        column: to_u32(source[row_start..byte_offset].chars().count()),
     }
 }
 
-pub(crate) fn range_of(node: Node<'_>) -> hoonarqube_ir::Range {
+/// Half-open-inclusive range of `node` with character-based columns
+/// (see [`pos_of`]).
+pub(crate) fn range_of(node: Node<'_>, source: &str) -> hoonarqube_ir::Range {
     hoonarqube_ir::Range {
-        start: pos_of(node.start_position()),
-        end: pos_of(node.end_position()),
+        start: pos_of(node.start_position(), node.start_byte(), source),
+        end: pos_of(node.end_position(), node.end_byte(), source),
     }
 }
 
