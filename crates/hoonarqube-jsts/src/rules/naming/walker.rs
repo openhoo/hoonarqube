@@ -1,7 +1,7 @@
 // Family walker for 'naming' (generated).
 use crate::JstsLanguage;
 use crate::context::{AnalysisContext, RuleOptions};
-use crate::engine::pattern_parser::regex_search;
+use crate::engine::pattern_parser::{RegexNode, parse_regex, regex_search_parsed};
 use crate::support::{
     IssueSink, LineIndex, RuleScope, binding_identifier_name, constructor_name, property_key_name,
 };
@@ -20,6 +20,7 @@ use oxc_ast_visit::walk::{
     walk_variable_declarator,
 };
 use oxc_span::{GetSpan, Span};
+use std::collections::HashMap;
 
 fn check_naming_rules(
     program: &oxc_ast::ast::Program<'_>,
@@ -34,6 +35,7 @@ fn check_naming_rules(
             issues: Vec::new(),
         },
         rules,
+        parsed_formats: ParsedNameFormats::new(rules),
     };
     names.visit_program(program);
     let mut magic = MagicNumberCollector {
@@ -69,15 +71,16 @@ fn check_naming_rules(
 
 /// `S1441` (quote style per `singleQuotes`) and `S1192` (duplicated string
 /// literals, aggregated after the traversal).
-struct StringStyleCollector<'index> {
+struct StringStyleCollector<'a, 'index> {
     sink: IssueSink<'index>,
     single_quotes: bool,
     duplicate_threshold: usize,
     ignored_strings: Vec<String>,
-    string_occurrences: Vec<(String, Span)>,
+    /// Literal values are arena-backed and outlive the traversal.
+    string_occurrences: Vec<(&'a str, Span)>,
 }
 
-impl<'a> Visit<'a> for StringStyleCollector<'_> {
+impl<'a> Visit<'a> for StringStyleCollector<'a, '_> {
     fn visit_string_literal(&mut self, it: &StringLiteral<'a>) {
         self.check_quote_style(it);
         self.record_occurrence(it);
@@ -89,7 +92,7 @@ impl<'a> Visit<'a> for StringStyleCollector<'_> {
     }
 }
 
-impl StringStyleCollector<'_> {
+impl<'a> StringStyleCollector<'a, '_> {
     fn check_quote_style(&mut self, literal: &StringLiteral<'_>) {
         let Some(raw) = literal.raw.as_ref().map(oxc_ast::ast::Str::as_str) else {
             return;
@@ -114,24 +117,20 @@ impl StringStyleCollector<'_> {
         );
     }
 
-    fn record_occurrence(&mut self, literal: &StringLiteral<'_>) {
+    fn record_occurrence(&mut self, literal: &StringLiteral<'a>) {
         let value = literal.value.as_str();
         if value.chars().count() < 2 || self.ignored_strings.iter().any(|word| word == value) {
             return;
         }
-        self.string_occurrences
-            .push((value.to_string(), literal.span));
+        self.string_occurrences.push((value, literal.span));
     }
 
     /// One `S1192` issue per over-duplicated value, anchored at the first
     /// occurrence.
     fn report_duplicates(&mut self) {
-        let mut groups: Vec<(String, Vec<Span>)> = Vec::new();
+        let mut groups: HashMap<&str, Vec<Span>> = HashMap::new();
         for (value, span) in &self.string_occurrences {
-            match groups.iter_mut().find(|(known, _)| known == value) {
-                Some((_, spans)) => spans.push(*span),
-                None => groups.push((value.clone(), vec![*span])),
-            }
+            groups.entry(value).or_default().push(*span);
         }
         for (value, spans) in groups {
             if spans.len() >= self.duplicate_threshold {
@@ -225,9 +224,30 @@ impl<'a> Visit<'a> for MagicNumberCollector<'_> {
 /// (variable, parameter, and property-key names), and `S2430` (lowercase
 /// constructor callees). The first three compare against the catalog
 /// `format` regular expressions.
+/// The three catalog `format` patterns parsed once per file; parsing them
+/// per checked name would dominate the traversal otherwise. A failed parse
+/// yields an empty alternative set, matching nothing exactly like the
+/// one-shot `regex_search`.
+struct ParsedNameFormats {
+    functions: Vec<Vec<RegexNode>>,
+    classes: Vec<Vec<RegexNode>>,
+    variables: Vec<Vec<RegexNode>>,
+}
+
+impl ParsedNameFormats {
+    fn new(rules: &RuleOptions) -> Self {
+        Self {
+            functions: parse_regex(&rules.format_functions).unwrap_or_default(),
+            classes: parse_regex(&rules.format_classes).unwrap_or_default(),
+            variables: parse_regex(&rules.format_variables).unwrap_or_default(),
+        }
+    }
+}
+
 struct NameFormatCollector<'a, 'index> {
     sink: IssueSink<'index>,
     rules: &'a RuleOptions,
+    parsed_formats: ParsedNameFormats,
 }
 
 impl<'a> Visit<'a> for NameFormatCollector<'a, '_> {
@@ -277,12 +297,14 @@ impl<'a> Visit<'a> for NameFormatCollector<'a, '_> {
         if !matches!(it.kind, MethodDefinitionKind::Constructor)
             && let Some(name) = property_key_name(&it.key)
         {
-            self.check_name(
+            Self::check_name(
+                &mut self.sink,
                 "S100",
                 "function",
                 name,
                 it.key.span(),
                 &self.rules.format_functions,
+                &self.parsed_formats.functions,
             );
         }
         walk_method_definition(self, it);
@@ -290,12 +312,14 @@ impl<'a> Visit<'a> for NameFormatCollector<'a, '_> {
 
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
         if let Some(name) = binding_identifier_name(&it.id) {
-            self.check_name(
+            Self::check_name(
+                &mut self.sink,
                 "S117",
                 "variable",
                 name,
                 it.id.span(),
                 &self.rules.format_variables,
+                &self.parsed_formats.variables,
             );
         }
         walk_variable_declarator(self, it);
@@ -303,12 +327,14 @@ impl<'a> Visit<'a> for NameFormatCollector<'a, '_> {
 
     fn visit_formal_parameter(&mut self, it: &FormalParameter<'a>) {
         if let Some(name) = binding_identifier_name(&it.pattern) {
-            self.check_name(
+            Self::check_name(
+                &mut self.sink,
                 "S117",
                 "parameter",
                 name,
                 it.pattern.span(),
                 &self.rules.format_variables,
+                &self.parsed_formats.variables,
             );
         }
         walk_formal_parameter(self, it);
@@ -318,12 +344,14 @@ impl<'a> Visit<'a> for NameFormatCollector<'a, '_> {
         if !it.computed
             && let Some(name) = property_key_name(&it.key)
         {
-            self.check_name(
+            Self::check_name(
+                &mut self.sink,
                 "S117",
                 "property",
                 name,
                 it.key.span(),
                 &self.rules.format_variables,
+                &self.parsed_formats.variables,
             );
         }
         walk_object_property(self, it);
@@ -353,12 +381,14 @@ impl NameFormatCollector<'_, '_> {
         let Some(id) = id else {
             return;
         };
-        self.check_name(
+        Self::check_name(
+            &mut self.sink,
             "S100",
             "function",
             &id.name,
             id.span,
             &self.rules.format_functions,
+            &self.parsed_formats.functions,
         );
     }
 
@@ -366,12 +396,28 @@ impl NameFormatCollector<'_, '_> {
         let Some(id) = id else {
             return;
         };
-        self.check_name("S101", kind, &id.name, id.span, &self.rules.format_classes);
+        Self::check_name(
+            &mut self.sink,
+            "S101",
+            kind,
+            &id.name,
+            id.span,
+            &self.rules.format_classes,
+            &self.parsed_formats.classes,
+        );
     }
 
-    fn check_name(&mut self, rule: &str, kind: &str, name: &str, span: Span, format: &str) {
-        if !regex_search(format, name) {
-            self.sink.emit_span(
+    fn check_name(
+        sink: &mut IssueSink<'_>,
+        rule: &str,
+        kind: &str,
+        name: &str,
+        span: Span,
+        format: &str,
+        parsed: &[Vec<RegexNode>],
+    ) {
+        if !regex_search_parsed(parsed, name) {
+            sink.emit_span(
                 RuleScope::Both,
                 rule,
                 &format!("Rename this {kind} to match the regular expression '{format}'."),

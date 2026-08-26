@@ -93,18 +93,19 @@ pub(crate) struct ClassFrame {
 /// `propTypes` keys together with every member-property name used, each
 /// attributed to its innermost enclosing class (`None` = outside any class)
 /// so unrelated classes cannot suppress each other's findings.
-pub(crate) struct ClassRuleCollector<'index> {
+pub(crate) struct ClassRuleCollector<'a, 'index> {
     pub(crate) sink: IssueSink<'index>,
     pub(crate) frames: Vec<ClassFrame>,
     /// Exited class frames, kept for deferred finishing after the whole
     /// program was visited (post-class usages must be visible by then).
     pub(crate) finished_frames: Vec<ClassFrame>,
     pub(crate) next_frame_id: usize,
-    pub(crate) used_properties: Vec<(String, Option<usize>)>,
-    pub(crate) props_accessed: Vec<(String, Option<usize>)>,
+    /// Member names are arena-backed and outlive the traversal.
+    pub(crate) used_properties: Vec<(&'a str, Option<usize>)>,
+    pub(crate) props_accessed: Vec<(&'a str, Option<usize>)>,
 }
 
-impl<'a> Visit<'a> for ClassRuleCollector<'_> {
+impl<'a> Visit<'a> for ClassRuleCollector<'a, '_> {
     fn visit_class(&mut self, class: &Class<'a>) {
         let super_name = class
             .heritage
@@ -180,14 +181,14 @@ impl<'a> Visit<'a> for ClassRuleCollector<'_> {
     fn visit_member_expression(&mut self, member: &MemberExpression<'a>) {
         let context = self.frames.last().map(|frame| frame.frame_id);
         if let Some(name) = static_property_name(member) {
-            self.used_properties.push((name.to_string(), context));
+            self.used_properties.push((name, context));
             if expression_through_this_link(member.object(), "props") {
-                self.props_accessed.push((name.to_string(), context));
+                self.props_accessed.push((name, context));
             }
         }
         if let MemberExpression::PrivateFieldExpression(field) = member {
             self.used_properties
-                .push((field.field.name.to_string(), context));
+                .push((field.field.name.as_str(), context));
         }
         oxc_ast_visit::walk::walk_member_expression(self, member);
     }

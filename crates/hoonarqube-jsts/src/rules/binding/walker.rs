@@ -1,7 +1,7 @@
 // Family walker for 'binding' (generated).
 use crate::JstsLanguage;
 use crate::context::{AnalysisContext, RuleOptions};
-use crate::engine::pattern_parser::regex_search;
+use crate::engine::pattern_parser::{RegexNode, parse_regex, regex_search_parsed};
 use crate::support::{
     IssueSink, LineIndex, RuleScope, binding_identifier_name, module_export_name_name,
     property_key_name, shannon_entropy_per_char, span_text_contains,
@@ -36,6 +36,11 @@ fn check_binding_rules(
         },
         source,
         rules,
+        secret_words_parsed: rules
+            .secret_words
+            .iter()
+            .map(|word| parse_regex(word).unwrap_or_default())
+            .collect(),
         callback_argument_depth: 0,
         override_depth: 0,
         constructor_depth: 0,
@@ -54,6 +59,9 @@ struct BindingCollector<'a, 'index> {
     /// Depth inside call arguments; empty functions there are conventional
     /// callbacks and exempt from `S1186`.
     callback_argument_depth: u32,
+    /// `S6418` `secretWords` patterns parsed once per file; an entry that
+    /// fails to parse matches nothing, like one-shot `regex_search`.
+    secret_words_parsed: Vec<Vec<Vec<RegexNode>>>,
     /// Depth inside `override` methods, also exempt from `S1186`.
     override_depth: u32,
     /// Depth inside constructors, whose emptiness is `S6647`'s domain.
@@ -332,8 +340,9 @@ impl BindingCollector<'_, '_> {
                 literal.span,
             );
         }
-        let name_matches_secret_word = self.rules.secret_words.iter().any(|word| {
-            regex_search(word, context_name) || regex_search(word, &context_name.to_lowercase())
+        let lowered = context_name.to_lowercase();
+        let name_matches_secret_word = self.secret_words_parsed.iter().any(|word| {
+            regex_search_parsed(word, context_name) || regex_search_parsed(word, &lowered)
         });
         if name_matches_secret_word
             && text.chars().count() >= 16

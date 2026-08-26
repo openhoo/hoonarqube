@@ -10,7 +10,7 @@ use oxc_ast::ast::{
 use oxc_ast::ast_kind::AstKind;
 use oxc_ast_visit::Visit;
 use oxc_span::{ContentEq, GetSpan, Span};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 fn check_duplicate_rules(
     program: &oxc_ast::ast::Program<'_>,
@@ -241,13 +241,30 @@ impl<'a> DuplicateCollector<'a, '_> {
     /// file; single-line bodies count as trivial and are skipped.
     fn check_similar_functions(&mut self) {
         let bodies = std::mem::take(&mut self.function_bodies);
-        for (position, body) in bodies.iter().enumerate() {
-            if !self.spans_multiple_lines(body.span) {
-                continue;
-            }
-            let matches_earlier = bodies[..position]
+        // Multi-line bodies only; single-line bodies count as trivial.
+        let candidates: Vec<&FunctionBody> = bodies
+            .iter()
+            .filter(|body| self.spans_multiple_lines(body.span))
+            .copied()
+            .collect();
+        // Bucket by statement count: `ContentEq`-equal bodies always share
+        // it, so comparing only same-bucket earlier entries preserves the
+        // exact result set while collapsing the quadratic scan on files
+        // with many small functions. Bucket indices stay ascending, so the
+        // positional order of comparisons is unchanged.
+        let mut buckets: HashMap<usize, Vec<usize>> = HashMap::new();
+        for (index, body) in candidates.iter().enumerate() {
+            buckets
+                .entry(body.statements.len())
+                .or_default()
+                .push(index);
+        }
+        for (position, body) in candidates.iter().enumerate() {
+            let matches_earlier = buckets[&body.statements.len()]
                 .iter()
-                .any(|other| self.spans_multiple_lines(other.span) && other.content_eq(body));
+                .copied()
+                .take_while(|&earlier| earlier < position)
+                .any(|earlier| candidates[earlier].content_eq(body));
             if matches_earlier {
                 self.sink.emit_span(
                     RuleScope::Both,

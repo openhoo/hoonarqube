@@ -14,13 +14,13 @@ const LIFECYCLE_METHODS: &[&str] = &[
     "shouldComponentUpdate",
 ];
 
-impl ClassRuleCollector<'_> {
+impl ClassRuleCollector<'_, '_> {
     /// Whether `name` was used inside this very class or somewhere outside
     /// any class (conservative for duck-typed / detached-method patterns);
     /// a same-named member used inside an unrelated class does not suppress.
-    fn was_used(uses: &[(String, Option<usize>)], name: &str, frame_id: usize) -> bool {
+    fn was_used(uses: &[(&str, Option<usize>)], name: &str, frame_id: usize) -> bool {
         uses.iter().any(|(used, context)| {
-            used == name && (*context == Some(frame_id) || context.is_none())
+            *used == name && (*context == Some(frame_id) || context.is_none())
         })
     }
 

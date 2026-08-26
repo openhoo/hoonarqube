@@ -101,8 +101,15 @@ pub(crate) fn regex_search(pattern: &str, subject: &str) -> bool {
     let Some(alternatives) = parse_regex(pattern) else {
         return false;
     };
+    regex_search_parsed(&alternatives, subject)
+}
+
+/// [`regex_search`] over an already parsed pattern; hot callers matching
+/// many subjects against fixed patterns parse once instead of per call.
+/// An empty `alternatives` slice matches nothing, mirroring a failed parse.
+pub(crate) fn regex_search_parsed(alternatives: &[Vec<RegexNode>], subject: &str) -> bool {
     let chars: Vec<char> = subject.chars().collect();
-    (0..=chars.len()).any(|start| match_alternatives(&alternatives, &chars, start, &mut |_| true))
+    (0..=chars.len()).any(|start| match_alternatives(alternatives, &chars, start, &mut |_| true))
 }
 
 /// Matches `subject` only where the match starts at offset zero.
