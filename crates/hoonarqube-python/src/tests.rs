@@ -767,6 +767,42 @@ fn s5953_flags_undefined_name_loads() {
 }
 
 #[test]
+fn s5953_accepts_match_capture_pattern_bindings() {
+    let source = concat!(
+        "def handle(cmd):\n",
+        "    match cmd:\n",
+        "        case \"go\", dist:\n",
+        "            print(dist)\n",
+    );
+    assert!(findings(&scan(source), "python:S5953").is_empty());
+    let undefined = concat!(
+        "def handle(cmd):\n",
+        "    match cmd:\n",
+        "        case _:\n",
+        "            print(never_defined)\n",
+    );
+    assert_eq!(findings(&scan(undefined), "python:S5953").len(), 1);
+}
+
+#[test]
+fn s5953_accepts_later_comprehension_iterables_using_earlier_targets() {
+    let source = "xs = [1, 2]\nys = [1, 2]\nresult = [x * y for x in xs for y in zip(x, ys)]\n";
+    assert!(findings(&scan(source), "python:S5953").is_empty());
+}
+
+#[test]
+fn s125_applies_catalog_exception_parameter_default() {
+    let exempt = concat!(
+        "# fmt: if x == 1: y = 2\n",
+        "# py2: print undefined_thing\n",
+        "# pylint: disable=all\n",
+    );
+    assert!(findings(&scan(exempt), "python:S125").is_empty());
+    let flagged = "# value = compute(1)\n";
+    assert_eq!(findings(&scan(flagged), "python:S125").len(), 1);
+}
+
+#[test]
 fn s4487_flags_written_but_unread_private_attributes() {
     let flagged = scan(concat!(
         "class Holder:\n",
@@ -1227,6 +1263,14 @@ fn s5856_reports_syntactically_invalid_patterns_only() {
     ));
     assert!(!regex_finds(
         "import re\nre.compile(r'(ab)')\n",
+        "python:S5856"
+    ));
+    assert!(regex_finds(
+        "import re\nre.compile(r'(?#oops')\n",
+        "python:S5856"
+    ));
+    assert!(!regex_finds(
+        "import re\nre.compile(r'(?#ok)a')\n",
         "python:S5856"
     ));
 }

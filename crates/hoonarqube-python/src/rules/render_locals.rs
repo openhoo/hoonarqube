@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::dotted_name;
+use crate::support::dotted_name_is;
 use crate::support::is_locals_call;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
@@ -13,9 +13,7 @@ pub(crate) fn check_render_locals(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if dotted_name(&call.func).as_deref() == Some("render")
-            && call.arguments.args.iter().any(is_locals_call)
-        {
+        if dotted_name_is(&call.func, "render") && call.arguments.args.iter().any(is_locals_call) {
             issues.push(issue_at(
                 "python:S6556",
                 "Do not pass locals() to render.",

@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::dotted_name;
+use crate::support::dotted_name_in;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
@@ -15,7 +15,7 @@ pub(crate) fn check_any_all_list_comprehension(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if matches!(dotted_name(&call.func).as_deref(), Some("any" | "all"))
+        if dotted_name_in(&call.func, &["any", "all"])
             && let [only] = &call.arguments.args[..]
             && matches!(only, Expr::ListComp(_))
         {

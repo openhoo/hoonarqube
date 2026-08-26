@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::dotted_name;
+use crate::support::dotted_name_is;
 use crate::support::has_keyword;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
@@ -13,8 +13,7 @@ pub(crate) fn check_torch_load_weights_only(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if dotted_name(&call.func).as_deref() == Some("torch.load")
-            && !has_keyword(&call.arguments, "weights_only")
+        if dotted_name_is(&call.func, "torch.load") && !has_keyword(&call.arguments, "weights_only")
         {
             issues.push(issue_at(
                 "python:S6985",

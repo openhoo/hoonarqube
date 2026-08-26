@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::dotted_name;
+use crate::support::dotted_name_in;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
@@ -14,10 +14,8 @@ pub(crate) fn check_single_arg_np_where(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if matches!(
-            dotted_name(&call.func).as_deref(),
-            Some("np.where" | "numpy.where")
-        ) && call.arguments.args.len() == 1
+        if dotted_name_in(&call.func, &["np.where", "numpy.where"])
+            && call.arguments.args.len() == 1
             && call.arguments.keywords.is_empty()
         {
             issues.push(issue_at(

@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::dotted_name;
+use crate::support::dotted_name_in;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
@@ -15,7 +15,7 @@ pub(crate) fn check_insecure_temp_files(
     let insecure = ["tempfile.mktemp", "os.tempnam", "os.tmpnam"];
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if dotted_name(&call.func).is_some_and(|path| insecure.contains(&path.as_str())) {
+        if dotted_name_in(&call.func, &insecure) {
             issues.push(issue_at(
                 "python:S5445",
                 "Remove this usage of the deprecated insecure temporary file API.",

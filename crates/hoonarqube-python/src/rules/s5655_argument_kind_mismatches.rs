@@ -17,9 +17,9 @@ pub(crate) fn check_s5655_argument_kind_mismatches(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    signatures: &LocalSignatures,
 ) -> Vec<Issue> {
     let module = parsed.syntax().body.as_slice();
-    let signatures = LocalSignatures::new(module);
     let mut issues = Vec::new();
     for_each_stmt_with_class(module, None, &mut |stmt, class_context| {
         for top_expr in stmt_exprs(stmt) {

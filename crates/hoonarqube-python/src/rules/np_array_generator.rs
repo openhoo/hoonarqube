@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::dotted_name;
+use crate::support::dotted_name_in;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
@@ -15,10 +15,8 @@ pub(crate) fn check_np_array_generator(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if matches!(
-            dotted_name(&call.func).as_deref(),
-            Some("np.array" | "numpy.array")
-        ) && let [only] = &call.arguments.args[..]
+        if dotted_name_in(&call.func, &["np.array", "numpy.array"])
+            && let [only] = &call.arguments.args[..]
             && matches!(only, Expr::Generator(_))
         {
             issues.push(issue_at(

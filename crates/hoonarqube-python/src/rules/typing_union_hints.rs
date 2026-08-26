@@ -1,4 +1,4 @@
-use crate::support::dotted_name;
+use crate::support::dotted_name_in;
 use crate::support::for_each_annotation;
 use crate::support::for_each_expr;
 use crate::support::issue_at;
@@ -18,10 +18,7 @@ pub(crate) fn check_typing_union_hints(
     for_each_annotation(parsed.syntax().body.as_slice(), &mut |annotation| {
         for_each_expr(annotation, &mut |expr| {
             if let Expr::Subscript(subscript) = expr
-                && matches!(
-                    dotted_name(&subscript.value).as_deref(),
-                    Some("typing.Union" | "Union")
-                )
+                && dotted_name_in(&subscript.value, &["typing.Union", "Union"])
             {
                 issues.push(issue_at(
                     "python:S6546",

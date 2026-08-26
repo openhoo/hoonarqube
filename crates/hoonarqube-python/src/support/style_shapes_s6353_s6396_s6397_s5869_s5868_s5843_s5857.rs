@@ -1,7 +1,7 @@
 // --- style shapes (S6353, S6396, S6397, S5869, S5868, S5843, S5857)
 
 use crate::support::{
-    called_name, dotted_name, for_each_stmt_expr, is_false_literal, keyword_value,
+    called_name, dotted_name, dotted_name_is, for_each_stmt_expr, is_false_literal, keyword_value,
 };
 use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
@@ -44,7 +44,7 @@ pub(crate) fn is_call_method(call: &ruff_python_ast::ExprCall, method: &str) -> 
 
 /// Exact dotted-path callee match (`a.b.c(...)` matches `"a.b.c"`).
 pub(crate) fn is_call_path(call: &ruff_python_ast::ExprCall, path: &str) -> bool {
-    dotted_name(&call.func).is_some_and(|p| p == path)
+    dotted_name_is(&call.func, path)
 }
 
 /// Dotted-path match against exact entries or prefix families (import-style

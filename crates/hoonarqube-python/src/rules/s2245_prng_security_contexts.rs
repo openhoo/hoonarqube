@@ -1,6 +1,6 @@
 use crate::engine::file_context::FileContext;
 use crate::support::called_name;
-use crate::support::dotted_name;
+use crate::support::dotted_name_starts_with;
 use crate::support::for_each_call;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
@@ -28,7 +28,7 @@ pub(crate) fn check_s2245_prng_security_contexts(
             for_each_call(function.body.as_slice(), &mut |call| {
                 let uses_prng = PRNG_FUNCTIONS
                     .contains(&called_name(&call.func).unwrap_or_default())
-                    || dotted_name(&call.func).is_some_and(|path| path.starts_with("random."));
+                    || dotted_name_starts_with(&call.func, "random.");
                 if uses_prng {
                     issues.push(issue_at(
                         "python:S2245",

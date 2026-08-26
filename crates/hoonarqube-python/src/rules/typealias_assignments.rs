@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::dotted_name;
+use crate::support::dotted_name_in;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Stmt;
@@ -14,10 +14,7 @@ pub(crate) fn check_typealias_assignments(
     let mut issues = Vec::new();
     for stmt in &file_ctx.stmts {
         if let Stmt::AnnAssign(assign) = stmt
-            && matches!(
-                dotted_name(&assign.annotation).as_deref(),
-                Some("typing.TypeAlias" | "TypeAlias")
-            )
+            && dotted_name_in(&assign.annotation, &["typing.TypeAlias", "TypeAlias"])
         {
             issues.push(issue_at(
                 "python:S6794",

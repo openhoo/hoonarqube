@@ -1,4 +1,4 @@
-use crate::support::dotted_name;
+use crate::support::dotted_name_in;
 use crate::support::for_each_expr_in_module;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
@@ -16,7 +16,7 @@ pub(crate) fn check_deprecated_numpy_aliases(
     let mut issues = Vec::new();
     for_each_expr_in_module(parsed.syntax().body.as_slice(), &mut |expr| {
         if let Expr::Attribute(_) = expr
-            && dotted_name(expr).is_some_and(|p| DEPRECATED_NUMPY_ALIASES.contains(&p.as_str()))
+            && dotted_name_in(expr, &DEPRECATED_NUMPY_ALIASES)
         {
             issues.push(issue_at(
                 "python:S6730",

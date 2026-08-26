@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::dotted_name;
+use crate::support::dotted_name_in;
 use crate::support::is_true_literal;
 use crate::support::issue_at;
 use crate::support::keyword_value;
@@ -22,8 +22,7 @@ pub(crate) fn check_debug_features(
     ];
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        let debug_call =
-            dotted_name(&call.func).is_some_and(|path| DEBUG_CALLS.contains(&path.as_str()));
+        let debug_call = dotted_name_in(&call.func, &DEBUG_CALLS);
         let debug_flag = keyword_value(&call.arguments, "debug").is_some_and(is_true_literal);
         if debug_call || debug_flag {
             issues.push(issue_at(

@@ -1,4 +1,4 @@
-use crate::support::dotted_name;
+use crate::support::dotted_name_in;
 use crate::support::for_each_expr_in_module;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
@@ -20,10 +20,7 @@ pub(crate) fn check_random_state_usage(
         // Call callees are Attributes themselves, so matching Attribute nodes
         // alone covers both references and constructor invocations exactly once.
         if matches!(expr, Expr::Attribute(_))
-            && matches!(
-                dotted_name(expr).as_deref(),
-                Some("np.random.RandomState" | "numpy.random.RandomState")
-            )
+            && dotted_name_in(expr, &["np.random.RandomState", "numpy.random.RandomState"])
         {
             issues.push(issue_at(
                 "python:S6711",

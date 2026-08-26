@@ -1,5 +1,6 @@
 use crate::engine::file_context::FileContext;
 use crate::support::dotted_name;
+use crate::support::dotted_name_in;
 use crate::support::issue_at;
 use crate::support::keyword_value;
 use crate::support::string_literal_text;
@@ -20,7 +21,7 @@ pub(crate) fn check_invalid_weekmask(
     ];
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if !dotted_name(&call.func).is_some_and(|p| BUSDAY_CALLS.contains(&p.as_str())) {
+        if !dotted_name_in(&call.func, &BUSDAY_CALLS) {
             continue;
         }
         let mask_position = if dotted_name(&call.func).is_some_and(|p| p.ends_with("busday_count"))

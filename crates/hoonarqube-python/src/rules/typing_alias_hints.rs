@@ -1,4 +1,4 @@
-use crate::support::dotted_name;
+use crate::support::dotted_name_in;
 use crate::support::for_each_annotation;
 use crate::support::for_each_expr;
 use crate::support::issue_at;
@@ -30,7 +30,7 @@ pub(crate) fn check_typing_alias_hints(
     let mut issues = Vec::new();
     for_each_annotation(parsed.syntax().body.as_slice(), &mut |annotation| {
         for_each_expr(annotation, &mut |expr| {
-            if dotted_name(expr).is_some_and(|path| TYPING_ALIASES.contains(&path.as_str())) {
+            if dotted_name_in(expr, &TYPING_ALIASES) {
                 issues.push(issue_at(
                     "python:S6545",
                     "Use builtin generics instead of the typing alias.",

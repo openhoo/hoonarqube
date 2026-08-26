@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::dotted_name;
+use crate::support::dotted_name_in;
 use crate::support::issue_at;
 use crate::support::string_literal_text;
 use hoonarqube_ir::Issue;
@@ -13,10 +13,7 @@ pub(crate) fn check_literal_re_sub_patterns(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if !matches!(
-            dotted_name(&call.func).as_deref(),
-            Some("re.sub" | "re.subn")
-        ) {
+        if !dotted_name_in(&call.func, &["re.sub", "re.subn"]) {
             continue;
         }
         if let Some(pattern) = call.arguments.args.first().and_then(string_literal_text)

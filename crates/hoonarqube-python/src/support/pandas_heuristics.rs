@@ -1,6 +1,6 @@
 // --- pandas heuristics
 
-use crate::support::{child_exprs, dotted_name, for_each_stmt, issue_at, receiver_root};
+use crate::support::{child_exprs, dotted_name_in, for_each_stmt, issue_at, receiver_root};
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
@@ -39,7 +39,7 @@ pub(crate) fn collect_dataframe_variables(module_body: &[Stmt]) -> Vec<String> {
         if let Stmt::Assign(assign) = stmt
             && let [Expr::Name(target)] = assign.targets.as_slice()
             && let Expr::Call(call) = assign.value.as_ref()
-            && dotted_name(&call.func).is_some_and(|path| CONSTRUCTORS.contains(&path.as_str()))
+            && dotted_name_in(&call.func, &CONSTRUCTORS)
         {
             names.push(target.id.to_string());
         }

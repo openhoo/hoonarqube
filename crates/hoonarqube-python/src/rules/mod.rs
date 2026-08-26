@@ -1,4 +1,5 @@
 use crate::AnalyzerOptions;
+use crate::engine::calls::LocalSignatures;
 use crate::engine::file_context::FileContext;
 use crate::engine::rx::collect_regex_sites;
 use crate::engine::rx::parse_regex;
@@ -809,8 +810,19 @@ pub(crate) fn check_tier_c_semantic_battery(
         index, source, file_ctx,
     ));
     issues.extend(check_s5886_return_hint_mismatches(index, source, file_ctx));
-    issues.extend(check_s930_arity_mismatches(parsed, index, source));
-    issues.extend(check_s5655_argument_kind_mismatches(parsed, index, source));
+    let signatures = LocalSignatures::new(parsed.syntax().body.as_slice());
+    issues.extend(check_s930_arity_mismatches(
+        parsed,
+        index,
+        source,
+        &signatures,
+    ));
+    issues.extend(check_s5655_argument_kind_mismatches(
+        parsed,
+        index,
+        source,
+        &signatures,
+    ));
     issues.extend(check_s2876_iter_returns(index, source, file_ctx));
     issues.extend(check_s2638_override_contracts(parsed, index, source));
     issues.extend(check_s5713_parent_child_except_pairs(parsed, index, source));

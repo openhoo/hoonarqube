@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::dotted_name;
+use crate::support::dotted_name_in;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
@@ -20,8 +20,7 @@ pub(crate) fn check_pep695_generic_classes(
             let generic_base = class.arguments.as_ref().is_some_and(|arguments| {
                 arguments.args.iter().any(|base| {
                     matches!(base, Expr::Subscript(subscript)
-                        if matches!(dotted_name(&subscript.value).as_deref(),
-                            Some("Generic" | "typing.Generic")))
+                        if dotted_name_in(&subscript.value, &["Generic", "typing.Generic"]))
                 })
             });
             if generic_base {

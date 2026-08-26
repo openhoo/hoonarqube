@@ -1,6 +1,6 @@
 use crate::engine::file_context::FileContext;
 use crate::support::call_parts;
-use crate::support::dotted_name;
+use crate::support::dotted_name_in;
 use crate::support::issue_at;
 use crate::support::keyword_value;
 use hoonarqube_ir::Issue;
@@ -14,10 +14,7 @@ pub(crate) fn check_pytz_tzinfo_kwarg(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        let is_datetime_ctor = matches!(
-            dotted_name(&call.func).as_deref(),
-            Some("datetime.datetime" | "datetime")
-        );
+        let is_datetime_ctor = dotted_name_in(&call.func, &["datetime.datetime", "datetime"]);
         if !is_datetime_ctor {
             continue;
         }

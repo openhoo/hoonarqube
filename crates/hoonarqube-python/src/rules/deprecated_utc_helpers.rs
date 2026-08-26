@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::dotted_name;
+use crate::support::dotted_name_in;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
@@ -20,7 +20,7 @@ pub(crate) fn check_deprecated_utc_helpers(
     ];
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if dotted_name(&call.func).is_some_and(|p| DEPRECATED_UTC.contains(&p.as_str())) {
+        if dotted_name_in(&call.func, &DEPRECATED_UTC) {
             issues.push(issue_at(
                 "python:S6903",
                 "Use timezone-aware datetime APIs instead of this deprecated helper.",

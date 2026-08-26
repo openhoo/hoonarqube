@@ -1,6 +1,6 @@
 use crate::engine::file_context::FileContext;
 use crate::support::called_name;
-use crate::support::dotted_name;
+use crate::support::dotted_name_is;
 use crate::support::issue_at;
 use crate::support::string_literal_text;
 use hoonarqube_ir::Issue;
@@ -16,9 +16,7 @@ pub(crate) fn check_strftime_hour_markers(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if called_name(&call.func) != Some("strftime")
-            && dotted_name(&call.func).as_deref() != Some("strftime")
-        {
+        if called_name(&call.func) != Some("strftime") && !dotted_name_is(&call.func, "strftime") {
             continue;
         }
         let Some(format_expr) = call.arguments.args.first() else {

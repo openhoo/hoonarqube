@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::dotted_name;
+use crate::support::dotted_name_parent_in;
 use crate::support::is_call_method;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
@@ -36,10 +36,7 @@ pub(crate) fn check_s5547_weak_ciphers(
     }
     for call in &file_ctx.calls {
         let weak_construction = is_call_method(call, "new")
-            && dotted_name(&call.func).is_some_and(|p| {
-                p.rsplit_once('.')
-                    .is_some_and(|(head, _)| WEAK_CIPHER_ALGORITHMS.contains(&head))
-            });
+            && dotted_name_parent_in(&call.func, &WEAK_CIPHER_ALGORITHMS);
         if weak_construction {
             issues.push(issue_at(
                 "python:S5547",

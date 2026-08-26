@@ -188,34 +188,44 @@ pub(crate) fn visit_scopes_for_yields(
             }
             _ => {
                 if function_depth == 0 {
-                    if matches!(stmt, Stmt::Return(_)) {
-                        issues.push(issue_at(
-                            "python:S2711",
-                            "Remove this 'return'; it appears outside a function.",
-                            stmt.range(),
-                            index,
-                            source,
-                        ));
-                    }
-                    for expr in stmt_exprs(stmt) {
-                        for_each_expr(expr, &mut |node| match node {
-                            Expr::Yield(_) | Expr::YieldFrom(_) => {
-                                issues.push(issue_at(
-                                    "python:S2711",
-                                    "Move this 'yield' into a function; it appears outside one.",
-                                    node.range(),
-                                    index,
-                                    source,
-                                ));
-                            }
-                            _ => {}
-                        });
-                    }
+                    flag_top_level_return_and_yield(stmt, issues, index, source);
                 }
                 for body in child_bodies(stmt) {
                     visit_scopes_for_yields(body, function_depth, issues, index, source);
                 }
             }
         }
+    }
+}
+
+/// python:S2711 — a bare `return` or `yield` outside of any function body.
+fn flag_top_level_return_and_yield(
+    stmt: &Stmt,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    if matches!(stmt, Stmt::Return(_)) {
+        issues.push(issue_at(
+            "python:S2711",
+            "Remove this 'return'; it appears outside a function.",
+            stmt.range(),
+            index,
+            source,
+        ));
+    }
+    for expr in stmt_exprs(stmt) {
+        for_each_expr(expr, &mut |node| match node {
+            Expr::Yield(_) | Expr::YieldFrom(_) => {
+                issues.push(issue_at(
+                    "python:S2711",
+                    "Move this 'yield' into a function; it appears outside one.",
+                    node.range(),
+                    index,
+                    source,
+                ));
+            }
+            _ => {}
+        });
     }
 }

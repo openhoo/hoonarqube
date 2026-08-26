@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::dotted_name;
+use crate::support::dotted_name_in;
 use crate::support::issue_at;
 use crate::support::keyword_value;
 use crate::support::string_literal_text;
@@ -14,10 +14,7 @@ pub(crate) fn check_jwt_secret_arguments(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if !matches!(
-            dotted_name(&call.func).as_deref(),
-            Some("jwt.encode" | "jwt.decode")
-        ) {
+        if !dotted_name_in(&call.func, &["jwt.encode", "jwt.decode"]) {
             continue;
         }
         let key_positional = call.arguments.args.get(1).and_then(string_literal_text);

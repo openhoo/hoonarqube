@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::dotted_name;
+use crate::support::dotted_name_is;
 use crate::support::has_keyword;
 use crate::support::is_zero_number_literal;
 use crate::support::issue_at;
@@ -17,7 +17,7 @@ pub(crate) fn check_isclose_zero_tolerance(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if dotted_name(&call.func).as_deref() != Some("math.isclose") {
+        if !dotted_name_is(&call.func, "math.isclose") {
             continue;
         }
         let compares_zero = call.arguments.args.iter().any(is_zero_number_literal)

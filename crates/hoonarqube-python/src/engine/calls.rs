@@ -178,17 +178,20 @@ impl<'a> LocalSignatures<'a> {
 
     /// Nearest declaration of `method` walking the file-local base chain of
     /// `class_name`; cycles are cut by the visited set.
-    fn nearest_method(&self, class_name: &str, method: &str) -> Option<ResolvedCallee<'a>> {
+    fn nearest_method<'n>(&self, class_name: &'n str, method: &str) -> Option<ResolvedCallee<'a>> {
         self.nearest_method_in(class_name, method, &mut HashSet::new())
     }
 
-    fn nearest_method_in(
+    fn nearest_method_in<'n>(
         &self,
-        class_name: &str,
+        class_name: &'n str,
         method: &str,
-        visited: &mut HashSet<String>,
-    ) -> Option<ResolvedCallee<'a>> {
-        if !visited.insert(class_name.to_string()) {
+        visited: &mut HashSet<&'n str>,
+    ) -> Option<ResolvedCallee<'a>>
+    where
+        'a: 'n,
+    {
+        if !visited.insert(class_name) {
             return None;
         }
         let class = self.classes.get(class_name)?;
