@@ -408,7 +408,7 @@ fn span_contains_word(source: &str, span: Span, word: &str) -> bool {
         if before_ok && after_ok {
             return true;
         }
-        search_from = begin + 1;
+        search_from = begin + word.len();
     }
     false
 }
@@ -501,6 +501,15 @@ mod tests {
 
         let compound_update = js_keys("for (let i = 0; i < n; i += 2) {}\n");
         assert_eq!(count_key(&compound_update, "javascript:S1994"), 0);
+    }
+
+    #[test]
+    fn s1994_multibyte_counter_embedded_in_longer_update_identifier() {
+        let embedded = js_keys("for (let \u{3a9} = 0; \u{3a9} < 9; x\u{3a9}++) {}\n");
+        assert_eq!(count_key(&embedded, "javascript:S1994"), 1);
+
+        let touched = js_keys("for (let \u{e9} = 0; \u{e9} < 9; \u{e9}++) {}\n");
+        assert_eq!(count_key(&touched, "javascript:S1994"), 0);
     }
 
     #[test]

@@ -2,7 +2,7 @@ use crate::engine::rx::RxItem;
 use crate::engine::rx::RxNode;
 use crate::engine::rx::RxParsed;
 use crate::engine::rx::RxSet;
-use crate::engine::rx::for_each_rx_seq;
+use crate::engine::rx::for_each_rx_seq_deep;
 use crate::engine::rx::rx_atom_first_set;
 use crate::engine::rx::rx_equivalent;
 use crate::engine::rx::rx_item_consuming;
@@ -36,42 +36,9 @@ pub(crate) fn check_rx_alternation_shapes(
             );
         }
     }
-    for_each_rx_seq(&parsed.root, &mut |seq| {
+    for_each_rx_seq_deep(&parsed.root, &mut |seq| {
         // python:S6002 — contradictory lookarounds.
-        for pair in seq.items.windows(2) {
-            if let (Some(a), Some(b)) = (
-                rx_lookahead_body(&pair[0].atom),
-                rx_lookahead_body(&pair[1].atom),
-            ) && rx_equivalent(a, b)
-            {
-                push(
-                    "python:S6002",
-                    "This lookahead contradicts the rest of the regular expression.",
-                    pair[1].span,
-                );
-            }
-        }
-        let mut lookahead_sets: Vec<(&RxItem, Option<RxSet>)> = Vec::new();
-        for item in &seq.items {
-            if let Some(body) = rx_positive_lookahead_body(&item.atom) {
-                lookahead_sets.push((item, rx_node_first_set(body)));
-            } else if rx_item_consuming(item) {
-                if let Some(set) = rx_atom_first_set(&item.atom) {
-                    for (lookahead, ahead_set) in &lookahead_sets {
-                        if let Some(ahead) = ahead_set
-                            && !rx_sets_intersect(ahead, &set)
-                        {
-                            push(
-                                "python:S6002",
-                                "This lookahead contradicts the rest of the regular expression.",
-                                lookahead.span,
-                            );
-                        }
-                    }
-                }
-                lookahead_sets.clear();
-            }
-        }
+        check_contradictory_lookaheads(&seq.items, push);
         // python:S5996 — anchors that can never match.
         check_rx_anchor_order(seq, push);
         // python:S6326 — multiple consecutive literal spaces; skipped under
@@ -83,6 +50,44 @@ pub(crate) fn check_rx_alternation_shapes(
     // python:S6035 / python:S6323 — single-character alternations and empty
     // alternatives.
     check_rx_alternation_nodes(&parsed.root, false, push);
+}
+
+/// python:S6002 — lookarounds that contradict the rest of their sequence.
+fn check_contradictory_lookaheads(items: &[RxItem], push: &mut dyn FnMut(&str, &str, TextRange)) {
+    for pair in items.windows(2) {
+        if let (Some(a), Some(b)) = (
+            rx_lookahead_body(&pair[0].atom),
+            rx_lookahead_body(&pair[1].atom),
+        ) && rx_equivalent(a, b)
+        {
+            push(
+                "python:S6002",
+                "This lookahead contradicts the rest of the regular expression.",
+                pair[1].span,
+            );
+        }
+    }
+    let mut lookahead_sets: Vec<(&RxItem, Option<RxSet>)> = Vec::new();
+    for item in items {
+        if let Some(body) = rx_positive_lookahead_body(&item.atom) {
+            lookahead_sets.push((item, rx_node_first_set(body)));
+        } else if rx_item_consuming(item) {
+            if let Some(set) = rx_atom_first_set(&item.atom) {
+                for (lookahead, ahead_set) in &lookahead_sets {
+                    if let Some(ahead) = ahead_set
+                        && !rx_sets_intersect(ahead, &set)
+                    {
+                        push(
+                            "python:S6002",
+                            "This lookahead contradicts the rest of the regular expression.",
+                            lookahead.span,
+                        );
+                    }
+                }
+            }
+            lookahead_sets.clear();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -102,6 +107,11 @@ mod tests {
         ));
         assert!(!regex_finds(
             "import re\nre.compile(r'a(?=b)')\n",
+            "python:S6002"
+        ));
+        // Contradictions inside group bodies are reported too.
+        assert!(regex_finds(
+            "import re\nre.compile(r'x(?:(?=a)b)')\n",
             "python:S6002"
         ));
     }

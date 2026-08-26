@@ -642,10 +642,15 @@ impl<'a> RxParser<'a> {
         match marker.ch {
             ':' => Ok(GroupHead::Kind(RxGroupKind::NonCapture)),
             '#' => {
+                let mut closed = false;
                 while let Some(unit) = self.bump() {
                     if unit.ch == ')' {
+                        closed = true;
                         break;
                     }
+                }
+                if !closed {
+                    return Err(self.err_at(None));
                 }
                 Ok(GroupHead::Complete(RxAtom::Comment))
             }
@@ -1174,6 +1179,19 @@ pub(crate) fn for_each_rx_item<'a>(node: &'a RxNode, visit: &mut impl FnMut(&'a 
             visit(item);
             if let RxAtom::Group(group) = &item.atom {
                 for_each_rx_item(&group.body, visit);
+            }
+        }
+    });
+}
+
+/// Like [`for_each_rx_seq`], but also descends into group bodies so
+/// sequence-level checks observe nested sequences exactly once.
+pub(crate) fn for_each_rx_seq_deep<'a>(node: &'a RxNode, visit: &mut impl FnMut(&'a RxSeq)) {
+    for_each_rx_seq(node, &mut |seq| {
+        visit(seq);
+        for item in &seq.items {
+            if let RxAtom::Group(group) = &item.atom {
+                for_each_rx_seq_deep(&group.body, visit);
             }
         }
     });

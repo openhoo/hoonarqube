@@ -2,7 +2,7 @@ use crate::engine::rx::RxAtom;
 use crate::engine::rx::RxGroupKind;
 use crate::engine::rx::RxParsed;
 use crate::engine::rx::for_each_rx_item;
-use crate::engine::rx::for_each_rx_seq;
+use crate::engine::rx::for_each_rx_seq_deep;
 use crate::engine::rx::is_repetitive;
 use crate::engine::rx::rx_body_ambiguous;
 use crate::rules::rx_lazy_quantifiers::check_rx_lazy_quantifiers;
@@ -16,7 +16,7 @@ pub(crate) fn check_rx_repetition_hazards(
     parsed: &RxParsed,
     push: &mut dyn FnMut(&str, &str, TextRange),
 ) {
-    for_each_rx_seq(&parsed.root, &mut |seq| {
+    for_each_rx_seq_deep(&parsed.root, &mut |seq| {
         check_rx_lazy_quantifiers(seq, push);
         check_rx_possessive_deadlock(seq, push);
         check_rx_overlapping_repeats(seq, push);

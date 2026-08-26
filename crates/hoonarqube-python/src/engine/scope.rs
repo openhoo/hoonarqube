@@ -15,6 +15,7 @@ use ruff_python_ast::Expr;
 use ruff_python_ast::ExprLambda;
 use ruff_python_ast::ExprNamed;
 use ruff_python_ast::ModModule;
+use ruff_python_ast::Pattern;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtGlobal;
 use ruff_python_ast::StmtIf;
@@ -58,8 +59,9 @@ pub(crate) enum RaiseContext {
 // * files using dynamic features (`locals`, `globals`, `eval`, `exec`) skip
 //   resolution-based rules entirely;
 // * class scopes are invisible to functions/comprehensions nested inside them;
-// * comprehension scopes bind their own targets while their iterables resolve
-//   in the enclosing scope.
+// * comprehension scopes bind their own targets; the first iterable resolves
+//   in the enclosing scope while later iterables resolve inside the
+//   comprehension scope, where earlier targets are already visible.
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -228,6 +230,16 @@ fn collect_scope_stmt(table: &mut SymbolTable, current: usize, stmt: &Stmt, loop
         Stmt::ClassDef(class) => {
             collect_class_def(table, current, class, loop_depth);
         }
+        Stmt::Match(match_stmt) => {
+            record_expr_loads(table, current, &match_stmt.subject, false, loop_depth);
+            for case in &match_stmt.cases {
+                if let Some(guard) = case.guard.as_deref() {
+                    record_expr_loads(table, current, guard, false, loop_depth);
+                }
+                record_pattern_bindings(table, current, &case.pattern, loop_depth);
+                collect_scope_stmts(table, current, &case.body, loop_depth);
+            }
+        }
         _ => {
             for expr in stmt_exprs(stmt) {
                 record_expr_loads(table, current, expr, false, loop_depth);
@@ -285,6 +297,85 @@ fn collect_with_stmt(
         }
     }
     collect_scope_stmts(table, current, &with_stmt.body, loop_depth);
+}
+
+/// Walks a structural `match` pattern: binds capture names (`MatchAs.name`,
+/// `MatchStar.name`, `MatchMapping.rest`) into the current scope and records
+/// loads from the pattern's expressions (`MatchValue` values, mapping keys,
+/// class patterns), mirroring PEP 634 evaluation order.
+fn record_pattern_bindings(
+    table: &mut SymbolTable,
+    current: usize,
+    pattern: &Pattern,
+    loop_depth: u32,
+) {
+    match pattern {
+        Pattern::MatchValue(value) => {
+            record_expr_loads(table, current, &value.value, false, loop_depth);
+        }
+        Pattern::MatchSingleton(_) => {}
+        Pattern::MatchSequence(sequence) => {
+            for element in &sequence.patterns {
+                record_pattern_bindings(table, current, element, loop_depth);
+            }
+        }
+        Pattern::MatchMapping(mapping) => {
+            for key in &mapping.keys {
+                record_expr_loads(table, current, key, false, loop_depth);
+            }
+            for subpattern in &mapping.patterns {
+                record_pattern_bindings(table, current, subpattern, loop_depth);
+            }
+            if let Some(rest) = &mapping.rest {
+                bind_symbol(
+                    &mut table.scopes[current],
+                    rest.as_str(),
+                    rest.range(),
+                    BindingKind::Assignment,
+                    loop_depth,
+                );
+            }
+        }
+        Pattern::MatchClass(class) => {
+            record_expr_loads(table, current, &class.cls, false, loop_depth);
+            for argument in &class.arguments.patterns {
+                record_pattern_bindings(table, current, argument, loop_depth);
+            }
+            for keyword in &class.arguments.keywords {
+                record_pattern_bindings(table, current, &keyword.pattern, loop_depth);
+            }
+        }
+        Pattern::MatchStar(star) => {
+            if let Some(name) = &star.name {
+                bind_symbol(
+                    &mut table.scopes[current],
+                    name.as_str(),
+                    name.range(),
+                    BindingKind::Assignment,
+                    loop_depth,
+                );
+            }
+        }
+        Pattern::MatchAs(as_pattern) => {
+            if let Some(subpattern) = as_pattern.pattern.as_deref() {
+                record_pattern_bindings(table, current, subpattern, loop_depth);
+            }
+            if let Some(name) = &as_pattern.name {
+                bind_symbol(
+                    &mut table.scopes[current],
+                    name.as_str(),
+                    name.range(),
+                    BindingKind::Assignment,
+                    loop_depth,
+                );
+            }
+        }
+        Pattern::MatchOr(or_pattern) => {
+            for alternative in &or_pattern.patterns {
+                record_pattern_bindings(table, current, alternative, loop_depth);
+            }
+        }
+    }
 }
 
 fn record_assignment_stmt(table: &mut SymbolTable, current: usize, stmt: &Stmt, loop_depth: u32) {
@@ -725,8 +816,15 @@ fn record_comprehension_scope(
     loop_depth: u32,
 ) {
     let comp_scope = push_symbol_scope(table, ScopeKind::Comprehension, current);
-    for generator in generators {
-        record_expr_loads(table, current, &generator.iter, in_annotation, loop_depth);
+    for (index, generator) in generators.iter().enumerate() {
+        let iter_scope = if index == 0 { current } else { comp_scope };
+        record_expr_loads(
+            table,
+            iter_scope,
+            &generator.iter,
+            in_annotation,
+            loop_depth,
+        );
         record_store_target(
             table,
             comp_scope,

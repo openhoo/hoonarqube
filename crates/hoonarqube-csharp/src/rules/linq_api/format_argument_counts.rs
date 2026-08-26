@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             .iter()
             .filter_map(|name| format_slot_index(name))
             .max();
-        if highest.is_some_and(|index| index + 1 > to_u32(budget)) {
+        if highest.is_some_and(|index| index >= to_u32(budget)) {
             issues.push(issue(
                 language,
                 "S2275",

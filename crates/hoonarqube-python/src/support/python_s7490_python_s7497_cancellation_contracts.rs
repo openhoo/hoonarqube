@@ -1,7 +1,7 @@
 // --- python:S7490 / python:S7497 — cancellation contracts
 
 use crate::engine::rx::RxUnit;
-use crate::support::{child_bodies, dotted_name, for_each_expr, to_u32};
+use crate::support::{child_bodies, dotted_name_in, for_each_expr, to_u32};
 use ruff_python_ast::Stmt;
 use ruff_text_size::TextSize;
 
@@ -90,7 +90,7 @@ fn decode_unknown_escape(
         && let Some(close) = rest[1..].find('}')
     {
         push('\u{fffd}', backslash);
-        return close + 4;
+        return close + 3;
     }
     let ch = rest.chars().next().unwrap_or('\\');
     push('\\', backslash);
@@ -138,10 +138,10 @@ fn decode_hex_escape(
         b'u' => 4,
         _ => 8,
     };
-    let digits = &body[backslash + 2..(backslash + 2 + width).min(body.len())];
+    let digits: String = body[backslash + 2..].chars().take(width).collect();
     if digits.chars().count() == width
         && digits.chars().all(|c| c.is_ascii_hexdigit())
-        && let Ok(value) = u32::from_str_radix(digits, 16)
+        && let Ok(value) = u32::from_str_radix(&digits, 16)
         && let Some(ch) = char::from_u32(value)
     {
         units.push(RxUnit {
@@ -185,7 +185,7 @@ pub(crate) fn has_verbose_flag(arguments: &ruff_python_ast::Arguments) -> bool {
         .chain(arguments.keywords.iter().map(|k| &k.value));
     for expr in arg_exprs {
         for_each_expr(expr, &mut |e| {
-            if matches!(dotted_name(e).as_deref(), Some("re.X" | "re.VERBOSE")) {
+            if dotted_name_in(e, &["re.X", "re.VERBOSE"]) {
                 found = true;
             }
         });

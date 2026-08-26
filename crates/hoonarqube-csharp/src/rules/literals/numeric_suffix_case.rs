@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, node_text, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -7,6 +7,7 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     collect_kinds(root, &["integer_literal", "real_literal"])
         .into_iter()
+        .filter(|literal| !is_error_tainted(*literal))
         .filter(|literal| has_lowercase_suffix(node_text(*literal, source)))
         .map(|literal| {
             issue(
@@ -24,6 +25,9 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 /// digits outside the suffix set fall out naturally (`0xd` stays clean).
 fn has_lowercase_suffix(text: &str) -> bool {
     const SUFFIX_LETTERS: [char; 10] = ['u', 'U', 'l', 'L', 'f', 'F', 'd', 'D', 'm', 'M'];
+    if text.is_empty() {
+        return false;
+    }
     let run_len = text
         .chars()
         .rev()

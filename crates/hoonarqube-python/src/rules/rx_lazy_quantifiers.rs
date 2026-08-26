@@ -52,5 +52,10 @@ mod tests {
             "import re\nre.sub(r'start\\w*?(end|$)', 'x', s)\n",
             "python:S6019"
         ));
+        // Hazards inside group bodies are reported too.
+        assert!(regex_finds(
+            "import re\nre.match(r'x(?:a*?b?)y', s)\n",
+            "python:S6019"
+        ));
     }
 }
