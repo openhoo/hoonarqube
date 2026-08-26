@@ -1,21 +1,47 @@
 use crate::cst::{collect_kinds, node_text};
 use tree_sitter::Node;
 
-/// Every plain and verbatim string literal in the file, document order.
-/// Interpolated strings carry no static content and are skipped.
+/// Every plain, verbatim, and raw string literal in the file, document
+/// order. Interpolated strings carry no static content and are skipped.
 pub(crate) fn string_literals(root: Node<'_>) -> Vec<Node<'_>> {
-    collect_kinds(root, &["string_literal", "verbatim_string_literal"])
+    collect_kinds(
+        root,
+        &[
+            "string_literal",
+            "verbatim_string_literal",
+            "raw_string_literal",
+        ],
+    )
 }
 
 pub(crate) fn is_string_literal(node: Node<'_>) -> bool {
-    matches!(node.kind(), "string_literal" | "verbatim_string_literal")
+    matches!(
+        node.kind(),
+        "string_literal" | "verbatim_string_literal" | "raw_string_literal"
+    )
 }
 
-/// Inner text of a plain or verbatim string literal: quotes and the verbatim
-/// `@` prefix stripped; escape sequences stay as written.
+/// Inner text of a plain, verbatim, or raw string literal: quotes and the
+/// verbatim `@` prefix stripped; escape sequences stay as written. Raw
+/// strings lose their opening and closing quote runs; multi-line raw
+/// strings keep their source indentation (the compiler strips it at
+/// runtime), which never changes regex validation or secret heuristics.
 pub(crate) fn literal_inner_text<'a>(literal: Node<'_>, source: &'a str) -> &'a str {
     let text = node_text(literal, source);
     let trimmed = text.trim_start_matches('@');
+    let leading = trimmed.chars().take_while(|char| *char == '"').count();
+    if leading >= 3 {
+        // Raw string: strip both delimiter quote runs. Content cannot
+        // repeat the delimiter, so the shorter run bounds the literal;
+        // `get` keeps degenerate inputs panic-free.
+        let trailing = trimmed
+            .chars()
+            .rev()
+            .take_while(|char| *char == '"')
+            .count();
+        let quotes = leading.min(trailing);
+        return trimmed.get(quotes..trimmed.len() - quotes).unwrap_or("");
+    }
     trimmed
         .strip_prefix('"')
         .and_then(|rest| rest.strip_suffix('"'))

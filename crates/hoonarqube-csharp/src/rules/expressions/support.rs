@@ -84,7 +84,7 @@ pub(crate) fn is_zero_literal(operand: Node<'_>, source: &str) -> bool {
     operand.kind() == "integer_literal" && node_text(operand, source) == "0"
 }
 
-/// Parses an integer literal's decimal or hexadecimal value.
+/// Parses an integer literal's binary, decimal, or hexadecimal value.
 pub(crate) fn integer_literal_value(literal_text: &str) -> Option<u64> {
     let trimmed = literal_text.trim_end_matches(['u', 'U', 'l', 'L']);
     if let Some(hex) = trimmed
@@ -93,6 +93,16 @@ pub(crate) fn integer_literal_value(literal_text: &str) -> Option<u64> {
     {
         let cleaned: String = hex.chars().filter(char::is_ascii_hexdigit).collect();
         return u64::from_str_radix(&cleaned, 16).ok();
+    }
+    if let Some(binary) = trimmed
+        .strip_prefix("0b")
+        .or_else(|| trimmed.strip_prefix("0B"))
+    {
+        let cleaned: String = binary
+            .chars()
+            .filter(|character| *character == '0' || *character == '1')
+            .collect();
+        return u64::from_str_radix(&cleaned, 2).ok();
     }
     if !trimmed.chars().all(|c| c.is_ascii_digit() || c == '_') {
         return None;

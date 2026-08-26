@@ -18,6 +18,7 @@ pub(crate) fn check_es_idioms(
         },
         concat_roots: Vec::new(),
         arguments_shadowed: Vec::new(),
+        s6582_spans: Vec::new(),
     };
     collector.visit_program(program);
     let roots: Vec<Span> = collector
@@ -55,6 +56,9 @@ pub(crate) struct EsIdiomCollector<'index> {
     /// One frame per enclosing function unit recording whether it shadows
     /// the name `arguments` (`S3513`).
     pub(crate) arguments_shadowed: Vec<bool>,
+    /// Spans of already-emitted `S6582` chain reports; nested operands are
+    /// visited again by the traversal and must stay silent.
+    pub(crate) s6582_spans: Vec<Span>,
 }
 
 #[cfg(test)]

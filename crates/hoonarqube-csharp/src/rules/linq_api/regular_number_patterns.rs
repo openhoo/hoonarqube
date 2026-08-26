@@ -109,4 +109,14 @@ mod tests {
         );
         assert!(with_key(&report, "csharpsquid:S3937").is_empty());
     }
+
+    #[test]
+    fn s3937_parses_binary_literals_in_chains() {
+        let report = analyze_default(
+            "class A\n{\n    void M(int code)\n    {\n        if (code == 0b1 || code == 0b11 || code == 0b1101) { }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3937");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
 }

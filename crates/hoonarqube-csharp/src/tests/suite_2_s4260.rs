@@ -1799,3 +1799,41 @@ fn s3937_flags_irregular_number_patterns() {
     assert_eq!(flagged.len(), 1);
     assert_eq!(flagged[0].range.start.line, 5);
 }
+
+#[test]
+fn s5856_flags_raw_string_patterns_like_verbatim() {
+    let report = analyze_default(
+        "class C\n{\n    Regex R = new Regex(\"\"\"(\\d+\"\"\");\n\n    bool Check(string input) =>\n        Regex.IsMatch(input, @\"(\\d+\");\n}\n",
+    );
+    let flagged = with_key(&report, "csharpsquid:S5856");
+    assert_eq!(flagged.len(), 2);
+    assert_eq!(flagged[0].range.start.line, 3);
+    assert_eq!(flagged[1].range.start.line, 6);
+
+    let multiline = analyze_default(
+        "class C\n{\n    Regex R = new Regex(\"\"\"\n        ([a-z+\n        \"\"\");\n}\n",
+    );
+    assert_eq!(with_key(&multiline, "csharpsquid:S5856").len(), 1);
+}
+
+#[test]
+fn s6418_sees_raw_string_secret_values() {
+    let report = analyze_default("var apiKey = \"\"\"aB3$xY9#kQ\"\"\";\n");
+    assert_eq!(with_key(&report, "csharpsquid:S6418").len(), 1);
+
+    let short = analyze_default("var apiKey = \"\"\"short\"\"\";\n");
+    assert!(with_key(&short, "csharpsquid:S6418").is_empty());
+}
+
+#[test]
+fn s818_splits_hex_bodies_from_suffixes() {
+    let flagged = analyze_default(
+        "class C\n{\n    long a = 0xdu;\n    long b = 0xdlu;\n    uint c = 0b101u;\n}\n",
+    );
+    assert_eq!(with_key(&flagged, "csharpsquid:S818").len(), 3);
+
+    let clean = analyze_default(
+        "class C\n{\n    int a = 0x3dL;\n    uint b = 0x3dUL;\n    long c = 0x1dL;\n    uint d = 0b101U;\n    int e = 0xab_cd;\n}\n",
+    );
+    assert!(with_key(&clean, "csharpsquid:S818").is_empty());
+}

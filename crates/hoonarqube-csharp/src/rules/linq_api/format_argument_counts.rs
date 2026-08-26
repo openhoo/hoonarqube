@@ -32,12 +32,14 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     issues
 }
 
-/// Numeric index of a `{12}`-style format slot.
+/// Numeric index of a `{12}`-style format slot. An all-digit index beyond
+/// `u32` always exceeds any argument budget, so it maps to `u32::MAX`
+/// rather than being dropped like a `{name}` interpolation slot.
 fn format_slot_index(name: &str) -> Option<u32> {
     if !name.chars().all(|character| character.is_ascii_digit()) {
         return None;
     }
-    name.parse().ok()
+    Some(name.parse().unwrap_or(u32::MAX))
 }
 
 #[cfg(test)]
@@ -61,5 +63,15 @@ mod tests {
             "class A\n{\n    void M()\n    {\n        text = string.Format(\"{{0}}\", one);\n        text = string.Format(\"{name}\");\n    }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S2275").is_empty());
+    }
+
+    #[test]
+    fn s2275_flags_slot_indexes_beyond_u32() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        text = string.Format(\"{9999999999999}\", one);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2275");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
     }
 }

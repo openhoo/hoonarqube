@@ -129,4 +129,14 @@ mod tests {
         let report = analyze_default("class C\n{\n    int Sum() => 2 + 2 + 2 + 1;\n}\n");
         assert_eq!(with_key(&report, "csharpsquid:S109").len(), 3);
     }
+
+    #[test]
+    fn s109_allows_binary_zero_and_one_but_flags_larger() {
+        let report = analyze_default(
+            "class C\n{\n    void M()\n    {\n        int flags = 0b0;\n        int mask = 0b1;\n        int big = 0b100;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S109");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 7);
+    }
 }

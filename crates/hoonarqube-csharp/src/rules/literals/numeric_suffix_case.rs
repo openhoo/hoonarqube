@@ -20,25 +20,30 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .collect()
 }
 
-/// Longest trailing run of suffix letters whose remainder still ends in a
-/// digit yields the literal's suffix; lowercase suffixes are flagged. Hex
-/// digits outside the suffix set fall out naturally (`0xd` stays clean).
+/// Splits the numeric body from the suffix by scanning forward from the
+/// radix prefix, so hex digits `d`/`D`/`f` are never mistaken for suffix
+/// letters and digit separators stay inside the body. Any lowercase ASCII
+/// letter behind the body is a lowercase suffix.
 fn has_lowercase_suffix(text: &str) -> bool {
-    const SUFFIX_LETTERS: [char; 10] = ['u', 'U', 'l', 'L', 'f', 'F', 'd', 'D', 'm', 'M'];
     if text.is_empty() {
         return false;
     }
-    let run_len = text
+    let radix = match text.as_bytes().get(1) {
+        Some(b'x' | b'X') => Some(true),
+        Some(b'b' | b'B') => Some(false),
+        _ => None,
+    };
+    let body = &text[if radix.is_some() { 2 } else { 0 }..];
+    let body_end = body
+        .char_indices()
+        .take_while(|(_, char)| match radix {
+            Some(true) => char.is_ascii_hexdigit() || *char == '_',
+            _ => char.is_ascii_digit() || matches!(char, '.' | '_' | 'e' | 'E' | '+' | '-'),
+        })
+        .map(|(index, char)| index + char.len_utf8())
+        .last()
+        .unwrap_or(0);
+    body[body_end..]
         .chars()
-        .rev()
-        .take_while(|letter| SUFFIX_LETTERS.contains(letter))
-        .count();
-    for k in 0..=run_len.min(text.len() - 1) {
-        if text.as_bytes()[text.len() - k - 1].is_ascii_digit() {
-            return text[text.len() - k..]
-                .chars()
-                .any(|letter: char| letter.is_ascii_lowercase());
-        }
-    }
-    false
+        .any(|char| char.is_ascii_lowercase())
 }

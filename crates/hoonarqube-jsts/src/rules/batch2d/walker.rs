@@ -467,6 +467,22 @@ mod tests {
     }
 
     #[test]
+    fn truthy_and_multi_clause_guards_rewrite_to_optional_chaining() {
+        // Plain truthy guard, the rule's headline form.
+        let truthy = js_keys("if (a && a.b) {\n  g();\n}\n");
+        assert_eq!(count_key(&truthy, "javascript:S6582"), 1);
+
+        // Multi-clause guard resolves the same root and reports exactly
+        // once, at the outermost chain span.
+        let multi = js_keys("if (x !== null && x !== undefined && x.member) {\n  g();\n}\n");
+        assert_eq!(count_key(&multi, "javascript:S6582"), 1);
+
+        // A truthy chain whose right side never touches the guard stays clean.
+        let clean = js_keys("if (a && b.c) {\n  g();\n}\n");
+        assert_eq!(count_key(&clean, "javascript:S6582"), 0);
+    }
+
+    #[test]
     fn match_with_global_regex_prefers_match_all() {
         let flagged = js_keys("const hits = text.match(/ab/g);\n");
         assert_eq!(count_key(&flagged, "javascript:S6594"), 1);

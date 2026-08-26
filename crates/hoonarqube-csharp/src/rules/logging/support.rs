@@ -59,6 +59,13 @@ pub(crate) fn template_placeholders(template: &str) -> Vec<&str> {
     let mut index = 0;
     while let Some(offset) = bytes[index..].iter().position(|byte| *byte == b'{') {
         let open = index + offset + 1;
+        if bytes.get(open) == Some(&b'{') {
+            // `{{` is an escaped brace, not a placeholder start; resume
+            // after it instead of aborting the scan. A stray `}}` never
+            // anchors this loop, which only ever seeks `{`.
+            index = open + 1;
+            continue;
+        }
         match bytes[open..].iter().position(|byte| *byte == b'}') {
             Some(close) if close > 0 && !bytes[open..open + close].contains(&b'{') => {
                 names.push(&template[open..open + close]);
@@ -77,4 +84,16 @@ pub(crate) fn field_declarator_names<'a>(field: Node<'_>, source: &'a str) -> Ve
         .filter_map(|declarator| declarator.child_by_field_name("name"))
         .map(|name| node_text(name, source))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::template_placeholders;
+
+    #[test]
+    fn template_placeholders_survives_escaped_braces_before_real_placeholder() {
+        assert_eq!(template_placeholders("{A} and {B}"), vec!["A", "B"]);
+        assert_eq!(template_placeholders("{{Name}} {OrderId}"), vec!["OrderId"]);
+        assert!(template_placeholders("{Unclosed {{x}}").is_empty());
+    }
 }

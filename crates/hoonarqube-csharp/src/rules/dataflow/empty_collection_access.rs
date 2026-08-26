@@ -72,7 +72,7 @@ const EMPTY_ACCESS_COLLECTION_TYPES: [&str; 9] = [
 
 /// Whether this creation provably produces an empty collection:
 /// a zero-length array, an empty `{}` initializer, or a known
-/// collection type constructed without arguments.
+/// collection type constructed without arguments or populated elements.
 fn is_empty_collection_creation(node: Node<'_>, source: &str) -> bool {
     match node.kind() {
         "array_creation_expression" => {
@@ -97,6 +97,13 @@ fn is_empty_collection_creation(node: Node<'_>, source: &str) -> bool {
                 .map_or("", |type_node| simple_name(node_text(type_node, source)));
             EMPTY_ACCESS_COLLECTION_TYPES.contains(&type_name)
                 && invocation_arguments(node).is_empty()
+                && collect_kinds(node, &["initializer_expression"])
+                    .iter()
+                    .all(|init| {
+                        !init
+                            .children(&mut init.walk())
+                            .any(|child| child.is_named())
+                    })
         }
         _ => false,
     }
@@ -170,5 +177,23 @@ mod tests {
             "class C {\n    void M() {\n        var first = new int[GetCount()][0];\n    }\n}\n",
         );
         assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s4158_initialized_creation_with_elements_is_clean() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        var first = new List<int> { 1, 2 }[0];\n        foreach (var item in new List<int> { 1 }) {\n            Keep(item);\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s4158_argumentless_creation_without_initializer_still_flags() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        var first = new List<int>()[0];\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
     }
 }

@@ -14,7 +14,9 @@ use super::s6644_redundant_ternary::check_redundant_ternary;
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::rules::shared::{call_property, is_equality_operator, regex_pattern_text};
-use crate::support::{IssueSink, LineIndex, RuleScope, callee_name, identifier_name};
+use crate::support::{
+    IssueSink, LineIndex, RuleScope, callee_name, identifier_name, unparenthesized,
+};
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     ArrayExpression, ArrayExpressionElement, AssignmentExpression, BinaryExpression,
@@ -144,7 +146,7 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
                 );
             }
             UnaryOperator::LogicalNot => {
-                if let Expression::BinaryExpression(binary) = &it.argument
+                if let Expression::BinaryExpression(binary) = unparenthesized(&it.argument)
                     && (is_equality_operator(binary.operator)
                         || matches!(
                             binary.operator,
@@ -162,7 +164,7 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
                     );
                 }
                 if matches!(
-                    &it.argument,
+                    unparenthesized(&it.argument),
                     Expression::UnaryExpression(inner) if inner.operator == UnaryOperator::LogicalNot
                 ) && self
                     .contexts
@@ -411,5 +413,23 @@ host = '10.0.0.1';
 
         let nested = js_keys("const v = a ? b : (c ? d : e);\n");
         assert_eq!(count_key(&nested, "javascript:S1774"), 1);
+    }
+
+    #[test]
+    fn s1940_and_s6509_see_through_parenthesized_negation_arguments() {
+        let flagged = js_keys("if (!(a === b)) { }\nif (!(a < b)) { }\nif (!(!(flag))) { }\n");
+        assert!(
+            count_key(&flagged, "javascript:S1940") >= 2,
+            "expected parenthesized negated comparisons to fire S1940"
+        );
+        assert!(
+            count_key(&flagged, "javascript:S6509") >= 1,
+            "expected parenthesized double negation to fire S6509"
+        );
+
+        // `!flag` is not a comparison, and `!a === b` parses as `(!a) === b`,
+        // so neither may fire S1940.
+        let clean = js_keys("if (!flag) { }\nlet inverted = !a === b;\n");
+        assert_eq!(count_key(&clean, "javascript:S1940"), 0);
     }
 }
