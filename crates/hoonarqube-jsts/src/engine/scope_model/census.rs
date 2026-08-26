@@ -99,7 +99,7 @@ pub(crate) struct FunctionCensus {
 }
 
 /// Parameter names treated as behavior selectors by `S2301` (weak subset).
-pub(crate) const SELECTOR_PARAM_NAMES: [&str; 5] = ["type", "kind", "action", "mode", "command"];
+const SELECTOR_PARAM_NAMES: [&str; 5] = ["type", "kind", "action", "mode", "command"];
 
 /// Scoped scan of one function body: collects valued-return literal kinds
 /// and branch logic driven by named parameters, without descending into
@@ -300,12 +300,20 @@ impl<'a> Visit<'a> for ClassCensus {
             && let Some(init) = &it.init
             && let Expression::NewExpression(constructor) = unparenthesized(init)
             && let Expression::Identifier(callee) = &constructor.callee
-            && self.classes.get(callee.name.as_str()) == Some(&false)
         {
             self.instances
                 .insert(name.to_string(), callee.name.to_string());
         }
         walk_variable_declarator(self, it);
+    }
+}
+
+impl ClassCensus {
+    /// Prunes recorded instances once the whole program is registered;
+    /// instantiations may textually precede their class declaration.
+    pub(crate) fn finalize(&mut self) {
+        let Self { classes, instances } = self;
+        instances.retain(|_, class| classes.get(class.as_str()) == Some(&false));
     }
 }
 

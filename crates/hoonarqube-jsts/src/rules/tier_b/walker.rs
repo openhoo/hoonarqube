@@ -107,7 +107,7 @@ fn check_tb_flow_rules<'p>(
         env: HashMap::new(),
         status: TbHalt::Live,
         depth: 0,
-        mutable_decl: false,
+        decl_kind: oxc_ast::ast::VariableDeclarationKind::Let,
     };
     flow.visit_program(program);
 }
@@ -161,6 +161,20 @@ mod tests {
             "function g(c) {\n  let x = a();\n  if (c) {\n    x = b();\n  }\n  return x;\n}\ng(true);\n",
         );
         assert_eq!(filtered(&conditional, "S1854").len(), 0);
+    }
+
+    #[test]
+    fn var_redeclaration_writes_but_let_shadowing_stays_silent() {
+        // A `var` redeclaration overwrites the existing function-scoped
+        // binding, so the initial value is a dead store. A block-scoped
+        // `let` with the same name is a fresh entry, not an overwrite.
+        let flagged =
+            js("function f() {\n  var x = compute();\n  var x = 2;\n  return x;\n}\nf();\n");
+        assert_eq!(filtered(&flagged, "S1854").len(), 1);
+        let shadow = js(
+            "function g() {\n  let y = compute();\n  {\n    let y = 2;\n    use(y);\n  }\n  return y;\n}\ng();\n",
+        );
+        assert_eq!(filtered(&shadow, "S1854").len(), 0);
     }
 
     #[test]
@@ -226,5 +240,59 @@ mod tests {
         let flagged = js("send(a, b,);\nnew Widget(x, y\n);\n");
         assert_eq!(filtered(&flagged, "S1537").len(), 1);
         assert_eq!(filtered(&flagged, "S3723").len(), 1);
+    }
+
+    #[test]
+    fn destructuring_import_and_type_lists_follow_the_same_comma_contract() {
+        let flagged = js(
+            "const [a, b,] = arr;\nconst {c, d,} = obj;\nimport { e, f, } from 'm';\nexport { g, h, };\n",
+        );
+        assert_eq!(filtered(&flagged, "S1537").len(), 4);
+        assert_eq!(filtered(&flagged, "S3723").len(), 0);
+        let clean = js(
+            "const [a, b] = arr;\nconst {c, d} = obj;\nimport { e, f } from 'm';\nexport { g, h };\n",
+        );
+        assert_eq!(filtered(&clean, "S1537").len(), 0);
+        let multiline = ts("function tune<\n  T,\n  U\n>() {}\nconst {\n  a,\n  b\n} = obj;\n");
+        assert_eq!(filtered(&multiline, "S3723").len(), 2);
+        assert_eq!(filtered(&multiline, "S1537").len(), 0);
+    }
+
+    #[test]
+    fn short_circuit_rhs_and_shadowing_declarations_stay_clean() {
+        let logical = js(
+            "function f(cond) {\n  let x = compute();\n  cond && (x = 1);\n  return x;\n}\nf(false);\n",
+        );
+        assert_eq!(filtered(&logical, "S1854").len(), 0);
+        let nullish = js("function g(a) {\n  cond ?? (a = 1);\n  return a;\n}\ng(0);\n");
+        assert_eq!(filtered(&nullish, "S1226").len(), 0);
+        let control = js("function f() {\n  let x = compute();\n  x = 1;\n  return x;\n}\nf();\n");
+        assert_eq!(filtered(&control, "S1854").len(), 1);
+
+        let shadowed = js(
+            "function f() {\n  let x = compute();\n  {\n    let x = 2;\n  }\n  return x;\n}\nf();\n",
+        );
+        assert_eq!(filtered(&shadowed, "S1854").len(), 0);
+        let param_shadow = js("function f(p) {\n  {\n    let p = 2;\n  }\n  return p;\n}\nf(1);\n");
+        assert_eq!(filtered(&param_shadow, "S1226").len(), 0);
+    }
+
+    #[test]
+    fn var_redeclaration_reports_write_to_function_scoped_binding() {
+        // The second `var x` rewrites the function-scoped binding, so the
+        // unread first initialization is a dead store.
+        let redeclared =
+            js("function f() {\n  var x = compute();\n  var x = 2;\n  return x;\n}\nf();\n");
+        assert_eq!(filtered(&redeclared, "S1854").len(), 1);
+
+        // Redeclaring a parameter reports the overwritten incoming value.
+        let param_redeclared = js("function f(p) {\n  var p = 2;\n  return p;\n}\nf(1);\n");
+        assert_eq!(filtered(&param_redeclared, "S1226").len(), 1);
+
+        // Block-scoped shadowing of the same name stays silent.
+        let let_shadow = js(
+            "function f() {\n  var x = compute();\n  {\n    let x = 2;\n  }\n  return x;\n}\nf();\n",
+        );
+        assert_eq!(filtered(&let_shadow, "S1854").len(), 0);
     }
 }

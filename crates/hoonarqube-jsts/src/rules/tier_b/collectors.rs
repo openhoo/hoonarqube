@@ -57,16 +57,27 @@ use oxc_ast::ast::{
     MethodDefinition, MethodDefinitionKind, NewExpression, ObjectExpression, ObjectPropertyKind,
     PropertyDefinition, PropertyKey, RegExpLiteral, Statement, TSAccessibility,
 };
+use oxc_ast::ast::{
+    ArrayPattern, ExportNamedDeclaration, ImportDeclaration, ObjectPattern,
+    TSTypeParameterDeclaration, TSTypeParameterInstantiation,
+};
 use oxc_ast_visit::Visit;
+use oxc_ast_visit::walk::walk_array_pattern;
 use oxc_ast_visit::walk::walk_assignment_expression;
 use oxc_ast_visit::walk::walk_conditional_expression;
 use oxc_ast_visit::walk::walk_declaration;
 use oxc_ast_visit::walk::walk_do_while_statement;
+use oxc_ast_visit::walk::walk_export_named_declaration;
 use oxc_ast_visit::walk::walk_for_in_statement;
 use oxc_ast_visit::walk::walk_for_of_statement;
 use oxc_ast_visit::walk::walk_if_statement;
+use oxc_ast_visit::walk::walk_import_declaration;
+use oxc_ast_visit::walk::walk_object_pattern;
 use oxc_ast_visit::walk::walk_switch_statement;
+use oxc_ast_visit::walk::walk_ts_type_parameter_declaration;
+use oxc_ast_visit::walk::walk_ts_type_parameter_instantiation;
 use oxc_ast_visit::walk::walk_update_expression;
+use oxc_ast_visit::walk::walk_variable_declaration;
 use oxc_ast_visit::walk::walk_variable_declarator;
 use oxc_ast_visit::walk::walk_while_statement;
 use oxc_ast_visit::walk::{
@@ -259,17 +270,6 @@ pub(crate) fn in_place_array_call<'data>(
     }
 }
 
-fn permissive_mode(raw: &str) -> bool {
-    let parsed = if let Some(octal) = raw.strip_prefix("0o") {
-        u32::from_str_radix(octal, 8).ok()
-    } else if raw.starts_with("0x") {
-        u32::from_str_radix(raw.trim_start_matches("0x"), 16).ok()
-    } else {
-        raw.parse::<u32>().ok()
-    };
-    matches!(parsed, Some(value) if value <= 0o777 && value & 0o022 != 0)
-}
-
 fn tmpdir_path(expression: &Expression<'_>) -> bool {
     match expression {
         Expression::StringLiteral(literal) => literal.value.contains("/tmp"),
@@ -402,18 +402,21 @@ pub(crate) fn then_callback_returns_nothing(call: &CallExpression<'_>) -> bool {
 
 /// Element/container shapes examined for trailing commas.
 pub(crate) struct TrailingCommaList {
-    /// Full container span, ending in `'('`, `'['`, or `'{'`.
+    /// Full container span, ending in `'('`, `'['`, `'{'`, `'>'`, or — for
+    /// import/export specifier lists — one past their closing `'}'`.
     pub(crate) container: Span,
     /// Last element span, when the list has elements and no rest.
     pub(crate) last_element: Option<Span>,
 }
 
-#[derive(Default)]
-pub(crate) struct TrailingCommaListCollector {
+pub(crate) struct TrailingCommaListCollector<'p> {
     pub(crate) lists: Vec<TrailingCommaList>,
+    /// Raw source bytes; specifier-list declaration spans end past their
+    /// closing brace, so the byte offset is located on demand.
+    pub(crate) source: &'p [u8],
 }
 
-impl<'p> Visit<'p> for TrailingCommaListCollector {
+impl<'p> Visit<'p> for TrailingCommaListCollector<'p> {
     fn visit_array_expression(&mut self, array: &ArrayExpression<'p>) {
         let spread_last = matches!(
             array.elements.last(),
@@ -457,11 +460,97 @@ impl<'p> Visit<'p> for TrailingCommaListCollector {
         }
         walk_formal_parameters(self, parameters);
     }
+
+    fn visit_array_pattern(&mut self, pattern: &ArrayPattern<'p>) {
+        if pattern.rest.is_none() {
+            let last = pattern.elements.last().and_then(|element| element.as_ref());
+            self.lists.push(TrailingCommaList {
+                container: pattern.span,
+                last_element: last.map(GetSpan::span),
+            });
+        }
+        walk_array_pattern(self, pattern);
+    }
+
+    fn visit_object_pattern(&mut self, pattern: &ObjectPattern<'p>) {
+        if pattern.rest.is_none() {
+            self.lists.push(TrailingCommaList {
+                container: pattern.span,
+                last_element: pattern.properties.last().map(GetSpan::span),
+            });
+        }
+        walk_object_pattern(self, pattern);
+    }
+
+    fn visit_import_declaration(&mut self, declaration: &ImportDeclaration<'p>) {
+        if let Some(specifiers) = &declaration.specifiers
+            && let (Some(first), Some(last)) = (specifiers.first(), specifiers.last())
+            && let Some(closer_end) = self.closing_brace_end(last.span().end)
+        {
+            self.lists.push(TrailingCommaList {
+                container: Span::new(first.span().start, closer_end),
+                last_element: Some(last.span()),
+            });
+        }
+        walk_import_declaration(self, declaration);
+    }
+
+    fn visit_export_named_declaration(&mut self, declaration: &ExportNamedDeclaration<'p>) {
+        if let (Some(first), Some(last)) = (
+            declaration.specifiers.first(),
+            declaration.specifiers.last(),
+        ) && let Some(closer_end) = self.closing_brace_end(last.span().end)
+        {
+            self.lists.push(TrailingCommaList {
+                container: Span::new(first.span().start, closer_end),
+                last_element: Some(last.span()),
+            });
+        }
+        walk_export_named_declaration(self, declaration);
+    }
+
+    fn visit_ts_type_parameter_declaration(
+        &mut self,
+        declaration: &TSTypeParameterDeclaration<'p>,
+    ) {
+        self.lists.push(TrailingCommaList {
+            container: declaration.span,
+            last_element: declaration.params.last().map(GetSpan::span),
+        });
+        walk_ts_type_parameter_declaration(self, declaration);
+    }
+
+    fn visit_ts_type_parameter_instantiation(
+        &mut self,
+        instantiation: &TSTypeParameterInstantiation<'p>,
+    ) {
+        self.lists.push(TrailingCommaList {
+            container: instantiation.span,
+            last_element: instantiation.params.last().map(GetSpan::span),
+        });
+        walk_ts_type_parameter_instantiation(self, instantiation);
+    }
 }
 
 /// The `S1438` skip note above explains why no semicolon findings are emitted;
 /// this collector only feeds the trailing-comma checks.
-impl TrailingCommaListCollector {
+impl<'p> TrailingCommaListCollector<'p> {
+    /// Constructs a collector over raw source bytes.
+    pub(crate) fn new(source: &'p str) -> Self {
+        Self {
+            lists: Vec::new(),
+            source: source.as_bytes(),
+        }
+    }
+
+    /// Offset one past the first `}` at or after `from`. Nothing but
+    /// whitespace or comments can legally precede the list-closing brace.
+    fn closing_brace_end(&self, from: u32) -> Option<u32> {
+        let rest = self.source.get(from as usize..)?;
+        let index = rest.iter().position(|byte| *byte == b'}')?;
+        let offset = u32::try_from(index).ok()?;
+        Some(from + offset + 1)
+    }
     fn note_arguments(&mut self, container: Span, arguments: &[Argument<'_>]) {
         let spread_last = matches!(arguments.last(), Some(Argument::SpreadElement(_)));
         let last = (!spread_last)
@@ -580,9 +669,7 @@ impl<'a> Visit<'a> for LetToConstCollector<'a> {
     fn visit_variable_declaration(&mut self, declaration: &VariableDeclaration<'a>) {
         let saved = self.in_let;
         self.in_let = declaration.kind == VariableDeclarationKind::Let;
-        for declarator in &declaration.declarations {
-            self.visit_variable_declarator(declarator);
-        }
+        walk_variable_declaration(self, declaration);
         self.in_let = saved;
     }
 
@@ -595,6 +682,7 @@ impl<'a> Visit<'a> for LetToConstCollector<'a> {
             self.candidates
                 .push((identifier.name.as_str(), identifier.span));
         }
+        walk_variable_declarator(self, declarator);
     }
 
     fn visit_for_of_statement(&mut self, node: &ForOfStatement<'a>) {
@@ -760,6 +848,16 @@ impl<'p> Visit<'p> for MapRoundTripCollector<'p> {
     }
 }
 
+/// Exact u32 for a value the caller has proven integral and within 0..=511.
+fn integral_mode(value: f64) -> Option<u32> {
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "caller guarantees fract() == 0 and 0.0 <= value <= 511.0"
+    )]
+    let exact = value as i128;
+    u32::try_from(exact).ok()
+}
 impl<'p> Visit<'p> for PermissiveAccessCollector {
     fn visit_call_expression(&mut self, call: &CallExpression<'p>) {
         let function_name = callee_member_name(call).or_else(|| callee_name(call));
@@ -771,10 +869,11 @@ impl<'p> Visit<'p> for PermissiveAccessCollector {
                     continue;
                 };
                 if let Expression::NumericLiteral(literal) = unparenthesized(expression)
-                    && literal
-                        .raw
-                        .as_ref()
-                        .is_some_and(|raw| permissive_mode(raw.as_str()))
+                    && literal.value.fract() == 0.0
+                    && literal.value >= 0.0
+                    && literal.value <= 511.0
+                    && let Some(mode) = integral_mode(literal.value)
+                    && mode & 0o022 != 0
                 {
                     self.sites.push((literal.span, "mode"));
                 }

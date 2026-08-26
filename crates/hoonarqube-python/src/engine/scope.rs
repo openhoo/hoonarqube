@@ -230,6 +230,18 @@ fn collect_scope_stmt(table: &mut SymbolTable, current: usize, stmt: &Stmt, loop
         Stmt::ClassDef(class) => {
             collect_class_def(table, current, class, loop_depth);
         }
+        Stmt::TypeAlias(type_alias) => {
+            record_store_target(
+                table,
+                current,
+                &type_alias.name,
+                BindingKind::Assignment,
+                loop_depth,
+            );
+            for expr in stmt_exprs(stmt) {
+                record_expr_loads(table, current, expr, false, loop_depth);
+            }
+        }
         Stmt::Match(match_stmt) => {
             record_expr_loads(table, current, &match_stmt.subject, false, loop_depth);
             for case in &match_stmt.cases {

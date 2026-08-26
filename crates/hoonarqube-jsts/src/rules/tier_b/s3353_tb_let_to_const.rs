@@ -65,4 +65,23 @@ mod tests {
         let late_init = js("let late;\nlate = 1;\nuse(late);\n");
         assert_eq!(filtered(&late_init, "S3353").len(), 0);
     }
+
+    #[test]
+    fn lets_inside_initializer_subtrees_are_still_candidates() {
+        let flagged = js(
+            "let outer = () => {\n  let inner = compute();\n  use(inner);\n};\nouter = wrap(outer);\nuse(outer);\n",
+        );
+        assert_eq!(filtered(&flagged, "S3353").len(), 1);
+    }
+
+    #[test]
+    fn destructuring_defaults_do_not_write_their_helpers() {
+        let flagged = js("let helper = () => 2;\nlet o = {};\n({a = helper()} = o);\n");
+        assert!(
+            filtered(&flagged, "S3353")
+                .iter()
+                .any(|message| message.contains("'helper'")),
+            "helper should keep its const suggestion"
+        );
+    }
 }

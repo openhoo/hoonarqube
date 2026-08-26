@@ -37,6 +37,7 @@ fn check_tier_c_rules(
     let chain_issues = optional_chain_collector_issues(program, index, language);
     let mut class_census = ClassCensus::default();
     class_census.visit_program(program);
+    class_census.finalize();
     let coercion_issues = coercion_collector_issues(program, index, language, &class_census);
     collector.sink.issues.extend(await_issues);
     collector.sink.issues.extend(usage_issues);
@@ -520,6 +521,14 @@ mod tests {
 
         // Both catalog scopes carry S6551.
         assert_eq!(count_key(&ts_keys(template), "typescript:S6551"), 1);
+    }
+
+    #[test]
+    fn instances_declared_before_their_class_are_still_resolved() {
+        let forward = js_keys(
+            "function wrap() {\n  const p = new Point();\n  const label = `at ${p}`;\n  return label;\n}\nwrap();\nclass Point {}\n",
+        );
+        assert_eq!(count_key(&forward, "javascript:S6551"), 1);
     }
 
     #[test]

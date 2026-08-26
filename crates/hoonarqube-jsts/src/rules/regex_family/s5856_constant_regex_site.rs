@@ -373,16 +373,16 @@ fn check_misleading_class_characters(sink: &mut IssueSink, site: &RegexSite, par
                 };
                 let message = match kind {
                     GraphemeComponentKind::CombiningMark => format!(
-                        "Move this Unicode combined character '{ch}' outside of the character class"
+                        "Move this Unicode combined character '{ch}' outside of the character class.",
                     ),
                     GraphemeComponentKind::JoinSequence => String::from(
-                        "Move this Unicode joined character sequence outside of the character class",
+                        "Move this Unicode joined character sequence outside of the character class.",
                     ),
                     GraphemeComponentKind::ModifiedEmoji => format!(
-                        "Move this Unicode modified Emoji '{ch}' outside of the character class"
+                        "Move this Unicode modified Emoji '{ch}' outside of the character class.",
                     ),
                     GraphemeComponentKind::RegionalIndicator => format!(
-                        "Move this Unicode regional indicator '{ch}' outside of the character class"
+                        "Move this Unicode regional indicator '{ch}' outside of the character class.",
                     ),
                 };
                 let absolute = start + relative;

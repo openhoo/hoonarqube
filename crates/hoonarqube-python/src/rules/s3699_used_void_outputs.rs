@@ -1,5 +1,7 @@
 use crate::support::for_each_stmt;
 use crate::support::for_each_stmt_expr;
+use crate::support::for_each_stmt_expr_in_scope;
+use crate::support::for_each_stmt_in_scope;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
@@ -79,13 +81,14 @@ pub(crate) fn check_s3699_used_void_outputs(
 // --- python:S3699 — output of functions returning nothing should not be used -
 
 /// Whether the undecorated, non-async function provably returns nothing:
-/// no `return <value>` and no `yield` anywhere in its body.
+/// no `return <value>` and no `yield` anywhere in its own scope (nested
+/// defs are separate functions).
 fn is_void_function(function: &ruff_python_ast::StmtFunctionDef) -> bool {
     if function.is_async || !function.decorator_list.is_empty() {
         return false;
     }
     let mut returns_value = false;
-    for_each_stmt(&function.body, &mut |stmt| {
+    for_each_stmt_in_scope(&function.body, &mut |stmt| {
         if let Stmt::Return(returned) = stmt
             && returned.value.is_some()
         {
@@ -93,7 +96,7 @@ fn is_void_function(function: &ruff_python_ast::StmtFunctionDef) -> bool {
         }
     });
     let mut yields = false;
-    for_each_stmt_expr(&function.body, &mut |expr| {
+    for_each_stmt_expr_in_scope(&function.body, &mut |expr| {
         if matches!(expr, Expr::Yield(_) | Expr::YieldFrom(_)) {
             yields = true;
         }

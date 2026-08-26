@@ -5,6 +5,7 @@ use ruff_python_ast::ExceptHandler;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
+use ruff_python_ast::TypeParam;
 use ruff_python_ast::token::TokenKind;
 use ruff_python_parser::Parsed;
 use ruff_text_size::Ranged;
@@ -171,6 +172,22 @@ pub(crate) fn for_each_stmt_expr(stmts: &[Stmt], visit: &mut impl FnMut(&Expr)) 
     });
 }
 
+/// Like [`for_each_stmt_expr`] but does not descend into nested function or
+/// class scopes.
+pub(crate) fn for_each_stmt_expr_in_scope(stmts: &[Stmt], visit: &mut impl FnMut(&Expr)) {
+    for stmt in stmts {
+        if matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
+            continue;
+        }
+        for expr in stmt_exprs(stmt) {
+            for_each_expr(expr, visit);
+        }
+        for body in child_bodies(stmt) {
+            for_each_stmt_expr_in_scope(body, visit);
+        }
+    }
+}
+
 /// Top-level expressions carried directly by a statement (decorators,
 /// annotations, defaults, tests, targets, values, ...).
 pub(crate) fn stmt_exprs(stmt: &Stmt) -> Vec<&Expr> {
@@ -244,6 +261,25 @@ pub(crate) fn stmt_exprs(stmt: &Stmt) -> Vec<&Expr> {
         }
         Stmt::Assert(s) => exprs.push(&s.test),
         Stmt::Expr(s) => exprs.push(&s.value),
+        Stmt::TypeAlias(type_alias) => {
+            exprs.push(&type_alias.value);
+            if let Some(type_params) = &type_alias.type_params {
+                for type_param in &type_params.type_params {
+                    match type_param {
+                        TypeParam::TypeVar(param) => {
+                            exprs.extend(param.bound.as_deref());
+                            exprs.extend(param.default.as_deref());
+                        }
+                        TypeParam::TypeVarTuple(param) => {
+                            exprs.extend(param.default.as_deref());
+                        }
+                        TypeParam::ParamSpec(param) => {
+                            exprs.extend(param.default.as_deref());
+                        }
+                    }
+                }
+            }
+        }
         _ => {}
     }
     exprs

@@ -3,9 +3,9 @@ use super::{
     AssignmentTarget, BindingIdentifier, BindingPattern, BlockStatement, BreakStatement,
     CatchClause, ConditionalExpression, ContinueStatement, DoWhileStatement, Expression,
     ForInStatement, ForOfStatement, ForStatement, FormalParameters, Function, GetSpan, HashMap,
-    IfStatement, IssueSink, MemberExpression, ReturnStatement, RuleScope, ScopeFlags,
-    SimpleAssignmentTarget, Span, Statement, StaticBlock, SwitchStatement, ThrowStatement,
-    TryStatement, UpdateExpression, VariableDeclaration, VariableDeclarationKind,
+    IfStatement, IssueSink, LogicalExpression, MemberExpression, ReturnStatement, RuleScope,
+    ScopeFlags, SimpleAssignmentTarget, Span, Statement, StaticBlock, SwitchStatement,
+    ThrowStatement, TryStatement, UpdateExpression, VariableDeclaration, VariableDeclarationKind,
     VariableDeclarator, Visit, WhileStatement, source_slice, unparenthesized,
     walk_for_in_statement, walk_for_of_statement, walk_for_statement,
 };
@@ -44,7 +44,8 @@ pub(crate) struct TbFlow<'p, 's, 'i> {
     pub(crate) status: TbHalt,
     /// Branch nesting depth; findings emit only at depth 0.
     pub(crate) depth: u32,
-    pub(crate) mutable_decl: bool,
+    /// Kind of the declaration whose declarators are currently visited.
+    pub(crate) decl_kind: VariableDeclarationKind,
 }
 
 impl<'p> TbFlow<'p, '_, '_> {
@@ -260,6 +261,20 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
         self.join(then_state, else_state, pre);
     }
 
+    /// Short-circuit right-hand sides run conditionally, so their writes are
+    /// recorded but never reported there and cannot leak into the join.
+    fn visit_logical_expression(&mut self, node: &LogicalExpression<'p>) {
+        self.visit_expression(&node.left);
+        let pre = self.env.clone();
+        let saved_depth = self.depth;
+        let saved_status = self.status;
+        self.depth += 1;
+        self.visit_expression(&node.right);
+        self.depth = saved_depth;
+        self.status = saved_status;
+        self.env = pre;
+    }
+
     fn visit_switch_statement(&mut self, node: &SwitchStatement<'p>) {
         self.visit_expression(&node.discriminant);
         let pre = self.env.clone();
@@ -418,12 +433,12 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
     }
 
     fn visit_variable_declaration(&mut self, declaration: &VariableDeclaration<'p>) {
-        let saved = self.mutable_decl;
-        self.mutable_decl = declaration.kind != VariableDeclarationKind::Const;
+        let saved = self.decl_kind;
+        self.decl_kind = declaration.kind;
         for declarator in &declaration.declarations {
             self.visit_variable_declarator(declarator);
         }
-        self.mutable_decl = saved;
+        self.decl_kind = saved;
     }
 
     fn visit_variable_declarator(&mut self, declarator: &VariableDeclarator<'p>) {
@@ -433,11 +448,26 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
         match &declarator.id {
             BindingPattern::BindingIdentifier(identifier) => {
                 let name = identifier.name.as_str();
-                if self.mutable_decl {
+                if self.decl_kind == VariableDeclarationKind::Var {
+                    // A `var` redeclaration writes the existing function-
+                    // scoped binding rather than shadowing it, so it
+                    // reports like any other assignment (`S1854`, `S1226`,
+                    // `S4165`).
                     let value = declarator.init.as_ref().map(GetSpan::span);
                     self.write(name, identifier.span, value, false);
-                } else {
+                } else if self.decl_kind == VariableDeclarationKind::Const {
                     self.env.remove(name);
+                } else {
+                    // Block-scoped declarations shadow like-named outer
+                    // bindings: a fresh scope entry, not an overwrite.
+                    self.env.insert(
+                        name,
+                        TbPending {
+                            site: identifier.span,
+                            value: declarator.init.as_ref().map(GetSpan::span),
+                            initial: false,
+                        },
+                    );
                 }
             }
             pattern => {

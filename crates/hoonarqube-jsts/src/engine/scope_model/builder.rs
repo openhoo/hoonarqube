@@ -1,16 +1,18 @@
 use super::{
-    ArrowFunctionExpression, AssignmentExpression, AssignmentOperator, BindingPattern,
+    ArrowFunctionExpression, AssignmentExpression, AssignmentOperator,
+    AssignmentTargetPropertyIdentifier, AssignmentTargetWithDefault, BindingPattern,
     BlockStatement, CallExpression, Class, ExportDefaultDeclarationKind, ExportSpecifier,
-    Expression, ImportDeclaration, ImportDeclarationSpecifier, MethodDefinition,
+    Expression, ImportDeclaration, ImportDeclarationSpecifier, MemberExpression, MethodDefinition,
     MethodDefinitionKind, ModuleExportName, NewExpression, ScopeFlags, Span, StaticBlock,
     SwitchStatement, TbBinding, TbCallee, TbEvent, TbKind, TbModel, TbScope, TbScopeKind,
     TbSignature, TbSite, UnaryExpression, UnaryOperator, VariableDeclaration,
     VariableDeclarationKind, VariableDeclarator, Visit, finish_model, member_object,
     static_property_name, unparenthesized, walk_arrow_function_expression, walk_block_statement,
     walk_call_expression, walk_catch_clause, walk_class, walk_export_default_declaration,
-    walk_expression, walk_for_statement, walk_function, walk_method_definition,
-    walk_new_expression, walk_program, walk_static_block, walk_switch_statement,
-    walk_unary_expression, walk_variable_declaration, walk_variable_declarator,
+    walk_expression, walk_for_statement, walk_function, walk_member_expression,
+    walk_method_definition, walk_new_expression, walk_program, walk_static_block,
+    walk_switch_statement, walk_unary_expression, walk_variable_declaration,
+    walk_variable_declarator,
 };
 
 /// Builds the [`TbModel`] in one `Visit` pass. Writes versus reads are told
@@ -420,6 +422,40 @@ impl<'a> Visit<'a> for TbBuilder<'a, '_> {
         self.visit_simple_assignment_target(&update.argument);
         self.write_depth -= 1;
         self.compound = false;
+    }
+
+    /// The object of a member assignment target is always a read; nested
+    /// assignment expressions re-raise the depth themselves.
+    fn visit_member_expression(&mut self, member: &MemberExpression<'a>) {
+        let saved = self.write_depth;
+        self.write_depth = 0;
+        walk_member_expression(self, member);
+        self.write_depth = saved;
+    }
+
+    /// `[k = f()] = arr` / `({a: b = f()} = o)`: the binding target keeps its
+    /// write classification while the default expression stays a read.
+    fn visit_assignment_target_with_default(&mut self, target: &AssignmentTargetWithDefault<'a>) {
+        self.visit_assignment_target(&target.binding);
+        let saved = self.write_depth;
+        self.write_depth = 0;
+        self.visit_expression(&target.init);
+        self.write_depth = saved;
+    }
+
+    /// `({a = helper()} = o)`: the shorthand binding is a write, its default
+    /// expression a read.
+    fn visit_assignment_target_property_identifier(
+        &mut self,
+        property: &AssignmentTargetPropertyIdentifier<'a>,
+    ) {
+        self.visit_identifier_reference(&property.binding);
+        let saved = self.write_depth;
+        self.write_depth = 0;
+        if let Some(init) = &property.init {
+            self.visit_expression(init);
+        }
+        self.write_depth = saved;
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {

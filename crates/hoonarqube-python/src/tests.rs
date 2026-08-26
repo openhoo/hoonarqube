@@ -406,6 +406,19 @@ fn s1192_exclusion_regex_suppresses_matches() {
 }
 
 #[test]
+fn s1192_sees_duplicates_inside_pep695_type_aliases() {
+    // PEP 695 alias values must reach the shared walk tables; identical alias
+    // values duplicate exactly like assigned string literals (catalog S1192
+    // threshold: 3 occurrences within one function scope).
+    let flagged = scan(
+        "def run():\n    type Bucket = Literal[\"dup\"]\n    type Mirror = Literal[\"dup\"]\n    type Trio = Literal[\"dup\"]\n\n\nrun()\n",
+    );
+    assert!(!findings(&flagged, "python:S1192").is_empty());
+    let single = scan("type Bucket = Literal[\"dup\"]\n");
+    assert!(findings(&single, "python:S1192").is_empty());
+}
+
+#[test]
 fn s5828_flags_invalid_open_modes_only() {
     let flagged = scan("open(\"d\", \"q\")\nopen(\"d\", mode=\"rr\")\nopen(\"d\", \"rb\")\n");
     assert_eq!(findings(&flagged, "python:S5828").len(), 2);
@@ -1907,6 +1920,31 @@ fn s3699_flags_expression_uses_of_void_outputs() {
         "def wrapped():\n    pass\n"
     );
     assert!(findings_of(clean, "python:S3699").is_empty());
+}
+
+#[test]
+fn s3699_ignores_nested_def_returns_when_classifying_void_functions() {
+    // A nested inner def's `return`/`yield` must not classify the outer
+    // function as non-void; consuming outer()'s output stays invalid.
+    let nested_return = concat!(
+        "def outer():\n",
+        "    def inner():\n        return 1\n",
+        "total = outer() + 1\n"
+    );
+    assert_eq!(findings_of(nested_return, "python:S3699").len(), 1);
+    let nested_yield = concat!(
+        "def outer():\n",
+        "    def gen():\n        yield 1\n",
+        "total = outer() + 1\n"
+    );
+    assert_eq!(findings_of(nested_yield, "python:S3699").len(), 1);
+    let outer_returns = concat!(
+        "def outer():\n",
+        "    def inner():\n        return 1\n",
+        "    return inner()\n",
+        "total = outer() + 1\n"
+    );
+    assert!(findings_of(outer_returns, "python:S3699").is_empty());
 }
 
 #[test]

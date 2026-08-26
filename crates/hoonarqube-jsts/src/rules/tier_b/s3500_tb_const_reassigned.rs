@@ -30,4 +30,14 @@ mod tests {
         let clean = js("const fixed = 1;\nconsole.log(fixed);\n");
         assert_eq!(filtered(&clean, "S3500").len(), 0);
     }
+
+    #[test]
+    fn member_writes_do_not_reassign_the_root_constant() {
+        let member = js("const c = {};\nc.x = 1;\nuse(c);\n");
+        assert_eq!(filtered(&member, "S3500").len(), 0);
+        let update = js("const c = {x: 0};\nc.x++;\n");
+        assert_eq!(filtered(&update, "S3500").len(), 0);
+        let direct = js("const fixed = 1;\nfixed = 2;\n");
+        assert_eq!(filtered(&direct, "S3500").len(), 1);
+    }
 }

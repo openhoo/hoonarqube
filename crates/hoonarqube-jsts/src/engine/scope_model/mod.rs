@@ -4,25 +4,26 @@ use crate::support::{
 };
 use oxc_ast::ast::{
     ArrowFunctionBody, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator,
-    AssignmentTarget, BinaryExpression, BinaryOperator, BindingIdentifier, BindingPattern,
-    BlockStatement, BreakStatement, CallExpression, CatchClause, Class, ClassElement,
-    ConditionalExpression, ContinueStatement, Declaration, DoWhileStatement,
-    ExportDefaultDeclarationKind, ExportSpecifier, Expression, ForInStatement, ForOfStatement,
-    ForStatement, FormalParameters, Function, IfStatement, ImportDeclaration,
-    ImportDeclarationSpecifier, MemberExpression, MethodDefinition, MethodDefinitionKind,
-    ModuleExportName, NewExpression, ReturnStatement, SimpleAssignmentTarget, Statement,
-    StaticBlock, SwitchStatement, ThrowStatement, TryStatement, UnaryExpression, UnaryOperator,
-    UpdateExpression, VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
-    WhileStatement,
+    AssignmentTarget, AssignmentTargetPropertyIdentifier, AssignmentTargetWithDefault,
+    BinaryExpression, BinaryOperator, BindingIdentifier, BindingPattern, BlockStatement,
+    BreakStatement, CallExpression, CatchClause, Class, ClassElement, ConditionalExpression,
+    ContinueStatement, Declaration, DoWhileStatement, ExportDefaultDeclarationKind,
+    ExportSpecifier, Expression, ForInStatement, ForOfStatement, ForStatement, FormalParameters,
+    Function, IfStatement, ImportDeclaration, ImportDeclarationSpecifier, LogicalExpression,
+    MemberExpression, MethodDefinition, MethodDefinitionKind, ModuleExportName, NewExpression,
+    ReturnStatement, SimpleAssignmentTarget, Statement, StaticBlock, SwitchStatement,
+    ThrowStatement, TryStatement, UnaryExpression, UnaryOperator, UpdateExpression,
+    VariableDeclaration, VariableDeclarationKind, VariableDeclarator, WhileStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_arrow_function_expression, walk_binary_expression, walk_block_statement,
     walk_call_expression, walk_catch_clause, walk_class, walk_declaration,
     walk_export_default_declaration, walk_expression, walk_for_in_statement, walk_for_of_statement,
-    walk_for_statement, walk_function, walk_method_definition, walk_new_expression, walk_program,
-    walk_return_statement, walk_static_block, walk_switch_statement, walk_unary_expression,
-    walk_variable_declaration, walk_variable_declarator,
+    walk_for_statement, walk_function, walk_member_expression, walk_method_definition,
+    walk_new_expression, walk_program, walk_return_statement, walk_static_block,
+    walk_switch_statement, walk_unary_expression, walk_variable_declaration,
+    walk_variable_declarator,
 };
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeFlags;

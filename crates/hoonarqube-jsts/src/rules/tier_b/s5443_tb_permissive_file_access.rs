@@ -39,6 +39,13 @@ mod tests {
         assert_eq!(filtered(&modes, "S5443").len(), 2);
         let safe_mode = js("fs.open(path, 'w', 0o644);\n");
         assert_eq!(filtered(&safe_mode, "S5443").len(), 0);
+        // Legacy-octal, float, and uppercase-hex spellings of permissive
+        // runtime modes are no longer dropped.
+        let spellings =
+            js("fs.mkdir(p, 0777);\nfs.open(p, 'w', 511.0);\nfs.open(p, 'r+', 0X1FF);\n");
+        assert_eq!(filtered(&spellings, "S5443").len(), 3);
+        let still_safe = js("fs.mkdir(p, 0o644);\n");
+        assert_eq!(filtered(&still_safe, "S5443").len(), 0);
         let tmp = js("fs.writeFile(os.tmpdir() + '/out.txt', data);\n");
         assert_eq!(filtered(&tmp, "S5443").len(), 1);
         let exclusive =

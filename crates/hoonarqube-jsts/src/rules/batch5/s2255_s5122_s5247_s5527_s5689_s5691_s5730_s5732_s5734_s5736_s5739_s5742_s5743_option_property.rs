@@ -158,7 +158,7 @@ impl SecurityHotspotCollector<'_, '_> {
             )),
             (Some("frameguard"), Expression::BooleanLiteral(literal)) if !literal.value => Some((
                 "S5732",
-                "Protect against clickjacking with 'frame-ancestors'.",
+                "Enable 'frameguard' or protect against clickjacking with 'frame-ancestors'.",
             )),
             (Some("expectCt"), Expression::BooleanLiteral(literal)) if !literal.value => Some((
                 "S5742",

@@ -10,12 +10,13 @@ use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     AssignmentExpression, BinaryOperator, BreakStatement, CallExpression, ContinueStatement,
     DoWhileStatement, Expression, ForInStatement, ForOfStatement, ForStatement, ForStatementInit,
-    ReturnStatement, Statement, ThrowStatement, UpdateExpression, UpdateOperator, WhileStatement,
+    ReturnStatement, Statement, SwitchCase, ThrowStatement, UpdateExpression, UpdateOperator,
+    WhileStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_assignment_expression, walk_call_expression, walk_do_while_statement,
-    walk_for_in_statement, walk_for_of_statement, walk_while_statement,
+    walk_for_in_statement, walk_for_of_statement, walk_switch_case, walk_while_statement,
 };
 use oxc_span::{GetSpan, Span};
 
@@ -33,9 +34,20 @@ fn check_loop_rules(
         },
         source,
         frames: Vec::new(),
+        case_depth: 0,
+        break_targets: Vec::new(),
     };
     collector.visit_program(program);
     collector.sink.issues
+}
+
+/// Construct that the nearest enclosing unlabeled `break` would exit.
+#[derive(Clone, Copy, PartialEq)]
+enum BreakTarget {
+    /// An iteration statement: the break counts as a loop jump/terminator.
+    Loop,
+    /// A switch case consequent: the break only ends the case.
+    Case,
 }
 
 /// Loop-shape rules in one traversal.
@@ -44,6 +56,12 @@ struct LoopFlowCollector<'a, 'index> {
     source: &'a str,
     /// One frame per lexically enclosing visited loop.
     frames: Vec<LoopFrame>,
+    /// Nesting depth of switch cases; unlabeled breaks inside them target
+    /// the switch, not the loop.
+    case_depth: u32,
+    /// Innermost-last stack of enclosing constructs an unlabeled `break`
+    /// can target; the nearest entry decides loop jump vs case-break.
+    break_targets: Vec<BreakTarget>,
 }
 
 impl<'a> LoopFlowCollector<'a, '_> {
@@ -195,12 +213,39 @@ impl<'a> LoopFlowCollector<'a, '_> {
 }
 
 impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
-    fn visit_break_statement(&mut self, _it: &BreakStatement) {
+    fn visit_break_statement(&mut self, it: &BreakStatement) {
+        if it.label.is_none() {
+            // An unlabeled break exits the innermost enclosing breakable.
+            // It counts as a loop jump/terminator only when that nearest
+            // target is a loop; against a nearer switch case it is a
+            // case-break and stays unaccounted.
+            if self.break_targets.last() == Some(&BreakTarget::Loop) {
+                self.note_jump(true);
+            }
+            return;
+        }
+        if self.case_depth > 0 {
+            // Labeled breaks under a switch case may still target the
+            // loop, so they keep the frame conservative without counting
+            // as a loop jump.
+            if let Some(frame) = self.frames.last_mut() {
+                frame.terminators = true;
+            }
+            return;
+        }
         self.note_jump(true);
     }
 
     fn visit_continue_statement(&mut self, _it: &ContinueStatement) {
         self.note_jump(false);
+    }
+
+    fn visit_switch_case(&mut self, it: &SwitchCase<'a>) {
+        self.case_depth += 1;
+        self.break_targets.push(BreakTarget::Case);
+        walk_switch_case(self, it);
+        self.break_targets.pop();
+        self.case_depth -= 1;
     }
 
     fn visit_return_statement(&mut self, _it: &ReturnStatement) {
@@ -288,12 +333,14 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
         }
         let endless = it.test.is_none();
         self.push_frame();
+        self.break_targets.push(BreakTarget::Loop);
         if let Some(counter_name) = &counter
             && let Some(frame) = self.frames.last_mut()
         {
             frame.counters.push(counter_name.clone());
         }
         self.visit_statement(&it.body);
+        self.break_targets.pop();
         self.finish_loop(it.span(), endless);
     }
 
@@ -302,7 +349,9 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
         self.check_single_iteration_body(&it.body);
         let endless = is_constant_true(Some(&it.test));
         self.push_frame();
+        self.break_targets.push(BreakTarget::Loop);
         walk_while_statement(self, it);
+        self.break_targets.pop();
         self.finish_loop(it.span(), endless);
     }
 
@@ -311,7 +360,9 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
         self.check_single_iteration_body(&it.body);
         let endless = is_constant_true(Some(&it.test));
         self.push_frame();
+        self.break_targets.push(BreakTarget::Loop);
         walk_do_while_statement(self, it);
+        self.break_targets.pop();
         self.finish_loop(it.span(), endless);
     }
 
@@ -332,7 +383,9 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
             _ => {}
         }
         self.push_frame();
+        self.break_targets.push(BreakTarget::Loop);
         walk_for_in_statement(self, it);
+        self.break_targets.pop();
         let frame = self.pop_frame();
         if !frame.has_own_guard {
             self.sink.emit_span(
@@ -362,7 +415,9 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
             _ => {}
         }
         self.push_frame();
+        self.break_targets.push(BreakTarget::Loop);
         walk_for_of_statement(self, it);
+        self.break_targets.pop();
         let frame = self.pop_frame();
         self.flag_many_jumps(frame.jumps, it.span());
     }
@@ -710,5 +765,43 @@ mod tests {
     fn s4138_string_iterable_passes() {
         let chars = js_keys("for (const ch of 'ab') {\n  f(ch);\n}\n");
         assert_eq!(count_key(&chars, "javascript:S4138"), 0);
+    }
+
+    #[test]
+    fn switch_case_breaks_are_not_loop_jumps_or_terminators() {
+        let trigger = js_keys(
+            "for (const item of items) {\n  if (!item.ok) continue;\n  switch (item.kind) {\n    case 'a':\n      handleA(item);\n      break;\n    case 'b':\n      handleB(item);\n      break;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&trigger, "javascript:S135"), 0);
+
+        // An endless while whose only exit is an unlabeled switch break no
+        // longer counts that break as a loop terminator...
+        let endless =
+            js_keys("while (true) {\n  switch (x) {\n    case 1:\n      break;\n  }\n}\n");
+        assert_eq!(count_key(&endless, "javascript:S2189"), 1);
+        assert_eq!(count_key(&endless, "javascript:S135"), 0);
+
+        // ...while a labeled break targeting the loop still terminates it.
+        let labeled = js_keys(
+            "outer: while (true) {\n  switch (x) {\n    case 1:\n      break outer;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&labeled, "javascript:S2189"), 0);
+    }
+
+    #[test]
+    fn unlabeled_breaks_of_loops_nested_in_cases_are_loop_jumps_and_terminators() {
+        // The innermost matching target of the bare `break` is the loop,
+        // not the enclosing case, so it terminates the endless loop.
+        let terminator = js_keys(
+            "switch (x) {\n  case 1:\n    while (true) {\n      break;\n    }\n    break;\n}\n",
+        );
+        assert_eq!(count_key(&terminator, "javascript:S2189"), 0);
+
+        // Such breaks also count toward the loop's jump budget (S135),
+        // while the trailing case-level break stays unaccounted.
+        let two_breaks = js_keys(
+            "switch (x) {\n  case 1:\n    while (a) {\n      if (b) {\n        break;\n      }\n      if (c) {\n        break;\n      }\n    }\n    break;\n}\n",
+        );
+        assert_eq!(count_key(&two_breaks, "javascript:S135"), 1);
     }
 }

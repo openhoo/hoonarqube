@@ -43,4 +43,10 @@ mod tests {
                 .any(|issue| issue.rule_key == "typescript:S6522")
         );
     }
+
+    #[test]
+    fn member_writes_do_not_reassign_the_import_binding() {
+        let member = js("import fs from 'node:fs';\nfs.promises.x = 1;\n");
+        assert_eq!(filtered(&member, "S6522").len(), 0);
+    }
 }

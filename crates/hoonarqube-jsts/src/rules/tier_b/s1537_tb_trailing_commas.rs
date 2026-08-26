@@ -12,14 +12,14 @@ pub(crate) fn check_tb_trailing_commas(
     comments: &[ScannedComment],
     sink: &mut IssueSink<'_>,
 ) {
-    for list in collect_trailing_comma_lists(program) {
+    for list in collect_trailing_comma_lists(program, source) {
         let closer = list.container.end - 1;
         let Some(last_element) = list.last_element else {
             continue;
         };
         if !matches!(
             source.as_bytes().get(closer as usize),
-            Some(b')' | b']' | b'}')
+            Some(b')' | b']' | b'}' | b'>')
         ) {
             continue;
         }
@@ -46,8 +46,11 @@ pub(crate) fn check_tb_trailing_commas(
     }
 }
 
-fn collect_trailing_comma_lists(program: &oxc_ast::ast::Program<'_>) -> Vec<TrailingCommaList> {
-    let mut collector = TrailingCommaListCollector::default();
+fn collect_trailing_comma_lists(
+    program: &oxc_ast::ast::Program<'_>,
+    source: &str,
+) -> Vec<TrailingCommaList> {
+    let mut collector = TrailingCommaListCollector::new(source);
     collector.visit_program(program);
     collector.lists
 }
