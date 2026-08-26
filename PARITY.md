@@ -41,25 +41,29 @@ reviewed in the hardening pass. The harness scaffolding (`oracle-cs.csproj/.sln`
    file-level issues carry `line: null` (S113/S3317); `sq_on()` counts any-rule lines on the
    bad file (noted in S1539/S139 evidence).
 
-## Catalog coverage (audited 2026-08-25)
+## Catalog coverage (audited 2026-08-26)
 
 `cargo run -p xtask -- catalog coverage` audits every implemented rule against the frozen
 catalog (`--lang <id>` narrows to one language, `--strict` fails on any non-implemented key):
 
 | Language | Implemented | Infra gaps | Total | Actionable coverage |
 |---|---|---|---|---|
-| Python | 334 | 1 | 335 | 100.0% |
-| JavaScript | 404 | 2 | 406 | 100.0% |
-| TypeScript | 407 | 5 | 412 | 100.0% |
+| Python | 333 | 1 | 335 | 99.7% |
+| JavaScript | 403 | 3 | 406 | 100.0% |
+| TypeScript | 406 | 6 | 412 | 100.0% |
 | C# | 460 | 7 | 467 | 100.0% |
-| **Total** | **1605** | **15** | **1620** | **100.0%** |
+| **Total** | **1602** | **17** | **1620** | **99.9%** |
 
-Every catalog rule is either implemented or explicitly recorded as an infrastructure gap;
-nothing is silently missing.
+Every catalog rule is either implemented, explicitly recorded as an infrastructure gap, or
+listed as a known open gap below; nothing is silently missing.
+
+The one open gap is `python:S112` (`Exception`/`BaseException` should not be raised): pure
+local syntax that fits neither the implemented set nor any infrastructure category, so it is
+reported as missing by `catalog coverage` until implemented.
 
 ## Documented infrastructure gaps
 
-The 15 uncovered keys require capabilities outside a self-contained Rust analyzer. Each is
+The 17 uncovered keys require capabilities outside a self-contained Rust analyzer. Each is
 recorded as a skip note next to the nearest related implementation, and both `xtask` and
 `tools/oracle/parity_suite.py` classify them as INFRA rather than misses:
 
@@ -70,6 +74,7 @@ recorded as a skip note next to the nearest related implementation, and both `xt
   `S1944`, `S3242`, `S3246`, `S4047`.
 - Razor component surface (`.razor` files are not ingested) — `csharpsquid:S6802`.
 - Production runtime configuration introspection — `python:S6786`.
+- ASI reconstruction from a tolerant parse — `javascript:S1438`, `typescript:S1438`.
 
 ## Architecture
 

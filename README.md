@@ -56,15 +56,16 @@ against the frozen catalog:
 
 | Language | Implemented | Infra gaps | Total | Actionable coverage |
 |---|---|---|---|---|
-| JavaScript | 404 | 2 | 406 | 100% |
-| TypeScript | 407 | 5 | 412 | 100% |
-| Python | 334 | 1 | 335 | 100% |
+| JavaScript | 403 | 3 | 406 | 100% |
+| TypeScript | 406 | 6 | 412 | 100% |
+| Python | 333 | 1 | 335 | 99.7% |
 | C# | 460 | 7 | 467 | 100% |
 
 ### Documented gaps
 
-The uncovered keys require infrastructure outside this repository's scope; each is recorded as a
-skip note next to the nearest related implementation:
+The uncovered keys require out-of-repository infrastructure or reflect deliberate
+parser-fidelity limits; each is recorded as a skip note next to the nearest related
+implementation:
 
 - External deprecated-API database — `javascript:S1874`, `typescript:S1874`.
 - Cross-file module resolution — `javascript:S6627`, `typescript:S4328`,
@@ -74,6 +75,10 @@ skip note next to the nearest related implementation:
   `S1944`, `S3242`, `S3246`, `S4047`.
 - Razor component surface (.razor files are not ingested) — `csharpsquid:S6802`.
 - Production runtime configuration introspection — `python:S6786`.
+- ASI reconstruction from a tolerant parse — `javascript:S1438`, `typescript:S1438`.
+
+Open gap (not infra): `python:S112` (`Exception`/`BaseException` should not be raised) is
+not yet implemented; `catalog coverage --strict` reports it as the single actionable miss.
 
 ## Usage
 

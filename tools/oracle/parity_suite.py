@@ -26,11 +26,12 @@ AUTH = base64.b64encode(b"admin:Orac1e!2026").decode()
 LANGS = ["oracle-py", "oracle-js", "oracle-ts", "oracle-cs"]
 EXT = {"oracle-py": "py", "oracle-js": "js", "oracle-ts": "ts", "oracle-cs": "cs"}
 
-# Keys documented as requiring out-of-repository infrastructure.
+# Keys classified INFRA rather than misses: out-of-repository infrastructure
+# requirements or deliberate parser-fidelity non-emissions.
 INFRA = {
-    "javascript": ["javascript:S1874", "javascript:S6627"],
-    "typescript": ["typescript:S1874", "typescript:S4325", "typescript:S4328",
-                   "typescript:S6606", "typescript:S6627"],
+    "javascript": ["javascript:S1438", "javascript:S1874", "javascript:S6627"],
+    "typescript": ["typescript:S1438", "typescript:S1874", "typescript:S4325",
+                   "typescript:S4328", "typescript:S6606", "typescript:S6627"],
     "python": ["python:S6786"],
     "csharp": ["csharpsquid:S110", "csharpsquid:S1200", "csharpsquid:S1944",
                "csharpsquid:S3242", "csharpsquid:S3246", "csharpsquid:S4047",

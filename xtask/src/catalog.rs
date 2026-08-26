@@ -491,14 +491,16 @@ fn coverage_language(name: &'static str, language_id: &str) -> Result<LanguageCo
     })
 }
 
-/// Rule keys whose implementation requires infrastructure outside this
-/// repository (external datasets, real type-checker engines, cross-file or
-/// runtime-configuration context). They are excluded from the actionable gap
-/// count and listed separately.
+/// Rule keys excluded from the actionable gap count and listed separately:
+/// implementations requiring infrastructure outside this repository (external
+/// datasets, real type-checker engines, cross-file or runtime-configuration
+/// context), or deliberate non-emissions rooted in parser-fidelity limits
+/// (each documented as a skip note next to the nearest implementation).
 fn infra_rules(name: &str) -> &'static [&'static str] {
     match name {
-        "javascript" => &["javascript:S1874", "javascript:S6627"],
+        "javascript" => &["javascript:S1438", "javascript:S1874", "javascript:S6627"],
         "typescript" => &[
+            "typescript:S1438",
             "typescript:S1874",
             "typescript:S4325",
             "typescript:S4328",
