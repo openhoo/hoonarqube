@@ -19,7 +19,7 @@ pub(crate) fn check_imprecise_assertions(
         if let Some(better) = preferred_assertion(call) {
             issues.push(issue_at(
                 "python:S5906",
-                &format!("Use {better} for this assertion."),
+                &format!("Use '{better}' for this assertion."),
                 call.range(),
                 index,
                 source,
@@ -91,6 +91,12 @@ mod tests {
             "case.assertFalse(a in b)\n",
             "case.assertEqual(x, y)\n"
         ));
-        assert_eq!(findings(&flagged, "python:S5906").len(), 3);
+        let flagged_findings = findings(&flagged, "python:S5906");
+        assert_eq!(flagged_findings.len(), 3);
+        assert!(
+            flagged_findings
+                .iter()
+                .any(|issue| issue.message == "Use 'assertTrue' for this assertion.")
+        );
     }
 }

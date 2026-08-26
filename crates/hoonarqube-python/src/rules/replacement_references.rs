@@ -73,8 +73,10 @@ fn check_named_reference(
     let body: String = units[start..start + close].iter().map(|u| u.ch).collect();
     let span = TextRange::new(units[start].at, units[start + close].at);
     let invalid = if body.chars().all(|c| c.is_ascii_digit()) && !body.is_empty() {
+        // Python parses group numbers with arbitrary precision, so a
+        // reference too large for u32 can never match a real group either.
         body.parse::<u32>()
-            .is_ok_and(|number| number > parsed.capture_count)
+            .map_or(true, |number| number > parsed.capture_count)
     } else {
         !parsed.names.iter().any(|name| name == &body)
     };
@@ -140,6 +142,22 @@ mod tests {
         ));
         assert!(regex_finds(
             "import re\nre.sub(r'(?P<a>x)', r'\\g<b>', s)\n",
+            "python:S6328"
+        ));
+    }
+
+    #[test]
+    fn s6328_flags_overflowing_numeric_group_references() {
+        assert!(regex_finds(
+            "import re\nre.sub('()', r'\\g<99999999999999>', s)\n",
+            "python:S6328"
+        ));
+        assert!(regex_finds(
+            "import re\nre.sub(r'(a)(b)(c)', r'\\g<4294967296>', s)\n",
+            "python:S6328"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.sub(r'(a)(b)(c)', r'\\g<2>', s)\n",
             "python:S6328"
         ));
     }

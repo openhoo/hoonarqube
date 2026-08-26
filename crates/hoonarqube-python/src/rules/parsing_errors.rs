@@ -14,7 +14,7 @@ pub(crate) fn check_parsing_errors(
         .iter()
         .map(|error| Issue {
             rule_key: "python:ParsingError".to_string(),
-            message: format!("{}", error.error),
+            message: format!("Fix this syntax error: {error}."),
             range: to_range(error.location, index, source),
         })
         .collect()
@@ -43,5 +43,6 @@ mod tests {
         // this input; the analyzer reports one issue per `errors()` entry.
         assert_eq!(parsing.len(), 2);
         assert!(parsing[0].message.contains("Expected"));
+        assert!(parsing[0].message.starts_with("Fix this syntax error: "));
     }
 }

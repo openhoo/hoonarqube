@@ -23,7 +23,7 @@ pub(crate) fn check_s5795_identity_cached_types(
                 if is_identity_op(op) && (unsafe_side(lhs) || unsafe_side(rhs)) {
                     issues.push(issue_at(
                         "python:S5795",
-                        "Compare these values with `==` instead of identity operators.",
+                        "Compare these values with '==' instead of identity operators.",
                         expr.range(),
                         index,
                         source,

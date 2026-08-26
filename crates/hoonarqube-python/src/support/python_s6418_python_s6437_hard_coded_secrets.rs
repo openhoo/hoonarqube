@@ -16,15 +16,62 @@ pub(crate) const SECRET_ENTROPY_THRESHOLD: f64 = 3.0;
 
 pub(crate) const SECRET_HIGH_ENTROPY_THRESHOLD: f64 = 4.5;
 
-pub(crate) fn is_secret_name(name: &str) -> bool {
-    let normalized: String = name
-        .to_lowercase()
-        .chars()
-        .filter(char::is_ascii_alphanumeric)
-        .collect();
-    ["apikey", "auth", "credential", "secret", "token"]
+pub(crate) const CREDENTIAL_PREFIXES: [&str; 11] = [
+    "ghp_", "gho_", "AKIA", "xoxb-", "xoxa-", "xoxp-", "xoxr-", "sk_live_", "sk-", "AIza", "glpat-",
+];
+
+/// Whether a literal starts with a recognizable credential-token prefix
+/// (GitHub, Slack, AWS, Stripe, Google API keys).
+pub(crate) fn has_credential_prefix(text: &str) -> bool {
+    CREDENTIAL_PREFIXES
         .iter()
-        .any(|word| normalized.contains(word))
+        .any(|prefix| text.starts_with(prefix))
+}
+
+const SECRET_NAME_WORDS: [&str; 5] = ["apikey", "auth", "credential", "secret", "token"];
+
+fn matches_secret_word(text: &str) -> bool {
+    let lowered = text.to_ascii_lowercase();
+    let singular = lowered.strip_suffix('s').unwrap_or(&lowered);
+    SECRET_NAME_WORDS.contains(&lowered.as_str()) || SECRET_NAME_WORDS.contains(&singular)
+}
+
+/// Word-boundary secret-name matching: identifiers tokenize on `_`/`-`/`.`,
+/// camelCase humps, and letter/digit transitions; a name qualifies when a
+/// token (optionally pluralized) equals a secret word or two adjacent tokens
+/// join into one (`api` + `key`). Substrings inside one token never match,
+/// so `author` and `tokenizer_vocab` stay unflagged while `auth_token`,
+/// `secretKey`, and `myApiKey` keep matching.
+pub(crate) fn is_secret_name(name: &str) -> bool {
+    let mut tokens: Vec<&str> = Vec::new();
+    let mut start: Option<usize> = None;
+    let mut previous: Option<char> = None;
+    for (index, ch) in name.char_indices() {
+        let alphanumeric = ch.is_ascii_alphanumeric();
+        let boundary = match previous {
+            None => true,
+            Some(prev) => {
+                !alphanumeric
+                    || !prev.is_ascii_alphanumeric()
+                    || (ch.is_ascii_uppercase() && prev.is_ascii_lowercase())
+                    || (ch.is_ascii_digit() != prev.is_ascii_digit())
+            }
+        };
+        if boundary && let Some(begin) = start.take() {
+            tokens.push(&name[begin..index]);
+        }
+        if alphanumeric && start.is_none() {
+            start = Some(index);
+        }
+        previous = Some(ch);
+    }
+    if let Some(begin) = start {
+        tokens.push(&name[begin..]);
+    }
+    tokens.iter().any(|token| matches_secret_word(token))
+        || tokens
+            .windows(2)
+            .any(|pair| matches_secret_word(&format!("{}{}", pair[0], pair[1])))
 }
 
 pub(crate) fn stmt_targets(stmt: &Stmt) -> impl Iterator<Item = &Expr> {

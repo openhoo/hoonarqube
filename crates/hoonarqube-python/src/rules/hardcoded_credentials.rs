@@ -57,3 +57,39 @@ pub(crate) fn check_hardcoded_credentials(
 
 // ---------------------------------------------------------------------------
 // python:S2068 — hard-coded credentials.
+
+#[cfg(test)]
+mod tests {
+
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s2068_flags_credential_named_and_embedding_strings() {
+        let named = scan("password = \"hunter2\"\n");
+        assert_eq!(findings(&named, "python:S2068").len(), 1);
+        let passwd = scan("passwd = \"s3cret\"\n");
+        assert_eq!(findings(&passwd, "python:S2068").len(), 1);
+        let annotated = scan("pwd: str = \"hunter2\"\n");
+        assert_eq!(findings(&annotated, "python:S2068").len(), 1);
+        let embedded = scan("login_url = \"https://example.test/login?password=hunter2\"\n");
+        assert_eq!(findings(&embedded, "python:S2068").len(), 1);
+    }
+
+    #[test]
+    fn s2068_leaves_non_credential_assignments_alone() {
+        // Empty string values never carry a credential.
+        assert!(findings(&scan("password = \"\"\n"), "python:S2068").is_empty());
+        // Non-string values are out of scope.
+        assert!(findings(&scan("password = get_password()\n"), "python:S2068").is_empty());
+        // Names without credential words stay silent.
+        assert!(findings(&scan("pass_hint = \"contains a digit\"\n"), "python:S2068").is_empty());
+        // Prose without a `credential=`/`credential:` pattern stays silent.
+        assert!(
+            findings(
+                &scan("help_text = \"Pass your token to log in.\"\n"),
+                "python:S2068"
+            )
+            .is_empty()
+        );
+    }
+}

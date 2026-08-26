@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S5344",
-                "Store passwords with a slow, salted hash such as PBKDF2 or bcrypt; do not handle them as plain bytes or fast hashes.",
+                "Do not hash passwords with this fast hash; store them under a slow, salted KDF such as PBKDF2 or bcrypt instead.",
                 range_of(hash),
             ));
         }
@@ -37,7 +37,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S5344",
-                    "Store passwords with a slow, salted hash such as PBKDF2 or bcrypt; do not handle them as plain bytes or fast hashes.",
+                    "Do not convert password material into plain bytes; store only its slow, salted hash such as PBKDF2 or bcrypt.",
                     range_of(call),
                 ));
             }
