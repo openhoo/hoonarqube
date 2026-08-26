@@ -4,6 +4,16 @@
 //! into [`hoonarqube_ir::FileReport`]s. Severity and type always resolve through
 //! the frozen `hoonarqube-catalog` catalog via [`hoonarqube_ir::Issue::rule_key`];
 //! they are deliberately never duplicated here.
+//!
+//! # Documented coverage gaps (INFRA skips)
+//!
+//! One rule of the frozen Python catalog is intentionally not implemented
+//! because the infrastructure it requires does not exist in this crate; the
+//! coverage audit gap is explained here in code:
+//!
+//! - `python:S6786` (runtime configuration introspection): detection needs
+//!   production runtime configuration context that single-file static
+//!   analysis cannot see.
 
 use crate::engine::file_context::FileContext;
 #[cfg(test)]

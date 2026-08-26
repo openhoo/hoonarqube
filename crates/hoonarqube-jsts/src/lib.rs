@@ -13,25 +13,27 @@
 //!
 //! # Documented coverage gaps (INFRA skips)
 //!
-//! Two rules of the frozen js/ts catalogs are intentionally not implemented
-//! because the analysis infrastructure they require does not exist in this
-//! crate; the coverage audit gaps are explained here in code:
+//! Seven rule keys of the frozen js/ts catalogs are intentionally not
+//! implemented because the analysis infrastructure they require does not
+//! exist in this crate; the coverage audit gaps are explained here in code:
 //!
 //! - `javascript:S1874` / `typescript:S1874` (usage of deprecated APIs):
 //!   detection needs a deprecated-API database (browser/ECMAScript
 //!   compatibility dataset) that is not bundled with the analyzer. Without
 //!   that data, any single-file approximation would be guesswork.
-//! - `javascript:S6627` / `typescript:S6627` (imports of internal APIs):
-//!   detection needs cross-file module resolution to prove whether the
-//!   imported `_`-prefixed internal module path exists; file-local analysis
-//!   cannot decide this without false positives.
+//! - `javascript:S6627` / `typescript:S4328` / `typescript:S6627` (imports
+//!   of internal APIs and unresolvable imports): detection needs cross-file
+//!   module resolution to prove whether an imported `_`-prefixed internal
+//!   module path exists; file-local analysis cannot decide this without
+//!   false positives.
+//! - `typescript:S4325` / `typescript:S6606` (checker-grade type checks):
+//!   detection needs TypeScript-checker-grade type semantics, which the
+//!   embedded oxc-based single-file analysis does not provide.
 
-// --- split:generated imports ---
 use crate::context::{AnalysisContext, RuleOptions};
 use crate::support::{
     LineIndex, extension_of, file_metrics, scan_comments, sort_issues, source_type_for,
 };
-// --- split:end imports ---
 mod context;
 mod engine;
 mod rules;
@@ -66,9 +68,13 @@ impl JstsLanguage {
 /// `javascript:S103` and `typescript:S103`).
 ///
 /// The struct stays `Eq` because `hoonarqube-core` bundles it in an `Eq`
-/// container; that is why the one non-`Eq` catalog parameter
-/// (`randomnessSensibility` for `S6418`, an `f64`) remains on the private
-/// [`RuleOptions`] carrier.
+/// container; the non-`Eq` `randomnessSensibility` for `S6418` (an `f64`)
+/// stays on the private [`RuleOptions`] carrier. These fields are the only
+/// catalog parameters surfaced through [`AnalyzerOptions`]: every remaining
+/// frozen-catalog parameter (structural thresholds such as S107's
+/// `maximumFunctionParameters`, style knobs, and unevaluated hotspot knobs
+/// such as `S5693`'s `fileUploadSizeLimit` / `standardSizeLimit`) is pinned
+/// to its catalog default inside the individual rule modules.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalyzerOptions {
     pub maximum_line_length: u32,
@@ -133,8 +139,10 @@ pub fn analyze(
     language: JstsLanguage,
     options: &AnalyzerOptions,
 ) -> hoonarqube_ir::FileReport {
-    // Every catalog parameter except the non-`Eq` `randomnessSensibility`
-    // is threaded through `AnalyzerOptions` (see the struct docs).
+    // Catalog parameters surfaced through `AnalyzerOptions` are exactly the
+    // fields listed on the struct; all remaining frozen-catalog parameters
+    // (structural thresholds, hotspot knobs) are pinned to their catalog
+    // defaults inside the rule modules.
     let rules = RuleOptions::from(options);
     analyze_with_rules(path, source, language, options, &rules)
 }

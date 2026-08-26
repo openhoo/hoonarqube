@@ -8,19 +8,23 @@ SonarQube Generic Issue Import JSON.
 
 | Crate | Purpose |
 |---|---|
+| `hoonarqube` | Public facade crate: re-exports `analyze`, `Language`, `AnalyzerOptions`, catalog, IR |
+| `hoonarqube-core` | Language dispatch by extension and end-to-end `analyze()` orchestration |
 | `hoonarqube-catalog` | Frozen, embedded rule catalog (severity/type/parameters) — the single source of truth for rule metadata |
 | `hoonarqube-ir` | Findings IR: `Pos`, `Range`, `Issue`, `FileMetrics`, `FileReport` |
 | `hoonarqube-python` | Python analyzer (ruff parser) |
 | `hoonarqube-jsts` | JavaScript/TypeScript/JSX/TSX analyzer (oxc) |
 | `hoonarqube-csharp` | C# analyzer (tree-sitter-c-sharp) |
 | `hoonarqube-dataflow` | Generic intra-procedural engine: CFG builder, worklist solvers, dominators (not yet wired into any analyzer; reserved for future Tier-B adoption) |
-| `hoonarqube-cli` | `analyze` subcommand: text / JSON / SonarQube generic-issue output |
+| `hoonarqube-cli` | `analyze` (text / JSON / SonarQube generic-issue), `fix`, plus `rules`/`snapshot` catalog queries |
 | `hoonarqube-bench` | Multi-language throughput benchmark over seeded synthetic fixtures |
 | `xtask` | Catalog audit + implemented-rule coverage reporting |
 
 ## Analyzer architecture
 
-Every analyzer crate follows the same per-rule layout:
+The Python and JS/TS analyzers follow this shared per-rule layout; `hoonarqube-csharp` mirrors
+it with `cst.rs` (tree-sitter helpers), `metrics.rs` and `symbol_table.rs` in place of
+`context.rs`, `support/` and `engine/`:
 
 ```
 src/
@@ -76,6 +80,7 @@ skip note next to the nearest related implementation:
 ```bash
 cargo run -p hoonarqube-cli -- analyze <paths...>              # text report
 cargo run -p hoonarqube-cli -- analyze --format sonar <paths>  # Generic Issue Import JSON
+cargo run -p hoonarqube-cli -- fix <paths>                     # safe mechanical fixes
 cargo run -p hoonarqube-bench -- --iterations N                # throughput table
 cargo run -p xtask -- catalog coverage                         # parity audit
 ```

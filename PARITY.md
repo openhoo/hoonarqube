@@ -89,7 +89,9 @@ An eleven-crate workspace behind a single public facade:
 | `hoonarqube-bench` | Multi-language throughput benchmark over seeded synthetic fixtures |
 | `xtask` | Catalog capture/import/audit plus implemented-rule coverage reporting |
 
-Every analyzer crate follows the same layout — one file per rule, tests co-located:
+The Python and JS/TS analyzers follow this shared layout — one file per rule, tests co-located;
+`hoonarqube-csharp` mirrors it with `cst.rs` (tree-sitter helpers), `metrics.rs` and
+`symbol_table.rs` in place of `context.rs`, `support/` and `engine/`:
 
 ```
 src/

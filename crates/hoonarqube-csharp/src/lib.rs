@@ -7,6 +7,20 @@
 //! frozen `hoonarqube-catalog` catalog via [`hoonarqube_ir::Issue::rule_key`],
 //! never duplicated here. Syntax errors emit no issues (no catalog-backed
 //! `ParsingError` rule exists for C#).
+//!
+//! # Documented coverage gaps (INFRA skips)
+//!
+//! Seven rules of the frozen `csharpsquid` catalog are intentionally not
+//! implemented because the analysis infrastructure they require does not
+//! exist in this crate; the coverage audit gaps are explained here in code:
+//!
+//! - `csharpsquid:S110`, `csharpsquid:S1200`, `csharpsquid:S1944`,
+//!   `csharpsquid:S3242`, `csharpsquid:S3246`, `csharpsquid:S4047`
+//!   (type-lattice and inheritance-coupling checks): detection needs
+//!   Roslyn-grade type lattice / inheritance coupling graphs that a
+//!   single-pass tree-sitter syntax tree cannot provide.
+//! - `csharpsquid:S6802` (Razor component surface): `.razor` files are not
+//!   ingested by this analyzer.
 
 use std::path::PathBuf;
 

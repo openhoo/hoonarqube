@@ -1,7 +1,8 @@
-//! Catalog query CLI over the frozen embedded rule catalog.
+//! Analyzer and catalog-query CLI over the frozen embedded rule catalog.
 //!
-//! Every subcommand reads exclusively from
-//! [`hoonarqube_catalog::embedded`]; no files are read at runtime.
+//! `snapshot` and `rules` read exclusively from
+//! [`hoonarqube_catalog::embedded`]; `analyze` walks the given paths and
+//! reads supported sources; `fix` rewrites them in place.
 
 use std::fmt::Write as _;
 use std::io::Write as _;

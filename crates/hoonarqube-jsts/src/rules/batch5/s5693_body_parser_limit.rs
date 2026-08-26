@@ -10,6 +10,12 @@ use oxc_span::GetSpan;
 
 impl SecurityHotspotCollector<'_, '_> {
     /// `S5693`: body parsers configured without a size limit.
+    ///
+    /// Deviation: the catalog's `fileUploadSizeLimit` / `standardSizeLimit`
+    /// INTEGER parameters are not evaluated — limit values in user code can
+    /// be strings (`'1mb'`) or arbitrary expressions, and no oracle
+    /// evidence pins down threshold semantics. The presence of any explicit
+    /// `limit` option satisfies the check.
     pub(crate) fn check_body_parser_limit(&mut self, call: &CallExpression<'_>) {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return;
