@@ -265,6 +265,13 @@ fn emit_do_while<T>(
     for source in context.continue_sources {
         builder.add_edge(source, header);
     }
+    // Degenerate input: when `body` lowers to zero blocks (e.g. an empty
+    // `Seq`), no back edge is created, so `do {} while (c)` yields an
+    // acyclic graph even though the source loop repeats while `c` holds.
+    // `emit_tested_loop` preserves the cycle for the same degenerate input
+    // via its step fallback. Adding a matching `header -> header` self-edge
+    // here is a semantic decision left to the orchestrator: no existing
+    // test or doctest pins empty-body do-while cycle behavior.
     if created_body {
         builder.add_edge(header, body_hint);
     }

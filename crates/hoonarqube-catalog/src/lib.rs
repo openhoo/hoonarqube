@@ -298,6 +298,9 @@ fn verify(snapshot_text: &str, rule_texts: [&str; 4]) -> Result<Catalog, String>
         if catalog.classification != CLASSIFICATION {
             return Err("catalog classification mismatch".to_owned());
         }
+        if catalog.source_capture_sha256 != snapshot.capture_sha256 {
+            return Err("catalog capture provenance mismatch".to_owned());
+        }
         if !is_strictly_sorted(&catalog.rules) {
             return Err("catalog rules are not strictly key-sorted".to_owned());
         }
@@ -471,6 +474,30 @@ mod tests {
         let error =
             verify(&snapshot_text, PRISTINE).expect_err("tampered aggregate hash must fail");
         assert_eq!(error, "catalog aggregate hash mismatch");
+    }
+
+    #[test]
+    fn mismatched_catalog_capture_provenance_fails_verification() {
+        let marker = "\"source_capture_sha256\": \"";
+        let start = PYTHON_JSON.find(marker).expect("provenance field present") + marker.len();
+        assert!(
+            PYTHON_JSON[start..start + 64]
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit()),
+            "not a hash"
+        );
+        let mut tampered = PYTHON_JSON.to_owned();
+        let flipped = if tampered[start..].starts_with('0') {
+            "1"
+        } else {
+            "0"
+        };
+        tampered.replace_range(start..=start, flipped);
+        let mut rule_texts = PRISTINE;
+        rule_texts[3] = &tampered;
+        let error =
+            verify(SNAPSHOT_TOML, rule_texts).expect_err("mismatched capture provenance must fail");
+        assert_eq!(error, "catalog capture provenance mismatch");
     }
 
     #[test]

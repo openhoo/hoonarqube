@@ -19,6 +19,8 @@ use sha2::{Digest as _, Sha256};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use url::Url;
 
+use crate::catalog::{canonical_json, hash_record, same_server_version, sha256};
+
 const LANGUAGE_QUERIES: [LanguageQuery; 4] = [
     LanguageQuery {
         name: "csharp",
@@ -607,7 +609,7 @@ fn capture_rule_pages(
         let response_page = paging
             .get("pageIndex")
             .and_then(Value::as_u64)
-            .unwrap_or(page);
+            .with_context(|| format!("rules search page {page} lacks numeric paging.pageIndex"))?;
         ensure!(
             response_page == page,
             "rules search returned wrong page index"
@@ -781,14 +783,6 @@ fn validate_base_url(input: &str) -> Result<Url> {
     Ok(url)
 }
 
-fn same_server_version(left: &str, right: &str) -> bool {
-    left.split(|character: char| !character.is_ascii_digit())
-        .filter(|component| !component.is_empty())
-        .eq(right
-            .split(|character: char| !character.is_ascii_digit())
-            .filter(|component| !component.is_empty()))
-}
-
 fn same_origin(left: &Url, right: &Url) -> bool {
     left.scheme() == right.scheme()
         && left.host_str() == right.host_str()
@@ -873,25 +867,6 @@ fn documented_rule_page_size(webservices: &Value) -> Result<u64> {
     bail!("server Web API metadata does not document api/rules/search ps maximumValue")
 }
 
-fn canonical_json(value: &Value) -> Result<Vec<u8>> {
-    let normalized = sort_json(value);
-    serde_json::to_vec(&normalized).context("failed to canonicalize JSON")
-}
-
-fn sort_json(value: &Value) -> Value {
-    match value {
-        Value::Array(values) => Value::Array(values.iter().map(sort_json).collect()),
-        Value::Object(values) => {
-            let sorted = values
-                .iter()
-                .map(|(key, value)| (key.clone(), sort_json(value)))
-                .collect();
-            Value::Object(sorted)
-        }
-        scalar => scalar.clone(),
-    }
-}
-
 fn manifest_identity(manifest: &CaptureManifest) -> Result<String> {
     let value = serde_json::to_value(manifest)?;
     let mut object = value
@@ -915,15 +890,6 @@ fn equivalent_manifests(left: &[u8], right: &[u8]) -> Result<bool> {
     }
 
     Ok(normalize(left)? == normalize(right)?)
-}
-
-fn hash_record(hasher: &mut Sha256, bytes: &[u8]) {
-    hasher.update((bytes.len() as u64).to_le_bytes());
-    hasher.update(bytes);
-}
-
-fn sha256(bytes: &[u8]) -> String {
-    hex::encode(Sha256::digest(bytes))
 }
 
 /// Formats an instant as an RFC 3339 UTC timestamp ending in `Z`.

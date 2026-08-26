@@ -330,6 +330,10 @@ pub fn audit(snapshot_path: &Path, require_pages_complete: bool) -> Result<()> {
             "catalog classification mismatch"
         );
         ensure!(
+            catalog.source_capture_sha256 == snapshot.capture_sha256,
+            "catalog capture provenance mismatch"
+        );
+        ensure!(
             is_strictly_sorted(&catalog.rules),
             "catalog rules are not strictly key-sorted"
         );
@@ -565,7 +569,7 @@ fn coverage_keys(name: &str, language_id: &str) -> Result<Vec<String>> {
 fn missing_rules(keys: &[String], source: &str) -> Vec<String> {
     keys.iter()
         .map(String::as_str)
-        .filter(|key| !source.contains(rule_key_marker(key)))
+        .filter(|key| !contains_marker(source, rule_key_marker(key)))
         .map(str::to_owned)
         .collect()
 }
@@ -579,6 +583,25 @@ fn rule_key_marker(external_key: &str) -> &str {
         Some((_, marker)) => marker,
         None => external_key,
     }
+}
+
+/// Whether `marker` occurs in `source` on identifier boundaries.
+///
+/// Stops `S112` from counting as implemented because `S1128` exists.
+fn contains_marker(source: &str, marker: &str) -> bool {
+    let mut from = 0;
+    while let Some(offset) = source[from..].find(marker) {
+        let begin = from + offset;
+        let end = begin + marker.len();
+        let id_char = |c: char| c.is_ascii_alphanumeric() || c == '_';
+        if !source[..begin].chars().next_back().is_some_and(id_char)
+            && !source[end..].chars().next().is_some_and(id_char)
+        {
+            return true;
+        }
+        from = begin + 1;
+    }
+    false
 }
 
 fn print_coverage(rows: &[LanguageCoverage]) {
@@ -877,7 +900,7 @@ fn count_regular_files(directory: &Path) -> Result<usize> {
         .count())
 }
 
-fn same_server_version(left: &str, right: &str) -> bool {
+pub(crate) fn same_server_version(left: &str, right: &str) -> bool {
     left.split(|character: char| !character.is_ascii_digit())
         .filter(|component| !component.is_empty())
         .eq(right
@@ -885,7 +908,7 @@ fn same_server_version(left: &str, right: &str) -> bool {
             .filter(|component| !component.is_empty()))
 }
 
-fn canonical_json(value: &Value) -> Result<Vec<u8>> {
+pub(crate) fn canonical_json(value: &Value) -> Result<Vec<u8>> {
     fn sort(value: &Value) -> Value {
         match value {
             Value::Array(values) => Value::Array(values.iter().map(sort).collect()),
@@ -1047,12 +1070,12 @@ fn temporary_path(path: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-fn hash_record(hasher: &mut Sha256, bytes: &[u8]) {
+pub(crate) fn hash_record(hasher: &mut Sha256, bytes: &[u8]) {
     hasher.update((bytes.len() as u64).to_le_bytes());
     hasher.update(bytes);
 }
 
-fn sha256(bytes: &[u8]) -> String {
+pub(crate) fn sha256(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
@@ -1085,6 +1108,15 @@ mod tests {
             missing_rules(&keys, source),
             vec!["javascript:S100", "javascript:S122"]
         );
+    }
+
+    #[test]
+    fn missing_rules_rejects_longer_rule_id_collisions() {
+        // `python:S112` must stay missing even though `python:S1128`'s
+        // marker occurs: digit-suffixed ids otherwise satisfy shorter ones.
+        let keys = vec!["python:S112".to_owned(), "python:S1128".to_owned()];
+        let source = "// python:S1128 implementation";
+        assert_eq!(missing_rules(&keys, source), vec!["python:S112"]);
     }
 
     #[test]
