@@ -204,6 +204,7 @@ pub(crate) fn issue_at(
         rule_key: rule_key.to_string(),
         message: message.to_string(),
         range: to_range(range, index, source),
+        fix: None,
     }
 }
 

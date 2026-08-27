@@ -39,6 +39,7 @@ pub(crate) fn check_hardcoded_credentials(
                     rule_key: "python:S2068".to_string(),
                     message: "Review this potentially hard-coded credentials.".to_string(),
                     range: to_range(name.range(), index, source),
+                    fix: None,
                 });
             }
         }
@@ -49,6 +50,7 @@ pub(crate) fn check_hardcoded_credentials(
                 rule_key: "python:S2068".to_string(),
                 message: "Review this potentially hard-coded credentials.".to_string(),
                 range: to_range(range, index, source),
+                fix: None,
             });
         }
     }

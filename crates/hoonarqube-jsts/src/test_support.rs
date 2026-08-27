@@ -24,6 +24,7 @@ pub(crate) fn issue(
             start: pos(start.0, start.1),
             end: pos(end.0, end.1),
         },
+        fix: None,
     }
 }
 

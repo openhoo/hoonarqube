@@ -25,6 +25,7 @@ pub(crate) fn check_suite(
                 rule_key: "python:OneStatementPerLine".to_string(),
                 message: "Only one statement per line is allowed.".to_string(),
                 range: to_range(stmt.range(), index, source),
+                fix: None,
             });
         }
         for stmt in &suite[start..end] {

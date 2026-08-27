@@ -36,6 +36,7 @@ pub(crate) fn check_assign_plus_minus(
                     index,
                     source,
                 ),
+                fix: None,
             }
         })
         .collect()

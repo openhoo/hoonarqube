@@ -36,6 +36,7 @@ pub(crate) fn check_invalid_string_escapes(
                         rule_key: "python:S1717".to_string(),
                         message: format!("Escape this backslash or make the string raw; '\\{escaped}' is not a recognized escape sequence."),
                         range: to_range(TextRange::new(at, at + TextSize::new(1)), index, source),
+                        fix: None,
                     });
                 }
             }

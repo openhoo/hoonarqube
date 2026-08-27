@@ -50,6 +50,7 @@ pub(crate) fn check_commented_code(
                 rule_key: "python:S125".to_string(),
                 message: "Remove this commented-out code.".to_string(),
                 range: to_range(token.range(), index, source),
+                fix: None,
             });
         }
     }

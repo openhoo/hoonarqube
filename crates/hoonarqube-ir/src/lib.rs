@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 /// Source position. `line` is 1-based, `column` is 0-based (`SonarQube`
 /// text-range convention).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Pos {
     pub line: u32,
     pub column: u32,
@@ -28,21 +28,70 @@ pub fn u32_saturating(value: usize) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
 }
 
-/// Half-open-inclusive source span; invariant `start <= end` lexicographic.
+/// Half-open source span; invariant `start <= end` lexicographic.
+/// [`Pos`] orders lexicographically, so spans compare the same way.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Range {
     pub start: Pos,
     pub end: Pos,
 }
 
+/// One replacement inside a single file: applying it overwrites `range` with
+/// `replacement`; an empty `replacement` deletes the range.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextEdit {
+    pub range: Range,
+    pub replacement: String,
+}
+
+impl TextEdit {
+    /// Whether both edits rewrite overlapping source regions. An insertion
+    /// at a replacement's start competes with that replacement; an insertion
+    /// at its end is plain half-open adjacency and remains compatible. Two
+    /// insertions at the same position also overlap.
+    #[must_use]
+    pub fn overlaps(&self, other: &Self) -> bool {
+        let shared_start = self.range.start.max(other.range.start);
+        let shared_end = self.range.end.min(other.range.end);
+        if shared_start < shared_end {
+            return true;
+        }
+        (self.range.start == self.range.end
+            && self.range.start >= other.range.start
+            && self.range.start < other.range.end)
+            || (other.range.start == other.range.end
+                && other.range.start >= self.range.start
+                && other.range.start < self.range.end)
+            || (self.range.start == self.range.end
+                && other.range.start == other.range.end
+                && self.range.start == other.range.start)
+    }
+}
+
+/// One machine-applicable remedy: a human-readable `message` plus the
+/// [`TextEdit`]s realizing it.
+///
+/// Invariants for `edits`: sorted ascending by start, pairwise
+/// non-overlapping, every range within the bounds of the fixed file.
+/// [`Issue::with_fix`] enforces ordering and overlap on construction;
+/// [`apply_fixes`] re-validates bounds and overlap before rewriting anything.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Fix {
+    pub message: String,
+    pub edits: Vec<TextEdit>,
+}
+
 /// One finding. `rule_key` is a `RuleRecord::external_key` from the frozen
 /// catalog (e.g. `python:BackticksUsage`); severity/type resolve through the
-/// catalog, never duplicated here.
+/// catalog, never duplicated here. `fix` optionally carries a
+/// machine-applicable quick fix produced by a rule fixer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Issue {
     pub rule_key: String,
     pub message: String,
     pub range: Range,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fix: Option<Fix>,
 }
 
 /// Canonical `SonarQube` issue ordering: start position, then end position
@@ -66,6 +115,202 @@ pub fn sort_issues(issues: &mut [Issue]) {
                 b.message.as_str(),
             ))
     });
+}
+
+impl Issue {
+    /// Builds a fix-less finding; attach a remedy separately via
+    /// [`Issue::with_fix`].
+    #[must_use]
+    pub fn new(rule_key: impl Into<String>, message: impl Into<String>, range: Range) -> Self {
+        Self {
+            rule_key: rule_key.into(),
+            message: message.into(),
+            range,
+            fix: None,
+        }
+    }
+
+    /// Attaches a quick fix, sorting `edits` ascending by start position so
+    /// the [`Fix`] invariants hold.
+    ///
+    /// # Panics
+    /// Panics when any edit's range is inverted (`start` after `end`) or when
+    /// two edits overlap — including two insertions at the same position —
+    /// because overlapping edits cannot be applied deterministically.
+    #[must_use]
+    pub fn with_fix(mut self, message: impl Into<String>, mut edits: Vec<TextEdit>) -> Self {
+        assert!(
+            !edits.is_empty(),
+            "quick fix must contain at least one TextEdit"
+        );
+        for edit in &edits {
+            assert!(
+                (edit.range.start.line, edit.range.start.column)
+                    <= (edit.range.end.line, edit.range.end.column),
+                "inverted TextEdit range {:?}",
+                edit.range
+            );
+        }
+        edits.sort_by_key(|edit| edit.range.start);
+        for pair in edits.windows(2) {
+            assert!(
+                !pair[0].overlaps(&pair[1]),
+                "overlapping TextEdits at {:?} / {:?}",
+                pair[0].range,
+                pair[1].range
+            );
+        }
+        self.fix = Some(Fix {
+            message: message.into(),
+            edits,
+        });
+        self
+    }
+}
+
+/// Failure modes of [`apply_fixes`]; `index` fields refer to positions in
+/// the input slice.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FixApplyError {
+    /// The edit's `start` lies lexicographically after its `end`.
+    InvertedRange {
+        /// Position of the offending edit in the input slice.
+        index: usize,
+    },
+    /// The referenced line or character column does not exist in the source.
+    OutOfBounds {
+        /// Position of the offending edit in the input slice.
+        index: usize,
+        /// The endpoint that missed the source.
+        pos: Pos,
+    },
+    /// Two edits rewrite overlapping regions (including competing insertions
+    /// at the same position).
+    Overlapping {
+        /// Input-slice index of the earlier edit.
+        first: usize,
+        /// Input-slice index of the later edit.
+        second: usize,
+    },
+}
+
+impl std::fmt::Display for FixApplyError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvertedRange { index } => {
+                write!(formatter, "text edit {index} ends before it starts")
+            }
+            Self::OutOfBounds { index, pos } => write!(
+                formatter,
+                "text edit {index} points outside the source at line {}, column {}",
+                pos.line, pos.column
+            ),
+            Self::Overlapping { first, second } => {
+                write!(formatter, "text edits {first} and {second} overlap")
+            }
+        }
+    }
+}
+
+impl std::error::Error for FixApplyError {}
+
+/// Resolves an IR position (1-based line, 0-based character column) to a
+/// byte offset. A `\r\n` pair is one line terminator: neither byte contributes
+/// to a character column. A column equal to the line's character count
+/// addresses the insertion point right after the content (before the
+/// terminator or EOF).
+fn resolve_pos(line_starts: &[usize], source: &str, pos: Pos) -> Option<usize> {
+    if pos.line == 0 {
+        return None;
+    }
+    let line_index = usize::try_from(pos.line).ok()?.checked_sub(1)?;
+    let start = *line_starts.get(line_index)?;
+    let terminator_start = line_starts
+        .get(line_index + 1)
+        .map_or(source.len(), |next_start| next_start - 1);
+    let end = if terminator_start > start
+        && source.as_bytes().get(terminator_start - 1) == Some(&b'\r')
+    {
+        terminator_start - 1
+    } else {
+        terminator_start
+    };
+    let content = source.get(start..end)?;
+    let target = usize::try_from(pos.column).ok()?;
+    let mut seen = 0_usize;
+    for (char_offset, _) in content.char_indices() {
+        if seen == target {
+            return Some(start + char_offset);
+        }
+        seen += 1;
+    }
+    (seen == target).then_some(end)
+}
+
+/// Applies text edits to `source` and returns the rewritten text. This is
+/// the single canonical edit engine; the CLI and every test reuse it.
+///
+/// Edits may arrive in any order: they are validated (bounds and pairwise
+/// overlap, mirroring [`TextEdit::overlaps`]) and applied in descending
+/// start order so earlier byte offsets stay stable; the input slice is left
+/// untouched.
+///
+/// # Errors
+/// Returns [`FixApplyError::InvertedRange`] for `start > end` edits,
+/// [`FixApplyError::OutOfBounds`] when an endpoint misses the source, and
+/// [`FixApplyError::Overlapping`] for conflicting edits (same-point
+/// insertions and insertion-at-replacement-start conflict; plain adjacent
+/// `end == start` edits do not).
+pub fn apply_fixes(source: &str, edits: &[&TextEdit]) -> Result<String, FixApplyError> {
+    let mut line_starts = vec![0_usize];
+    for (offset, byte) in source.bytes().enumerate() {
+        if byte == b'\n' {
+            line_starts.push(offset + 1);
+        }
+    }
+
+    let mut mapped: Vec<(usize, usize, usize)> = Vec::with_capacity(edits.len());
+    for (index, edit) in edits.iter().enumerate() {
+        let range = &edit.range;
+        if (range.start.line, range.start.column) > (range.end.line, range.end.column) {
+            return Err(FixApplyError::InvertedRange { index });
+        }
+        let Some(start_offset) = resolve_pos(&line_starts, source, range.start) else {
+            return Err(FixApplyError::OutOfBounds {
+                index,
+                pos: range.start,
+            });
+        };
+        let Some(end_offset) = resolve_pos(&line_starts, source, range.end) else {
+            return Err(FixApplyError::OutOfBounds {
+                index,
+                pos: range.end,
+            });
+        };
+        mapped.push((start_offset, end_offset, index));
+    }
+
+    mapped.sort_by_key(|&(start, end, _)| (start, end));
+    for window in mapped.windows(2) {
+        let (first_start, first_end, first_index) = window[0];
+        let (second_start, _, second_index) = window[1];
+        let competes =
+            second_start < first_end || (first_start == first_end && first_start == second_start);
+        if competes {
+            return Err(FixApplyError::Overlapping {
+                first: first_index,
+                second: second_index,
+            });
+        }
+    }
+
+    let mut ordered = mapped;
+    ordered.sort_by_key(|&(start, _, _)| std::cmp::Reverse(start));
+    let mut fixed = source.to_string();
+    for (start, end, index) in ordered {
+        fixed.replace_range(start..end, edits[index].replacement.as_str());
+    }
+    Ok(fixed)
 }
 
 /// SonarQube-style size metrics for one file.
@@ -96,7 +341,7 @@ mod tests {
     use super::*;
 
     /// Documented field semantics via literal construction: first line is 1,
-    /// first column is 0, spans are half-open inclusive.
+    /// first column is 0, spans are half-open.
     #[test]
     fn pos_and_range_field_semantics() {
         let start = Pos { line: 1, column: 0 };
@@ -130,6 +375,7 @@ mod tests {
                             column: 23,
                         },
                     },
+                    fix: None,
                 }],
                 metrics: FileMetrics {
                     lines: 42,
@@ -142,5 +388,198 @@ mod tests {
         let json = serde_json::to_string(&report).expect("serialize");
         let parsed: AnalysisReport = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(parsed, report);
+    }
+
+    /// Builds a `TextEdit` from `(line, column)` tuples for compact tests.
+    fn edit(start: (u32, u32), end: (u32, u32), replacement: &str) -> TextEdit {
+        TextEdit {
+            range: Range {
+                start: Pos {
+                    line: start.0,
+                    column: start.1,
+                },
+                end: Pos {
+                    line: end.0,
+                    column: end.1,
+                },
+            },
+            replacement: replacement.to_string(),
+        }
+    }
+
+    #[test]
+    fn apply_fixes_replaces_on_plain_lf_source() {
+        let source = "alpha\nbeta\n";
+        let fixed = apply_fixes(source, &[&edit((1, 0), (1, 5), "ALPHA")]).expect("applies");
+        assert_eq!(fixed, "ALPHA\nbeta\n");
+    }
+
+    #[test]
+    fn apply_fixes_preserves_crlf_and_excludes_terminators_from_columns() {
+        let source = "ab\r\ncd\r\n";
+        // Line 1 content is "ab": columns 0..2 replace only the text.
+        let fixed = apply_fixes(source, &[&edit((1, 0), (1, 2), "xy")]).expect("applies");
+        assert_eq!(fixed, "xy\r\ncd\r\n");
+        // Column 2 is the insertion point before CRLF; column 3 is invalid.
+        let fixed = apply_fixes(source, &[&edit((1, 2), (1, 2), "!")]).expect("applies");
+        assert_eq!(fixed, "ab!\r\ncd\r\n");
+        assert!(matches!(
+            apply_fixes(source, &[&edit((1, 3), (1, 3), "")]),
+            Err(FixApplyError::OutOfBounds { .. })
+        ));
+    }
+
+    #[test]
+    fn apply_fixes_columns_count_characters_not_bytes() {
+        // 'á'(2 bytes) 'é'(2) '€'(3) 'x'(1): columns 1..3 remove é and €.
+        let source = "áé€x\n";
+        let fixed = apply_fixes(source, &[&edit((1, 1), (1, 3), "")]).expect("applies");
+        assert_eq!(fixed, "áx\n");
+    }
+
+    #[test]
+    fn apply_fixes_deletes_inserts_and_reaches_eof() {
+        let deletion = apply_fixes("abcd\n", &[&edit((1, 1), (1, 3), "")]).expect("deletes");
+        assert_eq!(deletion, "ad\n");
+
+        let insertion = apply_fixes("ab\n", &[&edit((1, 1), (1, 1), "X")]).expect("inserts");
+        assert_eq!(insertion, "aXb\n");
+
+        // A file ending in a newline has an empty virtual last line at EOF.
+        let eof = apply_fixes("ab\n", &[&edit((2, 0), (2, 0), "!")]).expect("eof insert");
+        assert_eq!(eof, "ab\n!");
+    }
+
+    #[test]
+    fn apply_fixes_allows_adjacent_edits_and_unordered_input() {
+        let source = "abcdef\n";
+        let edits = [edit((1, 3), (1, 6), "Y"), edit((1, 0), (1, 3), "X")];
+        let fixed = apply_fixes(source, &edits.iter().collect::<Vec<_>>()).expect("applies");
+        assert_eq!(fixed, "XY\n");
+    }
+
+    #[test]
+    fn apply_fixes_rejects_competing_same_point_insertions() {
+        let first = edit((1, 1), (1, 1), "X");
+        let second = edit((1, 1), (1, 1), "Y");
+        let error = apply_fixes("ab\n", &[&first, &second]).expect_err("conflicts");
+        assert_eq!(
+            error,
+            FixApplyError::Overlapping {
+                first: 0,
+                second: 1
+            }
+        );
+    }
+
+    #[test]
+    fn apply_fixes_rejects_insertion_at_replacement_start() {
+        let insertion = edit((1, 1), (1, 1), "X");
+        let replacement = edit((1, 1), (1, 2), "Y");
+        assert!(insertion.overlaps(&replacement));
+        assert!(replacement.overlaps(&insertion));
+        assert!(matches!(
+            apply_fixes("ab\n", &[&replacement, &insertion]),
+            Err(FixApplyError::Overlapping { .. })
+        ));
+
+        let at_end = edit((1, 2), (1, 2), "!");
+        assert!(!replacement.overlaps(&at_end));
+        assert_eq!(
+            apply_fixes("ab\n", &[&replacement, &at_end]).expect("adjacent edits apply"),
+            "aY!\n"
+        );
+    }
+
+    #[test]
+    fn apply_fixes_reports_out_of_bounds_endpoints() {
+        let beyond_line = edit((1, 5), (1, 6), "X");
+        assert_eq!(
+            apply_fixes("ab\n", &[&beyond_line]),
+            Err(FixApplyError::OutOfBounds {
+                index: 0,
+                pos: Pos { line: 1, column: 5 }
+            })
+        );
+
+        let unknown_line = edit((9, 0), (9, 1), "X");
+        assert!(matches!(
+            apply_fixes("ab\n", &[&unknown_line]),
+            Err(FixApplyError::OutOfBounds { index: 0, .. })
+        ));
+
+        let zero_line = edit((0, 0), (0, 1), "X");
+        assert!(matches!(
+            apply_fixes("ab\n", &[&zero_line]),
+            Err(FixApplyError::OutOfBounds { index: 0, .. })
+        ));
+    }
+
+    #[test]
+    fn issue_new_has_no_fix_and_with_fix_sorts_edits() {
+        let range = Range {
+            start: Pos { line: 1, column: 0 },
+            end: Pos { line: 1, column: 4 },
+        };
+        let bare = Issue::new("python:S1721", "Remove the parentheses.", range.clone());
+        assert!(bare.fix.is_none());
+
+        let edits = vec![edit((1, 10), (1, 11), ""), edit((1, 6), (1, 7), " ")];
+        let fixed = bare.with_fix("Remove redundant parentheses", edits);
+        let fix = fixed.fix.expect("attached");
+        assert_eq!(fix.message, "Remove redundant parentheses");
+        assert!(fix.edits[0].range.start < fix.edits[1].range.start);
+    }
+
+    #[test]
+    #[should_panic(expected = "overlapping TextEdits")]
+    fn with_fix_panics_on_overlapping_edits() {
+        let range = Range {
+            start: Pos { line: 1, column: 0 },
+            end: Pos { line: 1, column: 4 },
+        };
+        let _ = Issue::new("python:S1721", "message", range).with_fix(
+            "fix",
+            vec![edit((1, 0), (1, 5), "A"), edit((1, 3), (1, 7), "B")],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "quick fix must contain at least one TextEdit")]
+    fn with_fix_panics_on_empty_edits() {
+        let range = Range {
+            start: Pos { line: 1, column: 0 },
+            end: Pos { line: 1, column: 4 },
+        };
+        let _ = Issue::new("python:S1721", "message", range).with_fix("fix", Vec::new());
+    }
+
+    #[test]
+    #[should_panic(expected = "inverted TextEdit range")]
+    fn with_fix_panics_on_inverted_range() {
+        let range = Range {
+            start: Pos { line: 1, column: 0 },
+            end: Pos { line: 1, column: 4 },
+        };
+        let _ = Issue::new("python:S1721", "message", range)
+            .with_fix("fix", vec![edit((1, 5), (1, 2), "A")]);
+    }
+
+    #[test]
+    fn issue_json_omits_absent_fix_and_round_trips_present_one() {
+        let range = Range {
+            start: Pos { line: 1, column: 0 },
+            end: Pos { line: 1, column: 4 },
+        };
+        let without = serde_json::to_string(&Issue::new("python:S1721", "m", range.clone()))
+            .expect("serialize");
+        assert!(!without.contains("\"fix\""));
+
+        let with = Issue::new("python:S1721", "m", range)
+            .with_fix("fix message", vec![edit((1, 4), (1, 4), "")]);
+        let json = serde_json::to_string(&with).expect("serialize");
+        assert!(json.contains("\"fix\""));
+        let parsed: Issue = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed, with);
     }
 }

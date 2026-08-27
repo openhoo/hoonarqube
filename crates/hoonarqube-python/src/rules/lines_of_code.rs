@@ -24,5 +24,6 @@ pub(crate) fn check_lines_of_code(
             start: hoonarqube_ir::Pos { line: 1, column: 0 },
             end: hoonarqube_ir::Pos { line: 1, column: 0 },
         },
+        fix: None,
     }]
 }

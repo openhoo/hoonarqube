@@ -37,6 +37,7 @@ pub(crate) fn check_pre_increment_decrement(
                     index,
                     source,
                 ),
+                fix: None,
             });
         }
     }

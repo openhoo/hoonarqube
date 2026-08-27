@@ -11,7 +11,7 @@ SonarQube Generic Issue Import JSON.
 | `hoonarqube` | Public facade crate: re-exports `analyze`, `Language`, `AnalyzerOptions`, catalog, IR |
 | `hoonarqube-core` | Language dispatch by extension and end-to-end `analyze()` orchestration |
 | `hoonarqube-catalog` | Frozen, embedded rule catalog (severity/type/parameters) — the single source of truth for rule metadata |
-| `hoonarqube-ir` | Findings IR: `Pos`, `Range`, `Issue`, `FileMetrics`, `FileReport` |
+| `hoonarqube-ir` | Findings and fix IR: `Pos`, `Range`, `Issue`, `Fix`, `TextEdit`, reports and metrics |
 | `hoonarqube-python` | Python analyzer (ruff parser) |
 | `hoonarqube-jsts` | JavaScript/TypeScript/JSX/TSX analyzer (oxc) |
 | `hoonarqube-csharp` | C# analyzer (tree-sitter-c-sharp) |
@@ -85,10 +85,31 @@ not yet implemented; `catalog coverage --strict` reports it as the single action
 ```bash
 cargo run -p hoonarqube-cli -- analyze <paths...>              # text report
 cargo run -p hoonarqube-cli -- analyze --format sonar <paths>  # Generic Issue Import JSON
-cargo run -p hoonarqube-cli -- fix <paths>                     # safe mechanical fixes
+cargo run -p hoonarqube-cli -- fix <paths>                     # dry-run automatic fixes
+cargo run -p hoonarqube-cli -- fix --diff <paths>              # preview unified diff
+cargo run -p hoonarqube-cli -- fix --apply <paths>             # write and verify
 cargo run -p hoonarqube-bench -- --iterations N                # throughput table
 cargo run -p xtask -- catalog coverage                         # parity audit
 ```
+
+### Automatic fixes
+
+`fix` combines quick fixes attached to catalog findings with safe mechanical
+repairs for trailing whitespace, missing final newlines, and leading tabs. It
+never writes by default. Use `--diff` to inspect the projected rewrite and
+`--apply` to write it. `--rule <prefix>` limits finding-backed fixes (repeatable
+or comma-separated); mechanical repairs remain enabled.
+
+Each multi-edit rule fix is atomic. If fixes overlap, deterministic earlier
+fixes win and complete later fixes are skipped and reported. Apply mode rejects
+a file changed since planning, then re-analyzes written content: targeted rule
+counts must decrease by the number of applied fixes and no rule count may
+increase. Failed verification returns a nonzero exit status.
+
+Global `--json` keeps stdout as one JSON document, including requested diffs as
+per-file `diff` fields instead of mixing human text into machine output. Current
+finding-backed coverage starts with the syntax-checked `python:S1721` redundant-
+parentheses remedy. See [QUICKFIX.md](QUICKFIX.md) for the parity inventory.
 
 ## Development
 

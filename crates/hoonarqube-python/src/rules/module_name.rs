@@ -24,6 +24,7 @@ pub(crate) fn check_module_name(
             start: to_pos(TextSize::from(0), index, source),
             end: to_pos(TextSize::from(0), index, source),
         },
+        fix: None,
     }]
 }
 

@@ -30,6 +30,7 @@ fn check_trailing_whitespace(source: &str, language: JstsLanguage) -> Vec<Issue>
                     column: to_u32(content.len()),
                 },
             },
+            fix: None,
         });
     }
     issues

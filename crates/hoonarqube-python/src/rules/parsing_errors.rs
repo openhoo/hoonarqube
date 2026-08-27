@@ -16,6 +16,7 @@ pub(crate) fn check_parsing_errors(
             rule_key: "python:ParsingError".to_string(),
             message: format!("Fix this syntax error: {error}."),
             range: to_range(error.location, index, source),
+            fix: None,
         })
         .collect()
 }

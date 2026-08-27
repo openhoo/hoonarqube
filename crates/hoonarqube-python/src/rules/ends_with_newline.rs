@@ -23,6 +23,7 @@ pub(crate) fn check_ends_with_newline(source: &str) -> Vec<Issue> {
                 column: length,
             },
         },
+        fix: None,
     }]
 }
 

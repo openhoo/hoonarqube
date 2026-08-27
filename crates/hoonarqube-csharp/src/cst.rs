@@ -55,7 +55,7 @@ pub(crate) fn pos_of(
     }
 }
 
-/// Half-open-inclusive range of `node` with character-based columns
+/// Half-open range of `node` with character-based columns
 /// (see [`pos_of`]).
 pub(crate) fn range_of(node: Node<'_>, source: &str) -> hoonarqube_ir::Range {
     hoonarqube_ir::Range {
@@ -74,6 +74,7 @@ pub(crate) fn issue(
         rule_key: format!("{}:{rule}", language.prefix()),
         message: message.into(),
         range,
+        fix: None,
     }
 }
 

@@ -366,6 +366,7 @@ pub(crate) fn span_issue(
         rule_key,
         message: message.into(),
         range: index.range(span),
+        fix: None,
     }
 }
 
@@ -414,6 +415,7 @@ impl IssueSink<'_> {
                     column: end.1,
                 },
             },
+            fix: None,
         });
     }
 }

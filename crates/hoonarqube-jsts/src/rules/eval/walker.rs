@@ -56,6 +56,7 @@ impl EvalUsageCollector<'_> {
             rule_key: format!("{}:S1523", self.language.prefix()),
             message: message.to_string(),
             range: self.index.range(span),
+            fix: None,
         });
     }
 }

@@ -22,6 +22,7 @@ pub(crate) fn check_hardcoded_ips(
                 rule_key: "python:S1313".to_string(),
                 message: "Make this IP address configurable.".to_string(),
                 range: to_range(range, index, source),
+                fix: None,
             });
         }
     }

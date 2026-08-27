@@ -2,7 +2,10 @@
 use crate::support::LineIndex;
 use crate::{JstsLanguage, check_class_methods, check_one};
 use hoonarqube_ir::Issue;
-use oxc_ast::ast::{Declaration, ExportDefaultDeclarationKind, ModuleDeclaration, Statement};
+use oxc_ast::ast::{
+    Declaration, ExportDefaultDeclarationKind, IfStatement, ModuleDeclaration, Statement,
+    SwitchStatement, TryStatement,
+};
 use oxc_span::GetSpan;
 
 /// Groups consecutive statements sharing a start line; every additional
@@ -27,6 +30,7 @@ pub(crate) fn check_suite(
                 rule_key: format!("{}:S122", language.prefix()),
                 message: "Only one statement per line is allowed.".to_string(),
                 range: index.range(stmt.span()),
+                fix: None,
             });
         }
         for stmt in &body[start..end] {
@@ -50,10 +54,7 @@ fn check_nested_bodies(
             check_suite(block.body.as_slice(), index, language, issues);
         }
         Statement::IfStatement(statement) => {
-            check_one(&statement.consequent, index, language, issues);
-            if let Some(alternate) = &statement.alternate {
-                check_one(alternate, index, language, issues);
-            }
+            check_if_statement(statement, index, language, issues);
         }
         Statement::ForStatement(statement) => {
             check_one(&statement.body, index, language, issues);
@@ -71,18 +72,10 @@ fn check_nested_bodies(
             check_one(&statement.body, index, language, issues);
         }
         Statement::SwitchStatement(statement) => {
-            for case in &statement.cases {
-                check_suite(case.consequent.as_slice(), index, language, issues);
-            }
+            check_switch_cases(statement, index, language, issues);
         }
         Statement::TryStatement(statement) => {
-            check_suite(statement.block.body.as_slice(), index, language, issues);
-            if let Some(handler) = &statement.handler {
-                check_suite(handler.body.body.as_slice(), index, language, issues);
-            }
-            if let Some(finalizer) = &statement.finalizer {
-                check_suite(finalizer.body.as_slice(), index, language, issues);
-            }
+            check_try_statement(statement, index, language, issues);
         }
         Statement::LabeledStatement(statement) => {
             check_one(&statement.body, index, language, issues);
@@ -90,34 +83,87 @@ fn check_nested_bodies(
         Statement::WithStatement(statement) => {
             check_one(&statement.body, index, language, issues);
         }
-        _ => {
-            if let Some(declaration) = stmt.as_declaration() {
-                match declaration {
-                    Declaration::FunctionDeclaration(function) => {
-                        if let Some(body) = &function.body {
-                            check_suite(body.statements.as_slice(), index, language, issues);
-                        }
-                    }
-                    Declaration::ClassDeclaration(class) => {
-                        check_class_methods(&class.body.body, index, language, issues);
-                    }
-                    _ => {}
-                }
-            } else if let Some(ModuleDeclaration::ExportDefaultDeclaration(declaration)) =
-                stmt.as_module_declaration()
-            {
-                match &declaration.declaration {
-                    ExportDefaultDeclarationKind::FunctionDeclaration(function) => {
-                        if let Some(body) = &function.body {
-                            check_suite(body.statements.as_slice(), index, language, issues);
-                        }
-                    }
-                    ExportDefaultDeclarationKind::ClassDeclaration(class) => {
-                        check_class_methods(&class.body.body, index, language, issues);
-                    }
-                    _ => {}
+        _ => check_declaration_bodies(stmt, index, language, issues),
+    }
+}
+
+/// An `if` walks its taken branch as the nested body, then any `else`
+/// branch separately.
+fn check_if_statement(
+    statement: &IfStatement<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+    issues: &mut Vec<Issue>,
+) {
+    check_one(&statement.consequent, index, language, issues);
+    if let Some(alternate) = &statement.alternate {
+        check_one(alternate, index, language, issues);
+    }
+}
+
+/// Every switch-case consequent is treated as an independent statement run.
+fn check_switch_cases(
+    statement: &SwitchStatement<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+    issues: &mut Vec<Issue>,
+) {
+    for case in &statement.cases {
+        check_suite(case.consequent.as_slice(), index, language, issues);
+    }
+}
+
+/// A `try` contributes up to three independent bodies: the block, the
+/// optional handler, and the optional finalizer.
+fn check_try_statement(
+    statement: &TryStatement<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+    issues: &mut Vec<Issue>,
+) {
+    check_suite(statement.block.body.as_slice(), index, language, issues);
+    if let Some(handler) = &statement.handler {
+        check_suite(handler.body.body.as_slice(), index, language, issues);
+    }
+    if let Some(finalizer) = &statement.finalizer {
+        check_suite(finalizer.body.as_slice(), index, language, issues);
+    }
+}
+
+/// Declarations and default exports nest function or class bodies; they
+/// are not concrete `Statement` variants but inherited variant groups
+/// reached through the generated `as_*` helpers.
+fn check_declaration_bodies(
+    stmt: &Statement<'_>,
+    index: &LineIndex,
+    language: JstsLanguage,
+    issues: &mut Vec<Issue>,
+) {
+    if let Some(declaration) = stmt.as_declaration() {
+        match declaration {
+            Declaration::FunctionDeclaration(function) => {
+                if let Some(body) = &function.body {
+                    check_suite(body.statements.as_slice(), index, language, issues);
                 }
             }
+            Declaration::ClassDeclaration(class) => {
+                check_class_methods(&class.body.body, index, language, issues);
+            }
+            _ => {}
+        }
+    } else if let Some(ModuleDeclaration::ExportDefaultDeclaration(declaration)) =
+        stmt.as_module_declaration()
+    {
+        match &declaration.declaration {
+            ExportDefaultDeclarationKind::FunctionDeclaration(function) => {
+                if let Some(body) = &function.body {
+                    check_suite(body.statements.as_slice(), index, language, issues);
+                }
+            }
+            ExportDefaultDeclarationKind::ClassDeclaration(class) => {
+                check_class_methods(&class.body.body, index, language, issues);
+            }
+            _ => {}
         }
     }
 }

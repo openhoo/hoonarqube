@@ -27,6 +27,7 @@ pub(crate) fn check_py2_backticks(
                     rule_key: "python:BackticksUsage".to_string(),
                     message: "Replace the backtick quoting with a call to repr().".to_string(),
                     range: to_range(TextRange::new(at, at + TextSize::new(1)), index, source),
+                    fix: None,
                 });
             }
         }

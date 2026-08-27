@@ -26,6 +26,7 @@ pub(crate) fn check_noqa_comments(
             message: "Do not suppress issues with a 'noqa' comment; fix the issue instead."
                 .to_string(),
             range: to_range(comment.range(), index, source),
+            fix: None,
         });
         if !noqa_format_valid(text) {
             issues.push(Issue {
@@ -33,6 +34,7 @@ pub(crate) fn check_noqa_comments(
                 message: "Use the format '# noqa: CODE' with comma-separated uppercase codes."
                     .to_string(),
                 range: to_range(comment.range(), index, source),
+                fix: None,
             });
         }
     }

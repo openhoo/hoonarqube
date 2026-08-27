@@ -10,7 +10,8 @@
 //! - [`catalog`] from `hoonarqube-catalog` — the frozen, integrity-verified
 //!   `SonarQube` rule catalog that every finding's rule key resolves against.
 //! - [`ir`] from `hoonarqube-ir` — the plain-data findings model
-//!   ([`ir::AnalysisReport`], [`ir::FileReport`], [`ir::Issue`], ...).
+//!   ([`ir::AnalysisReport`], [`ir::Issue`], [`ir::Fix`], [`ir::TextEdit`],
+//!   ...).
 //!
 //! # Example
 //!
@@ -55,12 +56,20 @@ pub mod ir {
     pub use hoonarqube_ir::FileMetrics;
     /// Findings and metrics for one analyzed file.
     pub use hoonarqube_ir::FileReport;
+    /// A human-readable machine-applicable remedy and its edits.
+    pub use hoonarqube_ir::Fix;
+    /// Validation failure returned while applying edits.
+    pub use hoonarqube_ir::FixApplyError;
     /// One finding whose `rule_key` references a frozen catalog external key.
     pub use hoonarqube_ir::Issue;
     /// Source position; `line` is 1-based, `column` is 0-based.
     pub use hoonarqube_ir::Pos;
-    /// Half-open-inclusive source span.
+    /// Half-open source span.
     pub use hoonarqube_ir::Range;
+    /// One source-range replacement belonging to a fix.
+    pub use hoonarqube_ir::TextEdit;
+    /// Applies non-overlapping edits to one source string.
+    pub use hoonarqube_ir::apply_fixes;
 }
 
 /// Language dispatch knobs for [`analyze`]; defaults match analyzer defaults.

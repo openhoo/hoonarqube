@@ -26,6 +26,7 @@ pub(crate) fn check(source: &str, language: CsLanguage, options: &AnalyzerOption
                         column: to_u32(length),
                     },
                 },
+                fix: None,
             });
         }
     }

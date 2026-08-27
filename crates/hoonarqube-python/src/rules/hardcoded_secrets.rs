@@ -44,6 +44,7 @@ pub(crate) fn check_hardcoded_secrets(
                 rule_key: "python:S6418".to_string(),
                 message: "Review this potentially hard-coded secret.".to_string(),
                 range: to_range(literal.range(), index, source),
+                fix: None,
             });
         }
         let mixed = text.chars().any(|ch| ch.is_ascii_uppercase())
@@ -56,6 +57,7 @@ pub(crate) fn check_hardcoded_secrets(
                 message: "Revoke and replace this hard-coded credential with one stored securely."
                     .to_string(),
                 range: to_range(literal.range(), index, source),
+                fix: None,
             });
         }
     }

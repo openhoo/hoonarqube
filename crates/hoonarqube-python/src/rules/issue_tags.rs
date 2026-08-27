@@ -39,6 +39,7 @@ pub(crate) fn check_issue_tags(
                         tag.to_uppercase()
                     ),
                     range: to_range(comment.range(), index, source),
+                    fix: None,
                 });
             }
         }
@@ -48,6 +49,7 @@ pub(crate) fn check_issue_tags(
                 message: "Add a person reference such as '(jane)' to this TODO/FIXME comment."
                     .to_string(),
                 range: to_range(comment.range(), index, source),
+                fix: None,
             });
         }
     }

@@ -18,10 +18,8 @@ fn check_missing_newline_at_eof(
     vec![Issue {
         rule_key: format!("{}:S113", language.prefix()),
         message: "Add a new line at the end of this file.".to_string(),
-        range: hoonarqube_ir::Range {
-            start: end.clone(),
-            end,
-        },
+        range: hoonarqube_ir::Range { start: end, end },
+        fix: None,
     }]
 }
 

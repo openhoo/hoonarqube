@@ -49,6 +49,7 @@ pub(crate) fn check_cleartext_protocols(
                     "Use an encrypted protocol such as HTTPS instead of this cleartext connection."
                         .to_string(),
                 range: to_range(range, index, source),
+                fix: None,
             });
         }
     }

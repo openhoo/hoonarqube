@@ -23,6 +23,7 @@ pub(crate) fn check_py2_inequality(
                     rule_key: "python:InequalityUsage".to_string(),
                     message: "Replace the '<>' operator with '!='.".to_string(),
                     range: to_range(TextRange::new(at, at + TextSize::new(2)), index, source),
+                    fix: None,
                 });
             }
         }

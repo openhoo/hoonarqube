@@ -19,6 +19,7 @@ pub(crate) fn check_no_sonar(
             rule_key: "python:NoSonar".to_string(),
             message: "Remove this usage of 'NOSONAR'.".to_string(),
             range: to_range(token.range(), index, source),
+            fix: None,
         })
         .collect()
 }

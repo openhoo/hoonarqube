@@ -33,6 +33,7 @@ pub(crate) fn check_lowercase_long_suffix(
                 index,
                 source,
             ),
+            fix: None,
         })
         .collect()
 }

@@ -34,6 +34,7 @@ fn check_line_length(
                         column: to_u32(length),
                     },
                 },
+                fix: None,
             });
         }
     }

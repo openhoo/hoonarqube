@@ -21,6 +21,7 @@ pub(crate) fn check_trailing_whitespace(source: &str) -> Vec<Issue> {
                         column: to_u32(text.chars().count()),
                     },
                 },
+                fix: None,
             });
         }
     });

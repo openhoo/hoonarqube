@@ -26,6 +26,7 @@ pub(crate) fn check_line_length(source: &str, options: &AnalyzerOptions) -> Vec<
                         column: to_u32(length),
                     },
                 },
+                fix: None,
             });
         }
     }

@@ -27,6 +27,7 @@ pub(crate) fn check_mixed_string_concatenation(
                 rule_key: "python:S5799".to_string(),
                 message: "Implicitly concatenating str and bytes literals fails at runtime; merge them explicitly.".to_string(),
                 range: to_range(pair[1].range(), index, source),
+                fix: None,
             });
         }
     }
