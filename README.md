@@ -1,7 +1,7 @@
 # Hoonarqube
 
-Rust-native SonarQube-compatible static analyzer for Python, JavaScript/TypeScript, and C#, with a
-frozen rule catalog and a CLI that walks source trees and emits findings either as text or as
+Rust-native SonarQube-compatible static analyzer for Python, JavaScript/TypeScript,
+C#, Go, and Rust, with a frozen rule catalog and a CLI that emits text, JSON, or
 SonarQube Generic Issue Import JSON.
 
 ## Workspace
@@ -15,6 +15,8 @@ SonarQube Generic Issue Import JSON.
 | `hoonarqube-python` | Python analyzer (ruff parser) |
 | `hoonarqube-jsts` | JavaScript/TypeScript/JSX/TSX analyzer (oxc) |
 | `hoonarqube-csharp` | C# analyzer (tree-sitter-c-sharp) |
+| `hoonarqube-go` | Go analyzer (tree-sitter-go) |
+| `hoonarqube-rust` | Rust analyzer (tree-sitter-rust with Clippy-compatible contracts) |
 | `hoonarqube-dataflow` | Generic intra-procedural engine: CFG builder, worklist solvers, dominators (not yet wired into any analyzer; reserved for future Tier-B adoption) |
 | `hoonarqube-cli` | `analyze` (text / JSON / SonarQube generic-issue), `fix`, plus `rules`/`snapshot` catalog queries |
 | `hoonarqube-bench` | Multi-language throughput benchmark over seeded synthetic fixtures |
@@ -22,9 +24,8 @@ SonarQube Generic Issue Import JSON.
 
 ## Analyzer architecture
 
-The Python and JS/TS analyzers follow this shared per-rule layout; `hoonarqube-csharp` mirrors
-it with `cst.rs` (tree-sitter helpers), `metrics.rs` and `symbol_table.rs` in place of
-`context.rs`, `support/` and `engine/`:
+The Python and JS/TS analyzers follow this shared per-rule layout. C#, Go, and
+Rust use tolerant tree-sitter traversals and language-specific semantic helpers:
 
 ```
 src/
@@ -60,6 +61,8 @@ against the frozen catalog:
 | TypeScript | 406 | 406 | 0 | 6 | 412 | 100.0% |
 | Python | 334 | 334 | 0 | 1 | 335 | 100.0% |
 | C# | 460 | 460 | 0 | 7 | 467 | 100.0% |
+| Go | 36 | 36 | 0 | 0 | 36 | 100.0% |
+| Rust | 85 | 85 | 0 | 0 | 85 | 100.0% |
 
 ### Documented gaps
 
@@ -77,7 +80,7 @@ implementation:
 - Production runtime configuration introspection — `python:S6786`.
 - ASI reconstruction from a tolerant parse — `javascript:S1438`, `typescript:S1438`.
 
-All 1,603 actionable implementations now have direct, repository-qualified test
+All 1,724 actionable implementations now have direct, repository-qualified test
 evidence. The strict audit remains deliberately red because 17
 infrastructure-classified rows are still parity gaps. Direct tests and
 implementation markers do not prove SonarQube-equivalent behavior. See
@@ -87,6 +90,11 @@ The frozen Community C# base analyzer can certify 408 of 467 catalog rows.
 Forty-two rows remain infrastructure gaps; 17 implemented commercial rules are
 explicitly `enterprise-unverified` because Community cannot execute them. They
 remain shipped and locally tested, but no Enterprise parity claim is made.
+
+Go Community parity is 36/36 exact. Rust Community parity is 80/85 exact;
+five implemented rules are upstream-unverified because SonarQube 26.8 requests
+removed or invalid Clippy contracts. They still require bad-fire/good-clean
+local evidence and are not counted as exact passes.
 
 ## Usage
 

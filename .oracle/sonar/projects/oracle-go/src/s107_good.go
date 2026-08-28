@@ -1,0 +1,11 @@
+// Hoonarqube oracle fixture: go:S107 good
+package oracle
+
+// Each function does a part of what the original setCoordinates function was doing, so confusion risks are lower
+func setOrigin(x int, y int, z int) {
+   // ...
+}
+
+func setSize(width int, height int, depth int) {
+   // ...
+}

@@ -13,7 +13,9 @@ from typing import Any, Callable, Iterable
 
 
 ORACLE_REPORT_SCHEMA = 2
-NON_FAILURE_STATUSES = frozenset({"PASS"})
+NON_FAILURE_STATUSES = frozenset(
+    {"PASS", "ENTERPRISE_UNVERIFIED", "UPSTREAM_UNVERIFIED"}
+)
 
 
 def validate_oracle_report(report: Any) -> list[dict[str, Any]]:
@@ -221,12 +223,32 @@ def compare_reports(
             )
             continue
 
+        upstream_unverified = expectation.get("upstream_unverified")
+        if upstream_unverified is not None and (
+            not isinstance(upstream_unverified, str) or not upstream_unverified.strip()
+        ):
+            rows.append(
+                {
+                    "key": key,
+                    "status": "INVALID_EXPECTATION",
+                    "reason": "invalid upstream-unverified reason",
+                }
+            )
+            continue
+
         sonar_bad = _for_file_rule(sonar, bad, key)
         ours_bad = _for_file_rule(ours, bad, key)
         sonar_good = _for_file_rule(sonar, good, key)
         ours_good = _for_file_rule(ours, good, key)
 
-        if key in enterprise_unverified:
+        if upstream_unverified:
+            if ours_good:
+                status = "GOOD_FIRE"
+            elif sum(ours_bad.values()) < minimum:
+                status = "OURS_MISS"
+            else:
+                status = "UPSTREAM_UNVERIFIED"
+        elif key in enterprise_unverified:
             if ours_good:
                 status = "GOOD_FIRE"
             elif sum(ours_bad.values()) < minimum:
@@ -256,6 +278,11 @@ def compare_reports(
                 "ours_bad": _serializable(ours_bad),
                 "sonar_good": _serializable(sonar_good),
                 "ours_good": _serializable(ours_good),
+                **(
+                    {"reason": str(upstream_unverified)}
+                    if upstream_unverified
+                    else {}
+                ),
             }
         )
     if catalog is not None:

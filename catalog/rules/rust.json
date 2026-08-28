@@ -1,0 +1,2334 @@
+{
+  "schema_version": 1,
+  "language": "rust",
+  "source_capture_sha256": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b",
+  "classification": "community-plus-enterprise-unverified",
+  "rules": [
+    {
+      "external_key": "rust:S106",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "MODULAR",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "bad-practice",
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S107",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "brain-overload",
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S1116",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy",
+        "unused"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S126",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S1488",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy",
+        "clumsy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S1612",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S1656",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S1751",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "bad-practice",
+        "clippy",
+        "confusing"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S1764",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S1858",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy",
+        "finding",
+        "clumsy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S1862",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy",
+        "unused",
+        "pitfall"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S2148",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FORMATTED",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "convention",
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S2185",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy",
+        "clumsy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S2193",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S2198",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy",
+        "suspicious"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S2208",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy",
+        "pitfall"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S2260",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "suspicious"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S2437",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "BLOCKER",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "BLOCKER"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy",
+        "suspicious"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S2479",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy",
+        "pitfall"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S2589",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "cwe",
+        "clippy",
+        "suspicious",
+        "redundant"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S3498",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S3723",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FORMATTED",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S3776",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "threshold",
+          "default_value": "15",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "brain-overload"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S3807",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S4275",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "BUG",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy",
+        "pitfall"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S4325",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy",
+        "redundant"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S4962",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S5856",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "regex",
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S6164",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy",
+        "clumsy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S6466",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S6913",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7089",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "EFFICIENT",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7200",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7411",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "DISTINCT",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7412",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7413",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7414",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7415",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7417",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7418",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7419",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7420",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7421",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7422",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7423",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7424",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7425",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7426",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7427",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7428",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "BLOCKER",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7429",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7430",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7431",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7432",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7433",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "BLOCKER",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7436",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7437",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "BLOCKER",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7438",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "BLOCKER",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7439",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7440",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7441",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7442",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7443",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7444",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7445",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7446",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7447",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7448",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7449",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7450",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7451",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7453",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7454",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7455",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7456",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7457",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "BLOCKER",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7458",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7459",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7460",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7461",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7462",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7463",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S7464",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S905",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "cwe",
+        "clippy",
+        "unused"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "rust:S920",
+      "language": "rust",
+      "repository": "rust",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clippy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    }
+  ]
+}

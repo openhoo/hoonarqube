@@ -1,7 +1,7 @@
 //! Path walking and per-file orchestration for the `analyze` subcommand.
 //!
-//! Walks the requested paths, feeds every selected `.py`, `.js`-family, or
-//! `.ts`-family file to its language analyzer, and returns one [`FileReport`]
+//! Walks requested paths, feeds each selected Python, JS/TS, C#, Go, or Rust
+//! file to its language analyzer, and returns one [`FileReport`]
 //! per file, sorted by path. Non-fatal problems (missing paths, explicitly
 //! passed non-source files, unreadable or non-UTF-8 files) are recorded as
 //! warnings instead of aborting the run.
@@ -109,10 +109,51 @@ pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundl
             .unwrap_or(false),
         ..hoonarqube_core::CSharpAnalyzerOptions::default()
     };
+    let go = hoonarqube_core::GoAnalyzerOptions {
+        maximum_line_length: maximum_line_length("go:S103").unwrap_or(120) as usize,
+        maximum_lines_of_code: parameter("go:S104", "Max")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(750),
+        maximum_expression_complexity: parameter("go:S1067", "max")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(3),
+        maximum_function_parameters: parameter("go:S107", "Max")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(7),
+        maximum_case_lines: parameter("go:S1151", "max")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(6),
+        duplicate_string_threshold: parameter("go:S1192", "threshold")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(3),
+        maximum_nesting_depth: parameter("go:S134", "max")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(4),
+        maximum_function_lines: parameter("go:S138", "max")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(120),
+        maximum_switch_cases: parameter("go:S1479", "maximum")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(30),
+        maximum_cognitive_complexity: parameter("go:S3776", "threshold")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(15),
+        header_format: parameter("go:S1451", "headerFormat")
+            .unwrap_or_default()
+            .to_string(),
+    };
+    let rust = hoonarqube_core::RustAnalyzerOptions {
+        maximum_function_parameters: 7,
+        maximum_cognitive_complexity: parameter("rust:S3776", "threshold")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(15),
+    };
     CoreOptions {
         python,
         jsts,
         csharp,
+        go,
+        rust,
     }
 }
 
@@ -167,7 +208,7 @@ pub(crate) fn collect_files(
 }
 
 /// One source of truth for extension dispatch, via the core registry:
-/// [`hoonarqube_core::language_for_path`] covers Python, JS/TS, and C#.
+/// [`hoonarqube_core::language_for_path`] covers all supported languages.
 fn is_analyzable_file(path: &Path) -> bool {
     hoonarqube_core::language_for_path(path).is_some()
 }

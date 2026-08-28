@@ -1,0 +1,1062 @@
+{
+  "schema_version": 1,
+  "language": "go",
+  "source_capture_sha256": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b",
+  "classification": "community-plus-enterprise-unverified",
+  "rules": [
+    {
+      "external_key": "go:S100",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "IDENTIFIABLE",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "formatForTests",
+          "default_value": "^(_|[a-zA-Z0-9_]+)$",
+          "parameter_type": "STRING"
+        },
+        {
+          "key": "format",
+          "default_value": "^(_|[a-zA-Z0-9]+)$",
+          "parameter_type": "STRING"
+        }
+      ],
+      "sys_tags": [
+        "convention"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S103",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FORMATTED",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "maximumLineLength",
+          "default_value": "120",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "convention"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S104",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "Max",
+          "default_value": "750",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "brain-overload"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1067",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "max",
+          "default_value": "3",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "brain-overload"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S107",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "Max",
+          "default_value": "7",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "brain-overload"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S108",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "suspicious"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1110",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "confusing"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1125",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clumsy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1134",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "COMPLETE",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "cwe"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1135",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "INFO",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "COMPLETE",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "INFO"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "cwe"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1145",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "cwe"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1151",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "max",
+          "default_value": "6",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "brain-overload"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S117",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "IDENTIFIABLE",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "format",
+          "default_value": "^(_|[a-zA-Z0-9]+)$",
+          "parameter_type": "STRING"
+        }
+      ],
+      "sys_tags": [
+        "convention"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1186",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "COMPLETE",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "suspicious"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1192",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "DISTINCT",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "threshold",
+          "default_value": "3",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "design"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S122",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FORMATTED",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "convention"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S126",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S131",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "cwe"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1314",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "BLOCKER",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "BLOCKER"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "pitfall"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S134",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "max",
+          "default_value": "4",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "brain-overload"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S138",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "max",
+          "default_value": "120",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "brain-overload"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1451",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "BLOCKER",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "LAWFUL",
+      "clean_code_attribute_category": "RESPONSIBLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "BLOCKER"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "headerFormat",
+          "parameter_type": "TEXT"
+        },
+        {
+          "key": "isRegularExpression",
+          "default_value": "false",
+          "parameter_type": "BOOLEAN"
+        }
+      ],
+      "sys_tags": [
+        "convention"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1479",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "maximum",
+          "default_value": "30",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "brain-overload"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1656",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1763",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "cwe",
+        "unused"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1764",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "suspicious"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1821",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "pitfall"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1862",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "unused",
+        "pitfall"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1871",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "DISTINCT",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "design",
+        "suspicious"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S1940",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "pitfall"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S2260",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "suspicious"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S2757",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S3776",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "threshold",
+          "default_value": "15",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "brain-overload"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S3923",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S4144",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "DISTINCT",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "confusing",
+        "duplicate",
+        "suspicious"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    },
+    {
+      "external_key": "go:S4663",
+      "language": "go",
+      "repository": "go",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+    }
+  ]
+}

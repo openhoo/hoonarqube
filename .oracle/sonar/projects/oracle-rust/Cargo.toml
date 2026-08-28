@@ -1,0 +1,16 @@
+[package]
+name = "hoonarqube-rust-oracle"
+version = "0.0.0"
+edition = "2024"
+publish = false
+autobins = false
+
+[[bin]]
+name = "hoonarqube-rust-oracle"
+path = "src/oracle_main.rs"
+
+[dependencies]
+regex = "1"
+serde = "1"
+
+[workspace]

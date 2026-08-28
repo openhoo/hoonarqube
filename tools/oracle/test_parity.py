@@ -60,6 +60,42 @@ def expectation(**overrides):
 
 
 class StrictParityTests(unittest.TestCase):
+    def test_upstream_unverified_still_requires_our_bad_and_clean_good(self):
+        expected = [
+            {
+                "key": "rust:S1",
+                "bad": "s1_bad.rs",
+                "upstream_unverified": "current upstream lint id is incompatible",
+            }
+        ]
+        ours = ours_report(
+            ours_issue(rule="rust:S1", file="s1_bad.rs", message="ours"),
+            file="s1_bad.rs",
+        )
+        rows = compare_reports(expected, oracle_report(), ours)
+        self.assertEqual(rows[0]["status"], "UPSTREAM_UNVERIFIED")
+        self.assertEqual(failure_count(rows), 0)
+
+        missed = compare_reports(
+            expected, oracle_report(), ours_report(file="s1_bad.rs")
+        )
+        self.assertEqual(missed[0]["status"], "OURS_MISS")
+        self.assertEqual(failure_count(missed), 1)
+
+        malformed = compare_reports(
+            [
+                {
+                    "key": "rust:S1",
+                    "bad": "s1_bad.rs",
+                    "upstream_unverified": True,
+                }
+            ],
+            oracle_report(),
+            ours,
+        )
+        self.assertEqual(malformed[0]["status"], "INVALID_EXPECTATION")
+        self.assertEqual(failure_count(malformed), 1)
+
     def compare(self, expected, sonar, ours, infra=()):
         return compare_reports(expected, sonar, ours, infra)
 
@@ -119,7 +155,7 @@ class StrictParityTests(unittest.TestCase):
             enterprise_unverified={RULE},
         )
         self.assertEqual(rows[0]["status"], "ENTERPRISE_UNVERIFIED")
-        self.assertEqual(failure_count(rows), 1)
+        self.assertEqual(failure_count(rows), 0)
 
         local_miss = compare_reports(
             [expectation()],

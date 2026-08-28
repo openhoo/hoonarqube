@@ -8,7 +8,8 @@ issues, diffs per rule key, and prints a parity report.
 Usage:
   python3 tools/oracle/parity_suite.py            # full run, report to stdout
   python3 tools/oracle/parity_suite.py --quick    # reuse existing scan results
-Exit code 0 only when every frozen catalog rule is an exact PASS.
+Exit code 0 when every rule is an exact PASS or an explicit unverified class
+whose local bad/good contract passes.
 """
 import base64
 import argparse
@@ -27,6 +28,7 @@ import urllib.request
 from pathlib import Path
 
 from csharp_oracle import generate_solution
+from rust_clippy import generate_report as generate_rust_clippy_report
 
 from parity import (
     classify_sq_misses,
@@ -42,20 +44,60 @@ REPO = Path(__file__).resolve().parent.parent.parent
 ORACLE = REPO / ".oracle/sonar"
 RESULTS = ORACLE / "results"
 SONAR_URL = os.environ.get("SONAR_ORACLE_URL", "http://127.0.0.1:9000").rstrip("/")
-LANGS = ["oracle-py", "oracle-js", "oracle-ts", "oracle-cs"]
-EXT = {"oracle-py": "py", "oracle-js": "js", "oracle-ts": "ts", "oracle-cs": "cs"}
+LANGS = ["oracle-py", "oracle-js", "oracle-ts", "oracle-cs", "oracle-go", "oracle-rust"]
+EXT = {
+    "oracle-py": "py",
+    "oracle-js": "js",
+    "oracle-ts": "ts",
+    "oracle-cs": "cs",
+    "oracle-go": "go",
+    "oracle-rust": "rs",
+}
 CATALOG_LANGUAGE = {
     "py": "python",
     "js": "javascript",
     "ts": "typescript",
     "cs": "csharp",
+    "go": "go",
+    "rs": "rust",
+    "rust": "rust",
 }
+SONAR_LANGUAGE = {"py": "py", "js": "js", "ts": "ts", "cs": "cs", "go": "go", "rs": "rust"}
 RESULT_TAG = os.environ.get("SONAR_ORACLE_RESULT_TAG", "")
+RUST_SCANNER_IMAGE = "localhost/hoonarqube-sonar-rust-scanner:latest"
 if RESULT_TAG and not re.fullmatch(r"[a-zA-Z0-9_-]+", RESULT_TAG):
     raise RuntimeError("SONAR_ORACLE_RESULT_TAG may contain only letters, digits, '_' and '-'")
 
 def sh(cmd, **kw):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True, **kw)
+
+
+def ensure_rust_scanner_image():
+    exists = subprocess.run(
+        ["podman", "image", "exists", RUST_SCANNER_IMAGE],
+        capture_output=True,
+        text=True,
+    )
+    if exists.returncode == 0:
+        return True
+    built = subprocess.run(
+        [
+            "podman",
+            "build",
+            "-q",
+            "-t",
+            RUST_SCANNER_IMAGE,
+            "-f",
+            str(REPO / "tools/oracle/Containerfile.rust-scanner"),
+            str(REPO),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if built.returncode != 0:
+        print(f"  Rust scanner image build failed: {(built.stdout + built.stderr)[-1000:]}")
+        return False
+    return True
 
 
 def result_path(project, kind):
@@ -85,6 +127,52 @@ def sq_api(path, params=None):
     return json.loads(raw) if raw else {}
 
 
+def sq_post(path, params):
+    body = urllib.parse.urlencode(params).encode()
+    req = urllib.request.Request(f"{SONAR_URL}{path}", data=body, method="POST")
+    req.add_header("Authorization", auth_header())
+    req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    raw = urllib.request.urlopen(req).read()
+    return json.loads(raw) if raw else {}
+
+
+def ensure_project_and_profile(proj):
+    """Provision an isolated all-rules profile before the first scan."""
+    language = SONAR_LANGUAGE[EXT[proj]]
+    search = sq_api("/api/projects/search", {"projects": proj})
+    if not any(component.get("key") == proj for component in search.get("components", [])):
+        sq_post("/api/projects/create", {"project": proj, "name": proj})
+
+    profile_name = f"Hoonarqube Oracle All {language}"
+    profiles = sq_api("/api/qualityprofiles/search", {"language": language}).get("profiles", [])
+    profile = next((item for item in profiles if item.get("name") == profile_name), None)
+    if profile is None:
+        profile = sq_post(
+            "/api/qualityprofiles/create",
+            {"language": language, "name": profile_name},
+        ).get("profile", {})
+    profile_key = profile.get("key")
+    if not profile_key:
+        raise RuntimeError(f"quality profile creation returned no key for {proj}")
+    sq_post(
+        "/api/qualityprofiles/activate_rules",
+        {"targetKey": profile_key, "languages": language},
+    )
+    if language == "go":
+        sq_post(
+            "/api/qualityprofiles/activate_rule",
+            {
+                "key": profile_key,
+                "rule": "go:S1451",
+                "params": "headerFormat=// Licensed",
+            },
+        )
+    sq_post(
+        "/api/qualityprofiles/add_project",
+        {"language": language, "project": proj, "qualityProfile": profile_name},
+    )
+
+
 def ensure_container():
     if SONAR_URL == "http://127.0.0.1:9000":
         st = subprocess.run(["podman", "inspect", "-f", "{{.State.Running}}", "sonarqube"],
@@ -106,32 +194,92 @@ def ensure_container():
 def scan_project(proj):
     if proj == "oracle-cs":
         return scan_csharp_project(proj)
+    ensure_project_and_profile(proj)
     scanner = os.environ.get("SONAR_SCANNER", "sonar-scanner")
     scanner_path = shutil.which(scanner) if os.path.sep not in scanner else scanner
-    if not scanner_path or not Path(scanner_path).is_file():
-        print(f"  scan {proj}: FAILED (set SONAR_SCANNER)")
-        return False
     d = (ORACLE / "projects" / proj).resolve()
     token = oracle_token()
-    r = subprocess.run(
-        [scanner_path,
-         f"-Dsonar.projectKey={proj}", f"-Dsonar.login={token}",
-         f"-Dsonar.host.url={SONAR_URL}",
-         f"-Dsonar.working.directory=/tmp/sqscanner-{proj}"],
-        cwd=d, capture_output=True, text=True)
-    ok = "EXECUTION SUCCESS" in r.stdout
-    if not ok:
-        print(f"  scan {proj}: FAILED")
-        return False
-    task_file = Path(f"/tmp/sqscanner-{proj}/report-task.txt")
-    if not task_file.exists():
-        print(f"  scan {proj}: FAILED (missing report-task.txt)")
-        return False
-    try:
-        task_id = parse_report_task(task_file.read_text())["ceTaskId"]
-    except ValueError as error:
-        print(f"  scan {proj}: FAILED ({error})")
-        return False
+    with (
+        tempfile.TemporaryDirectory(prefix=f"sqscanner-{proj}-") as working,
+        tempfile.TemporaryDirectory(prefix=f"sqreports-{proj}-") as reports,
+    ):
+        os.chmod(working, 0o777)
+        os.chmod(reports, 0o755)
+        clippy_report = None
+        if proj == "oracle-rust":
+            clippy_report = Path(reports) / "clippy.json"
+            try:
+                count = generate_rust_clippy_report(d, clippy_report)
+            except RuntimeError as error:
+                print(f"  scan {proj}: FAILED (Clippy oracle: {error})")
+                return False
+            print(f"  Clippy fixtures: {count} validated diagnostic(s)")
+        if scanner_path and Path(scanner_path).is_file():
+            command = [
+                scanner_path,
+                f"-Dsonar.projectKey={proj}",
+                f"-Dsonar.login={token}",
+                f"-Dsonar.host.url={SONAR_URL}",
+                f"-Dsonar.working.directory={working}",
+            ]
+            if proj == "oracle-rust":
+                command.append("-Dsonar.rust.clippy.enabled=true")
+            r = subprocess.run(command, cwd=d, capture_output=True, text=True)
+        elif shutil.which("podman"):
+            scanner_image = "docker.io/sonarsource/sonar-scanner-cli:latest"
+            command = [
+                "podman", "run", "--rm", "--network", "host",
+                "-e", f"SONAR_HOST_URL={SONAR_URL}",
+                "-e", f"SONAR_TOKEN={token}",
+                "-v", f"{d}:/usr/src:Z",
+                "-v", f"{working}:/tmp/scannerwork:Z",
+            ]
+            if proj == "oracle-rust":
+                cargo_home = Path.home() / ".cargo"
+                rustup_home = Path.home() / ".rustup"
+                if not cargo_home.is_dir() or not rustup_home.is_dir():
+                    print("  scan oracle-rust: FAILED (Rustup Cargo toolchain not found)")
+                    return False
+                if not ensure_rust_scanner_image():
+                    return False
+                scanner_image = RUST_SCANNER_IMAGE
+                command.extend(
+                    [
+                        "-v", f"{cargo_home}:/opt/cargo:ro",
+                        "-v", f"{rustup_home}:/opt/rustup:ro",
+                        "-e", "CARGO_HOME=/opt/cargo",
+                        "-e", "RUSTUP_HOME=/opt/rustup",
+                        "-e", "CARGO_TARGET_DIR=/tmp/cargo-target",
+                        "-e",
+                        "PATH=/opt/cargo/bin:/opt/sonar-scanner/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                    ]
+                )
+            command.extend(
+                [
+                    "-w", "/usr/src",
+                    scanner_image,
+                    f"-Dsonar.projectKey={proj}",
+                    "-Dsonar.working.directory=/tmp/scannerwork",
+                ]
+            )
+            if proj == "oracle-rust":
+                command.append("-Dsonar.rust.clippy.enabled=true")
+            r = subprocess.run(command, capture_output=True, text=True)
+        else:
+            print(f"  scan {proj}: FAILED (set SONAR_SCANNER or install podman)")
+            return False
+        if "EXECUTION SUCCESS" not in r.stdout:
+            print(f"  scan {proj}: FAILED\n{(r.stdout + r.stderr)[-1000:]}")
+            return False
+        task_file = Path(working) / "report-task.txt"
+        if not task_file.exists():
+            print(f"  scan {proj}: FAILED (missing report-task.txt)")
+            return False
+        try:
+            task_id = parse_report_task(task_file.read_text())["ceTaskId"]
+        except ValueError as error:
+            print(f"  scan {proj}: FAILED ({error})")
+            return False
     status = wait_for_compute_engine(
         task_id,
         lambda value: sq_api("/api/ce/task", {"id": value})
@@ -323,8 +471,12 @@ def run_ours(proj):
     # oracle-cs keeps sources at the project root; others under src/
     src = ORACLE / "projects" / proj / ("." if proj == "oracle-cs" else "src")
     out = result_path(proj, "ours")
-    r = subprocess.run(["cargo", "run", "-q", "-p", "hoonarqube-cli", "--", "analyze",
-                        "--format", "json", str(src)], capture_output=True, text=True,
+    command = ["cargo", "run", "-q", "-p", "hoonarqube-cli", "--", "analyze",
+               "--format", "json"]
+    if proj == "oracle-go":
+        command.extend(["--go-header-format", "// Licensed"])
+    command.append(str(src))
+    r = subprocess.run(command, capture_output=True, text=True,
                        cwd=REPO)
     if r.returncode != 0:
         print(f"  ours {proj}: FAILED\n{r.stderr[-500:]}")
@@ -467,6 +619,11 @@ def main():
             for proj, rows in all_rows.items()
             if any(row["status"] == "ENTERPRISE_UNVERIFIED" for row in rows)
         },
+        "upstream_unverified": {
+            proj: [row["key"] for row in rows if row["status"] == "UPSTREAM_UNVERIFIED"]
+            for proj, rows in all_rows.items()
+            if any(row["status"] == "UPSTREAM_UNVERIFIED" for row in rows)
+        },
         "invalid_artifacts": invalid_artifacts,
         "blocked_projects": sorted(blocked_projects),
         "divergences": divergences,
@@ -481,10 +638,17 @@ def main():
         for row in rows
         if row["status"] == "ENTERPRISE_UNVERIFIED"
     )
+    n_upstream_unverified = sum(
+        1
+        for rows in all_rows.values()
+        for row in rows
+        if row["status"] == "UPSTREAM_UNVERIFIED"
+    )
     print(f"BEYOND-CE (rule absent from SonarQube Community): {n_beyond}")
     for proj, keys in beyond_ce.items():
         if keys: print(f"  {proj}: {len(keys)}")
     print(f"ENTERPRISE-UNVERIFIED (Community cannot certify): {n_enterprise_unverified}")
+    print(f"UPSTREAM-UNVERIFIED (current analyzer cannot certify): {n_upstream_unverified}")
     if cs_blocked:
         print("C# ORACLE-BLOCKED: zero Sonar findings; parity is unverified")
     print("PARITY FAILURES:", n_failures)

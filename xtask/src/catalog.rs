@@ -9,11 +9,13 @@ use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 use syn::visit::{self, Visit as _};
 
-const LANGUAGES: [(&str, &str); 4] = [
+const LANGUAGES: [(&str, &str); 6] = [
     ("csharp", "cs"),
     ("javascript", "js"),
     ("typescript", "ts"),
     ("python", "py"),
+    ("go", "go"),
+    ("rust", "rust"),
 ];
 const COMMUNITY_CLASSIFICATION: &str = "community-base";
 const ENTERPRISE_UNVERIFIED_CLASSIFICATION: &str = "enterprise-unverified";
@@ -140,6 +142,20 @@ struct Snapshot {
 struct SnapshotLanguage {
     language: String,
     repository: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_capture_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    captured_at_utc: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    server_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_edition: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    oracle_edition: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    instance_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    page_size: Option<u64>,
     source_total: u64,
     total: u64,
     unique_keys: usize,
@@ -167,7 +183,12 @@ struct PluginFact {
     required_for_languages: Vec<String>,
 }
 
-pub fn import(capture: &Path, community_resolution: &Path, output: &Path) -> Result<()> {
+pub fn import(
+    capture: &Path,
+    community_resolution: &Path,
+    output: &Path,
+    merge: bool,
+) -> Result<()> {
     let manifest_bytes = read(capture.join("manifest.json"))?;
     let manifest: RawManifest =
         serde_json::from_slice(&manifest_bytes).context("raw capture manifest is invalid")?;
@@ -177,21 +198,89 @@ pub fn import(capture: &Path, community_resolution: &Path, output: &Path) -> Res
     );
     ensure!(manifest.page_size > 0, "raw capture page size is zero");
     ensure!(
-        manifest.languages.len() == LANGUAGES.len(),
-        "raw capture language count mismatch"
+        !manifest.languages.is_empty(),
+        "raw capture has no languages"
     );
+    ensure!(
+        manifest.languages.keys().all(|name| {
+            LANGUAGES
+                .iter()
+                .any(|(known_name, _)| known_name == &name.as_str())
+        }),
+        "raw capture contains an unknown language"
+    );
+    if !merge {
+        ensure!(
+            manifest.languages.len() == LANGUAGES.len(),
+            "raw capture language count mismatch"
+        );
+    }
     verify_raw_manifest(capture, &manifest, &manifest_bytes)?;
 
     let (community_bytes, resolution) =
         validated_community_resolution(community_resolution, &manifest.server_version)?;
 
-    let (rule_files, catalog_sha256, total_rules) =
-        import_rule_catalogs(capture, output, &manifest, &resolution)?;
+    let imported_rule_files = import_rule_catalogs(capture, output, &manifest, &resolution)?;
 
     let (edition, mode) = imported_instance_evidence(capture, &manifest.server_version)?;
     let plugins = extract_plugins(&read_json(capture.join("plugins-installed.json"))?)?;
 
-    let languages = manifest
+    let imported_languages = snapshot_languages(&manifest, &edition, &mode);
+    let mut snapshot = if merge {
+        let snapshot_text = fs::read_to_string(output.join("snapshot.toml"))
+            .context("merge import requires an existing catalog snapshot")?;
+        let mut existing: Snapshot =
+            toml::from_str(&snapshot_text).context("existing catalog snapshot is invalid")?;
+        migrate_snapshot_provenance(&mut existing)?;
+        validate_merge_base(output, &existing)?;
+        existing.languages.extend(imported_languages);
+        existing.rule_files.extend(imported_rule_files);
+        existing.schema_version = 4;
+        existing.community_evidence_sha256 = sha256(&community_bytes);
+        existing.unverified_rules = resolution.enterprise_unverified_rules;
+        existing
+    } else {
+        Snapshot {
+            schema_version: 4,
+            capture_sha256: manifest.snapshot_sha256,
+            captured_at_utc: manifest.captured_at_utc,
+            server_version: manifest.server_version,
+            oracle_edition: resolution.target.oracle_edition,
+            edition,
+            instance_mode: mode,
+            page_size: manifest.page_size,
+            scope_classification: SCOPE_CLASSIFICATION.to_owned(),
+            community_evidence_sha256: sha256(&community_bytes),
+            catalog_sha256: String::new(),
+            source_total_rules: 0,
+            total_rules: 0,
+            unverified_rules: resolution.enterprise_unverified_rules,
+            languages: imported_languages,
+            endpoints: manifest.endpoints,
+            plugins,
+            rule_files: imported_rule_files,
+        }
+    };
+    let (catalog_sha256, total_rules, rule_files) = aggregate_catalog(output)?;
+    snapshot.catalog_sha256 = catalog_sha256;
+    snapshot.source_total_rules = total_rules;
+    snapshot.total_rules = total_rules;
+    snapshot.rule_files = rule_files;
+    let snapshot_bytes = toml::to_string_pretty(&snapshot)?.into_bytes();
+    let snapshot_path = output.join("snapshot.toml");
+    if merge {
+        write_atomic_replace(&snapshot_path, &snapshot_bytes)
+    } else {
+        write_atomic_same(&snapshot_path, &snapshot_bytes)
+    }
+}
+
+fn snapshot_languages(
+    manifest: &RawManifest,
+    edition: &str,
+    mode: &str,
+) -> BTreeMap<String, SnapshotLanguage> {
+    manifest
         .languages
         .iter()
         .map(|(name, receipt)| {
@@ -200,6 +289,13 @@ pub fn import(capture: &Path, community_resolution: &Path, output: &Path) -> Res
                 SnapshotLanguage {
                     language: receipt.language.clone(),
                     repository: receipt.repository.clone(),
+                    source_capture_sha256: Some(manifest.snapshot_sha256.clone()),
+                    captured_at_utc: Some(manifest.captured_at_utc.clone()),
+                    server_version: Some(manifest.server_version.clone()),
+                    source_edition: Some(edition.to_owned()),
+                    oracle_edition: Some("community".to_owned()),
+                    instance_mode: Some(mode.to_owned()),
+                    page_size: Some(manifest.page_size),
                     source_total: receipt.total,
                     total: receipt.total,
                     unique_keys: receipt.unique_keys,
@@ -212,29 +308,7 @@ pub fn import(capture: &Path, community_resolution: &Path, output: &Path) -> Res
                 },
             )
         })
-        .collect();
-    let snapshot = Snapshot {
-        schema_version: 3,
-        capture_sha256: manifest.snapshot_sha256,
-        captured_at_utc: manifest.captured_at_utc,
-        server_version: manifest.server_version,
-        oracle_edition: resolution.target.oracle_edition,
-        edition,
-        instance_mode: mode,
-        page_size: manifest.page_size,
-        scope_classification: SCOPE_CLASSIFICATION.to_owned(),
-        community_evidence_sha256: sha256(&community_bytes),
-        catalog_sha256,
-        source_total_rules: total_rules,
-        total_rules,
-        unverified_rules: resolution.enterprise_unverified_rules,
-        languages,
-        endpoints: manifest.endpoints,
-        plugins,
-        rule_files,
-    };
-    let snapshot_bytes = toml::to_string_pretty(&snapshot)?.into_bytes();
-    write_atomic_same(&output.join("snapshot.toml"), &snapshot_bytes)
+        .collect()
 }
 
 fn import_rule_catalogs(
@@ -242,17 +316,14 @@ fn import_rule_catalogs(
     output: &Path,
     manifest: &RawManifest,
     resolution: &CommunityResolution,
-) -> Result<(BTreeMap<String, String>, String, usize)> {
+) -> Result<BTreeMap<String, String>> {
     let rules_dir = output.join("rules");
     fs::create_dir_all(&rules_dir)?;
     let mut rule_files = BTreeMap::new();
-    let mut catalog_hasher = Sha256::new();
-    let mut total_rules = 0_usize;
     for (language_name, language_id) in LANGUAGES {
-        let receipt = manifest
-            .languages
-            .get(language_name)
-            .with_context(|| format!("raw capture lacks {language_name} receipt"))?;
+        let Some(receipt) = manifest.languages.get(language_name) else {
+            continue;
+        };
         validate_receipt(
             capture,
             language_name,
@@ -285,20 +356,79 @@ fn import_rule_catalogs(
             "source capture lacks an Enterprise-unverified rule"
         );
         SCOPE_CLASSIFICATION.clone_into(&mut catalog.classification);
-        total_rules += catalog.rules.len();
         let bytes = serde_json::to_vec_pretty(&catalog)?;
         reject_forbidden_output(&bytes)?;
-        hash_record(&mut catalog_hasher, language_name.as_bytes());
-        hash_record(&mut catalog_hasher, &bytes);
         let digest = sha256(&bytes);
         write_atomic_same(&rules_dir.join(format!("{language_name}.json")), &bytes)?;
         rule_files.insert(language_name.to_owned(), digest);
     }
-    Ok((
-        rule_files,
-        hex::encode(catalog_hasher.finalize()),
-        total_rules,
-    ))
+    Ok(rule_files)
+}
+
+fn migrate_snapshot_provenance(snapshot: &mut Snapshot) -> Result<()> {
+    ensure!(
+        matches!(snapshot.schema_version, 3 | 4),
+        "unsupported merge-base snapshot schema"
+    );
+    for language in snapshot.languages.values_mut() {
+        language
+            .source_capture_sha256
+            .get_or_insert_with(|| snapshot.capture_sha256.clone());
+        language
+            .captured_at_utc
+            .get_or_insert_with(|| snapshot.captured_at_utc.clone());
+        language
+            .server_version
+            .get_or_insert_with(|| snapshot.server_version.clone());
+        language
+            .source_edition
+            .get_or_insert_with(|| snapshot.edition.clone());
+        language
+            .oracle_edition
+            .get_or_insert_with(|| snapshot.oracle_edition.clone());
+        language
+            .instance_mode
+            .get_or_insert_with(|| snapshot.instance_mode.clone());
+        language.page_size.get_or_insert(snapshot.page_size);
+    }
+    Ok(())
+}
+
+fn validate_merge_base(output: &Path, snapshot: &Snapshot) -> Result<()> {
+    ensure!(
+        snapshot.scope_classification == SCOPE_CLASSIFICATION,
+        "merge-base snapshot has invalid scope classification"
+    );
+    for (name, receipt) in &snapshot.languages {
+        let bytes = read(output.join("rules").join(format!("{name}.json")))?;
+        ensure!(
+            snapshot.rule_files.get(name) == Some(&sha256(&bytes)),
+            "merge-base catalog file hash mismatch"
+        );
+        let catalog: RuleCatalog = serde_json::from_slice(&bytes)
+            .with_context(|| format!("merge-base catalog {name} is invalid"))?;
+        ensure!(
+            Some(&catalog.source_capture_sha256) == receipt.source_capture_sha256.as_ref(),
+            "merge-base catalog provenance mismatch"
+        );
+    }
+    Ok(())
+}
+
+fn aggregate_catalog(output: &Path) -> Result<(String, usize, BTreeMap<String, String>)> {
+    let mut hasher = Sha256::new();
+    let mut total = 0_usize;
+    let mut files = BTreeMap::new();
+    for (name, _) in LANGUAGES {
+        let bytes = read(output.join("rules").join(format!("{name}.json")))?;
+        let catalog: RuleCatalog =
+            serde_json::from_slice(&bytes).with_context(|| format!("catalog {name} is invalid"))?;
+        hash_record(&mut hasher, name.as_bytes());
+        hash_record(&mut hasher, &bytes);
+        total += catalog.rules.len();
+        files.insert(name.to_owned(), sha256(&bytes));
+    }
+    Ok((hex::encode(hasher.finalize()), total, files))
 }
 
 fn validated_community_resolution(
@@ -355,7 +485,7 @@ pub fn audit(snapshot_path: &Path, require_pages_complete: bool) -> Result<()> {
     let snapshot: Snapshot =
         toml::from_str(&snapshot_text).context("catalog snapshot is invalid")?;
     ensure!(
-        snapshot.schema_version == 3,
+        snapshot.schema_version == 4,
         "unsupported catalog snapshot schema"
     );
     ensure!(
@@ -423,10 +553,6 @@ fn audit_language(
         "catalog classification mismatch"
     );
     ensure!(
-        catalog.source_capture_sha256 == snapshot.capture_sha256,
-        "catalog capture provenance mismatch"
-    );
-    ensure!(
         is_strictly_sorted(&catalog.rules),
         "catalog rules are not strictly key-sorted"
     );
@@ -441,6 +567,54 @@ fn audit_language(
         .languages
         .get(language_name)
         .with_context(|| format!("snapshot lacks {language_name}"))?;
+    audit_language_receipt(
+        snapshot,
+        language_name,
+        receipt,
+        &catalog,
+        require_pages_complete,
+    )?;
+    ensure!(
+        snapshot.rule_files.get(language_name) == Some(&sha256(&bytes)),
+        "catalog file hash mismatch"
+    );
+    hash_record(catalog_hasher, language_name.as_bytes());
+    hash_record(catalog_hasher, &bytes);
+    Ok((catalog.rules.len(), catalog.rules.len()))
+}
+
+fn audit_language_receipt(
+    snapshot: &Snapshot,
+    language_name: &str,
+    receipt: &SnapshotLanguage,
+    catalog: &RuleCatalog,
+    require_pages_complete: bool,
+) -> Result<()> {
+    ensure!(
+        receipt.source_capture_sha256.as_deref() == Some(catalog.source_capture_sha256.as_str()),
+        "catalog capture provenance mismatch"
+    );
+    ensure!(
+        receipt.oracle_edition.as_deref() == Some("community")
+            && receipt.page_size.is_some_and(|size| size > 0)
+            && receipt
+                .server_version
+                .as_deref()
+                .is_some_and(|version| !version.is_empty())
+            && receipt
+                .captured_at_utc
+                .as_deref()
+                .is_some_and(|timestamp| !timestamp.is_empty())
+            && receipt
+                .source_edition
+                .as_deref()
+                .is_some_and(|edition| !edition.is_empty())
+            && receipt
+                .instance_mode
+                .as_deref()
+                .is_some_and(|mode| !mode.is_empty()),
+        "language capture provenance is incomplete"
+    );
     let unverified = snapshot
         .unverified_rules
         .get(language_name)
@@ -473,7 +647,10 @@ fn audit_language(
         "catalog count mismatch"
     );
     if require_pages_complete {
-        let expected_pages = receipt.source_total.max(1).div_ceil(snapshot.page_size);
+        let expected_pages = receipt
+            .source_total
+            .max(1)
+            .div_ceil(receipt.page_size.context("language page size is missing")?);
         ensure!(
             receipt.page_count as u64 == expected_pages,
             "page count mismatch"
@@ -487,13 +664,7 @@ fn audit_language(
             "show count mismatch"
         );
     }
-    ensure!(
-        snapshot.rule_files.get(language_name) == Some(&sha256(&bytes)),
-        "catalog file hash mismatch"
-    );
-    hash_record(catalog_hasher, language_name.as_bytes());
-    hash_record(catalog_hasher, &bytes);
-    Ok((catalog.rules.len(), catalog.rules.len()))
+    Ok(())
 }
 
 /// Audits implemented-rule coverage of the analyzer crates against the frozen catalogs.
@@ -765,6 +936,8 @@ fn coverage_source_dir(name: &str) -> Option<&'static str> {
         "csharp" => Some("crates/hoonarqube-csharp/src"),
         "javascript" | "typescript" => Some("crates/hoonarqube-jsts/src"),
         "python" => Some("crates/hoonarqube-python/src"),
+        "go" => Some("crates/hoonarqube-go/src"),
+        "rust" => Some("crates/hoonarqube-rust/src"),
         _ => None,
     }
 }
@@ -1279,6 +1452,23 @@ fn write_atomic_same(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
+    let temporary = temporary_path(path);
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?;
+    output.write_all(bytes)?;
+    output.sync_all()?;
+    fs::rename(&temporary, path)?;
+    Ok(())
+}
+
+fn write_atomic_replace(path: &Path, bytes: &[u8]) -> Result<()> {
+    ensure!(
+        path.is_file(),
+        "replace target {} is not a file",
+        path.display()
+    );
     let temporary = temporary_path(path);
     let mut output = OpenOptions::new()
         .write(true)

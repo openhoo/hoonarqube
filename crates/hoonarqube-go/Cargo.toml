@@ -1,0 +1,18 @@
+[package]
+name = "hoonarqube-go"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+hoonarqube-ir = { path = "../hoonarqube-ir" }
+tree-sitter = "0.25.10"
+tree-sitter-go = "0.25.0"
+
+[lints]
+workspace = true

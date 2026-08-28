@@ -18,6 +18,8 @@ pub enum Language {
     JavaScript,
     TypeScript,
     CSharp,
+    Go,
+    Rust,
 }
 
 /// Extension table; matched case-insensitively so `.PY`/`.CS` style inputs
@@ -33,6 +35,8 @@ const EXTENSIONS: &[(&str, Language)] = &[
     ("mts", Language::TypeScript),
     ("cts", Language::TypeScript),
     ("cs", Language::CSharp),
+    ("go", Language::Go),
+    ("rs", Language::Rust),
 ];
 
 /// Maps a bare file extension to its language; matched case-insensitively
@@ -58,10 +62,14 @@ pub fn language_for_path(path: &Path) -> Option<Language> {
 
 /// C# analyzer knobs, re-exported for consumers constructing [`AnalyzerOptions`] field-by-field.
 pub use hoonarqube_csharp::AnalyzerOptions as CSharpAnalyzerOptions;
+/// Go analyzer knobs, re-exported for consumers constructing [`AnalyzerOptions`] field-by-field.
+pub use hoonarqube_go::AnalyzerOptions as GoAnalyzerOptions;
 /// JavaScript/TypeScript analyzer knobs, re-exported for consumers constructing [`AnalyzerOptions`] field-by-field.
 pub use hoonarqube_jsts::AnalyzerOptions as JstsAnalyzerOptions;
 /// Python analyzer knobs, re-exported for consumers constructing [`AnalyzerOptions`] field-by-field.
 pub use hoonarqube_python::AnalyzerOptions as PythonAnalyzerOptions;
+/// Rust analyzer knobs, re-exported for consumers constructing [`AnalyzerOptions`] field-by-field.
+pub use hoonarqube_rust::AnalyzerOptions as RustAnalyzerOptions;
 
 /// Per-language analyzer knobs; [`Default`] matches each analyzer crate's
 /// default configuration.
@@ -70,6 +78,8 @@ pub struct AnalyzerOptions {
     pub python: hoonarqube_python::AnalyzerOptions,
     pub jsts: hoonarqube_jsts::AnalyzerOptions,
     pub csharp: hoonarqube_csharp::AnalyzerOptions,
+    pub go: hoonarqube_go::AnalyzerOptions,
+    pub rust: hoonarqube_rust::AnalyzerOptions,
 }
 
 /// Analyzes one source file with the analyzer registered for its extension.
@@ -104,6 +114,8 @@ pub fn analyze(
             CsLanguage::CSharp,
             &options.csharp,
         ),
+        Language::Go => hoonarqube_go::analyze(path.to_path_buf(), source, &options.go),
+        Language::Rust => hoonarqube_rust::analyze(path.to_path_buf(), source, &options.rust),
     };
     Some(report)
 }
@@ -126,6 +138,8 @@ mod tests {
             ("mts", Language::TypeScript),
             ("cts", Language::TypeScript),
             ("cs", Language::CSharp),
+            ("go", Language::Go),
+            ("rs", Language::Rust),
         ];
         for (ext, expected) in cases {
             let file = format!("src/module.{ext}");
@@ -205,6 +219,30 @@ mod tests {
     }
 
     #[test]
+    fn go_analyzer_runs_through_the_registry() {
+        let report = analyze(
+            Path::new("main.go"),
+            "package p\nfunc bad_name() {}\n",
+            &AnalyzerOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(report.language, "go");
+        assert!(!report.issues.is_empty());
+    }
+
+    #[test]
+    fn rust_analyzer_runs_through_the_registry() {
+        let report = analyze(
+            Path::new("main.rs"),
+            "fn main() { println!(\"hello\"); }\n",
+            &AnalyzerOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(report.language, "rust");
+        assert!(!report.issues.is_empty());
+    }
+
+    #[test]
     fn default_options_match_per_crate_defaults() {
         let options = AnalyzerOptions::default();
         assert_eq!(
@@ -216,5 +254,7 @@ mod tests {
             options.csharp,
             hoonarqube_csharp::AnalyzerOptions::default()
         );
+        assert_eq!(options.go, hoonarqube_go::AnalyzerOptions::default());
+        assert_eq!(options.rust, hoonarqube_rust::AnalyzerOptions::default());
     }
 }

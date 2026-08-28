@@ -42,6 +42,10 @@ enum Command {
         /// (`SonarQube` Generic Issue Import).
         #[arg(long)]
         format: Option<String>,
+        /// Expected literal Go license header (`go:S1451`); empty keeps the
+        /// catalog-default disabled behavior.
+        #[arg(long, default_value = "")]
+        go_header_format: String,
     },
     /// Detect and optionally apply automatic fixes.
     ///
@@ -118,9 +122,17 @@ fn main() -> ExitCode {
     match &cli.command {
         Command::Snapshot => print_snapshot(catalog, cli.json),
         Command::Rules { cmd } => run_rules(catalog, cmd, cli.json),
-        Command::Analyze { paths, format } => {
-            run_analyze(catalog, paths, format.as_deref(), cli.json)
-        }
+        Command::Analyze {
+            paths,
+            format,
+            go_header_format,
+        } => run_analyze(
+            catalog,
+            paths,
+            format.as_deref(),
+            go_header_format,
+            cli.json,
+        ),
         Command::Fix {
             paths,
             rule,
@@ -1013,7 +1025,7 @@ fn unknown_language(value: &str) -> ExitCode {
 }
 
 /// Keeps the repository-qualified catalog key as the Generic Issue Import rule
-/// id. A single report can contain Python, JS/TS, and C#; stripping the prefix
+/// id. A single report can contain Python, JS/TS, C#, Go, and Rust; stripping the prefix
 /// would collapse distinct rules such as `python:S112` and `csharpsquid:S112`.
 fn sonar_rule_id(rule_key: &str) -> &str {
     rule_key
@@ -1134,6 +1146,7 @@ fn run_analyze(
     catalog: &Catalog,
     paths: &[std::path::PathBuf],
     format: Option<&str>,
+    go_header_format: &str,
     json_flag: bool,
 ) -> ExitCode {
     let format = match analyze_format(format, json_flag) {
@@ -1155,7 +1168,8 @@ fn run_analyze(
         return ExitCode::from(2);
     }
 
-    let options = analyze::analyzer_options_bundle(catalog);
+    let mut options = analyze::analyzer_options_bundle(catalog);
+    options.go.header_format = go_header_format.to_string();
     let mut warnings = Vec::new();
     let reports = analyze::analyze_paths(paths, &options, &mut warnings);
     for warning in &warnings {

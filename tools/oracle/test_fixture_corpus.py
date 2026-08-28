@@ -9,6 +9,8 @@ PROJECTS = {
     "oracle-js": ("javascript", "src"),
     "oracle-ts": ("typescript", "src"),
     "oracle-cs": ("csharp", "."),
+    "oracle-go": ("go", "src"),
+    "oracle-rust": ("rust", "src"),
 }
 
 

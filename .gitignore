@@ -18,6 +18,14 @@
 !/.oracle/sonar/projects/oracle-ts/src/
 !/.oracle/sonar/projects/oracle-ts/src/**
 !/.oracle/sonar/projects/oracle-cs/*.cs
+!/.oracle/sonar/projects/oracle-go/sonar-project.properties
+!/.oracle/sonar/projects/oracle-go/src/
+!/.oracle/sonar/projects/oracle-go/src/**
+!/.oracle/sonar/projects/oracle-rust/sonar-project.properties
+!/.oracle/sonar/projects/oracle-rust/Cargo.toml
+!/.oracle/sonar/projects/oracle-rust/Cargo.lock
+!/.oracle/sonar/projects/oracle-rust/src/
+!/.oracle/sonar/projects/oracle-rust/src/**
 /.oracle/sonar/projects/**/__pycache__/
 !tools/oracle/**
 /tools/oracle/**/__pycache__/

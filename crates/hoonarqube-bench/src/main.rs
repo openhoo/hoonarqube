@@ -11,8 +11,10 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use hoonarqube_csharp::{AnalyzerOptions as CsharpOptions, CsLanguage};
+use hoonarqube_go::AnalyzerOptions as GoOptions;
 use hoonarqube_jsts::{AnalyzerOptions as JstsOptions, JstsLanguage};
 use hoonarqube_python::AnalyzerOptions as PythonOptions;
+use hoonarqube_rust::AnalyzerOptions as RustOptions;
 
 /// Iterations used when `--iterations` is absent.
 const DEFAULT_ITERATIONS: u32 = 20;
@@ -324,6 +326,42 @@ fn csharp_fixture(rng: &mut Rng) -> String {
     out
 }
 
+/// Deterministic Go module with declarations, loops, branches, and triggers.
+#[must_use]
+fn go_fixture(rng: &mut Rng) -> String {
+    let mut out = String::from("package benchmark\n\nimport \"fmt\"\n\n");
+    for _ in 0..24 {
+        let name = ident(rng, "compute");
+        let bound = rng.below(40) + 5;
+        writeln!(out, "func {name}(values []int) int {{").unwrap();
+        out.push_str("\ttotal := 0\n\tfor _, value := range values {\n");
+        out.push_str("\t\tif value%2 == 0 { total += value } else { total -= value }\n");
+        writeln!(out, "\t\ttotal %= {bound}").unwrap();
+        out.push_str("\t}\n\treturn total\n}\n\n");
+    }
+    out.push_str("func report(value int) { fmt.Println(value) }\n");
+    writeln!(out, "var padded = \"{}\"", "g".repeat(140)).unwrap();
+    out
+}
+
+/// Deterministic Rust module with functions, iterators, branches, and triggers.
+#[must_use]
+fn rust_fixture(rng: &mut Rng) -> String {
+    let mut out = String::new();
+    for _ in 0..24 {
+        let name = ident(rng, "compute");
+        let bound = rng.below(40) + 5;
+        writeln!(out, "fn {name}(values: &[i32]) -> i32 {{").unwrap();
+        out.push_str("    let mut total = 0;\n    for value in values {\n");
+        out.push_str("        if value % 2 == 0 { total += value; } else { total -= value; }\n");
+        writeln!(out, "        total %= {bound};").unwrap();
+        out.push_str("    }\n    total\n}\n\n");
+    }
+    out.push_str("fn report(value: i32) { println!(\"{value}\"); }\n");
+    out.push_str("fn too_many(a:i32,b:i32,c:i32,d:i32,e:i32,f:i32,g:i32,h:i32) { let _ = (a,b,c,d,e,f,g,h); }\n");
+    out
+}
+
 /// Throughput rates derived from one timed measurement.
 struct Throughput {
     files_per_second: f64,
@@ -486,16 +524,36 @@ fn csharp_issue_count(source: &str, options: &CsharpOptions) -> u64 {
     )
 }
 
-/// Generates every seeded fixture and benchmarks all four language analyzers.
+fn go_issue_count(source: &str, options: &GoOptions) -> u64 {
+    to_u64(
+        hoonarqube_go::analyze(PathBuf::from("bench_fixture.go"), source, options)
+            .issues
+            .len(),
+    )
+}
+
+fn rust_issue_count(source: &str, options: &RustOptions) -> u64 {
+    to_u64(
+        hoonarqube_rust::analyze(PathBuf::from("bench_fixture.rs"), source, options)
+            .issues
+            .len(),
+    )
+}
+
+/// Generates every seeded fixture and benchmarks all six language analyzers.
 fn run_benchmarks(iterations: u32) -> Vec<LanguageBenchmark> {
     let python_options = PythonOptions::default();
     let jsts_options = JstsOptions::default();
     let csharp_options = CsharpOptions::default();
+    let go_options = GoOptions::default();
+    let rust_options = RustOptions::default();
 
     let python_source = python_fixture(&mut Rng::new(0x5059_5448_4F4E_0001));
     let javascript_source = javascript_fixture(&mut Rng::new(0x4A41_5641_5350_0001));
     let typescript_source = typescript_fixture(&mut Rng::new(0x5453_4A53_5243_0001));
     let csharp_source = csharp_fixture(&mut Rng::new(0x4353_4841_5250_0001));
+    let go_source = go_fixture(&mut Rng::new(0x474F_4C41_4E47_0001));
+    let rust_source = rust_fixture(&mut Rng::new(0x5255_5354_4C41_0001));
 
     vec![
         bench_language("python", &python_source, iterations, &mut |source| {
@@ -515,6 +573,12 @@ fn run_benchmarks(iterations: u32) -> Vec<LanguageBenchmark> {
         ),
         bench_language("csharp", &csharp_source, iterations, &mut |source| {
             csharp_issue_count(source, &csharp_options)
+        }),
+        bench_language("go", &go_source, iterations, &mut |source| {
+            go_issue_count(source, &go_options)
+        }),
+        bench_language("rust", &rust_source, iterations, &mut |source| {
+            rust_issue_count(source, &rust_options)
         }),
     ]
 }
@@ -569,11 +633,13 @@ mod tests {
 
     #[test]
     fn fixture_generators_are_deterministic() {
-        let generators: [(&str, FixtureGenerator); 4] = [
+        let generators: [(&str, FixtureGenerator); 6] = [
             ("python", python_fixture),
             ("javascript", javascript_fixture),
             ("typescript", typescript_fixture),
             ("csharp", csharp_fixture),
+            ("go", go_fixture),
+            ("rust", rust_fixture),
         ];
         for (name, generator) in generators {
             let first = generator(&mut Rng::new(5));
@@ -584,7 +650,7 @@ mod tests {
 
     #[test]
     fn fixtures_have_expected_shape_and_triggers() {
-        let cases: [(&str, FixtureGenerator, usize, &str, &str, &str); 4] = [
+        let cases: [(&str, FixtureGenerator, usize, &str, &str, &str); 6] = [
             ("python", python_fixture, 120, "def ", "for ", "#"),
             (
                 "javascript",
@@ -603,6 +669,8 @@ mod tests {
                 "//",
             ),
             ("csharp", csharp_fixture, 200, "class ", "foreach (", "//"),
+            ("go", go_fixture, 120, "func ", "for ", "package"),
+            ("rust", rust_fixture, 90, "fn ", "for ", "let "),
         ];
         for (name, generator, limit, construct, loop_marker, comment) in cases {
             let source = generator(&mut Rng::new(99));
@@ -669,11 +737,15 @@ mod tests {
         let python_options = PythonOptions::default();
         let jsts_options = JstsOptions::default();
         let csharp_options = CsharpOptions::default();
+        let go_options = GoOptions::default();
+        let rust_options = RustOptions::default();
 
         let python = python_fixture(&mut Rng::new(11));
         let javascript = javascript_fixture(&mut Rng::new(12));
         let typescript = typescript_fixture(&mut Rng::new(13));
         let csharp = csharp_fixture(&mut Rng::new(14));
+        let go = go_fixture(&mut Rng::new(15));
+        let rust = rust_fixture(&mut Rng::new(16));
 
         let python_report =
             hoonarqube_python::analyze(PathBuf::from("bench.py"), &python, &python_options);
@@ -702,5 +774,11 @@ mod tests {
             &csharp_options,
         );
         assert!(!csharp_report.issues.is_empty());
+
+        let go_report = hoonarqube_go::analyze(PathBuf::from("bench.go"), &go, &go_options);
+        assert!(!go_report.issues.is_empty());
+
+        let rust_report = hoonarqube_rust::analyze(PathBuf::from("bench.rs"), &rust, &rust_options);
+        assert!(!rust_report.issues.is_empty());
     }
 }

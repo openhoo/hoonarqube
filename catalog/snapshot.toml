@@ -1,4 +1,4 @@
-schema_version = 3
+schema_version = 4
 capture_sha256 = "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
 captured_at_utc = "2026-08-22T14:45:03.705491626Z"
 server_version = "2025.4.4.119049"
@@ -7,10 +7,10 @@ oracle_edition = "community"
 instance_mode = "standard"
 page_size = 500
 scope_classification = "community-plus-enterprise-unverified"
-community_evidence_sha256 = "1d2e4fa6290ee8aa77d29bcdf075bef84d22b17d1788f7a7e4e4a5981527c910"
-catalog_sha256 = "108a04bc7711c61aa1b728e7efe002f7d93d148584667cba59aa4e1be50c8b7e"
-source_total_rules = 1620
-total_rules = 1620
+community_evidence_sha256 = "2a903957bd28d844a38a3fe9a95a41918305bf358d8e24a0ad04632bfe378f1a"
+catalog_sha256 = "140c677c874bfc797955f2e6fcf643043b007d8ad96846c9200c9681f3701b49"
+source_total_rules = 1741
+total_rules = 1741
 
 [unverified_rules]
 csharp = [
@@ -32,13 +32,22 @@ csharp = [
     "csharpsquid:S7131",
     "csharpsquid:S7133",
 ]
+go = []
 javascript = []
-typescript = []
 python = []
+rust = []
+typescript = []
 
 [languages.csharp]
 language = "cs"
 repository = "csharpsquid"
+source_capture_sha256 = "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
+captured_at_utc = "2026-08-22T14:45:03.705491626Z"
+server_version = "2025.4.4.119049"
+source_edition = "enterprise"
+oracle_edition = "community"
+instance_mode = "standard"
+page_size = 500
 source_total = 467
 total = 467
 unique_keys = 467
@@ -49,9 +58,36 @@ pages_sha256 = "c5fad1aec0977b6c519b0cfe42b890209af349dded259ff1b8f395046f7bdf5d
 keys_sha256 = "68d4121428e43ae35c099bbdc8d8267f23ee7e4154e8dc904926150d339a4bf1"
 shows_sha256 = "6edd50154d54423884b4bfcdf2038e4b47b97a9b6c437bd0cddd4b1da64d223e"
 
+[languages.go]
+language = "go"
+repository = "go"
+source_capture_sha256 = "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+captured_at_utc = "2026-08-28T19:01:40.280714059Z"
+server_version = "26.8.0.126808"
+source_edition = "community"
+oracle_edition = "community"
+instance_mode = "mqr"
+page_size = 500
+source_total = 36
+total = 36
+unique_keys = 36
+page_count = 1
+show_count = 36
+query_sha256 = "35437044ca58e02dda02d3368c5bc8c85b8ae100d1ed0f7cf646478c061b0ced"
+pages_sha256 = "01b2829d9528979849998aacddaf45ba672d14571f2fc371b84d36a6d3279c71"
+keys_sha256 = "44fae899f6de8d64a1c7627a6a0034994cbdb9cef9106547a7d227582cf50e26"
+shows_sha256 = "72ba758815ac9a0c93f07cdecc517ab430ddadeaf0f76993d906040d1b01617d"
+
 [languages.javascript]
 language = "js"
 repository = "javascript"
+source_capture_sha256 = "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
+captured_at_utc = "2026-08-22T14:45:03.705491626Z"
+server_version = "2025.4.4.119049"
+source_edition = "enterprise"
+oracle_edition = "community"
+instance_mode = "standard"
+page_size = 500
 source_total = 406
 total = 406
 unique_keys = 406
@@ -65,6 +101,13 @@ shows_sha256 = "fe799c98246898d4f8086c9de5e5ea82791e8b88332c79ded90613897302cb1c
 [languages.python]
 language = "py"
 repository = "python"
+source_capture_sha256 = "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
+captured_at_utc = "2026-08-22T14:45:03.705491626Z"
+server_version = "2025.4.4.119049"
+source_edition = "enterprise"
+oracle_edition = "community"
+instance_mode = "standard"
+page_size = 500
 source_total = 335
 total = 335
 unique_keys = 335
@@ -75,9 +118,36 @@ pages_sha256 = "01be12e901feb2cf3c47457d1cae710816eb7e04d8b630654596f51145f51963
 keys_sha256 = "49672503d79a5bb1d27b1a8650ebd77cc2767208aa22591038066c2f2fa26631"
 shows_sha256 = "78d5cb4a0c5a65e68113814038cc35562a616aa3a1d4272cf882c4321004c4c8"
 
+[languages.rust]
+language = "rust"
+repository = "rust"
+source_capture_sha256 = "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b"
+captured_at_utc = "2026-08-28T19:01:40.280714059Z"
+server_version = "26.8.0.126808"
+source_edition = "community"
+oracle_edition = "community"
+instance_mode = "mqr"
+page_size = 500
+source_total = 85
+total = 85
+unique_keys = 85
+page_count = 1
+show_count = 85
+query_sha256 = "f743f43013e2cd3dc86eebc5e933bd771484410ac72b4eb666358f34a7f7be8b"
+pages_sha256 = "0b2e07adfbe4c8195fd82aca0ba4209be21d818d06dc9d9f389c8591487bd00c"
+keys_sha256 = "ede1278bd35ccf2959e34b2ab4327bd0c2e22198fe5b4083e2126a5aa842b15a"
+shows_sha256 = "569fc3b9b8f802ffafcc212dceda6500878341571ddcb5ca97d226cc0f0411b4"
+
 [languages.typescript]
 language = "ts"
 repository = "typescript"
+source_capture_sha256 = "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
+captured_at_utc = "2026-08-22T14:45:03.705491626Z"
+server_version = "2025.4.4.119049"
+source_edition = "enterprise"
+oracle_edition = "community"
+instance_mode = "standard"
+page_size = 500
 source_total = 412
 total = 412
 unique_keys = 412
@@ -637,6 +707,8 @@ required_for_languages = []
 
 [rule_files]
 csharp = "390b16f1af8d6f4d4fef8ea371bd75803152844887acc01146dddc204dc79689"
+go = "87a2a1861bcbc3b6efcbbdf744091f26c84ec4f0a1a02bf0324433773255183f"
 javascript = "645c262219bc8c94fdc0af482b44b61a8324135a8b1f890461a631a101192e90"
 python = "4061b80f58e6f0cc24c410d57b4eae0a1030a5915ae590a18df15500188e46a7"
+rust = "417a197e618c006f1cf3df4389b7b67316f37b696ae780b6fe1814ac52fdd817"
 typescript = "dddc83ab7b93eb3ea366d7e44000da475d357adfb181a26855e97bb1f67c42a8"

@@ -1,0 +1,7 @@
+FROM docker.io/sonarsource/sonar-scanner-cli:latest
+
+USER root
+RUN dnf install -y gcc \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+USER scanner-cli

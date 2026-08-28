@@ -17,11 +17,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
-use url::Url;
+use url::{Host, Url};
 
 use crate::catalog::{canonical_json, hash_record, same_server_version, sha256};
 
-const LANGUAGE_QUERIES: [LanguageQuery; 4] = [
+const LANGUAGE_QUERIES: [LanguageQuery; 6] = [
     LanguageQuery {
         name: "csharp",
         language: "cs",
@@ -41,6 +41,16 @@ const LANGUAGE_QUERIES: [LanguageQuery; 4] = [
         name: "python",
         language: "py",
         repository: "python",
+    },
+    LanguageQuery {
+        name: "go",
+        language: "go",
+        repository: "go",
+    },
+    LanguageQuery {
+        name: "rust",
+        language: "rust",
+        repository: "rust",
     },
 ];
 
@@ -69,6 +79,12 @@ enum CatalogCommand {
         approval: PathBuf,
         #[arg(long, default_value = ".oracle/captures")]
         raw_dir: PathBuf,
+        /// Capture only these catalog names; repeat for multiple languages.
+        #[arg(long = "lang")]
+        languages: Vec<String>,
+        /// Capture an owned Community instance bound to loopback without external approval.
+        #[arg(long)]
+        local_community: bool,
     },
     /// Import factual fields from one raw Community capture.
     Import {
@@ -78,6 +94,9 @@ enum CatalogCommand {
         community_resolution: PathBuf,
         #[arg(long, default_value = "catalog")]
         output: PathBuf,
+        /// Merge a partial capture into the existing aggregate snapshot.
+        #[arg(long)]
+        merge: bool,
     },
     /// Verify committed catalog closure and deterministic hashes.
     Audit {
@@ -250,14 +269,24 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Catalog { command } => match command {
-            CatalogCommand::Capture { approval, raw_dir } => {
-                capture_catalog(&approval, &raw_dir, InstanceClass::Community)
-            }
+            CatalogCommand::Capture {
+                approval,
+                raw_dir,
+                languages,
+                local_community,
+            } => capture_catalog(
+                &approval,
+                &raw_dir,
+                InstanceClass::Community,
+                &languages,
+                local_community,
+            ),
             CatalogCommand::Import {
                 capture,
                 community_resolution,
                 output,
-            } => catalog::import(&capture, &community_resolution, &output),
+                merge,
+            } => catalog::import(&capture, &community_resolution, &output, merge),
             CatalogCommand::Audit {
                 snapshot,
                 require_pages_complete,
@@ -271,29 +300,48 @@ fn main() -> Result<()> {
     }
 }
 
-fn capture_catalog(approval_path: &Path, raw_dir: &Path, instance: InstanceClass) -> Result<()> {
-    ensure_oracle_path(approval_path)?;
+fn capture_catalog(
+    approval_path: &Path,
+    raw_dir: &Path,
+    instance: InstanceClass,
+    language_names: &[String],
+    local_community: bool,
+) -> Result<()> {
     ensure_oracle_path(raw_dir)?;
-    let approval = load_approval(approval_path)?;
-    validate_approval(&approval)?;
-
-    let configured_base = validate_base_url(&approval.dedicated_base_url)?;
     let environment_base =
         env::var("SONAR_HOST_URL").context("SONAR_HOST_URL is required for oracle capture")?;
     let environment_base = validate_base_url(&environment_base)?;
-    ensure!(
-        same_origin(&configured_base, &environment_base),
-        "SONAR_HOST_URL does not match the legally approved dedicated origin"
-    );
+    let authorization_id = if local_community {
+        ensure_loopback_origin(&environment_base)?;
+        "local-community-loopback".to_owned()
+    } else {
+        ensure_oracle_path(approval_path)?;
+        let approval = load_approval(approval_path)?;
+        validate_approval(&approval)?;
+        let configured_base = validate_base_url(&approval.dedicated_base_url)?;
+        ensure!(
+            same_origin(&configured_base, &environment_base),
+            "SONAR_HOST_URL does not match the legally approved dedicated origin"
+        );
+        approval.id
+    };
     let token = env::var("SONAR_TOKEN").context("SONAR_TOKEN is required for oracle capture")?;
     ensure!(!token.trim().is_empty(), "SONAR_TOKEN must not be empty");
+    let queries = selected_language_queries(language_names)?;
 
     create_private_dir(raw_dir)?;
     let staging = raw_dir.join(format!(".capture-{}", std::process::id()));
     ensure!(!staging.exists(), "capture staging path already exists");
     create_private_dir(&staging)?;
 
-    let result = capture_into(&staging, approval, &environment_base, token, instance);
+    let result = capture_into(
+        &staging,
+        authorization_id,
+        &environment_base,
+        token,
+        instance,
+        &queries,
+    );
     if result.is_err() {
         let _ = fs::remove_dir_all(&staging);
     }
@@ -320,10 +368,11 @@ fn capture_catalog(approval_path: &Path, raw_dir: &Path, instance: InstanceClass
 
 fn capture_into(
     staging: &Path,
-    approval: Approval,
+    authorization_id: String,
     base: &Url,
     token: String,
     instance: InstanceClass,
+    queries: &[LanguageQuery],
 ) -> Result<(CaptureManifest, Vec<u8>)> {
     let captured_at_utc = rfc3339_utc_now()?;
     let oracle = OracleClient::new(base.clone(), token)?;
@@ -385,7 +434,7 @@ fn capture_into(
     ensure!(page_size > 0, "documented rules page size must be positive");
 
     let mut languages = BTreeMap::new();
-    for query in LANGUAGE_QUERIES {
+    for query in queries.iter().copied() {
         let receipt = capture_language(&oracle, staging, query, page_size, &mut identity_hasher)?;
         languages.insert(query.name.to_owned(), receipt);
     }
@@ -395,7 +444,7 @@ fn capture_into(
     let mut manifest = CaptureManifest {
         schema_version: 1,
         captured_at_utc,
-        approval_id: approval.id,
+        approval_id: authorization_id,
         instance,
         base_origin: origin_string(base),
         server_version: server_version_text,
@@ -742,6 +791,47 @@ fn validate_base_url(input: &str) -> Result<Url> {
     Ok(url)
 }
 
+fn ensure_loopback_origin(url: &Url) -> Result<()> {
+    let is_loopback = match url.host() {
+        Some(Host::Ipv4(address)) => address.is_loopback(),
+        Some(Host::Ipv6(address)) => address.is_loopback(),
+        Some(Host::Domain(domain)) => domain.eq_ignore_ascii_case("localhost"),
+        None => false,
+    };
+    ensure!(
+        is_loopback,
+        "--local-community requires SONAR_HOST_URL on a loopback origin"
+    );
+    Ok(())
+}
+
+fn selected_language_queries(names: &[String]) -> Result<Vec<LanguageQuery>> {
+    if names.is_empty() {
+        return Ok(LANGUAGE_QUERIES.to_vec());
+    }
+    let mut selected = Vec::with_capacity(names.len());
+    let mut seen = BTreeSet::new();
+    for name in names {
+        ensure!(seen.insert(name.as_str()), "duplicate language {name}");
+        let query = LANGUAGE_QUERIES
+            .iter()
+            .find(|query| query.name == name)
+            .with_context(|| {
+                format!(
+                    "unknown language {name}; expected one of {}",
+                    LANGUAGE_QUERIES
+                        .iter()
+                        .map(|query| query.name)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })?;
+        selected.push(*query);
+    }
+    selected.sort_by_key(|query| query.name);
+    Ok(selected)
+}
+
 fn same_origin(left: &Url, right: &Url) -> bool {
     left.scheme() == right.scheme()
         && left.host_str() == right.host_str()
@@ -937,6 +1027,32 @@ mod tests {
         let other = validate_base_url("https://sonar.example").unwrap();
         assert!(same_origin(&approved, &same));
         assert!(!same_origin(&approved, &other));
+    }
+
+    #[test]
+    fn local_capture_accepts_only_loopback_origins() {
+        for origin in [
+            "http://127.0.0.1:19002",
+            "http://[::1]:19002",
+            "https://localhost:9443",
+        ] {
+            let url = validate_base_url(origin).unwrap();
+            ensure_loopback_origin(&url).unwrap();
+        }
+        let remote = validate_base_url("https://sonarqube.example.test").unwrap();
+        assert!(ensure_loopback_origin(&remote).is_err());
+    }
+
+    #[test]
+    fn language_selection_is_explicit_unique_and_canonical() {
+        let names = vec!["rust".to_owned(), "go".to_owned()];
+        let selected = selected_language_queries(&names).unwrap();
+        assert_eq!(
+            selected.iter().map(|query| query.name).collect::<Vec<_>>(),
+            ["go", "rust"]
+        );
+        assert!(selected_language_queries(&["go".to_owned(), "go".to_owned()]).is_err());
+        assert!(selected_language_queries(&["unknown".to_owned()]).is_err());
     }
 
     #[test]

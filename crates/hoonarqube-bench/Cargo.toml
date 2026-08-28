@@ -12,8 +12,10 @@ path = "src/main.rs"
 
 [dependencies]
 hoonarqube-csharp = { path = "../hoonarqube-csharp" }
+hoonarqube-go = { path = "../hoonarqube-go" }
 hoonarqube-jsts = { path = "../hoonarqube-jsts" }
 hoonarqube-python = { path = "../hoonarqube-python" }
+hoonarqube-rust = { path = "../hoonarqube-rust" }
 
 [lints]
 workspace = true

@@ -9,6 +9,8 @@ members = [
     "crates/hoonarqube-csharp",
     "crates/hoonarqube-jsts",
     "crates/hoonarqube-python",
+    "crates/hoonarqube-go",
+    "crates/hoonarqube-rust",
     "crates/hoonarqube-bench",
     "xtask",
 ]
