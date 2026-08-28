@@ -51,7 +51,7 @@ Invariants:
 
 ## Coverage
 
-Audited by `cargo run -p xtask -- catalog coverage [--lang <id>] [--strict]`
+Audited by `cargo run -p xtask -- catalog coverage [--lang <id>] [--strict] [--allow-infra]`
 against the frozen catalog:
 
 | Language | Implemented | Directly tested | Untested | Infra gaps | Total | Tested coverage |
@@ -123,7 +123,7 @@ parentheses remedy. See [QUICKFIX.md](QUICKFIX.md) for the parity inventory.
 
 ```bash
 cargo test --workspace            # full suite
-cargo run -q -p xtask -- catalog coverage --strict
+cargo run -q -p xtask -- catalog coverage --strict --allow-infra
 python3 -m unittest discover -s tools/oracle -p 'test_*.py' -v
 cargo clippy --workspace --all-targets   # zero-warning policy (pedantic)
 cargo fmt --all --check

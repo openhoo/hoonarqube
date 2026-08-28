@@ -506,8 +506,8 @@ fn audit_language(
 /// requirement. The report prints one table
 /// row per language followed by all gap lists. The command always exits successfully
 /// once the inputs are readable; `strict` turns implementation, test, and infrastructure
-/// gaps into exit code 1.
-pub fn coverage(lang: Option<&str>, strict: bool) -> Result<()> {
+/// gaps into exit code 1 unless `allow_infra` permits documented infrastructure gaps.
+pub fn coverage(lang: Option<&str>, strict: bool, allow_infra: bool) -> Result<()> {
     if let Some(lang) = lang {
         ensure!(
             LANGUAGES.iter().any(|(name, _)| *name == lang),
@@ -522,7 +522,7 @@ pub fn coverage(lang: Option<&str>, strict: bool) -> Result<()> {
         rows.push(coverage_language(name, language_id)?);
     }
     print_coverage(&rows);
-    if strict && rows.iter().any(LanguageCoverage::has_gaps) {
+    if strict && rows.iter().any(|row| row.has_gaps(allow_infra)) {
         std::process::exit(1);
     }
     Ok(())
@@ -547,8 +547,10 @@ impl LanguageCoverage {
     }
 
     /// Whether any actionable frozen rule lacks an implementation marker.
-    fn has_gaps(&self) -> bool {
-        !self.missing.is_empty() || !self.untested.is_empty() || !self.infra.is_empty()
+    fn has_gaps(&self, allow_infra: bool) -> bool {
+        !self.missing.is_empty()
+            || !self.untested.is_empty()
+            || (!allow_infra && !self.infra.is_empty())
     }
 
     fn tested(&self) -> usize {
@@ -1395,8 +1397,10 @@ mod tests {
             untested: vec!["python:S112".to_owned()],
             infra: Vec::new(),
         };
-        assert!(infra.has_gaps());
-        assert!(untested.has_gaps());
+        assert!(infra.has_gaps(false));
+        assert!(!infra.has_gaps(true));
+        assert!(untested.has_gaps(false));
+        assert!(untested.has_gaps(true));
     }
 
     #[test]
@@ -1417,6 +1421,6 @@ mod tests {
             infra: Vec::new(),
         };
         assert!((row.percent() - 100.0).abs() < 1e-9);
-        assert!(!row.has_gaps());
+        assert!(!row.has_gaps(false));
     }
 }

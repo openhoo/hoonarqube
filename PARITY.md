@@ -99,7 +99,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo run -q -p xtask -- catalog audit --require-pages-complete
-cargo run -q -p xtask -- catalog coverage --strict
+cargo run -q -p xtask -- catalog coverage --strict --allow-infra
 PYTHONPATH=tools/oracle python3 -m unittest discover -s tools/oracle -p 'test_*.py' -v
 python3 tools/oracle/csharp_direct_oracle.py \
   --analyzer /path/to/SonarAnalyzer.CSharp.dll \

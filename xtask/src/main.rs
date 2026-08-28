@@ -94,6 +94,9 @@ enum CatalogCommand {
         /// Exit nonzero when any audited language has unimplemented rules.
         #[arg(long)]
         strict: bool,
+        /// Permit rules explicitly classified as requiring out-of-repository infrastructure.
+        #[arg(long, requires = "strict")]
+        allow_infra: bool,
     },
 }
 
@@ -259,7 +262,11 @@ fn main() -> Result<()> {
                 snapshot,
                 require_pages_complete,
             } => catalog::audit(&snapshot, require_pages_complete),
-            CatalogCommand::Coverage { lang, strict } => catalog::coverage(lang.as_deref(), strict),
+            CatalogCommand::Coverage {
+                lang,
+                strict,
+                allow_infra,
+            } => catalog::coverage(lang.as_deref(), strict, allow_infra),
         },
     }
 }

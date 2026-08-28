@@ -39,7 +39,7 @@ jobs:
         run: cargo run -q -p xtask -- catalog audit --require-pages-complete
 
       - name: Actionable rule coverage
-        run: cargo run -q -p xtask -- catalog coverage --strict
+        run: cargo run -q -p xtask -- catalog coverage --strict --allow-infra
 
       - name: Oracle harness tests
         run: python3 -m unittest discover -s tools/oracle -p 'test_*.py' -v
