@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, range_of};
+use crate::cst::{collect_kinds, issue, range_from_byte_offsets, range_of};
 use crate::rules::literals::declarator_initializer;
 use crate::rules::modifiers::has_any_attribute;
 use hoonarqube_ir::Issue;
@@ -19,12 +19,26 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             Some((declarator, declarator_initializer(declarator, name)))
         })
         .filter(|(_, initializer)| initializer.is_some())
-        .map(|(declarator, _)| {
+        .map(|(declarator, initializer)| {
+            let initializer = initializer.unwrap_or(declarator);
+            let name = declarator
+                .child_by_field_name("name")
+                .map_or("field", |name| crate::cst::node_text(name, source));
+            let mut cursor = declarator.walk();
+            let equals = declarator
+                .children(&mut cursor)
+                .find(|child| child.kind() == "=");
+            let range = equals.map_or_else(
+                || range_of(initializer, source),
+                |equals| {
+                    range_from_byte_offsets(equals.start_byte(), initializer.end_byte(), source)
+                },
+            );
             issue(
                 language,
                 "S2996",
-                "Remove this initializer; '[ThreadStatic]' fields must not be initialized.",
-                range_of(declarator, source),
+                format!("Remove this initialization of '{name}' or make it lazy."),
+                range,
             )
         })
         .collect()

@@ -39,8 +39,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S4545",
-                    format!("'DebuggerDisplay' references missing member '{member}'."),
-                    range_of(list, source),
+                    format!("'{member}' doesn't exist in this context."),
+                    range_of(literal, source),
                 ));
             }
         }

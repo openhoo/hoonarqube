@@ -21,13 +21,18 @@ impl SecurityHotspotCollector<'_, '_> {
         let Some(cipher) = first_string_argument(call) else {
             return;
         };
+        let anchor = call
+            .arguments
+            .first()
+            .and_then(argument_expression)
+            .map_or(call.span(), GetSpan::span);
         let lowered = cipher.to_ascii_lowercase();
         if lowered.contains("ecb") {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S5542",
-                "Do not use the insecure ECB cipher mode.",
-                call.span(),
+                "Use a secure mode and padding scheme.",
+                anchor,
             );
             return;
         }
@@ -48,14 +53,14 @@ impl SecurityHotspotCollector<'_, '_> {
                 RuleScope::Both,
                 "S5542",
                 "Provide an initialization vector for this cipher.",
-                call.span(),
+                anchor,
             );
         } else {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S5542",
                 "Use a secure mode and padding scheme.",
-                call.span(),
+                anchor,
             );
         }
     }

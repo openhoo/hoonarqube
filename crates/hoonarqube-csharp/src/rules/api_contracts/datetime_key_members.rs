@@ -1,5 +1,7 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of, simple_name};
+use crate::cst::{
+    attributes_of, collect_kinds, is_error_tainted, issue, node_text, range_of, simple_name,
+};
 use crate::rules::expressions::first_named_child;
 use crate::rules::logging::field_declarator_names;
 use hoonarqube_ir::Issue;
@@ -13,20 +15,20 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(property) {
             continue;
         }
-        let named_key = property
+        let primary_key = property
             .child_by_field_name("name")
-            .is_some_and(|name| key_shaped(node_text(name, source)));
-        let typed_datetime = property
-            .child_by_field_name("type")
-            .is_some_and(|type_node| {
-                DATETIME_TYPES.contains(&simple_name(node_text(type_node, source)))
-            });
-        if named_key && typed_datetime {
+            .is_some_and(|name| key_shaped(node_text(name, source)))
+            || attributes_of(property, source).contains(&"Key");
+        let Some(type_node) = property.child_by_field_name("type") else {
+            continue;
+        };
+        let type_name = simple_name(node_text(type_node, source));
+        if primary_key && DATETIME_TYPES.contains(&type_name) {
             issues.push(issue(
                 language,
                 "S3363",
-                "Do not use date/time types for this key member.",
-                range_of(property, source),
+                format!("'{type_name}' should not be used as a type for primary keys"),
+                range_of(type_node, source),
             ));
         }
     }
@@ -47,7 +49,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S3363",
-                "Do not use date/time types for this key member.",
+                "'DateTime' should not be used as a type for primary keys",
                 range_of(field, source),
             ));
         }

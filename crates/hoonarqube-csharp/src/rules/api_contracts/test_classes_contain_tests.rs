@@ -20,11 +20,12 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 .all(|method| !is_test_attributed(*method, source))
         })
         .map(|class_node| {
+            let name = class_node.child_by_field_name("name").unwrap_or(class_node);
             issue(
                 language,
                 "S2187",
-                "Add test methods to this test class.",
-                range_of(class_node, source),
+                "Add some tests to this class.",
+                range_of(name, source),
             )
         })
         .collect()
@@ -44,7 +45,7 @@ mod tests {
         );
         let flagged = with_key(&report, "csharpsquid:S2187");
         assert_eq!(flagged.len(), 2);
-        assert_eq!(flagged[0].range.start.line, 1);
-        assert_eq!(flagged[1].range.start.line, 6);
+        assert_eq!(flagged[0].range.start.line, 2);
+        assert_eq!(flagged[1].range.start.line, 7);
     }
 }

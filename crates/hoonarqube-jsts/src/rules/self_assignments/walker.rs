@@ -42,11 +42,12 @@ impl<'a> Visit<'a> for SelfAssignmentCollector<'a, '_> {
             let text_matches = source_slice(self.source, it.left.span())
                 == source_slice(self.source, it.right.span());
             if names_match || text_matches {
+                let name = assignment_target_name(&it.left).unwrap_or("value");
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S1656",
-                    "Remove this self-assignment.",
-                    it.span(),
+                    &format!("'{name}' is assigned to itself."),
+                    it.right.span(),
                 );
             }
         }

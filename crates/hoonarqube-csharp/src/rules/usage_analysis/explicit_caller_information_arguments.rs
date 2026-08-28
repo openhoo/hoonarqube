@@ -35,17 +35,22 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             if arguments.len() <= expected {
                 continue;
             }
-            issues.push(issue(
-                language,
-                "S3236",
-                "Omit this caller-information argument; the compiler supplies it.",
-                range_of(arguments[expected], source),
-            ));
+            issues.extend(arguments[expected..].iter().map(|argument| {
+                issue(
+                    language,
+                    "S3236",
+                    "Remove this argument from the method call; it hides the caller information.",
+                    range_of(*argument, source),
+                )
+            }));
         }
     }
     issues
 }
 
 /// Attributes whose arguments the compiler fills in automatically.
-const CALLER_INFORMATION_ATTRIBUTES: [&str; 3] =
-    ["CallerMemberName", "CallerFilePath", "CallerLineNumber"];
+const CALLER_INFORMATION_ATTRIBUTES: [&str; 3] = [
+    "CallerFilePath",
+    "CallerLineNumber",
+    "CallerArgumentExpression",
+];

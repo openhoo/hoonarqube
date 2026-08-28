@@ -55,8 +55,8 @@ pub(crate) fn analyze_paths(
 }
 
 /// Builds analyzer options from the frozen catalog's per-rule parameter
-/// defaults (`python:LineLength`, `javascript:S103`, `typescript:S103`,
-/// `csharpsquid:S103`);
+/// defaults (`python:LineLength`, `javascript:S103`, `typescript:S103`, and
+/// configured C# rules);
 /// any miss falls back to that language's library default so catalog edits
 /// flow through without code changes.
 pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundle {
@@ -70,6 +70,16 @@ pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundl
             })
             .and_then(|parameter| parameter.default_value.as_deref())
             .and_then(|value| value.parse::<u32>().ok())
+    };
+    let parameter = |rule_key: &str, key: &str| {
+        catalog
+            .rule(rule_key)
+            .and_then(|rule| {
+                rule.parameters
+                    .iter()
+                    .find(|parameter| parameter.key == key)
+            })
+            .and_then(|parameter| parameter.default_value.as_deref())
     };
     let python = match maximum_line_length("python:LineLength") {
         Some(maximum_line_length) => hoonarqube_core::PythonAnalyzerOptions {
@@ -86,12 +96,18 @@ pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundl
             },
             None => hoonarqube_core::JstsAnalyzerOptions::default(),
         };
-    let csharp = match maximum_line_length("csharpsquid:S103") {
-        Some(maximum_line_length) => hoonarqube_core::CSharpAnalyzerOptions {
-            maximum_line_length,
-            ..hoonarqube_core::CSharpAnalyzerOptions::default()
-        },
-        None => hoonarqube_core::CSharpAnalyzerOptions::default(),
+    let csharp = hoonarqube_core::CSharpAnalyzerOptions {
+        maximum_line_length: maximum_line_length("csharpsquid:S103").unwrap_or(200),
+        maximum_file_loc_threshold: parameter("csharpsquid:S104", "maximumFileLocThreshold")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(1000),
+        header_format: parameter("csharpsquid:S1451", "headerFormat")
+            .unwrap_or_default()
+            .to_string(),
+        header_is_regular_expression: parameter("csharpsquid:S1451", "isRegularExpression")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(false),
+        ..hoonarqube_core::CSharpAnalyzerOptions::default()
     };
     CoreOptions {
         python,

@@ -14,10 +14,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             RESERVED_EXCEPTION_TYPES.contains(&simple_name(creation_type_text(*creation, source)))
         })
         .map(|creation| {
+            let exception_type = creation_type_text(creation, source);
+            let qualified_type = if exception_type.starts_with("System.") {
+                exception_type.to_owned()
+            } else {
+                format!("System.{exception_type}")
+            };
             issue(
                 language,
                 "S112",
-                "Throw a more specific exception than this reserved type.",
+                format!("'{qualified_type}' should not be thrown by user code."),
                 range_of(creation, source),
             )
         })

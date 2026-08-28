@@ -2,7 +2,7 @@ use super::support::comparisons;
 use super::support::expression_name;
 use super::support::operator_of;
 use crate::CsLanguage;
-use crate::cst::{issue, range_of};
+use crate::cst::{issue, node_text, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -13,14 +13,19 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if !matches!(operator_of(expression), Some("==" | "!=")) {
             continue;
         }
-        let names_nan = [left, right]
-            .iter()
-            .any(|operand| expression_name(*operand, source) == Some("NaN"));
-        if names_nan {
+        let nan_operand = [left, right]
+            .into_iter()
+            .find(|operand| expression_name(*operand, source) == Some("NaN"));
+        if let Some(nan_operand) = nan_operand {
+            let numeric_type = if node_text(nan_operand, source).contains("float.NaN") {
+                "float"
+            } else {
+                "double"
+            };
             issues.push(issue(
                 language,
                 "S2688",
-                "Use 'IsNaN' to test for NaN; equality comparisons never hold.",
+                format!("Use {numeric_type}.IsNaN() instead."),
                 range_of(expression, source),
             ));
         }

@@ -14,8 +14,6 @@ use ruff_python_ast::StmtClassDef;
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
-use ruff_text_size::TextRange;
-use ruff_text_size::TextSize;
 
 // --- python:FunctionComplexity / ClassComplexity / FileComplexity / S3776 ------
 //
@@ -65,7 +63,7 @@ pub(crate) fn check_function_complexity(
             issues.push(issue_at(
                 "python:FunctionComplexity",
                 &format!(
-                    "The Cyclomatic Complexity of this function is {total} which is greater than {} authorized.",
+                    "Function has a complexity of {total} which is greater than {} authorized.",
                     options.maximum_function_complexity
                 ),
                 function.name.range(),
@@ -79,8 +77,8 @@ pub(crate) fn check_function_complexity(
 
 pub(crate) fn check_file_complexity(
     parsed: &Parsed<ModModule>,
-    index: &LineIndex,
-    source: &str,
+    _index: &LineIndex,
+    _source: &str,
     options: &AnalyzerOptions,
 ) -> Vec<Issue> {
     let mut total = 0u32;
@@ -89,16 +87,15 @@ pub(crate) fn check_file_complexity(
         total = total.saturating_add(cyclomatic + 1);
     });
     if total > options.maximum_file_complexity {
-        issues.push(issue_at(
-            "python:FileComplexity",
-            &format!(
-                "The Cyclomatic Complexity of this file is {total} which is greater than {} authorized.",
+        issues.push(Issue {
+            rule_key: "python:FileComplexity".to_string(),
+            message: format!(
+                "File has a complexity of {total} which is greater than {} authorized.",
                 options.maximum_file_complexity
             ),
-            TextRange::empty(TextSize::default()),
-            index,
-            source,
-        ));
+            range: hoonarqube_ir::Range::file_level(),
+            fix: None,
+        });
     }
     issues
 }
@@ -121,7 +118,7 @@ pub(crate) fn check_class_complexity(
             issues.push(issue_at(
                 "python:ClassComplexity",
                 &format!(
-                    "The Cyclomatic Complexity of this class is {total} which is greater than {} authorized.",
+                    "Class has a complexity of {total} which is greater than {} authorized.",
                     options.maximum_class_complexity
                 ),
                 class.name.range(),

@@ -1,7 +1,7 @@
 use super::support::override_base_pairs;
 use super::support::parameter_units;
 use crate::CsLanguage;
-use crate::cst::{issue, range_of};
+use crate::cst::{collect_kinds, issue, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         .get(index)
                         .is_some_and(|base_unit| !base_unit.has_params)
                 {
-                    return overriding.child_by_field_name("name");
+                    return collect_kinds(overriding, &["params"]).first().copied();
                 }
             }
             None
@@ -28,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S3600",
-                "'params' should not be introduced by overrides; remove it from this method.",
+                "'params' should be removed from this override.",
                 range_of(name, source),
             )
         })

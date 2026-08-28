@@ -33,7 +33,7 @@ pub(crate) fn check_trailing_comments(
         {
             issues.push(issue_at(
                 "python:S139",
-                "Move this trailing comment to its own line.",
+                "Move this trailing comment on the previous empty line.",
                 token.range(),
                 index,
                 source,

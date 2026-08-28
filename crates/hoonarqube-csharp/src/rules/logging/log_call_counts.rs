@@ -18,20 +18,29 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some(body) = body_of(method) else {
             continue;
         };
-        let mut counts: std::collections::BTreeMap<&str, u32> = std::collections::BTreeMap::new();
+        let mut calls: std::collections::BTreeMap<&str, Vec<Node<'_>>> =
+            std::collections::BTreeMap::new();
         for call in logging_calls(body, source) {
             if let Some(level) = callee_name(call, source).and_then(log_level_of) {
-                *counts.entry(level).or_insert(0) += 1;
+                calls.entry(level).or_default().push(call);
             }
         }
-        for (level, count) in counts {
+        for (level, calls) in calls {
             let limit = log_level_limit(level);
+            let count = u32::try_from(calls.len()).unwrap_or(u32::MAX);
             if count > limit {
+                let display_level = match level {
+                    "debug" => "Debug",
+                    "information" => "Information",
+                    "warning" => "Warning",
+                    "error" => "Error",
+                    _ => level,
+                };
                 issues.push(issue(
                     language,
                     "S6664",
-                    format!("Limit {level}-level logging in this method to {limit} calls."),
-                    range_of(method, source),
+                    format!("Reduce the number of {display_level} logging calls within this code block from {count} to the {limit} allowed."),
+                    range_of(calls[0], source),
                 ));
             }
         }

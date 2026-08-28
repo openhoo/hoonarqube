@@ -1,5 +1,5 @@
 // Rule module s6265_s3_public_access.
-use super::shared::{CdkFile, PropsArg, PropsView, property_value};
+use super::shared::{CdkFile, PropsArg, PropsView, property_span, property_value};
 use crate::support::IssueSink;
 use crate::support::{RuleScope, unparenthesized};
 use oxc_ast::ast::{CallExpression, Expression, NewExpression};
@@ -41,7 +41,7 @@ pub(crate) fn check_s6265_s3_public_access_new(
             RuleScope::Both,
             "S6265",
             &format!("Make sure granting {level} access is safe here."),
-            value.span(),
+            property_span(PropsView::Live(props), "accessControl").unwrap_or_else(|| value.span()),
         );
     }
     if is_bucket

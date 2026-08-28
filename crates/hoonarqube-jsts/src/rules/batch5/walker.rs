@@ -433,6 +433,11 @@ mod tests {
             "class Server {\n  async load() {}\n  constructor() {\n    const p = (async () => 1)();\n    void p;\n  }\n}\n",
         );
         assert_eq!(count_key(&direct, "typescript:S7059"), 1);
+
+        let javascript = js_keys(
+            "class Server { constructor() { const pending = (async () => 1)(); void pending; } }\n",
+        );
+        assert_eq!(count_key(&javascript, "javascript:S7059"), 1);
     }
 
     #[test]

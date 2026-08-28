@@ -1,3 +1,412 @@
 {"key": "typescript:S1068", "bad": "s1068_bad.ts", "expect_lines_min": 1}
 {"key": "typescript:S2933", "bad": "s2933_bad.ts", "expect_lines_min": 1}
 {"key": "typescript:S4623", "bad": "s4623_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S113", "bad": "s113_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S4023", "bad": "s4023_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S4124", "bad": "s4124_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S1444", "bad": "s1444_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S2966", "bad": "s2966_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S3257", "bad": "s3257_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S4136", "bad": "s4136_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S4137", "bad": "s4137_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S4156", "bad": "s4156_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S4157", "bad": "s4157_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S4204", "bad": "s4204_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S4322", "bad": "s4322_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S4323", "bad": "s4323_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S4324", "bad": "s4324_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S4327", "bad": "s4327_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S4335", "bad": "s4335_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S4621", "bad": "s4621_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S4622", "bad": "s4622_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S4782", "bad": "s4782_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S6550", "bad": "s6550_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S6564", "bad": "s6564_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S6565", "bad": "s6565_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S6568", "bad": "s6568_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S6569", "bad": "s6569_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S6571", "bad": "s6571_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S6572", "bad": "s6572_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S6578", "bad": "s6578_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S6583", "bad": "s6583_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S6590", "bad": "s6590_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S6598", "bad": "s6598_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S6759", "bad": "s6759_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S7059", "bad": "s7059_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S4798", "bad": "s4798_bad.ts", "expect_lines_min": 1}
+{"key":"typescript:S1438","infra":"upstream analysis infrastructure required"}
+{"key":"typescript:S1874","infra":"upstream analysis infrastructure required"}
+{"key":"typescript:S4325","infra":"upstream analysis infrastructure required"}
+{"key":"typescript:S4328","infra":"upstream analysis infrastructure required"}
+{"key":"typescript:S6606","infra":"upstream analysis infrastructure required"}
+{"key":"typescript:S6627","infra":"upstream analysis infrastructure required"}
+{"key":"typescript:S1128","bad":"s1128_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1526","bad":"s1526_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1607","bad":"s1607_bad.test.ts","expect_lines_min":1}
+{"key":"typescript:S2187","bad":"s2187_bad.test.ts","expect_lines_min":1}
+{"key":"typescript:S2699","bad":"s2699_bad.test.ts","expect_lines_min":1}
+{"key":"typescript:S2970","bad":"s2970_bad.test.ts","expect_lines_min":1}
+{"key":"typescript:S3415","bad":"s3415_bad.test.ts","expect_lines_min":1}
+{"key":"typescript:S5863","bad":"s5863_bad.test.ts","expect_lines_min":1}
+{"key":"typescript:S5958","bad":"s5958_bad.test.ts","expect_lines_min":1}
+{"key":"typescript:S5973","bad":"s5973_bad.test.ts","expect_lines_min":1}
+{"key":"typescript:S6079","bad":"s6079_bad.test.ts","expect_lines_min":1}
+{"key":"typescript:S6080","bad":"s6080_bad.test.ts","expect_lines_min":1}
+{"key":"typescript:S6092","bad":"s6092_bad.test.ts","expect_lines_min":1}
+{"key":"typescript:S6426","bad":"s6426_bad.test.ts","expect_lines_min":1}
+{"key":"typescript:S103","bad":"s103_bad.ts","expect_lines_min":1}
+{"key":"typescript:S105","bad":"s105_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1131","bad":"s1131_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1134","bad":"s1134_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1135","bad":"s1135_bad.ts","expect_lines_min":1}
+{"key":"typescript:S125","bad":"s125_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1291","bad":"s1291_bad.ts","expect_lines_min":1}
+{"key":"typescript:S139","bad":"s139_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2068","bad":"s2068_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3799","bad":"s3799_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6418","bad":"s6418_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6650","bad":"s6650_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1764","bad":"s1764_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1862","bad":"s1862_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1871","bad":"s1871_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3516","bad":"s3516_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3923","bad":"s3923_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4144","bad":"s4144_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1105","bad":"s1105_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1472","bad":"s1472_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1121","bad":"s1121_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1067","bad":"s1067_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1534","bad":"s1534_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1541","bad":"s1541_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3358","bad":"s3358_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3498","bad":"s3498_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3499","bad":"s3499_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3512","bad":"s3512_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3513","bad":"s3513_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3514","bad":"s3514_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3776","bad":"s3776_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3801","bad":"s3801_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3854","bad":"s3854_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3972","bad":"s3972_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3973","bad":"s3973_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4158","bad":"s4158_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4275","bad":"s4275_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4619","bad":"s4619_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4634","bad":"s4634_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4822","bad":"s4822_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6582","bad":"s6582_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6594","bad":"s6594_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6635","bad":"s6635_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6671","bad":"s6671_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6861","bad":"s6861_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1264","bad":"s1264_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1535","bad":"s1535_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1751","bad":"s1751_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1994","bad":"s1994_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2251","bad":"s2251_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2310","bad":"s2310_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4138","bad":"s4138_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4139","bad":"s4139_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1219","bad":"s1219_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1439","bad":"s1439_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1515","bad":"s1515_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1530","bad":"s1530_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1788","bad":"s1788_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2004","bad":"s2004_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2376","bad":"s2376_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3001","bad":"s3001_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3525","bad":"s3525_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3531","bad":"s3531_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3626","bad":"s3626_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1143","bad":"s1143_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5332","bad":"s5332_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5527","bad":"s5527_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5542","bad":"s5542_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5547","bad":"s5547_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5604","bad":"s5604_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5659","bad":"s5659_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5689","bad":"s5689_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5691","bad":"s5691_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5693","bad":"s5693_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5728","bad":"s5728_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5730","bad":"s5730_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5732","bad":"s5732_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5734","bad":"s5734_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5736","bad":"s5736_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5739","bad":"s5739_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5742","bad":"s5742_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5743","bad":"s5743_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5757","bad":"s5757_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5759","bad":"s5759_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6245","bad":"s6245_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6268","bad":"s6268_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6299","bad":"s6299_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3317","bad":"s3317_bad.ts","expect_lines_min":1}
+{"key":"typescript:S7060","bad":"s7060_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2424","bad":"s2424_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2757","bad":"s2757_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3003","bad":"s3003_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3981","bad":"s3981_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6644","bad":"s6644_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6637","bad":"s6637_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6676","bad":"s6676_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6666","bad":"s6666_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6959","bad":"s6959_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2871","bad":"s2871_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6653","bad":"s6653_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2427","bad":"s2427_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2817","bad":"s2817_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1528","bad":"s1528_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1533","bad":"s1533_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6509","bad":"s6509_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1774","bad":"s1774_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4624","bad":"s4624_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6657","bad":"s6657_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4140","bad":"s4140_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1313","bad":"s1313_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1516","bad":"s1516_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3786","bad":"s3786_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6535","bad":"s6535_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1314","bad":"s1314_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6534","bad":"s6534_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1125","bad":"s1125_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1440","bad":"s1440_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2688","bad":"s2688_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6679","bad":"s6679_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2692","bad":"s2692_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6557","bad":"s6557_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2685","bad":"s2685_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6654","bad":"s6654_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6661","bad":"s6661_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6958","bad":"s6958_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6643","bad":"s6643_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1539","bad":"s1539_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2990","bad":"s2990_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2092","bad":"s2092_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2245","bad":"s2245_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2255","bad":"s2255_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2598","bad":"s2598_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2612","bad":"s2612_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2755","bad":"s2755_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2819","bad":"s2819_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3330","bad":"s3330_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4036","bad":"s4036_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4423","bad":"s4423_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4426","bad":"s4426_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4502","bad":"s4502_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4507","bad":"s4507_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4721","bad":"s4721_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4787","bad":"s4787_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4790","bad":"s4790_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4817","bad":"s4817_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4818","bad":"s4818_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4823","bad":"s4823_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4829","bad":"s4829_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4830","bad":"s4830_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5042","bad":"s5042_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5122","bad":"s5122_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5148","bad":"s5148_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5247","bad":"s5247_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1110","bad":"s1110_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1529","bad":"s1529_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3735","bad":"s3735_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6638","bad":"s6638_bad.ts","expect_lines_min":1}
+{"key":"typescript:S107","bad":"s107_bad.ts","expect_lines_min":1}
+{"key":"typescript:S134","bad":"s134_bad.ts","expect_lines_min":1}
+{"key":"typescript:S135","bad":"s135_bad.ts","expect_lines_min":1}
+{"key":"typescript:S888","bad":"s888_bad.ts","expect_lines_min":1}
+{"key":"typescript:S881","bad":"s881_bad.ts","expect_lines_min":1}
+{"key":"typescript:S905","bad":"s905_bad.ts","expect_lines_min":1}
+{"key":"typescript:S106","bad":"s106_bad.ts","expect_lines_min":1}
+{"key":"typescript:S878","bad":"s878_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1192","bad":"s1192_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1441","bad":"s1441_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2430","bad":"s2430_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1656","bad":"s1656_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1488","bad":"s1488_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1763","bad":"s1763_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1301","bad":"s1301_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1479","bad":"s1479_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1821","bad":"s1821_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3616","bad":"s3616_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4524","bad":"s4524_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1066","bad":"s1066_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1116","bad":"s1116_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1119","bad":"s1119_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1154","bad":"s1154_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1199","bad":"s1199_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1525","bad":"s1525_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1848","bad":"s1848_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2201","bad":"s2201_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2208","bad":"s2208_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2681","bad":"s2681_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3504","bad":"s3504_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3696","bad":"s3696_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3863","bad":"s3863_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3984","bad":"s3984_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6660","bad":"s6660_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6836","bad":"s6836_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6859","bad":"s6859_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6435","bad":"s6435_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6438","bad":"s6438_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6439","bad":"s6439_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6440","bad":"s6440_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6442","bad":"s6442_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6443","bad":"s6443_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6477","bad":"s6477_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6478","bad":"s6478_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6479","bad":"s6479_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6480","bad":"s6480_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6481","bad":"s6481_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6746","bad":"s6746_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6747","bad":"s6747_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6748","bad":"s6748_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6749","bad":"s6749_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6750","bad":"s6750_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6754","bad":"s6754_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6756","bad":"s6756_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6757","bad":"s6757_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6761","bad":"s6761_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6763","bad":"s6763_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6766","bad":"s6766_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6770","bad":"s6770_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6772","bad":"s6772_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6775","bad":"s6775_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6788","bad":"s6788_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6789","bad":"s6789_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6790","bad":"s6790_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6791","bad":"s6791_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6957","bad":"s6957_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2639","bad":"s2639_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5842","bad":"s5842_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5843","bad":"s5843_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5850","bad":"s5850_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5852","bad":"s5852_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5867","bad":"s5867_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5868","bad":"s5868_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5869","bad":"s5869_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6019","bad":"s6019_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6035","bad":"s6035_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6323","bad":"s6323_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6324","bad":"s6324_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6325","bad":"s6325_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6326","bad":"s6326_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6328","bad":"s6328_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6331","bad":"s6331_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6351","bad":"s6351_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6353","bad":"s6353_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6397","bad":"s6397_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3402","bad":"s3402_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3579","bad":"s3579_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3699","bad":"s3699_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4123","bad":"s4123_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1117","bad":"s1117_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1172","bad":"s1172_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1226","bad":"s1226_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1537","bad":"s1537_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1854","bad":"s1854_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2077","bad":"s2077_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2123","bad":"s2123_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2392","bad":"s2392_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2589","bad":"s2589_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2870","bad":"s2870_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2999","bad":"s2999_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3353","bad":"s3353_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3723","bad":"s3723_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4030","bad":"s4030_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4043","bad":"s4043_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4143","bad":"s4143_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4165","bad":"s4165_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4784","bad":"s4784_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5443","bad":"s5443_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5725","bad":"s5725_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5860","bad":"s5860_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5876","bad":"s5876_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6441","bad":"s6441_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6486","bad":"s6486_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6544","bad":"s6544_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6767","bad":"s6767_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6252","bad":"s6252_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6265","bad":"s6265_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6270","bad":"s6270_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6275","bad":"s6275_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6281","bad":"s6281_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6302","bad":"s6302_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6303","bad":"s6303_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6304","bad":"s6304_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6308","bad":"s6308_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6317","bad":"s6317_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6319","bad":"s6319_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6321","bad":"s6321_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6327","bad":"s6327_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6329","bad":"s6329_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6330","bad":"s6330_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6332","bad":"s6332_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6333","bad":"s6333_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2260","bad":"s2260_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3812","bad":"s3812_bad.ts","expect_lines_min":1}
+{"key":"typescript:S909","bad":"s909_bad.ts","expect_lines_min":1}
+{"key":"typescript:S104","skip":"config"}
+{"key":"typescript:S1451","skip":"config"}
+{"key":"typescript:S108","bad":"s108_bad.ts","expect_lines_min":1}
+{"key":"typescript:S109","bad":"s109_bad.ts","expect_lines_min":1}
+{"key":"typescript:S117","bad":"s117_bad.ts","expect_lines_min":1}
+{"key":"typescript:S121","bad":"s121_bad.ts","expect_lines_min":1}
+{"key":"typescript:S122","bad":"s122_bad.ts","expect_lines_min":1}
+{"key":"typescript:S126","bad":"s126_bad.ts","expect_lines_min":1}
+{"key":"typescript:S128","bad":"s128_bad.ts","expect_lines_min":1}
+{"key":"typescript:S138","bad":"s138_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1940","bad":"s1940_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2234","bad":"s2234_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2486","bad":"s2486_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2737","bad":"s2737_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3524","bad":"s3524_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1077","bad":"s1077_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S1082","bad":"s1082_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S1090","bad":"s1090_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S4084","bad":"s4084_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S5254","bad":"s5254_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S5256","bad":"s5256_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S5257","bad":"s5257_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S5260","bad":"s5260_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S5264","bad":"s5264_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6793","bad":"s6793_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6807","bad":"s6807_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6811","bad":"s6811_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6819","bad":"s6819_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6821","bad":"s6821_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6822","bad":"s6822_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6823","bad":"s6823_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6824","bad":"s6824_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6825","bad":"s6825_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6827","bad":"s6827_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6840","bad":"s6840_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6841","bad":"s6841_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6842","bad":"s6842_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6843","bad":"s6843_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6844","bad":"s6844_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6845","bad":"s6845_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6846","bad":"s6846_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6847","bad":"s6847_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6848","bad":"s6848_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6850","bad":"s6850_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6851","bad":"s6851_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6852","bad":"s6852_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S6853","bad":"s6853_bad.tsx","expect_lines_min":1}
+{"key":"typescript:S100","bad":"s100_bad.ts","expect_lines_min":1}
+{"key":"typescript:S101","bad":"s101_bad.ts","expect_lines_min":1}
+{"key":"typescript:S131","bad":"s131_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1523","bad":"s1523_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2301","bad":"s2301_bad.ts","expect_lines_min":1}
+{"key":"typescript:S3533","bad":"s3533_bad.ts","expect_lines_min":1}
+{"key":"typescript:S1186","bad":"s1186_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2094","bad":"s2094_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2137","bad":"s2137_bad.ts","expect_lines_min":1}
+{"key":"typescript:S2138","bad":"s2138_bad.ts","expect_lines_min":1}
+{"key":"typescript:S4326","bad":"s4326_bad.ts","expect_lines_min":1}
+{"key":"typescript:S5856","bad":"s5856_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6249","bad":"s6249_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6522","bad":"s6522_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6523","bad":"s6523_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6551","bad":"s6551_bad.ts","expect_lines_min":1}
+{"key":"typescript:S6647","bad":"s6647_bad.ts","expect_lines_min":1}

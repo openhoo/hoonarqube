@@ -2,8 +2,7 @@ use super::support::accessor_keyword;
 use super::support::accessors_of;
 use super::support::body_of;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
-use crate::rules::modifiers::subtree_contains_kind;
+use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of, simple_name};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -18,14 +17,28 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             if accessor_keyword(accessor, source) != "get" {
                 continue;
             }
-            let throws = body_of(accessor)
-                .is_some_and(|body| subtree_contains_kind(body, "throw_statement"));
-            if throws {
+            for throw_statement in body_of(accessor)
+                .into_iter()
+                .flat_map(|body| collect_kinds(body, &["throw_statement"]))
+                .filter(|throw_statement| {
+                    !collect_kinds(*throw_statement, &["object_creation_expression"])
+                        .into_iter()
+                        .filter_map(|creation| creation.child_by_field_name("type"))
+                        .any(|exception_type| {
+                            matches!(
+                                simple_name(node_text(exception_type, source)),
+                                "NotImplementedException"
+                                    | "NotSupportedException"
+                                    | "InvalidOperationException"
+                            )
+                        })
+                })
+            {
                 issues.push(issue(
                     language,
                     "S2372",
-                    "A property getter must not throw exceptions.",
-                    range_of(accessor, source),
+                    "Remove the exception throwing from this property getter, or refactor the property into a method.",
+                    range_of(throw_statement, source),
                 ));
             }
         }

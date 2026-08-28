@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{attributes_of, collect_kinds, is_error_tainted, issue, range_of};
+use crate::cst::{attributes_of, collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::modifiers::has_attribute;
 use crate::rules::naming::TYPE_DECLARATION_KINDS;
 use hoonarqube_ir::Issue;
@@ -16,11 +16,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let attributes = attributes_of(type_node, source);
         if has_attribute(&attributes, "PartCreationPolicy") && !has_attribute(&attributes, "Export")
         {
+            let policy = collect_kinds(type_node, &["attribute"])
+                .into_iter()
+                .find(|attribute| node_text(*attribute, source).starts_with("PartCreationPolicy"))
+                .unwrap_or(type_node);
             issues.push(issue(
                 language,
                 "S4428",
-                "Add an '[Export]' attribute next to this '[PartCreationPolicy]'.",
-                range_of(type_node, source),
+                "Add the 'ExportAttribute' or remove 'PartCreationPolicyAttribute' to/from this type definition.",
+                range_of(policy, source),
             ));
         }
     }

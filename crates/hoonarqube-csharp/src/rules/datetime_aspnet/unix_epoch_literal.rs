@@ -27,7 +27,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S6588",
-                "Use 'DateTimeOffset.UnixEpoch' instead of this literal.",
+                "Use \"DateTime.UnixEpoch\" instead of creating DateTime instances that point to the unix epoch time",
                 range_of(creation, source),
             ));
         }

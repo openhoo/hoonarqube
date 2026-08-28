@@ -1,6 +1,7 @@
 use crate::rules::batch5::collectors::SecurityHotspotCollector;
 use crate::rules::batch5::collectors::WEAK_CIPHER_FAMILIES;
 use crate::rules::batch5::collectors::first_string_argument;
+use crate::rules::shared::argument_expression;
 use crate::rules::shared::sink_callee_name;
 use crate::support::RuleScope;
 use oxc_ast::ast::CallExpression;
@@ -21,8 +22,11 @@ impl SecurityHotspotCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S5547",
-                &format!("Make sure encrypting with '{cipher}' is safe here."),
-                call.span(),
+                "Use a strong cipher algorithm.",
+                call.arguments
+                    .first()
+                    .and_then(argument_expression)
+                    .map_or(call.span(), GetSpan::span),
             );
         }
     }

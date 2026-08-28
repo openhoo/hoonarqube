@@ -34,8 +34,8 @@ pub(crate) fn check_s4721_shell_commands(
         if shells_out || forces_shell {
             issues.push(issue_at(
                 "python:S4721",
-                "Remove this use of a shell interpreter.",
-                call.range(),
+                "Make sure that executing this OS command is safe here.",
+                call.func.range(),
                 index,
                 source,
             ));

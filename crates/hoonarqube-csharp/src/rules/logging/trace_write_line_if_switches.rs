@@ -19,11 +19,14 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             })
         })
         .map(|call| {
+            let anchor = invocation_arguments(call)
+                .first()
+                .map_or(call, |argument| argument_expression(*argument));
             issue(
                 language,
                 "S6675",
-                "Do not use a 'TraceSwitch' level to gate this trace.",
-                range_of(call, source),
+                "'Trace.WriteLineIf' should not be used with 'TraceSwitch' levels.",
+                range_of(anchor, source),
             )
         })
         .collect()

@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, node_text, range_of, simple_name};
+use crate::cst::{collect_kinds, issue, node_text, range_from_byte_offsets, simple_name};
 use crate::rules::expressions::member_declarations_of_kind;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -42,20 +42,28 @@ pub(crate) fn comment_tag_issues(
     let mut todos = Vec::new();
     for comment in collect_kinds(root, &["comment"]) {
         let upper = node_text(comment, source).to_ascii_uppercase();
-        if upper.contains("FIXME") {
+        if let Some(relative) = upper.find("FIXME") {
             fixmes.push(issue(
                 language,
                 "S1134",
-                "Track the work promised by this FIXME tag.",
-                range_of(comment, source),
+                "Take the required action to fix the issue indicated by this 'FIXME' comment.",
+                range_from_byte_offsets(
+                    comment.start_byte() + relative,
+                    comment.start_byte() + relative + 5,
+                    source,
+                ),
             ));
         }
-        if upper.contains("TODO") {
+        if let Some(relative) = upper.find("TODO") {
             todos.push(issue(
                 language,
                 "S1135",
-                "Track the work promised by this TODO tag.",
-                range_of(comment, source),
+                "Complete the task associated to this 'TODO' comment.",
+                range_from_byte_offsets(
+                    comment.start_byte() + relative,
+                    comment.start_byte() + relative + 4,
+                    source,
+                ),
             ));
         }
     }

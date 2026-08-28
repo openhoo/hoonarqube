@@ -34,7 +34,56 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             ));
         }
     }
+    for declaration in local_type_declarations(root) {
+        let Some(name_node) = declaration.child_by_field_name("name") else {
+            continue;
+        };
+        let name = node_text(name_node, source);
+        let recursive_generic = collect_base_texts(declaration, source)
+            .iter()
+            .any(|base| generic_name_count(base, name) >= 2);
+        if recursive_generic
+            && !issues
+                .iter()
+                .any(|item| item.range == range_of(name_node, source))
+        {
+            issues.push(issue(
+                language,
+                "S3464",
+                "Refactor this class so that the generic inheritance chain is not recursive.",
+                range_of(name_node, source),
+            ));
+        }
+    }
     issues
+}
+
+fn collect_base_texts<'a>(declaration: Node<'_>, source: &'a str) -> Vec<&'a str> {
+    let mut texts = Vec::new();
+    let mut cursor = declaration.walk();
+    for list in declaration
+        .children(&mut cursor)
+        .filter(|child| child.kind() == "base_list")
+    {
+        let mut list_cursor = list.walk();
+        texts.extend(
+            list.children(&mut list_cursor)
+                .filter(Node::is_named)
+                .map(|base| node_text(base, source)),
+        );
+    }
+    texts
+}
+
+fn generic_name_count(text: &str, name: &str) -> usize {
+    text.match_indices(name)
+        .filter(|(index, _)| {
+            let before = text[..*index].chars().next_back();
+            let after = text[index + name.len()..].chars().next();
+            before.is_none_or(|value| !value.is_ascii_alphanumeric() && value != '_')
+                && after.is_some_and(|value| value == '<')
+        })
+        .count()
 }
 #[cfg(test)]
 mod tests {

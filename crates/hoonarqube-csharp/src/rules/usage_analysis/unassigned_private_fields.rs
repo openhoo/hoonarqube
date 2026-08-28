@@ -24,7 +24,7 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
             language,
             "S3459",
             format!(
-                "Remove unassigned field '{}' or assign it a value.",
+                "Remove unassigned field '{}', or set its value.",
                 member.name
             ),
             range_of(member.anchor, source),
@@ -53,7 +53,7 @@ mod tests {
         assert_eq!(flagged[0].range.start.line, 3);
         assert_eq!(
             flagged[0].message,
-            "Remove unassigned field 'cached' or assign it a value."
+            "Remove unassigned field 'cached', or set its value."
         );
     }
 

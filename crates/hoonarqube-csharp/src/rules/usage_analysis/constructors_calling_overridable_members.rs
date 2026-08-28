@@ -1,6 +1,6 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, modifiers_of, range_of};
-use crate::rules::expressions::{callee_name, enclosing_type};
+use crate::rules::expressions::{callee_name, enclosing_type, invocation_function};
 use crate::rules::modifiers::has_modifier;
 use crate::rules::structure::body_of;
 use crate::symbol_table::{MemberFlavor, UsageSymbols};
@@ -47,8 +47,13 @@ pub(crate) fn check(
                 issues.push(issue(
                     language,
                     "S1699",
-                    format!("Constructor calls overridable method '{callee}'."),
-                    range_of(invocation, source),
+                    format!(
+                        "Remove this call from a constructor to the overridable '{callee}' method."
+                    ),
+                    range_of(
+                        invocation_function(invocation).unwrap_or(invocation),
+                        source,
+                    ),
                 ));
             }
         }

@@ -19,12 +19,35 @@ pub(crate) fn check(
         let depth = ancestors_of(construct)
             .filter(|ancestor| NESTING_CONSTRUCT_KINDS.contains(&ancestor.kind()))
             .count();
-        if to_u32(depth) > options.maximum_nesting_level {
+        if to_u32(depth) == options.maximum_nesting_level {
+            let keyword = match construct.kind() {
+                "if_statement" => "if",
+                "for_statement" => "for",
+                "foreach_statement" => "foreach",
+                "while_statement" => "while",
+                "do_statement" => "do",
+                "switch_statement" => "switch",
+                "try_statement" => "try",
+                "catch_clause" => "catch",
+                "finally_clause" => "finally",
+                "using_statement" => "using",
+                "lock_statement" => "lock",
+                "fixed_statement" => "fixed",
+                _ => construct.kind(),
+            };
+            let mut cursor = construct.walk();
+            let anchor = construct
+                .children(&mut cursor)
+                .find(|child| child.kind() == keyword)
+                .unwrap_or(construct);
             issues.push(issue(
                 language,
                 "S134",
-                format!("Reduce this code's nesting depth ({depth} levels deep)."),
-                range_of(construct, source),
+                format!(
+                    "Refactor this code to not nest more than {} control flow statements.",
+                    options.maximum_nesting_level
+                ),
+                range_of(anchor, source),
             ));
         }
     }

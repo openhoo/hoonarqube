@@ -16,11 +16,24 @@ pub(crate) fn check_inverted_boolean_checks(
     for expr in &file_ctx.exprs {
         if let Expr::UnaryOp(unary) = expr
             && unary.op == ruff_python_ast::UnaryOp::Not
-            && matches!(unary.operand.as_ref(), Expr::Compare(_))
+            && let Expr::Compare(compare) = unary.operand.as_ref()
         {
+            let opposite = match compare.ops.first() {
+                Some(ruff_python_ast::CmpOp::Eq) => "!=",
+                Some(ruff_python_ast::CmpOp::NotEq) => "==",
+                Some(ruff_python_ast::CmpOp::Lt) => ">=",
+                Some(ruff_python_ast::CmpOp::LtE) => ">",
+                Some(ruff_python_ast::CmpOp::Gt) => "<=",
+                Some(ruff_python_ast::CmpOp::GtE) => "<",
+                Some(ruff_python_ast::CmpOp::Is) => "is not",
+                Some(ruff_python_ast::CmpOp::IsNot) => "is",
+                Some(ruff_python_ast::CmpOp::In) => "not in",
+                Some(ruff_python_ast::CmpOp::NotIn) => "in",
+                None => continue,
+            };
             issues.push(issue_at(
                 "python:S1940",
-                "Replace this negated comparison with the inverted operator.",
+                &format!("Use the opposite operator (\"{opposite}\") instead."),
                 unary.range(),
                 index,
                 source,

@@ -17,10 +17,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let object_derived =
             enclosing_type(invocation).is_some_and(|type_node| !has_base_list(type_node));
         if relevant && object_derived {
+            let member = base_member.expect("checked relevant base member");
             issues.push(issue(
                 language,
                 "S3249",
-                "Remove this redundant base call; the type extends 'object' directly.",
+                format!(
+                    "Remove this 'base' call to 'object.{member}', which is directly based on the object reference."
+                ),
                 range_of(invocation, source),
             ));
         }

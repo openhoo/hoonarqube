@@ -16,7 +16,7 @@ pub(crate) fn check_logging_and_binding_calls(
         sink.emit_span(
             RuleScope::Both,
             "S106",
-            "Remove this console logging call.",
+            "Unexpected console statement.",
             it.callee.span(),
         );
     }
@@ -79,11 +79,15 @@ pub(crate) fn check_collection_and_object_calls(
         );
     }
     if matches!(property, "sort" | "toSorted") && it.arguments.is_empty() {
+        let span = match member {
+            MemberExpression::StaticMemberExpression(member) => member.property.span(),
+            _ => it.callee.span(),
+        };
         sink.emit_span(
             RuleScope::Both,
             "S2871",
-            "Provide a comparator to this sort call.",
-            it.callee.span(),
+            "Provide a compare function to avoid sorting elements alphabetically.",
+            span,
         );
     }
     if property == "hasOwnProperty" {
@@ -98,7 +102,7 @@ pub(crate) fn check_collection_and_object_calls(
         sink.emit_span(
             RuleScope::Both,
             "S2685",
-            "Do not access \"arguments.caller\"/\"arguments.callee\".",
+            "Avoid arguments.callee.",
             it.callee.span(),
         );
     }

@@ -26,7 +26,7 @@ pub(crate) fn check_init_return_values(
                 {
                     issues.push(issue_at(
                         "python:S2734",
-                        "Remove this 'return'; '__init__' cannot return a value.",
+                        "Remove this return value.",
                         returned.range(),
                         index,
                         source,

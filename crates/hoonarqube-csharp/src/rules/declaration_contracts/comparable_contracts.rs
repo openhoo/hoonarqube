@@ -21,14 +21,30 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         }
         let has_equals = overridden_names(type_node, source).contains("Equals");
-        let has_comparison = overloaded_operators(type_node)
-            .iter()
-            .any(|operator| matches!(*operator, "<" | "<=" | ">" | ">="));
-        if !has_equals || !has_comparison {
+        let operators = overloaded_operators(type_node);
+        let mut missing = Vec::new();
+        if !has_equals {
+            missing.push("Equals");
+        }
+        for operator in ["==", "!=", "<", "<=", ">", ">="] {
+            if !operators.contains(&operator) {
+                missing.push(operator);
+            }
+        }
+        if !missing.is_empty() {
+            let missing = match missing.as_slice() {
+                [only] => (*only).to_string(),
+                [first, second] => format!("{first} and {second}"),
+                many => format!(
+                    "{}, and {}",
+                    many[..many.len() - 1].join(", "),
+                    many[many.len() - 1]
+                ),
+            };
             issues.push(issue(
                 language,
                 "S1210",
-                "Implement Equals and the comparison operators alongside IComparable.",
+                format!("When implementing IComparable<T>, you should also override {missing}."),
                 range_of(name_anchor(type_node), source),
             ));
         }

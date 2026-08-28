@@ -25,11 +25,14 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             if text.is_empty() {
                 continue;
             }
-            if texts[..index].iter().any(|earlier| earlier == text) {
+            if let Some(earlier_index) = texts[..index].iter().position(|earlier| earlier == text) {
+                let earlier_line = range_of(sections[earlier_index], source).start.line;
                 issues.push(issue(
                     language,
                     "S1871",
-                    "This branch duplicates the implementation of an earlier one.",
+                    format!(
+                        "Either merge this case with the identical one on line {earlier_line} or change one of the implementations."
+                    ),
                     range_of(*section, source),
                 ));
             }

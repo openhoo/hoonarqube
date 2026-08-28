@@ -10,7 +10,7 @@ impl TsTypeCollector<'_, '_> {
         self.sink.emit_span(
             RuleScope::TsOnly,
             "S2966",
-            "Remove this non-null assertion; it can hide null or undefined values.",
+            "Forbidden non-null assertion.",
             it.span(),
         );
     }

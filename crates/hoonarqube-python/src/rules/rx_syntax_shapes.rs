@@ -18,13 +18,15 @@ pub(crate) fn check_rx_syntax_shapes(
 ) {
     // python:S5842 — repeated patterns matching the empty string.
     for_each_rx_item(&parsed.root, &mut |item| {
-        if let Some(quant) = &item.quant
-            && rx_atom_nullable(&item.atom)
-        {
+        if item.quant.is_some() && rx_atom_nullable(&item.atom) {
+            let span = match &item.atom {
+                crate::engine::rx::RxAtom::Group(group) => group.span,
+                _ => item.span,
+            };
             push(
                 "python:S5842",
-                "Change this repeated pattern so it cannot match the empty string.",
-                quant.span,
+                "Rework this part of the regex to not match the empty string.",
+                span,
             );
         }
     });

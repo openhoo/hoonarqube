@@ -1,0 +1,1 @@
+const legacy = require("mod");

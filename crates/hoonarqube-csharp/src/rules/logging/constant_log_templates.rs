@@ -18,13 +18,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 .map(|first| (call, argument_expression(first)))
         })
         .filter(|(_, expression)| expression.kind() != "string_literal")
-        .map(|(call, _)| {
-            issue(
-                language,
-                "S2629",
-                "Use a constant message template for this log call.",
-                range_of(call, source),
-            )
+        .map(|(_, expression)| {
+            let message = if expression.kind() == "interpolated_string_expression" {
+                "Don't use string interpolation in logging message templates."
+            } else {
+                "Don't use string concatenation in logging message templates."
+            };
+            issue(language, "S2629", message, range_of(expression, source))
         })
         .collect()
 }

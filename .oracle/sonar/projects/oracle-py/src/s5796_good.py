@@ -1,0 +1,1 @@
+flag = value is None

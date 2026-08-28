@@ -15,8 +15,14 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S2221",
-                "Catch a more specific exception than 'Exception'.",
-                range_of(clause, source),
+                "Catch a list of specific exception subtype or use exception filters instead.",
+                range_of(
+                    collect_kinds(clause, &["catch_declaration"])
+                        .first()
+                        .and_then(|declaration| declaration.child_by_field_name("type"))
+                        .unwrap_or(clause),
+                    source,
+                ),
             )
         })
         .collect()

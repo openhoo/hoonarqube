@@ -14,11 +14,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             .parent()
             .is_some_and(|parent| parent.kind() == "block")
         {
+            let opening = collect_kinds(block, &["{"])
+                .into_iter()
+                .next()
+                .unwrap_or(block);
             issues.push(issue(
                 language,
                 "S1199",
-                "Remove this nested code block.",
-                range_of(block, source),
+                "Extract this nested code block into a separate method.",
+                range_of(opening, source),
             ));
         }
     }

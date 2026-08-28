@@ -1,8 +1,8 @@
 use crate::engine::file_context::FileContext;
-use crate::support::dict_string_entry;
-use crate::support::for_each_dict_literal;
-use crate::support::includes_wildcard;
+use crate::support::called_name;
 use crate::support::issue_at;
+use crate::support::keyword_value;
+use crate::support::wildcard_literal;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
 use ruff_python_parser::Parsed;
@@ -12,28 +12,30 @@ use ruff_text_size::Ranged;
 // --- python:S6302 — policies granting all privileges -----------------------------
 
 pub(crate) fn check_s6302_all_privileges_policy(
-    parsed: &Parsed<ModModule>,
+    _parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    // CE only evaluates policies in files with a resolvable boto3 binding;
-    // stub-only files stay silent.
-    if !file_ctx.has_boto3_binding {
+    // SonarPython scopes this rule to AWS CDK PolicyStatement calls.
+    if !file_ctx.has_aws_cdk_import {
         return Vec::new();
     }
     let mut issues = Vec::new();
-    for_each_dict_literal(parsed.syntax().body.as_slice(), &mut |dict| {
-        if dict_string_entry(dict, "Action").is_some_and(includes_wildcard) {
+    for call in &file_ctx.calls {
+        if called_name(&call.func) == Some("PolicyStatement")
+            && let Some(wildcard) =
+                keyword_value(&call.arguments, "actions").and_then(wildcard_literal)
+        {
             issues.push(issue_at(
                 "python:S6302",
-                "Scope this policy's actions instead of granting all privileges.",
-                dict.range(),
+                "Make sure granting all privileges is safe here.",
+                wildcard.range(),
                 index,
                 source,
             ));
         }
-    });
+    }
     issues
 }
 
@@ -43,13 +45,13 @@ mod tests {
     use crate::test_support::{findings, scan};
 
     #[test]
-    fn s6302_flags_wildcard_action_policies_with_boto3_binding() {
+    fn s6302_spares_boto3_policy_dictionaries() {
         let flagged = concat!(
             "client = boto3.resource(\"iam\")\n",
             "p1 = {\"Action\": \"*\"}\n",
             "p2 = {\"Action\": [\"s3:*\", \"ec2:RunInstances\"]}\n"
         );
-        assert_eq!(findings(&scan(flagged), "python:S6302").len(), 1);
+        assert_eq!(findings(&scan(flagged), "python:S6302").len(), 0);
         // Without a resolvable boto3 binding the file stays silent (CE parity).
         let stub_only =
             scan("p1 = {\"Action\": \"*\"}\np2 = {\"Action\": [\"s3:*\", \"ec2:RunInstances\"]}\n");

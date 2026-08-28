@@ -21,14 +21,18 @@ pub(crate) fn check_empty_functions(
     source: &str,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    let mut visit = |function: &StmtFunctionDef, _in_class_body: bool| {
+    let mut visit = |function: &StmtFunctionDef, in_class_body: bool| {
         if has_decorator(function, "abstractmethod") || has_decorator(function, "overload") {
             return;
         }
         if placeholder_only_suite(&function.body) {
             issues.push(issue_at(
                 "python:S1186",
-                "Update this function to remove code, add code, or add documentation.",
+                if in_class_body {
+                    "Add a nested comment explaining why this method is empty, or complete the implementation."
+                } else {
+                    "Add a nested comment explaining why this function is empty, or complete the implementation."
+                },
                 function.name.range(),
                 index,
                 source,

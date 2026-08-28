@@ -1,5 +1,5 @@
 use super::collectors::{TsTypeCollector, type_is_primitive_keyword};
-use crate::support::RuleScope;
+use crate::support::{RuleScope, source_slice};
 use oxc_ast::ast::VariableDeclarator;
 use oxc_span::GetSpan;
 
@@ -11,11 +11,19 @@ impl TsTypeCollector<'_, '_> {
             && type_is_primitive_keyword(&annotation.type_annotation)
             && it.init.is_some()
         {
+            let inferred_type = source_slice(self.source, annotation.type_annotation.span());
             self.sink.emit_span(
                 RuleScope::TsOnly,
                 "S3257",
-                "Remove this redundant type annotation; the initializer already provides the type.",
-                annotation.span(),
+                &format!(
+                    "Type {inferred_type} trivially inferred from a {inferred_type} literal, remove type annotation."
+                ),
+                oxc_span::Span::new(
+                    it.id.span().start,
+                    it.init
+                        .as_ref()
+                        .map_or(annotation.span().end, |init| init.span().end),
+                ),
             );
         }
     }

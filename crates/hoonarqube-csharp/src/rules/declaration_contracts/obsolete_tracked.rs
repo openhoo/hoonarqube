@@ -12,7 +12,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         language,
         &["Obsolete", "ObsoleteAttribute"],
         "S1133",
-        "Deprecated code should be removed.",
+        "Do not forget to remove this deprecated code someday.",
     )
 }
 #[cfg(test)]

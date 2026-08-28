@@ -51,7 +51,7 @@ pub(crate) fn check_unused_locals(
             if !used {
                 issues.push(issue_at(
                     "python:S1481",
-                    &format!("Remove this unused local variable '{name}'."),
+                    &format!("Remove the unused local variable \"{name}\"."),
                     ranges[0],
                     index,
                     source,

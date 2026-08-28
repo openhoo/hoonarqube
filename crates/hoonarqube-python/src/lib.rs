@@ -53,6 +53,7 @@ use crate::rules::parsing_errors::check_parsing_errors;
 use crate::rules::pre_increment_decrement::check_pre_increment_decrement;
 use crate::rules::py2_backticks::check_py2_backticks;
 use crate::rules::py2_inequality::check_py2_inequality;
+use crate::rules::py2_statements::check_py2_statements;
 use crate::rules::trailing_whitespace::check_trailing_whitespace;
 use crate::support::file_metrics;
 use crate::support::parse;
@@ -154,7 +155,7 @@ pub fn analyze(
     issues.extend(check_parsing_errors(&parsed, &index, source));
     issues.extend(check_no_sonar(&parsed, &index, source));
     issues.extend(check_line_length(source, options));
-    issues.extend(check_ends_with_newline(source));
+    issues.extend(check_ends_with_newline(path.as_path(), source));
     issues.extend(check_trailing_whitespace(source));
     issues.extend(check_issue_tags(&parsed, &index, source));
     issues.extend(check_noqa_comments(&parsed, &index, source));
@@ -169,6 +170,7 @@ pub fn analyze(
     issues.extend(check_commented_code(&parsed, &index, source));
     issues.extend(check_py2_backticks(&parsed, &index, source));
     issues.extend(check_py2_inequality(&parsed, &index, source));
+    issues.extend(check_py2_statements(&parsed, &index, source));
     issues.extend(check_lowercase_long_suffix(&parsed, &index, source));
     issues.extend(check_pre_increment_decrement(&parsed, &index, source));
     issues.extend(check_assign_plus_minus(&parsed, &index, source));

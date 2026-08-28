@@ -27,8 +27,12 @@ pub(crate) fn check_s5443_public_temp_files(
         if public_temp {
             issues.push(issue_at(
                 "python:S5443",
-                "Create this temporary file in a directory with restricted permissions.",
-                call.range(),
+                "Make sure publicly writable directories are used safely here.",
+                call.arguments
+                    .args
+                    .first()
+                    .expect("checked path argument")
+                    .range(),
                 index,
                 source,
             ));

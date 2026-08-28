@@ -12,10 +12,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .into_iter()
         .flat_map(|class_node| blocking_calls_in_scope(class_node, source))
         .map(|call| {
+            let member = expression_name(call, source).unwrap_or("Result");
             issue(
                 language,
                 "S6422",
-                "Await async work instead of blocking inside an Azure Function.",
+                format!(
+                    "Replace this use of 'Task.{member}' with 'await'. Do not perform blocking operations in Azure Functions."
+                ),
                 range_of(call, source),
             )
         })

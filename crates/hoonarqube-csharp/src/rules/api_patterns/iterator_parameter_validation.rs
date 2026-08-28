@@ -17,12 +17,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if collect_kinds(body, &["yield_statement"]).is_empty() {
             continue;
         }
-        for validation in validation_statements(body, source) {
+        if !validation_statements(body, source).is_empty() {
+            let Some(name) = method.child_by_field_name("name") else {
+                continue;
+            };
             issues.push(issue(
                 language,
                 "S4456",
-                "Move this validation out of the iterator; it will not run until enumeration.",
-                range_of(validation, source),
+                "Split this method into two, one handling parameters check and the other handling the iterator.",
+                range_of(name, source),
             ));
         }
     }

@@ -19,17 +19,23 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         .any(|marker| node_text(type_node, source).contains(marker))
                 })
         })
-        .filter(|property| {
-            accessors_of(*property)
-                .iter()
-                .any(|accessor| accessor_keyword(*accessor, source) == "set")
+        .filter_map(|property| {
+            accessors_of(property)
+                .into_iter()
+                .find(|accessor| accessor_keyword(*accessor, source) == "set")
+                .map(|setter| (property, setter))
         })
-        .map(|property| {
+        .map(|(property, _setter)| {
+            let name = property
+                .child_by_field_name("name");
+            let name_text = name.map_or("property", |name| node_text(name, source));
             issue(
                 language,
                 "S4004",
-                "Make this collection property read-only.",
-                range_of(property, source),
+                format!(
+                    "Make the '{name_text}' property read-only by removing the property setter or making it private."
+                ),
+                range_of(name.unwrap_or(property), source),
             )
         })
         .collect()

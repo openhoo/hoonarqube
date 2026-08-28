@@ -28,10 +28,10 @@ pub(crate) fn check_open_modes(
         let Some(mode) = string_literal_text(mode_expr) else {
             continue;
         };
-        if !open_mode_is_valid(&mode) {
+        if open_mode_is_known_but_invalid(&mode) {
             issues.push(issue_at(
                 "python:S5828",
-                &format!("Fix this invalid open mode '{mode}'."),
+                "Fix this invalid mode string.",
                 mode_expr.range(),
                 index,
                 source,
@@ -43,7 +43,7 @@ pub(crate) fn check_open_modes(
 
 // --- python:S5828 — invalid open modes ---------------------------------------
 
-fn open_mode_is_valid(mode: &str) -> bool {
+fn open_mode_is_known_but_invalid(mode: &str) -> bool {
     let mut primary = 0;
     let mut plus = 0;
     let mut binary = 0;
@@ -58,5 +58,5 @@ fn open_mode_is_valid(mode: &str) -> bool {
             _ => return false,
         }
     }
-    primary == 1 && plus <= 1 && binary <= 1 && textual <= 1
+    primary != 1 || plus > 1 || binary > 1 || textual > 1
 }

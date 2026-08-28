@@ -22,13 +22,14 @@ pub(crate) fn check_duplicate_conditions(
             let Some(test) = clause.test.as_ref() else {
                 break;
             };
-            if previous
+            if let Some(earlier) = previous
                 .iter()
-                .any(|earlier| exprs_textually_equal(earlier, test, source))
+                .find(|earlier| exprs_textually_equal(earlier, test, source))
             {
+                let earlier_line = index.line_column(earlier.start(), source).line.get();
                 issues.push(issue_at(
                     "python:S1862",
-                    "This condition duplicates an earlier one; this branch can never run.",
+                    &format!("This branch duplicates the one on line {earlier_line}."),
                     test.range(),
                     index,
                     source,

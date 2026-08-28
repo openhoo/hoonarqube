@@ -1,48 +1,41 @@
-use super::support::declared_type_names;
-use super::support::is_predefined_value_type_text;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
-use crate::rules::expressions::binary_operands;
+use crate::rules::expressions::{binary_operands, callee_name};
 use crate::rules::structure::binary_operator;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
-/// csharpsquid:S3610 — `==`/`!=` against `null` on operands whose declared
-/// type text is a non-nullable value type. Subset: file-local declarations
-/// only; values flowing through parameters of unanalyzed callers stay out.
+/// csharpsquid:S3610 — `Nullable<T>.GetType()` never yields
+/// `typeof(Nullable<T>)`, making that type comparison redundant.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    const NULL_COMPARISONS: [&str; 2] = ["==", "!="];
-    let types = declared_type_names(root, source);
     collect_kinds(root, &["binary_expression"])
         .into_iter()
         .filter(|comparison| !is_error_tainted(*comparison))
-        .filter(|comparison| NULL_COMPARISONS.contains(&binary_operator(*comparison, source)))
-        .filter_map(|comparison| {
-            let (left, right) = binary_operands(comparison)?;
-            match (
-                left.kind() == "null_literal",
-                right.kind() == "null_literal",
-            ) {
-                (true, false) => Some(right),
-                (false, true) => Some(left),
-                _ => None,
-            }
+        .filter(|comparison| matches!(binary_operator(*comparison, source), "==" | "!="))
+        .filter(|comparison| {
+            binary_operands(*comparison).is_some_and(|(left, right)| {
+                (is_get_type_call(left, source) && is_nullable_typeof(right, source))
+                    || (is_get_type_call(right, source) && is_nullable_typeof(left, source))
+            })
         })
-        .filter(|operand| {
-            operand.kind() == "identifier"
-                && types
-                    .get(node_text(*operand, source))
-                    .is_some_and(|declared| is_predefined_value_type_text(declared))
-        })
-        .map(|operand| {
+        .map(|comparison| {
             issue(
                 language,
                 "S3610",
-                "Remove this redundant comparison; this non-nullable value can never be 'null'.",
-                range_of(operand, source),
+                "Remove this redundant type comparison.",
+                range_of(comparison, source),
             )
         })
         .collect()
+}
+
+fn is_get_type_call(node: Node<'_>, source: &str) -> bool {
+    node.kind() == "invocation_expression" && callee_name(node, source) == Some("GetType")
+}
+
+fn is_nullable_typeof(node: Node<'_>, source: &str) -> bool {
+    node.kind() == "typeof_expression"
+        && (node_text(node, source).contains('?') || node_text(node, source).contains("Nullable<"))
 }
 
 #[cfg(test)]
@@ -56,24 +49,24 @@ mod tests {
     }
 
     #[test]
-    fn s3610_flags_null_on_the_left_side() {
+    fn s3610_flags_nullable_get_type_comparison() {
         let report = analyze_default(
-            "void Check()\n{\n    long size = 0;\n    bool missing = null == size;\n}\n",
+            "void Check(int? value)\n{\n    bool same = value.GetType() == typeof(int?);\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S3610");
         assert_eq!(flagged.len(), 1);
-        assert_eq!(flagged[0].range.start.line, 4);
+        assert_eq!(flagged[0].range.start.line, 3);
     }
 
     #[test]
-    fn s3610_flags_other_value_types_on_distinct_lines() {
+    fn s3610_flags_equal_and_unequal_nullable_type_checks() {
         let report = analyze_default(
-            "void Check()\n{\n    double ratio = 1.0;\n    bool gone = ratio == null;\n    decimal total = 0m;\n    bool absent = total != null;\n}\n",
+            "void Check(decimal? amount)\n{\n    bool same = amount.GetType() == typeof(decimal?);\n    bool different = amount.GetType() != typeof(decimal?);\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S3610");
         assert_eq!(flagged.len(), 2);
-        assert_eq!(flagged[0].range.start.line, 4);
-        assert_eq!(flagged[1].range.start.line, 6);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(flagged[1].range.start.line, 4);
     }
 
     #[test]
@@ -93,11 +86,10 @@ mod tests {
     }
 
     #[test]
-    fn s3610_non_nullable_parameter_comparison_is_flagged() {
+    fn s3610_non_nullable_parameter_comparison_is_clean() {
         let report =
             analyze_default("void Check(int count)\n{\n    bool none = count == null;\n}\n");
         let flagged = with_key(&report, "csharpsquid:S3610");
-        assert_eq!(flagged.len(), 1);
-        assert_eq!(flagged[0].range.start.line, 3);
+        assert!(flagged.is_empty());
     }
 }

@@ -11,7 +11,7 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for type_node in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
-        let mut last_index_by_name: Vec<(String, usize)> = Vec::new();
+        let mut last_index_by_name: Vec<(String, usize, Node<'_>)> = Vec::new();
         for (index, member) in type_members(type_node).into_iter().enumerate() {
             if member.kind() != "method_declaration" || has_explicit_interface_specifier(member) {
                 continue;
@@ -23,19 +23,19 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             let lowered = method_name.to_ascii_lowercase();
             if let Some(entry) = last_index_by_name
                 .iter_mut()
-                .find(|(seen, _)| *seen == lowered)
+                .find(|(seen, _, _)| *seen == lowered)
             {
                 if entry.1 + 1 != index {
                     issues.push(issue(
                         language,
                         "S4136",
-                        format!("Move this overload next to the other \"{method_name}\" methods."),
-                        range_of(name, source),
+                        format!("All '{method_name}' method overloads should be adjacent."),
+                        range_of(entry.2, source),
                     ));
                 }
                 entry.1 = index;
             } else {
-                last_index_by_name.push((lowered, index));
+                last_index_by_name.push((lowered, index, name));
             }
         }
     }

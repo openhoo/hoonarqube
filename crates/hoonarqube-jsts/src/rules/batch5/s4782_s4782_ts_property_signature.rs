@@ -26,8 +26,8 @@ impl TsTypeCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::TsOnly,
                 "S4782",
-                "Remove the undefined member from this union; the property is already optional.",
-                it.span(),
+                "Consider removing 'undefined' type or '?' specifier, one of them is redundant.",
+                oxc_span::Span::new(it.key.span().end, it.key.span().end.saturating_add(1)),
             );
         }
     }

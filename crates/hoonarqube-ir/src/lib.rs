@@ -29,11 +29,29 @@ pub fn u32_saturating(value: usize) -> u32 {
 }
 
 /// Half-open source span; invariant `start <= end` lexicographic.
-/// [`Pos`] orders lexicographically, so spans compare the same way.
+/// [`Pos`] orders lexicographically, so spans compare the same way. The sole
+/// zero-based exception is [`Range::file_level`], used when `SonarQube` attaches
+/// an issue to a file without a text range.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Range {
     pub start: Pos,
     pub end: Pos,
+}
+
+impl Range {
+    /// Sentinel for a `SonarQube` file-level issue with no primary text range.
+    #[must_use]
+    pub const fn file_level() -> Self {
+        Self {
+            start: Pos { line: 0, column: 0 },
+            end: Pos { line: 0, column: 0 },
+        }
+    }
+
+    #[must_use]
+    pub const fn is_file_level(&self) -> bool {
+        self.start.line == 0 && self.start.column == 0 && self.end.line == 0 && self.end.column == 0
+    }
 }
 
 /// One replacement inside a single file: applying it overwrites `range` with

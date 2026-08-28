@@ -16,7 +16,11 @@ pub(crate) fn check_tb_unused_locals(model: &TbModel<'_>, sink: &mut IssueSink<'
             sink.emit_span(
                 RuleScope::JsOnly,
                 "S1481",
-                &format!("Remove this unused {noun} '{name}'."),
+                &if noun == "local variable" {
+                    format!("Remove the declaration of the unused '{name}' variable.")
+                } else {
+                    format!("Remove this unused {noun} '{name}'.")
+                },
                 binding.decl,
             );
         }

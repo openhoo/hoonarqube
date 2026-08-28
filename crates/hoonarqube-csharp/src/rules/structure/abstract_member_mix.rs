@@ -31,7 +31,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S1694",
-                "Make this abstract class declare both abstract and concrete members.",
+                "Convert this 'abstract' class to an interface.",
                 range_of(name_anchor(class_declaration), source),
             ));
         }

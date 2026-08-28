@@ -34,7 +34,7 @@ fn flag_empty_bases(
     if bases_empty {
         issues.push(issue_at(
             "python:S1722",
-            "Define this class as a new-style class by inheriting from 'object'.",
+            "Add inheritance from \"object\" or some other new-style class.",
             class.name.range(),
             index,
             source,

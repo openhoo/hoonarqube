@@ -28,11 +28,21 @@ impl ClassAccessorCollector<'_> {
         let (top_level_spans, nested_spans) = collect_super_call_spans(body);
 
         if top_level_spans.is_empty() && nested_spans.is_empty() {
+            let mut this_scanner = ThisUseScanner::default();
+            this_scanner.visit_function_body(body);
+            if let Some(span) = this_scanner.found {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S3854",
+                    "'this' is not allowed before 'super()'.",
+                    span,
+                );
+            }
             self.sink.emit_span(
                 RuleScope::Both,
                 "S3854",
-                "Add a \"super()\" call in this constructor.",
-                method.key.span(),
+                "Expected to call 'super()'.",
+                method.span(),
             );
             return;
         }
@@ -81,12 +91,12 @@ impl ClassAccessorCollector<'_> {
             }
             let mut scanner = ThisUseScanner::default();
             scanner.visit_statement(statement);
-            if scanner.found {
+            if let Some(span) = scanner.found {
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S3854",
-                    "Call super() before accessing \"this\".",
-                    statement.span(),
+                    "'this' is not allowed before 'super()'.",
+                    span,
                 );
                 break;
             }

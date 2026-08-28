@@ -52,7 +52,8 @@ mod tests {
                 &options
             )
             .issues
-            .is_empty()
+            .iter()
+            .all(|issue| issue.rule_key != "python:S1451")
         );
         assert!(
             analyze(
@@ -61,15 +62,21 @@ mod tests {
                 &options
             )
             .issues
-            .is_empty()
+            .iter()
+            .all(|issue| issue.rule_key != "python:S1451")
         );
         let missing = analyze(
             PathBuf::from("t.py"),
             "for _ in []:\n    _ = None\n",
             &options,
         );
+        let findings: Vec<_> = missing
+            .issues
+            .into_iter()
+            .filter(|issue| issue.rule_key == "python:S1451")
+            .collect();
         assert_eq!(
-            missing.issues,
+            findings,
             vec![issue(
                 "python:S1451",
                 "Add or update the copyright header of this file.",
@@ -84,7 +91,8 @@ mod tests {
                 &AnalyzerOptions::default()
             )
             .issues
-            .is_empty()
+            .iter()
+            .all(|issue| issue.rule_key != "python:S1451")
         );
     }
 }

@@ -12,18 +12,21 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(unary) || operator_of(unary) != Some("!") {
             continue;
         }
-        let invertible = first_named_child(unary).is_some_and(|operand| {
-            operand.kind() == "parenthesized_expression"
-                && first_named_child(operand).is_some_and(|inner| {
-                    inner.kind() == "binary_expression"
-                        && matches!(operator_of(inner), Some("==" | "!="))
-                })
-        });
-        if invertible {
+        let opposite = first_named_child(unary)
+            .filter(|operand| operand.kind() == "parenthesized_expression")
+            .and_then(first_named_child)
+            .filter(|inner| inner.kind() == "binary_expression")
+            .and_then(operator_of)
+            .and_then(|operator| match operator {
+                "==" => Some("!="),
+                "!=" => Some("=="),
+                _ => None,
+            });
+        if let Some(opposite) = opposite {
             issues.push(issue(
                 language,
                 "S1940",
-                "Invert this comparison instead of negating it.",
+                format!("Use the opposite operator ('{opposite}') instead."),
                 range_of(unary, source),
             ));
         }
@@ -49,10 +52,11 @@ mod tests {
         assert!(with_key(&report, "csharpsquid:S1940").is_empty());
     }
 
-    // DISCREPANCY vs SonarQube S1940: the rule currently never fires.
-    // `operator_of` (expressions/support.rs) matches only its 23-entry
-    // operator table, which lacks `!`, so `prefix_unary_expression` nodes
-    // yield `None` and every `!(a == b)` is silently skipped. Flagging
-    // cases are omitted until the implementation recognizes unary tokens;
-    // SQ would report each invertible negation once at its line.
+    #[test]
+    fn s1940_flags_negated_equality_and_inequality() {
+        let report = analyze_default(
+            "class C { bool M(int left, int right) => !(left == right) || !(left != right); }",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S1940").len(), 2);
+    }
 }

@@ -13,7 +13,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S1123",
-                "Document why this code is obsolete with an explanation message.",
+                "Add an explanation.",
                 range_of(node, source),
             ));
         }

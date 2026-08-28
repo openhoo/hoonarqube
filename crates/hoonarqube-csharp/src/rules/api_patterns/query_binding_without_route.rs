@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S6803",
-                    "This component has no route, so its query parameters never bind.",
+                    "Component parameters can only receive query parameter values in routable components.",
                     range_of(name_anchor(property), source),
                 ));
             }

@@ -72,8 +72,8 @@ impl PromiseFlowCollector<'_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S4634",
-                "Refactor this promise executor; it resolves or rejects immediately.",
-                it.span(),
+                "Replace this trivial promise with \"Promise.resolve\".",
+                it.callee.span(),
             );
         }
     }

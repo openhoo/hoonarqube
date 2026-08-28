@@ -12,14 +12,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .filter(|clause| {
             clause.child_by_field_name("body").is_some_and(|body| {
                 let statements = block_statements(body);
-                statements.len() == 1 && statements[0].kind() == "throw_statement"
+                statements.len() == 1
+                    && statements[0].kind() == "throw_statement"
+                    && statements[0].named_child_count() == 0
             })
         })
         .map(|clause| {
             issue(
                 language,
                 "S2737",
-                "Handle this exception or remove this catch clause.",
+                "Add logic to this catch clause or eliminate it and rethrow the exception automatically.",
                 range_of(clause, source),
             )
         })
@@ -36,10 +38,9 @@ mod tests {
             "class A\n{\n    void M()\n    {\n        try { } catch { throw; }\n        try { } catch (InvalidOperationException typed) { throw typed; }\n        try { } catch (IOException io) when (io.Data != null) { throw; }\n    }\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S2737");
-        assert_eq!(flagged.len(), 3);
+        assert_eq!(flagged.len(), 2);
         assert_eq!(flagged[0].range.start.line, 5);
-        assert_eq!(flagged[1].range.start.line, 6);
-        assert_eq!(flagged[2].range.start.line, 7);
+        assert_eq!(flagged[1].range.start.line, 7);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{issue, pos_of, range_of, walk_all};
+use crate::cst::{issue, pos_of, range_from_byte_offsets, walk_all};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -38,11 +38,22 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         for body in bodies {
             let body_pos = pos_of(body.start_position(), body.start_byte(), source);
             if body_pos.line > header_pos.line && body_pos.column <= header_pos.column {
+                let header_end = node
+                    .child_by_field_name("condition")
+                    .and_then(|condition| {
+                        source[condition.end_byte()..node.end_byte()]
+                            .find(')')
+                            .map(|offset| condition.end_byte() + offset + 1)
+                    })
+                    .unwrap_or(body.start_byte());
+                let keyword = node.kind().trim_end_matches("_statement");
                 issues.push(issue(
                     language,
                     "S3973",
-                    "Indent this statement to make its scope obvious.",
-                    range_of(body, source),
+                    format!(
+                        "Use curly braces or indentation to denote the code conditionally executed by this '{keyword}'"
+                    ),
+                    range_from_byte_offsets(node.start_byte(), header_end, source),
                 ));
             }
         }

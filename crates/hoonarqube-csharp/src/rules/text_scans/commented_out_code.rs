@@ -67,7 +67,7 @@ fn push_commented_out_code(
     issues.push(issue(
         language,
         "S125",
-        "Remove this commented-out code.",
+        "Remove this commented out code.",
         range_of(start, source),
     ));
 }

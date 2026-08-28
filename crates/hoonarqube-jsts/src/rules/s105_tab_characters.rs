@@ -10,21 +10,21 @@ fn check_tab_characters(source: &str, language: JstsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for (zero_based, chunk) in source.split_inclusive('\n').enumerate() {
         let line_number = to_u32(zero_based) + 1;
-        let column = chunk.find('\t');
-        if let Some(column) = column {
-            let column = to_u32(column);
+        if chunk.contains('\t') {
+            let line = chunk.strip_suffix('\n').unwrap_or(chunk);
+            let line = line.strip_suffix('\r').unwrap_or(line);
             issues.push(Issue {
                 rule_key: rule_key.clone(),
-                message: "Replace all tab characters in this file by sequences of spaces."
+                message: "Replace all tab characters in this file by sequences of white-spaces."
                     .to_string(),
                 range: hoonarqube_ir::Range {
                     start: hoonarqube_ir::Pos {
                         line: line_number,
-                        column,
+                        column: 0,
                     },
                     end: hoonarqube_ir::Pos {
                         line: line_number,
-                        column: column + 1,
+                        column: to_u32(line.chars().count()),
                     },
                 },
                 fix: None,
@@ -66,9 +66,9 @@ mod tests {
             report.issues,
             vec![issue(
                 "javascript:S105",
-                "Replace all tab characters in this file by sequences of spaces.",
+                "Replace all tab characters in this file by sequences of white-spaces.",
                 (2, 0),
-                (2, 1),
+                (2, 9),
             )]
         );
     }

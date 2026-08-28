@@ -21,15 +21,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             .filter(tree_sitter::Node::is_named)
             .nth(1)
             .is_some_and(|args| {
-                collect_kinds(args, &["string_literal"])
-                    .iter()
-                    .any(|literal| node_text(*literal, source).len() > 2)
+                node_text(args, source).contains("Justification")
+                    && collect_kinds(args, &["string_literal"])
+                        .iter()
+                        .any(|literal| node_text(*literal, source).len() > 2)
             });
         if !justified {
             issues.push(issue(
                 language,
                 "S6513",
-                "Document the reason for excluding this code from coverage.",
+                "Add a justification.",
                 range_of(node, source),
             ));
         }
@@ -47,14 +48,23 @@ mod tests {
             analyze_default("[ExcludeFromCodeCoverageAttribute]\nclass Generated\n{\n}\n");
         assert_eq!(with_key(&long_name, "csharpsquid:S6513").len(), 1);
 
-        let empty_reason =
-            analyze_default("[ExcludeFromCodeCoverage(\"\")]\nclass Generated\n{\n}\n");
+        let empty_reason = analyze_default(
+            "[ExcludeFromCodeCoverage(Justification = \"\")]\nclass Generated\n{\n}\n",
+        );
         assert_eq!(with_key(&empty_reason, "csharpsquid:S6513").len(), 1);
     }
 
     #[test]
     fn s6513_other_attributes_are_out_of_scope() {
         let report = analyze_default("[Obsolete(\"dead code\")]\nclass Legacy\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S6513").is_empty());
+    }
+
+    #[test]
+    fn s6513_accepts_named_nonempty_justification() {
+        let report = analyze_default(
+            "[ExcludeFromCodeCoverage(Justification = \"Generated equality member\")]\nclass Generated\n{\n}\n",
+        );
         assert!(with_key(&report, "csharpsquid:S6513").is_empty());
     }
 }

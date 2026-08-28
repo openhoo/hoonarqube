@@ -28,11 +28,23 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 }
                 let name = node_text(identifier, source);
                 if member_names.contains(name) {
+                    let shadows_property =
+                        collect_kinds(type_declaration, &["property_declaration"])
+                            .into_iter()
+                            .filter_map(|property| property.child_by_field_name("name"))
+                            .any(|property_name| node_text(property_name, source) == name);
+                    let member_kind = if shadows_property {
+                        "property"
+                    } else {
+                        "field"
+                    };
                     issues.push(issue(
                         language,
                         "S1117",
-                        format!("Rename '{name}'; it shadows a member of its enclosing type."),
-                        range_of(declarator, source),
+                        format!(
+                            "Rename '{name}' which hides the {member_kind} with the same name."
+                        ),
+                        range_of(identifier, source),
                     ));
                 }
             }

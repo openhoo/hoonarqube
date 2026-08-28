@@ -7,7 +7,7 @@ impl DuplicationCollector<'_> {
         self.sink.emit_span(
             RuleScope::Both,
             "S1534",
-            &format!("Rename or remove this duplicated {name} key."),
+            &format!("Duplicate key '{}'.", name.trim_matches(['\'', '"'])),
             span,
         );
     }

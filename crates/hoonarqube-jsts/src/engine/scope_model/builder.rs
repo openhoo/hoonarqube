@@ -123,7 +123,7 @@ impl<'a> TbBuilder<'a, '_> {
                     if let Expression::Identifier(name) = unparenthesized(expression)
                         && name.name == "undefined"
                     {
-                        explicit_undefined.push(position);
+                        explicit_undefined.push((position, name.span));
                     }
                 }
             }

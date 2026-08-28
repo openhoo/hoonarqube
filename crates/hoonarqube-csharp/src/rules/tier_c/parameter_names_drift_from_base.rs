@@ -27,18 +27,22 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     parameter_name(base_parameter),
                 ) {
                     (Some(derived), Some(base)) if derived != base => {
-                        return overriding.child_by_field_name("name");
+                        return overriding_parameters[index]
+                            .child_by_field_name("name")
+                            .map(|name| (name, derived.to_owned(), base.to_owned()));
                     }
                     _ => {}
                 }
             }
             None
         })
-        .map(|name| {
+        .map(|(name, derived, base)| {
             issue(
                 language,
                 "S927",
-                "Rename this parameter to match the base declaration.",
+                format!(
+                    "Rename parameter '{derived}' to '{base}' to match the base class declaration."
+                ),
                 range_of(name, source),
             )
         })

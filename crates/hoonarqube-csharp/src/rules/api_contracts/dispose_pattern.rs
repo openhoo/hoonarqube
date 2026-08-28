@@ -24,40 +24,28 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             .iter()
             .copied()
             .find(|method| parameters_of(*method).is_empty());
-        if disposes
+        let missing_bool_overload = disposes
             .iter()
-            .all(|method| parameters_of(*method).len() != 1)
-        {
+            .all(|method| parameters_of(*method).len() != 1);
+        let parameterless_miswired = if let Some(dispose) = parameterless {
+            let routes_through_bool =
+                body_of(dispose).is_some_and(|body| calls_dispose_with_literal(body, source));
+            !routes_through_bool
+        } else {
+            false
+        };
+        let finalizer_miswired = member_declarations_of_kind(type_node, "destructor_declaration")
+            .into_iter()
+            .any(|destructor| {
+                !body_of(destructor).is_some_and(|body| calls_dispose_with_literal(body, source))
+            });
+        if missing_bool_overload || parameterless_miswired || finalizer_miswired {
             issues.push(issue(
                 language,
                 "S3881",
-                "Add a 'Dispose(bool)' overload to complete the dispose pattern.",
+                "Fix this implementation of 'IDisposable' to conform to the dispose pattern.",
                 range_of(name_anchor(type_node), source),
             ));
-        }
-        if let Some(dispose) = parameterless {
-            let routes_through_bool =
-                body_of(dispose).is_some_and(|body| calls_dispose_with_literal(body, source));
-            if !routes_through_bool {
-                issues.push(issue(
-                    language,
-                    "S3881",
-                    "Route this 'Dispose' through 'Dispose(bool)'.",
-                    range_of(dispose, source),
-                ));
-            }
-        }
-        for destructor in member_declarations_of_kind(type_node, "destructor_declaration") {
-            let releases =
-                body_of(destructor).is_some_and(|body| calls_dispose_with_literal(body, source));
-            if !releases {
-                issues.push(issue(
-                    language,
-                    "S3881",
-                    "Call 'Dispose(false)' from this finalizer.",
-                    range_of(destructor, source),
-                ));
-            }
         }
     }
     issues
@@ -91,6 +79,6 @@ mod tests {
         );
         let flagged = with_key(&report, "csharpsquid:S3881");
         assert_eq!(flagged.len(), 1);
-        assert!(flagged[0].message.contains("finalizer"));
+        assert!(flagged[0].message.contains("IDisposable"));
     }
 }

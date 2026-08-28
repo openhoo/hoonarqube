@@ -2,7 +2,7 @@ use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
 use crate::rules::expressions::{
     binary_operands, callee_name, expression_name, first_named_child, invocation_arguments,
-    lambda_shape, operator_of,
+    invocation_function, lambda_shape, operator_of,
 };
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     collect_kinds(root, &["invocation_expression"])
         .into_iter()
         .filter(|invocation| !is_error_tainted(*invocation))
-        .filter(|invocation| matches!(callee_name(*invocation, source), Some("Any" | "All")))
+        .filter(|invocation| callee_name(*invocation, source) == Some("Any"))
         .filter(
             |invocation| match invocation_arguments(*invocation).as_slice() {
                 [only] => first_named_child(*only)
@@ -34,13 +34,18 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 _ => false,
             },
         )
-        .map(|invocation| {
+        .filter_map(|invocation| {
+            let function = invocation_function(invocation)?;
+            let method = function
+                .child_by_field_name("name")
+                .unwrap_or(function);
             issue(
                 language,
                 "S6617",
-                "Use 'Contains' instead of this equality lambda.",
-                range_of(invocation, source),
+                "Collection-specific \"Contains\" method should be used instead of the \"Any\" extension.",
+                range_of(method, source),
             )
+            .into()
         })
         .collect()
 }
@@ -50,11 +55,11 @@ mod tests {
     use crate::tests::{analyze_default, with_key};
 
     #[test]
-    fn s6617_flags_all_with_parameter_equality_lambda() {
+    fn s6617_does_not_flag_all_with_parameter_equality_lambda() {
         let report = analyze_default(
             "class C\n{\n    bool Has(System.Collections.Generic.List<int> items)\n    {\n        return items.All(v => v == 2);\n    }\n}\n",
         );
-        assert_eq!(with_key(&report, "csharpsquid:S6617").len(), 1);
+        assert!(with_key(&report, "csharpsquid:S6617").is_empty());
     }
 
     #[test]
@@ -62,7 +67,14 @@ mod tests {
         let report = analyze_default(
             "class C\n{\n    bool Has(System.Collections.Generic.List<int> items)\n    {\n        return items.Any(v => 1 == v);\n    }\n}\n",
         );
-        assert_eq!(with_key(&report, "csharpsquid:S6617").len(), 1);
+        let flagged = with_key(&report, "csharpsquid:S6617");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(
+            flagged[0].message,
+            "Collection-specific \"Contains\" method should be used instead of the \"Any\" extension."
+        );
+        assert_eq!(flagged[0].range.start.column, 21);
+        assert_eq!(flagged[0].range.end.column, 24);
     }
 
     #[test]

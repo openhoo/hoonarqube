@@ -34,10 +34,12 @@ pub(crate) fn check_issue_tags(
             if end.is_some() {
                 issues.push(Issue {
                     rule_key: key.to_string(),
-                    message: format!(
-                        "Resolve this {} comment or clarify it with a person reference.",
-                        tag.to_uppercase()
-                    ),
+                    message: if tag == FIXME_TAG {
+                        "Take the required action to fix the issue indicated by this \"FIXME\" comment."
+                    } else {
+                        "Complete the task associated to this \"TODO\" comment."
+                    }
+                    .to_string(),
                     range: to_range(comment.range(), index, source),
                     fix: None,
                 });
@@ -46,7 +48,7 @@ pub(crate) fn check_issue_tags(
         if !has_person_reference(&raw[tag_end..]) {
             issues.push(Issue {
                 rule_key: "python:S1707".to_string(),
-                message: "Add a person reference such as '(jane)' to this TODO/FIXME comment."
+                message: "Add a citation of the person who can best explain this comment."
                     .to_string(),
                 range: to_range(comment.range(), index, source),
                 fix: None,
@@ -100,24 +102,34 @@ mod tests {
             "# FIXME fix later\n# TODO (jane) improve\n",
             &AnalyzerOptions::default(),
         );
+        let issues: Vec<_> = report
+            .issues
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.rule_key.as_str(),
+                    "python:S1134" | "python:S1135" | "python:S1707"
+                )
+            })
+            .collect();
         assert_eq!(
-            report.issues,
+            issues,
             vec![
                 issue(
                     "python:S1134",
-                    "Resolve this FIXME comment or clarify it with a person reference.",
+                    "Take the required action to fix the issue indicated by this \"FIXME\" comment.",
                     (1, 0),
                     (1, 17),
                 ),
                 issue(
                     "python:S1707",
-                    "Add a person reference such as '(jane)' to this TODO/FIXME comment.",
+                    "Add a citation of the person who can best explain this comment.",
                     (1, 0),
                     (1, 17),
                 ),
                 issue(
                     "python:S1135",
-                    "Resolve this TODO comment or clarify it with a person reference.",
+                    "Complete the task associated to this \"TODO\" comment.",
                     (2, 0),
                     (2, 21),
                 ),
@@ -155,18 +167,23 @@ mod tests {
             "# todo: fix later\n",
             &AnalyzerOptions::default(),
         );
+        let issues: Vec<_> = report
+            .issues
+            .into_iter()
+            .filter(|finding| matches!(finding.rule_key.as_str(), "python:S1135" | "python:S1707"))
+            .collect();
         assert_eq!(
-            report.issues,
+            issues,
             vec![
                 issue(
                     "python:S1135",
-                    "Resolve this TODO comment or clarify it with a person reference.",
+                    "Complete the task associated to this \"TODO\" comment.",
                     (1, 0),
                     (1, 17),
                 ),
                 issue(
                     "python:S1707",
-                    "Add a person reference such as '(jane)' to this TODO/FIXME comment.",
+                    "Add a citation of the person who can best explain this comment.",
                     (1, 0),
                     (1, 17),
                 ),
@@ -181,18 +198,23 @@ mod tests {
             "#FixMe later\n",
             &AnalyzerOptions::default(),
         );
+        let issues: Vec<_> = report
+            .issues
+            .into_iter()
+            .filter(|finding| matches!(finding.rule_key.as_str(), "python:S1134" | "python:S1707"))
+            .collect();
         assert_eq!(
-            report.issues,
+            issues,
             vec![
                 issue(
                     "python:S1134",
-                    "Resolve this FIXME comment or clarify it with a person reference.",
+                    "Take the required action to fix the issue indicated by this \"FIXME\" comment.",
                     (1, 0),
                     (1, 12),
                 ),
                 issue(
                     "python:S1707",
-                    "Add a person reference such as '(jane)' to this TODO/FIXME comment.",
+                    "Add a citation of the person who can best explain this comment.",
                     (1, 0),
                     (1, 12),
                 ),

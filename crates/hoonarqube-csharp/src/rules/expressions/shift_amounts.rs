@@ -25,30 +25,52 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some(amount) = integer_literal_value(node_text(right, source)) else {
             continue;
         };
-        // Hexadecimal and binary spellings never contain `l`/`u`, so this
-        // suffix probe cannot misread their digits.
-        let left_is_32bit_literal = left.kind() == "integer_literal"
+        let left_is_32bit = (left.kind() == "integer_literal"
             && !node_text(left, source)
                 .chars()
-                .any(|character| matches!(character, 'l' | 'L' | 'u' | 'U'));
+                .any(|character| matches!(character, 'l' | 'L' | 'u' | 'U')))
+            || (left.kind() == "identifier"
+                && identifier_has_32_bit_type(root, node_text(left, source), source));
         let out_of_range = match amount {
-            // 0 is always out of range; so is anything >= 64 (no wider primitive).
-            1..=31 => false,
-            32..=63 => left_is_32bit_literal,
-            _ => true,
+            0..=31 => false,
+            32..=63 => left_is_32bit,
+            64.. => true,
         };
         if out_of_range {
+            let message = if amount == 32 {
+                "Either promote shift target to a larger integer type or shift by less than 32 instead."
+                    .to_owned()
+            } else {
+                format!("Correct this shift; '{amount}' is larger than the type size.")
+            };
             issues.push(issue(
                 language,
                 "S2183",
-                format!(
-                    "Shift by a non-zero amount below the operand width ({amount} is out of range)."
-                ),
+                message,
                 range_of(expression, source),
             ));
         }
     }
     issues
+}
+
+fn identifier_has_32_bit_type(root: Node<'_>, wanted: &str, source: &str) -> bool {
+    collect_kinds(root, &["parameter", "variable_declaration"])
+        .into_iter()
+        .any(|declaration| {
+            let Some(type_node) = declaration.child_by_field_name("type") else {
+                return false;
+            };
+            if !matches!(
+                node_text(type_node, source),
+                "int" | "uint" | "short" | "ushort" | "byte" | "sbyte"
+            ) {
+                return false;
+            }
+            collect_kinds(declaration, &["identifier"])
+                .into_iter()
+                .any(|identifier| node_text(identifier, source) == wanted)
+        })
 }
 
 #[cfg(test)]

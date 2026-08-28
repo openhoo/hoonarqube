@@ -1101,6 +1101,7 @@ pub(crate) fn parse_regex(units: &[RxUnit]) -> RxResult<RxParsed> {
 /// Decoded string-literal contents of a regex argument.
 pub(crate) struct RegexLiteral {
     pub(crate) units: Vec<RxUnit>,
+    pub(crate) range: TextRange,
 }
 
 /// One `re.<fn>(...)` call site relevant to the regex rules.
@@ -1122,7 +1123,10 @@ fn decode_regex_literal(expr: &Expr, source: &str) -> Option<RegexLiteral> {
             part.range().start(),
         ));
     }
-    Some(RegexLiteral { units })
+    Some(RegexLiteral {
+        units,
+        range: literal.range(),
+    })
 }
 
 pub(crate) fn collect_regex_sites(body: &[Stmt], source: &str) -> Vec<RegexSite> {
@@ -1522,8 +1526,11 @@ pub(crate) fn flush_space_run(run: &[&RxItem], push: &mut dyn FnMut(&str, &str, 
     if run.len() >= 2 {
         push(
             "python:S6326",
-            "Replace multiple spaces with one space and a quantifier.",
-            TextRange::new(run[0].span.start(), run[run.len() - 1].span.end()),
+            &format!("Replace spaces with quantifier `{{{}}}`.", run.len()),
+            TextRange::new(
+                run[1].span.start(),
+                run[run.len() - 1].span.end() + TextSize::new(1),
+            ),
         );
     }
 }
@@ -1668,8 +1675,8 @@ pub(crate) fn for_each_class<'a>(node: &'a RxNode, visit: &mut impl FnMut(&'a Rx
     });
 }
 
-/// Concise equivalent message for exact known class shapes.
-pub(crate) fn concise_class_message(class: &RxClass) -> Option<&'static str> {
+/// Concise replacement for exact known class shapes.
+pub(crate) fn concise_class_replacement(class: &RxClass) -> Option<&'static str> {
     let ranges_of = |items: &[RxClassItem]| -> Option<Vec<(char, char)>> {
         items
             .iter()
@@ -1687,10 +1694,10 @@ pub(crate) fn concise_class_message(class: &RxClass) -> Option<&'static str> {
             ranges.len() == shape.len() && shape.iter().all(|entry| ranges.contains(entry))
         };
         return match (class.negated, same(&digit), same(&word)) {
-            (false, true, _) => Some("Use \\d instead of this character class."),
-            (true, true, _) => Some("Use \\D instead of this character class."),
-            (false, _, true) => Some("Use \\w instead of this character class."),
-            (true, _, true) => Some("Use \\W instead of this character class."),
+            (false, true, _) => Some("\\d"),
+            (true, true, _) => Some("\\D"),
+            (false, _, true) => Some("\\w"),
+            (true, _, true) => Some("\\W"),
             _ => None,
         };
     }
@@ -1747,14 +1754,4 @@ fn rx_item_complexity(item: &RxItem, level: u32) -> u32 {
         cost += rx_complexity(&group.body, inner_level);
     }
     cost
-}
-
-pub(crate) fn rx_root_span(node: &RxNode) -> TextRange {
-    match node {
-        RxNode::Seq(seq) => seq.span,
-        RxNode::Alternation(branches) => TextRange::new(
-            branches[0].span.start(),
-            branches[branches.len() - 1].span.end(),
-        ),
-    }
 }

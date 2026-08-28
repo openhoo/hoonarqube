@@ -1,0 +1,1 @@
+check = None == 0

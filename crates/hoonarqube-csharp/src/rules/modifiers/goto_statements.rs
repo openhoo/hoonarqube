@@ -7,11 +7,15 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for statement in collect_kinds(root, &["goto_statement"]) {
+        let keyword = collect_kinds(statement, &["goto"])
+            .into_iter()
+            .next()
+            .unwrap_or(statement);
         issues.push(issue(
             language,
             "S907",
-            "Replace this 'goto' with structured control flow.",
-            range_of(statement, source),
+            "Remove this use of 'goto'.",
+            range_of(keyword, source),
         ));
     }
     issues

@@ -12,13 +12,13 @@ pub(crate) fn check_tb_explicit_undefined(model: &TbModel<'_>, sink: &mut IssueS
         let Some(signature) = &model.bindings[call.binding].arity else {
             continue;
         };
-        for position in &call.explicit_undefined {
-            if signature.optional.contains(position) {
+        for &(position, span) in &call.explicit_undefined {
+            if signature.optional.contains(&position) {
                 sink.emit_span(
                     RuleScope::TsOnly,
                     "S4623",
-                    "Remove this 'undefined'; the parameter is optional.",
-                    call.span,
+                    "Remove this redundant \"undefined\".",
+                    span,
                 );
             }
         }

@@ -27,7 +27,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 language,
                 "S2094",
                 format!(
-                    "Add members to this {} or remove it.",
+                    "Remove this empty {}, write its code or make it an \"interface\".",
                     declaration_kind_word(type_declaration.kind())
                 ),
                 range_of(name_anchor(type_declaration), source),

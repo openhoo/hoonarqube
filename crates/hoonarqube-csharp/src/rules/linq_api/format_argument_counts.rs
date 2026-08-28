@@ -2,6 +2,7 @@ use super::support::composite_template;
 use super::support::is_composite_format_call;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, range_of, to_u32};
+use crate::rules::expressions::invocation_function;
 use crate::rules::logging::template_placeholders;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -13,7 +14,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(call) || !is_composite_format_call(call, source) {
             continue;
         }
-        let Some((literal, template, budget)) = composite_template(call, source) else {
+        let Some((_, template, budget)) = composite_template(call, source) else {
             continue;
         };
         let highest = template_placeholders(template)
@@ -24,8 +25,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S2275",
-                "Match the format-string slots to the arguments of this call.",
-                range_of(literal, source),
+                "Invalid string format, the highest string format item index should not be greater than the arguments count.",
+                range_of(invocation_function(call).unwrap_or(call), source),
             ));
         }
     }

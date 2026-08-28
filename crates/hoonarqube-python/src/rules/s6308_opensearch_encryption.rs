@@ -13,21 +13,20 @@ pub(crate) fn check_s6308_opensearch_encryption(
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    const DOMAIN_CREATORS: [&str; 2] = ["create_domain", "create_elasticsearch_domain"];
-    // CE only evaluates boto3 client calls it can resolve to a real binding;
-    // stub objects stay silent.
-    if !file_ctx.has_boto3_binding {
+    const DOMAIN_CREATORS: [&str; 2] = ["Domain", "CfnDomain"];
+    if !file_ctx.has_aws_cdk_import {
         return Vec::new();
     }
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
         if DOMAIN_CREATORS.contains(&called_name(&call.func).unwrap_or_default())
-            && !has_keyword(&call.arguments, "EncryptionAtRestOptions")
+            && !has_keyword(&call.arguments, "encryption_at_rest")
+            && !has_keyword(&call.arguments, "encryption_at_rest_options")
         {
             issues.push(issue_at(
                 "python:S6308",
-                "Enable encryption at rest for this OpenSearch domain.",
-                call.range(),
+                "Omitting encryption_at_rest causes encryption of data at rest to be disabled for this OpenSearch domain. Make sure it is safe here.",
+                call.func.range(),
                 index,
                 source,
             ));

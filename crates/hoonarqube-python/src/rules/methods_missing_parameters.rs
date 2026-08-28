@@ -7,7 +7,7 @@ use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
-use ruff_text_size::Ranged;
+use ruff_text_size::{Ranged, TextRange, TextSize};
 
 pub(crate) fn check_methods_missing_parameters(
     parsed: &Parsed<ModModule>,
@@ -19,10 +19,18 @@ pub(crate) fn check_methods_missing_parameters(
         if !has_decorator(function, "staticmethod")
             && positional_parameters(&function.parameters).is_empty()
         {
+            let message = if has_decorator(function, "classmethod") {
+                "Add a class parameter"
+            } else {
+                "Add a \"self\" or class parameter"
+            };
             issues.push(issue_at(
                 "python:S5719",
-                "Add the missing instance or class method parameter ('self' or 'cls').",
-                function.name.range(),
+                message,
+                TextRange::new(
+                    function.name.start() - TextSize::new(4),
+                    function.parameters.end(),
+                ),
                 index,
                 source,
             ));

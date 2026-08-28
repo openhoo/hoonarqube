@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S3458",
-                    "Remove this empty 'case'; it falls through to 'default'.",
+                    "Remove this empty 'case' clause.",
                     range_of(pair[0], source),
                 ));
             }

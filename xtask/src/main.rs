@@ -8,7 +8,7 @@ use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 use rayon::prelude::*;
 use reqwest::blocking::{Client, Response};
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
@@ -69,10 +69,8 @@ enum CatalogCommand {
         approval: PathBuf,
         #[arg(long, default_value = ".oracle/captures")]
         raw_dir: PathBuf,
-        #[arg(long, value_enum)]
-        instance: InstanceClass,
     },
-    /// Import counsel-approved factual fields from one raw licensed capture.
+    /// Import factual fields from one raw Community capture.
     Import {
         #[arg(long)]
         capture: PathBuf,
@@ -99,10 +97,9 @@ enum CatalogCommand {
     },
 }
 
-#[derive(Clone, Copy, Debug, Serialize, ValueEnum)]
+#[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum InstanceClass {
-    Licensed,
     Community,
 }
 
@@ -250,11 +247,9 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Catalog { command } => match command {
-            CatalogCommand::Capture {
-                approval,
-                raw_dir,
-                instance,
-            } => capture_catalog(&approval, &raw_dir, instance),
+            CatalogCommand::Capture { approval, raw_dir } => {
+                capture_catalog(&approval, &raw_dir, InstanceClass::Community)
+            }
             CatalogCommand::Import {
                 capture,
                 community_resolution,
@@ -298,10 +293,7 @@ fn capture_catalog(approval_path: &Path, raw_dir: &Path, instance: InstanceClass
     let (manifest, manifest_bytes) = result?;
     let final_dir = raw_dir.join(format!(
         "{}-{}",
-        match instance {
-            InstanceClass::Licensed => "licensed",
-            InstanceClass::Community => "community",
-        },
+        "community",
         &manifest.snapshot_sha256[..16]
     ));
     if final_dir.exists() {
@@ -375,7 +367,6 @@ fn capture_into(
     capture_instance_evidence(
         &oracle,
         staging,
-        instance,
         &server_version_text,
         &mut endpoints,
         &mut identity_hasher,
@@ -416,7 +407,6 @@ fn capture_into(
 fn capture_instance_evidence(
     oracle: &OracleClient,
     staging: &Path,
-    instance: InstanceClass,
     server_version: &str,
     endpoints: &mut BTreeMap<String, ResponseReceipt>,
     identity_hasher: &mut Sha256,
@@ -436,20 +426,10 @@ fn capture_instance_evidence(
         .get("edition")
         .and_then(Value::as_str)
         .context("api/navigation/global lacks edition")?;
-    match instance {
-        InstanceClass::Licensed => {
-            ensure!(
-                edition != "community",
-                "licensed capture requires a non-Community edition"
-            );
-        }
-        InstanceClass::Community => {
-            ensure!(
-                edition == "community",
-                "Community capture requires Community edition evidence"
-            );
-        }
-    }
+    ensure!(
+        edition == "community",
+        "catalog capture requires Community edition evidence"
+    );
     write_capture(staging, "navigation-global.json", &navigation.body)?;
     record_response(
         endpoints,
@@ -488,34 +468,6 @@ fn capture_instance_evidence(
         &instance_mode,
     );
 
-    let license = oracle.get("api/editions/is_valid_license", &[])?;
-    write_capture(staging, "license-validity.json", &license.body)?;
-    record_response(
-        endpoints,
-        identity_hasher,
-        "api/editions/is_valid_license",
-        &license,
-    );
-    if matches!(instance, InstanceClass::Licensed) {
-        license.require_success("api/editions/is_valid_license")?;
-        let license_json = license.json("api/editions/is_valid_license")?;
-        ensure!(
-            license_json.get("isValidLicense").and_then(Value::as_bool) == Some(true),
-            "licensed capture requires valid license evidence"
-        );
-    } else if license.status == 200 {
-        let license_json = license.json("api/editions/is_valid_license")?;
-        ensure!(
-            license_json.get("isValidLicense").and_then(Value::as_bool) != Some(true),
-            "Community capture unexpectedly reports a valid commercial license"
-        );
-    } else {
-        ensure!(
-            license.status == 404,
-            "unexpected Community license-validity HTTP status {}",
-            license.status
-        );
-    }
     Ok(())
 }
 

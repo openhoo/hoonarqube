@@ -8,26 +8,21 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     collect_kinds(root, &["indexer_declaration"])
         .into_iter()
         .filter(|indexer| !is_error_tainted(*indexer))
-        .filter(|indexer| {
-            indexer
-                .child_by_field_name("parameters")
-                .is_some_and(|list| {
-                    parameters_from_list(list).iter().any(|parameter| {
-                        parameter
-                            .child_by_field_name("type")
-                            .is_some_and(|type_node| {
-                                !INDEXER_PARAMETER_TYPES
-                                    .contains(&simple_name(node_text(type_node, source)))
-                            })
-                    })
+        .filter_map(|indexer| {
+            let list = indexer.child_by_field_name("parameters")?;
+            parameters_from_list(list)
+                .into_iter()
+                .filter_map(|parameter| parameter.child_by_field_name("type"))
+                .find(|type_node| {
+                    !INDEXER_PARAMETER_TYPES.contains(&simple_name(node_text(*type_node, source)))
                 })
         })
-        .map(|indexer| {
+        .map(|type_node| {
             issue(
                 language,
                 "S3876",
-                "Index on a string or integral type.",
-                range_of(indexer, source),
+                "Use string, integral, index or range type here, or refactor this indexer into a method.",
+                range_of(type_node, source),
             )
         })
         .collect()

@@ -13,14 +13,17 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     collect_kinds(root, &["class_declaration"])
         .into_iter()
-        .filter(|class_node| is_api_controller_like(*class_node, source))
+        .filter(|class_node| {
+            is_api_controller_like(*class_node, source)
+                && has_any_attribute(*class_node, source, &["ApiController"])
+        })
         .flat_map(|class_node| controller_actions(class_node, source))
         .filter(|action| !has_any_attribute(*action, source, &VERB_ATTRIBUTE_NAMES))
         .map(|action| {
             issue(
                 language,
                 "S6965",
-                "Annotate this action with an HTTP verb attribute.",
+                "REST API controller actions should be annotated with the appropriate HTTP verb attribute.",
                 range_of(name_anchor(action), source),
             )
         })

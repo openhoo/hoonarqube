@@ -14,16 +14,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some((literal, template)) = template_argument(call, source) else {
             continue;
         };
-        for name in template_placeholders(template) {
-            let positional = name.chars().all(|character| character.is_ascii_digit());
-            if positional || is_pascal_case(name) {
-                continue;
-            }
-            let shown = format!("{{{name}}}");
+        if template_placeholders(template).into_iter().any(|name| {
+            !name.chars().all(|character| character.is_ascii_digit()) && !is_pascal_case(name)
+        }) {
             issues.push(issue(
                 language,
                 "S6678",
-                format!("Rename the placeholder {shown} to PascalCase."),
+                "Use PascalCase for named placeholders.",
                 range_of(literal, source),
             ));
         }

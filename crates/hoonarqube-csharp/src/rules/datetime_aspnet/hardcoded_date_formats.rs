@@ -27,7 +27,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S6585",
-                "Format this date with an explicit culture-aware provider.",
+                "Do not hardcode the format specifier.",
                 range_of(argument, source),
             )
         })

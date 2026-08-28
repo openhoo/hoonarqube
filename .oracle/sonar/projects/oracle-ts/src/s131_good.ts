@@ -1,0 +1,4 @@
+switch (x) {
+  default:
+    break;
+}

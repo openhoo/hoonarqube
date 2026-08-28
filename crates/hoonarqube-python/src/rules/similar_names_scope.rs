@@ -41,16 +41,19 @@ fn visit_nested_classes(suite: &[Stmt], issues: &mut Vec<Issue>, index: &LineInd
 }
 
 fn flag_collisions(suite: &[Stmt], issues: &mut Vec<Issue>, index: &LineIndex, source: &str) {
-    // `(lowercased spelling, first-seen spelling, range)` in declaration order.
-    let mut seen: Vec<(String, String, TextRange)> = Vec::new();
-    for (name, range) in scope_bindings(suite) {
+    // `(lowercased spelling, first-seen spelling, range, member kind)` in declaration order.
+    let mut seen: Vec<(String, String, TextRange, &'static str)> = Vec::new();
+    for (name, range, kind) in scope_bindings(suite) {
         let lowered = name.to_lowercase();
-        match seen.iter().find(|(key, _, _)| *key == lowered) {
-            Some((_, first, _)) if *first != name => {
+        match seen.iter().find(|(key, _, _, _)| *key == lowered) {
+            Some((_, first, first_range, first_kind)) if *first != name => {
+                let first_line = crate::support::to_range(*first_range, index, source)
+                    .start
+                    .line;
                 issues.push(issue_at(
                     "python:S1845",
                     &format!(
-                        "Rename '{name}' because it differs only in capitalization from '{first}'."
+                        "Rename {kind} \"{name}\" to prevent any misunderstanding/clash with {first_kind} \"{first}\" defined on line {first_line}"
                     ),
                     range,
                     index,
@@ -58,27 +61,27 @@ fn flag_collisions(suite: &[Stmt], issues: &mut Vec<Issue>, index: &LineIndex, s
                 ));
             }
             Some(_) => {}
-            None => seen.push((lowered.clone(), name.to_string(), range)),
+            None => seen.push((lowered.clone(), name.to_string(), range, kind)),
         }
     }
 }
 
 /// Names introduced directly by a scope's statements with their ranges:
 /// definitions and binding targets. Nested scopes are not descended into.
-fn scope_bindings(suite: &[Stmt]) -> Vec<(&str, TextRange)> {
+fn scope_bindings(suite: &[Stmt]) -> Vec<(&str, TextRange, &'static str)> {
     let mut bindings = Vec::new();
     for stmt in suite {
         match stmt {
             Stmt::FunctionDef(function) => {
-                bindings.push((function.name.id.as_str(), function.name.range()));
+                bindings.push((function.name.id.as_str(), function.name.range(), "method"));
             }
             Stmt::ClassDef(class) => {
-                bindings.push((class.name.id.as_str(), class.name.range()));
+                bindings.push((class.name.id.as_str(), class.name.range(), "class"));
             }
             other => {
                 for target in binding_stmt_targets(other) {
                     if let ruff_python_ast::Expr::Name(name) = target {
-                        bindings.push((name.id.as_str(), name.range()));
+                        bindings.push((name.id.as_str(), name.range(), "field"));
                     }
                 }
             }

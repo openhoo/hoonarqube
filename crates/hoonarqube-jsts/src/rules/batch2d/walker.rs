@@ -111,6 +111,7 @@ fn check_duplications(
             language,
             issues: Vec::new(),
         },
+        function_spans: Vec::new(),
     };
     collector.visit_program(program);
     collector.sink.issues
@@ -254,8 +255,7 @@ mod tests {
     fn constructor_super_call_defects_are_flagged() {
         // Missing super() with a base class.
         let missing = js_keys("class A extends B {\n  constructor() {\n    this.x = 1;\n  }\n}\n");
-        assert_eq!(count_key(&missing, "javascript:S3854"), 1);
-        // this-use is not separately flagged when no super() exists at all.
+        assert_eq!(count_key(&missing, "javascript:S3854"), 2);
 
         // Duplicate super() calls.
         let duplicated =

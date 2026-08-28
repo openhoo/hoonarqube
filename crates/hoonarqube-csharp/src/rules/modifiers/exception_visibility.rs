@@ -9,9 +9,12 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for class_node in collect_kinds(root, &["class_declaration"]) {
-        let is_exception = base_simple_names(class_node, source)
-            .iter()
-            .any(|name| *name == "Exception" || name.ends_with("Exception"));
+        let is_exception = base_simple_names(class_node, source).iter().any(|name| {
+            matches!(
+                *name,
+                "Exception" | "SystemException" | "ApplicationException"
+            )
+        });
         if !is_exception || has_modifier(&modifiers_of(class_node, source), "public") {
             continue;
         }
@@ -21,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         issues.push(issue(
             language,
             "S3871",
-            "Make this exception type public.",
+            "Make this exception 'public'.",
             range_of(name, source),
         ));
     }

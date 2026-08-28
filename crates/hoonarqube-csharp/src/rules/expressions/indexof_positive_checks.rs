@@ -4,7 +4,7 @@ use super::support::first_named_child;
 use super::support::is_zero_literal;
 use super::support::operator_of;
 use crate::CsLanguage;
-use crate::cst::{issue, range_of};
+use crate::cst::{collect_kinds, issue, range_from_byte_offsets};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -23,14 +23,18 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     let mut issues = Vec::new();
     for (expression, left, right) in comparisons(root) {
         let pattern = operator_of(expression) == Some(">")
-            && ((indexof_call(left, source) && is_zero_literal(right, source))
-                || (indexof_call(right, source) && is_zero_literal(left, source)));
+            && indexof_call(left, source)
+            && is_zero_literal(right, source);
         if pattern {
+            let operator = collect_kinds(expression, &[">"])
+                .into_iter()
+                .next()
+                .unwrap_or(expression);
             issues.push(issue(
                 language,
                 "S2692",
-                "Test 'IndexOf' results with '>= 0'; '>' wrongly rejects index 0.",
-                range_of(expression, source),
+                "0 is a valid index, but this check ignores it.",
+                range_from_byte_offsets(operator.start_byte(), right.end_byte(), source),
             ));
         }
     }
@@ -64,9 +68,8 @@ mod tests {
             "class C\n{\n    void M(string s)\n    {\n        var a = s.LastIndexOf('a') > 0;\n        var b = 0 > s.IndexOf(\"x\");\n    }\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S2692");
-        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged.len(), 1);
         assert_eq!(flagged[0].range.start.line, 5);
-        assert_eq!(flagged[1].range.start.line, 6);
     }
 
     #[test]

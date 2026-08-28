@@ -18,7 +18,7 @@ pub(crate) fn check_infinite_recursion(
         {
             issues.push(issue_at(
                 "python:S2190",
-                "Add a way to break out of this recursive call.",
+                "Add a way to break out of this function's recursion.",
                 function.name.range(),
                 index,
                 source,

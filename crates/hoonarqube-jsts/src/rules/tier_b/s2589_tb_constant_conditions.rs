@@ -11,10 +11,13 @@ pub(crate) fn check_tb_constant_conditions(
     let mut collector = ConstantConditionCollector::default();
     collector.visit_program(program);
     for (span, value) in collector.sites {
+        if !value {
+            continue;
+        }
         sink.emit_span(
             RuleScope::Both,
             "S2589",
-            &format!("This condition always evaluates to {value}; consider removing it."),
+            "This always evaluates to truthy. Consider refactoring this code.",
             span,
         );
     }
@@ -33,7 +36,7 @@ mod tests {
     #[test]
     fn constant_boolean_conditions_flagged() {
         let flagged = js("if (true) {\n  work();\n}\nwhile (false) {\n  skip();\n}\n");
-        assert_eq!(filtered(&flagged, "S2589").len(), 2);
+        assert_eq!(filtered(&flagged, "S2589").len(), 1);
         let clean = js("if (cond) {\n  work();\n}\nwhile (running) {\n  skip();\n}\n");
         assert_eq!(filtered(&clean, "S2589").len(), 0);
     }

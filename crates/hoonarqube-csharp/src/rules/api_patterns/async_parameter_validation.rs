@@ -17,23 +17,20 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some(body) = body_of(method) else {
             continue;
         };
-        let Some(first_await) = collect_kinds(body, &["await_expression"])
-            .into_iter()
-            .map(|await_expression| await_expression.start_byte())
-            .min()
-        else {
+        if collect_kinds(body, &["await_expression"]).is_empty()
+            || validation_statements(body, source).is_empty()
+        {
+            continue;
+        }
+        let Some(name) = method.child_by_field_name("name") else {
             continue;
         };
-        for validation in validation_statements(body, source) {
-            if validation.start_byte() > first_await {
-                issues.push(issue(
-                    language,
-                    "S4457",
-                    "Validate these parameters before the first 'await' in this method.",
-                    range_of(validation, source),
-                ));
-            }
-        }
+        issues.push(issue(
+            language,
+            "S4457",
+            "Split this method into two, one handling parameters check and the other handling the asynchronous code.",
+            range_of(name, source),
+        ));
     }
     issues
 }

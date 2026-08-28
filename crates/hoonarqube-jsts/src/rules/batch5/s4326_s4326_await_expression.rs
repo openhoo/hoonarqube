@@ -10,12 +10,12 @@ use oxc_span::GetSpan;
 impl TsTypeCollector<'_, '_> {
     /// `S4326` logic extracted from `visit_await_expression`.
     pub(crate) fn check_s4326_await_expression(&mut self, it: &AwaitExpression<'_>) {
-        if let Expression::AwaitExpression(inner) = unparenthesized(&it.argument) {
+        if let Expression::AwaitExpression(_inner) = unparenthesized(&it.argument) {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S4326",
-                "Remove this nested await; awaiting an awaited value is redundant.",
-                inner.span(),
+                "Redundant use of `await` on a return value.",
+                it.span(),
             );
         }
     }

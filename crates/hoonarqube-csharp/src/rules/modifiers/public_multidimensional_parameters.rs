@@ -2,6 +2,8 @@ use super::support::has_modifier;
 use super::support::is_multidimensional_array;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, issue, modifiers_of, parameters_of, range_of};
+use crate::rules::expressions::enclosing_type;
+use crate::rules::modifiers::type_declared_rank;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -10,7 +12,10 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for method in collect_kinds(root, &["method_declaration"]) {
-        if !has_modifier(&modifiers_of(method, source), "public") {
+        if !has_modifier(&modifiers_of(method, source), "public")
+            || enclosing_type(method)
+                .is_none_or(|type_node| type_declared_rank(type_node, source) != 6)
+        {
             continue;
         }
         let offending = parameters_of(method).into_iter().any(|parameter| {
@@ -31,7 +36,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         issues.push(issue(
             language,
             "S2368",
-            "Remove this multi-dimensional array parameter from the public signature.",
+            "Make this method private or simplify its parameters to not use multidimensional/jagged arrays.",
             range_of(name, source),
         ));
     }

@@ -31,7 +31,7 @@ pub(crate) fn check_unused_parameters(
             if !used {
                 issues.push(issue_at(
                     "python:S1172",
-                    &format!("Remove this unused function parameter '{param_name}'."),
+                    &format!("Remove the unused function parameter \"{param_name}\"."),
                     *param_range,
                     index,
                     source,

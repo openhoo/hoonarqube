@@ -12,10 +12,15 @@ use crate::support::{IssueSink, RuleScope};
 pub(crate) fn check_tb_shadowing(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
     for &(outer, inner) in &model.shadows {
         let name = model.bindings[outer].name;
+        let pos = sink.index.pos(model.bindings[outer].decl.start);
         sink.emit_span(
             RuleScope::Both,
             "S1117",
-            &format!("Rename this '{name}' declaration; it shadows one from an outer scope."),
+            &format!(
+                "'{name}' is already declared in the upper scope on line {} column {}.",
+                pos.line,
+                pos.column + 1
+            ),
             model.bindings[inner].decl,
         );
     }

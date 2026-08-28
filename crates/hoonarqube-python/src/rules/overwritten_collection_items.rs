@@ -1,13 +1,14 @@
 use crate::support::child_bodies;
 use crate::support::expr_normalized_text;
 use crate::support::issue_at;
+use crate::support::to_u32;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
-use ruff_text_size::Ranged;
+use ruff_text_size::{Ranged, TextRange, TextSize};
 
 pub(crate) fn check_overwritten_collection_items(
     parsed: &Parsed<ModModule>,
@@ -21,13 +22,17 @@ pub(crate) fn check_overwritten_collection_items(
             };
             let previous_key = subscript_assignment_key(previous, source);
             let current_key = subscript_assignment_key(current, source);
-            if let (Some(previous_key), Some(current_key)) = (previous_key, current_key)
+            if let (Some((previous_key, _)), Some((current_key, current_range))) =
+                (previous_key, current_key)
                 && previous_key == current_key
             {
+                let previous_line = index.line_column(previous.start(), source).line.get();
                 issues.push(issue_at(
                     "python:S4143",
-                    "This element is overwritten without being read.",
-                    current.range(),
+                    &format!(
+                        "Verify this is the key that was intended; a value has already been saved for it on line {previous_line}."
+                    ),
+                    current_range,
                     index,
                     source,
                 ));
@@ -46,15 +51,24 @@ pub(crate) fn check_overwritten_collection_items(
 
 // --- python:S4143 — collection content replaced unconditionally ------------------------
 
-fn subscript_assignment_key(assign: &ruff_python_ast::StmtAssign, source: &str) -> Option<String> {
+fn subscript_assignment_key(
+    assign: &ruff_python_ast::StmtAssign,
+    source: &str,
+) -> Option<(String, TextRange)> {
     let [target] = assign.targets.as_slice() else {
         return None;
     };
     if let Expr::Subscript(subscript) = target {
-        return Some(format!(
-            "{}@{}",
-            expr_normalized_text(&subscript.value, source),
-            expr_normalized_text(&subscript.slice, source)
+        return Some((
+            format!(
+                "{}@{}",
+                expr_normalized_text(&subscript.value, source),
+                expr_normalized_text(&subscript.slice, source)
+            ),
+            TextRange::new(
+                subscript.slice.start() - TextSize::from(to_u32(1)),
+                subscript.end(),
+            ),
         ));
     }
     None

@@ -1,0 +1,1 @@
+const o = new Object();

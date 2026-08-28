@@ -5,7 +5,7 @@ use crate::rules::expressions::{
     block_statements, callee_name, first_named_child, invocation_function,
 };
 use crate::rules::modifiers::has_modifier;
-use crate::rules::structure::{body_of, name_anchor};
+use crate::rules::structure::body_of;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -31,8 +31,11 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S1185",
-                "Remove this override; it only forwards to the base member.",
-                range_of(name_anchor(method), source),
+                format!(
+                    "Remove this method '{}' to simply inherit its behavior.",
+                    node_text(name, source)
+                ),
+                range_of(method, source),
             ));
         }
     }

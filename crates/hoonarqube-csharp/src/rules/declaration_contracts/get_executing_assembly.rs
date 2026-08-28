@@ -13,8 +13,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S3902",
-                "Remove this 'GetExecutingAssembly' call.",
-                range_of(access, source),
+                "Replace this call to 'Assembly.GetExecutingAssembly()' with 'Type.Assembly'.",
+                range_of(access.child_by_field_name("name").unwrap_or(access), source),
             )
         })
         .collect()

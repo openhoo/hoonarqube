@@ -18,7 +18,12 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         };
         for section in switch_sections_of(body) {
-            if section_has_default(section) && section_statements(section).is_empty() {
+            let statements = section_statements(section);
+            if section_has_default(section)
+                && statements
+                    .iter()
+                    .all(|statement| statement.kind() == "break_statement")
+            {
                 issues.push(issue(
                     language,
                     "S3532",

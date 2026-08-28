@@ -28,11 +28,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             _ => false,
         };
         if accepts_everything {
+            let anchor = collect_kinds(left, &["identifier"])
+                .into_iter()
+                .last()
+                .unwrap_or(left);
             issues.push(issue(
                 language,
                 "S4830",
-                "Validate the certificate chain here instead of accepting everything.",
-                range_of(assignment, source),
+                "Enable server certificate validation on this SSL/TLS connection",
+                range_of(anchor, source),
             ));
         }
     }

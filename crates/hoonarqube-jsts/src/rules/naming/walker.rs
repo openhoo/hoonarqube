@@ -112,7 +112,7 @@ impl<'a> StringStyleCollector<'a, '_> {
         self.sink.emit_span(
             RuleScope::Both,
             "S1441",
-            &format!("Use {preferred} quotes for this string literal."),
+            &format!("Strings must use {preferred}quote."),
             literal.span,
         );
     }
@@ -132,14 +132,13 @@ impl<'a> StringStyleCollector<'a, '_> {
         for (value, span) in &self.string_occurrences {
             groups.entry(value).or_default().push(*span);
         }
-        for (value, spans) in groups {
+        for spans in groups.into_values() {
             if spans.len() >= self.duplicate_threshold {
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S1192",
                     &format!(
-                        "Define a constant instead of duplicating this literal \
-                         \"{value}\" {} times.",
+                        "Define a constant instead of duplicating this literal {} times.",
                         spans.len()
                     ),
                     spans[0],
@@ -315,7 +314,7 @@ impl<'a> Visit<'a> for NameFormatCollector<'a, '_> {
             Self::check_name(
                 &mut self.sink,
                 "S117",
-                "variable",
+                "local variable",
                 name,
                 it.id.span(),
                 &self.rules.format_variables,
@@ -420,7 +419,17 @@ impl NameFormatCollector<'_, '_> {
             sink.emit_span(
                 RuleScope::Both,
                 rule,
-                &format!("Rename this {kind} to match the regular expression '{format}'."),
+                &match rule {
+                    "S100" => format!(
+                        "Rename this '{name}' function to match the regular expression '{format}'."
+                    ),
+                    "S101" => format!(
+                        "Rename {kind} \"{name}\" to match the regular expression {format}."
+                    ),
+                    _ => format!(
+                        "Rename this {kind} \"{name}\" to match the regular expression {format}."
+                    ),
+                },
                 span,
             );
         }
@@ -463,7 +472,7 @@ mod tests {
             bad_function,
             vec![&issue(
                 "javascript:S100",
-                "Rename this function to match the regular expression '^[_a-z][a-zA-Z0-9]*$'.",
+                "Rename this 'BadName' function to match the regular expression '^[_a-z][a-zA-Z0-9]*$'.",
                 (2, 9),
                 (2, 16),
             )]
@@ -544,7 +553,7 @@ mod tests {
             duplicates,
             vec![&issue(
                 "javascript:S1192",
-                "Define a constant instead of duplicating this literal \"dup\" 3 times.",
+                "Define a constant instead of duplicating this literal 3 times.",
                 (4, 5),
                 (4, 10),
             )]
@@ -572,7 +581,7 @@ mod tests {
             quotes,
             vec![&issue(
                 "javascript:S1441",
-                "Use single quotes for this string literal.",
+                "Strings must use singlequote.",
                 (1, 10),
                 (1, 18),
             )]

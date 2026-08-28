@@ -22,11 +22,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         };
         if method.kind() == "method_declaration" && return_type_text(method, source) != "void" {
+            let return_type = method
+                .child_by_field_name("returns")
+                .or_else(|| method.child_by_field_name("type"))
+                .unwrap_or(method);
             issues.push(issue(
                 language,
                 "S3598",
-                "Remove 'IsOneWay' from this operation or make it return void.",
-                range_of(attribute, source),
+                "This method can't return any values because it is marked as one-way operation.",
+                range_of(return_type, source),
             ));
         }
     }

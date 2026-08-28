@@ -42,7 +42,7 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
             issues.push(issue(
                 language,
                 "S2933",
-                format!("Make field '{}' 'readonly'.", member.name),
+                format!("Make '{}' 'readonly'.", member.name),
                 range_of(member.anchor, source),
             ));
         }
@@ -68,7 +68,7 @@ mod tests {
         let flagged = with_key(&report, "csharpsquid:S2933");
         assert_eq!(flagged.len(), 1);
         assert_eq!(flagged[0].range.start.line, 3);
-        assert_eq!(flagged[0].message, "Make field 'stamp' 'readonly'.");
+        assert_eq!(flagged[0].message, "Make 'stamp' 'readonly'.");
     }
 
     #[test]

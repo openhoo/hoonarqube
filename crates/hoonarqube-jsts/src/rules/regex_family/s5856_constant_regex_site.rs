@@ -76,7 +76,7 @@ fn check_unicode_constructs_without_u_flag(sink: &mut IssueSink, site: &RegexSit
                 RuleScope::Both,
                 "S5867",
                 "Enable the 'u' flag for this regex using Unicode constructs.",
-                site.sub_span(start, end),
+                site.span,
             );
             search_from = end;
         }
@@ -107,11 +107,12 @@ fn check_empty_character_class(sink: &mut IssueSink, site: &RegexSite, parsed: &
 /// `S6323`: an alternation branch that can never participate (`|`, `(a|)`).
 fn check_empty_alternatives(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     for pos in &parsed.empty_branch_positions {
+        let start = pos.saturating_sub(1);
         sink.emit_span(
             RuleScope::Both,
             "S6323",
             "Remove this empty alternative.",
-            site.sub_span(*pos, *pos),
+            site.sub_span(start, *pos),
         );
     }
 }
@@ -149,18 +150,18 @@ fn check_duplicate_class_members(sink: &mut IssueSink, site: &RegexSite, parsed:
             let PatternNode::Class { items, .. } = node else {
                 return;
             };
-            let mut seen: Vec<char> = Vec::new();
+            let mut seen: Vec<(char, usize)> = Vec::new();
             for item in items {
                 if let ClassItem::Char { ch, pos } = item {
-                    if seen.contains(ch) {
+                    if let Some((_, first_pos)) = seen.iter().find(|(seen, _)| seen == ch) {
                         sink.emit_span(
                             RuleScope::Both,
                             "S5869",
                             "Remove duplicates in this character class.",
-                            site.sub_span(*pos, pos + ch.len_utf8()),
+                            site.sub_span(*first_pos, first_pos + ch.len_utf8()),
                         );
                     } else {
-                        seen.push(*ch);
+                        seen.push((*ch, *pos));
                     }
                 }
             }
@@ -195,6 +196,7 @@ fn check_concise_shapes(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedR
     for alternative in &parsed.alternatives {
         walk_pattern_nodes(alternative, &mut |node| match node {
             PatternNode::Quantified {
+                node,
                 min,
                 max,
                 verbose,
@@ -205,7 +207,7 @@ fn check_concise_shapes(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedR
                     RuleScope::Both,
                     "S6353",
                     &format!("Remove redundant quantifier {verbose}."),
-                    site.sub_span(*pos, *pos),
+                    site.sub_span(node_start(node).unwrap_or(*pos), pos + verbose.len()),
                 );
             }
             PatternNode::Class {
@@ -240,7 +242,10 @@ fn check_empty_string_repetition(sink: &mut IssueSink, site: &RegexSite, parsed:
             } = node
                 && *min >= 1
                 && let PatternNode::Group {
-                    kind, alternatives, ..
+                    kind,
+                    alternatives,
+                    start,
+                    end: _,
                 } = target.as_ref()
                 && !kind.is_lookaround()
                 && alternatives
@@ -251,7 +256,7 @@ fn check_empty_string_repetition(sink: &mut IssueSink, site: &RegexSite, parsed:
                     RuleScope::Both,
                     "S5842",
                     "Rework this part of the regex to not match the empty string.",
-                    site.sub_span(*pos, *pos),
+                    site.sub_span(*start, *pos),
                 );
             }
         });
@@ -270,20 +275,25 @@ fn check_pointless_reluctant_quantifier(
             for pair in sequence.windows(2) {
                 if let PatternNode::Quantified {
                     greedy: false,
+                    node,
                     min,
                     pos,
+                    verbose,
                     ..
-                } = pair[0]
+                } = &pair[0]
                     && node_can_match_empty(&pair[1])
                 {
-                    let plural = if min == 1 { "" } else { "s" };
+                    let plural = if *min == 1 { "" } else { "s" };
                     sink.emit_span(
                         RuleScope::Both,
                         "S6019",
                         &format!(
                             "Fix this reluctant quantifier that will only ever match {min} repetition{plural}."
                         ),
-                        site.sub_span(pos, pos),
+                        site.sub_span(
+                            node_start(node).unwrap_or(*pos),
+                            *pos + verbose.len(),
+                        ),
                     );
                 }
             }
@@ -333,23 +343,25 @@ fn check_anchor_precedence(sink: &mut IssueSink, site: &RegexSite, parsed: &Pars
     if !(starts_anchored || ends_anchored) {
         return;
     }
-    let pos = if starts_anchored {
-        match parsed.alternatives[0].first() {
-            Some(PatternNode::Anchor { pos, .. }) => *pos,
-            _ => 0,
-        }
-    } else {
-        match parsed.alternatives.last().and_then(|branch| branch.last()) {
-            Some(PatternNode::Anchor { pos, .. }) => *pos,
-            _ => 0,
-        }
-    };
     sink.emit_span(
         RuleScope::Both,
         "S5850",
         "Group parts of the regex together to make the intended operator precedence explicit.",
-        site.sub_span(pos, pos),
+        site.whole_pattern_span(),
     );
+}
+
+fn node_start(node: &PatternNode) -> Option<usize> {
+    match node {
+        PatternNode::Literal { pos, .. }
+        | PatternNode::ClassEscape { pos, .. }
+        | PatternNode::PropertyEscape { pos, .. }
+        | PatternNode::Anchor { pos, .. }
+        | PatternNode::BackReference { pos }
+        | PatternNode::Quantified { pos, .. } => Some(*pos),
+        PatternNode::Class { start, .. } | PatternNode::Group { start, .. } => Some(*start),
+        PatternNode::Dot => None,
+    }
 }
 
 /// `S5868`: combining marks, ZWJ sequences, variation selectors, skin-tone
@@ -372,9 +384,12 @@ fn check_misleading_class_characters(sink: &mut IssueSink, site: &RegexSite, par
                     continue;
                 };
                 let message = match kind {
-                    GraphemeComponentKind::CombiningMark => format!(
-                        "Move this Unicode combined character '{ch}' outside of the character class.",
-                    ),
+                    GraphemeComponentKind::CombiningMark => {
+                        let previous = slice[..relative].chars().last().unwrap_or('\0');
+                        format!(
+                            "Move this Unicode combined character '{previous}{ch}' outside of [...]"
+                        )
+                    }
                     GraphemeComponentKind::JoinSequence => String::from(
                         "Move this Unicode joined character sequence outside of the character class.",
                     ),
@@ -422,7 +437,7 @@ fn check_exponential_backtracking(sink: &mut IssueSink, site: &RegexSite, parsed
             if let PatternNode::Quantified {
                 max: None,
                 node: target,
-                pos,
+                pos: _,
                 ..
             } = node
                 && contains_unbounded_quantifier(target)
@@ -430,8 +445,8 @@ fn check_exponential_backtracking(sink: &mut IssueSink, site: &RegexSite, parsed
                 sink.emit_span(
                     RuleScope::Both,
                     "S5852",
-                    "Fix this regular expression that is vulnerable to exponential backtracking, as it can lead to denial of service.",
-                    site.sub_span(*pos, *pos),
+                    "Make sure the regex used here, which is vulnerable to super-linear runtime due to backtracking, cannot lead to denial of service.",
+                    site.span,
                 );
             }
         });

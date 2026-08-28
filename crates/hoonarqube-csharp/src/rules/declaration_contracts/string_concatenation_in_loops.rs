@@ -22,17 +22,19 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 return false;
             };
             !collect_kinds(right, &["string_literal"]).is_empty()
-                || left
-                    .child_by_field_name("name")
-                    .or_else(|| first_named_child(left))
-                    .and_then(|identifier| expression_name(identifier, source))
-                    .is_some_and(|name| declares_string_local(left, name, source))
+                || expression_name(left, source)
+                    .or_else(|| {
+                        left.child_by_field_name("name")
+                            .or_else(|| first_named_child(left))
+                            .and_then(|identifier| expression_name(identifier, source))
+                    })
+                    .is_some_and(|name| declares_string_local(root, name, source))
         })
         .map(|assignment| {
             issue(
                 language,
                 "S1643",
-                "Use a 'StringBuilder' instead of '+=' concatenation in this loop.",
+                "Use a StringBuilder instead.",
                 range_of(assignment, source),
             )
         })
@@ -69,6 +71,14 @@ mod tests {
             "class C\n{\n    string Build()\n    {\n        var text = \"<\";\n        while (More())\n        {\n            text += \"a\";\n            text += \">\";\n        }\n        return text;\n    }\n}\n",
         );
         assert_eq!(with_key(&report, "csharpsquid:S1643").len(), 2);
+    }
+
+    #[test]
+    fn s1643_infers_var_from_string_initializer() {
+        let report = analyze_default(
+            "class C\n{\n    string Join(string[] parts)\n    {\n        var text = \"\";\n        foreach (var part in parts)\n        {\n            text += part;\n        }\n        return text;\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S1643").len(), 1);
     }
 
     #[test]

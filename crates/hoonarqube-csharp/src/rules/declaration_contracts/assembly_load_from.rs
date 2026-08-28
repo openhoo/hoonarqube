@@ -1,6 +1,6 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
-use crate::rules::expressions::invocation_targets;
+use crate::rules::expressions::{callee_name, invocation_function, invocation_targets};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -19,11 +19,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             )
         })
         .map(|invocation| {
+            let method = callee_name(invocation, source).unwrap_or_default();
+            let name = invocation_function(invocation)
+                .and_then(|function| collect_kinds(function, &["identifier"]).into_iter().last())
+                .unwrap_or(invocation);
             issue(
                 language,
                 "S3885",
-                "Prefer 'Assembly.Load' over this partial load.",
-                range_of(invocation, source),
+                format!("Replace this call to 'Assembly.{method}' with 'Assembly.Load'."),
+                range_of(name, source),
             )
         })
         .collect()

@@ -10,18 +10,21 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     string_literals(root)
         .into_iter()
-        .filter(|literal| {
-            literal_inner_text(*literal, source)
+        .filter_map(|literal| {
+            let (index, character) = literal_inner_text(literal, source)
                 .chars()
-                .any(char::is_control)
-        })
-        .map(|literal| {
-            issue(
+                .enumerate()
+                .find(|(_, character)| character.is_control())?;
+            Some(issue(
                 language,
                 "S2479",
-                "Replace this control character with its escape sequence form.",
+                format!(
+                    "Replace the control character at position {} by its escape sequence '\\u{:04X}'.",
+                    index + 1,
+                    u32::from(character)
+                ),
                 range_of(literal, source),
-            )
+            ))
         })
         .collect()
 }

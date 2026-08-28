@@ -12,7 +12,7 @@ impl SecurityHotspotCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S4829",
-                "Make sure reading from the standard input is safe here.",
+                "Make sure that reading the standard input is safe here.",
                 it.span(),
             );
         }

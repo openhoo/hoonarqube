@@ -29,7 +29,9 @@ pub(crate) fn check(
         issues.push(issue(
             language,
             "S2342",
-            format!("Rename this enumeration to match the regular expression '{format}'."),
+            format!(
+                "Rename the enumeration '{name_text}' to match the regular expression: '{format}'."
+            ),
             range_of(name, source),
         ));
     }

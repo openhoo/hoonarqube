@@ -30,7 +30,7 @@ pub(crate) fn check_inconsistent_returns(
         if valued > 0 && (empty > 0 || falls_off_end) {
             issues.push(issue_at(
                 "python:S3801",
-                "Make the return paths consistent; some paths return a value while others return None.",
+                "Refactor this function to use \"return\" consistently.",
                 function.name.range(),
                 index,
                 source,

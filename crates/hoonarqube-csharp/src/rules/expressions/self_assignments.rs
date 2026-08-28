@@ -19,10 +19,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S1656",
-                "Remove this self-assignment.",
-                range_of(assignment, source),
+                "Remove or correct this useless self-assignment.",
+                range_of(left, source),
             ));
         }
     }
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1656_flags_only_exact_self_assignments() {
+        let bad = analyze_default("class C { void M(int value) { value = value; } }");
+        assert_eq!(with_key(&bad, "csharpsquid:S1656").len(), 1);
+
+        let good = analyze_default("class C { void M(int value, int next) { value = next; } }");
+        assert!(with_key(&good, "csharpsquid:S1656").is_empty());
+    }
 }

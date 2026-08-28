@@ -29,7 +29,7 @@ pub(crate) fn check(
                 language,
                 "S1541",
                 format!(
-                    "Reduce this function's cyclomatic complexity from {complexity} to at most {}.",
+                    "The Cyclomatic Complexity of this method is {complexity} which is greater than {} authorized.",
                     options.maximum_function_complexity_threshold
                 ),
                 range_of(name_anchor(function), source),

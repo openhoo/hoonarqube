@@ -29,7 +29,7 @@ impl FunctionMetricsCollector<'_> {
                 RuleScope::Both,
                 "S1541",
                 &format!(
-                    "The Cyclomatic Complexity of this function is {} which is greater than {} authorized.",
+                    "Function has a complexity of {} which is greater than {} authorized.",
                     walker.cyclomatic, MAX_CYCLOMATIC_COMPLEXITY
                 ),
                 anchor,

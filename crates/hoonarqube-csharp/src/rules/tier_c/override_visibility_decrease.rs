@@ -1,50 +1,58 @@
-use super::support::override_base_pairs;
+use super::support::matched_method_pairs;
 use crate::CsLanguage;
-use crate::cst::{issue, modifiers_of, range_of};
+use crate::cst::{issue, modifiers_of, node_text, parameters_of, range_of};
+use crate::rules::expressions::enclosing_type;
 use crate::rules::modifiers::has_modifier;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
-/// csharpsquid:S4015 — overrides narrowing the overridden member's
-/// visibility. Subset: both sides declare explicit modifiers on a direct
-/// file-local base; undeclared (contextual default) pairs stay untouched.
+/// csharpsquid:S4015 — private methods on unsealed types must not hide a
+/// public method with the same signature on a direct file-local base.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    override_base_pairs(root, source)
+    matched_method_pairs(root, source, |modifiers| {
+        has_modifier(modifiers, "private")
+    })
         .into_iter()
         .filter_map(|(overriding, base)| {
-            let derived_rank = declared_visibility_rank(&modifiers_of(overriding, source))?;
-            let base_rank = declared_visibility_rank(&modifiers_of(base, source))?;
-            (derived_rank < base_rank)
-                .then(|| overriding.child_by_field_name("name"))
-                .flatten()
+            let owner = enclosing_type(overriding)?;
+            if has_modifier(&modifiers_of(owner, source), "sealed")
+                || !has_modifier(&modifiers_of(base, source), "public")
+                || parameter_types(overriding, source) != parameter_types(base, source)
+            {
+                return None;
+            }
+            let name = overriding.child_by_field_name("name")?;
+            let base_owner = enclosing_type(base)?
+                .child_by_field_name("name")
+                .map(|node| node_text(node, source))?;
+            Some((name, base_owner, method_display(base, source)))
         })
-        .map(|name| {
+        .map(|(name, base_owner, signature)| {
             issue(
                 language,
                 "S4015",
-                "Do not decrease the visibility of this overridden member.",
+                format!(
+                    "This member hides '{base_owner}.{signature}'. Make it non-private or seal the class."
+                ),
                 range_of(name, source),
             )
         })
         .collect()
 }
 
-/// Simplified C# accessibility ladder for declared member modifiers.
-fn declared_visibility_rank(modifiers: &[&str]) -> Option<i32> {
-    let has = |wanted: &str| has_modifier(modifiers, wanted);
-    if has("public") {
-        Some(6)
-    } else if has("protected") && has("internal") {
-        Some(5)
-    } else if has("internal") {
-        Some(4)
-    } else if has("protected") {
-        if has("private") { Some(2) } else { Some(3) }
-    } else if has("private") {
-        Some(1)
-    } else {
-        None
-    }
+fn parameter_types<'a>(method: Node<'_>, source: &'a str) -> Vec<&'a str> {
+    parameters_of(method)
+        .into_iter()
+        .filter_map(|parameter| parameter.child_by_field_name("type"))
+        .map(|type_node| node_text(type_node, source))
+        .collect()
+}
+
+fn method_display(method: Node<'_>, source: &str) -> String {
+    let name = method
+        .child_by_field_name("name")
+        .map_or("", |node| node_text(node, source));
+    format!("{name}({})", parameter_types(method, source).join(", "))
 }
 
 #[cfg(test)]
@@ -60,9 +68,9 @@ mod tests {
     }
 
     #[test]
-    fn s4015_public_to_protected_narrows_and_flags() {
+    fn s4015_private_method_hiding_public_base_member_flags() {
         let report = analyze_default(
-            "class B {\n    public virtual void M() {\n    }\n}\nclass D : B {\n    protected override void M() {\n    }\n}\n",
+            "class B {\n    public void M() {\n    }\n}\nclass D : B {\n    private void M() {\n    }\n}\n",
         );
         let found = with_key(&report, KEY);
         assert_eq!(found.len(), 1);
@@ -70,7 +78,7 @@ mod tests {
     }
 
     #[test]
-    fn s4015_matching_public_pair_stays_clean() {
+    fn s4015_public_hiding_method_stays_clean() {
         let report = analyze_default(
             "class B {\n    public virtual void M() {\n    }\n}\nclass D : B {\n    public override void M() {\n    }\n}\n",
         );
@@ -94,10 +102,10 @@ mod tests {
     }
 
     #[test]
-    fn s4015_private_protected_ranks_below_plain_protected() {
+    fn s4015_sealed_derived_type_is_exempt() {
         let report = analyze_default(
-            "class B {\n    protected virtual void M() {\n    }\n}\nclass D : B {\n    private protected override void M() {\n    }\n}\n",
+            "class B {\n    public void M() {\n    }\n}\nsealed class D : B {\n    private void M() {\n    }\n}\n",
         );
-        assert_eq!(with_key(&report, KEY).len(), 1);
+        assert!(with_key(&report, KEY).is_empty());
     }
 }

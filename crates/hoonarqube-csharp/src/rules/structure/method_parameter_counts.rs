@@ -1,4 +1,3 @@
-use super::support::name_anchor;
 use crate::cst::{collect_kinds, is_error_tainted, issue, parameters_of, range_of, to_u32};
 use crate::{AnalyzerOptions, CsLanguage};
 use hoonarqube_ir::Issue;
@@ -20,14 +19,20 @@ pub(crate) fn check(
         }
         let count = parameters_of(method).len();
         if to_u32(count) > options.maximum_method_parameters {
+            let kind = if method.kind() == "constructor_declaration" {
+                "Constructor"
+            } else {
+                "Method"
+            };
+            let anchor = method.child_by_field_name("parameters").unwrap_or(method);
             issues.push(issue(
                 language,
                 "S107",
                 format!(
-                    "Reduce the number of parameters ({count} > {}).",
+                    "{kind} has {count} parameters, which is greater than the {} authorized.",
                     options.maximum_method_parameters
                 ),
-                range_of(name_anchor(method), source),
+                range_of(anchor, source),
             ));
         }
     }

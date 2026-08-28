@@ -1,0 +1,1 @@
+obj.custom = 1;

@@ -13,8 +13,8 @@ pub(crate) fn check_line_length(source: &str, options: &AnalyzerOptions) -> Vec<
             issues.push(Issue {
                 rule_key: "python:LineLength".to_string(),
                 message: format!(
-                    "This line exceeds the maximum allowed length of {} characters.",
-                    options.maximum_line_length
+                    "The line contains {length} characters which is greater than {} authorized.",
+                    options.maximum_line_length,
                 ),
                 range: hoonarqube_ir::Range {
                     start: hoonarqube_ir::Pos {
@@ -54,10 +54,14 @@ mod tests {
             &long_121,
             &AnalyzerOptions::default(),
         );
-        assert_eq!(report.issues.len(), 1);
-        assert_eq!(report.issues[0].rule_key, "python:LineLength");
-        assert_eq!(report.issues[0].range.start, pos(1, 0));
-        assert_eq!(report.issues[0].range.end, pos(1, 121));
+        let findings: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "python:LineLength")
+            .collect();
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].range.start, pos(1, 0));
+        assert_eq!(findings[0].range.end, pos(1, 121));
 
         let long_120 = format!("x = {}\nstr(x)\n", "1".repeat(116));
         let clean = analyze(
@@ -65,17 +69,27 @@ mod tests {
             &long_120,
             &AnalyzerOptions::default(),
         );
-        assert!(clean.issues.is_empty());
+        assert!(
+            clean
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "python:LineLength")
+        );
 
         let strict = AnalyzerOptions {
             maximum_line_length: 10,
             ..AnalyzerOptions::default()
         };
         let flagged = analyze(PathBuf::from("test.py"), "x = 12345678\nstr(x)\n", &strict);
-        assert_eq!(flagged.issues.len(), 1);
+        let flagged: Vec<_> = flagged
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "python:LineLength")
+            .collect();
+        assert_eq!(flagged.len(), 1);
         assert_eq!(
-            flagged.issues[0].message,
-            "This line exceeds the maximum allowed length of 10 characters."
+            flagged[0].message,
+            "The line contains 12 characters which is greater than 10 authorized."
         );
     }
 }

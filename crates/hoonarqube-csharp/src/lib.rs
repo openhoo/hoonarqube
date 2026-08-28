@@ -159,7 +159,7 @@ pub fn analyze(
     let root = tree.root_node();
     let mut issues = Vec::new();
     issues.extend(rules::text_scans::text_issues(
-        root, source, language, options,
+        root, &path, source, language, options,
     ));
     issues.extend(rules::naming::naming_issues(
         root, source, language, options,

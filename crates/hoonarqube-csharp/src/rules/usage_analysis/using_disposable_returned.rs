@@ -37,14 +37,18 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                             && node_text(expression, source) == node_text(name, source)
                     });
                 if returns_variable {
+                    let keyword = collect_kinds(using_statement, &["using"])
+                        .into_iter()
+                        .next()
+                        .unwrap_or(using_statement);
                     issues.push(issue(
                         language,
                         "S2997",
                         format!(
-                            "'{}' is disposed by its using statement; return it from outside.",
+                            "Remove the 'using' statement; it will cause automatic disposal of '{}'.",
                             node_text(name, source)
                         ),
-                        range_of(return_statement, source),
+                        range_of(keyword, source),
                     ));
                 }
             }
@@ -64,10 +68,10 @@ mod tests {
         );
         let flagged = with_key(&report, "csharpsquid:S2997");
         assert_eq!(flagged.len(), 1);
-        assert_eq!(flagged[0].range.start.line, 7);
+        assert_eq!(flagged[0].range.start.line, 5);
         assert_eq!(
             flagged[0].message,
-            "'writer' is disposed by its using statement; return it from outside."
+            "Remove the 'using' statement; it will cause automatic disposal of 'writer'."
         );
     }
 
@@ -113,7 +117,7 @@ mod tests {
         );
         let flagged = with_key(&report, "csharpsquid:S2997");
         assert_eq!(flagged.len(), 2);
-        assert_eq!(flagged[0].range.start.line, 7);
-        assert_eq!(flagged[1].range.start.line, 15);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(flagged[1].range.start.line, 13);
     }
 }

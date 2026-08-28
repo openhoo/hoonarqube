@@ -32,10 +32,14 @@ pub(crate) fn check_function_parameter_counts(
                 issues.push(issue_at(
                     "python:S107",
                     &format!(
-                        "This function has {count} parameters, which is greater than the \
-                     {maximum} authorized."
+                        "Function \"{}\" has {count} parameters, which is greater than the \
+                         {maximum} authorized.",
+                        function.name
                     ),
-                    function.name.range(),
+                    ruff_text_size::TextRange::new(
+                        function.parameters.start() + ruff_text_size::TextSize::new(1),
+                        function.parameters.end() - ruff_text_size::TextSize::new(1),
+                    ),
                     index,
                     source,
                 ));

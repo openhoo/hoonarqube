@@ -5,9 +5,25 @@ use crate::cst::{collect_kinds, is_pascal_case, issue, node_text, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
+fn pascal_case_suggestion(name: &str) -> String {
+    let mut suggestion = String::new();
+    let mut capitalize = true;
+    for character in name.chars() {
+        if character == '_' {
+            continue;
+        }
+        if capitalize {
+            suggestion.extend(character.to_uppercase());
+        } else {
+            suggestion.push(character);
+        }
+        capitalize = character.is_ascii_digit();
+    }
+    suggestion
+}
+
 /// csharpsquid:S101 — types are `PascalCase` without underscores.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    const NAMING_PATTERN: &str = "'^([A-Z][a-z0-9]+)+([a-z0-9]+)?(_)?$'";
     let mut issues = Vec::new();
     for type_node in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
         let Some(name) = type_node.child_by_field_name("name") else {
@@ -21,8 +37,9 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             language,
             "S101",
             format!(
-                "Rename this {} to match the regular expression {NAMING_PATTERN}.",
-                declaration_kind_word(type_node.kind())
+                "Rename {} '{name_text}' to match pascal case naming rules, consider using '{}'.",
+                declaration_kind_word(type_node.kind()),
+                pascal_case_suggestion(name_text)
             ),
             range_of(name, source),
         ));

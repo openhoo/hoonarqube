@@ -51,6 +51,7 @@ use oxc_ast::ast::UnaryOperator;
 use oxc_ast::ast::WhileStatement;
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::walk_block_statement;
+use oxc_ast_visit::walk::walk_function;
 use oxc_ast_visit::walk::walk_function_body;
 use oxc_ast_visit::walk::walk_program;
 use oxc_ast_visit::walk::walk_static_block;
@@ -64,6 +65,7 @@ use oxc_ast_visit::walk::{
     walk_try_statement, walk_unary_expression, walk_while_statement,
 };
 use oxc_span::{GetSpan, Span};
+use oxc_syntax::scope::ScopeFlags;
 use std::collections::BTreeSet;
 
 /// Collects `return` statements outside nested functions, split into
@@ -274,7 +276,8 @@ impl<'a> Visit<'a> for FunctionMetricsCollector<'_> {
     fn visit_expression(&mut self, it: &Expression<'a>) {
         if let Expression::FunctionExpression(function) = it {
             let exempt = function.generator;
-            self.analyze_function(function, function.span(), exempt, |collector| {
+            let anchor = function.id.as_ref().map_or(function.span(), |id| id.span);
+            self.analyze_function(function, anchor, exempt, |collector| {
                 walk_expression(collector, it);
             });
         } else {
@@ -285,7 +288,8 @@ impl<'a> Visit<'a> for FunctionMetricsCollector<'_> {
     fn visit_declaration(&mut self, it: &Declaration<'a>) {
         if let Declaration::FunctionDeclaration(function) = it {
             let exempt = function.generator;
-            self.analyze_function(function, function.span(), exempt, |collector| {
+            let anchor = function.id.as_ref().map_or(function.span(), |id| id.span);
+            self.analyze_function(function, anchor, exempt, |collector| {
                 walk_declaration(collector, it);
             });
         } else {
@@ -295,7 +299,7 @@ impl<'a> Visit<'a> for FunctionMetricsCollector<'_> {
 
     fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
         let exempt = it.kind != MethodDefinitionKind::Method || it.value.generator;
-        self.analyze_function(&it.value, it.value.span(), exempt, |collector| {
+        self.analyze_function(&it.value, it.key.span(), exempt, |collector| {
             walk_method_definition(collector, it);
         });
     }
@@ -378,13 +382,13 @@ impl<'a> Visit<'a> for SuperCallScanner {
 /// Detects any `this` reference in a subtree.
 #[derive(Default)]
 pub(crate) struct ThisUseScanner {
-    pub(crate) found: bool,
+    pub(crate) found: Option<Span>,
 }
 
 impl<'a> Visit<'a> for ThisUseScanner {
     fn visit_expression(&mut self, it: &Expression<'a>) {
-        if matches!(it, Expression::ThisExpression(_)) {
-            self.found = true;
+        if let Expression::ThisExpression(this) = it {
+            self.found.get_or_insert(this.span());
         }
         walk_expression(self, it);
     }
@@ -594,9 +598,16 @@ impl<'a> Visit<'a> for ConditionOperatorScanner {
 /// `S1534`, `S1536`, `S6861`, and `S1067` in one traversal.
 pub(crate) struct DuplicationCollector<'index> {
     pub(crate) sink: IssueSink<'index>,
+    pub(crate) function_spans: Vec<Span>,
 }
 
 impl<'a> Visit<'a> for DuplicationCollector<'a> {
+    fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
+        self.function_spans.push(it.span());
+        walk_function(self, it, flags);
+        self.function_spans.pop();
+    }
+
     fn visit_object_expression(&mut self, it: &ObjectExpression<'a>) {
         // `S1534`: duplicated data-property keys (accessor pairs are legal).
         let mut seen: Vec<&str> = Vec::new();
@@ -656,7 +667,13 @@ impl<'a> Visit<'a> for DuplicationCollector<'a> {
     }
 
     fn visit_formal_parameters(&mut self, it: &FormalParameters<'a>) {
-        self.check_s1536_formal_parameters(it);
+        self.check_s1536_formal_parameters(
+            it,
+            self.function_spans
+                .last()
+                .copied()
+                .unwrap_or_else(|| it.span()),
+        );
         walk_formal_parameters(self, it);
     }
 

@@ -23,7 +23,7 @@ pub(crate) fn check_except_star_groups(
         if !except_star {
             continue;
         }
-        let catches_group = significant[position + 2..]
+        let caught_group = significant[position + 2..]
             .iter()
             .take_while(|token| {
                 !matches!(
@@ -31,18 +31,18 @@ pub(crate) fn check_except_star_groups(
                     TokenKind::Newline | TokenKind::NonLogicalNewline
                 )
             })
-            .any(|token| {
+            .find(|token| {
                 token.kind() == TokenKind::Name
                     && matches!(
                         &source[token.range()],
                         "ExceptionGroup" | "BaseExceptionGroup"
                     )
             });
-        if catches_group {
+        if let Some(group) = caught_group {
             issues.push(issue_at(
                 "python:S6468",
-                "Catch ExceptionGroup subclasses directly rather than with except*.",
-                window[0].range(),
+                "Avoid catching ExceptionGroup exception with 'except*'",
+                group.range(),
                 index,
                 source,
             ));

@@ -11,7 +11,6 @@
 
 use crate::support::child_bodies;
 use crate::support::child_exprs;
-use crate::support::has_boto3_binding;
 use crate::support::stmt_exprs;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprCall;
@@ -51,9 +50,9 @@ pub(crate) struct FileContext<'a> {
     pub(crate) classes: Vec<&'a StmtClassDef>,
     /// Every import (plain and from-imports) in statement pre-order.
     pub(crate) imports: Vec<AnyImport<'a>>,
-    /// Whether any call in the file binds through a boto3 client/resource
-    /// stub; computed once so the Tier-C AWS rules need not rescan calls.
-    pub(crate) has_boto3_binding: bool,
+    /// Whether the file imports AWS CDK. Computed once so cloud rules can
+    /// require the same library provenance as `SonarPython`.
+    pub(crate) has_aws_cdk_import: bool,
 }
 
 impl<'a> FileContext<'a> {
@@ -67,10 +66,19 @@ impl<'a> FileContext<'a> {
             functions: Vec::new(),
             classes: Vec::new(),
             imports: Vec::new(),
-            has_boto3_binding: false,
+            has_aws_cdk_import: false,
         };
         collect_all(parsed.syntax().body.as_slice(), &mut ctx);
-        ctx.has_boto3_binding = has_boto3_binding(&ctx.calls);
+        ctx.has_aws_cdk_import = ctx.imports.iter().any(|entry| match entry {
+            AnyImport::Plain(import) => import
+                .names
+                .iter()
+                .any(|alias| alias.name.as_str().starts_with("aws_cdk")),
+            AnyImport::From(import) => import
+                .module
+                .as_ref()
+                .is_some_and(|module| module.as_str().starts_with("aws_cdk")),
+        });
         ctx
     }
 }

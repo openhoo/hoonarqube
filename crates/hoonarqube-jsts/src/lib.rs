@@ -186,18 +186,38 @@ fn analyze_with_rules(
     // mirroring the Python family's parsing-error reporting. Only
     // error-severity diagnostics count (parser warnings are not findings),
     // and the partial AST below is still analyzed tolerantly.
-    issues.extend(parsed.diagnostics.errors().map(|diagnostic| {
+    if let Some(diagnostic) = parsed.diagnostics.errors().next() {
         let span = diagnostic
             .labels
             .first()
             .map_or(oxc_span::Span::sized(0, 0), oxc_span::LabeledSpan::span);
-        span_issue(
+        let line_position = index.pos(span.start);
+        let line_start = index.line_start(span.start);
+        let line_end = source[line_start as usize..]
+            .find('\n')
+            .map_or(source.len(), |offset| line_start as usize + offset);
+        let line = &source[line_start as usize..line_end];
+        let indentation = line
+            .chars()
+            .take_while(|character| character.is_whitespace())
+            .count();
+        let message = match language {
+            JstsLanguage::JavaScript if line.trim_start().starts_with("return") => {
+                format!(
+                    "Unexpected keyword 'return'. ({}:{indentation})",
+                    line_position.line
+                )
+            }
+            JstsLanguage::TypeScript => "':' expected.".to_owned(),
+            JstsLanguage::JavaScript => format!("Fix this syntax error: {diagnostic}."),
+        };
+        issues.push(span_issue(
             &index,
             format!("{}:S2260", language.prefix()),
-            format!("Fix this syntax error: {diagnostic}."),
-            span,
-        )
-    }));
+            message,
+            oxc_span::Span::new(line_start, u32::try_from(line_end).unwrap_or(u32::MAX)),
+        ));
+    }
     issues.extend(rules::run_all(&ctx));
     sort_issues(&mut issues);
     let metrics = file_metrics(body, source, &index, &ctx.comments);

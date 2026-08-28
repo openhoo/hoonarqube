@@ -21,25 +21,29 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     let mut issues = Vec::new();
     for (expression, left, right) in comparisons(root) {
-        let size_side = [left, right].iter().any(|o| count_member_tail(*o, source));
+        let size_member = [left, right].into_iter().find_map(|operand| {
+            expression_name(operand, source).filter(|name| matches!(*name, "Count" | "Length"))
+        });
         let negative_side = [left, right]
             .iter()
             .any(|o| negative_value(*o, source).is_some());
-        if size_side && negative_side {
+        if let Some(size_member) = size_member.filter(|_| negative_side) {
+            let collection_type = if size_member == "Count" {
+                "ICollection"
+            } else {
+                "Array"
+            };
             issues.push(issue(
                 language,
                 "S3981",
-                "Collection sizes are never negative; fix this comparison.",
+                format!(
+                    "The '{size_member}' of '{collection_type}' always evaluates as 'False' regardless the size."
+                ),
                 range_of(expression, source),
             ));
         }
     }
     issues
-}
-
-/// Collection-count member tails (`Count`, `Length`).
-fn count_member_tail(operand: Node<'_>, source: &str) -> bool {
-    matches!(expression_name(operand, source), Some("Count" | "Length"))
 }
 
 #[cfg(test)]

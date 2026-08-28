@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, range_of, signature_regions};
+use crate::cst::{ancestors_of, collect_kinds, issue, range_of, signature_regions};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -16,19 +16,25 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             "indexer_declaration",
         ],
     ) {
-        let nests_generics = signature_regions(declaration)
-            .iter()
-            .any(|region| has_nested_generics(*region));
-        if !nests_generics {
+        let anchor = signature_regions(declaration)
+            .into_iter()
+            .find_map(|region| {
+                collect_kinds(region, &["generic_name"])
+                    .into_iter()
+                    .find(|generic| has_nested_generics(*generic))
+                    .map(|generic| {
+                        ancestors_of(generic)
+                            .find(|ancestor| ancestor.kind() == "parameter")
+                            .unwrap_or(generic)
+                    })
+            });
+        let Some(anchor) = anchor else {
             continue;
-        }
-        let anchor = declaration
-            .child_by_field_name("name")
-            .unwrap_or(declaration);
+        };
         issues.push(issue(
             language,
             "S4017",
-            "Refactor this signature to avoid nested generic types.",
+            "Refactor this method to remove the nested type argument.",
             range_of(anchor, source),
         ));
     }

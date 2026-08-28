@@ -32,9 +32,11 @@ use oxc_ast_visit::walk::{
     walk_sequence_expression, walk_template_literal, walk_unary_expression,
 };
 use oxc_span::GetSpan;
+use std::collections::HashSet;
 
 fn check_expression_rules(
     program: &oxc_ast::ast::Program<'_>,
+    source: &str,
     index: &LineIndex,
     language: JstsLanguage,
 ) -> Vec<Issue> {
@@ -44,8 +46,9 @@ fn check_expression_rules(
             language,
             issues: Vec::new(),
         },
+        source,
         contexts: Vec::new(),
-        ternary_depth: 0,
+        ternary_spans: HashSet::new(),
         template_depth: 0,
     };
     collector.visit_program(program);
@@ -58,12 +61,12 @@ fn check_expression_rules(
 /// `S6959`, `S2871`, `S3003`, `S4125`, `S2427`, `S2817`, `S3533`, `S106`,
 /// `S1442`, `S6653`, `S6661`, `S6666`, `S2685`, `S6654`, `S6643`, `S2424`,
 /// `S1528`, `S1533`, `S2428`, `S3834`, `S4624`, `S3786`, `S1516`, `S6535`,
-/// `S6657`, `S1314`, `S6534`, `S1313`, `S4140`, and `S1110`-adjacent
-/// parenthesized-expression checks (`S1110`, `S3812`).
+/// `S6657`, `S1314`, `S6534`, `S1313`, `S4140`, `S1110`, and `S3812`.
 struct ExpressionCollector<'index> {
     sink: IssueSink<'index>,
+    source: &'index str,
     contexts: Vec<ExpressionContext>,
-    ternary_depth: u32,
+    ternary_spans: HashSet<(u32, u32)>,
     /// Nesting depth of template literals for `S4624`.
     template_depth: u32,
 }
@@ -79,28 +82,18 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
         }
     }
 
-    /// Intentional CE divergence (`S1774`): the upstream documentation example
-    /// marks even a single-level ternary Noncompliant, and the captured engine
-    /// emits "Ternary operator used." on every ternary in oracle-js. We
-    /// deliberately implement the narrower nesting-only policy: only ternaries
-    /// nested inside another ternary are flagged.
     fn visit_conditional_expression(&mut self, it: &ConditionalExpression<'a>) {
-        if self.ternary_depth > 0 {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S1774",
-                "Refactor this nested ternary into a statement.",
-                it.span(),
-            );
+        let span = it.span();
+        if self.ternary_spans.insert((span.start, span.end)) {
+            self.sink
+                .emit_span(RuleScope::Both, "S1774", "Ternary operator used.", span);
         }
         check_redundant_ternary(&mut self.sink, it);
         self.contexts.push(ExpressionContext::Condition);
         self.visit_expression(&it.test);
         self.contexts.pop();
-        self.ternary_depth += 1;
         self.visit_expression(&it.consequent);
         self.visit_expression(&it.alternate);
-        self.ternary_depth -= 1;
     }
 
     fn visit_logical_expression(&mut self, it: &LogicalExpression<'a>) {
@@ -156,10 +149,11 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
                                 | BinaryOperator::GreaterEqualThan
                         ))
                 {
+                    let opposite = opposite_comparison_operator(binary.operator);
                     self.sink.emit_span(
                         RuleScope::Both,
                         "S1940",
-                        "Invert the comparison operator instead of negating it.",
+                        &format!("Use the opposite operator ({opposite}) instead."),
                         it.span(),
                     );
                 }
@@ -189,7 +183,26 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
     }
 
     fn visit_binary_expression(&mut self, it: &BinaryExpression<'a>) {
-        check_binary_operators(&mut self.sink, it);
+        if matches!(it.operator, BinaryOperator::In | BinaryOperator::Instanceof)
+            && matches!(
+                &it.left,
+                Expression::UnaryExpression(unary)
+                    if unary.operator == UnaryOperator::LogicalNot
+            )
+        {
+            let operator = if it.operator == BinaryOperator::In {
+                "in"
+            } else {
+                "instanceof"
+            };
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3812",
+                &format!("Unexpected negating the left operand of '{operator}' operator."),
+                it.left.span(),
+            );
+        }
+        check_binary_operators(&mut self.sink, self.source, it);
         check_index_of_comparisons(&mut self.sink, it);
         check_length_comparison(&mut self.sink, it);
         check_relational_strings(&mut self.sink, it);
@@ -209,30 +222,18 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
             "Remove these redundant parentheses.",
             it.span(),
         );
-        if let Expression::UnaryExpression(unary) = &it.expression
-            && unary.operator == UnaryOperator::LogicalNot
-            && let Expression::BinaryExpression(binary) = &unary.argument
-            && matches!(
-                binary.operator,
-                BinaryOperator::In | BinaryOperator::Instanceof
-            )
-        {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S3812",
-                "The parentheses are required here; negate the operator instead.",
-                unary.span(),
-            );
-        }
         walk_parenthesized_expression(self, it);
     }
 
     fn visit_sequence_expression(&mut self, it: &SequenceExpression<'a>) {
+        let comma = it.expressions.first().map_or(it.span(), |first| {
+            oxc_span::Span::new(first.span().end, first.span().end + 1)
+        });
         self.sink.emit_span(
             RuleScope::Both,
             "S878",
-            "Split this comma-separated sequence into separate statements.",
-            it.span(),
+            "Unexpected use of comma operator.",
+            comma,
         );
         walk_sequence_expression(self, it);
     }
@@ -267,7 +268,7 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S4624",
-                "Extract this nested template literal.",
+                "Refactor this code to not use nested template literals.",
                 it.span(),
             );
         }
@@ -301,12 +302,26 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S4140",
-                    "Fill or remove the empty slots in this array literal.",
-                    element.span(),
+                    "Unexpected comma in middle of array.",
+                    it.span(),
                 );
             }
         }
         walk_array_expression(self, it);
+    }
+}
+
+fn opposite_comparison_operator(operator: BinaryOperator) -> &'static str {
+    match operator {
+        BinaryOperator::Equality => "!=",
+        BinaryOperator::Inequality => "==",
+        BinaryOperator::StrictEquality => "!==",
+        BinaryOperator::StrictInequality => "===",
+        BinaryOperator::LessThan => ">=",
+        BinaryOperator::LessEqualThan => ">",
+        BinaryOperator::GreaterThan => "<=",
+        BinaryOperator::GreaterEqualThan => "<",
+        _ => "opposite",
     }
 }
 
@@ -358,12 +373,21 @@ pub(crate) fn numeric_literal_value(expression: &Expression<'_>) -> Option<f64> 
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_expression_rules(ctx.program, ctx.index, ctx.language)
+    check_expression_rules(ctx.program, ctx.source, ctx.index, ctx.language)
 }
 
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
+
+    #[test]
+    fn s3812_flags_negated_in_expressions_requiring_parentheses() {
+        let bad = js_keys("const present = !key in object;\n");
+        assert_eq!(count_key(&bad, "javascript:S3812"), 1);
+
+        let good = js_keys("const present = !(key in object);\n");
+        assert_eq!(count_key(&good, "javascript:S3812"), 0);
+    }
 
     #[test]
     fn expression_level_batch_rules_fire() {
@@ -405,14 +429,12 @@ host = '10.0.0.1';
     }
 
     #[test]
-    fn s1774_flags_only_nested_ternaries_intentional_ce_divergence() {
-        // Single ternary: clean here, though the captured engine would flag
-        // it (SQ-OVERFIRE quirk; disposition pinned per project decision).
+    fn s1774_flags_each_ternary_once() {
         let single = js_keys("const v = a ? b : c;\n");
-        assert_eq!(count_key(&single, "javascript:S1774"), 0);
+        assert_eq!(count_key(&single, "javascript:S1774"), 1);
 
         let nested = js_keys("const v = a ? b : (c ? d : e);\n");
-        assert_eq!(count_key(&nested, "javascript:S1774"), 1);
+        assert_eq!(count_key(&nested, "javascript:S1774"), 2);
     }
 
     #[test]

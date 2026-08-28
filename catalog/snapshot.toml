@@ -1,19 +1,45 @@
-schema_version = 1
+schema_version = 3
 capture_sha256 = "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
 captured_at_utc = "2026-08-22T14:45:03.705491626Z"
 server_version = "2025.4.4.119049"
 edition = "enterprise"
+oracle_edition = "community"
 instance_mode = "standard"
-valid_license = true
 page_size = 500
-community_classification = "licensed-only-unclassified"
-community_evidence_sha256 = "9cf988ec289eea84a9ac8f623fd6c8adaf5d2706bcc5f46a0ba271aa3a6654b0"
-catalog_sha256 = "c0acd930171d52508c6211469cf6d88ba64e335bf80753f2b9e3caa5327a2774"
+scope_classification = "community-plus-enterprise-unverified"
+community_evidence_sha256 = "1d2e4fa6290ee8aa77d29bcdf075bef84d22b17d1788f7a7e4e4a5981527c910"
+catalog_sha256 = "108a04bc7711c61aa1b728e7efe002f7d93d148584667cba59aa4e1be50c8b7e"
+source_total_rules = 1620
 total_rules = 1620
+
+[unverified_rules]
+csharp = [
+    "csharpsquid:S2053",
+    "csharpsquid:S2222",
+    "csharpsquid:S2259",
+    "csharpsquid:S2583",
+    "csharpsquid:S2589",
+    "csharpsquid:S3329",
+    "csharpsquid:S3655",
+    "csharpsquid:S3900",
+    "csharpsquid:S3949",
+    "csharpsquid:S3966",
+    "csharpsquid:S4158",
+    "csharpsquid:S4347",
+    "csharpsquid:S5773",
+    "csharpsquid:S6781",
+    "csharpsquid:S7130",
+    "csharpsquid:S7131",
+    "csharpsquid:S7133",
+]
+javascript = []
+typescript = []
+python = []
 
 [languages.csharp]
 language = "cs"
 repository = "csharpsquid"
+source_total = 467
 total = 467
 unique_keys = 467
 page_count = 1
@@ -26,6 +52,7 @@ shows_sha256 = "6edd50154d54423884b4bfcdf2038e4b47b97a9b6c437bd0cddd4b1da64d223e
 [languages.javascript]
 language = "js"
 repository = "javascript"
+source_total = 406
 total = 406
 unique_keys = 406
 page_count = 1
@@ -38,6 +65,7 @@ shows_sha256 = "fe799c98246898d4f8086c9de5e5ea82791e8b88332c79ded90613897302cb1c
 [languages.python]
 language = "py"
 repository = "python"
+source_total = 335
 total = 335
 unique_keys = 335
 page_count = 1
@@ -50,6 +78,7 @@ shows_sha256 = "78d5cb4a0c5a65e68113814038cc35562a616aa3a1d4272cf882c4321004c4c8
 [languages.typescript]
 language = "ts"
 repository = "typescript"
+source_total = 412
 total = 412
 unique_keys = 412
 page_count = 1
@@ -58,11 +87,6 @@ query_sha256 = "57ef43cd6a3b81b1e6a925d34e3b896876cabe180ca2f6e02cb01fb0d018ca13
 pages_sha256 = "f9e810f4282a4e9c5cbe120bf512a377821e30d95844c09d2a150bc630814d62"
 keys_sha256 = "be511428e88d6d1e9ec109b7dbefd4c31587ebfe6f702747a2c1083d67375bda"
 shows_sha256 = "0a8cb0b4e45895a2b60e8ee70a053939066e860db11a6d1ce303f3a693cd77a0"
-
-[endpoints."api/editions/is_valid_license"]
-status = 200
-bytes = 23
-sha256 = "c9b0ee0ffc9f653a77cfa3fcf843de5f66e538c18f21432045e3578258602964"
 
 [endpoints."api/navigation/global"]
 status = 200
@@ -612,7 +636,7 @@ plugin_type = "EXTERNAL"
 required_for_languages = []
 
 [rule_files]
-csharp = "bba095b4f6c3fbcbcefe64c1721443e24d9d72e32a48f04b59cf2c067f12f0a5"
-javascript = "2d2392fac8c0f7718176455413e240a08968ab831898b6a1b65e9cacafdb7d60"
-python = "bbbe0fb4297d7fb04b6d6b851dad97c377ac41ab81ab3edbc01dade5dc2842a6"
-typescript = "bf5fa15429f3144b65dfe2efbc670861893ee8b1f472ee8bc63c13a017beedec"
+csharp = "390b16f1af8d6f4d4fef8ea371bd75803152844887acc01146dddc204dc79689"
+javascript = "645c262219bc8c94fdc0af482b44b61a8324135a8b1f890461a631a101192e90"
+python = "4061b80f58e6f0cc24c410d57b4eae0a1030a5915ae590a18df15500188e46a7"
+typescript = "dddc83ab7b93eb3ea366d7e44000da475d357adfb181a26855e97bb1f67c42a8"

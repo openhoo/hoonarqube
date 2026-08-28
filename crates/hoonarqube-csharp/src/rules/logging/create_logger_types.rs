@@ -14,7 +14,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(call) {
             continue;
         }
-        let Some(target) = create_logger_target(call, source) else {
+        let Some((target, target_node)) = create_logger_target(call, source) else {
             continue;
         };
         let Some(enclosing) = enclosing_type(call) else {
@@ -27,8 +27,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S3416",
-                "Name this logger after its enclosing type.",
-                range_of(call, source),
+                "Update this logger to use its enclosing type.",
+                range_of(target_node, source),
             ));
         }
     }
@@ -36,7 +36,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 }
 
 /// The type named by `CreateLogger<T>()` or `CreateLogger(typeof(T))`.
-fn create_logger_target(call: Node<'_>, source: &str) -> Option<String> {
+fn create_logger_target<'t>(call: Node<'t>, source: &str) -> Option<(String, Node<'t>)> {
     let function = invocation_function(call)?;
     let target_node = if function.kind() == "member_access_expression" {
         let mut cursor = function.walk();
@@ -60,8 +60,8 @@ fn create_logger_target(call: Node<'_>, source: &str) -> Option<String> {
         (expression.kind() == "typeof_expression").then_some(expression)?
     };
     let mut target_cursor = target_node.walk();
-    target_node
+    let node = target_node
         .children(&mut target_cursor)
-        .find(tree_sitter::Node::is_named)
-        .map(|type_node| node_text(type_node, source).to_string())
+        .find(tree_sitter::Node::is_named)?;
+    Some((node_text(node, source).to_string(), node))
 }

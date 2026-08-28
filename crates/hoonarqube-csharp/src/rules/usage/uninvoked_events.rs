@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S3264",
-                format!("Invoke the event '{name}' or remove it."),
+                format!("Remove the unused event '{name}' or invoke it."),
                 range_of(declarator, source),
             )
         })

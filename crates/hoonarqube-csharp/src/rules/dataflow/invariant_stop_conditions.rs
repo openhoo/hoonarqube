@@ -24,16 +24,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some(body) = for_statement.child_by_field_name("body") else {
             continue;
         };
-        let body_writes = written_names(body, source);
-        if condition_names
-            .iter()
-            .any(|name| body_writes.contains(name))
-        {
+        let mut reported = std::collections::HashSet::new();
+        for write in written_identifiers(body) {
+            let name = node_text(write, source);
+            if !condition_names.contains(name) || !reported.insert(name) {
+                continue;
+            }
             issues.push(issue(
                 language,
                 "S127",
-                "This loop's stop condition is not invariant.",
-                range_of(for_statement, source),
+                format!("Do not update the loop counter '{name}' within the loop body."),
+                range_of(write, source),
             ));
         }
     }
@@ -42,14 +43,14 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 
 /// Names receiving a write anywhere in the subtree: assignment targets,
 /// increment operands, and declared names alike.
-fn written_names<'a>(node: Node<'_>, source: &'a str) -> std::collections::HashSet<&'a str> {
-    let mut names = std::collections::HashSet::new();
+fn written_identifiers(node: Node<'_>) -> Vec<Node<'_>> {
+    let mut identifiers = Vec::new();
     walk_all(node, &mut |current| {
         if current.kind() == "identifier" && identifier_write(current).is_some() {
-            names.insert(node_text(current, source));
+            identifiers.push(current);
         }
     });
-    names
+    identifiers
 }
 
 #[cfg(test)]
@@ -79,7 +80,7 @@ mod tests {
         );
         let found = with_key(&report, KEY);
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].range.start.line, 3);
+        assert_eq!(found[0].range.start.line, 4);
     }
 
     #[test]

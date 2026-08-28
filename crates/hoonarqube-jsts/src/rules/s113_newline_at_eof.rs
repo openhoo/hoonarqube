@@ -17,8 +17,14 @@ fn check_missing_newline_at_eof(
     let end = index.pos(to_u32(source.len()));
     vec![Issue {
         rule_key: format!("{}:S113", language.prefix()),
-        message: "Add a new line at the end of this file.".to_string(),
-        range: hoonarqube_ir::Range { start: end, end },
+        message: "Newline required at end of file but not found.".to_string(),
+        range: hoonarqube_ir::Range {
+            start: hoonarqube_ir::Pos {
+                line: end.line,
+                column: 0,
+            },
+            end,
+        },
         fix: None,
     }]
 }

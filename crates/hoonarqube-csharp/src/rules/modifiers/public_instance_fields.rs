@@ -1,6 +1,8 @@
 use super::support::has_modifier;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, issue, modifiers_of, range_of};
+use crate::rules::expressions::enclosing_type;
+use crate::rules::modifiers::type_declared_rank;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -13,13 +15,23 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if has_modifier(&modifiers, "public")
             && !has_modifier(&modifiers, "static")
             && !has_modifier(&modifiers, "const")
+            && enclosing_type(field)
+                .is_some_and(|type_node| type_declared_rank(type_node, source) == 6)
         {
-            issues.push(issue(
-                language,
-                "S1104",
-                "Make this field private and expose it through a property.",
-                range_of(field, source),
-            ));
+            for declarator in collect_kinds(field, &["variable_declarator"]) {
+                let name = declarator.child_by_field_name("name").unwrap_or(declarator);
+                let range = if declarator.named_child_count().gt(&1) {
+                    range_of(declarator, source)
+                } else {
+                    range_of(name, source)
+                };
+                issues.push(issue(
+                    language,
+                    "S1104",
+                    "Make this field 'private' and encapsulate it in a 'public' property.",
+                    range,
+                ));
+            }
         }
     }
     issues

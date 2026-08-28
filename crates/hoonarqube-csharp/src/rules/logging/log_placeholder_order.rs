@@ -2,7 +2,7 @@ use super::support::logging_calls;
 use super::support::template_argument;
 use super::support::template_placeholders;
 use crate::CsLanguage;
-use crate::cst::{issue, node_text, range_of};
+use crate::cst::{issue, node_text, range_from_byte_offsets, range_of};
 use crate::rules::expressions::invocation_arguments;
 use crate::rules::literals::argument_expression;
 use hoonarqube_ir::Issue;
@@ -40,11 +40,20 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 })
             });
             if swapped {
+                let placeholder = placeholders[index];
+                let token = format!("{{{placeholder}}}");
+                let range = node_text(literal, source).find(&token).map_or_else(
+                    || range_of(literal, source),
+                    |offset| {
+                        let start = literal.start_byte() + offset + 1;
+                        range_from_byte_offsets(start, start + placeholder.len(), source)
+                    },
+                );
                 issues.push(issue(
                     language,
                     "S6673",
-                    "Align message-template placeholders with the argument order.",
-                    range_of(literal, source),
+                    format!("Template placeholders should be in the right order: placeholder '{placeholder}' does not match with argument '{expected}'."),
+                    range,
                 ));
             }
             break;

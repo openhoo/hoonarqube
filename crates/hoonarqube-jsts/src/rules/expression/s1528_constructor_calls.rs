@@ -19,7 +19,7 @@ pub(crate) fn check_constructor_calls(sink: &mut IssueSink, it: &NewExpression<'
         sink.emit_span(
             RuleScope::Both,
             "S1528",
-            "Use array literal notation instead of the \"Array\" constructor.",
+            "Use either a literal or \"Array.from()\" instead of the \"Array\" constructor.",
             it.span(),
         );
     }
@@ -27,8 +27,8 @@ pub(crate) fn check_constructor_calls(sink: &mut IssueSink, it: &NewExpression<'
         sink.emit_span(
             RuleScope::Both,
             "S1533",
-            "Use primitives instead of wrapper objects.",
-            it.callee.span(),
+            &format!("Remove this use of \"{name}\" constructor."),
+            it.span(),
         );
     }
     if name == "Object" {
@@ -43,8 +43,8 @@ pub(crate) fn check_constructor_calls(sink: &mut IssueSink, it: &NewExpression<'
         sink.emit_span(
             RuleScope::JsOnly,
             "S3834",
-            "Do not call this primitive constructor with \"new\".",
-            it.callee.span(),
+            "Remove this \"new\" operator.",
+            oxc_span::Span::new(it.span.start, it.span.start + 3),
         );
     }
 }

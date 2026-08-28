@@ -21,7 +21,7 @@ impl TsTypeCollector<'_, '_> {
     pub(crate) fn check_s7059_call_expression(&mut self, it: &CallExpression<'_>) {
         if self.constructor_depth > 0 && callee_is_async_function(&it.callee) {
             self.sink.emit_span(
-                RuleScope::TsOnly,
+                RuleScope::Both,
                 "S7059",
                 "Move this asynchronous work out of the constructor.",
                 it.span(),
@@ -33,7 +33,7 @@ impl TsTypeCollector<'_, '_> {
     pub(crate) fn check_s7059_await_expression(&mut self, it: &AwaitExpression<'_>) {
         if self.constructor_depth > 0 {
             self.sink.emit_span(
-                RuleScope::TsOnly,
+                RuleScope::Both,
                 "S7059",
                 "Move this asynchronous work out of the constructor.",
                 it.span(),

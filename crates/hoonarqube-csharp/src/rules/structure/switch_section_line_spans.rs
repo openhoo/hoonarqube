@@ -1,6 +1,5 @@
-use super::support::switch_body_of;
-use super::support::switch_sections_of;
-use crate::cst::{collect_kinds, is_error_tainted, issue, range_of, to_u32};
+use super::support::{section_statements, switch_body_of, switch_sections_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, range_from_byte_offsets, to_u32};
 use crate::{AnalyzerOptions, CsLanguage};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -21,13 +20,21 @@ pub(crate) fn check(
             .map(switch_sections_of)
             .unwrap_or_default()
         {
-            let height = to_u32(section.end_position().row - section.start_position().row + 1);
-            if height > options.maximum_switch_section_lines {
+            let statement_count = to_u32(section_statements(section).len());
+            if statement_count > options.maximum_switch_section_lines {
+                let label_end = source[section.start_byte()..section.end_byte()]
+                    .find(':')
+                    .map_or(section.end_byte(), |offset| {
+                        section.start_byte() + offset + 1
+                    });
                 issues.push(issue(
                     language,
                     "S1151",
-                    format!("Reduce this 'case' block; it spans {height} lines."),
-                    range_of(section, source),
+                    format!(
+                        "Reduce this switch section number of statements from {statement_count} to at most {}, for example by extracting code into a method.",
+                        options.maximum_switch_section_lines
+                    ),
+                    range_from_byte_offsets(section.start_byte(), label_end, source),
                 ));
             }
         }

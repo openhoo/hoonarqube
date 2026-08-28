@@ -2,7 +2,7 @@ use super::support::logging_calls;
 use super::support::template_argument;
 use super::support::template_placeholders;
 use crate::CsLanguage;
-use crate::cst::{issue, range_of};
+use crate::cst::{issue, node_text, range_from_byte_offsets, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
@@ -14,12 +14,19 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         for name in template_placeholders(template) {
             if !seen.insert(name.to_ascii_lowercase()) {
-                let shown = format!("{{{name}}}");
+                let token = format!("{{{name}}}");
+                let range = node_text(literal, source).find(&token).map_or_else(
+                    || range_of(literal, source),
+                    |offset| {
+                        let start = literal.start_byte() + offset + 1;
+                        range_from_byte_offsets(start, start + name.len(), source)
+                    },
+                );
                 issues.push(issue(
                     language,
                     "S6677",
-                    format!("Rename the duplicate placeholder {shown}."),
-                    range_of(literal, source),
+                    format!("Message template placeholder '{name}' is not unique."),
+                    range,
                 ));
             }
         }

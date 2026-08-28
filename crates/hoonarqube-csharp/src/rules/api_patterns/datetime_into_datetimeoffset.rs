@@ -17,11 +17,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     for body in callable_blocks(root) {
         for (name, store) in local_now_stores(body, source) {
             if offsets.contains(name) {
+                let anchor = collect_kinds(store, &["identifier"])
+                    .into_iter()
+                    .find(|identifier| node_text(*identifier, source) == "DateTime")
+                    .unwrap_or(store);
                 issues.push(issue(
                     language,
                     "S6566",
-                    format!("Construct '{name}' from a 'DateTimeOffset' so the offset survives."),
-                    range_of(store, source),
+                    "Prefer using \"DateTimeOffset\" instead of \"DateTime\"",
+                    range_of(anchor, source),
                 ));
             }
         }

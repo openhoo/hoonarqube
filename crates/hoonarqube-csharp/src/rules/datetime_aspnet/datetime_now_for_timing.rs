@@ -1,26 +1,25 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
-use crate::rules::expressions::banned_member_accesses;
-use crate::rules::structure::body_of;
-use crate::rules::usage::mentions_identifier_outside_parameter_list;
+use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
+use crate::rules::expressions::operator_of;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
-/// csharpsquid:S6561 — timing measurements belong to `Stopwatch`, not wall
-/// clock reads that jump with timezone or NTP changes.
+/// csharpsquid:S6561 — wall-clock subtraction is unsafe for elapsed-time
+/// measurement.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    collect_kinds(root, &["method_declaration"])
+    collect_kinds(root, &["binary_expression"])
         .into_iter()
-        .filter(|method| !is_error_tainted(*method))
-        .filter_map(|method| body_of(method).map(|body| (method, body)))
-        .filter(|(_, body)| mentions_identifier_outside_parameter_list(*body, "Stopwatch", source))
-        .flat_map(|(_, body)| banned_member_accesses(body, source, "DateTime", &["Now", "Today"]))
-        .map(|access| {
+        .filter(|expression| {
+            !is_error_tainted(*expression)
+                && operator_of(*expression) == Some("-")
+                && node_text(*expression, source).contains("DateTime.Now")
+        })
+        .map(|expression| {
             issue(
                 language,
                 "S6561",
-                "Measure elapsed time with 'Stopwatch' instead of 'DateTime.Now'.",
-                range_of(access, source),
+                "Avoid using \"DateTime.Now\" for benchmarking or timespan calculation operations.",
+                range_of(expression, source),
             )
         })
         .collect()

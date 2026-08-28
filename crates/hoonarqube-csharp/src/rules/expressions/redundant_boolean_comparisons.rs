@@ -17,11 +17,22 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             (Some("=="), Some(true)) | (Some("!="), Some(false))
         );
         if redundant {
+            let mut cursor = expression.walk();
+            let operator = expression
+                .children(&mut cursor)
+                .find(|child| !child.is_named())
+                .unwrap_or(expression);
+            let mut range = range_of(operator, source);
+            if left.kind() == "boolean_literal" {
+                range.start = range_of(left, source).start;
+            } else {
+                range.end = range_of(right, source).end;
+            }
             issues.push(issue(
                 language,
                 "S1125",
-                "Remove the redundant boolean literal from this comparison.",
-                range_of(expression, source),
+                "Remove the unnecessary Boolean literal(s).",
+                range,
             ));
         }
     }

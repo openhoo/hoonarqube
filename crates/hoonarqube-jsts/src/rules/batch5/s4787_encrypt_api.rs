@@ -15,8 +15,8 @@ impl SecurityHotspotCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S4787",
-                "Make sure using this encryption API is safe here.",
-                call.span(),
+                "Make sure that encrypting data is safe here.",
+                call.callee.span(),
             );
         }
     }

@@ -13,7 +13,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S3984",
-                "Throw this exception or remove the useless instantiation.",
+                "Throw this exception or remove this useless statement.",
                 range_of(creation, source),
             ));
         }

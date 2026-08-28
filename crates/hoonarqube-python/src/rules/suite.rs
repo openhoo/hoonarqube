@@ -20,11 +20,21 @@ pub(crate) fn check_suite(
         while end < suite.len() && line_of(&suite[end]) == first_line {
             end += 1;
         }
-        for stmt in &suite[start + 1..end] {
+        if end > start + 1 {
             issues.push(Issue {
                 rule_key: "python:OneStatementPerLine".to_string(),
-                message: "Only one statement per line is allowed.".to_string(),
-                range: to_range(stmt.range(), index, source),
+                message: format!(
+                    "At most one statement is allowed per line, but {} statements were found on this line.",
+                    end - start
+                ),
+                range: to_range(
+                    ruff_text_size::TextRange::new(
+                        suite[start].start(),
+                        suite[end - 1].end(),
+                    ),
+                    index,
+                    source,
+                ),
                 fix: None,
             });
         }

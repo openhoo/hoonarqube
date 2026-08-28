@@ -13,15 +13,18 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             if is_error_tainted(declaration) || overloaded_operator(declaration) != Some("==") {
                 continue;
             }
+            let operator = collect_kinds(declaration, &["=="])
+                .into_iter()
+                .next()
+                .unwrap_or(declaration);
             issues.push(issue(
                 language,
                 "S3875",
-                "Do not overload the equality operator on this reference type.",
-                range_of(declaration, source),
+                "Remove this overload of 'operator =='.",
+                range_of(operator, source),
             ));
         }
     }
-    let _ = source;
     issues
 }
 #[cfg(test)]

@@ -31,7 +31,10 @@ pub(crate) fn check_instance_self_parameters(
         {
             issues.push(issue_at(
                 "python:S5720",
-                "Rename this first parameter to 'self'.",
+                &format!(
+                    "Rename \"{}\" to \"self\" or add the missing \"self\" parameter.",
+                    first.name
+                ),
                 first.name.range(),
                 index,
                 source,

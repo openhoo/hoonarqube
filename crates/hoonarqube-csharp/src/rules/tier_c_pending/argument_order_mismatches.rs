@@ -35,11 +35,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             })
         })
         .map(|call| {
+            let function = call.child_by_field_name("function").unwrap_or(call);
+            let label = callee_name(call, source).unwrap_or_default();
             issue(
                 language,
                 "S2234",
-                "Pass the arguments in the same order as the method's parameters.",
-                range_of(call, source),
+                format!(
+                    "Parameters to '{label}' have the same names but not the same order as the method arguments."
+                ),
+                range_of(function, source),
             )
         })
         .collect()

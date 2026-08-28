@@ -32,11 +32,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             })
         })
         .map(|comparison| {
+            let operator = collect_kinds(comparison, &["==", "!="])
+                .into_iter()
+                .next()
+                .unwrap_or(comparison);
             issue(
                 language,
                 "S1698",
-                "Use 'Equals' instead of '=='; this type overrides equality semantics.",
-                range_of(comparison, source),
+                "Consider using 'Equals' if value comparison was intended.",
+                range_of(operator, source),
             )
         })
         .collect()

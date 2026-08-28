@@ -1,6 +1,6 @@
 use super::support::identifier_usages;
 use crate::CsLanguage;
-use crate::cst::{issue, range_of};
+use crate::cst::{ancestors_of, issue, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -20,11 +20,19 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     identifier_usages(root, source, &WEAK_HASH_TYPES)
         .into_iter()
         .map(|identifier| {
+            let expression = ancestors_of(identifier)
+                .find(|ancestor| {
+                    matches!(
+                        ancestor.kind(),
+                        "invocation_expression" | "object_creation_expression"
+                    )
+                })
+                .unwrap_or(identifier);
             issue(
                 language,
                 "S4790",
-                "Use a stronger hash algorithm such as 'SHA256'.",
-                range_of(identifier, source),
+                "Make sure this weak hash algorithm is not used in a sensitive context here.",
+                range_of(expression, source),
             )
         })
         .collect()

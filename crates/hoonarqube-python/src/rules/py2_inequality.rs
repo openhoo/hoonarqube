@@ -21,7 +21,7 @@ pub(crate) fn check_py2_inequality(
                 let at = TextSize::from(to_u32(base + offset));
                 issues.push(Issue {
                     rule_key: "python:InequalityUsage".to_string(),
-                    message: "Replace the '<>' operator with '!='.".to_string(),
+                    message: "Replace \"<>\" by \"!=\".".to_string(),
                     range: to_range(TextRange::new(at, at + TextSize::new(2)), index, source),
                     fix: None,
                 });
@@ -29,4 +29,18 @@ pub(crate) fn check_py2_inequality(
         }
     }
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn inequality_usage_flags_py2_operator_outside_strings_and_comments() {
+        let bad = scan("result = left <> right\n");
+        assert_eq!(findings(&bad, "python:InequalityUsage").len(), 1);
+
+        let good = scan("result = left != right\ntext = '<>'\n# <>\n");
+        assert!(findings(&good, "python:InequalityUsage").is_empty());
+    }
 }

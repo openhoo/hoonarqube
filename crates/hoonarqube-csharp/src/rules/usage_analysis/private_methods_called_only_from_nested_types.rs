@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{issue, range_of};
+use crate::cst::{issue, node_text, range_of};
 use crate::rules::naming::TYPE_DECLARATION_KINDS;
 use crate::rules::structure::is_attributed;
 use crate::symbol_table::{
@@ -33,13 +33,15 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
             })
         });
         if all_nested {
+            let nested_name = uses
+                .first()
+                .and_then(|use_site| nearest_ancestor_of_kinds(*use_site, &TYPE_DECLARATION_KINDS))
+                .and_then(|holder| holder.child_by_field_name("name"))
+                .map_or("nested type", |name| node_text(name, source));
             issues.push(issue(
                 language,
                 "S3398",
-                format!(
-                    "Private method '{}' is only called from nested types.",
-                    member.name
-                ),
+                format!("Move this method inside '{nested_name}'."),
                 range_of(member.anchor, source),
             ));
         }

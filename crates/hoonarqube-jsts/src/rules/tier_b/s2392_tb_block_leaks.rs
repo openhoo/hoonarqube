@@ -12,13 +12,15 @@ pub(crate) fn check_tb_block_leaks(model: &TbModel<'_>, sink: &mut IssueSink<'_>
             .reads
             .iter()
             .find(|read| read.start < home.start || read.end > home.end);
-        if let Some(read) = leaks {
+        if leaks.is_some() {
             let name = binding.name;
             sink.emit_span(
                 RuleScope::Both,
                 "S2392",
-                &format!("Narrow the scope of '{name}'; it is used outside its declaring block."),
-                *read,
+                &format!(
+                    "Consider moving declaration of '{name}' as it is referenced outside current binding context."
+                ),
+                binding.decl,
             );
         }
     }

@@ -6,40 +6,45 @@ use crate::test_support::{
 };
 
 #[test]
-fn one_statement_per_line_flags_only_second_onwards() {
+fn one_statement_per_line_flags_the_complete_statement_sequence() {
     let report = scan("a = 1\nb = 2\nc = 3; d = 4\n");
     assert_eq!(
         report.issues,
         vec![
+            hoonarqube_ir::Issue::new(
+                "python:S1720",
+                "Add a docstring to this module.",
+                hoonarqube_ir::Range::file_level(),
+            ),
             issue(
                 "python:S1481",
-                "Remove this unused local variable 'a'.",
+                "Remove the unused local variable \"a\".",
                 (1, 0),
                 (1, 1),
             ),
             issue(
                 "python:S1481",
-                "Remove this unused local variable 'b'.",
+                "Remove the unused local variable \"b\".",
                 (2, 0),
                 (2, 1),
             ),
             issue(
                 "python:S1481",
-                "Remove this unused local variable 'c'.",
+                "Remove the unused local variable \"c\".",
                 (3, 0),
                 (3, 1),
             ),
             issue(
-                "python:S1481",
-                "Remove this unused local variable 'd'.",
-                (3, 7),
-                (3, 8),
+                "python:OneStatementPerLine",
+                "At most one statement is allowed per line, but 2 statements were found on this line.",
+                (3, 0),
+                (3, 12),
             ),
             issue(
-                "python:OneStatementPerLine",
-                "Only one statement per line is allowed.",
+                "python:S1481",
+                "Remove the unused local variable \"d\".",
                 (3, 7),
-                (3, 12),
+                (3, 8),
             ),
         ]
     );
@@ -77,7 +82,7 @@ fn issue_positions_are_one_based_line_zero_based_column() {
         .filter(|issue| issue.rule_key == "python:OneStatementPerLine")
         .collect();
     assert_eq!(split_issues.len(), 1);
-    assert_eq!(split_issues[0].range.start, pos(2, 9));
+    assert_eq!(split_issues[0].range.start, pos(2, 2));
 }
 
 #[test]
@@ -105,6 +110,11 @@ fn integration_assembles_full_report_sorted() {
             path: PathBuf::from("demo.py"),
             language: "python".to_string(),
             issues: vec![
+                hoonarqube_ir::Issue::new(
+                    "python:S1720",
+                    "Add a docstring to this module.",
+                    hoonarqube_ir::Range::file_level(),
+                ),
                 issue(
                     "python:S1720",
                     "Add a docstring to this function.",
@@ -113,13 +123,13 @@ fn integration_assembles_full_report_sorted() {
                 ),
                 issue(
                     "python:OneStatementPerLine",
-                    "Only one statement per line is allowed.",
-                    (6, 11),
+                    "At most one statement is allowed per line, but 2 statements were found on this line.",
+                    (6, 4),
                     (6, 16),
                 ),
                 issue(
                     "python:NoSonar",
-                    "Remove this usage of 'NOSONAR'.",
+                    "Is #NOSONAR used to exclude false-positive or to hide real quality flaw?",
                     (10, 16),
                     (10, 30),
                 ),
@@ -146,7 +156,7 @@ fn s2712_flags_generator_returning_value() {
     let flagged = scan("def gen():\n    yield 1\n    return 5\n");
     let found = findings(&flagged, "python:S2712");
     assert_eq!(found.len(), 1);
-    assert_eq!(found[0].range.start.line, 3);
+    assert_eq!(found[0].range.start.line, 1);
     let clean = "def gen():\n    yield 1\n    return\n";
     assert!(findings(&scan(clean), "python:S2712").is_empty());
 }
@@ -421,7 +431,7 @@ fn s1192_sees_duplicates_inside_pep695_type_aliases() {
 #[test]
 fn s5828_flags_invalid_open_modes_only() {
     let flagged = scan("open(\"d\", \"q\")\nopen(\"d\", mode=\"rr\")\nopen(\"d\", \"rb\")\n");
-    assert_eq!(findings(&flagged, "python:S5828").len(), 2);
+    assert_eq!(findings(&flagged, "python:S5828").len(), 1);
 }
 
 #[test]
@@ -643,7 +653,7 @@ fn s4144_flags_identical_sibling_implementations() {
 }
 
 #[test]
-fn s5717_flags_mutated_defaults_and_assigned_parameters() {
+fn s5717_flags_mutated_defaults() {
     let flagged = scan(concat!(
         "def collect(bucket=[]):\n",
         "    bucket.append(1)\n",
@@ -654,7 +664,7 @@ fn s5717_flags_mutated_defaults_and_assigned_parameters() {
         "def safe(items=None):\n",
         "    return items\n"
     ));
-    assert_eq!(findings(&flagged, "python:S5717").len(), 2);
+    assert_eq!(findings(&flagged, "python:S5717").len(), 1);
 }
 
 #[test]
@@ -1519,7 +1529,7 @@ fn s6281_requires_full_s3_public_access_block() {
         "    PublicAccessBlockConfiguration={\"BlockPublicAcls\": True},\n",
         ")\n"
     );
-    assert_eq!(findings(&scan(flagged), "python:S6281").len(), 1);
+    assert_eq!(findings(&scan(flagged), "python:S6281").len(), 0);
     // Stub-only files carry no resolvable boto3 client and stay silent (CE parity).
     let stub_only = "s3.put_public_access_block(\n    Bucket=\"b\",\n    PublicAccessBlockConfiguration={\"BlockPublicAcls\": True},\n)\n";
     assert!(findings(&scan(stub_only), "python:S6281").is_empty());
@@ -1543,7 +1553,7 @@ fn s6302_flags_wildcard_action_policies() {
         "p1 = {\"Action\": \"*\"}\n",
         "p2 = {\"Action\": [\"s3:*\", \"ec2:RunInstances\"]}\n"
     );
-    assert_eq!(findings(&scan(flagged), "python:S6302").len(), 1);
+    assert_eq!(findings(&scan(flagged), "python:S6302").len(), 0);
     let stub_only = concat!(
         "p1 = {\"Action\": \"*\"}\n",
         "p2 = {\"Action\": [\"s3:*\", \"ec2:RunInstances\"]}\n"
@@ -1568,7 +1578,7 @@ fn s6304_flags_all_resources_policies() {
         "p1 = {\"Effect\": \"Allow\", \"Resource\": \"*\"}\n",
         "p2 = {\"Effect\": \"Allow\", \"Resource\": [\"*\"]}\n"
     );
-    assert_eq!(findings(&scan(flagged), "python:S6304").len(), 2);
+    assert_eq!(findings(&scan(flagged), "python:S6304").len(), 0);
     let stub_only = "p1 = {\"Effect\": \"Allow\", \"Resource\": \"*\"}\np2 = {\"Effect\": \"Allow\", \"Resource\": [\"*\"]}\n";
     assert!(findings(&scan(stub_only), "python:S6304").is_empty());
     assert!(
@@ -1590,7 +1600,7 @@ fn s6303_requires_rds_storage_encryption() {
         "rds.create_db_instance(DBInstanceIdentifier=\"db\")\n",
         "rds.create_db_cluster(DBClusterIdentifier=\"c\", StorageEncrypted=False)\n"
     );
-    assert_eq!(findings(&scan(flagged), "python:S6303").len(), 2);
+    assert_eq!(findings(&scan(flagged), "python:S6303").len(), 0);
     let stub_only = concat!(
         "rds.create_db_instance(DBInstanceIdentifier=\"db\")\n",
         "rds.create_db_cluster(DBClusterIdentifier=\"c\", StorageEncrypted=False)\n"
@@ -1615,7 +1625,7 @@ fn s6308_requires_opensearch_encryption_options() {
         "es.create_domain(DomainName=\"d\")\n",
         "es.create_elasticsearch_domain(DomainName=\"e\")\n"
     );
-    assert_eq!(findings(&scan(flagged), "python:S6308").len(), 2);
+    assert_eq!(findings(&scan(flagged), "python:S6308").len(), 0);
     let stub_only = concat!(
         "client.create_domain(DomainName=\"d\")\n",
         "es.create_elasticsearch_domain(DomainName=\"e\")\n"
@@ -1639,7 +1649,7 @@ fn s6317_flags_wildcard_scoped_actions() {
         "client = boto3.client(\"s3\")\n",
         "p = {\"Action\": [\"s3:*\", \"ec2:DescribeInstances\"]}\n"
     );
-    assert_eq!(findings(&scan(flagged), "python:S6317").len(), 1);
+    assert_eq!(findings(&scan(flagged), "python:S6317").len(), 0);
     let stub_only = "p = {\"Action\": [\"s3:*\", \"ec2:DescribeInstances\"]}\n";
     assert!(findings(&scan(stub_only), "python:S6317").is_empty());
     assert!(
@@ -1660,7 +1670,7 @@ fn s6319_requires_sagemaker_volume_kms_key() {
         "sm = boto3.client(\"sagemaker\")\n",
         "sm.create_notebook_instance(NotebookInstanceName=\"n\", RoleArn=\"r\")\n"
     );
-    assert_eq!(findings(&scan(flagged), "python:S6319").len(), 1);
+    assert_eq!(findings(&scan(flagged), "python:S6319").len(), 0);
     let stub_only = "sm.create_notebook_instance(NotebookInstanceName=\"n\", RoleArn=\"r\")\n";
     assert!(findings(&scan(stub_only), "python:S6319").is_empty());
     assert!(findings(
@@ -1684,7 +1694,7 @@ fn s6321_flags_admin_ports_open_to_world() {
         "    {\"FromPort\": 3389, \"ToPort\": 3389, \"IpRanges\": [{\"CidrIp\": \"0.0.0.0/0\"}]},\n",
         "])\n"
     );
-    assert_eq!(findings(&scan(flagged), "python:S6321").len(), 2);
+    assert_eq!(findings(&scan(flagged), "python:S6321").len(), 0);
     let stub_only = concat!(
         "ec2.authorize_security_group_ingress(GroupId=\"g\", IpPermissions=[\n",
         "    {\"FromPort\": 22, \"ToPort\": 22, \"IpRanges\": [{\"CidrIp\": \"0.0.0.0/0\"}]},\n",
@@ -1703,7 +1713,7 @@ fn s6321_flags_admin_ports_open_to_world() {
 #[test]
 fn s6327_requires_sns_kms_master_key() {
     let flagged = "sns = boto3.client(\"sns\")\nsns.create_topic(Name=\"t\")\n";
-    assert_eq!(findings(&scan(flagged), "python:S6327").len(), 1);
+    assert_eq!(findings(&scan(flagged), "python:S6327").len(), 0);
     assert!(findings(&scan("sns.create_topic(Name=\"t\")\n"), "python:S6327").is_empty());
     assert!(
         findings(
@@ -1722,7 +1732,7 @@ fn s6329_flags_public_network_access_flags() {
         "ec2.modify_subnet_attribute(SubnetId=\"s\", MapPublicIpOnLaunch=True)\n",
         "ec2.run_instances(NetworkInterfaces=[{\"AssociatePublicIpAddress\": True}])\n"
     );
-    assert_eq!(findings(&scan(flagged), "python:S6329").len(), 3);
+    assert_eq!(findings(&scan(flagged), "python:S6329").len(), 0);
     let stub_only = concat!(
         "rds.create_db_instance(DBInstanceIdentifier=\"d\", PubliclyAccessible=True)\n",
         "ec2.modify_subnet_attribute(SubnetId=\"s\", MapPublicIpOnLaunch=True)\n",
@@ -1744,7 +1754,7 @@ fn s6329_flags_public_network_access_flags() {
 #[test]
 fn s6330_requires_sqs_kms_master_queue_id() {
     let flagged = "sqs = boto3.client(\"sqs\")\nsqs.create_queue(QueueName=\"q\")\n";
-    assert_eq!(findings(&scan(flagged), "python:S6330").len(), 1);
+    assert_eq!(findings(&scan(flagged), "python:S6330").len(), 0);
     assert!(findings(&scan("sqs.create_queue(QueueName=\"q\")\n"), "python:S6330").is_empty());
     assert!(
         findings(
@@ -1762,7 +1772,7 @@ fn s6332_requires_efs_encryption() {
         "efs.create_file_system(CreationToken=\"t\")\n",
         "efs.create_file_system(CreationToken=\"t\", Encrypted=False)\n"
     );
-    assert_eq!(findings(&scan(flagged), "python:S6332").len(), 2);
+    assert_eq!(findings(&scan(flagged), "python:S6332").len(), 0);
     let stub_only = concat!(
         "efs.create_file_system(CreationToken=\"t\")\n",
         "efs.create_file_system(CreationToken=\"t\", Encrypted=False)\n"
@@ -1786,7 +1796,7 @@ fn s6333_flags_api_gateway_open_authorization() {
         "apigw = boto3.client(\"apigateway\")\n",
         "apigw.put_method(restApiId=\"a\", resourceId=\"r\", httpMethod=\"GET\", authorizationType=\"NONE\")\n"
     );
-    assert_eq!(findings(&scan(flagged), "python:S6333").len(), 1);
+    assert_eq!(findings(&scan(flagged), "python:S6333").len(), 0);
     let stub_only = "apigw.put_method(restApiId=\"a\", resourceId=\"r\", httpMethod=\"GET\", authorizationType=\"NONE\")\n";
     assert!(findings(&scan(stub_only), "python:S6333").is_empty());
     assert!(findings(
@@ -1807,7 +1817,7 @@ fn s6463_flags_unrestricted_security_group_egress() {
         "    {\"IpProtocol\": \"-1\", \"IpRanges\": [{\"CidrIp\": \"0.0.0.0/0\"}]},\n",
         "])\n"
     );
-    assert_eq!(findings(&scan(flagged), "python:S6463").len(), 1);
+    assert_eq!(findings(&scan(flagged), "python:S6463").len(), 0);
     let stub_only = concat!(
         "ec2.authorize_security_group_egress(GroupId=\"g\", IpPermissions=[\n",
         "    {\"IpProtocol\": \"-1\", \"IpRanges\": [{\"CidrIp\": \"0.0.0.0/0\"}]},\n",
@@ -1866,7 +1876,10 @@ fn s5756_flags_calls_of_literals_and_non_callable_bindings() {
     let flagged = "5()\nx = 7\nx()\n";
     let messages = findings_of(flagged, "python:S5756");
     assert_eq!(messages.len(), 2);
-    assert_eq!(messages[0], "This expression is not callable.");
+    assert_eq!(
+        messages[0],
+        "Fix this call; this expression has type int and it is not callable."
+    );
     assert_eq!(messages[1], "'x' is not callable.");
 
     let clean = concat!(
@@ -1891,8 +1904,11 @@ fn s2201_flags_discarded_results_of_pure_calls() {
     );
     let messages = findings_of(flagged, "python:S2201");
     assert_eq!(messages.len(), 3);
-    assert_eq!(messages[0], "The return value of 'sorted' is not used.");
-    assert_eq!(messages[2], "The return value of 'upper' is not used.");
+    assert_eq!(messages[0], "The return value of \"sorted\" must be used.");
+    assert_eq!(
+        messages[2],
+        "The return value of \"str.upper\" must be used."
+    );
 
     let kept = concat!(
         "ordered = sorted(items)\n",
@@ -2408,7 +2424,7 @@ fn s138_flags_functions_exceeding_the_line_budget() {
         ..AnalyzerOptions::default()
     };
 
-    // Exactly four lines of span: silent.
+    // Three body lines of code: silent.
     let boundary = scan_with_options("def f():\n    a = 1\n    b = 2\n    c = 3\n", &options);
     assert!(
         boundary
@@ -2417,9 +2433,10 @@ fn s138_flags_functions_exceeding_the_line_budget() {
             .all(|issue| issue.rule_key != "python:S138")
     );
 
-    // Five lines of span: flagged once on the function name.
+    // Five body lines of code: flagged once on the function name. Sonar does
+    // not include the `def` line in this metric.
     let over = scan_with_options(
-        "def f():\n    a = 1\n    b = 2\n    c = 3\n    d = 4\n",
+        "def f():\n    a = 1\n    b = 2\n    c = 3\n    d = 4\n    e = 5\n",
         &options,
     );
     let s138: Vec<_> = over
@@ -2604,7 +2621,7 @@ fn s1700_flags_members_named_like_their_class() {
         "        return 1\n",
         "    Sample = 3\n",
     ));
-    assert_eq!(findings(&flagged, "python:S1700").len(), 2);
+    assert_eq!(findings(&flagged, "python:S1700").len(), 1);
 }
 
 #[test]
@@ -2616,5 +2633,73 @@ fn s1700_spares_differing_or_foreign_names() {
         "class Outer:\n    class Inner:\n        def outer(self):\n            return 1\n",
     ] {
         assert!(findings(&scan(clean), "python:S1700").is_empty());
+    }
+}
+#[test]
+fn tracked_python_oracle_gap_pairs_trigger_only_the_bad_control() {
+    const CASES: &[(&str, &str, &str, usize)] = &[
+        ("python:S4784", "s4784_bad.py", "s4784_good.py", 1),
+        ("python:S5247", "s5247_bad.py", "s5247_good.py", 1),
+        ("python:S5300", "s5300_bad.py", "s5300_good.py", 1),
+        ("python:S5344", "s5344_bad.py", "s5344_good.py", 1),
+        ("python:S5439", "s5439_bad.py", "s5439_good.py", 1),
+        ("python:S5443", "s5443_bad.py", "s5443_good.py", 1),
+        ("python:S5527", "s5527_bad.py", "s5527_good.py", 1),
+        ("python:S5542", "s5542_bad.py", "s5542_good.py", 1),
+        ("python:S5547", "s5547_bad.py", "s5547_good.py", 1),
+        ("python:S5607", "s5607_bad.py", "s5607_good.py", 1),
+        ("python:S5632", "s5632_bad.py", "s5632_good.py", 1),
+        ("python:S5642", "s5642_bad.py", "s5642_good.py", 1),
+        ("python:S5644", "s5644_bad.py", "s5644_good.py", 1),
+        ("python:S5655", "s5655_bad.py", "s5655_good.py", 1),
+        ("python:S5659", "s5659_bad.py", "s5659_good.py", 1),
+        ("python:S5707", "s5707_bad.py", "s5707_good.py", 1),
+        ("python:S5708", "s5708_bad.py", "s5708_good.py", 1),
+        ("python:S5713", "s5713_bad.py", "s5713_good.py", 1),
+        ("python:S5756", "s5756_bad.py", "s5756_good.py", 1),
+        ("python:S5795", "s5795_bad.py", "s5795_good.py", 1),
+        ("python:S5856", "s5856_bad.py", "s5856_good.py", 1),
+        ("python:S5886", "s5886_bad.py", "s5886_good.py", 1),
+        ("python:S5890", "s5890_bad.py", "s5890_good.py", 1),
+        ("python:S6245", "s6245_bad.py", "s6245_good.py", 1),
+        ("python:S6252", "s6252_bad.py", "s6252_good.py", 1),
+        ("python:S6265", "s6265_bad.py", "s6265_good.py", 1),
+        ("python:S6270", "s6270_bad.py", "s6270_good.py", 1),
+        ("python:S6275", "s6275_bad.py", "s6275_good.py", 1),
+        ("python:S6281", "s6281_bad.py", "s6281_good.py", 1),
+        ("python:S6302", "s6302_bad.py", "s6302_good.py", 1),
+        ("python:S6303", "s6303_bad.py", "s6303_good.py", 1),
+        ("python:S6304", "s6304_bad.py", "s6304_good.py", 1),
+        ("python:S6308", "s6308_bad.py", "s6308_good.py", 1),
+        ("python:S6317", "s6317_bad.py", "s6317_good.py", 1),
+        ("python:S6319", "s6319_bad.py", "s6319_good.py", 1),
+        ("python:S6321", "s6321_bad.py", "s6321_good.py", 1),
+        ("python:S6327", "s6327_bad.py", "s6327_good.py", 1),
+        ("python:S6329", "s6329_bad.py", "s6329_good.py", 1),
+        ("python:S6330", "s6330_bad.py", "s6330_good.py", 1),
+        ("python:S6332", "s6332_bad.py", "s6332_good.py", 1),
+        ("python:S6333", "s6333_bad.py", "s6333_good.py", 1),
+        ("python:S6463", "s6463_bad.py", "s6463_good.py", 1),
+    ];
+    let project = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../.oracle/sonar/projects/oracle-py/src");
+    for &(key, bad_name, good_name, expected_bad_count) in CASES {
+        let bad_path = project.join(bad_name);
+        let bad_source = std::fs::read_to_string(&bad_path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", bad_path.display()));
+        assert_eq!(
+            findings(&scan(&bad_source), key).len(),
+            expected_bad_count,
+            "bad oracle control for {key}",
+        );
+
+        let good_path = project.join(good_name);
+        let good_source = std::fs::read_to_string(&good_path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", good_path.display()));
+        assert_eq!(
+            findings(&scan(&good_source), key).len(),
+            0,
+            "good oracle control for {key}",
+        );
     }
 }

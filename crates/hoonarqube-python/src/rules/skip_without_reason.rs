@@ -27,8 +27,8 @@ pub(crate) fn check_skip_without_reason(
                 {
                     issues.push(issue_at(
                         "python:S1607",
-                        "Give a reason for skipping this test.",
-                        call.range(),
+                        "Provide a reason for skipping this test.",
+                        decorator.range(),
                         index,
                         source,
                     ));

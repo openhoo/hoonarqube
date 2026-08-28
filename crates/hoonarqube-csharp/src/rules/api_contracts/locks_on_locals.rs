@@ -36,8 +36,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S6507",
-                "Do not lock on this local variable.",
-                range_of(lock_statement, source),
+                format!("Do not lock on local variable '{name}', use a readonly field instead."),
+                range_of(expression, source),
             ));
         }
     }

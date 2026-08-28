@@ -28,7 +28,7 @@ impl TsTypeCollector<'_, '_> {
                     self.sink.emit_span(
                         RuleScope::TsOnly,
                         "S4136",
-                        "Group all overloaded signatures of this method together.",
+                        "All load signatures should be adjacent.",
                         method.span(),
                     );
                 }

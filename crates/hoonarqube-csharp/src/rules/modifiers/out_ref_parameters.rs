@@ -1,6 +1,8 @@
-use super::support::has_modifier;
+use super::support::{accessibility_rank, has_modifier};
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, modifiers_of, parameters_of, range_of};
+use crate::cst::{
+    collect_kinds, issue, modifiers_of, node_text, parameters_of, range_from_byte_offsets,
+};
 use crate::rules::naming::has_explicit_interface_specifier;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -14,6 +16,9 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if has_modifier(&modifiers, "override") || has_explicit_interface_specifier(method) {
             continue;
         }
+        if accessibility_rank(&modifiers) != 6 {
+            continue;
+        }
         for parameter in parameters_of(method) {
             let parameter_modifiers = modifiers_of(parameter, source);
             for modifier_kind in ["out", "ref"] {
@@ -21,8 +26,26 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     issues.push(issue(
                         language,
                         "S3874",
-                        format!("Remove this '{modifier_kind}' parameter."),
-                        range_of(parameter, source),
+                        format!("Consider refactoring this method in order to remove the need for this '{modifier_kind}' modifier."),
+                        node_text(parameter, source)
+                            .find(modifier_kind)
+                            .map_or_else(
+                                || {
+                                range_from_byte_offsets(
+                                    parameter.start_byte(),
+                                    parameter.end_byte(),
+                                    source,
+                                )
+                                },
+                                |offset| {
+                                    let start = parameter.start_byte() + offset;
+                                    range_from_byte_offsets(
+                                        start,
+                                        start + modifier_kind.len(),
+                                        source,
+                                    )
+                                },
+                            ),
                     ));
                 }
             }

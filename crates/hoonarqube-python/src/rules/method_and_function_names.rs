@@ -28,7 +28,8 @@ pub(crate) fn check_method_and_function_names(
                 issues.push(issue_at(
                     rule_key,
                     &format!(
-                        "Rename this {kind} to match the regular expression '^[a-z_][a-z0-9_]*$'."
+                        "Rename {kind} \"{}\" to match the regular expression ^[a-z_][a-z0-9_]*$.",
+                        function.name
                     ),
                     function.name.range(),
                     index,

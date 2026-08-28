@@ -27,12 +27,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .filter_map(move |(method, name, _)| {
             (!implemented.contains(name)).then_some((method, name))
         })
-        .map(|(method, name)| {
+        .map(|(method, _name)| {
+            let modifier = collect_kinds(method, &["modifier"])
+                .into_iter()
+                .find(|node| node_text(*node, source) == "partial")
+                .unwrap_or(method);
             issue(
                 language,
                 "S3251",
-                format!("Implement or remove this partial method '{name}'."),
-                range_of(method, source),
+                "Supply an implementation for this partial method.",
+                range_of(modifier, source),
             )
         })
         .collect()

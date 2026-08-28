@@ -1,0 +1,1 @@
+const nickname = 'hunter2';

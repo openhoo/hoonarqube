@@ -33,8 +33,11 @@ pub(crate) fn check_class_field_names(
                     if !matches_field_name(name.id.as_str()) {
                         issues.push(issue_at(
                             "python:S116",
-                            "Rename this field to match the regular expression \
-                             '^[_a-z][_a-z0-9]*$'.",
+                            &format!(
+                                "Rename this field \"{}\" to match the regular expression \
+                                 ^[_a-z][_a-z0-9]*$.",
+                                name.id
+                            ),
                             target_name.range(),
                             index,
                             source,

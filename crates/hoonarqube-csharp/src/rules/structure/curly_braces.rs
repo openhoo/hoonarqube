@@ -14,11 +14,28 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
         for body in embedded_bodies(header) {
             if body.kind() != "block" {
+                let keyword_name = match header.kind() {
+                    "if_statement" => "if",
+                    "for_statement" => "for",
+                    "foreach_statement" => "foreach",
+                    "while_statement" => "while",
+                    "do_statement" => "do",
+                    "using_statement" => "using",
+                    "lock_statement" => "lock",
+                    "fixed_statement" => "fixed",
+                    _ => "control",
+                };
+                let keyword = collect_kinds(header, &[keyword_name])
+                    .into_iter()
+                    .next()
+                    .unwrap_or(header);
                 issues.push(issue(
                     language,
                     "S121",
-                    "Add curly braces around this embedded statement.",
-                    range_of(body, source),
+                    format!(
+                        "Add curly braces around the nested statement(s) in this '{keyword_name}' block."
+                    ),
+                    range_of(keyword, source),
                 ));
             }
         }

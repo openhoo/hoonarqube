@@ -1,6 +1,9 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
-use crate::rules::expressions::{binary_operands, callee_name, expression_name, operator_of};
+use crate::rules::expressions::{
+    binary_operands, callee_name, expression_name, invocation_function, invocation_receiver,
+    operator_of,
+};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -23,18 +26,64 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let zero = |operand: Node<'_>| {
             operand.kind() == "integer_literal" && node_text(operand, source) == "0"
         };
-        if (is_count_expression(left, source) && zero(right))
-            || (zero(left) && is_count_expression(right, source))
-        {
+        let count = if is_count_expression(left, source) && zero(right) {
+            Some(left)
+        } else if zero(left) && is_count_expression(right, source) {
+            Some(right)
+        } else {
+            None
+        };
+        if let Some(count) = count {
+            let anchor = match count.kind() {
+                "invocation_expression" => invocation_function(count)
+                    .and_then(|function| function.child_by_field_name("name")),
+                "member_access_expression" => count.child_by_field_name("name"),
+                _ => None,
+            }
+            .unwrap_or(count);
+            let collection_type = count_receiver(count)
+                .filter(|receiver| receiver.kind() == "identifier")
+                .and_then(|receiver| declared_type(root, node_text(receiver, source), source))
+                .unwrap_or("IEnumerable");
             issues.push(issue(
                 language,
                 "S1155",
-                "Use 'Any()' instead of comparing a count with zero.",
-                range_of(expression, source),
+                format!("Use '.Any()' to test whether this '{collection_type}' is empty or not."),
+                range_of(anchor, source),
             ));
         }
     }
     issues
+}
+
+fn count_receiver(count: Node<'_>) -> Option<Node<'_>> {
+    match count.kind() {
+        "invocation_expression" => invocation_receiver(count),
+        "member_access_expression" => count.child_by_field_name("expression"),
+        _ => None,
+    }
+}
+
+fn declared_type<'a>(root: Node<'_>, name: &str, source: &'a str) -> Option<&'a str> {
+    for declaration in collect_kinds(root, &["parameter", "variable_declaration"]) {
+        let matches_name = if declaration.kind() == "parameter" {
+            declaration
+                .child_by_field_name("name")
+                .is_some_and(|candidate| node_text(candidate, source) == name)
+        } else {
+            collect_kinds(declaration, &["variable_declarator"])
+                .iter()
+                .any(|declarator| {
+                    declarator
+                        .child_by_field_name("name")
+                        .is_some_and(|candidate| node_text(candidate, source) == name)
+                })
+        };
+        if matches_name && let Some(type_node) = declaration.child_by_field_name("type") {
+            return node_text(type_node, source).rsplit('.').next();
+        }
+    }
+    None
 }
 
 /// Whether the operand reads a collection size (`.Count()` / `.Count`).

@@ -1,0 +1,7 @@
+function work() {
+  {
+    {
+      prepare();
+    }
+  }
+}

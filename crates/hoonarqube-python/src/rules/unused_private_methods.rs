@@ -35,7 +35,7 @@ pub(crate) fn check_unused_private_methods(
         if !referenced {
             issues.push(issue_at(
                 "python:S1144",
-                &format!("Remove this unused private method '{}'.", site.name),
+                &format!("Remove this unused class-private '{}' method.", site.name),
                 site.name_range,
                 index,
                 source,

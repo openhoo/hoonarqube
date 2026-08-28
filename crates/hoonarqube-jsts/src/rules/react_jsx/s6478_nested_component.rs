@@ -7,7 +7,7 @@ impl ReactCollector<'_> {
     pub(crate) fn check_nested_component(
         &mut self,
         returns_jsx: bool,
-        name_span: Option<Span>,
+        _name_span: Option<Span>,
         fallback_span: Span,
     ) {
         if !returns_jsx
@@ -16,11 +16,19 @@ impl ReactCollector<'_> {
         {
             return;
         }
+        let parent = self
+            .component_names
+            .iter()
+            .rev()
+            .find_map(Option::as_deref)
+            .unwrap_or("parent");
         self.sink.emit_span(
             RuleScope::Both,
             "S6478",
-            "Define this component outside of its parent component.",
-            name_span.unwrap_or(fallback_span),
+            &format!(
+                "Do not define components during render. React will see a new component type on every render and destroy the entire subtree’s DOM nodes and state. Instead, move this component definition out of the parent component “{parent}” and pass data as props."
+            ),
+            fallback_span,
         );
     }
 }

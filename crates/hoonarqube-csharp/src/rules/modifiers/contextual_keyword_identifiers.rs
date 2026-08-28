@@ -13,7 +13,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S2306",
-                format!("Rename \"{text}\"; it collides with a contextual keyword."),
+                format!("Rename '{text}' to not use a contextual keyword as an identifier."),
                 range_of(identifier, source),
             ));
         }

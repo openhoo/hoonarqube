@@ -28,8 +28,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .filter_map(|property| {
             let name_node = property.child_by_field_name("name")?;
-            let declared = member_declared_type(property)
-                .map(|type_node| normalized_type_name(node_text(type_node, source)))?;
+            let type_node = member_declared_type(property)?;
+            let declared = normalized_type_name(node_text(type_node, source));
             tokens
                 .iter()
                 .any(|(token, constraint)| {
@@ -37,14 +37,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         && route_constraint_allowed_types(constraint)
                             .is_some_and(|allowed| !allowed.contains(&declared))
                 })
-                .then_some(name_node)
+                .then_some((type_node, declared))
         })
-        .map(|name| {
+        .map(|(type_node, declared)| {
             issue(
                 language,
                 "S6800",
-                "Change this parameter's type so it matches the route constraint.",
-                range_of(name, source),
+                format!(
+                    "Parameter type '{declared}' does not match route parameter type constraint."
+                ),
+                range_of(type_node, source),
             )
         })
         .collect()

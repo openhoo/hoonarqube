@@ -12,15 +12,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .filter(|clause| !is_error_tainted(*clause))
         .filter(|clause| catch_type_tail(*clause, source) == Some("Exception"))
         .filter(|clause| {
-            clause
-                .child_by_field_name("body")
-                .is_some_and(|body| block_statements(body).is_empty())
+            clause.child_by_field_name("body").is_some_and(|body| {
+                block_statements(body).is_empty() && collect_kinds(body, &["comment"]).is_empty()
+            })
         })
         .map(|clause| {
             issue(
                 language,
                 "S2486",
-                "Handle this exception or narrow the catch clause.",
+                "Handle the exception or explain in a comment why it can be ignored.",
                 range_of(clause, source),
             )
         })
@@ -32,11 +32,11 @@ mod tests {
     use crate::tests::{analyze_default, with_key};
 
     #[test]
-    fn s2486_comment_only_bodies_still_count_as_ignored() {
+    fn s2486_comment_only_bodies_are_explained() {
         let report = analyze_default(
             "class A\n{\n    void M()\n    {\n        try { Run(); }\n        catch (System.Exception)\n        {\n            // Nothing to see here.\n        }\n    }\n}\n",
         );
-        assert_eq!(with_key(&report, "csharpsquid:S2486").len(), 1);
+        assert!(with_key(&report, "csharpsquid:S2486").is_empty());
     }
 
     #[test]

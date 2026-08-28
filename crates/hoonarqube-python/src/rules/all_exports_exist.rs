@@ -24,7 +24,7 @@ pub(crate) fn check_all_exports_exist(
         if !table.scopes[0].bindings.contains_key(&exported) {
             issues.push(issue_at(
                 "python:S5807",
-                &format!("'{exported}' is listed in __all__ but is not defined in this module."),
+                &format!("Change or remove this string; \"{exported}\" is not defined."),
                 range,
                 index,
                 source,

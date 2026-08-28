@@ -1,7 +1,7 @@
 use super::support::comparisons;
 use super::support::operator_of;
 use crate::CsLanguage;
-use crate::cst::{issue, range_of};
+use crate::cst::{issue, node_text, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -12,12 +12,22 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     let mut issues = Vec::new();
     for (expression, left, right) in comparisons(root) {
-        if matches!(operator_of(expression), Some("==" | "!=")) && (modulus(left) || modulus(right))
+        let compared_value = if modulus(left) {
+            Some(right)
+        } else if modulus(right) {
+            Some(left)
+        } else {
+            None
+        };
+        if matches!(operator_of(expression), Some("==" | "!="))
+            && compared_value.is_some_and(|value| {
+                value.kind() == "integer_literal" && node_text(value, source) != "0"
+            })
         {
             issues.push(issue(
                 language,
                 "S2197",
-                "Compare remainder results against ranges, not single values.",
+                "The result of this modulus operation may not be positive.",
                 range_of(expression, source),
             ));
         }
@@ -43,9 +53,8 @@ mod tests {
             "class A\n{\n    void M(int i, int j)\n    {\n        var even = i % 2 == 0;\n        var odd = j % 3 != 1;\n    }\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S2197");
-        assert_eq!(flagged.len(), 2);
-        assert_eq!(flagged[0].range.start.line, 5);
-        assert_eq!(flagged[1].range.start.line, 6);
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 6);
     }
 
     #[test]
@@ -54,7 +63,6 @@ mod tests {
             "class A\n{\n    void M(int i)\n    {\n        var even = 0 == i % 2;\n        var small = i % 2 < 2;\n    }\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S2197");
-        assert_eq!(flagged.len(), 1);
-        assert_eq!(flagged[0].range.start.line, 5);
+        assert!(flagged.is_empty());
     }
 }

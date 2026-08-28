@@ -13,16 +13,12 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         }
         let arguments = invocation_arguments(call);
-        let flagged = match callee_name(call, source) {
-            Some("ToString") => arguments.is_empty(),
-            Some("Parse") => arguments.len() == 1,
-            _ => false,
-        };
+        let flagged = callee_name(call, source) == Some("ToString") && arguments.is_empty();
         if flagged {
             issues.push(issue(
                 language,
                 "S4056",
-                "Call the overload that takes an 'IFormatProvider'.",
+                "Use the overload that takes a 'CultureInfo' or 'IFormatProvider' parameter.",
                 range_of(call, source),
             ));
         }

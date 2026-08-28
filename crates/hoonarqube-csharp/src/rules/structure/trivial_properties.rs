@@ -28,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S2292",
-                "Replace this trivial property with an auto-implemented one.",
+                "Make this an auto-implemented property and remove its backing field.",
                 range_of(name_anchor(property), source),
             ));
         }

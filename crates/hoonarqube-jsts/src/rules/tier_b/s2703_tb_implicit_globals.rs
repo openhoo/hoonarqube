@@ -8,7 +8,9 @@ pub(crate) fn check_tb_implicit_globals(model: &TbModel<'_>, sink: &mut IssueSin
         sink.emit_span(
             RuleScope::JsOnly,
             "S2703",
-            &format!("Declare '{name}' explicitly; this assignment creates an implicit global."),
+            &format!(
+                "Add the \"let\", \"const\" or \"var\" keyword to this declaration of \"{name}\" to make it explicit."
+            ),
             *span,
         );
     }

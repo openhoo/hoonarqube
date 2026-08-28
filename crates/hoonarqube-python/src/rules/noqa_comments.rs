@@ -57,8 +57,15 @@ mod tests {
                 &format!("{source}\n"),
                 &AnalyzerOptions::default(),
             );
-            assert_eq!(report.issues.len(), 1, "source: {source}");
-            assert_eq!(report.issues[0].rule_key, "python:S1309");
+            let keys: Vec<_> = report
+                .issues
+                .iter()
+                .filter_map(|issue| {
+                    matches!(issue.rule_key.as_str(), "python:S1309" | "python:S7632")
+                        .then_some(issue.rule_key.as_str())
+                })
+                .collect();
+            assert_eq!(keys, vec!["python:S1309"], "source: {source}");
         }
         for source in ["#noqa", "# noqa : E501", "# noqa: e501"] {
             let report = analyze(
@@ -69,6 +76,7 @@ mod tests {
             let keys: Vec<_> = report
                 .issues
                 .iter()
+                .filter(|issue| matches!(issue.rule_key.as_str(), "python:S1309" | "python:S7632"))
                 .map(|issue| issue.rule_key.as_str())
                 .collect();
             assert_eq!(

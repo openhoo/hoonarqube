@@ -2,6 +2,7 @@ use crate::engine::rx::RxAtom;
 use crate::engine::rx::RxItem;
 use crate::engine::rx::RxNode;
 use ruff_text_size::TextRange;
+use ruff_text_size::TextSize;
 
 pub(crate) fn check_rx_alternation_nodes(
     node: &RxNode,
@@ -30,7 +31,7 @@ pub(crate) fn check_rx_alternation_nodes(
             {
                 push(
                     "python:S6035",
-                    "Replace this single-character alternation with a character class.",
+                    "Replace this alternation with a character class.",
                     TextRange::new(
                         branches[0].span.start(),
                         branches[branches.len() - 1].span.end(),
@@ -47,7 +48,7 @@ pub(crate) fn check_rx_alternation_nodes(
                     push(
                         "python:S6323",
                         "Remove this empty alternative.",
-                        branch.span,
+                        TextRange::new(branch.span.start(), branch.span.start() + TextSize::new(1)),
                     );
                 }
                 visit_items(&branch.items, push);

@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S3261",
-                "Remove this empty namespace or populate it.",
+                "Remove this empty namespace.",
                 range_of(namespace, source),
             ));
         }

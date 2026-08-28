@@ -33,3 +33,17 @@ pub(crate) fn check_mixed_string_concatenation(
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5799_flags_implicit_str_bytes_concatenation() {
+        let bad = scan("mixed = 'text' b'bytes'\n");
+        assert_eq!(findings(&bad, "python:S5799").len(), 1);
+
+        let good = scan("text = 'first' 'second'\ndata = b'first' b'second'\n");
+        assert!(findings(&good, "python:S5799").is_empty());
+    }
+}

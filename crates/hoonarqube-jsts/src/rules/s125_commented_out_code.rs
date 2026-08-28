@@ -14,7 +14,7 @@ fn check_commented_out_code(sink: &mut IssueSink, comment: ScannedComment, body:
     sink.emit_span(
         RuleScope::Both,
         "S125",
-        "Remove this commented-out code.",
+        "Remove this commented out code.",
         comment.token,
     );
 }

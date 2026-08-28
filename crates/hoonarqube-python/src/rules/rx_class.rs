@@ -1,12 +1,17 @@
 use crate::engine::rx::RxClass;
 use crate::engine::rx::RxClassItem;
-use crate::engine::rx::concise_class_message;
+use crate::engine::rx::concise_class_replacement;
 use crate::support::CLASS_METACHARACTERS;
 use crate::support::is_grapheme_codepoint;
 use crate::support::is_regional_indicator;
-use ruff_text_size::TextRange;
+use crate::support::to_u32;
+use ruff_text_size::{TextRange, TextSize};
 
-pub(crate) fn check_rx_class(class: &RxClass, push: &mut dyn FnMut(&str, &str, TextRange)) {
+pub(crate) fn check_rx_class(
+    class: &RxClass,
+    source: &str,
+    push: &mut dyn FnMut(&str, &str, TextRange),
+) {
     // python:S6397 — single-character class.
     if !class.negated
         && class.items.len() == 1
@@ -15,13 +20,20 @@ pub(crate) fn check_rx_class(class: &RxClass, push: &mut dyn FnMut(&str, &str, T
     {
         push(
             "python:S6397",
-            "Remove this single-character class and write the character directly.",
-            class.span,
+            "Replace this character class by the character itself.",
+            TextRange::at(
+                class.span.start() + TextSize::new(1),
+                TextSize::from(to_u32(ch.len_utf8())),
+            ),
         );
     }
     // python:S6353 — classes with concise shorthand equivalents.
-    if let Some(message) = concise_class_message(class) {
-        push("python:S6353", message, class.span);
+    if let Some(replacement) = concise_class_replacement(class) {
+        let class_text = &source[class.span];
+        let message = format!(
+            "Use concise character class syntax '{replacement}' instead of '{class_text}'."
+        );
+        push("python:S6353", &message, class.span);
     }
     // python:S5869 — duplicated characters and overlapping ranges.
     let mut seen_chars: Vec<char> = Vec::new();
@@ -34,10 +46,13 @@ pub(crate) fn check_rx_class(class: &RxClass, push: &mut dyn FnMut(&str, &str, T
                         .iter()
                         .any(|(low, high)| low <= ch && ch <= high)
                 {
+                    let class_text = &source[class.span];
+                    let relative = class_text.find(*ch).unwrap_or(0);
+                    let first = class.span.start() + TextSize::from(to_u32(relative));
                     push(
                         "python:S5869",
-                        "Remove this duplicate character or overlapping range.",
-                        class.span,
+                        "Remove duplicates in this character class.",
+                        TextRange::at(first, TextSize::from(to_u32(ch.len_utf8()))),
                     );
                     return;
                 }
@@ -49,7 +64,7 @@ pub(crate) fn check_rx_class(class: &RxClass, push: &mut dyn FnMut(&str, &str, T
                 {
                     push(
                         "python:S5869",
-                        "Remove this duplicate character or overlapping range.",
+                        "Remove duplicates in this character class.",
                         class.span,
                     );
                     return;

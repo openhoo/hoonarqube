@@ -64,9 +64,9 @@ impl<'p> TbFlow<'p, '_, '_> {
                     RuleScope::Both,
                     "S1226",
                     &format!(
-                        "Assign '{name}' to a new variable instead of overwriting its incoming value."
+                        "Introduce a new variable or use its initial value before reassigning \"{name}\"."
                     ),
-                    site,
+                    value.map_or(site, |value| Span::new(site.start, value.end)),
                 );
             } else {
                 let same_value = matches!(
@@ -85,7 +85,7 @@ impl<'p> TbFlow<'p, '_, '_> {
                     self.sink.emit_span(
                         RuleScope::Both,
                         "S1854",
-                        &format!("Remove this unused assignment of '{name}'."),
+                        &format!("Remove this useless assignment to variable \"{name}\"."),
                         previous.site,
                     );
                 }
@@ -402,7 +402,7 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S2123",
-                "This increment/decrement result is unused; the variable is overwritten immediately.",
+                "Remove this increment or correct the code not to waste it.",
                 update_span,
             );
             if let Some((name, _)) = tb_assignment_target(&assign.left) {

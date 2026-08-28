@@ -15,15 +15,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .filter_map(|declarator| {
             let name = declarator.child_by_field_name("name")?;
             let text = node_text(name, source);
-            (text != "_").then_some((declarator, text))
+            (text != "_").then_some((name, text))
         })
         .filter(|(_, text)| count_word_occurrences(source, text) <= 1)
-        .map(|(declarator, _)| {
+        .map(|(name_node, name)| {
             issue(
                 language,
                 "S1481",
-                "Remove this unused local variable.",
-                range_of(declarator, source),
+                format!("Remove the unused local variable '{name}'."),
+                range_of(name_node, source),
             )
         })
         .collect()

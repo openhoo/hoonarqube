@@ -27,8 +27,8 @@ impl ReactCollector<'_> {
         self.sink.emit_span(
             RuleScope::Both,
             "S6477",
-            "Add a 'key' prop to this element returned from '.map()'.",
-            element.opening_element.span(),
+            "Missing \"key\" prop for element in iterator",
+            element.span(),
         );
     }
 }

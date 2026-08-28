@@ -22,7 +22,7 @@ pub(crate) fn check_invariant_returns(
             if identical {
                 issues.push(issue_at(
                     "python:S3516",
-                    "Every return path yields the same constant; verify this is intended.",
+                    "Refactor this method to not always return the same value.",
                     function.name.range(),
                     index,
                     source,

@@ -48,11 +48,3 @@ pub(crate) fn grants_to_all_principals(expr: &Expr) -> bool {
         _ => is_wildcard_string(expr),
     }
 }
-
-/// Whether the value is `"*"` or a list containing `"*"`.
-pub(crate) fn includes_wildcard(expr: &Expr) -> bool {
-    match expr {
-        Expr::List(list) => list.elts.iter().any(is_wildcard_string),
-        _ => is_wildcard_string(expr),
-    }
-}

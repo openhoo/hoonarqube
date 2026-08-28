@@ -1,6 +1,6 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
-use crate::rules::expressions::callee_name;
+use crate::rules::expressions::{callee_name, invocation_function};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -10,20 +10,22 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     collect_kinds(root, &["invocation_expression"])
         .into_iter()
         .filter(|call| !is_error_tainted(*call))
-        .filter(|call| TO_LOWER_METHODS.contains(&callee_name(*call, source).unwrap_or("")))
+        .filter(|call| callee_name(*call, source) == Some("ToLowerInvariant"))
         .map(|call| {
             issue(
                 language,
                 "S4040",
-                "Use 'ToUpperInvariant' to normalize this string.",
-                range_of(call, source),
+                "Change this normalization to 'ToUpperInvariant()'.",
+                range_of(
+                    invocation_function(call)
+                        .and_then(|function| function.child_by_field_name("name"))
+                        .unwrap_or(call),
+                    source,
+                ),
             )
         })
         .collect()
 }
-
-/// Methods that normalize text and must not fold case downwards.
-const TO_LOWER_METHODS: [&str; 2] = ["ToLower", "ToLowerInvariant"];
 
 #[cfg(test)]
 mod tests {
@@ -34,6 +36,6 @@ mod tests {
         let report = analyze_default(
             "class A\n{\n    void M()\n    {\n        key = name.Trim().ToLower();\n        slug = raw.ToLowerInvariant().Replace(\" \", \"-\");\n    }\n}\n",
         );
-        assert_eq!(with_key(&report, "csharpsquid:S4040").len(), 2);
+        assert_eq!(with_key(&report, "csharpsquid:S4040").len(), 1);
     }
 }

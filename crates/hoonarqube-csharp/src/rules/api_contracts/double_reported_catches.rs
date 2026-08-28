@@ -19,11 +19,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .filter(|(_, logs, rethrows)| *logs && *rethrows)
         .map(|(clause, _, _)| {
+            let anchor = collect_kinds(clause, &["catch_declaration"])
+                .first()
+                .and_then(|declaration| declaration.child_by_field_name("name"))
+                .unwrap_or(clause);
             issue(
                 language,
                 "S2139",
-                "Choose either logging or rethrowing in this catch clause.",
-                range_of(clause, source),
+                "Either log this exception and handle it, or rethrow it with some contextual information.",
+                range_of(anchor, source),
             )
         })
         .collect()

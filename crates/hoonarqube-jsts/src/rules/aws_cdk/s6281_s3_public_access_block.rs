@@ -1,10 +1,10 @@
 // Rule module s6281_s3_public_access_block.
-use super::shared::{CdkFile, PropsView, ValueView, property_value};
+use super::shared::{CdkFile, PropsView, ValueView, property_span, property_value};
 use crate::support::IssueSink;
 use crate::support::{RuleScope, unparenthesized};
 use oxc_ast::ast::{Expression, NewExpression};
 
-const PUBLIC: &str = "Disabling public access block settings allows public ACL/policies to be set on this S3 bucket.";
+const PUBLIC: &str = "Make sure allowing public ACL/policies to be set is safe here.";
 const BLOCK_ACLS_ONLY: &str = "Using BLOCK_ACLS_ONLY allows public access via bucket policies.";
 
 const BLOCK_KEYS: [&str; 4] = [
@@ -57,7 +57,12 @@ pub(crate) fn check_s6281_s3_public_access_block(
         if let Some(value) = property_value(PropsView::Live(config), key)
             && file.value_bool(&value) == Some(false)
         {
-            sink.emit_span(RuleScope::Both, "S6281", PUBLIC, value.span());
+            sink.emit_span(
+                RuleScope::Both,
+                "S6281",
+                PUBLIC,
+                property_span(PropsView::Live(config), key).unwrap_or_else(|| value.span()),
+            );
         }
     }
 }

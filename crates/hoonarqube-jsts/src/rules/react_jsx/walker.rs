@@ -78,6 +78,7 @@ fn check_react_jsx_rules(
         conditional_depth: 0,
         map_frames: Vec::new(),
         component_stack: Vec::new(),
+        component_names: Vec::new(),
         class_depth: 0,
         method_guard: 0,
         prop_declarations: BTreeMap::new(),
@@ -102,6 +103,7 @@ pub(crate) struct ReactCollector<'index> {
     pub(crate) conditional_depth: usize,
     pub(crate) map_frames: Vec<MapFrame>,
     pub(crate) component_stack: Vec<bool>,
+    pub(crate) component_names: Vec<Option<String>>,
     pub(crate) class_depth: usize,
     pub(crate) method_guard: usize,
     pub(crate) prop_declarations: BTreeMap<String, BTreeMap<String, PropKind>>,
@@ -159,10 +161,16 @@ impl<'a> Visit<'a> for ReactCollector<'_> {
         if let Some((returns_jsx, name_span)) = frame {
             self.check_nested_component(returns_jsx, Some(name_span), it.span());
             self.component_stack.push(returns_jsx);
+            self.component_names.push(
+                returns_jsx
+                    .then(|| binding_identifier_name(&it.id).map(str::to_string))
+                    .flatten(),
+            );
         }
         walk_variable_declarator(self, it);
         if frame.is_some() {
             self.component_stack.pop();
+            self.component_names.pop();
         }
     }
 
@@ -198,10 +206,16 @@ impl<'a> Visit<'a> for ReactCollector<'_> {
         let is_component = class_returns_jsx(it);
         self.check_nested_component(is_component, it.id.as_ref().map(GetSpan::span), it.span());
         self.component_stack.push(is_component);
+        self.component_names.push(
+            is_component
+                .then(|| it.id.as_ref().map(|id| id.name.to_string()))
+                .flatten(),
+        );
         self.class_depth += 1;
         walk_class(self, it);
         self.class_depth -= 1;
         self.component_stack.pop();
+        self.component_names.pop();
     }
 
     fn visit_import_declaration(&mut self, it: &ImportDeclaration<'_>) {
@@ -221,10 +235,16 @@ impl<'a> Visit<'a> for ReactCollector<'_> {
                 function.span(),
             );
             self.component_stack.push(returns_jsx);
+            self.component_names.push(
+                returns_jsx
+                    .then(|| function.id.as_ref().map(|id| id.name.to_string()))
+                    .flatten(),
+            );
         }
         walk_statement(self, it);
         if let Statement::FunctionDeclaration(_) = it {
             self.component_stack.pop();
+            self.component_names.pop();
         }
     }
 

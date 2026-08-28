@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S2225",
-                    "Do not return null from 'ToString'.",
+                    "Return an empty string instead.",
                     range_of(candidate, source),
                 ));
                 break;

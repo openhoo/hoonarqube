@@ -32,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S3878",
-                "Pass the elements individually to this 'params' call.",
+                "Remove this array creation and simply pass the elements.",
                 range_of(argument, source),
             )
         })

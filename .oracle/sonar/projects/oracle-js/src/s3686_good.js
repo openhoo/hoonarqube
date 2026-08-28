@@ -1,0 +1,3 @@
+function plain() {}
+plain();
+plain();

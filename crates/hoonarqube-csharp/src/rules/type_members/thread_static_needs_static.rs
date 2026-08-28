@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, modifiers_of, range_of};
+use crate::cst::{collect_kinds, issue, modifiers_of, node_text, range_of};
 use crate::rules::modifiers::{has_any_attribute, has_modifier};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -14,17 +14,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 && !has_modifier(&modifiers_of(*field, source), "static")
         })
         .filter_map(|field| {
-            collect_kinds(field, &["variable_declarator"])
-                .first()
-                .copied()
+            collect_kinds(field, &["attribute"])
+                .into_iter()
+                .find(|attribute| node_text(*attribute, source).starts_with("ThreadStatic"))
         })
-        .filter_map(|declarator| declarator.child_by_field_name("name"))
-        .map(|name_node| {
+        .map(|attribute| {
             issue(
                 language,
                 "S3005",
-                "Mark this field 'static'; '[ThreadStatic]' applies only to static fields.",
-                range_of(name_node, source),
+                "Remove the 'ThreadStatic' attribute from this definition.",
+                range_of(attribute, source),
             )
         })
         .collect()

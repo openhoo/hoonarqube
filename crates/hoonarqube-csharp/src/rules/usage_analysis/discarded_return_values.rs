@@ -37,11 +37,14 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
         issues.push(issue(
             language,
             "S3241",
-            format!(
-                "No caller uses the return value of '{}'; make it 'void' or capture the result.",
-                member.name
+            "Change return type to 'void'; not a single caller uses the returned value.",
+            range_of(
+                member
+                    .declaration
+                    .child_by_field_name("returns")
+                    .unwrap_or(member.anchor),
+                source,
             ),
-            range_of(member.anchor, source),
         ));
     }
     issues

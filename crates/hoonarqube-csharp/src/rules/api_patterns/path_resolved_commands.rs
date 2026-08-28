@@ -35,7 +35,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S4036",
-                "Launch this command by explicit path instead of relying on 'PATH'.",
+                "Make sure the \"PATH\" used to find this command includes only what you intend.",
                 range_of(call, source),
             )
         })

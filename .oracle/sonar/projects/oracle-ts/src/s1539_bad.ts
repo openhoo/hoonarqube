@@ -1,0 +1,2 @@
+boot();
+"use strict";

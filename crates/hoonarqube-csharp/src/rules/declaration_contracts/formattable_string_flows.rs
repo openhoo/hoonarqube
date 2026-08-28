@@ -18,11 +18,12 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             })
         })
         .map(|node| {
+            let anchor = node.child_by_field_name("name").unwrap_or(node);
             issue(
                 language,
                 "S6618",
-                "Prefer 'string.Create' over this 'FormattableString' flow.",
-                range_of(node, source),
+                "Use \"string.Create\" instead of \"FormattableString\".",
+                range_of(anchor, source),
             )
         })
         .collect()

@@ -637,7 +637,6 @@ impl<'a> Visit<'a> for NullAccessCollector {
         let base = member_object(member);
         if !member_optional(member) {
             let kind = match unparenthesized(base) {
-                Expression::NullLiteral(_) => Some("null"),
                 Expression::Identifier(identifier)
                     if !self.undefined_shadowed && identifier.name == "undefined" =>
                 {
@@ -1017,7 +1016,7 @@ impl<'p> Visit<'p> for UnstableKeyCollector {
             && let Expression::CallExpression(call) = unparenthesized(expression)
             && unstable_key_call(call)
         {
-            self.sites.push(attribute.span);
+            self.sites.push(call.span());
         }
     }
 }

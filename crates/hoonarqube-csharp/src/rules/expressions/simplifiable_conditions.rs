@@ -1,8 +1,7 @@
-use super::support::boolean_literal_side;
-use super::support::comparisons;
-use super::support::operator_of;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, range_from_byte_offsets};
+use crate::rules::expressions::block_statements;
+use crate::rules::structure::{else_alternative, embedded_bodies};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -11,39 +10,54 @@ use tree_sitter::Node;
 /// their condition.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for (expression, left, right) in comparisons(root) {
-        let literal = boolean_literal_side(left, right, source);
-        let simplifiable = matches!(
-            (operator_of(expression), literal),
-            (Some("=="), Some(false)) | (Some("!="), Some(true))
-        );
-        if simplifiable {
-            issues.push(issue(
-                language,
-                "S3240",
-                "Replace this comparison with a negation of its operand.",
-                range_of(expression, source),
-            ));
-        }
-    }
-    for conditional in collect_kinds(root, &["conditional_expression"]) {
-        if is_error_tainted(conditional) {
+    for if_statement in collect_kinds(root, &["if_statement"]) {
+        if is_error_tainted(if_statement) || else_alternative(if_statement).is_none() {
             continue;
         }
-        let mut cursor = conditional.walk();
-        let branches: Vec<Node> = conditional
-            .children(&mut cursor)
-            .filter(tree_sitter::Node::is_named)
-            .skip(1)
-            .collect();
-        if branches.len() == 2 && branches.iter().all(|b| b.kind() == "boolean_literal") {
+        let bodies = embedded_bodies(if_statement);
+        let simple_branches = bodies.len() == 2
+            && bodies.iter().all(|body| {
+                let statements = if body.kind() == "block" {
+                    block_statements(*body)
+                } else {
+                    vec![*body]
+                };
+                statements.len() == 1
+                    && matches!(
+                        statements[0].kind(),
+                        "return_statement" | "expression_statement"
+                    )
+            });
+        if simple_branches {
             issues.push(issue(
                 language,
                 "S3240",
-                "Replace this ternary with its condition directly.",
-                range_of(conditional, source),
+                "Use the '?:' operator here.",
+                range_from_byte_offsets(
+                    if_statement.start_byte(),
+                    if_statement.start_byte() + "if".len(),
+                    source,
+                ),
             ));
         }
     }
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3240_flags_if_else_assignments() {
+        let bad = analyze_default(
+            "class C { int A(bool value) { if (value) { return 1; } else { return 0; } } }",
+        );
+        assert_eq!(with_key(&bad, "csharpsquid:S3240").len(), 1);
+
+        let good = analyze_default(
+            "class C { bool A(bool value) => !value; bool B(bool value) => value; }",
+        );
+        assert!(with_key(&good, "csharpsquid:S3240").is_empty());
+    }
 }

@@ -33,7 +33,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S2701",
-                "Remove the literal from this assertion.",
+                "Remove or correct this assertion.",
                 range_of(call, source),
             ));
         }

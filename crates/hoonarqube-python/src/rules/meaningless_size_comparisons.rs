@@ -30,7 +30,7 @@ pub(crate) fn check_meaningless_size_comparisons(
         if meaningless {
             issues.push(issue_at(
                 "python:S3981",
-                "Review this meaningless collection-size comparison.",
+                "The length of a collection is always \">=0\", so update this test to either \"==0\" or \">0\".",
                 compare.range(),
                 index,
                 source,

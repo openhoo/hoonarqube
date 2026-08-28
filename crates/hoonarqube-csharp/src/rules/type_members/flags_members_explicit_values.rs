@@ -1,7 +1,8 @@
 use super::support::enum_members;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, node_text, range_of};
+use crate::cst::{collect_kinds, issue, range_of};
 use crate::rules::naming::enum_has_flags_attribute;
+use crate::rules::structure::name_anchor;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -11,20 +12,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     collect_kinds(root, &["enum_declaration"])
         .into_iter()
         .filter(|enum_node| enum_has_flags_attribute(*enum_node, source))
-        .flat_map(|enum_node| enum_members(enum_node))
-        .filter_map(|(member, value)| {
-            let name = member.child_by_field_name("name")?;
-            value.is_none().then_some(name)
+        .filter(|enum_node| {
+            enum_members(*enum_node)
+                .iter()
+                .any(|(_, value)| value.is_none())
         })
-        .map(|name| {
+        .map(|enum_node| {
             issue(
                 language,
                 "S2345",
-                format!(
-                    "Give the enumeration member '{}' an explicit value.",
-                    node_text(name, source)
-                ),
-                range_of(name, source),
+                "Initialize all the members of this 'Flags' enumeration.",
+                range_of(name_anchor(enum_node), source),
             )
         })
         .collect()

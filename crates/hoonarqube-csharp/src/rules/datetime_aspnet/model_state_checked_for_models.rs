@@ -1,7 +1,8 @@
 use super::support::controller_actions;
 use super::support::is_api_controller_like;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, node_text, parameters_of, range_of};
+use crate::cst::{attributes_of, collect_kinds, issue, node_text, parameters_of, range_of};
+use crate::rules::modifiers::has_any_attribute;
 use crate::rules::structure::{body_of, name_anchor};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -12,12 +13,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     collect_kinds(root, &["class_declaration"])
         .into_iter()
         .filter(|class_node| is_api_controller_like(*class_node, source))
+        .filter(|class_node| !has_any_attribute(*class_node, source, &["ApiController"]))
         .flat_map(|class_node| controller_actions(class_node, source))
         .filter(|action| {
             parameters_of(*action).iter().any(|parameter| {
                 parameter
                     .child_by_field_name("type")
-                    .is_some_and(|ty| !is_simple_binding_type(node_text(ty, source)))
+                    .is_some_and(|ty| model_has_validation(root, node_text(ty, source), source))
             })
         })
         .filter(|action| {
@@ -28,34 +30,21 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S6967",
-                "Check 'ModelState.IsValid' before using bound model data.",
+                "ModelState.IsValid should be checked in controller actions.",
                 range_of(name_anchor(action), source),
             )
         })
         .collect()
 }
 
-/// Simple types a binder handles without a complex model.
-fn is_simple_binding_type(type_text: &str) -> bool {
-    const SIMPLE_TYPES: [&str; 18] = [
-        "bool",
-        "byte",
-        "sbyte",
-        "char",
-        "short",
-        "ushort",
-        "int",
-        "uint",
-        "long",
-        "ulong",
-        "float",
-        "double",
-        "decimal",
-        "string",
-        "Guid",
-        "DateTime",
-        "DateTimeOffset",
-        "CancellationToken",
-    ];
-    SIMPLE_TYPES.contains(&type_text.trim_end_matches('?').trim_end_matches("[]"))
+fn model_has_validation(root: Node<'_>, type_name: &str, source: &str) -> bool {
+    collect_kinds(root, &["class_declaration"])
+        .into_iter()
+        .filter(|class_node| {
+            class_node
+                .child_by_field_name("name")
+                .is_some_and(|name| node_text(name, source) == type_name)
+        })
+        .flat_map(|class_node| collect_kinds(class_node, &["property_declaration"]))
+        .any(|property| !attributes_of(property, source).is_empty())
 }

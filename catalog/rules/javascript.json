@@ -2,7 +2,7 @@
   "schema_version": 1,
   "language": "js",
   "source_capture_sha256": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0",
-  "classification": "licensed-only-unclassified",
+  "classification": "community-plus-enterprise-unverified",
   "rules": [
     {
       "external_key": "javascript:S100",
@@ -34,7 +34,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -67,7 +67,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -98,7 +98,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -131,7 +131,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -156,7 +156,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -184,7 +184,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -211,7 +211,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -244,7 +244,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -271,7 +271,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -304,7 +304,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -333,7 +333,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -360,7 +360,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -388,7 +388,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -415,7 +415,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -443,7 +443,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -474,7 +474,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -499,7 +499,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -524,7 +524,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -552,7 +552,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -579,7 +579,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -607,7 +607,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -634,7 +634,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -661,7 +661,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -690,7 +690,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -715,7 +715,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -740,7 +740,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -767,7 +767,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -794,7 +794,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -822,7 +822,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -849,7 +849,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -882,7 +882,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -909,7 +909,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -936,7 +936,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -974,7 +974,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1001,7 +1001,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1028,7 +1028,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1055,7 +1055,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1080,7 +1080,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1105,7 +1105,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1132,7 +1132,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1157,7 +1157,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1184,7 +1184,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1212,7 +1212,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1239,7 +1239,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1266,7 +1266,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1294,7 +1294,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1312,7 +1312,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1339,7 +1339,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1364,7 +1364,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1397,7 +1397,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1424,7 +1424,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1457,7 +1457,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1488,7 +1488,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1513,7 +1513,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1540,7 +1540,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1567,7 +1567,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1598,7 +1598,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1623,7 +1623,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1660,7 +1660,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1687,7 +1687,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1720,7 +1720,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1747,7 +1747,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1774,7 +1774,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1801,7 +1801,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1828,7 +1828,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1848,7 +1848,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1873,7 +1873,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1900,7 +1900,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1928,7 +1928,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1955,7 +1955,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -1980,7 +1980,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2008,7 +2008,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2035,7 +2035,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2062,7 +2062,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2087,7 +2087,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2112,7 +2112,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2137,7 +2137,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2165,7 +2165,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2198,7 +2198,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2227,7 +2227,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2252,7 +2252,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2280,7 +2280,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2308,7 +2308,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2335,7 +2335,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2362,7 +2362,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2389,7 +2389,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2416,7 +2416,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2441,7 +2441,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2469,7 +2469,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2497,7 +2497,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2525,7 +2525,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2554,7 +2554,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2581,7 +2581,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2608,7 +2608,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2641,7 +2641,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2667,7 +2667,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2689,7 +2689,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2711,7 +2711,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2738,7 +2738,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2765,7 +2765,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2792,7 +2792,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2819,7 +2819,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2852,7 +2852,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2877,7 +2877,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2904,7 +2904,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2932,7 +2932,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2959,7 +2959,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -2979,7 +2979,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3004,7 +3004,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3022,7 +3022,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3050,7 +3050,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3081,7 +3081,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3109,7 +3109,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3134,7 +3134,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3167,7 +3167,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3194,7 +3194,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3221,7 +3221,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3248,7 +3248,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3275,7 +3275,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3302,7 +3302,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3327,7 +3327,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3356,7 +3356,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3385,7 +3385,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3416,7 +3416,7 @@
         "defense_in_depth",
         "never_trust_user_input"
       ],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3436,7 +3436,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3463,7 +3463,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3490,7 +3490,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3517,7 +3517,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3542,7 +3542,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3570,7 +3570,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3599,7 +3599,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3626,7 +3626,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3656,7 +3656,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3683,7 +3683,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3708,7 +3708,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3735,7 +3735,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3762,7 +3762,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3791,7 +3791,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3818,7 +3818,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3846,7 +3846,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3873,7 +3873,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3900,7 +3900,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3933,7 +3933,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3958,7 +3958,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -3985,7 +3985,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4014,7 +4014,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4036,7 +4036,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4063,7 +4063,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4090,7 +4090,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4118,7 +4118,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4145,7 +4145,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4174,7 +4174,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4202,7 +4202,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4230,7 +4230,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4257,7 +4257,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4285,7 +4285,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4313,7 +4313,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4341,7 +4341,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4369,7 +4369,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4394,7 +4394,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4419,7 +4419,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4458,7 +4458,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4486,7 +4486,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4514,7 +4514,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4544,7 +4544,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4572,7 +4572,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4597,7 +4597,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4625,7 +4625,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4650,7 +4650,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4679,7 +4679,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4704,7 +4704,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4729,7 +4729,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4757,7 +4757,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4784,7 +4784,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4811,7 +4811,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4839,7 +4839,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4872,7 +4872,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4899,7 +4899,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4926,7 +4926,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4951,7 +4951,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -4978,7 +4978,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5003,7 +5003,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5028,7 +5028,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5056,7 +5056,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5084,7 +5084,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5109,7 +5109,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5134,7 +5134,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5161,7 +5161,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5186,7 +5186,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5213,7 +5213,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5238,7 +5238,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5265,7 +5265,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5290,7 +5290,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5317,7 +5317,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5344,7 +5344,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5372,7 +5372,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5392,7 +5392,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5419,7 +5419,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5447,7 +5447,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5475,7 +5475,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5500,7 +5500,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5527,7 +5527,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5554,7 +5554,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5581,7 +5581,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5608,7 +5608,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5637,7 +5637,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5662,7 +5662,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5689,7 +5689,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5722,7 +5722,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5749,7 +5749,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5777,7 +5777,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5805,7 +5805,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5826,7 +5826,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5850,7 +5850,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5875,7 +5875,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5903,7 +5903,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5931,7 +5931,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5958,7 +5958,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5978,7 +5978,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -5996,7 +5996,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6014,7 +6014,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6034,7 +6034,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6052,7 +6052,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6070,7 +6070,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6097,7 +6097,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6115,7 +6115,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6133,7 +6133,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6162,7 +6162,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6182,7 +6182,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6203,7 +6203,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6224,7 +6224,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6245,7 +6245,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6273,7 +6273,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6301,7 +6301,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6329,7 +6329,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6357,7 +6357,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6386,7 +6386,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6406,7 +6406,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6426,7 +6426,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6455,7 +6455,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6483,7 +6483,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6511,7 +6511,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6538,7 +6538,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6566,7 +6566,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6587,7 +6587,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6608,7 +6608,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6640,7 +6640,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6661,7 +6661,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6681,7 +6681,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6701,7 +6701,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6722,7 +6722,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6742,7 +6742,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6763,7 +6763,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6784,7 +6784,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6802,7 +6802,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6820,7 +6820,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6841,7 +6841,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6862,7 +6862,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6889,7 +6889,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6923,7 +6923,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6951,7 +6951,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -6973,7 +6973,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7000,7 +7000,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7028,7 +7028,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7055,7 +7055,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7083,7 +7083,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7111,7 +7111,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7139,7 +7139,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7166,7 +7166,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7195,7 +7195,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7228,7 +7228,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7256,7 +7256,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7284,7 +7284,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7313,7 +7313,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7340,7 +7340,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7368,7 +7368,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7386,7 +7386,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7407,7 +7407,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7427,7 +7427,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7448,7 +7448,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7468,7 +7468,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7489,7 +7489,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7510,7 +7510,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7531,7 +7531,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7551,7 +7551,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7572,7 +7572,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7593,7 +7593,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7614,7 +7614,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7635,7 +7635,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7663,7 +7663,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7684,7 +7684,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7712,7 +7712,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7740,7 +7740,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7768,7 +7768,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7795,7 +7795,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7823,7 +7823,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7844,7 +7844,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7872,7 +7872,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7893,7 +7893,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7914,7 +7914,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7942,7 +7942,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7963,7 +7963,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -7984,7 +7984,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8011,7 +8011,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8039,7 +8039,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8067,7 +8067,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8098,7 +8098,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8123,7 +8123,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8150,7 +8150,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8177,7 +8177,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8205,7 +8205,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8232,7 +8232,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8259,7 +8259,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8286,7 +8286,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8313,7 +8313,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8342,7 +8342,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8371,7 +8371,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8400,7 +8400,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8429,7 +8429,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8458,7 +8458,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8487,7 +8487,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8512,7 +8512,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8540,7 +8540,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8568,7 +8568,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8597,7 +8597,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8622,7 +8622,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8651,7 +8651,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8680,7 +8680,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8707,7 +8707,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8732,7 +8732,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8760,7 +8760,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8787,7 +8787,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8812,7 +8812,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8837,7 +8837,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8862,7 +8862,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8887,7 +8887,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8912,7 +8912,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8937,7 +8937,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8962,7 +8962,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -8987,7 +8987,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9014,7 +9014,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9039,7 +9039,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9064,7 +9064,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9089,7 +9089,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9116,7 +9116,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9141,7 +9141,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9166,7 +9166,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9191,7 +9191,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9216,7 +9216,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9247,7 +9247,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9283,7 +9283,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9314,7 +9314,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9341,7 +9341,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9372,7 +9372,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9399,7 +9399,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9430,7 +9430,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9461,7 +9461,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9492,7 +9492,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9523,7 +9523,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9554,7 +9554,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9581,7 +9581,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9608,7 +9608,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9639,7 +9639,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9670,7 +9670,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9697,7 +9697,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9728,7 +9728,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9759,7 +9759,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9790,7 +9790,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9821,7 +9821,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9853,7 +9853,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9885,7 +9885,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9917,7 +9917,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9945,7 +9945,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -9977,7 +9977,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10009,7 +10009,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10037,7 +10037,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10069,7 +10069,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10097,7 +10097,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10129,7 +10129,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10154,7 +10154,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10186,7 +10186,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10218,7 +10218,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10250,7 +10250,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10282,7 +10282,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10314,7 +10314,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10346,7 +10346,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10378,7 +10378,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10410,7 +10410,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10442,7 +10442,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10474,7 +10474,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10506,7 +10506,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10538,7 +10538,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10566,7 +10566,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10598,7 +10598,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10627,7 +10627,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10654,7 +10654,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10679,7 +10679,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10706,7 +10706,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10735,7 +10735,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10764,7 +10764,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10789,7 +10789,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10814,7 +10814,7 @@
       "sys_tags": [],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10842,7 +10842,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10870,7 +10870,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10897,7 +10897,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
@@ -10924,7 +10924,7 @@
       ],
       "tags": [],
       "education_principles": [],
-      "classification": "licensed-only-unclassified",
+      "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     }
   ]

@@ -1,7 +1,9 @@
 use super::support::has_attribute;
 use super::support::has_modifier;
 use crate::CsLanguage;
-use crate::cst::{attributes_of, collect_kinds, issue, modifiers_of, parameters_of, range_of};
+use crate::cst::{
+    attributes_of, collect_kinds, issue, modifiers_of, node_text, parameters_of, range_of,
+};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -24,10 +26,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 .iter()
                 .any(|later| !has_modifier(&modifiers_of(*later, source), "params"));
             if blocked {
+                let name = parameter
+                    .child_by_field_name("name")
+                    .map_or("parameter", |name| node_text(name, source));
                 issues.push(issue(
                     language,
                     "S3343",
-                    "Move this caller-information parameter to the end of the parameter list.",
+                    format!("Move '{name}' to the end of the parameter list."),
                     range_of(*parameter, source),
                 ));
             }

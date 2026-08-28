@@ -1,0 +1,1 @@
+legacy = torch.tensor(tensor)

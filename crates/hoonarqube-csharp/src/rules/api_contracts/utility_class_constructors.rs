@@ -35,11 +35,14 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         for constructor in member_declarations_of_kind(class_node, "constructor_declaration") {
             let modifiers = modifiers_of(constructor, source);
             if has_modifier(&modifiers, "public") || has_modifier(&modifiers, "internal") {
+                let name = constructor
+                    .child_by_field_name("name")
+                    .unwrap_or(constructor);
                 issues.push(issue(
                     language,
                     "S1118",
-                    "Hide this constructor or declare the class 'static'.",
-                    range_of(constructor, source),
+                    "Hide this public constructor by making it 'protected'.",
+                    range_of(name, source),
                 ));
             }
         }

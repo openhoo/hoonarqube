@@ -51,16 +51,16 @@ struct FunctionContextCollector<'index> {
 
 impl FunctionContextCollector<'_> {
     fn check_parameter_order(&mut self, params: &FormalParameters<'_>) {
-        let mut defaulted = false;
+        let mut first_default = None;
         for item in &params.items {
             if param_has_default(item) {
-                defaulted = true;
-            } else if defaulted {
+                first_default.get_or_insert(item.span());
+            } else if let Some(span) = first_default.take() {
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S1788",
-                    "Move this default parameter after the other parameters.",
-                    item.span(),
+                    "Default parameters should be last.",
+                    span,
                 );
             }
         }
@@ -162,8 +162,8 @@ impl<'a> Visit<'a> for FunctionContextCollector<'_> {
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S1530",
-                    "Function declarations should not be placed in blocks.",
-                    function.span(),
+                    "Do not use function declarations within blocks.",
+                    function.id.as_ref().map_or(function.span(), GetSpan::span),
                 );
             }
             self.enter_function(function.span(), Some(&function.params), |collector| {

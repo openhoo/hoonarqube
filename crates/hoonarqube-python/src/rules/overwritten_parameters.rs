@@ -72,9 +72,9 @@ pub(crate) fn check_overwritten_parameters(
                 issues.push(issue_at(
                     "python:S1226",
                     &format!(
-                        "Parameter '{param_name}' is overwritten before its initial value is read."
+                        "Introduce a new variable or use its initial value before reassigning '{param_name}'."
                     ),
-                    first_overwrite,
+                    *param_range,
                     index,
                     source,
                 ));

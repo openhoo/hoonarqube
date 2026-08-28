@@ -3,6 +3,8 @@
 use crate::support::{for_each_expr, for_each_stmt, stmt_exprs, string_value_text};
 use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
+use ruff_text_size::Ranged;
+use ruff_text_size::TextRange;
 
 // ---------------------------------------------------------------------------
 // Tier-A battery entries #111–#193 (python:S1192 … python:S7489).
@@ -117,6 +119,25 @@ pub(crate) fn keyword_value<'a>(
     })
 }
 
+pub(crate) fn keyword_range(
+    arguments: &ruff_python_ast::Arguments,
+    name: &str,
+) -> Option<TextRange> {
+    arguments.keywords.iter().find_map(|keyword| {
+        let arg = keyword.arg.as_ref()?;
+        (arg.as_str() == name).then(|| keyword.range())
+    })
+}
+
+pub(crate) fn wildcard_literal(value: &Expr) -> Option<&Expr> {
+    match value {
+        Expr::List(list) => list.elts.iter().find_map(wildcard_literal),
+        Expr::Tuple(tuple) => tuple.elts.iter().find_map(wildcard_literal),
+        Expr::StringLiteral(_) if string_literal_text(value).as_deref() == Some("*") => Some(value),
+        _ => None,
+    }
+}
+
 pub(crate) fn has_keyword(arguments: &ruff_python_ast::Arguments, name: &str) -> bool {
     keyword_value(arguments, name).is_some()
 }
@@ -172,41 +193,6 @@ pub(crate) fn for_each_call(
             });
         }
     });
-}
-
-/// Whether the module shows evidence of an actual boto3 client/resource
-/// binding: a `boto3.client`/`boto3.resource` call, a `boto3.Session`
-/// construction, or `.client(`/`.resource(` reached through a `boto3` or
-/// session object. The AWS/cdk-family checks only evaluate calls on
-/// resolvable boto3 clients, so they stay silent without such a binding
-/// (stub objects like `client = object()` never qualify).
-pub(crate) fn has_boto3_binding(calls: &[&ruff_python_ast::ExprCall]) -> bool {
-    for call in calls {
-        let Expr::Attribute(attribute) = &*call.func else {
-            continue;
-        };
-        match attribute.attr.as_str() {
-            "client" | "resource" => {
-                if expr_chain_mentions(&attribute.value, &["boto3", "session"]) {
-                    return true;
-                }
-            }
-            "Session" if expr_chain_mentions(&attribute.value, &["boto3"]) => return true,
-            _ => {}
-        }
-    }
-    false
-}
-
-/// Whether any name inside the expression tree equals one of `names`.
-fn expr_chain_mentions(expr: &Expr, names: &[&str]) -> bool {
-    let mut found = false;
-    for_each_expr(expr, &mut |child| {
-        if let Expr::Name(name) = child {
-            found |= names.contains(&name.id.as_str());
-        }
-    });
-    found
 }
 
 pub(crate) fn is_standalone_string_stmt(stmt: &Stmt) -> bool {

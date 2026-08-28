@@ -6,9 +6,9 @@ use oxc_ast::ast::NewExpression;
 
 const OMITTED: &str =
     "Omitting \"encryption\" disables SQS queue encryption. Make sure it is safe here.";
-const DISABLED: &str = "Setting \"encryption\" to QueueEncryption.UNENCRYPTED disables SQS queue encryption. Make sure it is safe here.";
+const DISABLED: &str = "Setting \"encryption\" to \"QueueEncryption.UNENCRYPTED\" disables SQS queues encryption.Make sure it is safe here.";
 const CFN_OMITTED: &str =
-    "Omitting \"kmsMasterKeyId\" disables SQS queue encryption. Make sure it is safe here.";
+    "Omitting \"kmsMasterKeyId\" disables SQS queues encryption. Make sure it is safe here.";
 
 /// `S6330`: SQS queues should be encrypted at rest.
 ///

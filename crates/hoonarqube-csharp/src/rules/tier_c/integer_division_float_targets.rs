@@ -40,14 +40,12 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             if !divides_integers {
                 continue;
             }
-            if let Some(name) = declarator.child_by_field_name("name") {
-                issues.push(issue(
-                    language,
-                    "S2184",
-                    "Assign this integer division to an integer target, or make one operand floating-point.",
-                    range_of(name, source),
-                ));
-            }
+            issues.push(issue(
+                language,
+                "S2184",
+                "Cast one of the operands of this division to 'double'.",
+                range_of(value, source),
+            ));
         }
     }
     issues

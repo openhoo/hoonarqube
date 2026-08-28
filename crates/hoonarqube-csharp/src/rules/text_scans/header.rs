@@ -1,4 +1,4 @@
-use crate::cst::{issue, to_u32};
+use crate::cst::issue;
 use crate::{AnalyzerOptions, CsLanguage};
 use hoonarqube_ir::Issue;
 
@@ -18,19 +18,13 @@ pub(crate) fn check(source: &str, language: CsLanguage, options: &AnalyzerOption
     {
         return Vec::new();
     }
-    let column = to_u32(
-        source
-            .split('\n')
-            .next()
-            .map_or(0, |first_line| first_line.chars().count()),
-    );
     vec![issue(
         language,
         "S1451",
-        "Add or update the required header of this file.",
+        "Add or update the header of this file.",
         hoonarqube_ir::Range {
             start: hoonarqube_ir::Pos { line: 1, column: 0 },
-            end: hoonarqube_ir::Pos { line: 1, column },
+            end: hoonarqube_ir::Pos { line: 1, column: 0 },
         },
     )]
 }

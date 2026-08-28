@@ -1,6 +1,6 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
-use crate::rules::expressions::{callee_name, invocation_receiver};
+use crate::rules::expressions::{callee_name, invocation_function, invocation_receiver};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -26,11 +26,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 == Some("Where")
         })
         .map(|invocation| {
+            let terminal = callee_name(invocation, source).unwrap_or("terminal operation");
+            let where_name = invocation_receiver(invocation)
+                .and_then(invocation_function)
+                .and_then(|function| function.child_by_field_name("name"))
+                .unwrap_or(invocation);
             issue(
                 language,
                 "S2971",
-                "Move this filter into the terminal LINQ call's predicate.",
-                range_of(invocation, source),
+                format!("Drop 'Where' and move the condition into the '{terminal}'."),
+                range_of(where_name, source),
             )
         })
         .collect()

@@ -12,7 +12,7 @@ impl TsTypeCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::TsOnly,
                 "S4156",
-                "Prefer the namespace keyword over module for these declarations.",
+                "Use 'namespace' instead of 'module' to declare custom TypeScript modules.",
                 it.span(),
             );
         }

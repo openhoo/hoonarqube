@@ -16,7 +16,7 @@ pub(crate) fn check(source_root: Node<'_>, source: &str, language: CsLanguage) -
             issue(
                 language,
                 "S3445",
-                "Use a bare 'throw;' statement to rethrow.",
+                "Consider using 'throw;' to preserve the stack trace.",
                 range_of(throw, source),
             )
         })

@@ -27,7 +27,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S6667",
-                    "Pass the caught exception to this log call.",
+                    "Logging in a catch clause should pass the caught exception as a parameter.",
                     range_of(call, source),
                 ));
             }

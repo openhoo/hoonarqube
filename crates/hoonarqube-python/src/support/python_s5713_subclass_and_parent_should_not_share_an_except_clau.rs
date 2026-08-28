@@ -217,14 +217,14 @@ fn flag_excess_nesting(
     let Some(keyword) = nesting_keyword(stmt) else {
         return;
     };
-    if level <= options.maximum_nesting_depth {
+    if level != options.maximum_nesting_depth + 1 {
         return;
     }
     let width = TextSize::try_from(keyword.len()).unwrap_or_default();
     issues.push(issue_at(
         "python:S134",
         &format!(
-            "Refactor this code to not nest more than {} levels.",
+            "Refactor this code to not nest more than {} \"if\", \"for\", \"while\", \"try\" and \"with\" statements.",
             options.maximum_nesting_depth
         ),
         TextRange::at(stmt.start(), width),

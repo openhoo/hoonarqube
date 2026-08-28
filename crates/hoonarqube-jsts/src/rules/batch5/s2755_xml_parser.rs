@@ -2,11 +2,13 @@ use crate::rules::batch5::collectors::SecurityHotspotCollector;
 use crate::rules::batch5::collectors::boolean_property;
 use crate::rules::batch5::collectors::object_property;
 use crate::rules::shared::argument_expression;
+use crate::rules::shared::duplicated_key_name;
 use crate::rules::shared::sink_callee_name;
 use crate::support::RuleScope;
 use crate::support::unparenthesized;
 use oxc_ast::ast::CallExpression;
 use oxc_ast::ast::Expression;
+use oxc_ast::ast::ObjectPropertyKind;
 use oxc_span::GetSpan;
 
 impl SecurityHotspotCollector<'_, '_> {
@@ -26,11 +28,17 @@ impl SecurityHotspotCollector<'_, '_> {
         };
         let expands = boolean_property(object, "noent") == Some(true);
         if expands || object_property(object, "noxxe").is_none() {
+            let anchor = object.properties.iter().find_map(|property| {
+                let ObjectPropertyKind::ObjectProperty(inner) = property else {
+                    return None;
+                };
+                (duplicated_key_name(&inner.key) == Some("noent")).then(|| inner.span())
+            });
             self.sink.emit_span(
                 RuleScope::Both,
                 "S2755",
-                "Make sure entity substitution is disabled for this XML parser.",
-                call.span(),
+                "Disable access to external entities in XML parsing.",
+                anchor.unwrap_or_else(|| options.span()),
             );
         }
     }

@@ -15,15 +15,19 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         issues.push(issue(
             language,
             "S3971",
-            "Track uses of 'GC.SuppressFinalize'.",
-            range_of(access, source),
+            "Do not call 'GC.SuppressFinalize'.",
+            range_of(access.child_by_field_name("name").unwrap_or(access), source),
         ));
         if enclosing_type(access).is_none_or(|type_node| !has_destructor(type_node)) {
+            let invocation = access
+                .parent()
+                .filter(|parent| parent.kind() == "invocation_expression")
+                .unwrap_or(access);
             issues.push(issue(
                 language,
                 "S3234",
-                "Only call 'GC.SuppressFinalize' when a finalizer is defined.",
-                range_of(access, source),
+                "Remove this useless call to 'GC.SuppressFinalize'.",
+                range_of(invocation, source),
             ));
         }
     }

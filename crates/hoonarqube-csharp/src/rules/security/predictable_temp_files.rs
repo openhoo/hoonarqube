@@ -14,11 +14,14 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             invocation_targets(*invocation, source, Some("Path"), &["GetTempFileName"])
         })
         .map(|invocation| {
+            let function = invocation
+                .child_by_field_name("function")
+                .unwrap_or(invocation);
             issue(
                 language,
                 "S5445",
-                "Create temporary files with unpredictable names in a private directory.",
-                range_of(invocation, source),
+                "'Path.GetTempFileName()' is insecure. Use 'Path.GetRandomFileName()' instead.",
+                range_of(function, source),
             )
         })
         .collect()

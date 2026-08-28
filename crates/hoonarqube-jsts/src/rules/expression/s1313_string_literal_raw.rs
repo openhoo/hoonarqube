@@ -10,7 +10,10 @@ pub(crate) fn check_string_literal_raw(sink: &mut IssueSink, it: &StringLiteral<
         sink.emit_span(
             RuleScope::Both,
             "S1313",
-            "Remove this hard-coded IP address.",
+            &format!(
+                "Make sure using a hardcoded IP address {} is safe here.",
+                it.value
+            ),
             it.span,
         );
     }
@@ -21,7 +24,7 @@ pub(crate) fn check_string_literal_raw(sink: &mut IssueSink, it: &StringLiteral<
         sink.emit_span(
             RuleScope::Both,
             "S1516",
-            "Use a template literal for multi-line strings.",
+            "Multiline support is limited to browsers supporting ES5 only.",
             it.span,
         );
     }
@@ -29,7 +32,7 @@ pub(crate) fn check_string_literal_raw(sink: &mut IssueSink, it: &StringLiteral<
         sink.emit_span(
             RuleScope::Both,
             "S3786",
-            "Use a template literal if \"${}\" interpolation was intended.",
+            "Unexpected template string expression.",
             it.span,
         );
     }

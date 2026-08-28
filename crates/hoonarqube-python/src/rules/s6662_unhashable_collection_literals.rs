@@ -51,3 +51,17 @@ pub(crate) fn check_s6662_unhashable_collection_literals(
 // --- python:S6662 — unhashable set members and dict keys ---------------------------
 
 const UNHASHABLE_KINDS: [&str; 3] = ["list", "set", "dict"];
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s6662_flags_unhashable_set_members_and_dictionary_keys() {
+        let bad = scan("members = {[1]}\nmapping = {[1]: 'value'}\n");
+        assert_eq!(findings(&bad, "python:S6662").len(), 2);
+
+        let good = scan("members = {(1,)}\nmapping = {(1,): 'value'}\n");
+        assert!(findings(&good, "python:S6662").is_empty());
+    }
+}

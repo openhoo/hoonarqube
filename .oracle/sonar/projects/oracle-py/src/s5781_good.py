@@ -1,0 +1,1 @@
+allowed = {"read", "write"}

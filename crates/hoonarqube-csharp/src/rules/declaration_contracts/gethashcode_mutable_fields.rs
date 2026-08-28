@@ -24,11 +24,12 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 .iter()
                 .any(|field| references_identifier(method, field, source));
             if poisoned {
+                let name = method.child_by_field_name("name").unwrap_or(method);
                 issues.push(issue(
                     language,
                     "S2328",
-                    "Reference only immutable fields from 'GetHashCode'.",
-                    range_of(method, source),
+                    "Refactor 'GetHashCode' to not reference mutable fields.",
+                    range_of(name, source),
                 ));
             }
         }

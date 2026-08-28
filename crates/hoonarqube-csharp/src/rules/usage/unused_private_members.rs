@@ -22,7 +22,10 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S1144",
-                format!("Remove this unused private {}.", member.kind_word),
+                format!(
+                    "Remove the unused private {} '{}'.",
+                    member.kind_word, member.name
+                ),
                 range_of(member.anchor, source),
             ));
         }
@@ -112,7 +115,7 @@ fn private_declarators<'t>(
         .filter_map(|declarator| {
             let name_node = declarator.child_by_field_name("name")?;
             Some(PrivateMember {
-                anchor: name_node,
+                anchor: declaration,
                 name: node_text(name_node, source).to_string(),
                 kind_word,
             })

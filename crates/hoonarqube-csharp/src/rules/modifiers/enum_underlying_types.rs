@@ -19,7 +19,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             .children(&mut list_cursor)
             .find(tree_sitter::Node::is_named)
             .map(|base| simple_name(node_text(base, source)));
-        if underlying.is_none_or(|stored| matches!(stored, "int" | "Int32")) {
+        if underlying.is_none_or(|stored| !matches!(stored, "byte" | "sbyte" | "short" | "ushort"))
+        {
             continue;
         }
         let Some(name) = enum_node.child_by_field_name("name") else {
@@ -28,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         issues.push(issue(
             language,
             "S4022",
-            "Use 'int' as the underlying type of this enum.",
+            "Change this enum storage to 'Int32'.",
             range_of(name, source),
         ));
     }

@@ -1,7 +1,6 @@
 use super::support::attribute_argument_texts;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of, simple_name};
-use crate::rules::modifiers::has_any_attribute;
 use crate::rules::naming::TYPE_DECLARATION_KINDS;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -34,28 +33,27 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S4277",
-                "Resolve this shared MEF part through the container instead of 'new'.",
+                "Refactor this code so that it doesn't invoke the constructor of this class.",
                 range_of(creation, source),
             )
         })
         .collect()
 }
 
-/// Whether the type carries `[Shared]` or a shared `PartCreationPolicy`.
+/// Whether the type carries a shared `PartCreationPolicy`.
 fn is_shared_mef_part(type_node: Node<'_>, source: &str) -> bool {
-    has_any_attribute(type_node, source, &["Shared"])
-        || collect_kinds(type_node, &["attribute"])
-            .iter()
-            .any(|attribute| {
-                attribute_argument_texts(*attribute, source)
-                    .iter()
-                    .any(|text| text.ends_with("CreationPolicy.Shared") || *text == "Shared")
-                    && {
-                        let name = attribute
-                            .children(&mut attribute.walk())
-                            .find(tree_sitter::Node::is_named)
-                            .map(|name| node_text(name, source).ends_with("PartCreationPolicy"));
-                        name == Some(true)
-                    }
-            })
+    collect_kinds(type_node, &["attribute"])
+        .iter()
+        .any(|attribute| {
+            attribute_argument_texts(*attribute, source)
+                .iter()
+                .any(|text| text.ends_with("CreationPolicy.Shared") || *text == "Shared")
+                && {
+                    let name = attribute
+                        .children(&mut attribute.walk())
+                        .find(tree_sitter::Node::is_named)
+                        .map(|name| node_text(name, source).ends_with("PartCreationPolicy"));
+                    name == Some(true)
+                }
+        })
 }

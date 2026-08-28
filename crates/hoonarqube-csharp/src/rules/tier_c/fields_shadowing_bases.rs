@@ -9,12 +9,12 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     shadowed_field_sites(root, source)
         .into_iter()
-        .filter(|(derived, _, base)| derived == base)
-        .map(|(_, node, _)| {
+        .filter(|(derived, _, base, _)| derived == base)
+        .map(|(_, node, base_field, base_type)| {
             issue(
                 language,
                 "S2387",
-                "Rename this field; it hides the field declared in its base class.",
+                format!("'{base_field}' is the name of a field in '{base_type}'."),
                 range_of(node, source),
             )
         })

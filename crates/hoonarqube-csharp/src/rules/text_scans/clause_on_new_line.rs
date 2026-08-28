@@ -1,33 +1,27 @@
 use crate::CsLanguage;
-use crate::cst::{issue, range_of, walk_all};
+use crate::cst::{issue, range_from_byte_offsets};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S3972 — `else`, `catch`, and `finally` start on a new line.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let _ = root;
     let mut issues = Vec::new();
-    walk_all(root, &mut |node| {
-        let keyword_kinds: &[&str] = match node.kind() {
-            "if_statement" => &["else"],
-            "try_statement" => &["catch_clause", "finally_clause"],
-            _ => return,
-        };
-        let mut cursor = node.walk();
-        let mut previous_end_row: Option<usize> = None;
-        for child in node.children(&mut cursor) {
-            if keyword_kinds.contains(&child.kind())
-                && previous_end_row == Some(child.start_position().row)
-            {
-                let keyword = child.kind().strip_suffix("_clause").unwrap_or(child.kind());
-                issues.push(issue(
-                    language,
-                    "S3972",
-                    format!("Move this \"{keyword}\" to a new line."),
-                    range_of(child, source),
-                ));
-            }
-            previous_end_row = Some(child.end_position().row);
+    let mut offset = 0;
+    for line in source.split_inclusive('\n') {
+        let line_without_comment = line.split_once("//").map_or(line, |(code, _)| code);
+        let mut search_from = 0;
+        while let Some(relative) = line_without_comment[search_from..].find("} if") {
+            let start = offset + search_from + relative + 2;
+            issues.push(issue(
+                language,
+                "S3972",
+                "Move this 'if' to a new line or add the missing 'else'.",
+                range_from_byte_offsets(start, start + 2, source),
+            ));
+            search_from += relative + 4;
         }
-    });
+        offset += line.len();
+    }
     issues
 }

@@ -18,7 +18,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S2092",
-                    format!("Enable the 'Secure' flag on cookie '{name}'."),
+                    "Make sure creating this cookie without setting the 'Secure' property is safe here.",
                     range_of(creation, source),
                 ));
             }
@@ -26,7 +26,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S3330",
-                    format!("Mark cookie '{name}' 'HttpOnly' to block script access."),
+                    "Make sure creating this cookie without the \"HttpOnly\" flag is safe.",
                     range_of(creation, source),
                 ));
             }

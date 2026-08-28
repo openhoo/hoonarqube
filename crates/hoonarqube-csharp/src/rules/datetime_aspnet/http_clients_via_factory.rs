@@ -15,7 +15,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S6962",
-                "Create 'HttpClient' through 'IHttpClientFactory' instead.",
+                "Reuse HttpClient instances rather than create new ones with each controller action invocation.",
                 range_of(creation, source),
             )
         })

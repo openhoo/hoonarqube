@@ -2,7 +2,7 @@
 use super::s1442_plain_calls::BUILTIN_GLOBALS;
 use crate::support::{IssueSink, RuleScope};
 use oxc_ast::ast::{AssignmentExpression, AssignmentOperator, Expression, UnaryOperator};
-use oxc_span::GetSpan;
+use oxc_span::{GetSpan, Span};
 
 /// `S2757` (the `x =+ 1` typo), `S6643`/`S2424` (writes into built-ins).
 pub(crate) fn check_assignment_rules(sink: &mut IssueSink, it: &AssignmentExpression<'_>) {
@@ -16,8 +16,15 @@ pub(crate) fn check_assignment_rules(sink: &mut IssueSink, it: &AssignmentExpres
         sink.emit_span(
             RuleScope::Both,
             "S2757",
-            "Swap the \"=\" and sign characters if a compound assignment was intended.",
-            it.right.span(),
+            &format!(
+                "Was \"{}=\" meant instead?",
+                if unary.operator == UnaryOperator::UnaryPlus {
+                    "+"
+                } else {
+                    "-"
+                }
+            ),
+            Span::new(unary.span.start.saturating_sub(1), unary.span.start + 1),
         );
     }
     // Member assignment targets only; `(builtin root, prototype link)`.

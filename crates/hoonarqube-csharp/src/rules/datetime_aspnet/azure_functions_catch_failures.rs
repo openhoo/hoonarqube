@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S6421",
-                "Wrap this Function in a try/catch and report the failure.",
+                "Wrap Azure Function body in try/catch block.",
                 range_of(name_anchor(method), source),
             )
         })

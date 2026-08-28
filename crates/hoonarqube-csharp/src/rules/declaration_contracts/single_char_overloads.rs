@@ -1,6 +1,8 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
-use crate::rules::expressions::{callee_name, first_named_child, invocation_arguments};
+use crate::rules::expressions::{
+    callee_name, first_named_child, invocation_arguments, invocation_function,
+};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -29,11 +31,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             },
         )
         .map(|invocation| {
+            let callee = callee_name(invocation, source).unwrap_or_default();
+            let anchor = invocation_function(invocation)
+                .and_then(|function| function.child_by_field_name("name"))
+                .unwrap_or(invocation);
             issue(
                 language,
                 "S6610",
-                "Call the char-based overload with this single character.",
-                range_of(invocation, source),
+                format!("\"{callee}\" overloads that take a \"char\" should be used"),
+                range_of(anchor, source),
             )
         })
         .collect()

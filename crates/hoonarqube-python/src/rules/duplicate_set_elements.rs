@@ -16,19 +16,24 @@ pub(crate) fn check_duplicate_set_elements(
     let mut issues = Vec::new();
     for expr in &file_ctx.exprs {
         let Expr::Set(set) = expr else { continue };
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = std::collections::HashMap::new();
+        let mut reported = std::collections::HashSet::new();
         for element in &set.elts {
             let Some(canonical) = constant_literal_text(element) else {
                 continue;
             };
-            if !seen.insert(canonical) {
+            if let Some(first_range) = seen.get(&canonical)
+                && reported.insert(canonical.clone())
+            {
                 issues.push(issue_at(
                     "python:S5781",
-                    "Remove this duplicate element.",
-                    element.range(),
+                    "Change or remove duplicates of this key.",
+                    *first_range,
                     index,
                     source,
                 ));
+            } else {
+                seen.insert(canonical, element.range());
             }
         }
     }

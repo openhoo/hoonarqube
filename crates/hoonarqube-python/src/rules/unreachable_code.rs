@@ -24,7 +24,7 @@ pub(crate) fn check_unreachable_code(
                 for follower in &suite[position + 1..] {
                     issues.push(issue_at(
                         "python:S1763",
-                        "This code is unreachable.",
+                        "Delete this unreachable code or refactor the code to make it reachable.",
                         follower.range(),
                         index,
                         source,

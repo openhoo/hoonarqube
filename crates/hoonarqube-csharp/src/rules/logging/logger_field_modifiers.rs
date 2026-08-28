@@ -1,6 +1,5 @@
-use super::support::field_declarator_names;
 use crate::cst::{
-    collect_kinds, is_error_tainted, issue, matches_logger_format, modifiers_of, range_of,
+    collect_kinds, is_error_tainted, issue, modifiers_of, node_text, range_of, simple_name,
 };
 use crate::rules::modifiers::has_modifier;
 use crate::{AnalyzerOptions, CsLanguage};
@@ -12,17 +11,23 @@ pub(crate) fn check(
     root: Node<'_>,
     source: &str,
     language: CsLanguage,
-    options: &AnalyzerOptions,
+    _options: &AnalyzerOptions,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for field in collect_kinds(root, &["field_declaration"]) {
         if is_error_tainted(field) {
             continue;
         }
-        let logger_named = field_declarator_names(field, source)
-            .into_iter()
-            .any(|name| matches_logger_format(name, &options.logger_name_format));
-        if !logger_named {
+        let logger_typed = field
+            .child_by_field_name("type")
+            .or_else(|| {
+                collect_kinds(field, &["variable_declaration"])
+                    .into_iter()
+                    .next()
+                    .and_then(|declaration| declaration.child_by_field_name("type"))
+            })
+            .is_some_and(|type_node| simple_name(node_text(type_node, source)) == "ILogger");
+        if !logger_typed {
             continue;
         }
         let modifiers = modifiers_of(field, source);
@@ -30,12 +35,19 @@ pub(crate) fn check(
             .iter()
             .all(|wanted| has_modifier(&modifiers, wanted));
         if !shaped {
-            issues.push(issue(
-                language,
-                "S1312",
-                "Declare this logger field 'private static readonly'.",
-                range_of(field, source),
-            ));
+            for declarator in collect_kinds(field, &["variable_declarator"]) {
+                if let Some(name) = declarator.child_by_field_name("name") {
+                    issues.push(issue(
+                        language,
+                        "S1312",
+                        format!(
+                            "Make the logger '{}' private static readonly.",
+                            node_text(name, source)
+                        ),
+                        range_of(name, source),
+                    ));
+                }
+            }
         }
     }
     issues

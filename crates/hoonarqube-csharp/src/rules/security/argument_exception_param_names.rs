@@ -25,11 +25,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if !ARGUMENT_EXCEPTION_TYPES.contains(&simple_name(creation_type_text(creation, source))) {
             continue;
         }
+        let exception_type = simple_name(creation_type_text(creation, source));
         let arguments = call_argument_nodes(creation);
-        if arguments.len() < 2 {
+        let parameter_name_index = usize::from(exception_type == "ArgumentException");
+        let Some(argument) = arguments.get(parameter_name_index) else {
             continue;
-        }
-        let value = argument_expression(arguments[1]);
+        };
+        let value = argument_expression(*argument);
         if value.kind() != "string_literal" {
             continue;
         }
@@ -46,7 +48,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S3928",
-                "Pass an existing parameter name to this exception.",
+                format!("The parameter name '{wanted}' is not declared in the argument list."),
                 range_of(creation, source),
             ));
         }

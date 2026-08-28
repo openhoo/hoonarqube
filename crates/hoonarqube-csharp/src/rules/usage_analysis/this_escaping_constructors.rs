@@ -1,6 +1,6 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, range_of, walk_all};
-use crate::rules::expressions::binary_operands;
+use crate::rules::expressions::{binary_operands, invocation_function};
 use crate::rules::structure::body_of;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -26,7 +26,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 continue;
             };
             let escapes = match parent.kind() {
-                "argument" | "return_statement" => true,
+                "argument" => parent
+                    .parent()
+                    .filter(|arguments| arguments.kind() == "argument_list")
+                    .and_then(|node| node.parent())
+                    .and_then(invocation_function)
+                    .is_some_and(|function| function.kind() == "member_access_expression"),
+                "return_statement" => true,
                 "assignment_expression" => binary_operands(parent)
                     .is_some_and(|(_, right)| right.id() == this_expression.id()),
                 _ => false,
@@ -35,7 +41,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S3366",
-                    "Constructor leaks 'this' before the object is fully initialized.",
+                    "Make sure the use of 'this' doesn't expose partially-constructed instances of this class in multi-threaded environments.",
                     range_of(this_expression, source),
                 ));
             }
@@ -73,7 +79,7 @@ mod tests {
     }
 
     #[test]
-    fn s3366_reports_each_escape_site_distinctly() {
+    fn s3366_reports_calls_on_other_objects_only() {
         let report = analyze_default(
             "class C\n{\n    public C()\n    {\n        System.Console.WriteLine(this);\n        Helper(this);\n    }\n\n    private void Helper(C other) { }\n}\n",
         );
@@ -82,6 +88,6 @@ mod tests {
             .map(|issue| issue.range.start.line)
             .collect();
         lines.sort_unstable();
-        assert_eq!(lines, vec![5, 6]);
+        assert_eq!(lines, vec![5]);
     }
 }

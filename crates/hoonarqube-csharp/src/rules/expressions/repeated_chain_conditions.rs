@@ -13,22 +13,23 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(header) || is_else_alternative(header) {
             continue;
         }
-        let mut seen: Vec<&str> = Vec::new();
+        let mut seen: Vec<(&str, usize)> = Vec::new();
         let mut current = Some(header);
         while let Some(if_statement) = current {
             if let Some(condition) =
                 first_named_child(if_statement).filter(|condition| !is_error_tainted(*condition))
             {
                 let text = node_text(condition, source);
-                if seen.contains(&text) {
+                if let Some((_, first_line)) = seen.iter().find(|(seen_text, _)| *seen_text == text)
+                {
                     issues.push(issue(
                         language,
                         "S1862",
-                        "This condition repeats an earlier check in the same chain.",
+                        format!("This branch duplicates the one on line {first_line}."),
                         range_of(condition, source),
                     ));
                 } else {
-                    seen.push(text);
+                    seen.push((text, condition.start_position().row + 1));
                 }
             }
             current = else_alternative(if_statement)

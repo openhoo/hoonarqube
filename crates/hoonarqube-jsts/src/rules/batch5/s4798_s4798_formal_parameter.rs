@@ -1,5 +1,6 @@
 use super::collectors::TsTypeCollector;
 use crate::support::RuleScope;
+use crate::support::binding_identifier_name;
 use oxc_ast::ast::FormalParameter;
 use oxc_ast::ast::TSType;
 use oxc_span::GetSpan;
@@ -13,10 +14,13 @@ impl TsTypeCollector<'_, '_> {
             && it.initializer.is_none()
             && matches!(annotation.type_annotation, TSType::TSBooleanKeyword(_))
         {
+            let name = binding_identifier_name(&it.pattern).unwrap_or("parameter");
             self.sink.emit_span(
                 RuleScope::TsOnly,
                 "S4798",
-                "Provide a default value for this optional boolean parameter.",
+                &format!(
+                    "Provide a default value for '{name}' so that the logic of the function is more evident when this parameter is missing. Consider defining another function if providing default value is not possible."
+                ),
                 it.span(),
             );
         }

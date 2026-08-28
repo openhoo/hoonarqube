@@ -11,7 +11,7 @@ fn check_flagged_tags(sink: &mut IssueSink, comment: ScannedComment, body: &str)
         (
             "FIXME",
             "S1134",
-            "Complete the work corresponding to this \"FIXME\" comment.",
+            "Take the required action to fix the issue indicated by this comment.",
         ),
         (
             "TODO",

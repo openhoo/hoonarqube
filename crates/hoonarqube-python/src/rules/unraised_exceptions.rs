@@ -19,11 +19,11 @@ pub(crate) fn check_unraised_exceptions(
     for_each_stmt_in_scope(parsed.syntax().body.as_slice(), &mut |stmt| {
         if let Stmt::Expr(expr) = stmt
             && let Expr::Call(call) = expr.value.as_ref()
-            && let Some(name) = exception_constructor_name(call)
+            && exception_constructor_name(call).is_some()
         {
             issues.push(issue_at(
                 "python:S3984",
-                &format!("Raise this '{name}' exception instead of creating it."),
+                "Raise this exception or remove this useless statement.",
                 call.range(),
                 index,
                 source,

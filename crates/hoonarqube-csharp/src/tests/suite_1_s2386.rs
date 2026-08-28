@@ -60,7 +60,7 @@ fn line_length_honors_option_with_exact_boundary_clean() {
     assert_eq!(over_limit.issues[0].range.start.line, 1);
     assert_eq!(
         over_limit.issues[0].message,
-        "This line exceeds the maximum allowed length of 13 characters."
+        "Split this 14 characters long line (which is greater than 13 authorized)."
     );
 }
 
@@ -85,6 +85,11 @@ fn s104_flags_files_over_the_loc_threshold() {
     let flagged = with_key(&over, "csharpsquid:S104");
     assert_eq!(flagged.len(), 1);
     assert_eq!(flagged[0].range.start.line, 1);
+    assert_eq!(flagged[0].range.end, flagged[0].range.start);
+    assert_eq!(
+        flagged[0].message,
+        "This file has 4 lines, which is greater than 3 authorized. Split it into smaller files."
+    );
 
     let at_limit = analyze_options("class A\n{\n}\nint b;\n", &AnalyzerOptions::default());
     assert!(with_key(&at_limit, "csharpsquid:S104").is_empty());
@@ -99,7 +104,7 @@ fn s105_reports_leading_tab_characters() {
     assert_eq!(flagged[0].range.start.column, 0);
     assert_eq!(
         flagged[0].message,
-        "Replace all tab characters in this file by spaces."
+        "Replace all tab characters in this file by sequences of white-spaces."
     );
 
     let clean = analyze_default("    int x;\nclass A\n{\n}\n");
@@ -112,10 +117,10 @@ fn s113_requires_trailing_newline() {
     let flagged = with_key(&report, "csharpsquid:S113");
     assert_eq!(flagged.len(), 1);
     assert_eq!(flagged[0].range.start.line, 1);
-    assert_eq!(flagged[0].range.start.column, 10);
+    assert_eq!(flagged[0].range.start.column, 9);
     assert_eq!(
         flagged[0].message,
-        "Add a new line at the end of this file."
+        "Add a new line at the end of the file 't.cs'."
     );
 
     assert!(with_key(&analyze_default(""), "csharpsquid:S113").is_empty());
@@ -123,14 +128,14 @@ fn s113_requires_trailing_newline() {
 }
 
 #[test]
-fn s1109_flags_indented_closing_braces() {
-    let report = analyze_default("class A\n{\n    }\n");
+fn s1109_flags_closing_braces_after_code() {
+    let report = analyze_default("class A\n{\n    void M()\n    {\n        Run(); }\n}\n");
     let flagged = with_key(&report, "csharpsquid:S1109");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 3);
-    assert_eq!(flagged[0].range.start.column, 4);
+    assert_eq!(flagged[0].range.start.line, 5);
+    assert_eq!(flagged[0].range.start.column, 15);
 
-    let clean = analyze_default("class A\n{\n}\n");
+    let clean = analyze_default("class A\n{\n    void M()\n    {\n        Run();\n    }\n}\n");
     assert!(with_key(&clean, "csharpsquid:S1109").is_empty());
 }
 
@@ -142,7 +147,7 @@ fn s122_flags_second_statement_on_a_line() {
     let flagged = with_key(&report, "csharpsquid:S122");
     assert_eq!(flagged.len(), 1);
     assert_eq!(flagged[0].range.start.line, 5);
-    assert_eq!(flagged[0].range.start.column, 19);
+    assert_eq!(flagged[0].range.start.column, 8);
 
     let clean = analyze_default(
         "class A\n{\n    void M()\n    {\n        int a = 1;\n        int b = 2;\n    }\n}\n",
@@ -151,15 +156,13 @@ fn s122_flags_second_statement_on_a_line() {
 }
 
 #[test]
-fn s3972_flags_inline_else_catch_and_finally() {
+fn s3972_flags_if_after_closing_brace() {
     let report = analyze_default(
-        "class A\n{\n    void M(int x)\n    {\n        if (x > 0) { } else { }\n        try { } catch (System.Exception) { } finally { }\n    }\n}\n",
+        "class A\n{\n    void M(int x)\n    {\n        if (x > 0) {\n        } if (x < 0) {\n        }\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S3972");
-    assert_eq!(flagged.len(), 3);
-    assert_eq!(flagged[0].range.start.line, 5);
-    assert_eq!(flagged[1].range.start.line, 6);
-    assert_eq!(flagged[2].range.start.line, 6);
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 6);
 
     let clean = analyze_default(
         "class A\n{\n    void M(int x)\n    {\n        if (x > 0)\n        {\n        }\n        else\n        {\n        }\n        try\n        {\n        }\n        catch (System.Exception)\n        {\n        }\n        finally\n        {\n        }\n    }\n}\n",
@@ -174,10 +177,10 @@ fn s3973_flags_unindented_conditional_bodies() {
     );
     let flagged = with_key(&report, "csharpsquid:S3973");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 6);
+    assert_eq!(flagged[0].range.start.line, 5);
     assert_eq!(
         flagged[0].message,
-        "Indent this statement to make its scope obvious."
+        "Use curly braces or indentation to denote the code conditionally executed by this 'if'"
     );
 
     let indented = analyze_default(
@@ -207,9 +210,8 @@ fn s1659_flags_multiple_declarators_on_one_line() {
 fn s4663_flags_only_empty_comments() {
     let report = analyze_default("//\nclass A {}\n/* */\n");
     let flagged = with_key(&report, "csharpsquid:S4663");
-    assert_eq!(flagged.len(), 2);
-    assert_eq!(flagged[0].range.start.line, 1);
-    assert_eq!(flagged[1].range.start.line, 3);
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 3);
 
     let clean = analyze_default("///\n// note\nclass A {}\n/* filled */\n");
     assert!(with_key(&clean, "csharpsquid:S4663").is_empty());
@@ -236,15 +238,13 @@ fn s2148_boundary_separators_and_radixes() {
         "class A\n{\n    int[] sizes = { 9999, 10000, 10_000, 0xABCD, 123456789012 };\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S2148");
-    assert_eq!(flagged.len(), 2);
+    assert_eq!(flagged.len(), 1);
 
     let reals = analyze_default(
         "class A\n{\n    double a = 10000.5;\n    double b = 9999.5;\n    var c = 2e5;\n    var d = 2e3;\n}\n",
     );
     let flagged_reals = with_key(&reals, "csharpsquid:S2148");
-    assert_eq!(flagged_reals.len(), 2);
-    assert_eq!(flagged_reals[0].range.start.line, 3);
-    assert_eq!(flagged_reals[1].range.start.line, 5);
+    assert!(flagged_reals.is_empty());
 }
 
 #[test]
@@ -263,6 +263,8 @@ fn s1451_header_modes() {
         flagged[0].range.start,
         hoonarqube_ir::Pos { line: 1, column: 0 }
     );
+    assert_eq!(flagged[0].range.end, flagged[0].range.start);
+    assert_eq!(flagged[0].message, "Add or update the header of this file.");
 
     let regex_mode = AnalyzerOptions {
         header_format: "/// MIT Licensed".to_string(),
@@ -279,14 +281,14 @@ fn s1451_header_modes() {
 #[test]
 fn s100_method_and_property_names() {
     let report = analyze_default(
-        "class A\n{\n    void bad_name() { }\n    void GoodName() { }\n    int bad_prop { get; set; }\n    int GoodProp { get; set; }\n    void IFoo.lower_case() { }\n}\n",
+        "class A\n{\n    void badName() { }\n    void GoodName() { }\n    int badProp { get; set; }\n    int GoodProp { get; set; }\n    void IFoo.lower_case() { }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S100");
     assert_eq!(flagged.len(), 2);
     assert_eq!(flagged[0].range.start.line, 3);
     assert_eq!(flagged[1].range.start.line, 5);
-    assert!(flagged[0].message.contains("this method"));
-    assert!(flagged[1].message.contains("this property"));
+    assert!(flagged[0].message.contains("method 'badName'"));
+    assert!(flagged[1].message.contains("property 'badProp'"));
 }
 
 #[test]
@@ -296,10 +298,10 @@ fn s101_type_names_by_kind() {
     );
     let flagged = with_key(&report, "csharpsquid:S101");
     assert_eq!(flagged.len(), 4);
-    assert!(flagged[0].message.contains("this class"));
-    assert!(flagged[1].message.contains("this interface"));
-    assert!(flagged[2].message.contains("this struct"));
-    assert!(flagged[3].message.contains("this enum"));
+    assert!(flagged[0].message.starts_with("Rename class"));
+    assert!(flagged[1].message.starts_with("Rename interface"));
+    assert!(flagged[2].message.starts_with("Rename struct"));
+    assert!(flagged[3].message.starts_with("Rename enum"));
 }
 
 #[test]
@@ -354,11 +356,11 @@ fn s3872_parameter_duplicating_method_name() {
 
 #[test]
 fn s4041_type_names_matching_namespaces() {
-    let report = analyze_default("namespace Data\n{\n    class Loader { }\n}\nclass data { }\n");
+    let report = analyze_default("using System;\npublic class Configuration { }\n");
     let flagged = with_key(&report, "csharpsquid:S4041");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 5);
-    assert!(flagged[0].message.contains("Data"));
+    assert_eq!(flagged[0].range.start.line, 2);
+    assert!(flagged[0].message.contains("Configuration"));
 }
 
 #[test]
@@ -368,8 +370,8 @@ fn s4059_getter_methods_duplicating_properties() {
     );
     let flagged = with_key(&report, "csharpsquid:S4059");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 4);
-    assert!(flagged[0].message.contains("\"Foo\""));
+    assert_eq!(flagged[0].range.start.line, 3);
+    assert!(flagged[0].message.contains("property 'Foo'"));
 }
 
 #[test]
@@ -379,7 +381,7 @@ fn s4136_overloads_must_be_grouped() {
     );
     let flagged = with_key(&separated, "csharpsquid:S4136");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 5);
+    assert_eq!(flagged[0].range.start.line, 3);
 
     let grouped = analyze_default(
         "class A\n{\n    void Alpha() { }\n    void Alpha(int a) { }\n    void Beta() { }\n    void Beta(int b) { }\n}\n",
@@ -393,13 +395,8 @@ fn s4261_async_suffix_directions_and_skips() {
         "class A\n{\n    async Task Go() { await Task.Yield(); }\n    Task DoneAsync() => Task.CompletedTask;\n    async Task RunAsync() { await Task.Yield(); }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S4261");
-    assert_eq!(flagged.len(), 2);
-    assert!(flagged[0].message.starts_with("Add the \"Async\" suffix"));
-    assert!(
-        flagged[1]
-            .message
-            .starts_with("Remove the \"Async\" suffix")
-    );
+    assert_eq!(flagged.len(), 1);
+    assert!(flagged[0].message.starts_with("Add the 'Async' suffix"));
 
     let overrides = analyze_default(
         "class Base { public virtual async Task XAsync() => Task.CompletedTask; }\nclass Derived : Base\n{\n    public override Task XAsync() => Task.CompletedTask;\n}\n",
@@ -438,7 +435,7 @@ fn issues_are_sorted_by_position() {
 #[test]
 fn s1104_flags_public_instance_fields_only() {
     let report = analyze_default(
-        "class Widget\n{\n    public int Count;\n}\nclass Hidden\n{\n    private int count;\n}\nclass Shared\n{\n    public static int total;\n}\n",
+        "public class Widget\n{\n    public int Count;\n}\nclass Hidden\n{\n    private int count;\n}\nclass Shared\n{\n    public static int total;\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S1104");
     assert_eq!(flagged.len(), 1);
@@ -451,7 +448,7 @@ fn s1104_flags_public_instance_fields_only() {
 #[test]
 fn s2357_flags_non_private_fields_but_not_constants() {
     let report = analyze_default(
-        "class Widget\n{\n    internal int cached;\n}\nclass Quiet\n{\n    private int cached;\n}\nclass Limits\n{\n    public const int Max = 3;\n}\n",
+        "public class Widget\n{\n    public int cached;\n}\nclass Quiet\n{\n    private int cached;\n}\nclass Limits\n{\n    public const int Max = 3;\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S2357");
     assert_eq!(flagged.len(), 1);
@@ -459,20 +456,19 @@ fn s2357_flags_non_private_fields_but_not_constants() {
 }
 
 #[test]
-fn s2223_flags_visible_static_fields_even_readonly() {
+fn s2223_flags_visible_mutable_static_fields() {
     let report = analyze_default(
         "class Cache\n{\n    internal static int counter;\n}\nclass Scale\n{\n    public static readonly int Factor = 1;\n}\nclass Locked\n{\n    private const int Cap = 9;\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S2223");
-    assert_eq!(flagged.len(), 2);
+    assert_eq!(flagged.len(), 1);
     assert_eq!(flagged[0].range.start.line, 3);
-    assert_eq!(flagged[1].range.start.line, 7);
 }
 
 #[test]
 fn s2339_flags_public_constants_only() {
     let report = analyze_default(
-        "class Limits\n{\n    public const int Max = 3;\n}\nclass PrivateLimits\n{\n    private const int Cap = 2;\n}\n",
+        "public class Limits\n{\n    public const int Max = 3;\n}\nclass PrivateLimits\n{\n    private const int Cap = 2;\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S2339");
     assert_eq!(flagged.len(), 1);
@@ -482,7 +478,7 @@ fn s2339_flags_public_constants_only() {
 #[test]
 fn s2386_flags_mutable_public_static_fields() {
     let report = analyze_default(
-        "class Counter\n{\n    public static int hits;\n}\nclass Frozen\n{\n    public static readonly int start = 1;\n}\n",
+        "class Counter\n{\n    public static int[] hits;\n}\nclass Frozen\n{\n    public static readonly int[] start = new int[0];\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S2386");
     assert_eq!(flagged.len(), 1);
@@ -542,7 +538,7 @@ fn s3871_flags_non_public_exception_types() {
 #[test]
 fn s4060_flags_unsealed_attribute_classes() {
     let report = analyze_default(
-        "class HintAttribute : Attribute\n{\n}\nsealed class TagAttribute : Attribute\n{\n}\n",
+        "public class HintAttribute : Attribute\n{\n}\npublic sealed class TagAttribute : Attribute\n{\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S4060");
     assert_eq!(flagged.len(), 1);
@@ -552,7 +548,7 @@ fn s4060_flags_unsealed_attribute_classes() {
 #[test]
 fn s4035_flags_unsealed_iequatable_implementations() {
     let report = analyze_default(
-        "class Amount : IEquatable<Amount>\n{\n    public bool Equals(Amount other)\n    {\n        return true;\n    }\n}\nsealed class Ratio : IEquatable<Ratio>\n{\n    public bool Equals(Ratio other)\n    {\n        return true;\n    }\n}\n",
+        "public class Amount : IEquatable<Amount>\n{\n    public bool Equals(Amount other)\n    {\n        return true;\n    }\n}\nsealed class Ratio : IEquatable<Ratio>\n{\n    public bool Equals(Ratio other)\n    {\n        return true;\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S4035");
     assert_eq!(flagged.len(), 1);
@@ -577,14 +573,14 @@ fn s3059_flags_members_more_visible_than_their_container() {
     );
     let flagged = with_key(&report, "csharpsquid:S3059");
     assert_eq!(flagged.len(), 2);
-    assert_eq!(flagged[0].range.start.line, 5);
-    assert_eq!(flagged[1].range.start.line, 16);
+    assert_eq!(flagged[0].range.start.line, 3);
+    assert_eq!(flagged[1].range.start.line, 14);
 }
 
 #[test]
 fn s2360_flags_optional_parameters_except_overrides() {
     let report = analyze_default(
-        "class Base\n{\n    public virtual void Configure(int retries = 3)\n    {\n    }\n}\nclass Child : Base\n{\n    public override void Configure(int retries = 3)\n    {\n    }\n}\n",
+        "public class Base\n{\n    public virtual void Configure(int retries = 3)\n    {\n    }\n}\npublic class Child : Base\n{\n    public override void Configure(int retries = 3)\n    {\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S2360");
     assert_eq!(flagged.len(), 1);
@@ -653,7 +649,7 @@ fn s3343_requires_caller_information_parameters_last() {
 }
 
 #[test]
-fn s4214_and_s4200_flag_pinvoke_declarations_by_visibility() {
+fn s4214_flags_visible_pinvoke_declarations_without_confusing_s4200() {
     let report = analyze_default(
         "class Audio\n{\n    [DllImport(\"user32.dll\")]\n    public static extern bool Beep(uint frequency, uint duration);\n\n    [DllImport(\"user32.dll\")]\n    internal static extern bool Chime(uint frequency);\n}\n",
     );
@@ -661,18 +657,18 @@ fn s4214_and_s4200_flag_pinvoke_declarations_by_visibility() {
     assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].range.start.line, 4);
     let wrapped = with_key(&report, "csharpsquid:S4200");
-    assert_eq!(wrapped.len(), 2);
+    assert!(wrapped.is_empty());
 }
 
 #[test]
 fn s4000_flags_pointer_types_in_public_signatures() {
     let report = analyze_default(
-        "class Memory\n{\n    public void Copy(int* source, int count)\n    {\n    }\n\n    internal int* Head()\n    {\n        return null;\n    }\n\n    public int* Tail()\n    {\n        return null;\n    }\n}\n",
+        "class Memory\n{\n    public System.IntPtr Source;\n    protected System.UIntPtr Tail;\n    private System.IntPtr Hidden;\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S4000");
     assert_eq!(flagged.len(), 2);
     assert_eq!(flagged[0].range.start.line, 3);
-    assert_eq!(flagged[1].range.start.line, 12);
+    assert_eq!(flagged[1].range.start.line, 4);
 }
 
 #[test]
@@ -688,7 +684,7 @@ fn s3967_flags_multidimensional_arrays_not_jagged() {
 #[test]
 fn s2368_flags_public_methods_with_multidimensional_array_parameters() {
     let report = analyze_default(
-        "class Painter\n{\n    public void Draw(int[,] pixels)\n    {\n    }\n\n    internal void Blend(int[,] pixels)\n    {\n    }\n}\n",
+        "public class Painter\n{\n    public void Draw(int[,] pixels)\n    {\n    }\n\n    internal void Blend(int[,] pixels)\n    {\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S2368");
     assert_eq!(flagged.len(), 1);
@@ -725,11 +721,11 @@ fn s2436_caps_generic_arities_with_boundaries_clean() {
     assert_eq!(flagged.len(), 2);
     assert_eq!(
         flagged[0].message,
-        "Reduce the number of type parameters (3 > 2)."
+        "Reduce the number of generic parameters in the 'Tripling' class to no more than the 2 authorized."
     );
     assert_eq!(
         flagged[1].message,
-        "Reduce the number of type parameters (4 > 3)."
+        "Reduce the number of generic parameters in the 'Handler.Quad' method to no more than the 3 authorized."
     );
 
     let options = AnalyzerOptions {
@@ -744,7 +740,7 @@ fn s2436_caps_generic_arities_with_boundaries_clean() {
     assert_eq!(capped.len(), 1);
     assert_eq!(
         capped[0].message,
-        "Reduce the number of type parameters (2 > 1)."
+        "Reduce the number of generic parameters in the 'Solo.Duo' method to no more than the 1 authorized."
     );
     assert!(with_key(&analyze_default("class Solo\n{\n    public void Duo<TOne, TTwo>(TOne first, TTwo second)\n    {\n    }\n}\n"), "csharpsquid:S2436").is_empty());
 }
@@ -801,9 +797,9 @@ fn s907_flags_goto_statements() {
 }
 
 #[test]
-fn s1227_flags_break_outside_loops_and_switches() {
+fn s1227_flags_loop_breaks_but_not_switch_breaks() {
     let report = analyze_default(
-        "class Runner\n{\n    public void Run(bool again)\n    {\n        if (again)\n        {\n            break;\n        }\n    }\n\n    public void Walk()\n    {\n        while (true)\n        {\n            break;\n        }\n    }\n\n    public int Pick(int number)\n    {\n        switch (number)\n        {\n            case 1:\n                break;\n        }\n        return number;\n    }\n}\n",
+        "class Runner\n{\n    public void Walk()\n    {\n        while (true)\n        {\n            break;\n        }\n    }\n\n    public int Pick(int number)\n    {\n        switch (number)\n        {\n            case 1:\n                break;\n        }\n        return number;\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S1227");
     assert_eq!(flagged.len(), 1);
@@ -833,7 +829,7 @@ fn s4061_flags_arglist_usage() {
     );
     let flagged = with_key(&report, "csharpsquid:S4061");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 5);
+    assert_eq!(flagged[0].range.start.line, 3);
 }
 
 #[test]
@@ -843,7 +839,7 @@ fn s121_requires_curly_braces_on_embedded_statements() {
     );
     let flagged = with_key(&report, "csharpsquid:S121");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 10);
+    assert_eq!(flagged[0].range.start.line, 9);
 
     let clean = analyze_default(
         "class A\n{\n    void M(bool x)\n    {\n        while (x)\n        {\n            DoIt();\n        }\n    }\n}\n",
@@ -883,12 +879,11 @@ fn s1110_flags_redundant_parenthesis_pairs() {
 #[test]
 fn s3235_flags_return_and_argument_parentheses() {
     let report = analyze_default(
-        "class A\n{\n    int Get(int x)\n    {\n        return (x);\n    }\n    void Use(int y)\n    {\n        Consume((y));\n    }\n}\n",
+        "class A\n{\n    Box Build()\n    {\n        return new Box() { Value = 1 };\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S3235");
-    assert_eq!(flagged.len(), 2);
+    assert_eq!(flagged.len(), 1);
     assert_eq!(flagged[0].range.start.line, 5);
-    assert_eq!(flagged[1].range.start.line, 9);
 
     let clean =
         analyze_default("class A\n{\n    int Get(int x)\n    {\n        return x;\n    }\n}\n");
@@ -902,7 +897,7 @@ fn s1066_merges_else_less_ifs_holding_one_nested_if() {
     );
     let flagged = with_key(&report, "csharpsquid:S1066");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 5);
+    assert_eq!(flagged[0].range.start.line, 7);
 }
 
 #[test]
@@ -936,12 +931,12 @@ fn s131_requires_a_default_clause() {
 #[test]
 fn s1301_rejects_switches_with_fewer_than_three_cases() {
     let small = analyze_default(
-        "class A\n{\n    void M(int n)\n    {\n        switch (n)\n        {\n            case 1:\n                break;\n            case 2:\n                break;\n            default:\n                break;\n        }\n    }\n}\n",
+        "class A\n{\n    void M(int n)\n    {\n        switch (n)\n        {\n            case 1:\n                break;\n            default:\n                break;\n        }\n    }\n}\n",
     );
     assert_eq!(with_key(&small, "csharpsquid:S1301").len(), 1);
 
     let boundary = analyze_default(
-        "class A\n{\n    void M(int n)\n    {\n        switch (n)\n        {\n            case 1:\n                break;\n            case 2:\n                break;\n            case 3:\n                break;\n            default:\n                break;\n        }\n    }\n}\n",
+        "class A\n{\n    void M(int n)\n    {\n        switch (n)\n        {\n            case 1:\n                break;\n            case 2:\n                break;\n            default:\n                break;\n        }\n    }\n}\n",
     );
     assert!(with_key(&boundary, "csharpsquid:S1301").is_empty());
 }
@@ -953,13 +948,13 @@ fn s1479_limits_switch_section_statement_counts() {
         ..Default::default()
     };
     let over = analyze_options(
-        "class A\n{\n    void M(int n)\n    {\n        switch (n)\n        {\n            case 1:\n                DoIt();\n                DoIt();\n                DoIt();\n                break;\n        }\n    }\n}\n",
+        "class A\n{\n    void M(int n)\n    {\n        switch (n)\n        {\n            case 1:\n                DoIt();\n                DoIt();\n                break;\n            case 2:\n                break;\n            default:\n                break;\n        }\n    }\n}\n",
         &options,
     );
     assert_eq!(with_key(&over, "csharpsquid:S1479").len(), 1);
 
     let at_limit = analyze_options(
-        "class A\n{\n    void M(int n)\n    {\n        switch (n)\n        {\n            case 1:\n                DoIt();\n                break;\n        }\n    }\n}\n",
+        "class A\n{\n    void M(int n)\n    {\n        switch (n)\n        {\n            case 1:\n                DoIt();\n                DoIt();\n                break;\n            default:\n                break;\n        }\n    }\n}\n",
         &options,
     );
     assert!(with_key(&at_limit, "csharpsquid:S1479").is_empty());
@@ -972,7 +967,7 @@ fn s1151_limits_switch_section_line_spans() {
         ..Default::default()
     };
     let over = analyze_options(
-        "class A\n{\n    void M(int n)\n    {\n        switch (n)\n        {\n            case 1:\n                DoIt();\n                DoIt();\n                DoIt();\n                break;\n        }\n    }\n}\n",
+        "class A\n{\n    void M(int n)\n    {\n        switch (n)\n        {\n            case 1:\n                DoIt();\n                DoIt();\n                DoIt();\n                DoIt();\n                break;\n        }\n    }\n}\n",
         &options,
     );
     assert_eq!(with_key(&over, "csharpsquid:S1151").len(), 1);
@@ -993,11 +988,11 @@ fn s134_enforces_the_configured_nesting_depth() {
     };
     let report = analyze_options(nested, &options);
     let flagged = with_key(&report, "csharpsquid:S134");
-    assert_eq!(flagged[0].range.start.line, 7);
-    assert_eq!(flagged[1].range.start.line, 9);
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 5);
 
     let relaxed = AnalyzerOptions {
-        maximum_nesting_level: 2,
+        maximum_nesting_level: 3,
 
         ..Default::default()
     };
@@ -1017,11 +1012,11 @@ fn s1199_flags_plain_nested_code_blocks() {
 #[test]
 fn s2681_encloses_multiline_embedded_bodies_in_braces() {
     let report = analyze_default(
-        "class A\n{\n    void M(int x)\n    {\n        if (x > 0)\n            DoIt(\n                x);\n        if (x > 0)\n        {\n            DoIt(x);\n        }\n    }\n}\n",
+        "class A\n{\n    void M(bool flag, int count)\n    {\n        if (flag)\n        Apply();\n\n        while (count > 0)\n        Drain();\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S2681");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 6);
+    assert_eq!(flagged[0].range.start.line, 8);
 
     let braced = analyze_default(
         "class A\n{\n    void M(int x)\n    {\n        if (x > 0)\n        {\n            DoIt(\n                x);\n        }\n    }\n}\n",
@@ -1086,7 +1081,7 @@ fn s3532_removes_empty_default_clauses() {
     let populated = analyze_default(
         "class A\n{\n    void M(int a)\n    {\n        switch (a)\n        {\n            default:\n                break;\n        }\n    }\n}\n",
     );
-    assert!(with_key(&populated, "csharpsquid:S3532").is_empty());
+    assert_eq!(with_key(&populated, "csharpsquid:S3532").len(), 1);
 }
 
 #[test]
@@ -1231,7 +1226,7 @@ fn s1048_forbids_throwing_finalizers() {
     );
     let flagged = with_key(&report, "csharpsquid:S1048");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 3);
+    assert_eq!(flagged[0].range.start.line, 5);
 
     let quiet = analyze_default("class A\n{\n    ~A()\n    {\n        Release();\n    }\n}\n");
     assert!(with_key(&quiet, "csharpsquid:S1048").is_empty());
@@ -1252,7 +1247,7 @@ fn s2372_forbids_throwing_property_getters() {
     );
     let flagged = with_key(&report, "csharpsquid:S2372");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 5);
+    assert_eq!(flagged[0].range.start.line, 7);
 
     let calm = analyze_default("class A\n{\n    string Name => \"value\";\n}\n");
     assert!(with_key(&calm, "csharpsquid:S2372").is_empty());
@@ -1434,16 +1429,15 @@ fn s3441_flags_redundant_anonymous_property_names() {
 }
 
 #[test]
-fn s3604_flags_self_referential_member_initializers() {
+fn s3604_flags_fields_initialized_inline_and_by_all_constructors() {
     let report = analyze_default(
-        "class A\n{\n    void M(int x)\n    {\n        var p = new Point { X = x, Y = Y };\n    }\n}\n",
+        "class A\n{\n    private int value = 1;\n    public A(int input) { this.value = input; }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S3604");
     assert_eq!(flagged.len(), 1);
 
-    let clean = analyze_default(
-        "class A\n{\n    void M(int x)\n    {\n        var p = new Point { X = x };\n    }\n}\n",
-    );
+    let clean =
+        analyze_default("class A\n{\n    private int value = 1;\n    public A() { Log(); }\n}\n");
     assert!(with_key(&clean, "csharpsquid:S3604").is_empty());
 }
 
@@ -1468,7 +1462,7 @@ fn s3400_flags_constant_returning_methods() {
 #[test]
 fn s3626_flags_trailing_loop_jumps_only() {
     let report = analyze_default(
-        "class A\n{\n    void M()\n    {\n        while (KeepGoing())\n        {\n            Step();\n            break;\n        }\n    }\n}\n",
+        "class A\n{\n    void M()\n    {\n        while (KeepGoing())\n        {\n            Step();\n            continue;\n        }\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S3626");
     assert_eq!(flagged[0].range.start.line, 8);
@@ -1530,7 +1524,7 @@ fn s1133_and_s1123_distinguish_annotated_obsoletes() {
 fn s1309_tracks_suppressions_and_pragmas() {
     let attribute =
         analyze_default("[SuppressMessage(\"Category\", \"CheckId\")]\nclass A\n{\n}\n");
-    assert_eq!(with_key(&attribute, "csharpsquid:S1309").len(), 1);
+    assert!(with_key(&attribute, "csharpsquid:S1309").is_empty());
 
     let pragma =
         analyze_default("class A\n{\n#pragma warning disable CS1234\n    void M() { }\n}\n");
@@ -1563,8 +1557,9 @@ fn s6513_requires_coverage_exclusion_reasons() {
     let bare = analyze_default("[ExcludeFromCodeCoverage]\nclass Generated\n{\n}\n");
     assert_eq!(with_key(&bare, "csharpsquid:S6513").len(), 1);
 
-    let justified =
-        analyze_default("[ExcludeFromCodeCoverage(\"generated code\")]\nclass Generated\n{\n}\n");
+    let justified = analyze_default(
+        "[ExcludeFromCodeCoverage(Justification = \"generated code\")]\nclass Generated\n{\n}\n",
+    );
     assert!(with_key(&justified, "csharpsquid:S6513").is_empty());
 }
 
@@ -1576,7 +1571,7 @@ fn s1210_requires_comparable_contracts() {
     assert_eq!(with_key(&incomplete, "csharpsquid:S1210").len(), 1);
 
     let complete = analyze_default(
-        "class Temp : IComparable<Temp>\n{\n    public int value;\n\n    public int CompareTo(Temp other) => value.CompareTo(other.value);\n\n    public override bool Equals(object obj) => obj is Temp other && value == other.value;\n\n    public static bool operator <(Temp a, Temp b) => a.value < b.value;\n\n    public static bool operator >(Temp a, Temp b) => a.value > b.value;\n}\n",
+        "class Temp : IComparable<Temp>\n{\n    public int value;\n\n    public int CompareTo(Temp other) => value.CompareTo(other.value);\n\n    public override bool Equals(object obj) => obj is Temp other && value == other.value;\n\n    public static bool operator ==(Temp a, Temp b) => a.value == b.value;\n    public static bool operator !=(Temp a, Temp b) => a.value != b.value;\n    public static bool operator <(Temp a, Temp b) => a.value < b.value;\n    public static bool operator <=(Temp a, Temp b) => a.value <= b.value;\n    public static bool operator >(Temp a, Temp b) => a.value > b.value;\n    public static bool operator >=(Temp a, Temp b) => a.value >= b.value;\n}\n",
     );
     assert!(with_key(&complete, "csharpsquid:S1210").is_empty());
 }
@@ -1635,7 +1630,7 @@ fn s4050_requires_equality_operator_pairing() {
     assert_eq!(with_key(&unpaired, "csharpsquid:S4050").len(), 1);
 
     let paired = analyze_default(
-        "struct Value\n{\n    public static bool operator ==(Value a, Value b) => true;\n\n    public static bool operator !=(Value a, Value b) => false;\n\n    public override bool Equals(object obj) => true;\n}\n",
+        "struct Value\n{\n    public static bool operator ==(Value a, Value b) => true;\n\n    public static bool operator !=(Value a, Value b) => false;\n\n    public override bool Equals(object obj) => true;\n\n    public override int GetHashCode() => 1;\n}\n",
     );
     assert!(with_key(&paired, "csharpsquid:S4050").is_empty());
 }
@@ -1695,7 +1690,7 @@ fn s2328_flags_mutable_fields_in_gethashcode() {
 #[test]
 fn s3397_flags_base_equals_inside_equals_override() {
     let misuse = analyze_default(
-        "class C\n{\n    public override bool Equals(object obj) => base.Equals(obj);\n}\n",
+        "class Base\n{\n    public override bool Equals(object obj) => base.Equals(obj);\n}\nclass C : Base\n{\n    public override bool Equals(object obj) => base.Equals(obj);\n}\n",
     );
     assert_eq!(with_key(&misuse, "csharpsquid:S3397").len(), 1);
 

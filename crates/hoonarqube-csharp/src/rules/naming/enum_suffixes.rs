@@ -17,7 +17,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S2344",
-                    format!("Remove this \"{suffix}\" suffix."),
+                    format!("Rename this enumeration to remove the '{suffix}' suffix."),
                     range_of(name, source),
                 ));
                 break;

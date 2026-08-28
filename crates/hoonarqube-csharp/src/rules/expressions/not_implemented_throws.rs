@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S3717",
-                "Track uses of 'NotImplementedException'.",
+                "Implement this method or throw 'NotSupportedException' instead.",
                 range_of(throw_statement, source),
             ));
         }

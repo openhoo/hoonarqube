@@ -2,7 +2,6 @@ use super::support::dispose_methods;
 use crate::CsLanguage;
 use crate::cst::{base_simple_names, collect_kinds, is_error_tainted, issue, range_of};
 use crate::rules::naming::TYPE_DECLARATION_KINDS;
-use crate::rules::structure::name_anchor;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -15,11 +14,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .filter(|type_node| !dispose_methods(*type_node, source).is_empty())
         .filter(|type_node| !base_simple_names(*type_node, source).contains(&"IDisposable"))
         .map(|type_node| {
+            let dispose = dispose_methods(type_node, source)
+                .into_iter()
+                .next()
+                .expect("checked Dispose method");
+            let name = dispose.child_by_field_name("name").unwrap_or(dispose);
             issue(
                 language,
                 "S2953",
-                "Implement 'IDisposable' on this type.",
-                range_of(name_anchor(type_node), source),
+                "Either implement 'IDisposable.Dispose', or totally rename this method to prevent confusion.",
+                range_of(name, source),
             )
         })
         .collect()

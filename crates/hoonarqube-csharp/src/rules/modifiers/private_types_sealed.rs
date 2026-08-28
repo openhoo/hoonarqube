@@ -40,7 +40,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         issues.push(issue(
             language,
             "S3260",
-            "Mark this private type 'sealed'.",
+            "Private classes which are not derived in the current assembly should be marked as 'sealed'.",
             range_of(name, source),
         ));
     }

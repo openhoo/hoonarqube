@@ -26,11 +26,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 && !names.contains(alternative)
                 && let Some(declaration) = operator_declaration_for(type_node, token)
             {
+                let operator = collect_kinds(declaration, &[token])
+                    .into_iter()
+                    .next()
+                    .unwrap_or(declaration);
                 issues.push(issue(
                     language,
                     "S4069",
-                    format!("Provide a named '{alternative}' method alongside this operator."),
-                    range_of(declaration, source),
+                    format!(
+                        "Implement alternative method '{alternative}' for the operator '{token}'."
+                    ),
+                    range_of(operator, source),
                 ));
             }
         }

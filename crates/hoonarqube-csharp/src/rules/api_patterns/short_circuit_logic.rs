@@ -22,11 +22,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         };
         if looks_boolean_expression(left, source) && looks_boolean_expression(right, source) {
+            let mut cursor = expression.walk();
+            let operator = expression
+                .children(&mut cursor)
+                .find(|child| matches!(child.kind(), "&" | "|"))
+                .unwrap_or(expression);
+            let replacement = if operator.kind() == "&" { "&&" } else { "||" };
             issues.push(issue(
                 language,
                 "S2178",
-                "Use '&&' or '||' for this boolean combination.",
-                range_of(expression, source),
+                format!("Correct this '{}' to '{replacement}'.", operator.kind()),
+                range_of(operator, source),
             ));
         }
     }

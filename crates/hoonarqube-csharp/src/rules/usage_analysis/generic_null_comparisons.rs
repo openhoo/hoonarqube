@@ -28,11 +28,11 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S2955",
-                format!(
-                    "Constrain '{}' or avoid comparing it with null.",
-                    node_text(operand, source)
+                "Use a comparison to 'default(T)' instead or add a constraint to 'T' so that it can't be a value type.",
+                range_of(
+                    if left.kind() == "null_literal" { left } else { right },
+                    source,
                 ),
-                range_of(expression, source),
             ));
         }
     }

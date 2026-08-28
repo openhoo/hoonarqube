@@ -1,7 +1,7 @@
 use super::support::name_anchor;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
-use crate::rules::naming::{TYPE_DECLARATION_KINDS, declaration_kind_word};
+use crate::rules::naming::TYPE_DECLARATION_KINDS;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -25,14 +25,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(type_declaration) {
             continue;
         }
+        let name = name_anchor(type_declaration);
         issues.push(issue(
             language,
             "S3903",
             format!(
-                "Move this {} into a namespace.",
-                declaration_kind_word(type_declaration.kind())
+                "Move '{}' into a named namespace.",
+                crate::cst::node_text(name, source)
             ),
-            range_of(name_anchor(type_declaration), source),
+            range_of(name, source),
         ));
     }
     issues

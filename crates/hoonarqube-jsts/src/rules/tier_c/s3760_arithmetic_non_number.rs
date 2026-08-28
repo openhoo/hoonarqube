@@ -38,7 +38,7 @@ impl TierCLiteralCollector<'_> {
             self.sink.emit_span(
                 RuleScope::JsOnly,
                 "S3760",
-                "Arithmetic here relies on implicit coercion and may produce 'NaN'.",
+                "Convert the operands of this operation into numbers.",
                 expression.span(),
             );
         }

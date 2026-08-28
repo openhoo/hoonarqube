@@ -30,17 +30,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 let covariant = created != element
                     && graph_reaches(&graph, created, |current| current == element);
                 if covariant {
-                    return declarator.child_by_field_name("name");
+                    return Some(value);
                 }
             }
             None
         })
-        .map(|name| {
+        .map(|value| {
             issue(
                 language,
                 "S2330",
-                "Avoid array covariance here; use an explicitly typed array or a common generic collection.",
-                range_of(name, source),
+                "Refactor the code to not rely on potentially unsafe array conversions.",
+                range_of(value, source),
             )
         })
         .collect()

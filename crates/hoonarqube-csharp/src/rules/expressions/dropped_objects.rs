@@ -10,11 +10,14 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for creation in bare_creations(root) {
-        if !creation_type_text(creation, source).ends_with("Exception") {
+        let created_type = creation_type_text(creation, source);
+        if !created_type.ends_with("Exception") {
             issues.push(issue(
                 language,
                 "S1848",
-                "Either use this created object or remove the instantiation.",
+                format!(
+                    "Either remove this useless object instantiation of class '{created_type}' or use it."
+                ),
                 range_of(creation, source),
             ));
         }

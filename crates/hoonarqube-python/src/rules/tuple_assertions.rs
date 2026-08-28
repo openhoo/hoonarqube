@@ -21,7 +21,7 @@ pub(crate) fn check_tuple_assertions(
         {
             issues.push(issue_at(
                 "python:S5905",
-                "This assertion always passes because it tests a non-empty tuple.",
+                "Fix this assertion on a tuple literal.",
                 assert.test.range(),
                 index,
                 source,

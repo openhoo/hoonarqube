@@ -4,17 +4,16 @@ use hoonarqube_ir::Issue;
 
 /// csharpsquid:S105 — no tab characters for indentation.
 pub(crate) fn check(source: &str, language: CsLanguage) -> Vec<Issue> {
-    let mut issues = Vec::new();
     for (index, chunk) in source.split_inclusive('\n').enumerate() {
         let line = chunk.trim_end_matches(['\r', '\n']);
         let Some(column) = leading_tab_column(line) else {
             continue;
         };
         let line_number = to_u32(index) + 1;
-        issues.push(issue(
+        return vec![issue(
             language,
             "S105",
-            "Replace all tab characters in this file by spaces.",
+            "Replace all tab characters in this file by sequences of white-spaces.",
             hoonarqube_ir::Range {
                 start: hoonarqube_ir::Pos {
                     line: line_number,
@@ -22,12 +21,12 @@ pub(crate) fn check(source: &str, language: CsLanguage) -> Vec<Issue> {
                 },
                 end: hoonarqube_ir::Pos {
                     line: line_number,
-                    column: column + 1,
+                    column,
                 },
             },
-        ));
+        )];
     }
-    issues
+    Vec::new()
 }
 
 /// Column of the first tab inside a line's leading whitespace run.

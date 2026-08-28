@@ -17,7 +17,8 @@ pub(crate) fn check_no_sonar(
         .filter(|token| source[token.range()].contains("NOSONAR"))
         .map(|token| Issue {
             rule_key: "python:NoSonar".to_string(),
-            message: "Remove this usage of 'NOSONAR'.".to_string(),
+            message: "Is #NOSONAR used to exclude false-positive or to hide real quality flaw?"
+                .to_string(),
             range: to_range(token.range(), index, source),
             fix: None,
         })
@@ -39,11 +40,16 @@ mod tests {
             "x = 1  # NOSONAR\nstr(x)\n",
             &AnalyzerOptions::default(),
         );
+        let findings: Vec<_> = report
+            .issues
+            .into_iter()
+            .filter(|issue| issue.rule_key == "python:NoSonar")
+            .collect();
         assert_eq!(
-            report.issues,
+            findings,
             vec![issue(
                 "python:NoSonar",
-                "Remove this usage of 'NOSONAR'.",
+                "Is #NOSONAR used to exclude false-positive or to hide real quality flaw?",
                 (1, 7),
                 (1, 16),
             )]
@@ -54,6 +60,11 @@ mod tests {
             "x = 1  # nosonar\nstr(x)\n",
             &AnalyzerOptions::default(),
         );
-        assert!(lowercase.issues.is_empty());
+        assert!(
+            lowercase
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "python:NoSonar")
+        );
     }
 }

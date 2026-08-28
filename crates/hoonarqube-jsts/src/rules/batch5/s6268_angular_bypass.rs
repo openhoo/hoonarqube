@@ -2,7 +2,7 @@ use crate::rules::batch5::collectors::ANGULAR_BYPASS_METHODS;
 use crate::rules::batch5::collectors::SecurityHotspotCollector;
 use crate::rules::shared::sink_callee_name;
 use crate::support::RuleScope;
-use oxc_ast::ast::CallExpression;
+use oxc_ast::ast::{CallExpression, Expression};
 use oxc_span::GetSpan;
 
 impl SecurityHotspotCollector<'_, '_> {
@@ -12,11 +12,15 @@ impl SecurityHotspotCollector<'_, '_> {
             return;
         };
         if ANGULAR_BYPASS_METHODS.contains(&name) {
+            let anchor = match &call.callee {
+                Expression::StaticMemberExpression(member) => member.property.span(),
+                _ => call.callee.span(),
+            };
             self.sink.emit_span(
                 RuleScope::Both,
                 "S6268",
-                "Make sure bypassing Angular's built-in sanitization is safe here.",
-                call.span(),
+                "Make sure disabling Angular built-in sanitization is safe here.",
+                anchor,
             );
         }
     }

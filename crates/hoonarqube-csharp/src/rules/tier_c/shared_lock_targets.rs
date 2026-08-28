@@ -25,18 +25,18 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         None
     }
     collect_kinds(root, &["lock_statement"])
-    .into_iter()
-    .filter(|statement| !is_error_tainted(*statement))
-    .filter_map(lock_target)
-    .map(|target| {
-        issue(
-            language,
-            "S2551",
-            "Do not lock on 'this', a type object, or a string; use a dedicated private lock object.",
-            range_of(target, source),
-        )
-    })
-    .collect()
+        .into_iter()
+        .filter(|statement| !is_error_tainted(*statement))
+        .filter_map(lock_target)
+        .map(|target| {
+            issue(
+                language,
+                "S2551",
+                "Lock on a dedicated object instance instead.",
+                range_of(target, source),
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]

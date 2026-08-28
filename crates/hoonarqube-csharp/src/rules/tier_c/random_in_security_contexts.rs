@@ -13,7 +13,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S2245",
-                "Use a cryptographically secure random number generator for this security-sensitive value.",
+                "Make sure that using this pseudorandom number generator is safe here.",
                 range_of(creation, source),
             )
         })

@@ -22,17 +22,23 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some(consequence) = embedded_bodies(if_statement).first().copied() else {
             continue;
         };
-        let mergeable = match consequence.kind() {
-            "if_statement" => else_alternative(consequence).is_none(),
-            "block" => mergeable_block(consequence),
-            _ => false,
+        let nested = match consequence.kind() {
+            "if_statement" if else_alternative(consequence).is_none() => Some(consequence),
+            "block" if mergeable_block(consequence) => {
+                embedded_bodies(consequence).first().copied()
+            }
+            _ => None,
         };
-        if mergeable {
+        if let Some(nested) = nested {
+            let keyword = collect_kinds(nested, &["if"])
+                .into_iter()
+                .next()
+                .unwrap_or(nested);
             issues.push(issue(
                 language,
                 "S1066",
-                "Merge this if statement with the nested one.",
-                range_of(if_statement, source),
+                "Merge this if statement with the enclosing one.",
+                range_of(keyword, source),
             ));
         }
     }

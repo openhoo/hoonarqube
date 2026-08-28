@@ -54,11 +54,18 @@ impl FunctionMetricsCollector<'_> {
                 _ => false,
             };
             if missing {
+                let anchor = match callback {
+                    Expression::FunctionExpression(function) => oxc_span::Span::new(
+                        function.span.start,
+                        function.span.start.saturating_add(8),
+                    ),
+                    _ => callback.span(),
+                };
                 self.sink.emit_span(
                     RuleScope::JsOnly,
                     "S3796",
-                    "Add the missing \"return\" statement to this function.",
-                    callback.span(),
+                    "Add a \"return\" statement to this callback.",
+                    anchor,
                 );
             }
         }

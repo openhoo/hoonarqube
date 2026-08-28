@@ -10,7 +10,7 @@ impl TsTypeCollector<'_, '_> {
         self.sink.emit_span(
             RuleScope::TsOnly,
             "S4204",
-            "Replace this any type with a more specific type.",
+            "Unexpected any. Specify a different type.",
             it.span(),
         );
     }

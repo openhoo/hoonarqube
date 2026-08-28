@@ -26,7 +26,7 @@ pub(crate) fn check_constant_conditions(
         {
             issues.push(issue_at(
                 "python:S5797",
-                "Replace this constant condition with real logic.",
+                "Replace this expression; used as a condition it will always be constant.",
                 test.range(),
                 index,
                 source,

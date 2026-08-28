@@ -15,8 +15,8 @@ impl EsIdiomCollector<'_> {
             self.sink.emit_span(
                 RuleScope::JsOnly,
                 "S3523",
-                "Remove this use of the \"Function\" constructor.",
-                it.callee.span(),
+                "The Function constructor is eval.",
+                it.span(),
             );
         }
     }

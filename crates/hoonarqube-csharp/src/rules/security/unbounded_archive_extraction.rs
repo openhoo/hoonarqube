@@ -18,7 +18,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S5042",
-                "Bound this archive extraction before running it.",
+                "Make sure that decompressing this archive file is safe.",
                 range_of(invocation, source),
             )
         })

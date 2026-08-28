@@ -24,8 +24,15 @@ impl TierCLiteralCollector<'_> {
             self.sink.emit_span(
                 RuleScope::JsOnly,
                 "S3403",
-                "This strict comparison between dissimilar types is always false.",
-                expression.span(),
+                if expression.operator == BinaryOperator::StrictEquality {
+                    "Remove this \"===\" check; it will always be false. Did you mean to use \"==\"?"
+                } else {
+                    "Remove this \"!==\" check; it will always be true. Did you mean to use \"!=\"?"
+                },
+                oxc_span::Span::new(
+                    expression.left.span().end.saturating_add(1),
+                    expression.right.span().start.saturating_sub(1),
+                ),
             );
         }
     }

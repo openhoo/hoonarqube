@@ -15,11 +15,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let has_default = switch_body_of(switch_statement)
             .is_some_and(|body| subtree_contains_kind(body, "default"));
         if !has_default {
+            let keyword = collect_kinds(switch_statement, &["switch"])
+                .into_iter()
+                .next()
+                .unwrap_or(switch_statement);
             issues.push(issue(
                 language,
                 "S131",
-                "Add a 'default' clause to this switch.",
-                range_of(switch_statement, source),
+                "Add a 'default' clause to this 'switch' statement.",
+                range_of(keyword, source),
             ));
         }
     }

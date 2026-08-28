@@ -37,7 +37,10 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     language,
                     "S1168",
                     "Return an empty collection instead of null.",
-                    range_of(return_statement, source),
+                    range_of(
+                        first_named_child(return_statement).expect("checked null expression"),
+                        source,
+                    ),
                 ));
                 flagged = true;
             }
@@ -50,11 +53,12 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 && first_named_child(arrow)
                     .is_some_and(|expression| expression.kind() == "null_literal")
             {
+                let expression = first_named_child(arrow).expect("checked null expression");
                 issues.push(issue(
                     language,
                     "S1168",
                     "Return an empty collection instead of null.",
-                    range_of(arrow, source),
+                    range_of(expression, source),
                 ));
             }
         }

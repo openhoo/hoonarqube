@@ -1,13 +1,13 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of, simple_name};
-use crate::rules::expressions::{callee_name, invocation_arguments};
+use crate::rules::expressions::{callee_name, first_named_child, invocation_arguments};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S4158 — indexing or iterating an empty collection fails
 /// at runtime. Bound: direct chains off a provably empty creation
-/// (indexing, `MoveNext`, `foreach`); values stored into variables lose
-/// their provenance on purpose.
+/// (indexing, `MoveNext`, `foreach`) plus zero-length arrays stored in a
+/// local and indexed later. Other stored collections lose provenance.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for creation in collect_kinds(
@@ -21,6 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(creation) || !is_empty_collection_creation(creation, source) {
             continue;
         }
+        let issue_count_before = issues.len();
         let mut current = Some(creation);
         while let Some(node) = current {
             current = node.parent();
@@ -52,6 +53,32 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 }
                 _ => break,
             }
+        }
+        if issues.len() > issue_count_before {
+            continue;
+        }
+        let Some(declarator) = creation
+            .parent()
+            .filter(|parent| parent.kind() == "variable_declarator")
+        else {
+            continue;
+        };
+        let Some(name) = declarator.child_by_field_name("name") else {
+            continue;
+        };
+        let name_text = node_text(name, source);
+        if collect_kinds(root, &["element_access_expression"])
+            .into_iter()
+            .filter(|access| access.start_byte() > declarator.end_byte())
+            .filter_map(first_named_child)
+            .any(|receiver| node_text(receiver, source) == name_text)
+        {
+            issues.push(issue(
+                language,
+                "S4158",
+                "This collection is created empty; accessing its elements will fail at runtime.",
+                range_of(creation, source),
+            ));
         }
     }
     issues
@@ -157,11 +184,19 @@ mod tests {
     }
 
     #[test]
-    fn s4158_stored_value_loses_provenance_on_purpose() {
+    fn s4158_stored_non_array_value_loses_provenance_on_purpose() {
         let report = analyze_default(
             "class C {\n    void M() {\n        var empty = new List<int>();\n        Log(empty.Count);\n    }\n}\n",
         );
         assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s4158_tracks_stored_empty_arrays_to_later_index_access() {
+        let report = analyze_default(
+            "class C {\n    int M() {\n        var empty = new int[0];\n        return empty[0];\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, KEY).len(), 1);
     }
 
     #[test]

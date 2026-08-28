@@ -2,7 +2,7 @@
 
 use crate::engine::calls::concrete_hint;
 use crate::engine::calls::hint_accepts_literal;
-use crate::support::{expr_normalized_text, issue_at, typed_literal_kind};
+use crate::support::{issue_at, typed_literal_kind};
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
 use ruff_source_file::LineIndex;
@@ -29,6 +29,7 @@ pub(crate) fn parameter_entries(
 /// Flags one literal argument whose kind contradicts the parameter's simple
 /// concrete annotation.
 pub(crate) fn s5655_check_argument(
+    function_name: &str,
     entry: &ruff_python_ast::ParameterWithDefault,
     argument: &Expr,
     issues: &mut Vec<Issue>,
@@ -47,10 +48,9 @@ pub(crate) fn s5655_check_argument(
     if hint_accepts_literal(hint, kind) {
         return;
     }
-    let annotation_text = expr_normalized_text(annotation, source);
     issues.push(issue_at(
         "python:S5655",
-        &format!("This argument does not match the '{annotation_text}' parameter type."),
+        &format!("Change this argument; Function \"{function_name}\" expects a different type"),
         argument.range(),
         index,
         source,

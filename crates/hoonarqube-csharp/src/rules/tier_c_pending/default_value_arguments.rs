@@ -30,23 +30,26 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             arguments
                 .into_iter()
                 .enumerate()
-                .filter(|(index, argument)| {
-                    let text = node_text(argument_expression(*argument), source);
-                    candidates.iter().any(|method| {
-                        parameter_units(*method, source)
-                            .get(*index)
-                            .and_then(|unit| unit.default_value)
-                            .is_some_and(|default| node_text(default, source) == text)
-                    })
+                .filter_map(|(index, argument)| {
+                    let text = node_text(argument_expression(argument), source);
+                    candidates
+                        .iter()
+                        .find_map(|method| {
+                            let unit = parameter_units(*method, source).into_iter().nth(index)?;
+                            let default = unit.default_value?;
+                            (node_text(default, source) == text)
+                                .then(|| unit.name.map(|name| node_text(name, source)))
+                                .flatten()
+                        })
+                        .map(|parameter_name| (argument, parameter_name))
                 })
-                .map(|(_, argument)| argument)
                 .collect::<Vec<_>>()
         })
-        .map(|argument| {
+        .map(|(argument, parameter_name)| {
             issue(
                 language,
                 "S3254",
-                "Remove this argument; it duplicates the parameter's default value.",
+                format!("Remove this default value assigned to parameter '{parameter_name}'."),
                 range_of(argument, source),
             )
         })

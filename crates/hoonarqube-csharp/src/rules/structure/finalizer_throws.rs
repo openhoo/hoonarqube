@@ -15,12 +15,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some(body) = body_of(destructor) else {
             continue;
         };
-        if subtree_contains_kind(body, "throw_statement") {
+        if subtree_contains_kind(body, "throw_statement")
+            && let Some(throw_statement) =
+                collect_kinds(body, &["throw_statement"]).into_iter().next()
+        {
             issues.push(issue(
                 language,
                 "S1048",
-                "A finalizer must not throw exceptions.",
-                range_of(destructor, source),
+                "Remove this 'throw' statement.",
+                range_of(throw_statement, source),
             ));
         }
     }

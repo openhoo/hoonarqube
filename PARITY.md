@@ -1,163 +1,116 @@
-# SonarQube Oracle Parity Report
+# SonarQube Parity Contract and Evidence
 
-Oracle: SonarQube 9.9.8 Community Edition (podman, port 9000), all rules activated in
-per-language quality profiles `oracle-py/js/ts/cs` (set as project defaults).
-Fixtures: one bad + one near-miss good pair per implemented rule, authored by the fixture fleet.
-Comparison: `tools/oracle/diff.py` — three-way (expected vs SQ findings vs hoonarqube findings),
-line-level, per rule key.
+## Claim boundary
 
-## Results
+Hoonarqube ships the frozen 1,620-rule catalog:
 
-| Language | Fixtures | PASS | Actionable divergences | Non-actionable |
-|---|---|---|---|---|
-| Python | 306 pairs | 213 | **1** (S1721 — fixed same day) | 85 (EDITION-GAP 45, FALSE-POSITIVE 28, NOISE 15 incl. hotspot-fetch artifacts) |
-| JavaScript/TS | 381 pairs (oracle-js 378 + oracle-ts 3) | 308 | **0 confirmed** | 70 (33 OUT-OF-SCOPE ts misfiles, 27 TRUE-GAP = we exceed CE oracle, 5 control-not-clean, 4 SQ-OVERFIRE on deprecated/noise rules) |
-| C# | 451 pairs | scan blocked* | n/a | n/a |
+- C#: 467.
+- JavaScript: 406.
+- TypeScript: 412.
+- Python: 335.
 
-*C#: SQ CE's C# analyzer requires Roslyn diagnostic output from an MSBuild-integrated
-build. Attempted routes: host dotnet-sonarscanner 11.2.1 + SDK 10 (.NET 10, legacy-GUID variants,
---no-incremental clean rebuilds), containerized mcr.dotnet/sdk:10.0, sln vs csproj entry — all fail
-either at begin ("unable to collect required information") or end ("project has not been built /
-no valid ProjectGuid"), i.e. the SonarC# Roslyn injection never produces ProjectInfo.xml for this
-dotnet-SDK-10 + scanner-11.2.1 + fixture-collection combination. C# parity is instead anchored by: rule-for-rule catalog
-match, per-rule unit suites (433→1194 crate-wide during triage; grown further since), and the
-shared tree-sitter detection semantics
-reviewed in the hardening pass. The harness scaffolding (`oracle-cs.csproj/.sln`,
-`tools/oracle/run_scan.sh`) remains in place for a future MSBuild-integrated run.
+Seventeen C# rules are owned by SonarQube's Enterprise analyzer. Hoonarqube
+keeps their implementations, fixtures, and local tests, but the Community
+oracle cannot certify their upstream behavior. These rules carry the explicit
+`enterprise-unverified` classification and always fail the strict parity gate
+as `ENTERPRISE_UNVERIFIED`. They are never counted as Community passes.
 
-## Divergence classes found and disposition
+The remaining rule records carry `community-base`. Development and Community
+oracle runs need no commercial license. Full SonarQube parity cannot be claimed
+without valid Enterprise oracle evidence for the 17 commercial rules.
 
-1. EDITION-GAP (~52 keys): rule absent from CE python/js plugins (commercial Dataport catalog we
-   target exceeds CE). Our implementations exceed the CE oracle. No action possible/needed.
-2. TRUE-GAP (27 jsts): SQ CE silent where our findings are correct — we exceed the oracle.
-3. FALSE-POSITIVE (~28): our detectors fire where SQ would not (aws-cdk object-stub fixtures,
-   legacy py2 exec/print statement forms under py3 parsing, scope-narrowing differences).
-   Disposition: documented honest-subset extensions; fixtures retained with expectation notes.
-4. REAL-MISS (1): python:S1721 — ruff lexes keywords as dedicated token kinds
-   (`TokenKind::Return`, not `Name`), so the keyword-parentheses check never matched.
-   Fixed in `rules/keyword_parentheses.rs`; oracle re-diff now PASS.
-5. Harness corrections applied during triage: SECURITY_HOTSPOT rules surface via
-   `api/hotspots/search`, not `/api/issues` (6 python rows were false SQ-MISS);
-   file-level issues carry `line: null` (S113/S3317); `sq_on()` counts any-rule lines on the
-   bad file (noted in S1539/S139 evidence).
+## Full-parity requirements
 
-## Catalog coverage (audited 2026-08-26)
+1. Every catalog rule must be executable. No rule may be hidden by an `INFRA`,
+   parser, type-system, cross-file, runtime-configuration, or Razor exemption.
+2. For every rule, the matching SonarQube edition and Hoonarqube must emit the
+   exact same finding multiset on bad, good, boundary, malformed-syntax, and
+   interaction fixtures. Equality includes rule key, file, message, start/end
+   line and column, and count.
+3. Python, JavaScript, TypeScript, JSX/TSX, and C# must use their real upstream
+   analysis routes. C# requires successful MSBuild/Roslyn-integrated evidence;
+   a zero-finding scan is blocked evidence, never a pass.
+4. Mixed-language CLI analysis must preserve deterministic issue ordering,
+   metrics, paths, parser recovery, defaults, and parameter overrides.
+5. `--format sonar` must be accepted by Generic Issue Import and preserve rule
+   identity, classification, impacts, messages, and locations.
+6. Every upstream quick fix in scope needs equivalent preview, conflict, apply,
+   and post-apply verification behavior. `QUICKFIX.md` tracks this separately.
+7. Fixtures and generators must be reproducible from a clean checkout. Ignored
+   or stale local artifacts are not proof.
+8. Required CI gates must run on the exact claimed commit. Skipped,
+   allowed-failure, stale, or wrong-version evidence does not count.
 
-`cargo run -p xtask -- catalog coverage` audits every implemented rule against the frozen
-catalog (`--lang <id>` narrows to one language, `--strict` fails on any non-implemented key):
+## Strict oracle semantics
 
-| Language | Implemented | Infra gaps | Total | Actionable coverage |
-|---|---|---|---|---|
-| Python | 333 | 1 | 335 | 99.7% |
-| JavaScript | 403 | 3 | 406 | 100.0% |
-| TypeScript | 406 | 6 | 412 | 100.0% |
-| C# | 460 | 7 | 467 | 100.0% |
-| **Total** | **1602** | **17** | **1620** | **99.9%** |
+`tools/oracle/parity.py` compares this normalized finding identity as a
+multiset:
 
-Every catalog rule is either implemented, explicitly recorded as an infrastructure gap, or
-listed as a known open gap below; nothing is silently missing.
-
-The one open gap is `python:S112` (`Exception`/`BaseException` should not be raised): pure
-local syntax that fits neither the implemented set nor any infrastructure category, so it is
-reported as missing by `catalog coverage` until implemented.
-
-## Documented infrastructure gaps
-
-The 17 uncovered keys require capabilities outside a self-contained Rust analyzer. Each is
-recorded as a skip note next to the nearest related implementation, and both `xtask` and
-`tools/oracle/parity_suite.py` classify them as INFRA rather than misses:
-
-- External deprecated-API database — `javascript:S1874`, `typescript:S1874`.
-- Cross-file module resolution — `javascript:S6627`, `typescript:S4328`, `typescript:S6627`.
-- TypeScript-checker-grade type semantics — `typescript:S4325`, `typescript:S6606`.
-- Roslyn-grade type lattice / inheritance coupling graphs — `csharpsquid:S110`, `S1200`,
-  `S1944`, `S3242`, `S3246`, `S4047`.
-- Razor component surface (`.razor` files are not ingested) — `csharpsquid:S6802`.
-- Production runtime configuration introspection — `python:S6786`.
-- ASI reconstruction from a tolerant parse — `javascript:S1438`, `typescript:S1438`.
-
-## Architecture
-
-An eleven-crate workspace behind a single public facade:
-
-| Crate | Role |
-|---|---|
-| `hoonarqube` | Facade crate; re-exports `analyze`, `Language`, `AnalyzerOptions`, catalog, IR |
-| `hoonarqube-core` | Language dispatch and end-to-end `analyze()` orchestration |
-| `hoonarqube-catalog` | Frozen embedded catalog, sha256 chain verified at load; sole source of severity/type/parameter metadata |
-| `hoonarqube-ir` | Plain-data findings model: `Pos`, `Range`, `Issue`, `FileMetrics`, `FileReport` |
-| `hoonarqube-python` | Python analyzer (ruff parser) |
-| `hoonarqube-jsts` | JavaScript/TypeScript/JSX/TSX analyzer (oxc) |
-| `hoonarqube-csharp` | C# analyzer (tree-sitter-c-sharp) |
-| `hoonarqube-dataflow` | Generic intra-procedural engine: CFG builder, worklist solvers, dominators (not yet wired into any analyzer; reserved for future Tier-B adoption) |
-| `hoonarqube-cli` | `analyze` (text / JSON / SonarQube generic-issue JSON) and `fix` subcommands |
-| `hoonarqube-bench` | Multi-language throughput benchmark over seeded synthetic fixtures |
-| `xtask` | Catalog capture/import/audit plus implemented-rule coverage reporting |
-
-The Python and JS/TS analyzers follow this shared layout — one file per rule, tests co-located;
-`hoonarqube-csharp` mirrors it with `cst.rs` (tree-sitter helpers), `metrics.rs` and
-`symbol_table.rs` in place of `context.rs`, `support/` and `engine/`:
-
-```
-src/
-├── lib.rs            # public API only: language enum, AnalyzerOptions, analyze() orchestration
-├── context.rs        # per-file analysis context handed to rules
-├── support/          # shared helpers: positions, issue constructors, scanners
-├── engine/           # shared machinery: scope/symbol models, regex pattern parsers
-├── rules/
-│   ├── mod.rs        # explicit registry: run_all(ctx) calling each rule's check in order
-│   └── <rule>.rs     # ONE FILE PER RULE: check(ctx) -> Vec<Issue> + #[cfg(test)] tests
-└── tests.rs / tests/ # cross-rule integration tests only
+```text
+(rule, file, message, start_line, start_column, end_line, end_column)
 ```
 
-Invariants: rule keys resolve severity/type through the frozen catalog (analyzers never
-duplicate metadata); parsing is tolerant everywhere (partial syntax trees are analyzed, broken
-files never abort a run, parse errors emit findings only when a catalog rule covers them);
-positions follow the SonarQube convention (1-based line, 0-based column) and issues are sorted;
-per-file metrics are computed once and preserved through every refactor.
+Important statuses:
 
-## Test automation
+- `PASS`: exact bad-fixture equality and both good controls clean.
+- `ENTERPRISE_UNVERIFIED`: local fixture passes, but Community cannot execute
+  the Enterprise rule. Strict failure.
+- `BAD_MISMATCH`: missing, extra, differently messaged, or differently located
+  findings despite both sides meeting the minimum trigger count.
+- `OURS_MISS`, `SQ_MISS`, `BOTH_MISS`: one or both analyzers lack the required
+  bad-fixture finding.
+- `GOOD_FIRE`: either analyzer fires on the near-miss control.
+- `BEYOND_CE`: an ordinary catalog rule is absent from the Community oracle,
+  usually because of analyzer-version drift. Strict failure.
+- `ORACLE_UNVERIFIED`, `INVALID_EXPECTATION`, blocked projects, `SKIPPED`, and
+  `INFRA` all fail closed. Only `PASS` is non-failing.
 
-Three layers, cheapest first:
+Enterprise-unverified rules still require local evidence. If Hoonarqube misses
+their bad fixture or fires on their good control, the result is `OURS_MISS` or
+`GOOD_FIRE`, not `ENTERPRISE_UNVERIFIED`.
 
-1. **Per-rule unit suites** — every implemented rule carries `#[cfg(test)]` tests co-located in
-   its own file; `support`/`engine` modules and the CLI carry their own suites alongside.
-   Gate: `cargo test --workspace`.
-2. **Mechanical fixing** — `cargo run -p hoonarqube-cli -- fix <paths>` applies safe in-place
-   fixes (strip trailing whitespace, add missing final newline, expand leading tabs), walking
-   directories recursively and reporting the applied count; behaviour pinned by CLI unit tests.
-3. **Oracle parity suite** — `python3 tools/oracle/parity_suite.py [--quick]` drives the full
-   verification below end to end: starts/reuses the podman SonarQube container, ensures quality
-   profiles and projects, runs the scanner plus `hoonarqube-cli analyze` over every fixture set,
-   fetches oracle issues from `/api/issues/search` and `/api/hotspots/search`, and diffs
-   three-way per rule key (expected vs SQ vs ours). Verdicts: PASS, SQ-MISS, OURS-MISS,
-   GOOD-FIRE, SKIPPED, INFRA. SQ-MISS rows are further classified through a cached
-   `/api/rules/show` lookup into BEYOND-CE (rule absent from Community Edition) versus real
-   divergences; the report lands in `.oracle/sonar/results/parity_divergences.json`. Exit code
-   is 0 iff no real divergences remain. Zero-finding C# scans are reported as ORACLE-BLOCKED
-   (footnote above).
+Oracle artifacts use schema version 2 and retain complete messages/ranges.
+Legacy line-only artifacts are rejected. `--quick` validates cached artifacts;
+a full run refreshes scanner results.
 
-## Re-running the oracle verification
+## Current evidence — 2026-08-28
 
-Preferred: `python3 tools/oracle/parity_suite.py` — full automated lifecycle (`--quick` reuses
-the stored scan artifacts under `.oracle/sonar/results/`). Manual equivalent:
+Current state is **not full parity**.
+
+- Coverage audit finds direct repository tests for all 1,603 actionable
+  implementations: 460 C#, 403 JavaScript, 406 TypeScript, and 334 Python.
+  Seventeen additional rules remain `INFRA`; strict coverage exits 1.
+- Analyzer suites pass with 1,244 C# tests, 712 JavaScript/TypeScript tests, and
+  430 Python tests. Thirty-eight oracle/import harness tests also pass.
+- Seventeen Enterprise C# rules remain implemented and locally tested. Their
+  exact keys and analyzer ownership are integrity-checked in
+  `catalog/community-artifact-resolution.json`.
+- Community C# direct-oracle evidence has 408 exact passes, zero observed
+  mismatches, 42 infrastructure gaps, and 17 Enterprise-unverified rows.
+- Commercial analyzer execution is not part of routine development or CI.
+  Enterprise parity for those 17 rows remains intentionally unverified.
+- Expectation manifests cover all 1,620 catalog keys. Tracked corpus contains
+  3,191 language source files, including 920 C# bad/good fixtures.
+
+## Commands
 
 ```bash
-podman start sonarqube                       # if stopped
-./tools/oracle/run_scan.sh oracle-py         # repeat for -js -ts (-cs needs MSBuild route)
-python3 tools/oracle/fetch_issues.py <proj> .oracle/sonar/results/<proj>.sq.json
-cargo run -p hoonarqube-cli -- analyze --format json .oracle/sonar/projects/<proj>/src > /tmp/ours.json
-python3 tools/oracle/diff.py <lang> .oracle/sonar/projects/<proj> \
-    .oracle/sonar/results/<proj>.sq.json /tmp/ours.json .oracle/sonar/results/<proj>_diff.json
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo run -q -p xtask -- catalog audit --require-pages-complete
+cargo run -q -p xtask -- catalog coverage --strict
+PYTHONPATH=tools/oracle python3 -m unittest discover -s tools/oracle -p 'test_*.py' -v
+python3 tools/oracle/csharp_direct_oracle.py \
+  --analyzer /path/to/SonarAnalyzer.CSharp.dll \
+  --result .oracle/sonar/results/oracle-cs.community-base-direct.sq.json
+SONAR_ORACLE_RESULT_TAG=community-base-direct \
+  python3 tools/oracle/parity_suite.py --project oracle-cs --quick
 ```
 
-Triage verdicts: `.oracle/sonar/results/{py_triage_A,py_triage_B,js_triage}.jsonl`.
+A full Community server refresh requires `SONAR_SCANNER`,
+`SONAR_DOTNET_SCANNER`, and a .NET 10 SDK. Token remains outside repository in
+`.oracle/sonar/token` or `SONAR_ORACLE_TOKEN`.
 
-## Development conventions
-
-- Conventional Commits with terse subjects (`fix:`, `refactor:`, `test:` — see `git log`).
-- Gates: `cargo fmt --all --check`; `cargo clippy --workspace --all-targets` under the pedantic
-  lint set with a zero-warning policy; `forbid(unsafe_code)` workspace-wide.
-- One rule per file under `rules/`, its tests co-located in the same file; shared logic in
-  `support`/`engine`; explicit registries in `rules/mod.rs`; no lint suppressions.
-- Toolchain: Rust edition 2024, MSRV 1.96, Apache-2.0 licensing.
+GitHub workflow runs reproducible local gates. Strict coverage and oracle
+certification stay red while any scoped gap remains.

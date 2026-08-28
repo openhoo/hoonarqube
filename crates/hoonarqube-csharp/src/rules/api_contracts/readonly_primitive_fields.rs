@@ -3,13 +3,12 @@ use crate::cst::{
     collect_kinds, is_error_tainted, issue, modifiers_of, node_text, range_of, simple_name,
 };
 use crate::rules::expressions::first_named_child;
-use crate::rules::literals::declarator_initializer;
 use crate::rules::modifiers::{has_any_accessibility, has_modifier};
-use crate::rules::type_members::is_literal_node;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
-/// csharpsquid:S3887 — public readonly primitive literals are constants.
+/// csharpsquid:S3887 — `readonly` does not make mutable arrays and
+/// collections immutable, so exposing such fields is misleading.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for field in collect_kinds(root, &["field_declaration"]) {
@@ -18,47 +17,52 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
         let modifiers = modifiers_of(field, source);
         if !has_modifier(&modifiers, "readonly")
-            || has_modifier(&modifiers, "static")
-            || has_modifier(&modifiers, "const")
             || !has_any_accessibility(&modifiers)
             || has_modifier(&modifiers, "private")
         {
             continue;
         }
-        let typed_primitive = collect_kinds(field, &["variable_declaration"])
+        let Some(type_node) = collect_kinds(field, &["variable_declaration"])
             .first()
             .and_then(|declaration| first_named_child(*declaration))
-            .is_some_and(|type_node| {
-                PRIMITIVE_FIELD_TYPES.contains(&simple_name(node_text(type_node, source)))
-            });
-        if !typed_primitive {
+        else {
             continue;
-        }
-        let literal_initialized =
-            collect_kinds(field, &["variable_declarator"])
-                .iter()
-                .all(|declarator| {
-                    declarator
-                        .child_by_field_name("name")
-                        .and_then(|name| declarator_initializer(*declarator, name))
-                        .is_some_and(is_literal_node)
-                });
-        if literal_initialized {
+        };
+        let mutable_collection = type_node.kind() == "array_type"
+            || MUTABLE_COLLECTION_TYPES.contains(&simple_name(node_text(type_node, source)));
+        if mutable_collection {
+            let field_name = collect_kinds(field, &["variable_declarator"])
+                .first()
+                .and_then(|declarator| declarator.child_by_field_name("name"))
+                .map_or("field", |name| node_text(name, source));
             issues.push(issue(
                 language,
                 "S3887",
-                "Declare this constant field 'const' instead of 'readonly'.",
-                range_of(field, source),
+                format!(
+                    "Use an immutable collection or reduce the accessibility of the non-private readonly field '{field_name}'."
+                ),
+                range_of(type_node, source),
             ));
         }
     }
     issues
 }
 
-/// Built-in types whose readonly fields read as constants.
-const PRIMITIVE_FIELD_TYPES: [&str; 13] = [
-    "int", "uint", "long", "ulong", "short", "ushort", "byte", "sbyte", "char", "bool", "double",
-    "float", "decimal",
+const MUTABLE_COLLECTION_TYPES: [&str; 14] = [
+    "ICollection",
+    "IList",
+    "IDictionary",
+    "List",
+    "Dictionary",
+    "HashSet",
+    "SortedSet",
+    "SortedList",
+    "SortedDictionary",
+    "Queue",
+    "Stack",
+    "LinkedList",
+    "Collection",
+    "ObservableCollection",
 ];
 
 #[cfg(test)]
@@ -66,23 +70,22 @@ mod tests {
     use crate::tests::{analyze_default, with_key};
 
     #[test]
-    fn s3887_flags_protected_and_internal_readonly_literals() {
+    fn s3887_flags_exposed_readonly_arrays_and_mutable_collections() {
         let report = analyze_default(
-            "class A\n{\n    protected readonly bool enabled = true;\n    internal readonly decimal rate = 1.5m;\n    public const int fixedValue = 3;\n}\n",
+            "class A\n{\n    public readonly string[] labels;\n    protected readonly List<int> values = new();\n    internal readonly Dictionary<string, int> lookup = new();\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S3887");
-        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged.len(), 3);
         assert_eq!(flagged[0].range.start.line, 3);
         assert_eq!(flagged[1].range.start.line, 4);
+        assert_eq!(flagged[2].range.start.line, 5);
     }
 
     #[test]
-    fn s3887_requires_literal_initializers_on_every_declarator() {
+    fn s3887_spares_private_mutable_fields_and_readonly_values() {
         let report = analyze_default(
-            "class A\n{\n    public readonly int computed = Compute();\n    public readonly int unset;\n    public readonly int first = 1, second = Compute();\n    public readonly char letter = 'a', digit = '7';\n}\n",
+            "class A\n{\n    private readonly string[] labels = [];\n    public string[] mutable = [];\n    public readonly int limit = 10;\n    public readonly string name = \"gate\";\n}\n",
         );
-        let flagged = with_key(&report, "csharpsquid:S3887");
-        assert_eq!(flagged.len(), 1);
-        assert_eq!(flagged[0].range.start.line, 6);
+        assert!(with_key(&report, "csharpsquid:S3887").is_empty());
     }
 }

@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, range_from_byte_offsets};
 use crate::rules::expressions::{callee_name, invocation_receiver};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -16,7 +16,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             invocation_receiver(*call).is_some_and(|receiver| {
                 matches!(
                     receiver.kind(),
-                    "string_literal" | "character_literal" | "interpolated_string_expression"
+                    "string_literal" | "interpolated_string_expression"
                 )
             })
         })
@@ -24,8 +24,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S1858",
-                "Remove this redundant 'ToString' call.",
-                range_of(call, source),
+                "There's no need to call 'ToString()' on a string.",
+                invocation_receiver(call).map_or_else(
+                    || range_from_byte_offsets(call.start_byte(), call.end_byte(), source),
+                    |receiver| {
+                        range_from_byte_offsets(receiver.end_byte(), call.end_byte(), source)
+                    },
+                ),
             )
         })
         .collect()
@@ -65,8 +70,7 @@ mod tests {
     fn s1858_flags_two_calls_within_one_statement() {
         let report = analyze_default("var joined = $\"{1}\".ToString() + 'q'.ToString();\n");
         let flagged = with_key(&report, "csharpsquid:S1858");
-        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged.len(), 1);
         assert_eq!(flagged[0].range.start.line, 1);
-        assert_eq!(flagged[1].range.start.line, 1);
     }
 }

@@ -54,12 +54,12 @@ Invariants:
 Audited by `cargo run -p xtask -- catalog coverage [--lang <id>] [--strict]`
 against the frozen catalog:
 
-| Language | Implemented | Infra gaps | Total | Actionable coverage |
-|---|---|---|---|---|
-| JavaScript | 403 | 3 | 406 | 100% |
-| TypeScript | 406 | 6 | 412 | 100% |
-| Python | 333 | 1 | 335 | 99.7% |
-| C# | 460 | 7 | 467 | 100% |
+| Language | Implemented | Directly tested | Untested | Infra gaps | Total | Tested coverage |
+|---|---:|---:|---:|---:|---:|---:|
+| JavaScript | 403 | 403 | 0 | 3 | 406 | 100.0% |
+| TypeScript | 406 | 406 | 0 | 6 | 412 | 100.0% |
+| Python | 334 | 334 | 0 | 1 | 335 | 100.0% |
+| C# | 460 | 460 | 0 | 7 | 467 | 100.0% |
 
 ### Documented gaps
 
@@ -77,8 +77,16 @@ implementation:
 - Production runtime configuration introspection — `python:S6786`.
 - ASI reconstruction from a tolerant parse — `javascript:S1438`, `typescript:S1438`.
 
-Open gap (not infra): `python:S112` (`Exception`/`BaseException` should not be raised) is
-not yet implemented; `catalog coverage --strict` reports it as the single actionable miss.
+All 1,603 actionable implementations now have direct, repository-qualified test
+evidence. The strict audit remains deliberately red because 17
+infrastructure-classified rows are still parity gaps. Direct tests and
+implementation markers do not prove SonarQube-equivalent behavior. See
+[PARITY.md](PARITY.md) for the exact oracle contract and current failures.
+
+The frozen Community C# base analyzer can certify 408 of 467 catalog rows.
+Forty-two rows remain infrastructure gaps; 17 implemented commercial rules are
+explicitly `enterprise-unverified` because Community cannot execute them. They
+remain shipped and locally tested, but no Enterprise parity claim is made.
 
 ## Usage
 
@@ -115,6 +123,8 @@ parentheses remedy. See [QUICKFIX.md](QUICKFIX.md) for the parity inventory.
 
 ```bash
 cargo test --workspace            # full suite
+cargo run -q -p xtask -- catalog coverage --strict
+python3 -m unittest discover -s tools/oracle -p 'test_*.py' -v
 cargo clippy --workspace --all-targets   # zero-warning policy (pedantic)
 cargo fmt --all --check
 ```

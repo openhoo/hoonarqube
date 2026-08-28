@@ -54,14 +54,19 @@ pub(crate) fn check_s5713_parent_child_except_pairs(
                     }
                 }
             }
-            if let Some((child, parent)) = pair_found {
+            if let Some((child, _parent)) = pair_found {
+                let child_range = tuple
+                    .elts
+                    .iter()
+                    .find_map(|element| match element {
+                        Expr::Name(name) if name.id.as_str() == child => Some(name.range()),
+                        _ => None,
+                    })
+                    .expect("child exception expression");
                 issues.push(issue_at(
                     "python:S5713",
-                    &format!(
-                        "'{child}' is already a subclass of '{parent}'; \
-                         remove one of them from this except clause."
-                    ),
-                    tuple.range(),
+                    "Remove this redundant Exception class; it derives from another which is already caught.",
+                    child_range,
                     index,
                     source,
                 ));

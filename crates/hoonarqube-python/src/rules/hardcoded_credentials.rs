@@ -20,9 +20,13 @@ pub(crate) fn check_hardcoded_credentials(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for stmt in &file_ctx.stmts {
-        let (targets, value) = match stmt {
-            Stmt::Assign(s) => (s.targets.as_slice(), Some(&*s.value)),
-            Stmt::AnnAssign(s) => (std::slice::from_ref(&*s.target), s.value.as_deref()),
+        let (targets, value, statement_range) = match stmt {
+            Stmt::Assign(s) => (s.targets.as_slice(), Some(&*s.value), s.range()),
+            Stmt::AnnAssign(s) => (
+                std::slice::from_ref(&*s.target),
+                s.value.as_deref(),
+                s.range(),
+            ),
             _ => continue,
         };
         let Some(Expr::StringLiteral(literal)) = value else {
@@ -37,8 +41,13 @@ pub(crate) fn check_hardcoded_credentials(
             {
                 issues.push(Issue {
                     rule_key: "python:S2068".to_string(),
-                    message: "Review this potentially hard-coded credentials.".to_string(),
-                    range: to_range(name.range(), index, source),
+                    message: format!(
+                        "\"{}\" detected here, review this potentially hard-coded credential.",
+                        name_words(name.id.as_str())
+                            .find(|word| CREDENTIAL_WORDS.contains(word))
+                            .unwrap_or("credential")
+                    ),
+                    range: to_range(statement_range, index, source),
                     fix: None,
                 });
             }

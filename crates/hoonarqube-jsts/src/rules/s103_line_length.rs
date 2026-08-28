@@ -21,7 +21,7 @@ fn check_line_length(
             issues.push(Issue {
                 rule_key: rule_key.clone(),
                 message: format!(
-                    "This line exceeds the maximum allowed length of {} characters.",
+                    "This line has a length of {length}. Maximum allowed is {}.",
                     options.maximum_line_length
                 ),
                 range: hoonarqube_ir::Range {
@@ -74,7 +74,7 @@ mod tests {
             over_limit.issues,
             vec![issue(
                 "javascript:S103",
-                "This line exceeds the maximum allowed length of 13 characters.",
+                "This line has a length of 14. Maximum allowed is 13.",
                 (1, 0),
                 (1, 14),
             )]
@@ -96,7 +96,7 @@ mod tests {
             report.issues,
             vec![issue(
                 "javascript:S103",
-                "This line exceeds the maximum allowed length of 5 characters.",
+                "This line has a length of 16. Maximum allowed is 5.",
                 (2, 0),
                 (2, 16),
             )]
@@ -129,7 +129,7 @@ mod tests {
             over_limit.issues,
             vec![issue(
                 "javascript:S103",
-                "This line exceeds the maximum allowed length of 10 characters.",
+                "This line has a length of 11. Maximum allowed is 10.",
                 (1, 0),
                 (1, 11),
             )]

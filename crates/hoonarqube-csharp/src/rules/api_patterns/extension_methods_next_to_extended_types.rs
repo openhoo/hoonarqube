@@ -32,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S4226",
-                "Move this extension method into a dedicated namespace.",
+                "Either move this extension to another namespace or move the method inside the class itself.",
                 range_of(name_anchor(method), source),
             ));
         }

@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             let Some(last) = tail.last() else {
                 continue;
             };
-            if matches!(last.kind(), "break_statement" | "continue_statement") {
+            if last.kind() == "continue_statement" {
                 issues.push(issue(
                     language,
                     "S3626",

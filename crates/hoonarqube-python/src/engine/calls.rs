@@ -254,10 +254,16 @@ impl<'a> LocalSignatures<'a> {
 
 /// Arity verdict for a resolved call, `None` when the argument list matches
 /// or cannot be judged (`*args`/`**kwargs` unpacking disables the check).
+pub(crate) enum S930ArityProblem {
+    TooMany { extra: usize, expected: usize },
+    Missing { missing: usize, expected: usize },
+    MissingKeywordOnly,
+}
+
 pub(crate) fn s930_arity_problem(
     resolved: &ResolvedCallee,
     arguments: &ruff_python_ast::Arguments,
-) -> Option<&'static str> {
+) -> Option<S930ArityProblem> {
     if arguments
         .args
         .iter()
@@ -287,7 +293,10 @@ pub(crate) fn s930_arity_problem(
         })
         .collect();
     if parameters.vararg.is_none() && positional_count > entries.len() {
-        return Some("too many arguments");
+        return Some(S930ArityProblem::TooMany {
+            extra: positional_count - entries.len(),
+            expected: entries.len(),
+        });
     }
     let mut missing = required.saturating_sub(positional_count);
     for name in keyword_names.iter().flatten() {
@@ -300,14 +309,17 @@ pub(crate) fn s930_arity_problem(
         }
     }
     if missing > 0 {
-        return Some("missing required arguments");
+        return Some(S930ArityProblem::Missing {
+            missing,
+            expected: entries.len(),
+        });
     }
     if parameters.kwarg.is_none()
         && parameters.kwonlyargs.iter().any(|entry| {
             entry.default.is_none() && !keyword_names.contains(&Some(entry.parameter.name.as_str()))
         })
     {
-        return Some("missing required keyword-only arguments");
+        return Some(S930ArityProblem::MissingKeywordOnly);
     }
     None
 }
@@ -330,6 +342,7 @@ pub(crate) fn s5655_check_call(
         return;
     }
     let parameters = &resolved.function().parameters;
+    let function_name = resolved.function().name.as_str();
     if parameters.vararg.is_some() || parameters.kwarg.is_some() {
         return;
     }
@@ -337,7 +350,7 @@ pub(crate) fn s5655_check_call(
     for (position, argument) in call.arguments.args.iter().enumerate() {
         match entries.get(position) {
             Some(entry) => {
-                s5655_check_argument(entry, argument, issues, index, source);
+                s5655_check_argument(function_name, entry, argument, issues, index, source);
             }
             None => break,
         }
@@ -352,7 +365,7 @@ pub(crate) fn s5655_check_call(
             .chain(parameters.kwonlyargs.iter())
             .find(|entry| entry.parameter.name.as_str() == name);
         if let Some(entry) = matched {
-            s5655_check_argument(entry, &keyword.value, issues, index, source);
+            s5655_check_argument(function_name, entry, &keyword.value, issues, index, source);
         }
     }
 }

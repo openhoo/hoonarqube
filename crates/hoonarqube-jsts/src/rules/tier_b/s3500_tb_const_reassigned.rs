@@ -11,7 +11,9 @@ pub(crate) fn check_tb_const_reassigned(model: &TbModel<'_>, sink: &mut IssueSin
                 sink.emit_span(
                     RuleScope::JsOnly,
                     "S3500",
-                    &format!("Remove this reassignment of the constant '{name}'."),
+                    &format!(
+                        "Correct this attempt to modify \"{name}\" or use \"let\" in its declaration."
+                    ),
                     *write,
                 );
             }

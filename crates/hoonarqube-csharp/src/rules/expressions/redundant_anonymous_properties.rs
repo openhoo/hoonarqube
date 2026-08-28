@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_from_byte_offsets};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -16,8 +16,14 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S3441",
-                    "Use the shorthand property form; this assignment repeats the name.",
-                    range_of(value, source),
+                    format!("Remove the redundant '{} ='.", node_text(name, source)),
+                    range_from_byte_offsets(
+                        name.start_byte(),
+                        source[name.end_byte()..value.start_byte()]
+                            .find('=')
+                            .map_or(name.end_byte(), |relative| name.end_byte() + relative + 1),
+                        source,
+                    ),
                 ));
             }
         }

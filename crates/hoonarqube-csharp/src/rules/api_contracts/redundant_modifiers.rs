@@ -40,8 +40,30 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S2333",
-                "Remove this redundant 'partial' modifier.",
-                range_of(name_anchor(*type_node), source),
+                "'partial' is gratuitous in this context.",
+                modifier_range(*type_node, source, "partial")
+                    .unwrap_or_else(|| range_of(name_anchor(*type_node), source)),
+            ));
+        }
+    }
+    for declaration in collect_kinds(
+        root,
+        &[
+            "method_declaration",
+            "constructor_declaration",
+            "operator_declaration",
+            "conversion_operator_declaration",
+        ],
+    ) {
+        if has_modifier(&modifiers_of(declaration, source), "unsafe")
+            && !contains_unsafe_construct(declaration)
+            && let Some(range) = modifier_range(declaration, source, "unsafe")
+        {
+            issues.push(issue(
+                language,
+                "S2333",
+                "'unsafe' is redundant in this context.",
+                range,
             ));
         }
     }
@@ -50,7 +72,14 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if property_rank == 0 {
             continue;
         }
-        for accessor in accessors_of(property) {
+        let accessors = accessors_of(property);
+        let uniformly_redundant = accessors
+            .iter()
+            .all(|accessor| accessibility_rank(&modifiers_of(*accessor, source)) == property_rank);
+        if !uniformly_redundant {
+            continue;
+        }
+        for accessor in accessors {
             if accessibility_rank(&modifiers_of(accessor, source)) == property_rank {
                 issues.push(issue(
                     language,
@@ -64,6 +93,33 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     issues
 }
 
+fn modifier_range(
+    declaration: Node<'_>,
+    source: &str,
+    wanted: &str,
+) -> Option<hoonarqube_ir::Range> {
+    let mut cursor = declaration.walk();
+    declaration
+        .children(&mut cursor)
+        .find(|child| child.kind() == "modifier" && node_text(*child, source) == wanted)
+        .map(|node| range_of(node, source))
+}
+
+fn contains_unsafe_construct(declaration: Node<'_>) -> bool {
+    !collect_kinds(
+        declaration,
+        &[
+            "pointer_type",
+            "pointer_indirection_expression",
+            "address_of_expression",
+            "sizeof_expression",
+            "stackalloc_expression",
+            "fixed_statement",
+        ],
+    )
+    .is_empty()
+}
+
 #[cfg(test)]
 mod tests {
     use crate::tests::{analyze_default, with_key};
@@ -74,10 +130,9 @@ mod tests {
             "class A\n{\n    public int Both { public get; public set; }\n    public int Mixed { public get; private set; }\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S2333");
-        assert_eq!(flagged.len(), 3);
+        assert_eq!(flagged.len(), 2);
         assert_eq!(flagged[0].range.start.line, 3);
         assert_eq!(flagged[1].range.start.line, 3);
-        assert_eq!(flagged[2].range.start.line, 4);
     }
 
     #[test]

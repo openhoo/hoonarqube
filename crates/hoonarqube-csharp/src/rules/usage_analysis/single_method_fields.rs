@@ -39,7 +39,7 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
                 language,
                 "S1450",
                 format!(
-                    "Field '{}' is used only within one method; make it a local variable instead.",
+                    "Remove the field '{}' and declare it as a local variable in the relevant methods.",
                     member.name
                 ),
                 range_of(member.anchor, source),
@@ -69,7 +69,7 @@ mod tests {
         assert_eq!(flagged[0].range.start.line, 3);
         assert_eq!(
             flagged[0].message,
-            "Field 'scratch' is used only within one method; make it a local variable instead."
+            "Remove the field 'scratch' and declare it as a local variable in the relevant methods."
         );
     }
 

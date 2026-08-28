@@ -17,11 +17,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             .iter()
             .any(|accessor| accessor_keyword(*accessor, source) == "get");
         if !has_getter {
+            let name = name_anchor(property);
             issues.push(issue(
                 language,
                 "S2376",
-                "Add a getter to this write-only property.",
-                range_of(name_anchor(property), source),
+                format!(
+                    "Provide a getter for '{}' or replace the property with a 'Set{}' method.",
+                    crate::cst::node_text(name, source),
+                    crate::cst::node_text(name, source)
+                ),
+                range_of(name, source),
             ));
         }
     }

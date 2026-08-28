@@ -12,7 +12,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(for_statement) {
             continue;
         }
-        let (Some(initializer), _, update) = for_clauses(for_statement) else {
+        let (Some(initializer), Some(condition), update) = for_clauses(for_statement) else {
             continue;
         };
         let Some(counter) = counter_name(initializer, source) else {
@@ -27,8 +27,10 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S1994",
-                format!("Update the counter '{counter}' inside this loop's increment."),
-                range_of(for_statement, source),
+                format!(
+                    "This loop's stop condition tests '{counter}' but the incrementer updates 'this'."
+                ),
+                range_of(condition, source),
             ));
         }
     }

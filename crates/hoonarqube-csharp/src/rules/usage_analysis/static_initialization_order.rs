@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, modifiers_of, node_text, range_of};
+use crate::cst::{collect_kinds, issue, modifiers_of, node_text, range_from_byte_offsets};
 use crate::rules::literals::declarator_initializer;
 use crate::rules::modifiers::has_modifier;
 use crate::symbol_table::{MemberFlavor, MemberSymbol, UsageSymbols};
@@ -44,11 +44,14 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
                 issues.push(issue(
                     language,
                     "S3263",
-                    format!(
-                        "'{referenced}' is declared after '{}'; static initialization order makes this read unreliable.",
-                        field.name
+                    "Move this field's initializer into a static constructor.",
+                    range_from_byte_offsets(
+                        source[name.end_byte()..reference.start_byte()]
+                            .find('=')
+                            .map_or(reference.start_byte(), |offset| name.end_byte() + offset),
+                        initializer.end_byte(),
+                        source,
                     ),
-                    range_of(reference, source),
                 ));
             }
         }
@@ -76,11 +79,11 @@ mod tests {
         assert_eq!(flagged[0].range.start.line, 3);
         assert_eq!(
             flagged[0].message,
-            "'second' is declared after 'first'; static initialization order makes this read unreliable."
+            "Move this field's initializer into a static constructor."
         );
         assert_eq!(
             flagged[1].message,
-            "'third' is declared after 'first'; static initialization order makes this read unreliable."
+            "Move this field's initializer into a static constructor."
         );
     }
 

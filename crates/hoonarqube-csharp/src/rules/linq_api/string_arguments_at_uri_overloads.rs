@@ -1,5 +1,7 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
+use crate::cst::{
+    collect_kinds, is_error_tainted, issue, node_text, parameters_of, range_of, simple_name,
+};
 use crate::rules::expressions::{callee_name, invocation_arguments};
 use crate::rules::literals::argument_expression;
 use hoonarqube_ir::Issue;
@@ -8,24 +10,55 @@ use tree_sitter::Node;
 /// csharpsquid:S4005 — pass parsed `System.Uri` values instead of raw
 /// strings at dual-overload call sites.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut overloads = std::collections::HashMap::<&str, Vec<Vec<String>>>::new();
+    for method in collect_kinds(root, &["method_declaration"]) {
+        let Some(name) = method.child_by_field_name("name") else {
+            continue;
+        };
+        overloads.entry(node_text(name, source)).or_default().push(
+            parameters_of(method)
+                .into_iter()
+                .filter_map(|parameter| parameter.child_by_field_name("type"))
+                .map(|parameter_type| simple_name(node_text(parameter_type, source)).to_string())
+                .collect(),
+        );
+    }
     let mut issues = Vec::new();
     for call in collect_kinds(root, &["invocation_expression"]) {
         if is_error_tainted(call) {
             continue;
         }
-        let targets = callee_name(call, source)
-            .is_some_and(|name| STRING_URI_OVERLOAD_METHODS.contains(&name));
-        if !targets {
-            continue;
-        }
-        let Some(first) = invocation_arguments(call).first().copied() else {
+        let Some(name) = callee_name(call, source) else {
             continue;
         };
-        if argument_expression(first).kind() == "string_literal" {
+        let Some(shapes) = overloads.get(name) else {
+            continue;
+        };
+        let arguments = invocation_arguments(call);
+        let has_string_uri_pair = shapes.iter().any(|string_shape| {
+            shapes.iter().any(|uri_shape| {
+                string_shape.len() == uri_shape.len()
+                    && string_shape.iter().zip(uri_shape).enumerate().any(
+                        |(index, (string_type, uri_type))| {
+                            string_type == "string"
+                                && uri_type == "Uri"
+                                && arguments.get(index).is_some_and(|argument| {
+                                    argument_expression(*argument).kind() == "string_literal"
+                                })
+                                && string_shape.iter().zip(uri_shape).enumerate().all(
+                                    |(other_index, (left, right))| {
+                                        other_index == index || left == right
+                                    },
+                                )
+                        },
+                    )
+            })
+        });
+        if has_string_uri_pair {
             issues.push(issue(
                 language,
                 "S4005",
-                "Create a 'System.Uri' and pass it to this call.",
+                "Call the overload that takes a 'System.Uri' as an argument instead.",
                 range_of(call, source),
             ));
         }
@@ -33,29 +66,18 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     issues
 }
 
-/// Client members whose well-known string overloads have `System.Uri`
-/// siblings.
-const STRING_URI_OVERLOAD_METHODS: [&str; 5] = [
-    "DownloadString",
-    "UploadString",
-    "DownloadData",
-    "OpenRead",
-    "OpenWrite",
-];
-
 #[cfg(test)]
 mod tests {
     use crate::tests::{analyze_default, with_key};
 
     #[test]
-    fn s4005_checks_the_first_argument_across_wellknown_targets() {
+    fn s4005_checks_string_calls_when_local_uri_overload_exists() {
         let report = analyze_default(
-            "class A\n{\n    void M(System.Net.WebClient client)\n    {\n        body = client.UploadString(\"http://example.com\", payload);\n        stream = client.OpenWrite(\"http://example.com\", \"PUT\");\n    }\n}\n",
+            "class A\n{\n    void Load(string uri) { }\n    void Load(System.Uri uri) { }\n    void M()\n    {\n        Load(\"http://example.com\");\n    }\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S4005");
-        assert_eq!(flagged.len(), 2);
-        assert_eq!(flagged[0].range.start.line, 5); // document line 4
-        assert_eq!(flagged[1].range.start.line, 6); // document line 5
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 7);
     }
 
     #[test]

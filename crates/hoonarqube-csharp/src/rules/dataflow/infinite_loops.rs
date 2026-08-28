@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
+use crate::cst::{ancestors_of, collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::expressions::{
     block_statements, callee_name, first_named_child, invocation_receiver,
 };
@@ -20,11 +20,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         };
         if !subtree_escapes(body) {
+            let anchor = ancestors_of(header)
+                .find(|ancestor| ancestor.kind() == "method_declaration")
+                .and_then(|method| method.child_by_field_name("name"))
+                .unwrap_or(header);
             issues.push(issue(
                 language,
                 "S2190",
-                "Add an escape from this loop; it never terminates.",
-                range_of(header, source),
+                "Add a way to break out of this method's recursion.",
+                range_of(anchor, source),
             ));
         }
     }
@@ -64,8 +68,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S2190",
-                "Add a termination condition to this recursion.",
-                range_of(last, source),
+                "Add a way to break out of this method's recursion.",
+                range_of(name, source),
             ));
         }
     }
@@ -118,7 +122,7 @@ mod tests {
         );
         let found = with_key(&report, KEY);
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].range.start.line, 3);
+        assert_eq!(found[0].range.start.line, 2);
     }
 
     #[test]

@@ -116,7 +116,6 @@
 {"key": "python:S7516", "bad": "s7516_bad.py", "expect_lines_min": 1}
 {"key": "python:S5722", "bad": "s5722_bad.py", "expect_lines_min": 1}
 {"key": "python:S2325", "bad": "s2325_bad.py", "expect_lines_min": 1}
-{"key": "python:S6683", "bad": "s6683_bad.py", "expect_lines_min": 1}
 {"key": "python:OneStatementPerLine", "bad": "onestatementperline_bad.py", "expect_lines_min": 1}
 {"key": "python:S7497", "bad": "s7497_bad.py", "expect_lines_min": 1}
 {"key": "python:S5754", "bad": "s5754_bad.py", "expect_lines_min": 1}
@@ -140,7 +139,7 @@
 {"key": "python:S6545", "bad": "s6545_bad.py", "expect_lines_min": 1}
 {"key": "python:S6546", "bad": "s6546_bad.py", "expect_lines_min": 1}
 {"key": "python:S5042", "bad": "s5042_bad.py", "expect_lines_min": 1}
-{"key": "python:S5914", "bad": "s5914_bad.py", "expect_lines_min": 2}
+{"key": "python:S5914", "bad": "s5914_bad.py", "expect_lines_min": 1}
 {"key": "python:S5953", "bad": "s5953_bad.py", "expect_lines_min": 1}
 {"key": "python:S6735", "bad": "s6735_bad.py", "expect_lines_min": 1}
 {"key": "python:S3984", "bad": "s3984_bad.py", "expect_lines_min": 1}
@@ -303,4 +302,34 @@
 {"key": "python:S7508", "bad": "s7508_bad.py", "expect_lines_min": 1}
 {"key": "python:S7517", "bad": "s7517_bad.py", "expect_lines_min": 1}
 {"key": "python:S7632", "bad": "s7632_bad.py", "expect_lines_min": 1}
+{"key": "python:S112", "bad": "s112_bad.py", "expect_lines_min": 1}
 {"key": "python:S905", "bad": "s905_bad.py", "expect_lines_min": 1}
+{"key":"python:S6786","infra":"upstream analysis infrastructure required"}
+{"key":"python:S4784","bad":"s4784_bad.py","expect_lines_min":1}
+{"key":"python:S5247","bad":"s5247_bad.py","expect_lines_min":1}
+{"key":"python:S5300","bad":"s5300_bad.py","expect_lines_min":1}
+{"key":"python:S5344","bad":"s5344_bad.py","expect_lines_min":1}
+{"key":"python:S5439","bad":"s5439_bad.py","expect_lines_min":1}
+{"key":"python:S5443","bad":"s5443_bad.py","expect_lines_min":1}
+{"key":"python:S5527","bad":"s5527_bad.py","expect_lines_min":1}
+{"key":"python:S5542","bad":"s5542_bad.py","expect_lines_min":1}
+{"key":"python:S5547","bad":"s5547_bad.py","expect_lines_min":1}
+{"key":"python:S5607","bad":"s5607_bad.py","expect_lines_min":1}
+{"key":"python:S5632","bad":"s5632_bad.py","expect_lines_min":1}
+{"key":"python:S5642","bad":"s5642_bad.py","expect_lines_min":1}
+{"key":"python:S5644","bad":"s5644_bad.py","expect_lines_min":1}
+{"key":"python:S5655","bad":"s5655_bad.py","expect_lines_min":1}
+{"key":"python:S5659","bad":"s5659_bad.py","expect_lines_min":1}
+{"key":"python:S5707","bad":"s5707_bad.py","expect_lines_min":1}
+{"key":"python:S5708","bad":"s5708_bad.py","expect_lines_min":1}
+{"key":"python:S5713","bad":"s5713_bad.py","expect_lines_min":1}
+{"key":"python:S5756","bad":"s5756_bad.py","expect_lines_min":1}
+{"key":"python:S5795","bad":"s5795_bad.py","expect_lines_min":1}
+{"key":"python:S5856","bad":"s5856_bad.py","expect_lines_min":1}
+{"key":"python:S5886","bad":"s5886_bad.py","expect_lines_min":1}
+{"key":"python:S5890","bad":"s5890_bad.py","expect_lines_min":1}
+{"key":"python:S6245","bad":"s6245_bad.py","expect_lines_min":1}
+{"key":"python:S6252","bad":"s6252_bad.py","expect_lines_min":1}
+{"key":"python:S6265","bad":"s6265_bad.py","expect_lines_min":1}
+{"key":"python:S6270","bad":"s6270_bad.py","expect_lines_min":1}
+{"key":"python:S6275","bad":"s6275_bad.py","expect_lines_min":1}

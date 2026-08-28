@@ -37,3 +37,17 @@ pub(crate) fn check_s5642_membership_operands(
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5642_flags_membership_against_non_container_literals() {
+        let bad = scan("present = 'x' in 42\n");
+        assert_eq!(findings(&bad, "python:S5642").len(), 1);
+
+        let good = scan("present = 'x' in ('x', 'y')\n");
+        assert!(findings(&good, "python:S5642").is_empty());
+    }
+}

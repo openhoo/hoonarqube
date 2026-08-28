@@ -33,10 +33,7 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
         issues.push(issue(
             language,
             "S2325",
-            format!(
-                "'{}' does not access instance data and can be marked 'static'.",
-                member.name
-            ),
+            format!("Make '{}' a static {}.", member.name, member.flavor.word()),
             range_of(member.anchor, source),
         ));
     }

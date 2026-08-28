@@ -17,11 +17,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 .children(&mut cursor)
                 .all(|child| !child.is_named() || child.kind() == "parenthesized_expression");
         if wraps_single_pair {
+            let opening = collect_kinds(parenthesized, &["("])
+                .into_iter()
+                .next()
+                .unwrap_or(parenthesized);
             issues.push(issue(
                 language,
                 "S1110",
-                "Remove this redundant pair of parentheses.",
-                range_of(parenthesized, source),
+                "Remove these redundant parentheses.",
+                range_of(opening, source),
             ));
         }
     }

@@ -6,6 +6,7 @@ use crate::rules::expressions::member_declarations_of_kind;
 use crate::rules::literals::declarator_initializer;
 use crate::rules::modifiers::has_modifier;
 use crate::rules::naming::TYPE_DECLARATION_KINDS;
+use crate::rules::structure::name_anchor;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -18,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             .into_iter()
             .filter(|ctor| has_modifier(&modifiers_of(*ctor, source), "static"))
             .find_map(|ctor| ctor.child_by_field_name("body").map(|body| (ctor, body)));
-        let Some((_, body)) = static_ctor else {
+        let Some((constructor, body)) = static_ctor else {
             continue;
         };
         let assigned: std::collections::HashSet<&str> =
@@ -26,19 +27,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if assigned.is_empty() {
             continue;
         }
-        for declarator in static_field_declarators(type_node, source) {
-            let Some(name_node) = declarator.child_by_field_name("name") else {
-                continue;
-            };
-            let name = node_text(name_node, source);
-            if assigned.contains(name) && declarator_initializer(declarator, name_node).is_none() {
-                issues.push(issue(
-                    language,
-                    "S3963",
-                    format!("Initialize '{name}' inline instead of in the static constructor."),
-                    range_of(name_node, source),
-                ));
-            }
+        let should_report =
+            static_field_declarators(type_node, source)
+                .into_iter()
+                .any(|declarator| {
+                    let Some(name_node) = declarator.child_by_field_name("name") else {
+                        return false;
+                    };
+                    let name = node_text(name_node, source);
+                    assigned.contains(name)
+                        && declarator_initializer(declarator, name_node).is_none()
+                });
+        if should_report {
+            issues.push(issue(
+                language,
+                "S3963",
+                "Initialize all 'static fields' inline and remove the 'static constructor'.",
+                range_of(name_anchor(constructor), source),
+            ));
         }
     }
     issues

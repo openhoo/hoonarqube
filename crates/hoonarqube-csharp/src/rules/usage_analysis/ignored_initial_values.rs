@@ -12,11 +12,12 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     let flag = |issues: &mut Vec<Issue>, assignment: Node<'_>, name: &str| {
+        let left = binary_operands(assignment).map_or(assignment, |(left, _)| left);
         issues.push(issue(
             language,
             "S1226",
-            format!("'{name}' is overwritten before its initial value is ever read."),
-            range_of(assignment, source),
+            format!("Introduce a new variable instead of reusing the parameter '{name}'."),
+            range_of(left, source),
         ));
     };
     for callable in collect_kinds(root, &CALLABLE_BODY_OWNER_KINDS) {

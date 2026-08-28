@@ -34,8 +34,11 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S4159",
-                    format!("This class exports '{contract}' without implementing it."),
-                    range_of(name_anchor(class_declaration), source),
+                    format!(
+                        "Implement '{contract}' on '{}' or remove this export attribute.",
+                        node_text(name_anchor(class_declaration), source)
+                    ),
+                    range_of(attribute, source),
                 ));
             }
         }

@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, node_text, range_of};
+use crate::cst::{collect_kinds, issue, node_text, range_from_byte_offsets};
 use crate::rules::expressions::integer_literal_value;
 use crate::rules::literals::declarator_initializer;
 use hoonarqube_ir::Issue;
@@ -11,20 +11,28 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .into_iter()
         .flat_map(|field| collect_kinds(field, &["variable_declarator"]))
         .filter_map(|declarator| {
-            Some((
-                declarator,
-                declarator_initializer(declarator, declarator.child_by_field_name("name")?),
-            ))
+            let name = declarator.child_by_field_name("name")?;
+            let initializer = declarator_initializer(declarator, name)?;
+            Some((name, initializer))
         })
-        .filter(|(_, initializer)| {
-            initializer.is_some_and(|node| is_default_value_expression(node, source))
-        })
-        .map(|(declarator, _)| {
+        .filter(|(_, initializer)| is_default_value_expression(*initializer, source))
+        .map(|(name, initializer)| {
             issue(
                 language,
                 "S3052",
-                "Remove this redundant initialization to the default value.",
-                range_of(declarator, source),
+                format!(
+                    "Remove this initialization to '{}', the compiler will do that for you.",
+                    node_text(name, source)
+                ),
+                range_from_byte_offsets(
+                    source[name.end_byte()..initializer.start_byte()]
+                        .find('=')
+                        .map_or(initializer.start_byte(), |relative| {
+                            name.end_byte() + relative
+                        }),
+                    initializer.end_byte(),
+                    source,
+                ),
             )
         })
         .collect()

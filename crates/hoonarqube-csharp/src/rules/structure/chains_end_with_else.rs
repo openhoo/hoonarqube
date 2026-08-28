@@ -1,7 +1,7 @@
 use super::support::else_alternative;
 use super::support::is_else_alternative;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, range_from_byte_offsets};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -17,11 +17,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             match else_alternative(current) {
                 None => {
                     if current != head {
+                        let start = current.start_byte().saturating_sub(5);
+                        let range = if source
+                            .get(start..current.start_byte())
+                            .is_some_and(|prefix| prefix == "else ")
+                        {
+                            range_from_byte_offsets(start, current.start_byte() + 2, source)
+                        } else {
+                            range_from_byte_offsets(
+                                current.start_byte(),
+                                current.start_byte() + 2,
+                                source,
+                            )
+                        };
                         issues.push(issue(
                             language,
                             "S126",
-                            "Add an 'else' clause to close this 'else if' chain.",
-                            range_of(current, source),
+                            "Add the missing 'else' clause with either the appropriate action or a suitable comment as to why no action is taken.",
+                            range,
                         ));
                     }
                     break;

@@ -7,6 +7,7 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
+use syn::visit::{self, Visit as _};
 
 const LANGUAGES: [(&str, &str); 4] = [
     ("csharp", "cs"),
@@ -14,7 +15,9 @@ const LANGUAGES: [(&str, &str); 4] = [
     ("typescript", "ts"),
     ("python", "py"),
 ];
-const CLASSIFICATION: &str = "licensed-only-unclassified";
+const COMMUNITY_CLASSIFICATION: &str = "community-base";
+const ENTERPRISE_UNVERIFIED_CLASSIFICATION: &str = "enterprise-unverified";
+const SCOPE_CLASSIFICATION: &str = "community-plus-enterprise-unverified";
 
 #[derive(Debug, Deserialize)]
 struct RawManifest {
@@ -51,8 +54,16 @@ struct RawLanguageReceipt {
 #[derive(Debug, Deserialize)]
 struct CommunityResolution {
     schema_version: u16,
-    target_server_version: String,
-    result: String,
+    target: CommunityTarget,
+    enterprise_unverified_rules: BTreeMap<String, Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CommunityTarget {
+    oracle_edition: String,
+    requires_license: bool,
+    includes_enterprise_rules: bool,
+    classification: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -110,13 +121,15 @@ struct Snapshot {
     captured_at_utc: String,
     server_version: String,
     edition: String,
+    oracle_edition: String,
     instance_mode: String,
-    valid_license: bool,
     page_size: u64,
-    community_classification: String,
+    scope_classification: String,
     community_evidence_sha256: String,
     catalog_sha256: String,
+    source_total_rules: usize,
     total_rules: usize,
+    unverified_rules: BTreeMap<String, Vec<String>>,
     languages: BTreeMap<String, SnapshotLanguage>,
     endpoints: BTreeMap<String, RawResponseReceipt>,
     plugins: Vec<PluginFact>,
@@ -127,6 +140,7 @@ struct Snapshot {
 struct SnapshotLanguage {
     language: String,
     repository: String,
+    source_total: u64,
     total: u64,
     unique_keys: usize,
     page_count: usize,
@@ -168,9 +182,67 @@ pub fn import(capture: &Path, community_resolution: &Path, output: &Path) -> Res
     );
     verify_raw_manifest(capture, &manifest, &manifest_bytes)?;
 
-    let community_bytes =
+    let (community_bytes, resolution) =
         validated_community_resolution(community_resolution, &manifest.server_version)?;
 
+    let (rule_files, catalog_sha256, total_rules) =
+        import_rule_catalogs(capture, output, &manifest, &resolution)?;
+
+    let (edition, mode) = imported_instance_evidence(capture, &manifest.server_version)?;
+    let plugins = extract_plugins(&read_json(capture.join("plugins-installed.json"))?)?;
+
+    let languages = manifest
+        .languages
+        .iter()
+        .map(|(name, receipt)| {
+            (
+                name.clone(),
+                SnapshotLanguage {
+                    language: receipt.language.clone(),
+                    repository: receipt.repository.clone(),
+                    source_total: receipt.total,
+                    total: receipt.total,
+                    unique_keys: receipt.unique_keys,
+                    page_count: receipt.page_count,
+                    show_count: receipt.show_count,
+                    query_sha256: receipt.query_sha256.clone(),
+                    pages_sha256: receipt.pages_sha256.clone(),
+                    keys_sha256: receipt.keys_sha256.clone(),
+                    shows_sha256: receipt.shows_sha256.clone(),
+                },
+            )
+        })
+        .collect();
+    let snapshot = Snapshot {
+        schema_version: 3,
+        capture_sha256: manifest.snapshot_sha256,
+        captured_at_utc: manifest.captured_at_utc,
+        server_version: manifest.server_version,
+        oracle_edition: resolution.target.oracle_edition,
+        edition,
+        instance_mode: mode,
+        page_size: manifest.page_size,
+        scope_classification: SCOPE_CLASSIFICATION.to_owned(),
+        community_evidence_sha256: sha256(&community_bytes),
+        catalog_sha256,
+        source_total_rules: total_rules,
+        total_rules,
+        unverified_rules: resolution.enterprise_unverified_rules,
+        languages,
+        endpoints: manifest.endpoints,
+        plugins,
+        rule_files,
+    };
+    let snapshot_bytes = toml::to_string_pretty(&snapshot)?.into_bytes();
+    write_atomic_same(&output.join("snapshot.toml"), &snapshot_bytes)
+}
+
+fn import_rule_catalogs(
+    capture: &Path,
+    output: &Path,
+    manifest: &RawManifest,
+    resolution: &CommunityResolution,
+) -> Result<(BTreeMap<String, String>, String, usize)> {
     let rules_dir = output.join("rules");
     fs::create_dir_all(&rules_dir)?;
     let mut rule_files = BTreeMap::new();
@@ -188,7 +260,31 @@ pub fn import(capture: &Path, community_resolution: &Path, output: &Path) -> Res
             language_id,
             manifest.page_size,
         )?;
-        let catalog = extract_language(capture, language_name, receipt, &manifest.snapshot_sha256)?;
+        let mut catalog =
+            extract_language(capture, language_name, receipt, &manifest.snapshot_sha256)?;
+        let unverified = resolution
+            .enterprise_unverified_rules
+            .get(language_name)
+            .with_context(|| format!("Community evidence lacks {language_name} rule scope"))?;
+        ensure!(
+            unverified.windows(2).all(|pair| pair[0] < pair[1]),
+            "unverified rules are not strictly key-sorted"
+        );
+        for rule in &mut catalog.rules {
+            let classification = if unverified.binary_search(&rule.external_key).is_ok() {
+                ENTERPRISE_UNVERIFIED_CLASSIFICATION
+            } else {
+                COMMUNITY_CLASSIFICATION
+            };
+            classification.clone_into(&mut rule.classification);
+        }
+        ensure!(
+            unverified
+                .iter()
+                .all(|key| catalog.rules.iter().any(|rule| &rule.external_key == key)),
+            "source capture lacks an Enterprise-unverified rule"
+        );
+        SCOPE_CLASSIFICATION.clone_into(&mut catalog.classification);
         total_rules += catalog.rules.len();
         let bytes = serde_json::to_vec_pretty(&catalog)?;
         reject_forbidden_output(&bytes)?;
@@ -198,76 +294,42 @@ pub fn import(capture: &Path, community_resolution: &Path, output: &Path) -> Res
         write_atomic_same(&rules_dir.join(format!("{language_name}.json")), &bytes)?;
         rule_files.insert(language_name.to_owned(), digest);
     }
-
-    let (edition, mode, license) = imported_instance_evidence(capture, &manifest.server_version)?;
-    let plugins = extract_plugins(&read_json(capture.join("plugins-installed.json"))?)?;
-
-    let languages = manifest
-        .languages
-        .iter()
-        .map(|(name, receipt)| {
-            (
-                name.clone(),
-                SnapshotLanguage {
-                    language: receipt.language.clone(),
-                    repository: receipt.repository.clone(),
-                    total: receipt.total,
-                    unique_keys: receipt.unique_keys,
-                    page_count: receipt.page_count,
-                    show_count: receipt.show_count,
-                    query_sha256: receipt.query_sha256.clone(),
-                    pages_sha256: receipt.pages_sha256.clone(),
-                    keys_sha256: receipt.keys_sha256.clone(),
-                    shows_sha256: receipt.shows_sha256.clone(),
-                },
-            )
-        })
-        .collect();
-    let snapshot = Snapshot {
-        schema_version: 1,
-        capture_sha256: manifest.snapshot_sha256,
-        captured_at_utc: manifest.captured_at_utc,
-        server_version: manifest.server_version,
-        edition,
-        instance_mode: mode,
-        valid_license: license,
-        page_size: manifest.page_size,
-        community_classification: CLASSIFICATION.to_owned(),
-        community_evidence_sha256: sha256(&community_bytes),
-        catalog_sha256: hex::encode(catalog_hasher.finalize()),
-        total_rules,
-        languages,
-        endpoints: manifest.endpoints,
-        plugins,
+    Ok((
         rule_files,
-    };
-    let snapshot_bytes = toml::to_string_pretty(&snapshot)?.into_bytes();
-    write_atomic_same(&output.join("snapshot.toml"), &snapshot_bytes)
+        hex::encode(catalog_hasher.finalize()),
+        total_rules,
+    ))
 }
 
-fn validated_community_resolution(path: &Path, server_version: &str) -> Result<Vec<u8>> {
+fn validated_community_resolution(
+    path: &Path,
+    _server_version: &str,
+) -> Result<(Vec<u8>, CommunityResolution)> {
     let bytes = read(path)?;
     let evidence: CommunityResolution = serde_json::from_slice(&bytes)
         .context("Community artifact-resolution evidence is invalid")?;
     ensure!(
-        evidence.schema_version == 1,
+        evidence.schema_version == 3,
         "unsupported Community evidence schema"
     );
     ensure!(
-        evidence.target_server_version == server_version,
-        "Community evidence targets a different server version"
+        evidence.target.oracle_edition == "community"
+            && !evidence.target.requires_license
+            && evidence.target.includes_enterprise_rules
+            && evidence.target.classification == SCOPE_CLASSIFICATION,
+        "Community evidence does not describe the declared mixed rule scope"
     );
     ensure!(
-        evidence.result == "exact-community-artifact-unavailable",
-        "Community evidence does not prove exact artifact unavailability"
+        evidence.enterprise_unverified_rules.len() == LANGUAGES.len()
+            && LANGUAGES
+                .iter()
+                .all(|(name, _)| evidence.enterprise_unverified_rules.contains_key(*name)),
+        "Community evidence language scope mismatch"
     );
-    Ok(bytes)
+    Ok((bytes, evidence))
 }
 
-fn imported_instance_evidence(
-    capture: &Path,
-    server_version: &str,
-) -> Result<(String, String, bool)> {
+fn imported_instance_evidence(capture: &Path, server_version: &str) -> Result<(String, String)> {
     let navigation = read_json(capture.join("navigation-global.json"))?;
     ensure!(
         same_server_version(&json_string(&navigation, "version")?, server_version),
@@ -283,17 +345,8 @@ fn imported_instance_evidence(
         "system status lacks instance identity"
     );
     let edition = json_string(&navigation, "edition")?;
-    ensure!(
-        edition != "community",
-        "licensed snapshot reports Community edition"
-    );
     let mode = instance_mode(&read_json(capture.join("instance-mode.json"))?)?;
-    let license = read_json(capture.join("license-validity.json"))?
-        .get("isValidLicense")
-        .and_then(Value::as_bool)
-        .context("license-validity evidence lacks isValidLicense")?;
-    ensure!(license, "licensed snapshot lacks valid license evidence");
-    Ok((edition, mode, license))
+    Ok((edition, mode))
 }
 
 pub fn audit(snapshot_path: &Path, require_pages_complete: bool) -> Result<()> {
@@ -302,86 +355,47 @@ pub fn audit(snapshot_path: &Path, require_pages_complete: bool) -> Result<()> {
     let snapshot: Snapshot =
         toml::from_str(&snapshot_text).context("catalog snapshot is invalid")?;
     ensure!(
-        snapshot.schema_version == 1,
+        snapshot.schema_version == 3,
         "unsupported catalog snapshot schema"
     );
     ensure!(
-        snapshot.valid_license,
-        "snapshot lacks valid license evidence"
+        snapshot.oracle_edition == "community",
+        "snapshot oracle is not Community"
     );
     ensure!(
-        snapshot.community_classification == CLASSIFICATION,
-        "snapshot has invalid Community classification"
+        snapshot.scope_classification == SCOPE_CLASSIFICATION,
+        "snapshot has invalid scope classification"
     );
     let root = snapshot_path
         .parent()
         .context("snapshot path has no parent")?;
-    let mut total = 0_usize;
+    let community_evidence = read(root.join("community-artifact-resolution.json"))?;
+    ensure!(
+        snapshot.community_evidence_sha256 == sha256(&community_evidence),
+        "Community scope evidence hash mismatch"
+    );
+    let mut source_total = 0_usize;
+    let mut scoped_total = 0_usize;
     let mut catalog_hasher = Sha256::new();
     for (language_name, language_id) in LANGUAGES {
-        let path = root.join("rules").join(format!("{language_name}.json"));
-        let bytes = read(&path)?;
-        reject_forbidden_output(&bytes)?;
-        let catalog: RuleCatalog = serde_json::from_slice(&bytes)
-            .with_context(|| format!("invalid catalog file {}", path.display()))?;
-        ensure!(catalog.language == language_id, "catalog language mismatch");
-        ensure!(
-            catalog.classification == CLASSIFICATION,
-            "catalog classification mismatch"
-        );
-        ensure!(
-            catalog.source_capture_sha256 == snapshot.capture_sha256,
-            "catalog capture provenance mismatch"
-        );
-        ensure!(
-            is_strictly_sorted(&catalog.rules),
-            "catalog rules are not strictly key-sorted"
-        );
-        ensure!(
-            catalog
-                .rules
-                .iter()
-                .all(|rule| !rule.is_external && !rule.is_template),
-            "catalog contains external or template rule"
-        );
-        let receipt = snapshot
-            .languages
-            .get(language_name)
-            .with_context(|| format!("snapshot lacks {language_name}"))?;
-        ensure!(
-            catalog.rules.len() as u64 == receipt.total,
-            "catalog count mismatch"
-        );
-        if require_pages_complete {
-            let expected_pages = if receipt.total == 0 {
-                1
-            } else {
-                receipt.total.div_ceil(snapshot.page_size)
-            };
-            ensure!(
-                receipt.page_count as u64 == expected_pages,
-                "page count mismatch"
-            );
-            ensure!(
-                receipt.unique_keys as u64 == receipt.total,
-                "unique-key count mismatch"
-            );
-            ensure!(
-                receipt.show_count as u64 == receipt.total,
-                "show count mismatch"
-            );
-        }
-        ensure!(
-            snapshot.rule_files.get(language_name) == Some(&sha256(&bytes)),
-            "catalog file hash mismatch"
-        );
-        hash_record(&mut catalog_hasher, language_name.as_bytes());
-        hash_record(&mut catalog_hasher, &bytes);
-        total += catalog.rules.len();
+        let (source_count, scoped_count) = audit_language(
+            root,
+            &snapshot,
+            language_name,
+            language_id,
+            require_pages_complete,
+            &mut catalog_hasher,
+        )?;
+        source_total += source_count;
+        scoped_total += scoped_count;
     }
     ensure!(
-        total == snapshot.total_rules,
+        source_total == snapshot.source_total_rules,
         "snapshot total rule count mismatch"
+    );
+    ensure!(
+        scoped_total == snapshot.total_rules,
+        "snapshot scoped rule count mismatch"
     );
     ensure!(
         hex::encode(catalog_hasher.finalize()) == snapshot.catalog_sha256,
@@ -390,13 +404,109 @@ pub fn audit(snapshot_path: &Path, require_pages_complete: bool) -> Result<()> {
     Ok(())
 }
 
+fn audit_language(
+    root: &Path,
+    snapshot: &Snapshot,
+    language_name: &str,
+    language_id: &str,
+    require_pages_complete: bool,
+    catalog_hasher: &mut Sha256,
+) -> Result<(usize, usize)> {
+    let path = root.join("rules").join(format!("{language_name}.json"));
+    let bytes = read(&path)?;
+    reject_forbidden_output(&bytes)?;
+    let catalog: RuleCatalog = serde_json::from_slice(&bytes)
+        .with_context(|| format!("invalid catalog file {}", path.display()))?;
+    ensure!(catalog.language == language_id, "catalog language mismatch");
+    ensure!(
+        catalog.classification == SCOPE_CLASSIFICATION,
+        "catalog classification mismatch"
+    );
+    ensure!(
+        catalog.source_capture_sha256 == snapshot.capture_sha256,
+        "catalog capture provenance mismatch"
+    );
+    ensure!(
+        is_strictly_sorted(&catalog.rules),
+        "catalog rules are not strictly key-sorted"
+    );
+    ensure!(
+        catalog
+            .rules
+            .iter()
+            .all(|rule| !rule.is_external && !rule.is_template),
+        "catalog contains external or template rule"
+    );
+    let receipt = snapshot
+        .languages
+        .get(language_name)
+        .with_context(|| format!("snapshot lacks {language_name}"))?;
+    let unverified = snapshot
+        .unverified_rules
+        .get(language_name)
+        .with_context(|| format!("snapshot lacks {language_name} unverified rules"))?;
+    ensure!(
+        unverified.windows(2).all(|pair| pair[0] < pair[1]),
+        "unverified rules are not strictly key-sorted"
+    );
+    ensure!(
+        unverified.iter().all(|key| {
+            key.starts_with(&format!("{}:", receipt.repository))
+                && catalog.rules.iter().any(|rule| &rule.external_key == key)
+        }),
+        "invalid or missing unverified rule"
+    );
+    ensure!(
+        catalog.rules.iter().all(|rule| {
+            let expected = if unverified.binary_search(&rule.external_key).is_ok() {
+                ENTERPRISE_UNVERIFIED_CLASSIFICATION
+            } else {
+                COMMUNITY_CLASSIFICATION
+            };
+            rule.classification == expected
+        }),
+        "rule verification classification mismatch"
+    );
+    ensure!(
+        catalog.rules.len() as u64 == receipt.source_total
+            && catalog.rules.len() as u64 == receipt.total,
+        "catalog count mismatch"
+    );
+    if require_pages_complete {
+        let expected_pages = receipt.source_total.max(1).div_ceil(snapshot.page_size);
+        ensure!(
+            receipt.page_count as u64 == expected_pages,
+            "page count mismatch"
+        );
+        ensure!(
+            receipt.unique_keys as u64 == receipt.source_total,
+            "unique-key count mismatch"
+        );
+        ensure!(
+            receipt.show_count as u64 == receipt.source_total,
+            "show count mismatch"
+        );
+    }
+    ensure!(
+        snapshot.rule_files.get(language_name) == Some(&sha256(&bytes)),
+        "catalog file hash mismatch"
+    );
+    hash_record(catalog_hasher, language_name.as_bytes());
+    hash_record(catalog_hasher, &bytes);
+    Ok((catalog.rules.len(), catalog.rules.len()))
+}
+
 /// Audits implemented-rule coverage of the analyzer crates against the frozen catalogs.
 ///
 /// A frozen rule counts as implemented when its distinguishing key marker (the part
-/// after the repository prefix, such as `S103` or `BackticksUsage`) occurs anywhere in
-/// the owning analyzer crate's source. The report prints one table row per language
-/// followed by the missing-key lists. The command always exits successfully once the
-/// inputs are readable; `strict` turns any coverage gap into exit code 1.
+/// after the repository prefix, such as `S103` or `BackticksUsage`) occurs in a compiled
+/// string literal used by analyzer code. It counts as tested only when the complete
+/// repository-qualified key occurs in a `#[cfg(test)]` string literal. Comments, doc
+/// attributes, identifiers, and longer colliding rule IDs cannot satisfy either
+/// requirement. The report prints one table
+/// row per language followed by all gap lists. The command always exits successfully
+/// once the inputs are readable; `strict` turns implementation, test, and infrastructure
+/// gaps into exit code 1.
 pub fn coverage(lang: Option<&str>, strict: bool) -> Result<()> {
     if let Some(lang) = lang {
         ensure!(
@@ -425,6 +535,8 @@ struct LanguageCoverage {
     implemented: usize,
     /// Keys without a marker that are actionable in-repository.
     missing: Vec<String>,
+    /// Implemented keys without a repository-qualified test marker.
+    untested: Vec<String>,
     /// Keys requiring out-of-repository infrastructure; documented skips.
     infra: Vec<String>,
 }
@@ -436,7 +548,11 @@ impl LanguageCoverage {
 
     /// Whether any actionable frozen rule lacks an implementation marker.
     fn has_gaps(&self) -> bool {
-        !self.missing.is_empty()
+        !self.missing.is_empty() || !self.untested.is_empty() || !self.infra.is_empty()
+    }
+
+    fn tested(&self) -> usize {
+        self.implemented.saturating_sub(self.untested.len())
     }
 
     /// Coverage percentage over actionable rules; empty catalog = covered.
@@ -445,24 +561,25 @@ impl LanguageCoverage {
         if total == 0 {
             return 100.0;
         }
-        let implemented = u32::try_from(self.implemented).unwrap_or(u32::MAX);
+        let tested = u32::try_from(self.tested()).unwrap_or(u32::MAX);
         let total = u32::try_from(total).unwrap_or(u32::MAX);
-        f64::from(implemented) * 100.0 / f64::from(total)
+        f64::from(tested) * 100.0 / f64::from(total)
     }
 }
 
 fn coverage_language(name: &'static str, language_id: &str) -> Result<LanguageCoverage> {
     let source_dir = coverage_source_dir(name)
         .with_context(|| format!("no analyzer crate maps language {name}"))?;
-    let mut source = String::new();
+    let mut production_literals = Vec::new();
+    let mut test_literals = Vec::new();
     let mut sources = Vec::new();
     collect_rust_sources(Path::new(source_dir), &mut sources);
     for path in &sources {
-        source.push_str(
-            &fs::read_to_string(path)
-                .with_context(|| format!("failed to read analyzer source {}", path.display()))?,
-        );
-        source.push('\n');
+        let source = fs::read_to_string(path)
+            .with_context(|| format!("failed to read analyzer source {}", path.display()))?;
+        let (production, tests) = partition_rust_source(path, &source)?;
+        production_literals.extend(production);
+        test_literals.extend(tests);
     }
     if sources.is_empty() {
         return Err(anyhow::anyhow!(
@@ -470,10 +587,6 @@ fn coverage_language(name: &'static str, language_id: &str) -> Result<LanguageCo
         ));
     }
     let keys = coverage_keys(name, language_id)?;
-    // Markers are matched against the full source (comments included): rule
-    // keys legitimately appear in doc comments, section markers, and test
-    // fixtures. Keys known to require out-of-repository infrastructure are
-    // reported separately instead of as plain gaps.
     // Infra classification takes precedence over marker matching: a key that
     // only appears in a documented skip note must not count as implemented.
     let (infra_keys, actionable_keys): (Vec<_>, Vec<_>) = keys
@@ -481,14 +594,120 @@ fn coverage_language(name: &'static str, language_id: &str) -> Result<LanguageCo
         .partition(|key| infra_rules(name).contains(&key.as_str()));
     let infra = infra_keys.into_iter().cloned().collect::<Vec<_>>();
     let actionable: Vec<String> = actionable_keys.into_iter().cloned().collect();
-    let missing = missing_rules(&actionable, &source);
+    let missing = missing_rules(&actionable, &production_literals, false);
+    let implemented_keys = actionable
+        .iter()
+        .filter(|key| !missing.contains(key))
+        .cloned()
+        .collect::<Vec<_>>();
+    let untested = missing_rules(&implemented_keys, &test_literals, true);
     let implemented = actionable.len() - missing.len();
     Ok(LanguageCoverage {
         name,
         implemented,
         missing,
+        untested,
         infra,
     })
+}
+
+/// Separates compiled and test-only Rust tokens. Files reached only through a
+/// `tests` or `test_support` module are classified as tests by path; inline
+/// `#[cfg(test)]` items are removed from otherwise compiled files.
+fn partition_rust_source(path: &Path, source: &str) -> Result<(Vec<String>, Vec<String>)> {
+    let parsed = syn::parse_file(source)
+        .with_context(|| format!("failed to parse analyzer source {}", path.display()))?;
+    if is_test_source_path(path) {
+        return Ok((Vec::new(), string_literals(&parsed.items)));
+    }
+
+    let (test_items, production_items): (Vec<_>, Vec<_>) =
+        parsed.items.into_iter().partition(item_is_cfg_test);
+    Ok((
+        string_literals(&production_items),
+        string_literals(&test_items),
+    ))
+}
+
+#[derive(Default)]
+struct StringLiteralCollector {
+    values: Vec<String>,
+}
+
+impl<'ast> visit::Visit<'ast> for StringLiteralCollector {
+    fn visit_lit_str(&mut self, literal: &'ast syn::LitStr) {
+        self.values.push(literal.value());
+    }
+
+    fn visit_attribute(&mut self, _attribute: &'ast syn::Attribute) {
+        // Doc comments become `#[doc = "..."]` after parsing. No attribute is
+        // executable rule evidence, so do not traverse attribute token values.
+    }
+
+    fn visit_macro(&mut self, item_macro: &'ast syn::Macro) {
+        collect_token_literals(item_macro.tokens.clone(), &mut self.values);
+    }
+}
+
+fn collect_token_literals(tokens: proc_macro2::TokenStream, values: &mut Vec<String>) {
+    for token in tokens {
+        match token {
+            proc_macro2::TokenTree::Group(group) => collect_token_literals(group.stream(), values),
+            proc_macro2::TokenTree::Literal(literal) => {
+                if let Ok(literal) = syn::parse_str::<syn::LitStr>(&literal.to_string()) {
+                    values.push(literal.value());
+                }
+            }
+            proc_macro2::TokenTree::Ident(_) | proc_macro2::TokenTree::Punct(_) => {}
+        }
+    }
+}
+
+fn string_literals(items: &[syn::Item]) -> Vec<String> {
+    let mut collector = StringLiteralCollector::default();
+    for item in items {
+        collector.visit_item(item);
+    }
+    collector.values
+}
+
+fn is_test_source_path(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == "tests")
+        || path
+            .file_stem()
+            .is_some_and(|stem| stem == "tests" || stem == "test_support")
+}
+
+fn item_is_cfg_test(item: &syn::Item) -> bool {
+    item_attrs(item).iter().any(|attribute| {
+        attribute.path().is_ident("cfg")
+            && matches!(
+                &attribute.meta,
+                syn::Meta::List(list) if list.tokens.to_string() == "test"
+            )
+    })
+}
+
+fn item_attrs(item: &syn::Item) -> &[syn::Attribute] {
+    match item {
+        syn::Item::Const(item) => &item.attrs,
+        syn::Item::Enum(item) => &item.attrs,
+        syn::Item::ExternCrate(item) => &item.attrs,
+        syn::Item::Fn(item) => &item.attrs,
+        syn::Item::ForeignMod(item) => &item.attrs,
+        syn::Item::Impl(item) => &item.attrs,
+        syn::Item::Macro(item) => &item.attrs,
+        syn::Item::Mod(item) => &item.attrs,
+        syn::Item::Static(item) => &item.attrs,
+        syn::Item::Struct(item) => &item.attrs,
+        syn::Item::Trait(item) => &item.attrs,
+        syn::Item::TraitAlias(item) => &item.attrs,
+        syn::Item::Type(item) => &item.attrs,
+        syn::Item::Union(item) => &item.attrs,
+        syn::Item::Use(item) => &item.attrs,
+        _ => &[],
+    }
 }
 
 /// Rule keys excluded from the actionable gap count and listed separately:
@@ -568,10 +787,14 @@ fn coverage_keys(name: &str, language_id: &str) -> Result<Vec<String>> {
 ///
 /// Keys arrive strictly sorted from the frozen catalog, so the result preserves
 /// that order without re-sorting.
-fn missing_rules(keys: &[String], source: &str) -> Vec<String> {
+fn missing_rules(keys: &[String], literals: &[String], qualified: bool) -> Vec<String> {
     keys.iter()
         .map(String::as_str)
-        .filter(|key| !contains_marker(source, rule_key_marker(key)))
+        .filter(|key| {
+            !literals
+                .iter()
+                .any(|literal| literal_marks_rule(literal, key, qualified))
+        })
         .map(str::to_owned)
         .collect()
 }
@@ -587,45 +810,45 @@ fn rule_key_marker(external_key: &str) -> &str {
     }
 }
 
-/// Whether `marker` occurs in `source` on identifier boundaries.
-///
-/// Stops `S112` from counting as implemented because `S1128` exists.
-fn contains_marker(source: &str, marker: &str) -> bool {
-    let mut from = 0;
-    while let Some(offset) = source[from..].find(marker) {
-        let begin = from + offset;
-        let end = begin + marker.len();
-        let id_char = |c: char| c.is_ascii_alphanumeric() || c == '_';
-        if !source[..begin].chars().next_back().is_some_and(id_char)
-            && !source[end..].chars().next().is_some_and(id_char)
-        {
-            return true;
-        }
-        from = begin + 1;
+fn literal_marks_rule(literal: &str, key: &str, qualified: bool) -> bool {
+    if qualified {
+        return literal == key;
     }
-    false
+    let marker = rule_key_marker(key);
+    if literal == key || literal == marker {
+        return true;
+    }
+    let Some(prefix) = literal.strip_suffix(marker) else {
+        return false;
+    };
+    prefix.ends_with(':') && prefix.contains('{') && prefix.contains('}')
 }
 
 fn print_coverage(rows: &[LanguageCoverage]) {
-    println!("language      implemented  missing  infra  total  coverage");
+    println!("language      implemented  tested  missing  untested  infra  total  coverage");
     for row in rows {
         println!(
-            "{:<12} {:>11} {:>7} {:>5} {:>6} {:>8.1}%",
+            "{:<12} {:>11} {:>7} {:>7} {:>9} {:>5} {:>6} {:>8.1}%",
             row.name,
             row.implemented,
+            row.tested(),
             row.missing.len(),
+            row.untested.len(),
             row.infra.len(),
             row.total(),
             row.percent(),
         );
     }
     for row in rows {
-        if row.missing.is_empty() && row.infra.is_empty() {
+        if row.missing.is_empty() && row.untested.is_empty() && row.infra.is_empty() {
             continue;
         }
         println!("\n{}:", row.name);
         for key in &row.missing {
-            println!("  {key}");
+            println!("  {key} (implementation missing)");
+        }
+        for key in &row.untested {
+            println!("  {key} (test evidence missing)");
         }
         for key in &row.infra {
             println!("  {key} (requires out-of-repository infrastructure)");
@@ -670,7 +893,7 @@ fn extract_language(
         schema_version: 1,
         language: receipt.language.clone(),
         source_capture_sha256: capture_sha256.to_owned(),
-        classification: CLASSIFICATION.to_owned(),
+        classification: COMMUNITY_CLASSIFICATION.to_owned(),
         rules,
     })
 }
@@ -726,7 +949,7 @@ fn extract_rule(rule: &Value, expected_key: &str, capture_sha256: &str) -> Resul
         sys_tags: string_array(rule, "sysTags")?,
         tags: string_array(rule, "tags")?,
         education_principles: string_array(rule, "educationPrinciples")?,
-        classification: CLASSIFICATION.to_owned(),
+        classification: COMMUNITY_CLASSIFICATION.to_owned(),
         provenance_id: capture_sha256.to_owned(),
     })
 }
@@ -865,7 +1088,6 @@ fn verify_raw_manifest(
             "api/settings/values?keys=sonar.multi-quality-mode.enabled",
             "instance-mode.json",
         ),
-        ("api/editions/is_valid_license", "license-validity.json"),
     ] {
         let receipt = manifest
             .endpoints
@@ -1104,10 +1326,10 @@ mod tests {
             "javascript:S122".to_owned(),
             "javascript:S1523".to_owned(),
         ];
-        // Markers are matched case-sensitively: lowercase `s122` does not count.
-        let source = "fn check_s122() {} // S1523 marker";
+        // Identifiers and comments are not executable evidence.
+        let literals = vec!["S1523".to_owned()];
         assert_eq!(
-            missing_rules(&keys, source),
+            missing_rules(&keys, &literals, false),
             vec!["javascript:S100", "javascript:S122"]
         );
     }
@@ -1117,8 +1339,64 @@ mod tests {
         // `python:S112` must stay missing even though `python:S1128`'s
         // marker occurs: digit-suffixed ids otherwise satisfy shorter ones.
         let keys = vec!["python:S112".to_owned(), "python:S1128".to_owned()];
-        let source = "// python:S1128 implementation";
-        assert_eq!(missing_rules(&keys, source), vec!["python:S112"]);
+        let literals = vec!["python:S1128".to_owned()];
+        assert_eq!(missing_rules(&keys, &literals, false), vec!["python:S112"]);
+    }
+
+    #[test]
+    fn qualified_test_markers_do_not_cross_language_repositories() {
+        let keys = vec!["javascript:S112".to_owned(), "typescript:S112".to_owned()];
+        let literals = vec!["javascript:S112".to_owned()];
+        assert_eq!(
+            missing_rules(&keys, &literals, true),
+            vec!["typescript:S112"]
+        );
+    }
+
+    #[test]
+    fn dynamic_repository_prefix_counts_as_shared_implementation() {
+        let keys = vec!["javascript:S103".to_owned(), "typescript:S103".to_owned()];
+        let literals = vec!["{}:S103".to_owned()];
+        assert!(missing_rules(&keys, &literals, false).is_empty());
+    }
+
+    #[test]
+    fn rust_partition_excludes_comments_and_cfg_test_items_from_production() {
+        let source = r#"
+            //! python:S100 is only documentation.
+            #[doc = "python:S101 is also documentation"]
+            const RULE: &str = "python:S112";
+            fn dynamic_key() { let _ = format!("{}:S103", "python"); }
+            #[cfg(test)]
+            mod tests {
+                const TESTED: &str = "python:S112";
+                #[test]
+                fn macro_literal() { assert_eq!("python:S103", "python:S103"); }
+            }
+        "#;
+        let (production, tests) = partition_rust_source(Path::new("rule.rs"), source).unwrap();
+        assert_eq!(production, vec!["python:S112", "{}:S103", "python"]);
+        assert_eq!(tests, vec!["python:S112", "python:S103", "python:S103"]);
+    }
+
+    #[test]
+    fn strict_coverage_treats_infra_and_missing_tests_as_gaps() {
+        let infra = LanguageCoverage {
+            name: "python",
+            implemented: 0,
+            missing: Vec::new(),
+            untested: Vec::new(),
+            infra: vec!["python:S6786".to_owned()],
+        };
+        let untested = LanguageCoverage {
+            name: "python",
+            implemented: 1,
+            missing: Vec::new(),
+            untested: vec!["python:S112".to_owned()],
+            infra: Vec::new(),
+        };
+        assert!(infra.has_gaps());
+        assert!(untested.has_gaps());
     }
 
     #[test]
@@ -1135,6 +1413,7 @@ mod tests {
             name: "python",
             implemented: 0,
             missing: Vec::new(),
+            untested: Vec::new(),
             infra: Vec::new(),
         };
         assert!((row.percent() - 100.0).abs() < 1e-9);

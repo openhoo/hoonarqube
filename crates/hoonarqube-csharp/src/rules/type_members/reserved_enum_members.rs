@@ -9,14 +9,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     collect_kinds(root, &["enum_declaration"])
         .into_iter()
         .flat_map(|enum_node| collect_kinds(enum_node, &["enum_member_declaration"]))
-        .filter_map(|member| member.child_by_field_name("name"))
-        .filter(|name| node_text(*name, source).eq_ignore_ascii_case("reserved"))
-        .map(|name| {
+        .filter(|member| {
+            member
+                .child_by_field_name("name")
+                .is_some_and(|name| node_text(name, source).eq_ignore_ascii_case("reserved"))
+        })
+        .map(|member| {
             issue(
                 language,
                 "S4016",
-                "Rename this 'Reserved' enumeration member.",
-                range_of(name, source),
+                "Remove or rename this enum member.",
+                range_of(member, source),
             )
         })
         .collect()

@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{issue, range_of};
+use crate::cst::{collect_kinds, issue, range_of};
 use crate::rules::expressions::banned_member_accesses;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -9,11 +9,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     banned_member_accesses(root, source, "SafeHandle", &["DangerousGetHandle"])
         .into_iter()
         .map(|access| {
+            let name = collect_kinds(access, &["identifier"])
+                .into_iter()
+                .last()
+                .unwrap_or(access);
             issue(
                 language,
                 "S3869",
-                "Remove this 'DangerousGetHandle' call.",
-                range_of(access, source),
+                "Refactor the code to remove this use of 'SafeHandle.DangerousGetHandle'.",
+                range_of(name, source),
             )
         })
         .collect()

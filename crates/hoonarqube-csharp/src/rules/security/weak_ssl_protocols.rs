@@ -11,7 +11,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         root,
         source,
         "SslProtocols",
-        &["Ssl2", "Ssl3", "Tls", "Tls10", "Tls11"],
+        &["Default", "Ssl2", "Ssl3", "Tls", "Tls10", "Tls11"],
     );
     let security_protocol_accesses =
         banned_member_accesses(root, source, "SecurityProtocolType", &["Ssl3", "Tls"]);
@@ -22,8 +22,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S4423",
-                "Negotiate 'Tls12' or 'Tls13' instead of this deprecated protocol.",
-                range_of(access, source),
+                "Change this code to use a stronger protocol.",
+                range_of(access.child_by_field_name("name").unwrap_or(access), source),
             )
         })
         .collect()

@@ -39,7 +39,7 @@ pub(crate) fn check_world_writable_modes(
         if mode & 0o022 != 0 {
             issues.push(issue_at(
                 "python:S2612",
-                "Remove group and other write permission from this file mode.",
+                "Make sure this permission is safe.",
                 call.arguments.args[position].range(),
                 index,
                 source,

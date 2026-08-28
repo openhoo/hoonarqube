@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S6930",
-                "Use forward slashes in this route template.",
+                "Replace '\\' with '/'.",
                 range_of(literal, source),
             )
         })

@@ -471,6 +471,17 @@ pub(crate) fn property_value<'v, 'p>(
     }
 }
 
+/// Full property span for diagnostics that Sonar anchors at `key: value`.
+pub(crate) fn property_span(props: PropsView<'_, '_>, key: &str) -> Option<Span> {
+    match props {
+        PropsView::Live(object) => property_of(object, key).map(GetSpan::span),
+        PropsView::Digested(digest) => digest
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, spanned)| spanned.span),
+    }
+}
+
 /// Object value of `view`, live or digested, for nested prop descent.
 pub(crate) fn value_object<'a, 'p>(view: ValueView<'a, 'p>) -> Option<PropsView<'a, 'p>> {
     match view {

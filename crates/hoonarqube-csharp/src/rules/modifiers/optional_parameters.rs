@@ -1,6 +1,10 @@
 use super::support::has_modifier;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, modifiers_of, parameters_of, range_of};
+use crate::cst::{
+    collect_kinds, issue, modifiers_of, parameters_of, range_from_byte_offsets, range_of,
+};
+use crate::rules::expressions::enclosing_type;
+use crate::rules::modifiers::type_declared_rank;
 use crate::rules::naming::has_explicit_interface_specifier;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -12,20 +16,31 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     let mut issues = Vec::new();
     for method in collect_kinds(root, &["method_declaration"]) {
         let modifiers = modifiers_of(method, source);
-        if has_modifier(&modifiers, "override") || has_explicit_interface_specifier(method) {
+        if has_modifier(&modifiers, "override")
+            || has_explicit_interface_specifier(method)
+            || !has_modifier(&modifiers, "public")
+            || enclosing_type(method)
+                .is_none_or(|type_node| type_declared_rank(type_node, source) != 6)
+        {
             continue;
         }
         for parameter in parameters_of(method) {
             let mut cursor = parameter.walk();
-            let has_default = parameter
+            let equals = parameter
                 .children(&mut cursor)
-                .any(|child| child.kind() == "=");
-            if has_default {
+                .find(|child| child.kind() == "=");
+            if let Some(equals) = equals {
+                let mut named_cursor = parameter.walk();
+                let default_value = parameter.named_children(&mut named_cursor).last();
+                let range = default_value.map_or_else(
+                    || range_of(equals, source),
+                    |value| range_from_byte_offsets(equals.start_byte(), value.end_byte(), source),
+                );
                 issues.push(issue(
                     language,
                     "S2360",
-                    "Remove this optional parameter's default value.",
-                    range_of(parameter, source),
+                    "Use the overloading mechanism instead of the optional parameters.",
+                    range,
                 ));
             }
         }

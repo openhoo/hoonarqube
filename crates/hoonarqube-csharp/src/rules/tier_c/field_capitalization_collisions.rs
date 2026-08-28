@@ -9,12 +9,14 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     shadowed_field_sites(root, source)
         .into_iter()
-        .filter(|(derived, _, base)| derived != base && derived.eq_ignore_ascii_case(base))
-        .map(|(_, node, _)| {
+        .filter(|(derived, _, base, _)| derived != base && derived.eq_ignore_ascii_case(base))
+        .map(|(_, node, base_field, base_type)| {
             issue(
                 language,
                 "S4025",
-                "Rename this field; it differs from an inherited field only by capitalization.",
+                format!(
+                    "Rename this field; it may be confused with '{base_field}' in '{base_type}'."
+                ),
                 range_of(node, source),
             )
         })

@@ -29,15 +29,15 @@ impl ReactCollector<'_> {
         let Some(JSXAttributeValue::ExpressionContainer(container)) = &value_attribute.value else {
             return;
         };
-        if matches!(
-            container.expression.as_expression(),
-            Some(Expression::ObjectExpression(_) | Expression::ArrayExpression(_))
-        ) {
+        if let Some(
+            expression @ (Expression::ObjectExpression(_) | Expression::ArrayExpression(_)),
+        ) = container.expression.as_expression()
+        {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S6481",
-                "Pass a memoized 'value' instead of a fresh object or array literal.",
-                value_attribute.span(),
+                "The object passed as the value prop to the Context provider changes every render. To fix this consider wrapping it in a useMemo hook.",
+                expression.span(),
             );
         }
     }

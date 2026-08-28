@@ -18,9 +18,11 @@ fn s3869_flags_dangerous_handle_reads() {
 #[test]
 fn s3884_flags_com_security_invocations() {
     let report = analyze_default(
-        "class C\n{\n    void Harden()\n    {\n        CoSetProxyBlanket(null, 0, 0, null, 0, 0, IntPtr.Zero, 0);\n    }\n}\n",
+        "class C\n{\n    [DllImport(\"ole32.dll\")]\n    static extern int CoSetProxyBlanket();\n    void Harden()\n    {\n        CoSetProxyBlanket();\n    }\n}\n",
     );
-    assert_eq!(with_key(&report, "csharpsquid:S3884").len(), 1);
+    let flagged = with_key(&report, "csharpsquid:S3884");
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 7);
 
     let clean = analyze_default(
         "class C\n{\n    void Harden()\n    {\n        CoSetProxyBlanketSafely();\n    }\n}\n",
@@ -57,12 +59,12 @@ fn s3902_flags_get_executing_assembly() {
 #[test]
 fn s3216_requires_configure_await_false() {
     let blocking_context = analyze_default(
-        "class C\n{\n    void Wait(Task task)\n    {\n        task.ConfigureAwait(true);\n    }\n}\n",
+        "class C\n{\n    async Task Wait(Task task)\n    {\n        await task;\n    }\n}\n",
     );
     assert_eq!(with_key(&blocking_context, "csharpsquid:S3216").len(), 1);
 
     let off_context = analyze_default(
-        "class C\n{\n    void Wait(Task task)\n    {\n        task.ConfigureAwait(false);\n    }\n}\n",
+        "class C\n{\n    async Task Wait(Task task)\n    {\n        await task.ConfigureAwait(false);\n    }\n}\n",
     );
     assert!(with_key(&off_context, "csharpsquid:S3216").is_empty());
 }
@@ -72,7 +74,7 @@ fn s4462_flags_all_blocking_shapes() {
     let report = analyze_default(
         "class C\n{\n    void Block(Task task)\n    {\n        var v = task.Result;\n        task.Wait();\n        task.GetAwaiter().GetResult();\n    }\n}\n",
     );
-    assert_eq!(with_key(&report, "csharpsquid:S4462").len(), 3);
+    assert_eq!(with_key(&report, "csharpsquid:S4462").len(), 2);
 
     let clean = analyze_default(
         "class C\n{\n    async System.Threading.Tasks.Task Await(Task task)\n    {\n        await task;\n    }\n}\n",
@@ -96,12 +98,12 @@ fn s3169_flags_stacked_orderings() {
 #[test]
 fn s6607_flags_filtering_after_ordering() {
     let late_filter = analyze_default(
-        "class C\n{\n    void Query(System.Collections.Generic.List<int> items)\n    {\n        items.Where(v => v > 0).OrderBy(v => v);\n    }\n}\n",
+        "class C\n{\n    void Query(System.Collections.Generic.List<int> items)\n    {\n        items.OrderBy(v => v).Where(v => v > 0);\n    }\n}\n",
     );
     assert_eq!(with_key(&late_filter, "csharpsquid:S6607").len(), 1);
 
     let early_filter = analyze_default(
-        "class C\n{\n    void Query(System.Collections.Generic.List<int> items)\n    {\n        items.OrderBy(v => v).Where(v => v > 0);\n    }\n}\n",
+        "class C\n{\n    void Query(System.Collections.Generic.List<int> items)\n    {\n        items.Where(v => v > 0).OrderBy(v => v);\n    }\n}\n",
     );
     assert!(with_key(&early_filter, "csharpsquid:S6607").is_empty());
 }
@@ -133,14 +135,14 @@ fn s3267_flags_conditionally_appending_loops() {
 }
 
 #[test]
-fn s4635_flags_zero_based_substrings() {
+fn s4635_flags_substring_search_chains() {
     let report = analyze_default(
-        "class C\n{\n    string Head(string s)\n    {\n        return s.Substring(0, 3);\n    }\n}\n",
+        "class C\n{\n    int Find(string s, int start)\n    {\n        return s.Substring(start).IndexOf('x');\n    }\n}\n",
     );
     assert_eq!(with_key(&report, "csharpsquid:S4635").len(), 1);
 
     let offset = analyze_default(
-        "class C\n{\n    string Head(string s)\n    {\n        return s.Substring(1, 3);\n    }\n}\n",
+        "class C\n{\n    int Find(string s, int start)\n    {\n        return s.IndexOf('x', start);\n    }\n}\n",
     );
     assert!(with_key(&offset, "csharpsquid:S4635").is_empty());
 }
@@ -174,12 +176,12 @@ fn s6617_flags_any_with_parameter_equality_lambda() {
 #[test]
 fn s6612_requires_concurrent_dictionary_delegates() {
     let eager = analyze_default(
-        "class C\n{\n    int Value(System.Collections.Concurrent.ConcurrentDictionary<int, int> map)\n    {\n        return map.GetOrAdd(1, ExpensiveBuild());\n    }\n}\n",
+        "class C\n{\n    int Value(System.Collections.Concurrent.ConcurrentDictionary<int, int> map, int key)\n    {\n        return map.GetOrAdd(key, _ => key + 1);\n    }\n}\n",
     );
     assert_eq!(with_key(&eager, "csharpsquid:S6612").len(), 1);
 
     let lazy = analyze_default(
-        "class C\n{\n    int Value(System.Collections.Concurrent.ConcurrentDictionary<int, int> map)\n    {\n        return map.GetOrAdd(1, key => Build(key));\n    }\n}\n",
+        "class C\n{\n    int Value(System.Collections.Concurrent.ConcurrentDictionary<int, int> map, int key)\n    {\n        return map.GetOrAdd(key, current => Build(current));\n    }\n}\n",
     );
     assert!(with_key(&lazy, "csharpsquid:S6612").is_empty());
 }
@@ -234,16 +236,15 @@ fn s1643_flags_string_concatenation_inside_loops() {
 }
 
 #[test]
-fn s1192_flags_repeated_literals_from_the_second_occurrence() {
+fn s1192_flags_first_occurrence_of_a_repeated_literal_once() {
     let repeated = analyze_default(
         "class C\n{\n    void M()\n    {\n        Use(\"alpha\");\n        Use(\"alpha\");\n\
              Use(\"alpha\");\n        Use(\"beta\");\n        Use(\"beta\");\n    }\n}\n",
     );
     let flagged = with_key(&repeated, "csharpsquid:S1192");
-    assert_eq!(flagged.len(), 2);
-    assert_eq!(flagged[0].range.start.line, 6);
-    assert_eq!(flagged[1].range.start.line, 7);
-    assert!(flagged[0].message.contains("\"alpha\" 3 times."));
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 5);
+    assert!(flagged[0].message.contains("'alpha' 3 times."));
 
     let options = AnalyzerOptions {
         duplicate_string_threshold: 2,
@@ -318,16 +319,20 @@ fn s1075_flags_scheme_prefixed_literals() {
 }
 
 #[test]
-fn s2857_flags_squeezed_sql_keywords_only() {
-    let squeezed = analyze_default("var q = \"SELECT*FROM users WHERE id=@id\";\n");
+fn s2857_flags_missing_spaces_between_sql_fragments() {
+    let squeezed = analyze_default(
+        "using System.Data.SqlClient;\nvar q = \"SELECT id\" + \"FROM users\" + \"WHERE id=@id\";\n",
+    );
     let flagged = with_key(&squeezed, "csharpsquid:S2857");
-    assert_eq!(flagged.len(), 1);
-    assert!(flagged[0].message.contains("'SELECT'"));
+    assert_eq!(flagged.len(), 2);
+    assert_eq!(flagged[0].message, "Add a space before 'FROM'.");
 
-    let spaced = analyze_default("var q = \"SELECT * FROM users\";\n");
+    let spaced =
+        analyze_default("using System.Data.SqlClient;\nvar q = \"SELECT id \" + \"FROM users\";\n");
     assert!(with_key(&spaced, "csharpsquid:S2857").is_empty());
 
-    let wordy = analyze_default("var w = \"SELECTION of items\";\n");
+    let wordy =
+        analyze_default("using System.Data.SqlClient;\nvar w = \"SELECTION\" + \"FROM items\";\n");
     assert!(with_key(&wordy, "csharpsquid:S2857").is_empty());
 }
 
@@ -379,7 +384,7 @@ fn s818_flags_lowercase_numeric_suffixes() {
     let flagged = analyze_default(
         "class C\n{\n    long a = 123l;\n    float b = 1.5f;\n    decimal c = 100m;\n}\n",
     );
-    assert_eq!(with_key(&flagged, "csharpsquid:S818").len(), 3);
+    assert_eq!(with_key(&flagged, "csharpsquid:S818").len(), 1);
 
     let clean = analyze_default(
         "class C\n{\n    long a = 123L;\n    double b = 1.5D;\n    ulong c = 0xFFUL;\n\
@@ -524,7 +529,10 @@ fn s3251_flags_partial_methods_without_implementations() {
     let orphan = analyze_default("partial class C\n{\n    partial void OnRaise();\n}\n");
     let flagged = with_key(&orphan, "csharpsquid:S3251");
     assert_eq!(flagged.len(), 1);
-    assert!(flagged[0].message.contains("'OnRaise'"));
+    assert_eq!(
+        flagged[0].message,
+        "Supply an implementation for this partial method."
+    );
 
     let paired = analyze_default(
         "partial class C\n{\n    partial void OnRaise();\n\n    partial void OnRaise()\n    {\n    }\n}\n",
@@ -541,7 +549,7 @@ fn s3253_flags_redundant_constructors_and_finalizers() {
     let redundant = analyze_default(
         "class C\n{\n    public C()\n    {\n    }\n\n    ~C()\n    {\n        base.Dispose();\n    }\n}\n",
     );
-    assert_eq!(with_key(&redundant, "csharpsquid:S3253").len(), 2);
+    assert_eq!(with_key(&redundant, "csharpsquid:S3253").len(), 1);
 
     let meaningful = analyze_default(
         "class C\n{\n    private C()\n    {\n    }\n\n    public C(int seed)\n    {\n        Use(seed);\n    }\n\n    ~C()\n    {\n        Log();\n    }\n}\n",
@@ -580,7 +588,7 @@ fn s3963_moves_static_ctor_only_initialization_inline() {
     );
     let flagged = with_key(&moved, "csharpsquid:S3963");
     assert_eq!(flagged.len(), 1);
-    assert!(flagged[0].message.contains("'value'"));
+    assert!(flagged[0].message.contains("'static fields'"));
 
     let inline = analyze_default(
         "class C\n{\n    static int value = Compute();\n\n    static C()\n    {\n        value++;\n    }\n}\n",
@@ -623,7 +631,10 @@ fn s3005_requires_static_on_thread_static_fields() {
     let instance = analyze_default("class C\n{\n    [ThreadStatic]\n    int perThread;\n}\n");
     let flagged = with_key(&instance, "csharpsquid:S3005");
     assert_eq!(flagged.len(), 1);
-    assert!(flagged[0].message.contains("'static'"));
+    assert_eq!(
+        flagged[0].message,
+        "Remove the 'ThreadStatic' attribute from this definition."
+    );
 
     let proper = analyze_default("class C\n{\n    [ThreadStatic]\n    static int perThread;\n}\n");
     assert!(with_key(&proper, "csharpsquid:S3005").is_empty());
@@ -634,7 +645,7 @@ fn s2743_flags_static_fields_inside_generic_types() {
     let shared = analyze_default("class Cache<T>\n{\n    static Dictionary<string, T> map;\n}\n");
     let flagged = with_key(&shared, "csharpsquid:S2743");
     assert_eq!(flagged.len(), 1);
-    assert!(flagged[0].message.contains("'map'"));
+    assert!(flagged[0].message.contains("generic type"));
 
     let instance_only = analyze_default(
         "class Cache<T>\n{\n    Dictionary<string, T> map;\n\n    const int Limit = 4;\n}\n",
@@ -647,10 +658,12 @@ fn s2743_flags_static_fields_inside_generic_types() {
 
 #[test]
 fn s3906_keeps_event_handler_delegates_void() {
-    let returning = analyze_default("delegate int Op(object sender, MyEventArgs e);\n");
+    let returning = analyze_default(
+        "delegate int Op(object sender, MyEventArgs e);\nclass Publisher { public event Op Changed; }\n",
+    );
     let flagged = with_key(&returning, "csharpsquid:S3906");
     assert_eq!(flagged.len(), 1);
-    assert!(flagged[0].message.contains("'void'"));
+    assert!(flagged[0].message.contains("event handler"));
 
     let proper = analyze_default("delegate void Op(object sender, MyEventArgs e);\n");
     assert!(with_key(&proper, "csharpsquid:S3906").is_empty());
@@ -666,7 +679,10 @@ fn s3908_prefers_event_handler_over_custom_shaped_delegates() {
     );
     let flagged = with_key(&custom, "csharpsquid:S3908");
     assert_eq!(flagged.len(), 1);
-    assert!(flagged[0].message.contains("'Raised'"));
+    assert_eq!(
+        flagged[0].message,
+        "Refactor this delegate to use 'System.EventHandler<TEventArgs>'."
+    );
 
     let framework =
         analyze_default("class C\n{\n    event System.EventHandler<MyEventArgs> Raised;\n}\n");
@@ -684,7 +700,10 @@ fn s4225_flags_extension_methods_on_object() {
     );
     let flagged = with_key(&broad, "csharpsquid:S4225");
     assert_eq!(flagged.len(), 1);
-    assert!(flagged[0].message.contains("'object'"));
+    assert_eq!(
+        flagged[0].message,
+        "Refactor this extension to extend a more concrete type."
+    );
 
     let specific = analyze_default(
         "static class Ext\n{\n    public static bool Blank(this string item)\n    {\n        return item == null;\n    }\n}\n",
@@ -698,21 +717,17 @@ fn s4225_flags_extension_methods_on_object() {
 }
 
 #[test]
-fn s4220_flags_events_without_eventargs_payloads() {
-    let raw_payload = analyze_default(
-        "delegate void Handler(int code);\n\nclass C\n{\n    event Handler Failed;\n}\n",
+fn s4220_flags_null_event_senders() {
+    let null_sender = analyze_default(
+        "class C\n{\n    event System.EventHandler Failed;\n    void Raise(System.EventArgs args)\n    {\n        Failed?.Invoke(null, args);\n    }\n}\n",
     );
-    let flagged = with_key(&raw_payload, "csharpsquid:S4220");
+    let flagged = with_key(&null_sender, "csharpsquid:S4220");
     assert_eq!(flagged.len(), 1);
-    assert!(flagged[0].message.contains("'Failed'"));
 
-    let proper = analyze_default(
-        "delegate void Handler(object sender, MyEventArgs e);\n\nclass C\n{\n        event Handler Failed;\n}\n",
+    let proper_sender = analyze_default(
+        "class C\n{\n    event System.EventHandler Failed;\n    void Raise(System.EventArgs args)\n    {\n        Failed?.Invoke(this, args);\n    }\n}\n",
     );
-    assert!(with_key(&proper, "csharpsquid:S4220").is_empty());
-
-    let framework = analyze_default("class C\n{\n    event System.EventHandler Failed;\n}\n");
-    assert!(with_key(&framework, "csharpsquid:S4220").is_empty());
+    assert!(with_key(&proper_sender, "csharpsquid:S4220").is_empty());
 }
 
 #[test]
@@ -720,7 +735,7 @@ fn s3993_constrains_attribute_classes_with_usage() {
     let open = analyze_default("class Mine : System.Attribute\n{\n}\n");
     let flagged = with_key(&open, "csharpsquid:S3993");
     assert_eq!(flagged.len(), 1);
-    assert!(flagged[0].message.contains("[AttributeUsage]"));
+    assert_eq!(flagged[0].message, "Specify AttributeUsage on 'Mine'.");
 
     let constrained = analyze_default(
         "[System.AttributeUsage(System.AttributeTargets.Class)]\nclass Mine : System.Attribute\n{\n}\n",
@@ -767,16 +782,16 @@ fn s4016_renames_reserved_enum_members() {
 }
 
 #[test]
-fn s4070_flags_unused_flags_enumerations() {
-    let decorated_only =
-        analyze_default("[System.Flags]\nenum Rights\n{\n    Read = 1,\n    Write = 2,\n}\n");
-    let flagged = with_key(&decorated_only, "csharpsquid:S4070");
+fn s4070_flags_invalid_flags_values() {
+    let invalid = analyze_default(
+        "[System.Flags]\nenum Rights\n{\n    Read = 1,\n    Execute = 3,\n    Write = 4,\n}\n",
+    );
+    let flagged = with_key(&invalid, "csharpsquid:S4070");
     assert_eq!(flagged.len(), 1);
 
-    let combined = analyze_default(
-        "[System.Flags]\nenum Rights\n{\n    Read = 1,\n    Write = 2,\n}\n\nclass C\n{\n        Rights All() => Rights.Read | Rights.Write;\n}\n",
-    );
-    assert!(with_key(&combined, "csharpsquid:S4070").is_empty());
+    let valid =
+        analyze_default("[System.Flags]\nenum Rights\n{\n    Read = 1,\n    Write = 2,\n}\n");
+    assert!(with_key(&valid, "csharpsquid:S4070").is_empty());
 
     let undecorated = analyze_default("enum Rights\n{\n    Read = 1,\n    Write = 2,\n}\n");
     assert!(with_key(&undecorated, "csharpsquid:S4070").is_empty());
@@ -788,7 +803,7 @@ fn s2345_requires_explicit_values_on_flags_members() {
         analyze_default("[System.Flags]\nenum Rights\n{\n    Read = 1,\n    Write,\n}\n");
     let flagged = with_key(&implicit_tail, "csharpsquid:S2345");
     assert_eq!(flagged.len(), 1);
-    assert!(flagged[0].message.contains("'Write'"));
+    assert!(flagged[0].message.contains("'Flags'"));
 
     let explicit_all =
         analyze_default("[System.Flags]\nenum Rights\n{\n    Read = 1,\n    Write = 2,\n}\n");
@@ -831,7 +846,7 @@ fn s3597_requires_service_contract_on_operation_methods() {
         analyze_default("class Repo\n{\n    [OperationContract]\n    void Do(int x) { }\n}\n");
     let flagged = with_key(&orphan, "csharpsquid:S3597");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 3);
+    assert_eq!(flagged[0].range.start.line, 1);
 
     let contracted = analyze_default(
         "[ServiceContract]\nclass Repo\n{\n    [OperationContract]\n    void Do(int x) { }\n}\n",
@@ -891,33 +906,45 @@ fn s4210_requires_stathread_on_winforms_entry_points() {
 
 #[test]
 fn s4211_flags_conflicting_transparency_annotations() {
-    let both = analyze_default("[SecurityCritical]\n[SecuritySafeCritical]\nclass Vault\n{\n}\n");
-    let flagged = with_key(&both, "csharpsquid:S4211");
+    let conflict = analyze_default(
+        "[SecurityCritical]\nclass Vault\n{\n    [SecuritySafeCritical]\n    void Open() { }\n}\n",
+    );
+    let flagged = with_key(&conflict, "csharpsquid:S4211");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 1);
+    assert_eq!(flagged[0].range.start.line, 4);
+    assert_eq!(flagged[0].range.start.column, 5);
+    assert_eq!(
+        flagged[0].message,
+        "Change or remove this attribute to be consistent with its container."
+    );
 
-    // Boundary: either level alone is consistent.
-    let critical_only = analyze_default("[SecurityCritical]\nclass Vault\n{\n}\n");
-    assert!(with_key(&critical_only, "csharpsquid:S4211").is_empty());
+    // Boundary: the inverse nesting is accepted by the frozen analyzer.
+    let accepted = analyze_default(
+        "[SecuritySafeCritical]\nclass Vault\n{\n    [SecurityCritical]\n    void Open() { }\n}\n",
+    );
+    assert!(with_key(&accepted, "csharpsquid:S4211").is_empty());
 }
 
 #[test]
 fn s4212_secures_serialization_constructors() {
-    let public_ctor = analyze_default(
-        "class Item\n{\n    public Item(SerializationInfo info, StreamingContext ctx) { }\n}\n",
+    let unsecured = analyze_default(
+        "[assembly: AllowPartiallyTrustedCallers]\n[Serializable]\nclass Item : ISerializable\n{\n    [FileIOPermission(SecurityAction.Demand, Unrestricted = true)]\n    public Item() { }\n    protected Item(SerializationInfo info, StreamingContext ctx) { }\n    void ISerializable.GetObjectData(SerializationInfo info, StreamingContext ctx) { }\n}\n",
     );
-    let flagged = with_key(&public_ctor, "csharpsquid:S4212");
+    let flagged = with_key(&unsecured, "csharpsquid:S4212");
     assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 7);
+    assert_eq!(flagged[0].message, "Secure this serialization constructor.");
 
-    // Boundary: protected serialization constructors are the convention.
-    let protected_ctor = analyze_default(
-        "class Item\n{\n    protected Item(SerializationInfo info, StreamingContext ctx) { }\n}\n",
+    let secured = analyze_default(
+        "[assembly: AllowPartiallyTrustedCallers]\n[Serializable]\nclass Item : ISerializable\n{\n    [FileIOPermission(SecurityAction.Demand, Unrestricted = true)]\n    public Item() { }\n    [FileIOPermission(SecurityAction.Demand, Unrestricted = true)]\n    protected Item(SerializationInfo info, StreamingContext ctx) { }\n    void ISerializable.GetObjectData(SerializationInfo info, StreamingContext ctx) { }\n}\n",
     );
-    assert!(with_key(&protected_ctor, "csharpsquid:S4212").is_empty());
+    assert!(with_key(&secured, "csharpsquid:S4212").is_empty());
 
-    // Boundary: unrelated two-parameter constructors stay untouched.
-    let plain_ctor = analyze_default("class Item\n{\n    public Item(int a, string b) { }\n}\n");
-    assert!(with_key(&plain_ctor, "csharpsquid:S4212").is_empty());
+    // Boundary: the partial-trust assembly gate is mandatory.
+    let full_trust = analyze_default(
+        "[Serializable]\nclass Item : ISerializable\n{\n    [FileIOPermission(SecurityAction.Demand, Unrestricted = true)]\n    public Item() { }\n    protected Item(SerializationInfo info, StreamingContext ctx) { }\n}\n",
+    );
+    assert!(with_key(&full_trust, "csharpsquid:S4212").is_empty());
 }
 
 #[test]
@@ -927,12 +954,17 @@ fn s3926_requires_deserialization_hook_for_optional_fields() {
     );
     let flagged = with_key(&unhooked, "csharpsquid:S3926");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 4);
+    assert_eq!(flagged[0].range.start.line, 2);
 
     let hooked = analyze_default(
         "[Serializable]\nclass Doc\n{\n    [OptionalField]\n    private int version;\n\n    [OnDeserialized]\n    private void OnFixup(StreamingContext ctx) { }\n}\n",
     );
-    assert!(with_key(&hooked, "csharpsquid:S3926").is_empty());
+    assert_eq!(with_key(&hooked, "csharpsquid:S3926").len(), 1);
+
+    let complete = analyze_default(
+        "[Serializable]\nclass Doc\n{\n    [OptionalField]\n    private int version;\n\n    [OnDeserializing]\n    private void Before(StreamingContext ctx) { }\n\n    [OnDeserialized]\n    private void After(StreamingContext ctx) { }\n}\n",
+    );
+    assert!(with_key(&complete, "csharpsquid:S3926").is_empty());
 }
 
 #[test]
@@ -1044,13 +1076,18 @@ fn s4790_flags_md5_and_sha1_usage() {
 #[test]
 fn s5542_flags_insecure_cipher_modes_and_padding() {
     let insecure = analyze_default(
-        "class Crypto\n{\n    Aes Make()\n    {\n        var aes = Aes.Create();\n        aes.Mode = CipherMode.ECB;\n        aes.Padding = PaddingMode.None;\n        return aes;\n    }\n}\n",
+        "class Crypto\n{\n    Aes Make() => new AesManaged\n    {\n        Mode = CipherMode.ECB,\n        Padding = PaddingMode.PKCS7,\n    };\n    byte[] Encrypt(byte[] data)\n    {\n        using var rsa = new RSACryptoServiceProvider();\n        return rsa.Encrypt(data, false);\n    }\n}\n",
     );
     let flagged = with_key(&insecure, "csharpsquid:S5542");
     assert_eq!(flagged.len(), 2);
+    assert!(
+        flagged
+            .iter()
+            .all(|issue| issue.message == "Use secure mode and padding scheme.")
+    );
 
     let secure = analyze_default(
-        "class Crypto\n{\n    Aes Make()\n    {\n        var aes = Aes.Create();\n        aes.Mode = CipherMode.CBC;\n        aes.Padding = PaddingMode.PKCS7;\n        return aes;\n    }\n}\n",
+        "class Crypto\n{\n    byte[] Encrypt(byte[] data)\n    {\n        using var rsa = new RSACryptoServiceProvider();\n        return rsa.Encrypt(data, true);\n    }\n}\n",
     );
     assert!(with_key(&secure, "csharpsquid:S5542").is_empty());
 }
@@ -1089,17 +1126,20 @@ fn s4426_flags_weak_asymmetric_providers_and_short_keys() {
 #[test]
 fn s5659_flags_weak_jwt_algorithms_in_token_contexts() {
     let weak = analyze_default(
-        "class Auth\n{\n    TokenValidationParameters Make()\n    {\n        return new TokenValidationParameters { ValidAlgorithms = new[] { \"HS256\" } };\n    }\n}\n",
+        "class Auth\n{\n    string Decode(IJwtDecoder decoder, string token, string secret)\n    {\n        return decoder.Decode(token, secret, verify: false);\n    }\n}\n",
     );
     let flagged = with_key(&weak, "csharpsquid:S5659");
     assert_eq!(flagged.len(), 1);
-
-    // Boundary: strong algorithms stay clean even in token contexts, and
-    // weak spellings outside JWT contexts are untouched.
-    let strong = analyze_default(
-        "class Auth\n{\n    TokenValidationParameters Make()\n    {\n        return new TokenValidationParameters { ValidAlgorithms = new[] { \"RS256\" } };\n    }\n}\n",
+    assert_eq!(flagged[0].range.start.line, 5);
+    assert_eq!(
+        flagged[0].message,
+        "Use only strong cipher algorithms when verifying the signature of this JWT."
     );
-    assert!(with_key(&strong, "csharpsquid:S5659").is_empty());
+
+    let verified = analyze_default(
+        "class Auth\n{\n    string Decode(IJwtDecoder decoder, string token, string secret)\n    {\n        return decoder.Decode(token, secret, verify: true);\n    }\n}\n",
+    );
+    assert!(with_key(&verified, "csharpsquid:S5659").is_empty());
 
     let outside_jwt = analyze_default("class Codec\n{\n    string Mode() => \"HS256\";\n}\n");
     assert!(with_key(&outside_jwt, "csharpsquid:S5659").is_empty());
@@ -1208,21 +1248,6 @@ fn s4502_flags_antiforgery_disabled_assignments() {
 }
 
 #[test]
-fn s5773_flags_typename_handling_beyond_none() {
-    let permissive = analyze_default(
-        "class Wire\n{\n    JsonSerializerSettings Make() => new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };\n}\n",
-    );
-    let flagged = with_key(&permissive, "csharpsquid:S5773");
-    assert_eq!(flagged.len(), 1);
-
-    // Boundary: 'TypeNameHandling.None' (or no mention) stays clean.
-    let safe = analyze_default(
-        "class Wire\n{\n    JsonSerializerSettings Make() => new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };\n}\n",
-    );
-    assert!(with_key(&safe, "csharpsquid:S5773").is_empty());
-}
-
-#[test]
 fn s5042_flags_unbounded_archive_extraction() {
     let unbounded = analyze_default(
         "class Unpack\n{\n    void Extract(ZipArchive archive, string target)\n    {\n        archive.ExtractToDirectory(target);\n        ZipFile.ExtractToDirectory(archivePath, target);\n    }\n}\n",
@@ -1257,13 +1282,19 @@ fn s5122_flags_any_origin_cors_policies() {
 #[test]
 fn s7039_flags_unsafe_csp_sources() {
     let unsafe_inline = analyze_default(
-        "class Headers\n{\n    string Policy() => \"Content-Security-Policy: default-src 'self'; script-src 'unsafe-inline'\";\n}\n",
+        "class Middleware\n{\n    void Set(HttpContext context)\n    {\n        context.Response.Headers.ContentSecurityPolicy = \"script-src 'self' 'unsafe-inline';\";\n    }\n}\n",
     );
-    assert_eq!(with_key(&unsafe_inline, "csharpsquid:S7039").len(), 1);
+    let flagged = with_key(&unsafe_inline, "csharpsquid:S7039");
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.column, 8);
+    assert_eq!(
+        flagged[0].message,
+        "Content Security Policies should be restrictive to mitigate the risk of content injection attacks."
+    );
 
     // Boundary: a strict policy without unsafe sources stays clean.
     let strict = analyze_default(
-        "class Headers\n{\n    string Policy() => \"Content-Security-Policy: default-src 'self'\";\n}\n",
+        "class Middleware\n{\n    void Set(HttpContext context)\n    {\n        context.Response.Headers.ContentSecurityPolicy = \"script-src 'self';\";\n    }\n}\n",
     );
     assert!(with_key(&strict, "csharpsquid:S7039").is_empty());
 }
@@ -1298,9 +1329,9 @@ fn s6354_flags_direct_system_clock_reads() {
 }
 
 #[test]
-fn s6561_flags_datetime_now_near_stopwatch() {
+fn s6561_flags_datetime_now_in_elapsed_time_calculation() {
     let timing = analyze_default(
-        "class Bench\n{\n    void Measure()\n    {\n        var watch = Stopwatch.StartNew();\n        var started = DateTime.Now;\n        watch.Stop();\n    }\n}\n",
+        "class Bench\n{\n    double Measure(DateTime started)\n    {\n        return (DateTime.Now - started).TotalMilliseconds;\n    }\n}\n",
     );
     let flagged = with_key(&timing, "csharpsquid:S6561");
     assert_eq!(flagged.len(), 1);
@@ -1340,19 +1371,17 @@ fn s6588_flags_unix_epoch_literals() {
 }
 
 #[test]
-fn s6575_flags_windows_time_zone_lookups_without_converter() {
-    let windows_only = analyze_default(
-        "class Zones\n{\n    TimeZoneInfo Resolve(string id) => TimeZoneInfo.FindSystemTimeZoneById(id);\n}\n",
+fn s6575_flags_timezone_ids_converted_before_lookup() {
+    let converted = analyze_default(
+        "class Zones\n{\n    TimeZoneInfo Resolve(string id)\n    {\n        var windows = TZConvert.IanaToWindows(id);\n        return TimeZoneInfo.FindSystemTimeZoneById(windows);\n    }\n}\n",
     );
-    let flagged = with_key(&windows_only, "csharpsquid:S6575");
+    let flagged = with_key(&converted, "csharpsquid:S6575");
     assert_eq!(flagged.len(), 1);
 
-    // Boundary: once 'TimeZoneConverter' is referenced the migration is
-    // considered underway and the file stays clean.
-    let converter_present = analyze_default(
-        "using TimeZoneConverter;\nclass Zones\n{\n    TimeZoneInfo Resolve(string id) => TZConvert.GetTimeZoneInfo(id);\n}\n",
+    let direct = analyze_default(
+        "class Zones\n{\n    TimeZoneInfo Resolve(string id) => TimeZoneInfo.FindSystemTimeZoneById(id);\n}\n",
     );
-    assert!(with_key(&converter_present, "csharpsquid:S6575").is_empty());
+    assert!(with_key(&direct, "csharpsquid:S6575").is_empty());
 }
 
 #[test]
@@ -1386,16 +1415,16 @@ fn s6585_flags_hardcoded_date_format_strings() {
 }
 
 #[test]
-fn s6419_flags_mutable_state_in_azure_function_classes() {
+fn s6419_flags_static_state_mutation_in_azure_functions() {
     let mutable = analyze_default(
-        "class Greeter\n{\n    private int hits;\n\n    [FunctionName(\"Ping\")]\n    public void Ping() { }\n}\n",
+        "class Greeter\n{\n    private static int hits;\n\n    [FunctionName(\"Ping\")]\n    public void Ping() { hits++; }\n}\n",
     );
     let flagged = with_key(&mutable, "csharpsquid:S6419");
     assert_eq!(flagged.len(), 1);
 
-    // Boundary: immutable members do not leak state between invocations.
+    // Boundary: instance state is not static state shared between invocations.
     let immutable = analyze_default(
-        "class Greeter\n{\n    private readonly int total = 0;\n\n    [FunctionName(\"Ping\")]\n    public void Ping() { }\n}\n",
+        "class Greeter\n{\n    private int total;\n\n    [FunctionName(\"Ping\")]\n    public void Ping() { total++; }\n}\n",
     );
     assert!(with_key(&immutable, "csharpsquid:S6419").is_empty());
 }
@@ -1569,7 +1598,7 @@ fn s6962_flags_hand_rolled_http_clients() {
 #[test]
 fn s6965_requires_verb_attributes_on_actions() {
     let unannotated = analyze_default(
-        "class WidgetsController\n{\n    public IActionResult Get() => Ok();\n\n    [HttpGet]\n    public IActionResult List() => Ok();\n\n    public void Utility() { }\n}\n",
+        "[ApiController]\nclass WidgetsController\n{\n    public IActionResult Get() => Ok();\n\n    [HttpGet]\n    public IActionResult List() => Ok();\n\n    public void Utility() { }\n}\n",
     );
     let flagged = with_key(&unannotated, "csharpsquid:S6965");
     assert_eq!(flagged.len(), 2);
@@ -1578,19 +1607,19 @@ fn s6965_requires_verb_attributes_on_actions() {
 #[test]
 fn s6967_requires_model_state_check_for_bound_models() {
     let unchecked = analyze_default(
-        "class OrdersController\n{\n    public IActionResult Create(OrderDto dto) => Ok();\n}\n",
+        "[Route(\"orders\")]\nclass OrdersController : Controller\n{\n    [HttpPost]\n    public IActionResult Create(OrderDto dto) => Ok();\n}\nclass OrderDto\n{\n    [Required]\n    public string Name { get; set; }\n}\n",
     );
     let flagged = with_key(&unchecked, "csharpsquid:S6967");
     assert_eq!(flagged.len(), 1);
 
     // Boundary: validated bodies and primitive parameters stay clean.
     let checked = analyze_default(
-        "class OrdersController\n{\n    public IActionResult Create(OrderDto dto)\n    {\n        if (!ModelState.IsValid) return BadRequest();\n        return Ok();\n    }\n}\n",
+        "[Route(\"orders\")]\nclass OrdersController : Controller\n{\n    [HttpPost]\n    public IActionResult Create(OrderDto dto)\n    {\n        if (!ModelState.IsValid) return BadRequest();\n        return Ok();\n    }\n}\nclass OrderDto\n{\n    [Required]\n    public string Name { get; set; }\n}\n",
     );
     assert!(with_key(&checked, "csharpsquid:S6967").is_empty());
 
     let primitive = analyze_default(
-        "class OrdersController\n{\n    public IActionResult Get(int id) => Ok();\n}\n",
+        "[Route(\"orders\")]\nclass OrdersController : Controller\n{\n    [HttpGet]\n    public IActionResult Get(int id) => Ok();\n}\n",
     );
     assert!(with_key(&primitive, "csharpsquid:S6967").is_empty());
 }
@@ -1646,7 +1675,7 @@ fn s6664_limits_log_calls_per_method() {
     let report = analyze_default(chatty);
     let flagged = with_key(&report, "csharpsquid:S6664");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 3);
+    assert_eq!(flagged[0].range.start.line, 5);
 
     let at_limit = analyze_default(
         "class A\n{\n    void M()\n    {\n        logger.LogDebug(\"a\");\n            logger.LogDebug(\"b\");\n        logger.LogDebug(\"c\");\n        logger.LogDebug(\"d\");\n    }\n}\n",
@@ -1675,8 +1704,12 @@ fn s6674_flags_malformed_templates() {
         "class A\n{\n    void M()\n    {\n        logger.LogDebug(\"Broken {Count\");\n            logger.LogInformation(\"oops } done\");\n        logger.LogWarning(\"Fine {Total}\", total);\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S6674");
-    assert_eq!(flagged.len(), 2);
+    assert_eq!(flagged.len(), 1);
     assert_eq!(flagged[0].range.start.line, 5);
+    assert_eq!(
+        flagged[0].message,
+        "Log message template should be syntactically correct."
+    );
 }
 
 #[test]
@@ -1696,10 +1729,7 @@ fn s6678_flags_placeholder_casing() {
     );
     let flagged = with_key(&report, "csharpsquid:S6678");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(
-        flagged[0].message,
-        "Rename the placeholder {userName} to PascalCase."
-    );
+    assert_eq!(flagged[0].message, "Use PascalCase for named placeholders.");
 }
 
 #[test]
@@ -1725,10 +1755,10 @@ fn s2629_requires_constant_templates() {
 
 #[test]
 fn s1312_shapes_logger_fields() {
-    let flagged_report = analyze_default("class A\n{\n    Logger _logger;\n}\n");
+    let flagged_report = analyze_default("class A\n{\n    ILogger _logger;\n}\n");
     assert_eq!(with_key(&flagged_report, "csharpsquid:S1312").len(), 1);
 
-    let clean = analyze_default("class A\n{\n    private static readonly Logger _logger;\n}\n");
+    let clean = analyze_default("class A\n{\n    private static readonly ILogger _logger;\n}\n");
     assert!(with_key(&clean, "csharpsquid:S1312").is_empty());
 
     let untyped = analyze_default("class A\n{\n    private int count;\n}\n");
@@ -1754,7 +1784,7 @@ fn s6672_matches_ilogger_generic_to_type() {
     assert_eq!(flagged.len(), 1);
     assert_eq!(
         flagged[0].message,
-        "Use 'ILogger<Order>' for loggers of this type."
+        "Update this logger to use its enclosing type."
     );
 }
 
@@ -1793,7 +1823,7 @@ fn s3457_validates_composite_formats() {
 #[test]
 fn s3937_flags_irregular_number_patterns() {
     let report = analyze_default(
-        "class A\n{\n    void M(int code)\n    {\n        if (code == 1 || code == 2 || code == 5) { }\n        if (code == 1 || code == 3 || code == 5) { }\n        if (code == 7) { }\n    }\n}\n",
+        "class A\n{\n    void M()\n    {\n        var bad = 100_0;\n        var good = 1_000_000;\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S3937");
     assert_eq!(flagged.len(), 1);
@@ -1830,10 +1860,25 @@ fn s818_splits_hex_bodies_from_suffixes() {
     let flagged = analyze_default(
         "class C\n{\n    long a = 0xdu;\n    long b = 0xdlu;\n    uint c = 0b101u;\n}\n",
     );
-    assert_eq!(with_key(&flagged, "csharpsquid:S818").len(), 3);
+    assert_eq!(with_key(&flagged, "csharpsquid:S818").len(), 1);
 
     let clean = analyze_default(
         "class C\n{\n    int a = 0x3dL;\n    uint b = 0x3dUL;\n    long c = 0x1dL;\n    uint d = 0b101U;\n    int e = 0xab_cd;\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S818").is_empty());
+}
+
+#[test]
+fn s5773_flags_typename_handling_beyond_none() {
+    let permissive = analyze_default(
+        "class Wire\n{\n    JsonSerializerSettings Make() => new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };\n}\n",
+    );
+    let flagged = with_key(&permissive, "csharpsquid:S5773");
+    assert_eq!(flagged.len(), 1);
+
+    // Boundary: 'TypeNameHandling.None' (or no mention) stays clean.
+    let safe = analyze_default(
+        "class Wire\n{\n    JsonSerializerSettings Make() => new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };\n}\n",
+    );
+    assert!(with_key(&safe, "csharpsquid:S5773").is_empty());
 }

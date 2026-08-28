@@ -25,9 +25,14 @@ pub(crate) fn check_special_method_arities(
         {
             continue;
         }
+        let actual = positional_parameters(&function.parameters).len();
         issues.push(issue_at(
             "python:S5722",
-            "Fix this special method signature; it is missing required parameters.",
+            &format!(
+                "Add {} parameters. Method {} should have {required} parameters.",
+                required - actual,
+                function.name
+            ),
             function.name.range(),
             index,
             source,

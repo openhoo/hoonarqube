@@ -106,22 +106,22 @@ fn default_export_name<'a>(program: &'a oxc_ast::ast::Program<'a>) -> Option<(&'
 pub(crate) fn check_default_export_name(
     program: &oxc_ast::ast::Program<'_>,
     path: &Path,
-    index: &LineIndex,
+    _index: &LineIndex,
     language: JstsLanguage,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
         return issues;
     };
-    if let Some((name, span)) = default_export_name(program)
+    if let Some((name, _)) = default_export_name(program)
         && normalized_name(name) != normalized_name(stem)
     {
-        issues.push(span_issue(
-            index,
-            format!("{}:S3317", language.prefix()),
-            format!("Rename this default export; '{name}' does not match the file name '{stem}'."),
-            span,
-        ));
+        issues.push(Issue {
+            rule_key: format!("{}:S3317", language.prefix()),
+            message: format!("Rename this file to \"{name}\""),
+            range: hoonarqube_ir::Range::file_level(),
+            fix: None,
+        });
     }
     issues
 }
@@ -512,7 +512,8 @@ mod tests {
         let imported: &str = "import { evaluate } from 'xpath';\n";
         assert_eq!(count_key(&js_keys(imported), "javascript:S4817"), 1);
 
-        let required: &str = "const xpath = require('xpath');\n";
+        let required: &str =
+            "const xpath = require('xpath');\nconst nodes = xpath.select(expr, doc);\n";
         assert_eq!(count_key(&js_keys(required), "javascript:S4817"), 1);
 
         let clean: &str = "const score = evaluateAnswer(answer);\n";

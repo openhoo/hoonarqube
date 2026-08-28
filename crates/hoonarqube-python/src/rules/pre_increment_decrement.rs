@@ -26,14 +26,20 @@ pub(crate) fn check_pre_increment_decrement(
         if doubled
             && next.range().start() == current.range().end()
             && !ends_operand(previous, source)
+            && let Some(operand) = significant.get(index_in_list + 2)
         {
+            let operation = if current.kind() == TokenKind::Plus {
+                "pre-increment"
+            } else {
+                "pre-decrement"
+            };
             issues.push(Issue {
                 rule_key: "python:PreIncrementDecrement".to_string(),
-                message:
-                    "Python interprets this as two unary operations; '++' and '--' do not exist."
-                        .to_string(),
+                message: format!(
+                    "This statement doesn't produce the expected result, replace use of non-existent {operation} operator"
+                ),
                 range: to_range(
-                    TextRange::new(current.range().start(), next.range().end()),
+                    TextRange::new(current.range().start(), operand.range().end()),
                     index,
                     source,
                 ),
@@ -42,4 +48,18 @@ pub(crate) fn check_pre_increment_decrement(
         }
     }
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn pre_increment_decrement_flags_adjacent_double_unary_signs() {
+        let bad = scan("first = ++value\nsecond = --value\n");
+        assert_eq!(findings(&bad, "python:PreIncrementDecrement").len(), 2);
+
+        let good = scan("first = value + 1\nsecond = value - 1\n");
+        assert!(findings(&good, "python:PreIncrementDecrement").is_empty());
+    }
 }

@@ -1,6 +1,6 @@
 use super::support::identifier_usages;
 use crate::CsLanguage;
-use crate::cst::{issue, range_of};
+use crate::cst::{ancestors_of, issue, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -18,11 +18,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     identifier_usages(root, source, &WEAK_CIPHER_PROVIDERS)
         .into_iter()
         .map(|identifier| {
+            let expression = ancestors_of(identifier)
+                .find(|ancestor| {
+                    matches!(
+                        ancestor.kind(),
+                        "invocation_expression" | "object_creation_expression"
+                    )
+                })
+                .unwrap_or(identifier);
+            let anchor = if expression.kind() == "object_creation_expression" {
+                expression.child_by_field_name("type").unwrap_or(expression)
+            } else {
+                expression
+            };
             issue(
                 language,
                 "S5547",
-                "Use a robust cipher such as 'Aes' instead of this provider.",
-                range_of(identifier, source),
+                "Use a strong cipher algorithm.",
+                range_of(anchor, source),
             )
         })
         .collect()

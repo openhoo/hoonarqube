@@ -24,7 +24,15 @@ pub(crate) fn check_doubled_prefix_operators(
         {
             issues.push(issue_at(
                 "python:S2761",
-                "Remove this doubled prefix operator.",
+                match unary.op {
+                    ruff_python_ast::UnaryOp::Not => {
+                        "Use the \"bool()\" builtin function instead of calling \"not\" twice."
+                    }
+                    ruff_python_ast::UnaryOp::Invert => {
+                        "Use the \"~\" operator just once or not at all."
+                    }
+                    _ => unreachable!("guarded doubled operator"),
+                },
                 unary.range(),
                 index,
                 source,

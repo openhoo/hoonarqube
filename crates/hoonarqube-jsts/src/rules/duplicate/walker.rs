@@ -14,6 +14,7 @@ use std::collections::{BTreeSet, HashMap};
 
 fn check_duplicate_rules(
     program: &oxc_ast::ast::Program<'_>,
+    source: &str,
     index: &LineIndex,
     language: JstsLanguage,
 ) -> Vec<Issue> {
@@ -23,9 +24,11 @@ fn check_duplicate_rules(
             language,
             issues: Vec::new(),
         },
+        source,
         if_statements: Vec::new(),
         function_bodies: Vec::new(),
         return_groups: Vec::new(),
+        return_group_anchors: Vec::new(),
         current_return_group: None,
         group_stack: Vec::new(),
     };
@@ -44,9 +47,11 @@ fn check_duplicate_rules(
 /// resolved afterwards through span-free subtree equality (`ContentEq`).
 struct DuplicateCollector<'a, 'index> {
     sink: IssueSink<'index>,
+    source: &'a str,
     if_statements: Vec<&'a IfStatement<'a>>,
     function_bodies: Vec<&'a FunctionBody<'a>>,
     return_groups: Vec<Vec<&'a ReturnStatement<'a>>>,
+    return_group_anchors: Vec<Option<Span>>,
     current_return_group: Option<usize>,
     group_stack: Vec<Option<usize>>,
 }
@@ -70,7 +75,7 @@ impl<'a> Visit<'a> for DuplicateCollector<'a, '_> {
                     self.sink.emit_span(
                         RuleScope::Both,
                         "S3923",
-                        "Either remove this branch or refactor the code to avoid duplication.",
+                        "This conditional operation returns the same value whether the condition is \"true\" or \"false\".",
                         expression.span,
                     );
                 }
@@ -79,6 +84,8 @@ impl<'a> Visit<'a> for DuplicateCollector<'a, '_> {
             AstKind::FunctionBody(body) => {
                 let group = self.return_groups.len();
                 self.return_groups.push(Vec::new());
+                self.return_group_anchors
+                    .push(function_name_before(self.source, body.span.start));
                 self.function_bodies.push(body);
                 self.group_stack.push(self.current_return_group);
                 self.current_return_group = Some(group);
@@ -150,7 +157,7 @@ impl<'a> DuplicateCollector<'a, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S3923",
-                "Either remove this branch or refactor the code to avoid duplication.",
+                "This conditional operation returns the same value whether the condition is \"true\" or \"false\".",
                 it.span,
             );
         }
@@ -211,15 +218,15 @@ impl<'a> DuplicateCollector<'a, '_> {
         }
         // `S1862`: repeated conditions within the same chain.
         for (position, test) in tests.iter().enumerate().skip(1) {
-            if tests[..position]
+            if let Some(earlier) = tests[..position]
                 .iter()
-                .any(|earlier| test.content_eq(earlier))
+                .find(|earlier| test.content_eq(*earlier))
             {
+                let line = self.sink.index.pos(earlier.span().start).line;
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S1862",
-                    "This condition duplicates an earlier condition in the same chain; \
-                     merge the branches.",
+                    &format!("This branch duplicates the one on line {line}"),
                     test.span(),
                 );
             }
@@ -231,7 +238,7 @@ impl<'a> DuplicateCollector<'a, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S3923",
-                "Either remove this branch or refactor the code to avoid duplication.",
+                "This conditional operation returns the same value whether the condition is \"true\" or \"false\".",
                 head.span,
             );
         }
@@ -280,7 +287,8 @@ impl<'a> DuplicateCollector<'a, '_> {
     /// `S3516`: functions whose returns all yield the same literal.
     fn check_invariant_returns(&mut self) {
         let groups = std::mem::take(&mut self.return_groups);
-        for returns in groups {
+        let anchors = std::mem::take(&mut self.return_group_anchors);
+        for (returns, anchor) in groups.into_iter().zip(anchors) {
             let Some(second) = returns.get(1) else {
                 continue;
             };
@@ -306,9 +314,8 @@ impl<'a> DuplicateCollector<'a, '_> {
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S3516",
-                    "All return statements of this function return the same value; \
-                     simplify them.",
-                    second.span(),
+                    "Refactor this function to not always return the same value.",
+                    anchor.unwrap_or_else(|| second.span()),
                 );
             }
         }
@@ -319,6 +326,33 @@ impl<'a> DuplicateCollector<'a, '_> {
         let end = self.sink.index.pos(span.end).line;
         start != end
     }
+}
+
+fn function_name_before(source: &str, body_start: u32) -> Option<Span> {
+    let prefix = source.get(..body_start as usize)?;
+    let keyword = prefix.rfind("function ")?;
+    let mut start = keyword + "function ".len();
+    while prefix
+        .as_bytes()
+        .get(start)
+        .is_some_and(u8::is_ascii_whitespace)
+    {
+        start += 1;
+    }
+    let mut end = start;
+    while prefix
+        .as_bytes()
+        .get(end)
+        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'$')
+    {
+        end += 1;
+    }
+    (end > start).then(|| {
+        Span::new(
+            u32::try_from(start).unwrap_or_default(),
+            u32::try_from(end).unwrap_or_default(),
+        )
+    })
 }
 
 /// Elementwise span-free equality of two statement lists.
@@ -335,7 +369,7 @@ fn is_empty_block(statement: &Statement<'_>) -> bool {
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_duplicate_rules(ctx.program, ctx.index, ctx.language)
+    check_duplicate_rules(ctx.program, ctx.source, ctx.index, ctx.language)
 }
 
 #[cfg(test)]

@@ -31,7 +31,7 @@ pub(crate) fn check_tb_let_to_const(
             sink.emit_span(
                 RuleScope::Both,
                 "S3353",
-                &format!("Change this 'let' declaration to 'const'; '{name}' is never reassigned."),
+                &format!("'{name}' is never reassigned. Use 'const' instead."),
                 binding.decl,
             );
         }

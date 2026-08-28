@@ -27,8 +27,8 @@ impl EsIdiomCollector<'_> {
                     self.sink.emit_span(
                         RuleScope::Both,
                         "S3499",
-                        "Write this shorthand property before the non-shorthand properties.",
-                        inner.span(),
+                        "Group all shorthand properties at either the beginning or end of this object declaration.",
+                        oxc_span::Span::new(it.span.start, it.span.start.saturating_add(1)),
                     );
                 }
             } else {
@@ -41,8 +41,8 @@ impl EsIdiomCollector<'_> {
                     self.sink.emit_span(
                         RuleScope::Both,
                         "S3498",
-                        "Use the shorthand syntax for this property.",
-                        inner.span(),
+                        "Expected property shorthand.",
+                        inner.key.span(),
                     );
                 }
             }

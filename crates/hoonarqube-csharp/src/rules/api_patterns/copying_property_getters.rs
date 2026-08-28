@@ -1,7 +1,7 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
-use crate::rules::expressions::callee_name;
-use crate::rules::structure::accessor_keyword;
+use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
+use crate::rules::expressions::{callee_name, invocation_function};
+use crate::rules::structure::{accessor_keyword, name_anchor};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -15,18 +15,21 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         }
         for call in collect_kinds(accessor, &["invocation_expression"]) {
-            if COLLECTION_COPY_METHODS.contains(&callee_name(call, source).unwrap_or("")) {
+            if callee_name(call, source) == Some("ToList") {
+                let property = accessor.parent().and_then(|node| node.parent());
+                let property_name = property
+                    .map(name_anchor)
+                    .map_or("property", |name| node_text(name, source));
                 issues.push(issue(
                     language,
                     "S2365",
-                    "This getter copies the collection on every read; expose a read-only view instead.",
-                    range_of(call, source),
+                    format!(
+                        "Refactor '{property_name}' into a method, properties should not copy collections."
+                    ),
+                    range_of(invocation_function(call).unwrap_or(call), source),
                 ));
             }
         }
     }
     issues
 }
-
-/// Copy-producing members that defeat shared references.
-const COLLECTION_COPY_METHODS: [&str; 3] = ["ToList", "ToArray", "Clone"];

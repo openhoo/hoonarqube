@@ -26,7 +26,7 @@ pub(crate) fn check_shadowed_builtins(
             if let Some(binding) = bindings.first() {
                 issues.push(issue_at(
                     "python:S5806",
-                    &format!("Rename '{name}' because it shadows a Python builtin."),
+                    "Rename this variable; it shadows a builtin.",
                     binding.range,
                     index,
                     source,

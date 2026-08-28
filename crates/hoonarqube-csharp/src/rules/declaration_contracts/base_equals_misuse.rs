@@ -1,7 +1,9 @@
 use super::support::enclosing_method;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, modifiers_of, node_text, range_of};
-use crate::rules::expressions::base_call_name;
+use crate::cst::{
+    base_simple_names, collect_kinds, is_error_tainted, issue, modifiers_of, node_text, range_of,
+};
+use crate::rules::expressions::{base_call_name, enclosing_type};
 use crate::rules::modifiers::has_modifier;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -20,11 +22,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 .is_some_and(|name| node_text(name, source) == "Equals")
                 && has_modifier(&modifiers_of(method, source), "override")
         });
-        if in_equals_override {
+        let owner_has_non_object_base = enclosing_type(invocation).is_some_and(|owner| {
+            base_simple_names(owner, source)
+                .into_iter()
+                .any(|base| base != "object" && base != "Object")
+        });
+        if in_equals_override && owner_has_non_object_base {
             issues.push(issue(
                 language,
                 "S3397",
-                "Remove this 'base.Equals' call from the 'Equals' override.",
+                "Change this guard condition to call 'object.ReferenceEquals'.",
                 range_of(invocation, source),
             ));
         }
@@ -47,7 +54,7 @@ mod tests {
     #[test]
     fn s3397_flags_base_equals_in_multi_statement_overrides() {
         let report = analyze_default(
-            "class C\n{\n    public override bool Equals(object obj)\n    {\n        if (obj is null)\n        {\n            return false;\n        }\n        return base.Equals(obj);\n    }\n}\n",
+            "class Base\n{\n}\nclass C : Base\n{\n    public override bool Equals(object obj)\n    {\n        if (base.Equals(obj))\n        {\n            return true;\n        }\n        return false;\n    }\n}\n",
         );
         assert_eq!(with_key(&report, "csharpsquid:S3397").len(), 1);
     }

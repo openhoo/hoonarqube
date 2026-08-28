@@ -28,8 +28,8 @@ pub(crate) fn check_function_return_counts(
                 issues.push(issue_at(
                     "python:S1142",
                     &format!(
-                        "This function has {count} return statements, which is greater than \
-                     the {maximum} authorized."
+                        "This function has {count} returns or yields, which is more than the \
+                         {maximum} allowed."
                     ),
                     function.name.range(),
                     index,

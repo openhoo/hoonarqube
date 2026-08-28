@@ -4,8 +4,10 @@ use crate::engine::scope::SymbolTable;
 use crate::engine::scope::name_used_in_tokens;
 use crate::support::is_dunder_name;
 use crate::support::issue_at;
+use crate::support::to_u32;
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
+use ruff_text_size::{TextRange, TextSize};
 use std::collections::HashSet;
 
 // --- python:S4487 — unread private attributes --------------------------------
@@ -40,8 +42,13 @@ pub(crate) fn check_unread_private_attributes(
         if !read {
             issues.push(issue_at(
                 "python:S4487",
-                &format!("Private attribute '{attr}' is written but never read."),
-                *range,
+                &format!(
+                    "Remove this unread private attribute '{attr}' or refactor the code to use its value."
+                ),
+                TextRange::new(
+                    range.end() - TextSize::from(to_u32(attr.len())),
+                    range.end(),
+                ),
                 index,
                 source,
             ));

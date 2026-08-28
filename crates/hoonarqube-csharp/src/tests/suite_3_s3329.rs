@@ -9,21 +9,21 @@ fn s4143_flags_double_element_writes() {
     );
     let flagged = with_key(&report, "csharpsquid:S4143");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 5);
-    assert!(flagged[0].message.contains("overwritten"));
+    assert_eq!(flagged[0].range.start.line, 6);
+    assert!(flagged[0].message.contains("already been set"));
 }
 
 #[test]
 fn s3994_and_s3995_prefer_uri_overloads() {
     let report = analyze_default(
-        "class C\n{\n    public string Load(string path) { return path; }\n    public string Load(Uri path) { return \"\"; }\n    public Uri Find(int id) { return null!; }\n    public string Find(string path) { return \"\"; }\n}\n",
+        "class C\n{\n    public void Load(string uriPath) { }\n    public string GetParentUri() { return \"\"; }\n}\n",
     );
     let parameters = with_key(&report, "csharpsquid:S3994");
     assert_eq!(parameters.len(), 1);
     assert_eq!(parameters[0].range.start.line, 3);
     let returns = with_key(&report, "csharpsquid:S3995");
     assert_eq!(returns.len(), 1);
-    assert_eq!(returns[0].range.start.line, 6);
+    assert_eq!(returns[0].range.start.line, 4);
 }
 
 #[test]
@@ -39,17 +39,17 @@ fn s3996_flags_uri_named_string_properties() {
 #[test]
 fn s4005_passes_uris_to_overloads() {
     let report = analyze_default(
-        "class A\n{\n    void M()\n    {\n        body = client.DownloadString(\"http://example.com\");\n        body = client.DownloadString(address);\n    }\n}\n",
+        "class A\n{\n    void Load(string uri) { }\n    void Load(System.Uri uri) { }\n    void M()\n    {\n        Load(\"http://example.com\");\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S4005");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 5);
+    assert_eq!(flagged[0].range.start.line, 7);
 }
 
 #[test]
-fn s3257_suggests_var_for_repeated_types() {
+fn s3257_removes_redundant_array_types() {
     let report = analyze_default(
-        "class A\n{\n    void M()\n    {\n        List<int> xs = new List<int>();\n        int age = 5;\n        var zs = new List<int>();\n    }\n}\n",
+        "class A\n{\n    void M()\n    {\n        var values = new int[] { 1, 2 };\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S3257");
     assert_eq!(flagged.len(), 1);
@@ -69,11 +69,11 @@ fn s3244_rejects_anonymous_unsubscriptions() {
 #[test]
 fn s3247_flags_duplicate_casts() {
     let report = analyze_default(
-        "class A\n{\n    void M()\n    {\n        var a = (Customer)item;\n        var b = (Customer)item;\n        var c = (Order)item;\n    }\n}\n",
+        "class A\n{\n    void M(object item)\n    {\n        if (item is string)\n        {\n            var a = (string)item;\n        }\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S3247");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 6);
+    assert_eq!(flagged[0].range.start.line, 5);
 }
 
 #[test]
@@ -100,12 +100,11 @@ fn s3237_requires_value_in_setters() {
 #[test]
 fn s4049_converts_accessor_shaped_methods() {
     let report = analyze_default(
-        "class F\n{\n    public string GetName() { return name; }\n    public void SetName(string newValue) { this.name = newValue; }\n    public void Reset() { }\n}\n",
+        "public class F\n{\n    public string GetName() { return name; }\n    public void SetName(string newValue) { this.name = newValue; }\n    public void Reset() { }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S4049");
-    assert_eq!(flagged.len(), 2);
+    assert_eq!(flagged.len(), 1);
     assert_eq!(flagged[0].range.start.line, 3);
-    assert_eq!(flagged[1].range.start.line, 4);
 }
 
 #[test]
@@ -114,9 +113,8 @@ fn s4040_flags_lowercase_normalization() {
         "class A\n{\n    void M()\n    {\n        key = name.ToLower();\n        other = name.ToLowerInvariant();\n        upper = name.ToUpper();\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S4040");
-    assert_eq!(flagged.len(), 2);
-    assert_eq!(flagged[0].range.start.line, 5);
-    assert_eq!(flagged[1].range.start.line, 6);
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 6);
 }
 
 #[test]
@@ -125,9 +123,8 @@ fn s4056_flags_culture_less_conversions() {
         "class A\n{\n    void M()\n    {\n        text = value.ToString();\n        number = int.Parse(raw);\n        number = double.Parse(raw, culture);\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S4056");
-    assert_eq!(flagged.len(), 2);
+    assert_eq!(flagged.len(), 1);
     assert_eq!(flagged[0].range.start.line, 5);
-    assert_eq!(flagged[1].range.start.line, 6);
 }
 
 #[test]
@@ -136,9 +133,8 @@ fn s4058_requires_comparison_mode() {
         "class A\n{\n    void M()\n    {\n        same = string.Compare(first, second) == 0;\n        equal = first.Equals(second);\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S4058");
-    assert_eq!(flagged.len(), 2);
+    assert_eq!(flagged.len(), 1);
     assert_eq!(flagged[0].range.start.line, 5);
-    assert_eq!(flagged[1].range.start.line, 6);
 }
 
 #[test]
@@ -155,22 +151,25 @@ fn s1449_requires_culture_for_searches() {
 #[test]
 fn s2115_flags_embedded_connection_passwords() {
     let report = analyze_default(
-        "class A\n{\n    void M()\n    {\n        var leaky = \"Server=s;Database=d;User=u;Password=secret;\";\n        var safe = \"Server=s;Database=d;Integrated Security=true;\";\n        var unset = \"Server=s;Password=;\";\n    }\n}\n",
+        "class A\n{\n    void M(DbContextOptionsBuilder options)\n    {\n        options.UseSqlServer(\"Server=s;Database=d;User=u;Password=\");\n        options.UseSqlServer(\"Server=s;Integrated Security=true;\");\n        var label = \"Password=\";\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S2115");
     assert_eq!(flagged.len(), 1);
     assert_eq!(flagged[0].range.start.line, 5);
+    assert_eq!(
+        flagged[0].message,
+        "Use a secure password when connecting to this database."
+    );
 }
 
 #[test]
 fn s3998_rejects_weak_identity_locks() {
     let report = analyze_default(
-        "class A\n{\n    void M()\n    {\n        lock (this) { }\n        lock (typeof(A)) { }\n        lock (\"key\") { }\n        lock (gate) { }\n    }\n}\n",
+        "class A\n{\n    readonly StackOverflowException gate = new();\n    void M()\n    {\n        lock (gate) { }\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S3998");
-    assert_eq!(flagged.len(), 3);
-    assert_eq!(flagged[0].range.start.line, 5);
-    assert_eq!(flagged[2].range.start.line, 7);
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 6);
 }
 
 #[test]
@@ -200,7 +199,7 @@ fn s3363_flags_datetime_key_members() {
 #[test]
 fn s4052_rejects_outdated_base_types() {
     let report = analyze_default(
-        "class Bag : ArrayList { }\nclass Map : DictionaryBase { }\nclass Modern : List<int> { }\n",
+        "public class Failure : ApplicationException { }\npublic class Map : DictionaryBase { }\nclass Modern : List<int> { }\n",
     );
     let flagged = with_key(&report, "csharpsquid:S4052");
     assert_eq!(flagged.len(), 2);
@@ -215,7 +214,7 @@ fn s2699_requires_test_assertions() {
     );
     let flagged = with_key(&report, "csharpsquid:S2699");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 5);
+    assert_eq!(flagged[0].range.start.line, 6);
 }
 
 #[test]
@@ -232,11 +231,12 @@ fn s2701_flags_literal_assertions() {
 #[test]
 fn s2970_completes_assert_that() {
     let report = analyze_default(
-        "class A\n{\n    void M()\n    {\n        Assert.That(actual);\n        Assert.That(actual, Is.EqualTo(1));\n    }\n}\n",
+        "class A\n{\n    void M()\n    {\n        NFluent.Check.That(actual);\n        NFluent.Check.That(actual).IsEqualTo(1);\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S2970");
     assert_eq!(flagged.len(), 1);
     assert_eq!(flagged[0].range.start.line, 5);
+    assert_eq!(flagged[0].message, "Complete the assertion");
 }
 
 #[test]
@@ -256,7 +256,7 @@ fn s2187_requires_tests_in_classes() {
     );
     let flagged = with_key(&report, "csharpsquid:S2187");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 1);
+    assert_eq!(flagged[0].range.start.line, 2);
 }
 
 #[test]
@@ -283,12 +283,12 @@ fn s3881_and_s2953_check_dispose_contracts() {
     let minimal = analyze_default(
         "class Bad : IDisposable\n{\n    public void Dispose() { done = true; }\n}\n",
     );
-    assert_eq!(with_key(&minimal, "csharpsquid:S3881").len(), 2);
+    assert_eq!(with_key(&minimal, "csharpsquid:S3881").len(), 1);
 
     let unattributed = analyze_default("class Sloppy\n{\n    public void Dispose() { }\n}\n");
     let missing = with_key(&unattributed, "csharpsquid:S2953");
     assert_eq!(missing.len(), 1);
-    assert_eq!(missing[0].range.start.line, 1);
+    assert_eq!(missing[0].range.start.line, 3);
 }
 
 #[test]
@@ -371,13 +371,13 @@ fn s2291_keeps_overflow_checks_on_sum() {
 #[test]
 fn s2302_prefers_nameof_for_parameter_strings() {
     let report = analyze_default(
-        "class A\n{\n    void Save(string userName)\n    {\n        audit = \"userName\";\n        audit = \"user\";\n    }\n}\n",
+        "class A\n{\n    void Save(string userName)\n    {\n        throw new System.Exception(\"userName\");\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S2302");
     assert_eq!(flagged.len(), 1);
     assert_eq!(
         flagged[0].message,
-        "Replace this string with 'nameof(userName)'."
+        "Replace the string 'userName' with 'nameof(userName)'."
     );
 }
 
@@ -397,20 +397,16 @@ fn s2333_removes_redundant_modifiers() {
         "class Holder\n{\n    public string Name { public get; set; }\n}\n\npartial class Solo { }\npartial class Duo { }\npartial class Duo { }\n",
     );
     let flagged = with_key(&report, "csharpsquid:S2333");
-    assert_eq!(flagged.len(), 2);
-    assert_eq!(flagged[0].range.start.line, 3);
-    assert_eq!(flagged[1].range.start.line, 6);
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 6);
 }
 
 #[test]
-fn s3433_checks_test_method_shapes() {
+fn s3433_accepts_xunit_accessibility_and_return_shapes() {
     let report = analyze_default(
         "class T\n{\n    [Fact]\n    public void Works() { Assert.True(ok); }\n    [Fact]\n    internal void Hidden() { }\n    [Theory]\n    public int Returns() => 1;\n}\n",
     );
-    let flagged = with_key(&report, "csharpsquid:S3433");
-    assert_eq!(flagged.len(), 2);
-    assert_eq!(flagged[0].range.start.line, 5);
-    assert_eq!(flagged[1].range.start.line, 7);
+    assert!(with_key(&report, "csharpsquid:S3433").is_empty());
 }
 
 #[test]
@@ -439,11 +435,11 @@ fn s2757_flags_transposed_operators() {
 #[test]
 fn s3217_typed_iteration_instead_of_casts() {
     let report = analyze_default(
-        "class A\n{\n    void M()\n    {\n        foreach (string raw in values)\n            Log(((string)raw).Length);\n        foreach (var other in items)\n            Log(other);\n    }\n}\n",
+        "class Fruit { }\nclass Orange : Fruit { }\nclass A\n{\n    void M(System.Collections.Generic.List<Fruit> values)\n    {\n        foreach (Orange raw in values)\n            Log(raw);\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S3217");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 6);
+    assert_eq!(flagged[0].range.start.line, 7);
 }
 
 #[test]
@@ -499,9 +495,9 @@ fn s3878_passes_elements_to_params_calls() {
 }
 
 #[test]
-fn s3887_consts_readonly_primitive_fields() {
+fn s3887_rejects_exposed_readonly_mutable_collections() {
     let report = analyze_default(
-        "class A\n{\n    public readonly int limit = 10;\n    private readonly int hidden = 1;\n    public readonly string label = \"x\";\n    public static readonly int cached = 2;\n    public readonly Builder built = new Builder();\n}\n",
+        "class A\n{\n    public readonly int[] values = [];\n    private readonly int[] hidden = [];\n    public readonly int limit = 10;\n    public string[] mutable = [];\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S3887");
     assert_eq!(flagged.len(), 1);
@@ -563,12 +559,11 @@ fn s4545_references_existing_members_in_debugger_display() {
 #[test]
 fn s4487_flags_unreferenced_private_members() {
     let report = analyze_default(
-        "class A\n{\n    private int Stale;\n    private void Dead() { }\n    public int Live;\n}\n",
+        "class A\n{\n    private int Stale = 1;\n    private void Dead() { }\n    public int Live;\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S4487");
-    assert_eq!(flagged.len(), 2);
+    assert_eq!(flagged.len(), 1);
     assert_eq!(flagged[0].range.start.line, 3);
-    assert_eq!(flagged[1].range.start.line, 4);
 
     let clean = analyze_default(
         "class B\n{\n    private int used;\n    public int Read() { return used; }\n}\n",
@@ -788,7 +783,7 @@ fn s2997_flags_returning_disposable_from_using() {
     );
     let flagged = with_key(&report, "csharpsquid:S2997");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 7);
+    assert_eq!(flagged[0].range.start.line, 5);
 
     let clean = analyze_default(
         "class B\n{\n    public System.IO.Stream Open()\n    {\n        System.IO.Stream kept;\n        using (var stream = new System.IO.MemoryStream())\n        {\n            kept = stream;\n        }\n        return kept;\n    }\n}\n",
@@ -814,11 +809,11 @@ fn s3063_flags_unconsumed_string_builders() {
 #[test]
 fn s3172_flags_delegate_subtraction() {
     let report = analyze_default(
-        "delegate int Compute(int value);\nclass A\n{\n    private Compute first;\n    private Compute second;\n\n    public int Evaluate(int input)\n    {\n        var combined = first - second;\n        return combined(input);\n    }\n}\n",
+        "delegate int Compute(int value);\nclass A\n{\n    private Compute first;\n    private Compute second;\n\n    public int Evaluate(int input)\n    {\n        Compute pipeline = first + second;\n        var combined = pipeline - (first + second);\n        return combined(input);\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S3172");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 9);
+    assert_eq!(flagged[0].range.start.line, 10);
 
     let clean = analyze_default(
         "delegate int Compute(int value);\nclass A\n{\n    private Compute first;\n    private Compute second;\n\n    public int Evaluate(int input)\n    {\n        var combined = first + second;\n        return combined(input);\n    }\n}\n",
@@ -844,14 +839,14 @@ fn s3241_flags_fully_discarded_private_results() {
 #[test]
 fn s3236_flags_explicit_caller_information_arguments() {
     let report = analyze_default(
-        "class A\n{\n    private void Trace(string message, [System.Runtime.CompilerServices.CallerMemberName] string member = \"\")\n    {\n        Record(member);\n    }\n\n    private void Record(string member) { }\n}\n\nclass B\n{\n    void Go()\n    {\n        Trace(\"hi\", \"Go\");\n    }\n}\n",
+        "class A\n{\n    private void Trace(string message, [System.Runtime.CompilerServices.CallerFilePath] string file = \"\")\n    {\n        Record(file);\n    }\n\n    private void Record(string file) { }\n\n    void Go()\n    {\n        Trace(\"hi\", \"A.cs\");\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S3236");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 15);
+    assert_eq!(flagged[0].range.start.line, 12);
 
     let clean = analyze_default(
-        "class A\n{\n    private void Trace(string message, [System.Runtime.CompilerServices.CallerMemberName] string member = \"\")\n    {\n        Record(member);\n    }\n\n    private void Record(string member) { }\n}\n\nclass B\n{\n    void Go()\n    {\n        Trace(\"hi\");\n    }\n}\n",
+        "class A\n{\n    private void Trace(string message, [System.Runtime.CompilerServices.CallerFilePath] string file = \"\")\n    {\n        Record(file);\n    }\n\n    private void Record(string file) { }\n\n    void Go()\n    {\n        Trace(\"hi\");\n    }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S3236").is_empty());
 }
@@ -917,21 +912,6 @@ fn s3443_flags_gettype_on_type_instances() {
 }
 
 #[test]
-fn s3900_flags_unvalidated_nullable_public_parameters() {
-    let report = analyze_default(
-        "class A\n{\n    public int Measure(string? input)\n    {\n        return input.Length;\n    }\n}\n",
-    );
-    let flagged = with_key(&report, "csharpsquid:S3900");
-    assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 5);
-
-    let clean = analyze_default(
-        "class B\n{\n    public int Measure(string? input)\n    {\n        if (input == null)\n        {\n            return 0;\n        }\n        return input.Length;\n    }\n}\n",
-    );
-    assert!(with_key(&clean, "csharpsquid:S3900").is_empty());
-}
-
-#[test]
 fn s3997_flags_string_overloads_not_delegating_to_uri() {
     let report = analyze_default(
         "class A\n{\n    public System.Uri Parse(System.Uri value)\n    {\n        return value;\n    }\n\n    public System.Uri Parse(string text)\n    {\n        return System.Text.RegularExpressions.Regex.Unescape(text);\n    }\n}\n",
@@ -947,30 +927,31 @@ fn s3997_flags_string_overloads_not_delegating_to_uri() {
 }
 
 #[test]
-fn s4002_flags_finalizers_on_disposable_types() {
+fn s4002_flags_disposable_pointer_owners_without_finalizers() {
     let report = analyze_default(
-        "class A : System.IDisposable\n{\n    public void Dispose() { }\n\n    ~A()\n    {\n    }\n}\n",
+        "class A : System.IDisposable\n{\n    private System.IntPtr resource;\n    public void Dispose() { }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S4002");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 5);
+    assert_eq!(flagged[0].range.start.line, 1);
 
-    let clean =
-        analyze_default("class B : System.IDisposable\n{\n    public void Dispose() { }\n}\n");
+    let clean = analyze_default(
+        "class B : System.IDisposable\n{\n    private System.IntPtr resource;\n    public void Dispose() { }\n    ~B() { }\n}\n",
+    );
     assert!(with_key(&clean, "csharpsquid:S4002").is_empty());
 }
 
 #[test]
 fn s4275_flags_accessors_touching_different_fields() {
     let report = analyze_default(
-        "class A\n{\n    private string first;\n    private string second;\n\n    public string Value\n    {\n        get { return first; }\n        set { second = value; }\n    }\n}\n",
+        "class A\n{\n    private string x;\n    private string y;\n\n    public string Y\n    {\n        get { return x; }\n        set { x = value; }\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S4275");
-    assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 6);
+    assert_eq!(flagged.len(), 2);
+    assert_eq!(flagged[0].range.start.line, 8);
 
     let clean = analyze_default(
-        "class B\n{\n    private string first;\n\n    public string Value\n    {\n        get { return first; }\n        set { first = value; }\n    }\n}\n",
+        "class B\n{\n    private string first;\n\n    public string First\n    {\n        get { return first; }\n        set { first = value; }\n    }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S4275").is_empty());
 }
@@ -982,7 +963,7 @@ fn s127_flags_for_bodies_writing_condition_names() {
     );
     let flagged = with_key(&violating, "csharpsquid:S127");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 4);
+    assert_eq!(flagged[0].range.start.line, 6);
 
     let clean = analyze_default(
         "class C {\n    void M(int size) {\n        int sum = 0;\n        for (int i = 0; i < size; i++) {\n            sum += i;\n        }\n    }\n}\n",
@@ -1019,16 +1000,16 @@ fn s1854_flags_stores_masked_before_any_read() {
 }
 
 #[test]
-fn s2123_flags_increments_overwritten_before_any_read() {
+fn s2123_flags_wasted_postfix_increment_values() {
     let violating = analyze_default(
-        "class C {\n    void M() {\n        int count = 1;\n        count++;\n        count = 5;\n        Use(count);\n    }\n}\n",
+        "class C {\n    int M() {\n        int count = 1;\n        count = count++;\n        return count--;\n    }\n}\n",
     );
     let flagged = with_key(&violating, "csharpsquid:S2123");
-    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged.len(), 2);
     assert_eq!(flagged[0].range.start.line, 4);
 
     let clean = analyze_default(
-        "class C {\n    void M() {\n        int count = 1;\n        count++;\n        Use(count);\n    }\n}\n",
+        "class C {\n    int M() {\n        int count = 1;\n        count++;\n        return count;\n    }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S2123").is_empty());
 }
@@ -1062,21 +1043,6 @@ fn s2190_flags_escape_free_true_loops_and_bare_tail_recursion() {
 }
 
 #[test]
-fn s2222_flags_monitor_exits_outside_finally_blocks() {
-    let violating = analyze_default(
-        "class C {\n    void M(object gate) {\n        Monitor.Enter(gate);\n        try {\n            Work();\n            Monitor.Exit(gate);\n        } catch (System.IO.IOException) {\n        }\n    }\n}\n",
-    );
-    let flagged = with_key(&violating, "csharpsquid:S2222");
-    assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 3);
-
-    let clean = analyze_default(
-        "class C {\n    void M(object gate) {\n        Monitor.Enter(gate);\n        try {\n            Work();\n        } finally {\n            Monitor.Exit(gate);\n        }\n    }\n}\n",
-    );
-    assert!(with_key(&clean, "csharpsquid:S2222").is_empty());
-}
-
-#[test]
 fn s2251_flags_counters_moving_against_their_bound() {
     let violating = analyze_default(
         "class C {\n    void M() {\n        for (int i = 10; i > 0; i++) {\n            Tick();\n        }\n    }\n}\n",
@@ -1100,47 +1066,6 @@ fn s2252_flags_conditions_false_at_entry() {
         "class C {\n    void M() {\n        for (int i = 0; i < 5; i++) {\n            Tick();\n        }\n    }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S2252").is_empty());
-}
-
-#[test]
-fn s2259_flags_dereferences_of_known_null_locals() {
-    let violating = analyze_default(
-        "class C {\n    void M() {\n        string s = null;\n        Log(s.Length);\n    }\n}\n",
-    );
-    let flagged = with_key(&violating, "csharpsquid:S2259");
-    assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 4);
-
-    let guarded = analyze_default(
-        "class C {\n    void M() {\n        string t = null;\n        if (t != null) {\n            Log(t.Length);\n        }\n    }\n}\n",
-    );
-    assert!(with_key(&guarded, "csharpsquid:S2259").is_empty());
-}
-
-#[test]
-fn s2583_flags_literal_false_conditions() {
-    let violating = analyze_default(
-        "class C {\n    void M() {\n        if (false) {\n            Dead();\n        }\n    }\n}\n",
-    );
-    assert_eq!(with_key(&violating, "csharpsquid:S2583").len(), 1);
-
-    let clean = analyze_default(
-        "class C {\n    void M(bool ready) {\n        if (ready) {\n            Run();\n        }\n    }\n}\n",
-    );
-    assert!(with_key(&clean, "csharpsquid:S2583").is_empty());
-}
-
-#[test]
-fn s2589_flags_boolean_literals_next_to_short_circuit_operators() {
-    let violating = analyze_default(
-        "class C {\n    void M(bool ready) {\n        if (ready && true) {\n            Go();\n        }\n    }\n}\n",
-    );
-    assert_eq!(with_key(&violating, "csharpsquid:S2589").len(), 1);
-
-    let clean = analyze_default(
-        "class C {\n    void M(bool ready, bool set) {\n        if (ready && set) {\n            Go();\n        }\n    }\n}\n",
-    );
-    assert!(with_key(&clean, "csharpsquid:S2589").is_empty());
 }
 
 #[test]
@@ -1170,70 +1095,16 @@ fn s3353_flags_literal_locals_that_never_change() {
 }
 
 #[test]
-fn s3440_flags_comparisons_with_the_value_just_assigned() {
+fn s3440_flags_useless_assignment_guards() {
     let violating = analyze_default(
-        "class C {\n    void M() {\n        int limit = Read();\n        limit = 10;\n        if (limit == 10) {\n            Mark();\n        }\n    }\n}\n",
+        "class C {\n    void M(int limit) {\n        if (limit != 10) {\n            limit = 10;\n        }\n    }\n}\n",
     );
     assert_eq!(with_key(&violating, "csharpsquid:S3440").len(), 1);
 
     let clean = analyze_default(
-        "class C {\n    void M() {\n        int limit = 10;\n        if (limit == 9) {\n            Mark();\n        }\n    }\n}\n",
+        "class C {\n    void M(int limit) {\n        if (limit != 9) {\n            limit = 10;\n        }\n    }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S3440").is_empty());
-}
-
-#[test]
-fn s3655_flags_value_access_without_hasvalue_guards() {
-    let violating = analyze_default(
-        "class C {\n    void M(int? maybe) {\n        var width = maybe.Value;\n        Draw(width);\n    }\n}\n",
-    );
-    assert_eq!(with_key(&violating, "csharpsquid:S3655").len(), 1);
-
-    let clean = analyze_default(
-        "class C {\n    void M(int? maybe) {\n        if (maybe.HasValue) {\n            var width = maybe.Value;\n            Draw(width);\n        }\n    }\n}\n",
-    );
-    assert!(with_key(&clean, "csharpsquid:S3655").is_empty());
-}
-
-#[test]
-fn s3949_flags_constant_arithmetic_wrapping_int() {
-    let violating = analyze_default(
-        "class C {\n    void M() {\n        var overflow = int.MaxValue + 1;\n        Log(overflow);\n    }\n}\n",
-    );
-    assert_eq!(with_key(&violating, "csharpsquid:S3949").len(), 1);
-
-    let clean = analyze_default(
-        "class C {\n    void M() {\n        var nearTop = int.MaxValue - 1;\n        Log(nearTop);\n    }\n}\n",
-    );
-    assert!(with_key(&clean, "csharpsquid:S3949").is_empty());
-}
-
-#[test]
-fn s3966_flags_objects_disposed_twice() {
-    let violating = analyze_default(
-        "class C {\n    void M(System.IO.Stream stream) {\n        stream.Dispose();\n        stream.Dispose();\n    }\n}\n",
-    );
-    let flagged = with_key(&violating, "csharpsquid:S3966");
-    assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 4);
-
-    let clean = analyze_default(
-        "class C {\n    void M(System.IO.Stream stream) {\n        stream.Dispose();\n    }\n}\n",
-    );
-    assert!(with_key(&clean, "csharpsquid:S3966").is_empty());
-}
-
-#[test]
-fn s4158_flags_access_into_provably_empty_creations() {
-    let violating = analyze_default(
-        "class C {\n    void M() {\n        var first = new int[0][0];\n        Log(first);\n    }\n}\n",
-    );
-    assert_eq!(with_key(&violating, "csharpsquid:S4158").len(), 1);
-
-    let clean = analyze_default(
-        "class C {\n    void M() {\n        var empty = new int[0];\n        Log(empty.Length);\n    }\n}\n",
-    );
-    assert!(with_key(&clean, "csharpsquid:S4158").is_empty());
 }
 
 #[test]
@@ -1265,27 +1136,33 @@ fn s2178_flags_bitwise_combinations_of_boolean_operands() {
 }
 
 #[test]
-fn s2612_flags_world_writable_unix_file_modes() {
+fn s2612_flags_allow_everyone_acl_sinks() {
     let violating = analyze_default(
-        "class C {\n    void M(string path) {\n        File.SetUnixFileMode(path, UnixFileMode.OthersWrite);\n    }\n}\n",
+        "class C {\n    void M() {\n        var rule = new FileSystemAccessRule(\"Everyone\", FileSystemRights.FullControl, AccessControlType.Allow);\n        var security = new FileSecurity();\n        security.AddAccessRule(rule);\n    }\n}\n",
     );
     assert_eq!(with_key(&violating, "csharpsquid:S2612").len(), 1);
 
     let clean = analyze_default(
-        "class C {\n    void M(string path) {\n        File.SetUnixFileMode(path, UnixFileMode.UserRead);\n    }\n}\n",
+        "class C {\n    void M() {\n        var rule = new FileSystemAccessRule(\"Everyone\", FileSystemRights.FullControl, AccessControlType.Deny);\n        var security = new FileSecurity();\n        security.AddAccessRule(rule);\n    }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S2612").is_empty());
 }
 
 #[test]
-fn s2755_flags_dtd_enabled_xml_parsers() {
+fn s2755_flags_external_xml_resolvers() {
     let violating = analyze_default(
-        "class C {\n    void M() {\n        var settings = new XmlReaderSettings();\n        settings.DtdProcessing = DtdProcessing.Parse;\n        settings.ProhibitDtd = false;\n    }\n}\n",
+        "class C {\n    void M() {\n        var parser = new XmlDocument();\n        parser.XmlResolver = new XmlUrlResolver();\n        parser.LoadXml(xml);\n    }\n}\n",
     );
-    assert_eq!(with_key(&violating, "csharpsquid:S2755").len(), 2);
+    let flagged = with_key(&violating, "csharpsquid:S2755");
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 4);
+    assert_eq!(
+        flagged[0].message,
+        "Disable access to external entities in XML parsing."
+    );
 
     let clean = analyze_default(
-        "class C {\n    void M() {\n        var settings = new XmlReaderSettings();\n        settings.DtdProcessing = DtdProcessing.Ignore;\n    }\n}\n",
+        "class C {\n    void M() {\n        var parser = new XmlDocument();\n        parser.XmlResolver = null;\n        parser.LoadXml(xml);\n    }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S2755").is_empty());
 }
@@ -1309,7 +1186,7 @@ fn s3925_flags_incomplete_iserializable_implementations() {
     assert_eq!(with_key(&violating, "csharpsquid:S3925").len(), 1);
 
     let clean = analyze_default(
-        "class Good : ISerializable {\n    protected Good(SerializationInfo info, StreamingContext context) {\n    }\n    public void GetObjectData(SerializationInfo info, StreamingContext context) {\n    }\n}\n",
+        "[Serializable]\nsealed class Good : ISerializable {\n    Good(SerializationInfo info, StreamingContext context) {\n    }\n    public void GetObjectData(SerializationInfo info, StreamingContext context) {\n    }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S3925").is_empty());
 }
@@ -1339,7 +1216,7 @@ fn s4159_flags_exported_contracts_without_implementation() {
 #[test]
 fn s4277_flags_shared_mef_parts_created_with_new() {
     let violating = analyze_default(
-        "[Shared]\nclass Part {\n}\nclass User {\n    void M() {\n        var p = new Part();\n        Use(p);\n    }\n}\n",
+        "[PartCreationPolicy(CreationPolicy.Shared)]\nclass Part {\n}\nclass User {\n    void M() {\n        var p = new Part();\n        Use(p);\n    }\n}\n",
     );
     assert_eq!(with_key(&violating, "csharpsquid:S4277").len(), 1);
 
@@ -1352,12 +1229,12 @@ fn s4277_flags_shared_mef_parts_created_with_new() {
 #[test]
 fn s4433_flags_anonymous_ldap_binds() {
     let violating = analyze_default(
-        "class C {\n    void M() {\n        var entry = new DirectoryEntry(\"LDAP://srv\");\n        Use(entry);\n    }\n}\n",
+        "class C {\n    void M() {\n        var entry = new DirectoryEntry(\"LDAP://srv\", null, null, AuthenticationTypes.Anonymous);\n        Use(entry);\n    }\n}\n",
     );
     assert_eq!(with_key(&violating, "csharpsquid:S4433").len(), 1);
 
     let clean = analyze_default(
-        "class C {\n    void M() {\n        var entry = new DirectoryEntry(\"LDAP://srv\", \"user\", \"pass\");\n        Use(entry);\n    }\n}\n",
+        "class C {\n    void M() {\n        var entry = new DirectoryEntry(\"LDAP://srv\");\n        Use(entry);\n    }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S4433").is_empty());
 }
@@ -1376,14 +1253,14 @@ fn s4456_flags_validation_inside_iterators() {
 }
 
 #[test]
-fn s4457_flags_validation_after_the_first_await() {
+fn s4457_flags_validation_inside_async_methods() {
     let violating = analyze_default(
         "class C {\n    async System.Threading.Tasks.Task WorkAsync(string name) {\n        await SendAsync();\n        ArgumentNullException.ThrowIfNull(name);\n    }\n}\n",
     );
     assert_eq!(with_key(&violating, "csharpsquid:S4457").len(), 1);
 
     let clean = analyze_default(
-        "class C {\n    async System.Threading.Tasks.Task WorkAsync(string name) {\n        ArgumentNullException.ThrowIfNull(name);\n        await SendAsync();\n    }\n}\n",
+        "class C {\n    System.Threading.Tasks.Task WorkAsync(string name) {\n        ArgumentNullException.ThrowIfNull(name);\n        return WorkInternalAsync(name);\n    }\n    async System.Threading.Tasks.Task WorkInternalAsync(string name) {\n        await SendAsync();\n    }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S4457").is_empty());
 }
@@ -1427,13 +1304,13 @@ fn s4055_flags_literals_in_localizable_ui_members() {
 }
 
 #[test]
-fn s4057_flags_culture_less_convert_calls() {
+fn s4057_flags_data_tables_without_locale() {
     let violating = analyze_default(
-        "class C {\n    void M(string text) {\n        var n = Convert.ToInt32(text);\n        Log(n);\n    }\n}\n",
+        "class C {\n    void M() {\n        var table = new System.Data.DataTable(\"Items\");\n        Log(table);\n    }\n}\n",
     );
     assert_eq!(with_key(&violating, "csharpsquid:S4057").len(), 1);
     let clean = analyze_default(
-        "class C {\n    void M(string text) {\n        var n = Convert.ToInt32(text, CultureInfo.InvariantCulture);\n        Log(n);\n    }\n}\n",
+        "class C {\n    void M() {\n        var n = Convert.ToInt32(\"3\", CultureInfo.InvariantCulture);\n        Log(n);\n    }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S4057").is_empty());
 }
@@ -1489,11 +1366,11 @@ fn s5034_flags_value_tasks_consumed_twice() {
 #[test]
 fn s6377_flags_discarded_signature_checks() {
     let violating = analyze_default(
-        "class C {\n    void M(SignedXml doc) {\n        doc.CheckSignature(\"cert\");\n    }\n}\n",
+        "class C {\n    bool M(SignedXml doc) {\n        return doc.CheckSignature();\n    }\n}\n",
     );
     assert_eq!(with_key(&violating, "csharpsquid:S6377").len(), 1);
     let clean = analyze_default(
-        "class C {\n    void M(SignedXml doc) {\n        var ok = doc.CheckSignature(\"cert\");\n        Log(ok);\n    }\n}\n",
+        "class C {\n    bool M(SignedXml doc, RSA trustedKey) {\n        return doc.CheckSignature(trustedKey);\n    }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S6377").is_empty());
 }
@@ -1511,18 +1388,6 @@ fn s6668_flags_exceptions_passed_after_the_template() {
 }
 
 #[test]
-fn s6781_flags_hardcoded_jwt_signing_keys() {
-    let violating = analyze_default(
-        "class C {\n    void M() {\n        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(\"hardcoded-secret\"));\n        Use(key);\n    }\n}\n",
-    );
-    assert_eq!(with_key(&violating, "csharpsquid:S6781").len(), 1);
-    let clean = analyze_default(
-        "class C {\n    void M(byte[] configKey) {\n        var key = new SymmetricSecurityKey(configKey);\n        Use(key);\n    }\n}\n",
-    );
-    assert!(with_key(&clean, "csharpsquid:S6781").is_empty());
-}
-
-#[test]
 fn s6803_flags_query_binding_without_routes() {
     let violating = analyze_default(
         "class FilterView {\n    [SupplyParameterFromQuery]\n    public string Query { get; set; }\n}\n",
@@ -1537,46 +1402,25 @@ fn s6803_flags_query_binding_without_routes() {
 #[test]
 fn s6964_flags_value_type_controller_inputs() {
     let violating = analyze_default(
-        "[ApiController]\nclass SaveController {\n    [HttpPost]\n    public void Save(int count) {\n    }\n}\n",
+        "class SaveModel {\n    public int Count { get; set; }\n}\n[ApiController]\nclass SaveController {\n    [HttpPost]\n    public void Save(SaveModel model) {\n    }\n}\n",
     );
     assert_eq!(with_key(&violating, "csharpsquid:S6964").len(), 1);
     let clean = analyze_default(
-        "[ApiController]\nclass SaveControllerNullable {\n    [HttpPost]\n    public void Save(int? count) {\n    }\n}\n",
+        "class SaveModel {\n    public int? Count { get; set; }\n}\n[ApiController]\nclass SaveControllerNullable {\n    [HttpPost]\n    public void Save(SaveModel model) {\n    }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S6964").is_empty());
 }
 
 #[test]
-fn s6966_flags_discarded_async_calls() {
-    let violating = analyze_default("class C {\n    void M() {\n        SendAsync();\n    }\n}\n");
+fn s6966_flags_sync_calls_with_awaitable_alternatives() {
+    let violating = analyze_default(
+        "class C {\n    async Task M(Stream stream, byte[] buffer) {\n        stream.Read(buffer, 0, 4);\n        await Task.CompletedTask;\n    }\n}\n",
+    );
     assert_eq!(with_key(&violating, "csharpsquid:S6966").len(), 1);
-    let clean =
-        analyze_default("class C {\n    async void M() {\n        await SendAsync();\n    }\n}\n");
+    let clean = analyze_default(
+        "class C {\n    async Task M(Stream stream, byte[] buffer) {\n        await stream.ReadAsync(buffer);\n    }\n}\n",
+    );
     assert!(with_key(&clean, "csharpsquid:S6966").is_empty());
-}
-
-#[test]
-fn s7131_flags_reader_writer_locks_without_matching_release() {
-    let violating = analyze_default(
-        "class C {\n    void M(Lock gate) {\n        gate.AcquireWriterLock(0);\n        Work();\n    }\n}\n",
-    );
-    assert_eq!(with_key(&violating, "csharpsquid:S7131").len(), 1);
-    let clean = analyze_default(
-        "class C {\n    void M(Lock gate) {\n        gate.AcquireWriterLock(0);\n        Work();\n        gate.ReleaseWriterLock();\n    }\n}\n",
-    );
-    assert!(with_key(&clean, "csharpsquid:S7131").is_empty());
-}
-
-#[test]
-fn s7133_flags_monitors_never_released_in_the_member() {
-    let violating = analyze_default(
-        "class C {\n    void A(object gate) {\n        Monitor.Enter(gate);\n        Work();\n    }\n}\n",
-    );
-    assert_eq!(with_key(&violating, "csharpsquid:S7133").len(), 1);
-    let clean = analyze_default(
-        "class C {\n    void A(object gate) {\n        Monitor.Enter(gate);\n        try {\n            Work();\n        } finally {\n            Monitor.Exit(gate);\n        }\n    }\n}\n",
-    );
-    assert!(with_key(&clean, "csharpsquid:S7133").is_empty());
 }
 
 #[test]
@@ -1668,8 +1512,9 @@ fn s1858_flags_tostring_on_already_string_receivers() {
     let violating =
         analyze_default("\"abc\".ToString();\n'a'.ToString();\n$\"x{1}\".ToString();\n");
     let flagged = with_key(&violating, "csharpsquid:S1858");
-    assert_eq!(flagged.len(), 3);
+    assert_eq!(flagged.len(), 2);
     assert_eq!(flagged[0].range.start.line, 1);
+    assert_eq!(flagged[1].range.start.line, 3);
 
     let clean = analyze_default("object boxed = \"abc\";\nvar text = boxed.ToString();\n");
     assert!(with_key(&clean, "csharpsquid:S1858").is_empty());
@@ -1759,16 +1604,203 @@ fn s2114_flags_collections_passed_to_their_own_methods() {
 
 #[test]
 fn s2201_flags_discarded_pure_static_results() {
-    let violating =
-        analyze_default("Math.Abs(-3);\nstring.IsNullOrEmpty(name);\nDateTime.IsLeapYear(2020);\n");
+    let violating = analyze_default("values.Where(x => x > 0);\nvalues.OrderBy(x => x);\n");
     let flagged = with_key(&violating, "csharpsquid:S2201");
-    assert_eq!(flagged.len(), 3);
-    assert_eq!(flagged[2].range.start.line, 3);
+    assert_eq!(flagged.len(), 2);
+    assert_eq!(flagged[1].range.start.line, 2);
 
     let clean = analyze_default(
         "var absolute = Math.Abs(-3);\nif (string.IsNullOrEmpty(name))\n{\n}\n_ = DateTime.DaysInMonth(2020, 1);\n",
     );
     assert!(with_key(&clean, "csharpsquid:S2201").is_empty());
+}
+
+#[test]
+fn s2245_flags_random_in_security_named_contexts() {
+    let violating = analyze_default(
+        "class TokenHandler\n{\n    void Issue()\n    {\n        var token = new Random();\n        token.Next();\n    }\n}\n",
+    );
+    let flagged = with_key(&violating, "csharpsquid:S2245");
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 5);
+
+    let clean =
+        analyze_default("void Sample()\n{\n    var count = new Random();\n    count.Next();\n}\n");
+    assert!(with_key(&clean, "csharpsquid:S2245").is_empty());
+}
+
+#[test]
+fn s2257_flags_xor_mixing_in_cipher_named_methods() {
+    let violating = analyze_default(
+        "class Crypto\n{\n    byte[] EncryptBlock(byte[] data)\n    {\n        var mixed = data[0] ^ 0x42;\n        return [mixed];\n    }\n}\n",
+    );
+    let flagged = with_key(&violating, "csharpsquid:S2257");
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 3);
+
+    let clean = analyze_default("int Mix(int value)\n{\n    return value ^ 0xFF;\n}\n");
+    assert!(with_key(&clean, "csharpsquid:S2257").is_empty());
+}
+
+#[test]
+fn s3900_flags_unvalidated_nullable_public_parameters() {
+    let report = analyze_default(
+        "class A\n{\n    public int Measure(string? input)\n    {\n        return input.Length;\n    }\n}\n",
+    );
+    let flagged = with_key(&report, "csharpsquid:S3900");
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 5);
+
+    let clean = analyze_default(
+        "class B\n{\n    public int Measure(string? input)\n    {\n        if (input == null)\n        {\n            return 0;\n        }\n        return input.Length;\n    }\n}\n",
+    );
+    assert!(with_key(&clean, "csharpsquid:S3900").is_empty());
+}
+
+#[test]
+fn s2222_flags_monitor_exits_outside_finally_blocks() {
+    let violating = analyze_default(
+        "class C {\n    void M(object gate) {\n        Monitor.Enter(gate);\n        try {\n            Work();\n            Monitor.Exit(gate);\n        } catch (System.IO.IOException) {\n        }\n    }\n}\n",
+    );
+    let flagged = with_key(&violating, "csharpsquid:S2222");
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 3);
+
+    let clean = analyze_default(
+        "class C {\n    void M(object gate) {\n        Monitor.Enter(gate);\n        try {\n            Work();\n        } finally {\n            Monitor.Exit(gate);\n        }\n    }\n}\n",
+    );
+    assert!(with_key(&clean, "csharpsquid:S2222").is_empty());
+}
+
+#[test]
+fn s2259_flags_dereferences_of_known_null_locals() {
+    let violating = analyze_default(
+        "class C {\n    void M() {\n        string s = null;\n        Log(s.Length);\n    }\n}\n",
+    );
+    let flagged = with_key(&violating, "csharpsquid:S2259");
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 4);
+
+    let guarded = analyze_default(
+        "class C {\n    void M() {\n        string t = null;\n        if (t != null) {\n            Log(t.Length);\n        }\n    }\n}\n",
+    );
+    assert!(with_key(&guarded, "csharpsquid:S2259").is_empty());
+}
+
+#[test]
+fn s2583_flags_literal_false_conditions() {
+    let violating = analyze_default(
+        "class C {\n    void M() {\n        if (false) {\n            Dead();\n        }\n    }\n}\n",
+    );
+    assert_eq!(with_key(&violating, "csharpsquid:S2583").len(), 1);
+
+    let clean = analyze_default(
+        "class C {\n    void M(bool ready) {\n        if (ready) {\n            Run();\n        }\n    }\n}\n",
+    );
+    assert!(with_key(&clean, "csharpsquid:S2583").is_empty());
+}
+
+#[test]
+fn s2589_flags_boolean_literals_next_to_short_circuit_operators() {
+    let violating = analyze_default(
+        "class C {\n    void M(bool ready) {\n        if (ready && true) {\n            Go();\n        }\n    }\n}\n",
+    );
+    assert_eq!(with_key(&violating, "csharpsquid:S2589").len(), 1);
+
+    let clean = analyze_default(
+        "class C {\n    void M(bool ready, bool set) {\n        if (ready && set) {\n            Go();\n        }\n    }\n}\n",
+    );
+    assert!(with_key(&clean, "csharpsquid:S2589").is_empty());
+}
+
+#[test]
+fn s3655_flags_value_access_without_hasvalue_guards() {
+    let violating = analyze_default(
+        "class C {\n    void M(int? maybe) {\n        var width = maybe.Value;\n        Draw(width);\n    }\n}\n",
+    );
+    assert_eq!(with_key(&violating, "csharpsquid:S3655").len(), 1);
+
+    let clean = analyze_default(
+        "class C {\n    void M(int? maybe) {\n        if (maybe.HasValue) {\n            var width = maybe.Value;\n            Draw(width);\n        }\n    }\n}\n",
+    );
+    assert!(with_key(&clean, "csharpsquid:S3655").is_empty());
+}
+
+#[test]
+fn s3949_flags_constant_arithmetic_wrapping_int() {
+    let violating = analyze_default(
+        "class C {\n    void M() {\n        var overflow = int.MaxValue + 1;\n        Log(overflow);\n    }\n}\n",
+    );
+    assert_eq!(with_key(&violating, "csharpsquid:S3949").len(), 1);
+
+    let clean = analyze_default(
+        "class C {\n    void M() {\n        var nearTop = int.MaxValue - 1;\n        Log(nearTop);\n    }\n}\n",
+    );
+    assert!(with_key(&clean, "csharpsquid:S3949").is_empty());
+}
+
+#[test]
+fn s3966_flags_objects_disposed_twice() {
+    let violating = analyze_default(
+        "class C {\n    void M(System.IO.Stream stream) {\n        stream.Dispose();\n        stream.Dispose();\n    }\n}\n",
+    );
+    let flagged = with_key(&violating, "csharpsquid:S3966");
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 4);
+
+    let clean = analyze_default(
+        "class C {\n    void M(System.IO.Stream stream) {\n        stream.Dispose();\n    }\n}\n",
+    );
+    assert!(with_key(&clean, "csharpsquid:S3966").is_empty());
+}
+
+#[test]
+fn s4158_flags_access_into_provably_empty_creations() {
+    let violating = analyze_default(
+        "class C {\n    void M() {\n        var first = new int[0][0];\n        Log(first);\n    }\n}\n",
+    );
+    assert_eq!(with_key(&violating, "csharpsquid:S4158").len(), 1);
+
+    let clean = analyze_default(
+        "class C {\n    void M() {\n        var empty = new int[0];\n        Log(empty.Length);\n    }\n}\n",
+    );
+    assert!(with_key(&clean, "csharpsquid:S4158").is_empty());
+}
+
+#[test]
+fn s6781_flags_hardcoded_jwt_signing_keys() {
+    let violating = analyze_default(
+        "class C {\n    void M() {\n        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(\"hardcoded-secret\"));\n        Use(key);\n    }\n}\n",
+    );
+    assert_eq!(with_key(&violating, "csharpsquid:S6781").len(), 1);
+    let clean = analyze_default(
+        "class C {\n    void M(byte[] configKey) {\n        var key = new SymmetricSecurityKey(configKey);\n        Use(key);\n    }\n}\n",
+    );
+    assert!(with_key(&clean, "csharpsquid:S6781").is_empty());
+}
+
+#[test]
+fn s7131_flags_reader_writer_locks_without_matching_release() {
+    let violating = analyze_default(
+        "class C {\n    void M(Lock gate) {\n        gate.AcquireWriterLock(0);\n        Work();\n    }\n}\n",
+    );
+    assert_eq!(with_key(&violating, "csharpsquid:S7131").len(), 1);
+    let clean = analyze_default(
+        "class C {\n    void M(Lock gate) {\n        gate.AcquireWriterLock(0);\n        Work();\n        gate.ReleaseWriterLock();\n    }\n}\n",
+    );
+    assert!(with_key(&clean, "csharpsquid:S7131").is_empty());
+}
+
+#[test]
+fn s7133_flags_monitors_never_released_in_the_member() {
+    let violating = analyze_default(
+        "class C {\n    void A(object gate) {\n        Monitor.Enter(gate);\n        Work();\n    }\n}\n",
+    );
+    assert_eq!(with_key(&violating, "csharpsquid:S7133").len(), 1);
+    let clean = analyze_default(
+        "class C {\n    void A(object gate) {\n        Monitor.Enter(gate);\n        try {\n            Work();\n        } finally {\n            Monitor.Exit(gate);\n        }\n    }\n}\n",
+    );
+    assert!(with_key(&clean, "csharpsquid:S7133").is_empty());
 }
 
 #[test]
@@ -1802,31 +1834,4 @@ fn s3329_flags_static_initialization_vectors() {
     let clean =
         analyze_default("aes.IV = GenerateIv();\nvar enc2 = aes.CreateEncryptor(key, iv);\n");
     assert!(with_key(&clean, "csharpsquid:S3329").is_empty());
-}
-
-#[test]
-fn s2245_flags_random_in_security_named_contexts() {
-    let violating = analyze_default(
-        "class TokenHandler\n{\n    void Issue()\n    {\n        var token = new Random();\n        token.Next();\n    }\n}\n",
-    );
-    let flagged = with_key(&violating, "csharpsquid:S2245");
-    assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 5);
-
-    let clean =
-        analyze_default("void Sample()\n{\n    var count = new Random();\n    count.Next();\n}\n");
-    assert!(with_key(&clean, "csharpsquid:S2245").is_empty());
-}
-
-#[test]
-fn s2257_flags_xor_mixing_in_cipher_named_methods() {
-    let violating = analyze_default(
-        "class Crypto\n{\n    byte[] EncryptBlock(byte[] data)\n    {\n        var mixed = data[0] ^ 0x42;\n        return [mixed];\n    }\n}\n",
-    );
-    let flagged = with_key(&violating, "csharpsquid:S2257");
-    assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 3);
-
-    let clean = analyze_default("int Mix(int value)\n{\n    return value ^ 0xFF;\n}\n");
-    assert!(with_key(&clean, "csharpsquid:S2257").is_empty());
 }

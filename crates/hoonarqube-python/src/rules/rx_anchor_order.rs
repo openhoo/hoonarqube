@@ -1,23 +1,22 @@
 use crate::engine::rx::RxAtom;
 use crate::engine::rx::RxSeq;
 use crate::engine::rx::rx_item_consuming;
-use ruff_text_size::TextRange;
+use ruff_text_size::{TextRange, TextSize};
 
 pub(crate) fn check_rx_anchor_order(seq: &RxSeq, push: &mut dyn FnMut(&str, &str, TextRange)) {
     let mut misplaced_end: Option<TextRange> = None;
     let mut seen_consuming = false;
     for item in &seq.items {
         if let RxAtom::Anchor(anchor) = &item.atom {
-            if anchor.is_end() && seen_consuming && misplaced_end.is_none() {
+            if anchor.is_end() && misplaced_end.is_none() {
                 misplaced_end = Some(item.span);
             }
             if anchor.is_start() && seen_consuming {
                 push(
                     "python:S5996",
-                    "This anchor placement can never match; reorder the anchors.",
-                    item.span,
+                    "Remove or replace this boundary that will never match because it appears after mandatory input.",
+                    TextRange::at(item.span.start(), TextSize::new(1)),
                 );
-                return;
             }
         }
         if rx_item_consuming(item) {
@@ -25,10 +24,10 @@ pub(crate) fn check_rx_anchor_order(seq: &RxSeq, push: &mut dyn FnMut(&str, &str
             if let Some(span) = misplaced_end {
                 push(
                     "python:S5996",
-                    "This anchor placement can never match; reorder the anchors.",
-                    span,
+                    "Remove or replace this boundary that will never match because it appears before mandatory input.",
+                    TextRange::at(span.start(), TextSize::new(1)),
                 );
-                return;
+                misplaced_end = None;
             }
         }
     }

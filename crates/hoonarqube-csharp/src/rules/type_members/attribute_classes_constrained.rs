@@ -22,10 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S3993",
-                format!(
-                    "Constrain the attribute '{}' with '[AttributeUsage]'.",
-                    node_text(name, source)
-                ),
+                format!("Specify AttributeUsage on '{}'.", node_text(name, source)),
                 range_of(name, source),
             )
         })

@@ -1,6 +1,6 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
-use crate::rules::expressions::{callee_name, invocation_arguments};
+use crate::rules::expressions::{callee_name, invocation_arguments, invocation_function};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -12,7 +12,10 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .filter(|call| !is_error_tainted(*call))
         .filter(|call| {
             let arguments = invocation_arguments(*call);
+            let function_text =
+                invocation_function(*call).map_or("", |function| node_text(function, source));
             matches!(callee_name(*call, source), Some("Compare" | "Equals"))
+                && matches!(function_text, "string.Compare" | "string.Equals")
                 && !arguments.is_empty()
                 && !arguments.iter().any(|argument| {
                     let text = node_text(*argument, source);
@@ -29,10 +32,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 })
         })
         .map(|call| {
+            let method = callee_name(call, source).unwrap_or("comparison");
             issue(
                 language,
                 "S4058",
-                "Use the 'StringComparison' overload of this comparison.",
+                format!(
+                    "Change this call to 'string.{method}' to an overload that accepts a 'StringComparison' as a parameter."
+                ),
                 range_of(call, source),
             )
         })
@@ -49,9 +55,7 @@ mod tests {
             "class A\n{\n    void M()\n    {\n        equal = first.Equals(second);\n        pair = first.Equals(second, StringComparison.Ordinal);\n    }\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S4058");
-        assert_eq!(flagged.len(), 1);
-        assert_eq!(flagged[0].range.start.line, 5);
-        assert!(!flagged.iter().any(|issue| issue.range.start.line == 6));
+        assert!(flagged.is_empty());
     }
 
     #[test]

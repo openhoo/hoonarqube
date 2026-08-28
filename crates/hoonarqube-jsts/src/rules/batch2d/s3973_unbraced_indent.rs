@@ -16,11 +16,21 @@ impl KeywordPlacementCollector<'_, '_> {
         let head_start = self.index.pos(head.start);
         let body_start = self.index.pos(body.span().start);
         if body_start.line > head_start.line && body_start.column <= head_start.column {
+            let text = crate::support::source_slice(self.source, head);
+            let keyword = ["while", "switch", "for", "if", "do"]
+                .into_iter()
+                .find(|keyword| text.starts_with(keyword))
+                .unwrap_or("statement");
             self.sink.emit_span(
                 RuleScope::Both,
                 "S3973",
-                "Indent this statement deeper than its parent statement.",
-                body.span(),
+                &format!(
+                    "Use curly braces or indentation to denote the code conditionally executed by this \"{keyword}\"."
+                ),
+                Span::new(
+                    head.start,
+                    head.start + u32::try_from(keyword.len()).unwrap_or_default(),
+                ),
             );
         }
     }

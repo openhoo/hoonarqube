@@ -1,7 +1,8 @@
 use super::support::assigned_names;
 use super::support::static_field_declarators;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, modifiers_of, node_text, range_of};
+use crate::cst::{collect_kinds, issue, modifiers_of, node_text, range_from_byte_offsets};
+use crate::rules::expressions::binary_operands;
 use crate::rules::expressions::member_declarations_of_kind;
 use crate::rules::modifiers::has_modifier;
 use crate::rules::naming::TYPE_DECLARATION_KINDS;
@@ -37,13 +38,18 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     .first()
                     .filter(|name| static_names.contains(*name))
                 {
+                    let left = binary_operands(assignment).map_or(assignment, |(left, _)| left);
                     issues.push(issue(
                         language,
                         "S3010",
-                        format!(
-                            "Do not assign the static field '{name}' from an instance constructor."
+                        format!("Remove this assignment of '{name}' or initialize it statically."),
+                        range_from_byte_offsets(
+                            left.start_byte(),
+                            source[left.end_byte()..assignment.end_byte()]
+                                .find('=')
+                                .map_or(left.end_byte(), |relative| left.end_byte() + relative + 1),
+                            source,
                         ),
-                        range_of(assignment, source),
                     ));
                 }
             }

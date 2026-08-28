@@ -25,10 +25,18 @@ pub(crate) fn check_s5756_non_callable_callees(
         let Expr::Call(call) = expr else {
             return;
         };
-        if typed_literal_kind(&call.func).is_some() {
+        if let Some(kind) = typed_literal_kind(&call.func) {
+            let type_name = match kind {
+                "string" => "str",
+                "boolean" => "bool",
+                "none" => "None",
+                other => other,
+            };
             issues.push(issue_at(
                 "python:S5756",
-                "This expression is not callable.",
+                &format!(
+                    "Fix this call; this expression has type {type_name} and it is not callable."
+                ),
                 call.func.range(),
                 index,
                 source,

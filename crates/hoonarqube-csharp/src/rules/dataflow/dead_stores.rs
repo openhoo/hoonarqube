@@ -4,7 +4,9 @@ use super::support::captured_names;
 use super::support::identifier_write;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, issue, modifiers_of, node_text, range_of};
-use crate::rules::expressions::block_statements;
+use crate::rules::expressions::{
+    binary_operands, block_statements, expression_name, first_named_child, operator_of,
+};
 use crate::rules::literals::declarator_initializer;
 use crate::rules::modifiers::has_modifier;
 use hoonarqube_ir::Issue;
@@ -16,7 +18,7 @@ use tree_sitter::Node;
 /// register stores, every other child contributes reads alone, so
 /// branch-local writes can never mask a pending store.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    let mut issues = Vec::new();
+    let mut issues = wasted_increment_issues(root, source, language);
     for body in callable_blocks(root) {
         let captured = captured_names(body, source);
         for block in collect_kinds(body, &["block"]) {
@@ -27,6 +29,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             let tracked: std::collections::HashSet<String> = declared
                 .iter()
                 .filter(|name| !captured.contains(*name))
+                .filter(|name| {
+                    collect_kinds(body, &["identifier"])
+                        .iter()
+                        .filter(|identifier| node_text(**identifier, source) == name.as_str())
+                        .count()
+                        > 1
+                })
                 .cloned()
                 .collect();
             let mut pending: Vec<(String, WriteKind, Node<'_>)> = Vec::new();
@@ -178,12 +187,7 @@ fn push_dead_store(
     source: &str,
 ) {
     match kind {
-        WriteKind::Increment => issues.push(issue(
-            language,
-            "S2123",
-            format!("'{name}' is incremented but the new value is never used."),
-            range_of(anchor, source),
-        )),
+        WriteKind::Increment => {}
         WriteKind::Store => issues.push(issue(
             language,
             "S1854",
@@ -191,6 +195,48 @@ fn push_dead_store(
             range_of(anchor, source),
         )),
     }
+}
+
+fn wasted_increment_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut expressions = Vec::new();
+    for assignment in collect_kinds(root, &["assignment_expression"]) {
+        if operator_of(assignment) != Some("=") {
+            continue;
+        }
+        let Some((left, right)) = binary_operands(assignment) else {
+            continue;
+        };
+        if right.kind() == "postfix_unary_expression"
+            && expression_name(left, source)
+                == first_named_child(right).and_then(|operand| expression_name(operand, source))
+        {
+            expressions.push(right);
+        }
+    }
+    for returned in collect_kinds(root, &["return_statement"]) {
+        if let Some(value) = first_named_child(returned)
+            && value.kind() == "postfix_unary_expression"
+        {
+            expressions.push(value);
+        }
+    }
+    expressions
+        .into_iter()
+        .filter_map(|expression| {
+            let operator = operator_of(expression)?;
+            let action = match operator {
+                "++" => "increment",
+                "--" => "decrement",
+                _ => return None,
+            };
+            Some(issue(
+                language,
+                "S2123",
+                format!("Remove this {action} or correct the code not to waste it."),
+                range_of(expression, source),
+            ))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -205,12 +251,11 @@ mod tests {
     }
 
     #[test]
-    fn s1854_unread_final_value_dies_at_block_end() {
+    fn s1854_unused_local_is_left_to_s1481() {
         let report = analyze_default(
             "class C {\n    void M() {\n        int leftover = Compute();\n    }\n}\n",
         );
-        let found = with_key(&report, "csharpsquid:S1854");
-        assert_eq!(found.len(), 1);
+        assert!(with_key(&report, "csharpsquid:S1854").is_empty());
     }
 
     #[test]
@@ -253,7 +298,7 @@ mod tests {
             "class C {\n    void M() {\n        int a = 1;\n        a = 2;\n        Log(a);\n        int b = 9;\n    }\n}\n",
         );
         let found = with_key(&report, "csharpsquid:S1854");
-        assert_eq!(found.len(), 2);
-        assert_ne!(found[0].range.start.line, found[1].range.start.line);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
     }
 }

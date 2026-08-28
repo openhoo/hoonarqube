@@ -3,10 +3,11 @@ use crate::support::comparison_pairs;
 use crate::support::is_identity_op;
 use crate::support::issue_at;
 use crate::support::literal_kind;
+use crate::support::to_u32;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
 use ruff_source_file::LineIndex;
-use ruff_text_size::Ranged;
+use ruff_text_size::{Ranged, TextRange, TextSize};
 
 // --- python:S3403 — identity comparisons of dissimilar types -----------------------
 
@@ -23,11 +24,28 @@ pub(crate) fn check_s3403_identity_dissimilar_types(
                     (Some(left), Some(right)) => left != right,
                     _ => false,
                 };
-                if is_identity_op(op) && mismatch {
+                let none_check =
+                    matches!(lhs, Expr::NoneLiteral(_)) || matches!(rhs, Expr::NoneLiteral(_));
+                if is_identity_op(op) && mismatch && !none_check {
+                    let operator = if op == ruff_python_ast::CmpOp::Is {
+                        "is"
+                    } else {
+                        "is not"
+                    };
+                    let between = &source[TextRange::new(lhs.end(), rhs.start())];
+                    let relative = between.find(operator).expect("identity operator text");
+                    let start = lhs.end() + TextSize::from(to_u32(relative));
                     issues.push(issue_at(
                         "python:S3403",
-                        "These literals have different types and can never be identical.",
-                        expr.range(),
+                        &format!(
+                            "Remove this \"{operator}\" check; it will always be {}.",
+                            if op == ruff_python_ast::CmpOp::Is {
+                                "False"
+                            } else {
+                                "True"
+                            }
+                        ),
+                        TextRange::at(start, TextSize::from(to_u32(operator.len()))),
                         index,
                         source,
                     ));

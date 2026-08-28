@@ -1,0 +1,4 @@
+function pause() {
+  debugger;
+  resume();
+}

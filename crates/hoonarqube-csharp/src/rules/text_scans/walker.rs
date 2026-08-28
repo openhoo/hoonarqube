@@ -13,11 +13,13 @@ use super::one_statement_per_line::check as check_one_statement_per_line;
 use super::tabs::check as check_tabs;
 use crate::{AnalyzerOptions, CsLanguage};
 use hoonarqube_ir::Issue;
+use std::path::Path;
 use tree_sitter::Node;
 
 /// Gathers every issue contributed by this rule family.
 pub(crate) fn text_issues(
     root: Node<'_>,
+    path: &Path,
     source: &str,
     language: CsLanguage,
     options: &AnalyzerOptions,
@@ -26,7 +28,7 @@ pub(crate) fn text_issues(
     issues.extend(check_line_length(source, language, options));
     issues.extend(check_file_loc(root, source, language, options));
     issues.extend(check_tabs(source, language));
-    issues.extend(check_final_newline(source, language));
+    issues.extend(check_final_newline(path, source, language));
     issues.extend(check_header(source, language, options));
     issues.extend(check_close_brace_column(root, source, language));
     issues.extend(check_one_statement_per_line(root, source, language));

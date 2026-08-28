@@ -16,8 +16,10 @@ impl<'a> TierCCallUsageCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S3699",
-                "The return value of this void function should not be used.",
-                it.span(),
+                &format!(
+                    "Remove this use of the output from \"{name}\"; \"{name}\" doesn't return anything."
+                ),
+                it.callee.span(),
             );
         }
     }

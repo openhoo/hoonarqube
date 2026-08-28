@@ -1,7 +1,9 @@
+use super::support::enclosing_method;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::expressions::{
-    callee_name, expression_name, invocation_arguments, invocation_function, invocation_receiver,
+    callee_name, expression_name, first_named_child, invocation_arguments, invocation_function,
+    invocation_receiver,
 };
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -17,11 +19,23 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let called_like_a_method = access.parent().is_some_and(|parent| {
             parent.kind() == "invocation_expression" && invocation_function(parent) == Some(access)
         });
-        if !called_like_a_method {
+        let receiver_already_waited = first_named_child(access).is_some_and(|receiver| {
+            enclosing_method(access).is_some_and(|method| {
+                collect_kinds(method, &["invocation_expression"])
+                    .into_iter()
+                    .any(|invocation| {
+                        callee_name(invocation, source) == Some("Wait")
+                            && invocation_receiver(invocation).is_some_and(|waited| {
+                                node_text(waited, source) == node_text(receiver, source)
+                            })
+                    })
+            })
+        });
+        if !called_like_a_method && !receiver_already_waited {
             issues.push(issue(
                 language,
                 "S4462",
-                "Do not block on async code here.",
+                "Replace this use of 'Task.Result' with 'await'.",
                 range_of(access, source),
             ));
         }
@@ -36,11 +50,19 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             && invocation_receiver(invocation).and_then(|receiver| callee_name(receiver, source))
                 == Some("GetAwaiter");
         if zero_arg_wait || get_result_chain {
+            let construct = if zero_arg_wait {
+                "Task.Wait"
+            } else {
+                "Task.GetAwaiter.GetResult"
+            };
             issues.push(issue(
                 language,
                 "S4462",
-                "Do not block on async code here.",
-                range_of(invocation, source),
+                format!("Replace this use of '{construct}' with 'await'."),
+                range_of(
+                    invocation_function(invocation).unwrap_or(invocation),
+                    source,
+                ),
             ));
         }
     }

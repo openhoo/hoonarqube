@@ -4,8 +4,6 @@ use crate::cst::{
 };
 use crate::rules::expressions::first_named_child;
 use crate::rules::modifiers::has_modifier;
-use crate::rules::security::return_type_text;
-use crate::rules::structure::name_anchor;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -18,18 +16,28 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(method) || !has_modifier(&modifiers_of(method, source), "public") {
             continue;
         }
-        let exposes_list = return_type_text(method, source).contains(LIST_MARKER)
-            || parameters_of(method).iter().any(|parameter| {
-                parameter
-                    .child_by_field_name("type")
-                    .is_some_and(|type_node| node_text(type_node, source).contains(LIST_MARKER))
-            });
-        if exposes_list {
+        if let Some(return_type) = method
+            .child_by_field_name("returns")
+            .or_else(|| method.child_by_field_name("type"))
+            .filter(|type_node| node_text(*type_node, source).contains(LIST_MARKER))
+        {
             issues.push(issue(
                 language,
                 "S3956",
-                "Expose 'IEnumerable<T>' or 'IList<T>' instead of 'List<T>'.",
-                range_of(name_anchor(method), source),
+                "Refactor this method to use a generic collection designed for inheritance.",
+                range_of(return_type, source),
+            ));
+        }
+        for parameter_type in parameters_of(method)
+            .iter()
+            .filter_map(|parameter| parameter.child_by_field_name("type"))
+            .filter(|type_node| node_text(*type_node, source).contains(LIST_MARKER))
+        {
+            issues.push(issue(
+                language,
+                "S3956",
+                "Refactor this method to use a generic collection designed for inheritance.",
+                range_of(parameter_type, source),
             ));
         }
     }
@@ -51,11 +59,25 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     }),
             };
             if typed_list {
+                let type_node = match member.kind() {
+                    "property_declaration" => member.child_by_field_name("type"),
+                    _ => collect_kinds(member, &["variable_declaration"])
+                        .first()
+                        .and_then(|declaration| first_named_child(*declaration)),
+                }
+                .unwrap_or(member);
+                let surface = if member.kind() == "property_declaration" {
+                    "property"
+                } else {
+                    "field"
+                };
                 issues.push(issue(
                     language,
                     "S3956",
-                    "Expose 'IEnumerable<T>' or 'IList<T>' instead of 'List<T>'.",
-                    range_of(member, source),
+                    format!(
+                        "Refactor this {surface} to use a generic collection designed for inheritance."
+                    ),
+                    range_of(type_node, source),
                 ));
             }
         }

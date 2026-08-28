@@ -16,20 +16,25 @@ pub(crate) fn check_duplicate_dict_keys(
     let mut issues = Vec::new();
     for expr in &file_ctx.exprs {
         let Expr::Dict(dict) = expr else { continue };
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = std::collections::HashMap::new();
+        let mut reported = std::collections::HashSet::new();
         for item in &dict.items {
             let Some(key) = &item.key else { continue };
             let Some(canonical) = constant_literal_text(key) else {
                 continue;
             };
-            if !seen.insert(canonical) {
+            if let Some(first_range) = seen.get(&canonical)
+                && reported.insert(canonical.clone())
+            {
                 issues.push(issue_at(
                     "python:S5780",
-                    "Change this duplicate key; it overrides an earlier entry.",
-                    key.range(),
+                    "Change or remove duplicates of this key.",
+                    *first_range,
                     index,
                     source,
                 ));
+            } else {
+                seen.insert(canonical, key.range());
             }
         }
     }

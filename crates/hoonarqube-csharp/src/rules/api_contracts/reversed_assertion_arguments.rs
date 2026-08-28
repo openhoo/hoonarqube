@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, range_from_byte_offsets};
 use crate::rules::expressions::{callee_name, invocation_arguments};
 use crate::rules::literals::argument_expression;
 use hoonarqube_ir::Issue;
@@ -25,8 +25,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S3415",
-                "Put the expected value first in this assertion.",
-                range_of(call, source),
+                "Make sure these 2 arguments are in the correct order: expected value, actual value.",
+                range_from_byte_offsets(first.start_byte(), second.end_byte(), source),
             ));
         }
     }

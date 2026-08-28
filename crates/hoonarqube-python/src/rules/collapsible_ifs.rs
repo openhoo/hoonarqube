@@ -1,5 +1,5 @@
 use crate::support::child_bodies;
-use crate::support::issue_at;
+use crate::support::to_range;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
@@ -7,6 +7,7 @@ use ruff_python_ast::StmtIf;
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
+use ruff_text_size::{TextRange, TextSize};
 
 // --- python:S1066 — collapsible nested ifs -----------------------------------
 
@@ -45,11 +46,13 @@ fn collapsible_inner(outer: &StmtIf, issues: &mut Vec<Issue>, index: &LineIndex,
     if !inner.elif_else_clauses.is_empty() {
         return;
     }
-    issues.push(issue_at(
+    issues.push(Issue::new(
         "python:S1066",
         "Merge this if statement with the enclosing one.",
-        inner.range(),
-        index,
-        source,
+        to_range(
+            TextRange::new(inner.start(), inner.start() + TextSize::new(2)),
+            index,
+            source,
+        ),
     ));
 }

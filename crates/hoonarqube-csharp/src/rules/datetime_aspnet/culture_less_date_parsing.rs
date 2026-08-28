@@ -29,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S6580",
-                "Pass an explicit culture when parsing this date or time.",
+                "Use a format provider when parsing date and time.",
                 range_of(invocation, source),
             )
         })

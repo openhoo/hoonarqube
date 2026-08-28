@@ -16,11 +16,12 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         }
         if condition_false_at_entry(header, source) {
+            let anchor = header.child_by_field_name("condition").unwrap_or(header);
             issues.push(issue(
                 language,
                 "S2252",
-                "This loop's body never executes; the condition is false from the start.",
-                range_of(header, source),
+                "This loop will never execute.",
+                range_of(anchor, source),
             ));
         }
     }
@@ -42,6 +43,9 @@ fn relation_holds(left: i128, operator: &str, right: i128) -> bool {
 
 /// Entry value of a `for` counter: its initializer's integer literal.
 fn counter_entry_value<'a>(loop_header: Node<'_>, source: &'a str) -> Option<(&'a str, i128)> {
+    if loop_header.kind() != "for_statement" {
+        return None;
+    }
     let (Some(initializer), _, _) = for_clauses(loop_header) else {
         return None;
     };

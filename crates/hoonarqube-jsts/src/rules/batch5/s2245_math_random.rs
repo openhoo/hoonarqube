@@ -16,7 +16,7 @@ impl SecurityHotspotCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S2245",
-                "Make sure using 'Math.random()' is safe here.",
+                "Make sure that using this pseudorandom number generator is safe here.",
                 call.span(),
             );
         }

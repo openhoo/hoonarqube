@@ -26,7 +26,7 @@ pub(crate) fn check_s4792_logger_configuration(
         if configured {
             issues.push(issue_at(
                 "python:S4792",
-                "Make sure that configuring loggers is safe here.",
+                "Make sure that this logger's configuration is safe.",
                 call.range(),
                 index,
                 source,

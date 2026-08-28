@@ -1,4 +1,4 @@
-use crate::cst::{issue, pos_of};
+use crate::cst::issue;
 use crate::metrics::collect_line_kinds;
 use crate::{AnalyzerOptions, CsLanguage};
 use hoonarqube_ir::Issue;
@@ -7,7 +7,7 @@ use tree_sitter::Node;
 /// csharpsquid:S104 — file exceeds `maximumFileLocThreshold` lines of code.
 pub(crate) fn check(
     root: Node<'_>,
-    source: &str,
+    _source: &str,
     language: CsLanguage,
     options: &AnalyzerOptions,
 ) -> Vec<Issue> {
@@ -22,13 +22,13 @@ pub(crate) fn check(
         language,
         "S104",
         format!(
-            "This file has {} lines of code which exceeds the authorized maximum of {}; split it into smaller files.",
+            "This file has {} lines, which is greater than {} authorized. Split it into smaller files.",
             code_lines.len(),
             options.maximum_file_loc_threshold
         ),
         hoonarqube_ir::Range {
             start: hoonarqube_ir::Pos { line: 1, column: 0 },
-            end: pos_of(root.end_position(), root.end_byte(), source),
+            end: hoonarqube_ir::Pos { line: 1, column: 0 },
         },
     )]
 }

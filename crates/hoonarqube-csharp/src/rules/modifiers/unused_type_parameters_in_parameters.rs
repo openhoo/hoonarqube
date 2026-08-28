@@ -19,16 +19,19 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             .iter()
             .map(|identifier| node_text(*identifier, source))
             .collect();
-        for parameter in collect_kinds(list, &["type_parameter"]) {
-            let name = node_text(parameter, source);
-            if !used.contains(name) {
-                issues.push(issue(
-                    language,
-                    "S4018",
-                    format!("Type parameter \"{name}\" never appears in the parameter list."),
-                    range_of(parameter, source),
-                ));
-            }
+        let has_unused = collect_kinds(list, &["type_parameter"])
+            .into_iter()
+            .any(|parameter| !used.contains(node_text(parameter, source)));
+        if has_unused {
+            let Some(name) = method.child_by_field_name("name") else {
+                continue;
+            };
+            issues.push(issue(
+                language,
+                "S4018",
+                "Refactor this method to use all type parameters in the parameter list to enable type inference.",
+                range_of(name, source),
+            ));
         }
     }
     issues

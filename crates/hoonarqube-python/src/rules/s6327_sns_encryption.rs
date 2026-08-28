@@ -13,20 +13,19 @@ pub(crate) fn check_s6327_sns_encryption(
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    // CE only evaluates boto3 client calls it can resolve to a real binding;
-    // stub objects stay silent.
-    if !file_ctx.has_boto3_binding {
+    if !file_ctx.has_aws_cdk_import {
         return Vec::new();
     }
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if called_name(&call.func) == Some("create_topic")
-            && !has_keyword(&call.arguments, "KmsMasterKeyId")
+        if matches!(called_name(&call.func), Some("Topic" | "CfnTopic"))
+            && !has_keyword(&call.arguments, "master_key")
+            && !has_keyword(&call.arguments, "kms_master_key_id")
         {
             issues.push(issue_at(
                 "python:S6327",
-                "Encrypt this SNS topic with a KMS key.",
-                call.range(),
+                "Omitting \"kms_master_key_id\" disables SNS topics encryption. Make sure it is safe here.",
+                call.func.range(),
                 index,
                 source,
             ));

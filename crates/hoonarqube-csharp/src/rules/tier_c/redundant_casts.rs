@@ -1,4 +1,3 @@
-use super::support::FLOATING_TYPES;
 use super::support::INTEGER_TYPES;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of, simple_name};
@@ -20,22 +19,28 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 return None;
             }
             let target = simple_name(type_text);
+            let value_text = node_text(value, source);
             let redundant = match value.kind() {
                 "integer_literal" => INTEGER_TYPES.contains(&target),
-                "real_literal" => FLOATING_TYPES.contains(&target),
+                "real_literal" => match target {
+                    "double" => !value_text.ends_with(['f', 'F', 'm', 'M']),
+                    "float" => value_text.ends_with(['f', 'F']),
+                    "decimal" => value_text.ends_with(['m', 'M']),
+                    _ => false,
+                },
                 "string_literal" => target == "string",
                 "character_literal" => target == "char",
                 "boolean_literal" => target == "bool",
                 _ => false,
             };
-            redundant.then_some(cast)
+            redundant.then_some((type_node, target.to_owned()))
         })
-        .map(|cast| {
+        .map(|(type_node, target)| {
             issue(
                 language,
                 "S1905",
-                "Remove this redundant cast.",
-                range_of(cast, source),
+                format!("Remove this unnecessary cast to '{target}'."),
+                range_of(type_node, source),
             )
         })
         .collect()
@@ -55,9 +60,8 @@ mod tests {
     fn s1905_flags_floating_casts_on_distinct_lines() {
         let report = analyze_default("float scale = (float)1.5;\ndouble precise = (double)2.25;\n");
         let flagged = with_key(&report, "csharpsquid:S1905");
-        assert_eq!(flagged.len(), 2);
-        assert_eq!(flagged[0].range.start.line, 1);
-        assert_eq!(flagged[1].range.start.line, 2);
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 2);
     }
 
     #[test]

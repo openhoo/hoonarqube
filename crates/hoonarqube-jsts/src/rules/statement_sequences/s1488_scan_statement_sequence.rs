@@ -14,7 +14,7 @@ pub(crate) fn scan_statement_sequence(sink: &mut IssueSink<'_>, statements: &[St
             sink.emit_span(
                 RuleScope::Both,
                 "S1763",
-                "Remove this unreachable code.",
+                "Unreachable code.",
                 statement.span(),
             );
             break;
@@ -38,20 +38,28 @@ pub(crate) fn scan_statement_sequence(sink: &mut IssueSink<'_>, statements: &[St
                 let returned_name = returned.argument.as_ref().and_then(identifier_name);
                 (returned_name == Some(name)).then(|| {
                     format!(
-                        "Immediately return this expression instead of assigning it to '{name}'."
+                        "Immediately return this expression instead of assigning it to the temporary variable \"{name}\"."
                     )
                 })
             }
             Statement::ThrowStatement(thrown) => (identifier_name(&thrown.argument) == Some(name))
                 .then(|| {
                     format!(
-                        "Immediately throw this expression instead of assigning it to '{name}'."
+                        "Immediately throw this expression instead of assigning it to the temporary variable \"{name}\"."
                     )
                 }),
             _ => None,
         };
         if let Some(message) = message {
-            sink.emit_span(RuleScope::Both, "S1488", &message, declarator.span());
+            sink.emit_span(
+                RuleScope::Both,
+                "S1488",
+                &message,
+                declarator
+                    .init
+                    .as_ref()
+                    .map_or(declarator.span(), GetSpan::span),
+            );
         }
     }
 }

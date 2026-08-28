@@ -1,8 +1,9 @@
 use crate::engine::file_context::FileContext;
-use crate::support::dict_string_entry;
-use crate::support::for_each_dict_literal;
+use crate::support::called_name;
 use crate::support::issue_at;
+use crate::support::keyword_value;
 use crate::support::string_literal_text;
+use crate::support::wildcard_literal;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
@@ -11,39 +12,53 @@ use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 pub(crate) fn check_s6317_wildcard_action_scope(
-    parsed: &Parsed<ModModule>,
+    _parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    // CE only evaluates policies in files with a resolvable boto3 binding;
-    // stub-only files stay silent.
-    if !file_ctx.has_boto3_binding {
+    if !file_ctx.has_aws_cdk_import {
         return Vec::new();
     }
     let mut issues = Vec::new();
-    for_each_dict_literal(parsed.syntax().body.as_slice(), &mut |dict| {
-        if dict_string_entry(dict, "Action").is_some_and(action_scope_wildcards) {
+    for call in &file_ctx.calls {
+        if called_name(&call.func) == Some("PolicyStatement")
+            && keyword_value(&call.arguments, "actions").is_some_and(has_escalation_action)
+            && let Some(wildcard) =
+                keyword_value(&call.arguments, "resources").and_then(wildcard_literal)
+        {
             issues.push(issue_at(
                 "python:S6317",
-                "Limit the scope of these IAM permissions.",
-                dict.range(),
+                "This policy is vulnerable to the \"\" privilege escalation vector. Remove permissions or restrict the set of resources they apply to.",
+                wildcard.range(),
                 index,
                 source,
             ));
         }
-    });
+    }
     issues
 }
 
 // --- python:S6317 — wildcard-scoped actions in policies ---------------------------
 
-fn action_scope_wildcards(value: &Expr) -> bool {
+fn has_escalation_action(value: &Expr) -> bool {
     match value {
-        Expr::List(list) => list.elts.iter().any(action_scope_wildcards),
-        Expr::StringLiteral(_) => {
-            string_literal_text(value).is_some_and(|action| action.ends_with(":*"))
-        }
+        Expr::List(list) => list.elts.iter().any(has_escalation_action),
+        Expr::Tuple(tuple) => tuple.elts.iter().any(has_escalation_action),
+        Expr::StringLiteral(_) => string_literal_text(value)
+            .is_some_and(|action| ESCALATION_ACTIONS.contains(&action.as_str())),
         _ => false,
     }
 }
+
+const ESCALATION_ACTIONS: [&str; 9] = [
+    "lambda:UpdateFunctionCode",
+    "iam:CreatePolicyVersion",
+    "iam:SetDefaultPolicyVersion",
+    "iam:AttachUserPolicy",
+    "iam:AttachGroupPolicy",
+    "iam:AttachRolePolicy",
+    "iam:PutUserPolicy",
+    "iam:PutGroupPolicy",
+    "iam:PutRolePolicy",
+];

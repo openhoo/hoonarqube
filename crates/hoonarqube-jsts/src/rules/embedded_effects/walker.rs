@@ -1,7 +1,7 @@
 // Family walker for 'embedded_effects' (generated).
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
-use crate::support::{IssueSink, LineIndex, RuleScope};
+use crate::support::{IssueSink, LineIndex, RuleScope, assignment_target_name};
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{Expression, ExpressionStatement, ForStatement, UnaryOperator, UpdateOperator};
 use oxc_ast_visit::Visit;
@@ -10,6 +10,7 @@ use oxc_span::GetSpan;
 
 fn check_embedded_effects(
     program: &oxc_ast::ast::Program<'_>,
+    source: &str,
     index: &LineIndex,
     language: JstsLanguage,
 ) -> Vec<Issue> {
@@ -19,6 +20,7 @@ fn check_embedded_effects(
             language,
             issues: Vec::new(),
         },
+        source,
         expr_depth: 0,
     };
     collector.visit_program(program);
@@ -31,22 +33,23 @@ fn check_embedded_effects(
 /// Updates and assignments are only tolerated as the direct root expression
 /// of an `ExpressionStatement` or in a `for` header init/update slot; the
 /// `expr_depth` counter distinguishes those roots from deeper embedding.
-struct EmbeddedEffectCollector<'index> {
+struct EmbeddedEffectCollector<'source, 'index> {
     sink: IssueSink<'index>,
+    source: &'source str,
     /// Distance of the current expression below its statement root: `1` for
     /// the root itself, increasing per nesting level, `0` outside
     /// statement-root contexts (initializers, conditions, arguments, ...).
     expr_depth: u32,
 }
 
-impl<'a> Visit<'a> for EmbeddedEffectCollector<'_> {
+impl<'a> Visit<'a> for EmbeddedEffectCollector<'_, '_> {
     fn visit_expression_statement(&mut self, it: &ExpressionStatement<'a>) {
         if is_pointless_expression(&it.expression) {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S905",
-                "Remove this expression; it has no effect.",
-                it.expression.span(),
+                "Expected an assignment or function call and instead saw an expression.",
+                it.span(),
             );
         }
         let saved = self.expr_depth;
@@ -85,24 +88,40 @@ impl<'a> Visit<'a> for EmbeddedEffectCollector<'_> {
         match it {
             Expression::UpdateExpression(update) => {
                 if self.expr_depth != 1 {
-                    let operator = match update.operator {
-                        UpdateOperator::Increment => "++",
-                        UpdateOperator::Decrement => "--",
+                    let operation = match update.operator {
+                        UpdateOperator::Increment => "increment",
+                        UpdateOperator::Decrement => "decrement",
                     };
                     self.sink.emit_span(
                         RuleScope::Both,
                         "S881",
-                        &format!("Remove this use of the operator '{operator}'."),
+                        &format!("Extract this {operation} operation into a dedicated statement."),
                         update.span(),
                     );
                 }
             }
             Expression::AssignmentExpression(assign) if self.expr_depth != 1 => {
+                let target = assignment_target_name(&assign.left).unwrap_or("value");
+                let between_start = assign.left.span().end;
+                let between_end = assign.right.span().start;
+                let operator_span = self
+                    .source
+                    .get(between_start as usize..between_end as usize)
+                    .and_then(|text| {
+                        let start = text.find(|character: char| !character.is_whitespace())?;
+                        let operator = text[start..].trim_end();
+                        let absolute = between_start + u32::try_from(start).ok()?;
+                        Some(oxc_span::Span::new(
+                            absolute,
+                            absolute + u32::try_from(operator.len()).ok()?,
+                        ))
+                    })
+                    .unwrap_or_else(|| assign.left.span());
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S1121",
-                    "Extract this assignment out of this expression.",
-                    assign.span(),
+                    &format!("Extract the assignment of \"{target}\" from this expression."),
+                    operator_span,
                 );
             }
             _ => {}
@@ -151,7 +170,7 @@ fn is_pointless_expression(expression: &Expression<'_>) -> bool {
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_embedded_effects(ctx.program, ctx.index, ctx.language)
+    check_embedded_effects(ctx.program, ctx.source, ctx.index, ctx.language)
 }
 
 #[cfg(test)]
@@ -204,9 +223,9 @@ m = n = 1;
             vec![
                 hit("javascript:S881", 4, 6, 9),
                 hit("javascript:S881", 6, 8, 11),
-                hit("javascript:S1121", 7, 4, 9),
-                hit("javascript:S1121", 8, 4, 9),
-                hit("javascript:S1121", 9, 4, 9),
+                hit("javascript:S1121", 7, 6, 7),
+                hit("javascript:S1121", 8, 6, 7),
+                hit("javascript:S1121", 9, 6, 7),
             ]
         );
     }

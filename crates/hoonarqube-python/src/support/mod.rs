@@ -1,7 +1,6 @@
 //! `support` facade: one submodule per former section banner.
 
 mod aws_call_shape_helpers;
-mod aws_policy_dict_subtree_helpers;
 mod django_conventions;
 mod effect_effect_retention_tracking;
 mod literal_kind_classification_for_operator_rules;
@@ -41,7 +40,6 @@ mod typing_syntax_rules_168_178;
 mod unittest_misc_remainder_180_192_and_185_189_companions;
 
 pub(crate) use aws_call_shape_helpers::*;
-pub(crate) use aws_policy_dict_subtree_helpers::*;
 pub(crate) use django_conventions::*;
 pub(crate) use effect_effect_retention_tracking::*;
 pub(crate) use literal_kind_classification_for_operator_rules::*;

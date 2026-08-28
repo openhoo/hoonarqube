@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S2166",
-                "Derive this exception-named class from an 'Exception' type.",
+                "Rename this class to remove \"Exception\" or correct its inheritance.",
                 range_of(name_anchor(class_declaration), source),
             ));
         }

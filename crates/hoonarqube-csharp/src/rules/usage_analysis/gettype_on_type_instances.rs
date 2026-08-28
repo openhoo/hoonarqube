@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, range_from_byte_offsets};
 use crate::rules::expressions::{callee_name, invocation_receiver};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -17,11 +17,12 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 && callee_name(receiver, source) == Some("GetType")
         });
         if redundant {
+            let receiver = receiver.expect("checked receiver");
             issues.push(issue(
                 language,
                 "S3443",
-                "Remove this redundant 'GetType' call; it already returns a System.Type.",
-                range_of(outer, source),
+                "Remove this use of 'GetType' on a 'System.Type'.",
+                range_from_byte_offsets(receiver.end_byte(), outer.end_byte(), source),
             ));
         }
     }

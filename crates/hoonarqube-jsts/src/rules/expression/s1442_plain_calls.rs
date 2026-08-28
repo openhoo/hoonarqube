@@ -9,26 +9,21 @@ use oxc_span::GetSpan;
 pub(crate) fn check_plain_calls(sink: &mut IssueSink, it: &CallExpression<'_>) {
     if let Some(name) = callee_name(it) {
         if name == "alert" {
-            sink.emit_span(
-                RuleScope::JsOnly,
-                "S1442",
-                "Remove this use of \"alert\".",
-                it.callee.span(),
-            );
+            sink.emit_span(RuleScope::JsOnly, "S1442", "Unexpected alert.", it.span());
         }
         if name == "parseInt" && it.arguments.len() < 2 {
             sink.emit_span(
                 RuleScope::Both,
                 "S2427",
-                "Add the radix parameter to this \"parseInt\".",
-                it.callee.span(),
+                "Missing radix parameter.",
+                it.span(),
             );
         }
         if name == "require" {
             sink.emit_span(
-                RuleScope::JsOnly,
+                RuleScope::Both,
                 "S3533",
-                "Use ECMAScript module imports instead of \"require\".",
+                "Use a standard \"import\" statement instead of \"require\".",
                 it.callee.span(),
             );
         }
@@ -36,7 +31,7 @@ pub(crate) fn check_plain_calls(sink: &mut IssueSink, it: &CallExpression<'_>) {
             sink.emit_span(
                 RuleScope::Both,
                 "S2817",
-                "Do not use the deprecated WebSQL database API.",
+                "Convert this use of a Web SQL database to another technology.",
                 it.callee.span(),
             );
         }
@@ -95,10 +90,13 @@ mod tests {
     }
 
     #[test]
-    fn s1442_family_ts_suppresses_js_only_calls_but_keeps_s6958() {
+    fn s1442_family_ts_suppresses_alert_but_flags_commonjs_require() {
         let ts_findings = ts_keys("alert(\"hi\");\nrequire(\"fs\");\n");
         assert_eq!(count_key(&ts_findings, "typescript:S1442"), 0);
-        assert_eq!(count_key(&ts_findings, "typescript:S3533"), 0);
+        assert_eq!(count_key(&ts_findings, "typescript:S3533"), 1);
+
+        let module_import = ts_keys("import fs from 'fs';\n");
+        assert_eq!(count_key(&module_import, "typescript:S3533"), 0);
 
         let literal_call = js_keys("\"foo\"();\n");
         assert_eq!(count_key(&literal_call, "javascript:S6958"), 1);

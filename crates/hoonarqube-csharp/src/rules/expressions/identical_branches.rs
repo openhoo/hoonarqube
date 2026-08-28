@@ -19,11 +19,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             && texts.iter().all(|text| !text.is_empty())
             && texts.windows(2).all(|pair| pair[0] == pair[1]);
         if identical {
+            let keyword = collect_kinds(header, &["if"])
+                .into_iter()
+                .next()
+                .unwrap_or(header);
             issues.push(issue(
                 language,
                 "S3923",
-                "Every branch of this conditional performs the same actions.",
-                range_of(header, source),
+                "Remove this conditional structure or edit its code blocks so that they're not all the same.",
+                range_of(keyword, source),
             ));
         }
     }
@@ -84,7 +88,7 @@ mod tests {
         // fully identical three-way chain yields exactly one finding.
         assert_eq!(flagged.len(), 1);
         assert_eq!(flagged[0].range.start.line, 5);
-        assert_eq!(flagged[0].range.end.line, 7);
+        assert_eq!(flagged[0].range.end.line, 5);
     }
     #[test]
     fn s3923_incomplete_chains_without_else_never_flag() {

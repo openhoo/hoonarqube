@@ -22,11 +22,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
         for member in type_members(type_node) {
             if has_modifier(&modifiers_of(member, source), "protected") {
+                let protected = collect_kinds(member, &["protected"])
+                    .into_iter()
+                    .next()
+                    .unwrap_or(member);
                 issues.push(issue(
                     language,
                     "S2156",
-                    "The 'protected' modifier is useless here: this type is sealed.",
-                    range_of(member, source),
+                    "Remove this 'protected' modifier.",
+                    range_of(protected, source),
                 ));
             }
         }

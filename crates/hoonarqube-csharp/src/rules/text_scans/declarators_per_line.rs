@@ -23,11 +23,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
         for row_declarators in declarators_per_row.values() {
             for declarator in row_declarators.iter().skip(1) {
+                let name = declarator
+                    .child_by_field_name("name")
+                    .unwrap_or(*declarator);
                 issues.push(issue(
                     language,
                     "S1659",
-                    "Declare each variable on its own line.",
-                    range_of(*declarator, source),
+                    format!(
+                        "Declare '{}' in a separate statement.",
+                        crate::cst::node_text(name, source)
+                    ),
+                    range_of(name, source),
                 ));
             }
         }

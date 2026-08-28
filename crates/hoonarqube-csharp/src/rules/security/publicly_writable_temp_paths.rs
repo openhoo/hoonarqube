@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S5443",
-                "Do not place files in publicly writable directories.",
+                "Make sure publicly writable directories are used safely here.",
                 range_of(literal, source),
             ));
         }

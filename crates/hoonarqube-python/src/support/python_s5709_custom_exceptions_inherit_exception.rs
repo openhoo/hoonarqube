@@ -32,7 +32,7 @@ pub(crate) fn scan_flow_statements(
                 if state.finally_depth > 0 {
                     issues.push(issue_at(
                         "python:S1143",
-                        "Move this return statement out of 'finally'; it discards the in-flight exception.",
+                        "Remove this \"return\" statement from this \"finally\" block.",
                         stmt.range(),
                         index,
                         source,
@@ -55,7 +55,13 @@ fn flag_flow_jump(
     if state.finally_depth > 0 {
         issues.push(issue_at(
             "python:S1143",
-            "Move this jump statement out of 'finally'; it discards the in-flight exception.",
+            match stmt {
+                Stmt::Break(_) => "Remove this \"break\" statement from this \"finally\" block.",
+                Stmt::Continue(_) => {
+                    "Remove this \"continue\" statement from this \"finally\" block."
+                }
+                _ => unreachable!("guarded jump statement"),
+            },
             stmt.range(),
             index,
             source,
@@ -63,7 +69,11 @@ fn flag_flow_jump(
     } else if state.loop_depth == 0 {
         issues.push(issue_at(
             "python:S1716",
-            "Remove this jump statement; no enclosing loop exists.",
+            match stmt {
+                Stmt::Break(_) => "Remove this \"break\" statement",
+                Stmt::Continue(_) => "Remove this \"continue\" statement",
+                _ => unreachable!("guarded jump statement"),
+            },
             stmt.range(),
             index,
             source,
@@ -84,12 +94,12 @@ fn flag_flow_raise(
     let (key, message) = if state.context == RaiseContext::InFinally {
         (
             "python:S5704",
-            "A bare 'raise' inside 'finally' masks the in-flight exception.",
+            "Refactor this code so that any active exception raises naturally.",
         )
     } else {
         (
             "python:S5747",
-            "A bare 'raise' is only allowed in an 'except' clause; raise an explicit exception.",
+            "Remove this \"raise\" statement or move it inside an \"except\" block.",
         )
     };
     issues.push(issue_at(key, message, raised.range(), index, source));
@@ -208,7 +218,7 @@ fn flag_top_level_return_and_yield(
     if matches!(stmt, Stmt::Return(_)) {
         issues.push(issue_at(
             "python:S2711",
-            "Remove this 'return'; it appears outside a function.",
+            "Remove this use of \"return\".",
             stmt.range(),
             index,
             source,
@@ -219,7 +229,7 @@ fn flag_top_level_return_and_yield(
             Expr::Yield(_) | Expr::YieldFrom(_) => {
                 issues.push(issue_at(
                     "python:S2711",
-                    "Move this 'yield' into a function; it appears outside one.",
+                    "Remove this use of \"yield\".",
                     node.range(),
                     index,
                     source,

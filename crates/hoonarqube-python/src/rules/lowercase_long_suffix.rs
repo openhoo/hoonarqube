@@ -27,7 +27,8 @@ pub(crate) fn check_lowercase_long_suffix(
         })
         .map(|pair| Issue {
             rule_key: "python:LongIntegerWithLowercaseSuffixUsage".to_string(),
-            message: "Remove this lowercase 'l' suffix; it is a Python 2 long literal.".to_string(),
+            message: "Replace suffix in long integers from lower case \"l\" to upper case \"L\"."
+                .to_string(),
             range: to_range(
                 TextRange::new(pair[0].range().start(), pair[1].range().end()),
                 index,

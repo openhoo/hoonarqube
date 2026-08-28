@@ -11,13 +11,13 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for type_node in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
-        let properties: Vec<(&str, String)> = type_members(type_node)
+        let properties: Vec<(Node<'_>, &str, String)> = type_members(type_node)
             .into_iter()
             .filter(|member| member.kind() == "property_declaration")
             .filter_map(|property| property.child_by_field_name("name"))
             .map(|name| {
                 let text = node_text(name, source);
-                (text, text.to_ascii_lowercase())
+                (name, text, text.to_ascii_lowercase())
             })
             .collect();
         for member in type_members(type_node) {
@@ -33,15 +33,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             else {
                 continue;
             };
-            if let Some((original, _)) = properties
+            if let Some((property_name, original, _)) = properties
                 .iter()
-                .find(|(_, property_lower)| *property_lower == candidate)
+                .find(|(_, _, property_lower)| *property_lower == candidate)
             {
                 issues.push(issue(
                     language,
                     "S4059",
-                    format!("Rename this accessor method; it duplicates property \"{original}\"."),
-                    range_of(name, source),
+                    format!(
+                        "Change either the name of property '{original}' or the name of method '{method_name}' to make them distinguishable."
+                    ),
+                    range_of(*property_name, source),
                 ));
             }
         }

@@ -7,7 +7,6 @@ use tree_sitter::Node;
 /// csharpsquid:S106 — console output is not logging; it bypasses levels,
 /// sinks, and correlation.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    const CONSOLE_OWNERS: [&str; 3] = ["Console", "Console.Out", "Console.Error"];
     collect_kinds(root, &["member_access_expression"])
         .into_iter()
         .filter(|node| !is_error_tainted(*node))
@@ -16,14 +15,14 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 .is_some_and(|name| name == "Write" || name == "WriteLine")
                 && first_named_child(*node).is_some_and(|receiver| {
                     let text = node_text(receiver, source).trim();
-                    CONSOLE_OWNERS.iter().any(|owner| text.ends_with(owner))
+                    text == "Console" || text.ends_with(".Console")
                 })
         })
         .map(|node| {
             issue(
                 language,
                 "S106",
-                "Replace this console output with proper logging.",
+                "Remove this logging statement.",
                 range_of(node, source),
             )
         })
@@ -35,11 +34,11 @@ mod tests {
     use crate::tests::{analyze_default, with_key};
 
     #[test]
-    fn s106_flags_error_and_out_streams_and_plain_write() {
+    fn s106_flags_direct_console_writes_only() {
         let report = analyze_default(
-            "class C\n{\n    void Talk()\n    {\n        Console.Error.WriteLine(\"boom\");\n        Console.Out.Write(\"partial\");\n    }\n}\n",
+            "class C\n{\n    void Talk()\n    {\n        Console.WriteLine(\"hello\");\n        Console.Error.WriteLine(\"boom\");\n        Console.Out.Write(\"partial\");\n    }\n}\n",
         );
-        assert_eq!(with_key(&report, "csharpsquid:S106").len(), 2);
+        assert_eq!(with_key(&report, "csharpsquid:S106").len(), 1);
     }
 
     #[test]

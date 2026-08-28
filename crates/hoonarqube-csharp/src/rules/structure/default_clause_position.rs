@@ -2,7 +2,7 @@ use super::support::section_has_default;
 use super::support::switch_body_of;
 use super::support::switch_sections_of;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, range_from_byte_offsets};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -21,11 +21,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         };
         if index > 0 && index != sections.len() - 1 {
+            let keyword = collect_kinds(sections[index], &["default"])
+                .into_iter()
+                .next()
+                .unwrap_or(sections[index]);
             issues.push(issue(
                 language,
                 "S4524",
-                "Move this 'default' clause first or last among the sections.",
-                range_of(sections[index], source),
+                "Move this 'default:' case to the beginning or end of this 'switch' statement.",
+                range_from_byte_offsets(keyword.start_byte(), keyword.end_byte() + 1, source),
             ));
         }
     }

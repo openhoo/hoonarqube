@@ -60,8 +60,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S3267",
-                "Rewrite this loop as a LINQ expression.",
-                range_of(foreach_statement, source),
+                "Loops should be simplified using the \"Where\" LINQ method",
+                range_of(
+                    foreach_statement
+                        .child_by_field_name("right")
+                        .unwrap_or(foreach_statement),
+                    source,
+                ),
             ));
         }
     }

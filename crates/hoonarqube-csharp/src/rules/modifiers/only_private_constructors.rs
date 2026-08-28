@@ -38,7 +38,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         issues.push(issue(
             language,
             "S3453",
-            "Make this class 'static' or give it a non-private constructor.",
+            "This class can't be instantiated; make its constructor 'public'.",
             range_of(name, source),
         ));
     }

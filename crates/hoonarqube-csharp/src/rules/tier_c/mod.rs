@@ -40,7 +40,5 @@ pub(crate) mod static_password_salts;
 mod support;
 mod walker;
 
-pub(crate) use support::graph_reaches;
-pub(crate) use support::local_inheritance_graph;
 pub(crate) use support::parameter_units;
 pub(crate) use walker::tier_c_heuristic_issues;

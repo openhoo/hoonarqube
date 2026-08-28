@@ -134,10 +134,16 @@ impl<'a> Visit<'a> for FunctionStructureCollector<'a, '_> {
                 Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
             )
         {
+            let target = crate::support::source_slice(self.source, it.left.span());
+            let (owner, member) = target
+                .split_once(".prototype.")
+                .unwrap_or(("Type", "method"));
             self.sink.emit_span(
                 RuleScope::Both,
                 "S3525",
-                "Assign methods directly instead of adding them to a prototype.",
+                &format!(
+                    "Declare a \"{owner}\" class and move this declaration of \"{member}\" into it."
+                ),
                 it.left.span(),
             );
         }

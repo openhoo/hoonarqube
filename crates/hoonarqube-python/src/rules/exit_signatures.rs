@@ -21,8 +21,8 @@ pub(crate) fn check_exit_signatures(
         {
             issues.push(issue_at(
                 "python:S2733",
-                "'__exit__' requires the exc_type, exc_value and traceback parameters.",
-                function.name.range(),
+                "Add the missing argument.",
+                ruff_text_size::TextRange::new(function.name.start(), function.parameters.end()),
                 index,
                 source,
             ));

@@ -1,48 +1,60 @@
 use crate::CsLanguage;
-use crate::cst::{
-    base_simple_names, collect_kinds, is_error_tainted, issue, modifiers_of, node_text,
-    parameters_of, range_of,
-};
+use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of, simple_name};
 use crate::rules::expressions::member_declarations_of_kind;
-use crate::rules::modifiers::has_modifier;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
-/// csharpsquid:S6424 — durable entity interface restrictions. Subset:
-/// interfaces named `I…Entity` or deriving an `IDurableEntity…` interface
-/// whose methods declare `ref`/`out` parameters; the remaining signature
-/// restrictions (return shapes, generics) stay uncovered.
+/// csharpsquid:S6424 — interfaces used with Durable Entity proxy/signal APIs
+/// may contain methods only.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    collect_kinds(root, &["interface_declaration"])
+    let interfaces = collect_kinds(root, &["interface_declaration"]);
+    let mut issues = Vec::new();
+    for generic in collect_kinds(root, &["generic_name"])
         .into_iter()
-        .filter(|interface| !is_error_tainted(*interface))
-        .filter(|interface| {
-            let named_entity = interface.child_by_field_name("name").is_some_and(|name| {
-                let text = node_text(name, source);
-                text.starts_with('I') && text.ends_with("Entity")
-            });
-            named_entity
-                || base_simple_names(*interface, source)
-                    .iter()
-                    .any(|base| base.starts_with("IDurableEntity"))
-        })
-        .flat_map(|interface| member_declarations_of_kind(interface, "method_declaration"))
-        .filter(|method| {
-            parameters_of(*method).iter().any(|parameter| {
-                let modifiers = modifiers_of(*parameter, source);
-                has_modifier(&modifiers, "ref") || has_modifier(&modifiers, "out")
+        .filter(|generic| !is_error_tainted(*generic))
+    {
+        let called = simple_name(node_text(generic, source));
+        if !matches!(
+            called,
+            "SignalEntity" | "SignalEntityAsync" | "CreateEntityProxy"
+        ) {
+            continue;
+        }
+        let Some(type_argument) = collect_kinds(generic, &["type_argument_list"])
+            .into_iter()
+            .next()
+            .and_then(|arguments| {
+                let mut cursor = arguments.walk();
+                arguments.children(&mut cursor).find(Node::is_named)
             })
-        })
-        .filter_map(|method| method.child_by_field_name("name"))
-        .map(|name| {
-            issue(
+        else {
+            continue;
+        };
+        let interface_name = simple_name(node_text(type_argument, source));
+        let Some(interface) = interfaces.iter().copied().find(|interface| {
+            interface
+                .child_by_field_name("name")
+                .is_some_and(|name| node_text(name, source) == interface_name)
+        }) else {
+            continue;
+        };
+        if let Some(property) = member_declarations_of_kind(interface, "property_declaration")
+            .into_iter()
+            .next()
+            .and_then(|property| property.child_by_field_name("name"))
+        {
+            issues.push(issue(
                 language,
                 "S6424",
-                "Durable entity interface methods cannot use 'ref' or 'out' parameters.",
-                range_of(name, source),
-            )
-        })
-        .collect()
+                format!(
+                    "Use valid entity interface. {interface_name} contains property \"{}\". Only methods are allowed.",
+                    node_text(property, source)
+                ),
+                range_of(generic, source),
+            ));
+        }
+    }
+    issues
 }
 
 #[cfg(test)]
@@ -50,44 +62,21 @@ mod tests {
     use crate::tests::{analyze_default, with_key};
 
     #[test]
-    fn s6424_idurable_entity_base_gate_flags_ref_params_without_entity_name() {
+    fn s6424_flags_properties_on_signaled_entity_interfaces() {
         let report = analyze_default(
-            "interface IRepository : IDurableEntity\n{\n    void Reload(ref int key);\n}\n",
+            "interface ICartEntity\n{\n    int Count { get; }\n}\nclass C\n{\n    void M(IDurableEntityClient client)\n    {\n        client.SignalEntityAsync<ICartEntity>();\n    }\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S6424");
         assert_eq!(flagged.len(), 1);
-        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(flagged[0].range.start.line, 9);
+        assert!(flagged[0].message.contains("property \"Count\""));
     }
 
     #[test]
-    fn s6424_plain_interfaces_with_ref_params_stay_out_of_scope() {
-        let report =
-            analyze_default("interface IRepository\n{\n    void Reload(ref int key);\n}\n");
-        assert!(with_key(&report, "csharpsquid:S6424").is_empty());
-    }
-
-    #[test]
-    fn s6424_in_parameters_are_not_restricted_by_this_subset() {
+    fn s6424_accepts_method_only_signaled_entity_interfaces() {
         let report = analyze_default(
-            "interface ICartEntity\n{\n    void Push(in int value);\n    void Add(int value);\n}\n",
+            "interface ICartEntity\n{\n    void Load();\n}\nclass C\n{\n    void M(IDurableEntityClient client)\n    {\n        client.SignalEntityAsync<ICartEntity>();\n    }\n}\n",
         );
-        assert!(with_key(&report, "csharpsquid:S6424").is_empty());
-    }
-
-    #[test]
-    fn s6424_flags_each_offending_method_distinctly() {
-        let report = analyze_default(
-            "interface ICartEntity\n{\n    void Save(out int id);\n    void Load();\n    void Move(ref int position);\n}\n",
-        );
-        let flagged = with_key(&report, "csharpsquid:S6424");
-        assert_eq!(flagged.len(), 2);
-        assert_eq!(flagged[0].range.start.line, 3);
-        assert_eq!(flagged[1].range.start.line, 5);
-    }
-
-    #[test]
-    fn s6424_entity_named_interfaces_without_ref_out_stay_clean() {
-        let report = analyze_default("interface ICartEntity\n{\n    void Add(int value);\n}\n");
         assert!(with_key(&report, "csharpsquid:S6424").is_empty());
     }
 }

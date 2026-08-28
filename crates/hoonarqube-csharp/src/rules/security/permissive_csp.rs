@@ -1,29 +1,42 @@
 use crate::CsLanguage;
-use crate::cst::{is_error_tainted, issue, range_of};
-use crate::rules::literals::{literal_inner_text, string_literals};
+use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
+use crate::rules::literals::literal_inner_text;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S7039 — 'unsafe-inline' or 'unsafe-eval' sources hollow out
 /// the Content-Security-Policy.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    const UNSAFE_CSP_SOURCES: [&str; 2] = ["unsafe-inline", "unsafe-eval"];
+    const UNSAFE_CSP_SOURCES: [&str; 3] = ["unsafe-inline", "unsafe-hashes", "unsafe-eval"];
     let mut issues = Vec::new();
-    for literal in string_literals(root) {
-        if is_error_tainted(literal) {
+    for assignment in collect_kinds(root, &["assignment_expression"]) {
+        if is_error_tainted(assignment) {
             continue;
         }
-        let lowered = literal_inner_text(literal, source).to_ascii_lowercase();
-        let permissive = lowered.contains("content-security-policy")
-            && UNSAFE_CSP_SOURCES
-                .iter()
-                .any(|source_token| lowered.contains(source_token));
+        let Some(left) = assignment.child_by_field_name("left") else {
+            continue;
+        };
+        let Some(value) = assignment.child_by_field_name("right") else {
+            continue;
+        };
+        if value.kind() != "string_literal" {
+            continue;
+        }
+        let header = node_text(left, source);
+        let targets_csp = header.ends_with(".ContentSecurityPolicy")
+            || header.contains("[\"Content-Security-Policy\"]");
+        let lowered = literal_inner_text(value, source).to_ascii_lowercase();
+        let permissive = targets_csp
+            && (lowered.contains('*')
+                || UNSAFE_CSP_SOURCES
+                    .iter()
+                    .any(|source_token| lowered.contains(source_token)));
         if permissive {
             issues.push(issue(
                 language,
                 "S7039",
-                "Serve a restrictive Content-Security-Policy.",
-                range_of(literal, source),
+                "Content Security Policies should be restrictive to mitigate the risk of content injection attacks.",
+                range_of(left, source),
             ));
         }
     }

@@ -328,7 +328,7 @@ pub(crate) fn visit_ifexp_branches(
             if in_branch {
                 issues.push(issue_at(
                     "python:S3358",
-                    "Refactor this conditional expression nested inside another into a statement.",
+                    "Extract this nested conditional expression into an independent statement.",
                     nested.range(),
                     index,
                     source,
@@ -447,7 +447,7 @@ pub(crate) fn visit_suites_for_pass(
         {
             issues.push(issue_at(
                 "python:S2772",
-                "Remove this unnecessary 'pass'.",
+                "Remove this unneeded \"pass\".",
                 stmt.range(),
                 index,
                 source,

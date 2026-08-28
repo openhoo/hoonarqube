@@ -24,7 +24,7 @@ pub(crate) fn check_s1523_dynamic_code_execution(
         if dynamic_exec {
             issues.push(issue_at(
                 "python:S1523",
-                "Make sure that this dynamically executed code cannot be attacker-controlled.",
+                "Make sure that this dynamic injection or execution of code is safe.",
                 call.range(),
                 index,
                 source,

@@ -30,8 +30,13 @@ pub(crate) fn check<'s>(root: Node<'_>, source: &'s str, language: CsLanguage) -
                 issues.push(issue(
                     language,
                     "S4144",
-                    format!("Update this method so it no longer duplicates '{carrier}'."),
-                    range_of(method, source),
+                    format!(
+                        "Update this method so that its implementation is not identical to '{carrier}'."
+                    ),
+                    range_of(
+                        method.child_by_field_name("name").unwrap_or(method),
+                        source,
+                    ),
                 ));
             } else {
                 seen.push((name, text));

@@ -36,9 +36,18 @@ pub(crate) fn check_s5890_annotated_assignment_kinds(
             continue;
         }
         let annotation_text = expr_normalized_text(&assign.annotation, source);
+        let target_text = expr_normalized_text(&assign.target, source);
+        let actual_type = match kind {
+            "string" => "str",
+            "boolean" => "bool",
+            "none" => "None",
+            other => other,
+        };
         issues.push(issue_at(
             "python:S5890",
-            &format!("This value does not match the '{annotation_text}' annotation."),
+            &format!(
+                "Assign to \"{target_text}\" a value of type \"{annotation_text}\" instead of \"{actual_type}\" or update its type hint."
+            ),
             value.range(),
             index,
             source,

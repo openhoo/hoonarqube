@@ -40,11 +40,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             })
         })
         .map(|call| {
+            let receiver = invocation_receiver(call).unwrap_or(call);
             issue(
                 language,
                 "S2114",
-                "Pass a different collection than the receiver to this method.",
-                range_of(call, source),
+                format!(
+                    "Change one instance of '{}' to a different value; This operation will probably result in an unexpected behavior.",
+                    node_text(receiver, source)
+                ),
+                range_of(receiver, source),
             )
         })
         .collect()

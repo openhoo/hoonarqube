@@ -9,17 +9,18 @@ use crate::support::{
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     AssignmentExpression, BindingPattern, CallExpression, Class, ExportSpecifier, Expression,
-    FormalParameter, FunctionBody, ImportSpecifier, MethodDefinition, MethodDefinitionKind,
-    ObjectProperty, Statement, TSInterfaceDeclaration, TSSignature, UnaryOperator,
-    VariableDeclarator,
+    FormalParameter, Function, FunctionBody, ImportSpecifier, MethodDefinition,
+    MethodDefinitionKind, ObjectProperty, Statement, TSInterfaceDeclaration, TSSignature,
+    UnaryOperator, VariableDeclarator,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_assignment_expression, walk_call_expression, walk_class, walk_formal_parameter,
-    walk_function_body, walk_method_definition, walk_ts_interface_declaration,
+    walk_function, walk_function_body, walk_method_definition, walk_ts_interface_declaration,
     walk_variable_declarator,
 };
 use oxc_span::{GetSpan, Span};
+use oxc_syntax::scope::ScopeFlags;
 
 fn check_binding_rules(
     program: &oxc_ast::ast::Program<'_>,
@@ -44,6 +45,7 @@ fn check_binding_rules(
         callback_argument_depth: 0,
         override_depth: 0,
         constructor_depth: 0,
+        function_names: Vec::new(),
     };
     collector.visit_program(program);
     collector.sink.issues
@@ -66,9 +68,21 @@ struct BindingCollector<'a, 'index> {
     override_depth: u32,
     /// Depth inside constructors, whose emptiness is `S6647`'s domain.
     constructor_depth: u32,
+    /// Enclosing regular-function name used by `S1186` diagnostics.
+    function_names: Vec<String>,
 }
 
 impl<'a> Visit<'a> for BindingCollector<'a, '_> {
+    fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
+        self.function_names.push(
+            it.id
+                .as_ref()
+                .map_or_else(|| "anonymous".to_string(), |id| id.name.to_string()),
+        );
+        walk_function(self, it, flags);
+        self.function_names.pop();
+    }
+
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
         self.callback_argument_depth += 1;
         walk_call_expression(self, it);
@@ -76,7 +90,7 @@ impl<'a> Visit<'a> for BindingCollector<'a, '_> {
     }
 
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
-        self.check_binding_name(&it.id, it.span());
+        self.check_binding_name(&it.id, it.id.span());
         self.check_declarator_init(it);
         self.check_renamed_binding(&it.id);
         self.check_empty_pattern(&it.id);
@@ -85,7 +99,7 @@ impl<'a> Visit<'a> for BindingCollector<'a, '_> {
     }
 
     fn visit_formal_parameter(&mut self, it: &FormalParameter<'a>) {
-        self.check_binding_name(&it.pattern, it.span());
+        self.check_binding_name(&it.pattern, it.pattern.span());
         self.check_empty_pattern(&it.pattern);
         walk_formal_parameter(self, it);
     }
@@ -169,8 +183,8 @@ impl<'a> Visit<'a> for BindingCollector<'a, '_> {
             self.sink.emit_span(
                 RuleScope::TsOnly,
                 "S4023",
-                "Remove this empty interface.",
-                it.span(),
+                "An empty interface is equivalent to `{}`.",
+                it.id.span(),
             );
         }
         for signature in signatures {
@@ -178,7 +192,7 @@ impl<'a> Visit<'a> for BindingCollector<'a, '_> {
                 self.sink.emit_span(
                     RuleScope::TsOnly,
                     "S4124",
-                    "Declare construct signatures with a type alias instead.",
+                    "Interfaces cannot be constructed, only classes.",
                     signature.span(),
                 );
             }
@@ -234,7 +248,7 @@ impl BindingCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S2137",
-                "Do not bind to this reserved global name.",
+                &format!("Do not use \"{name}\" to declare a variable - use another name."),
                 span,
             );
         }
@@ -298,18 +312,22 @@ impl BindingCollector<'_, '_> {
 
     /// `S3799`: zero-element destructuring patterns.
     fn check_empty_pattern(&mut self, pattern: &BindingPattern<'_>) {
-        let is_empty = match pattern {
-            BindingPattern::ObjectPattern(object_pattern) => {
-                object_pattern.properties.is_empty() && object_pattern.rest.is_none()
+        let kind = match pattern {
+            BindingPattern::ObjectPattern(object_pattern)
+                if object_pattern.properties.is_empty() && object_pattern.rest.is_none() =>
+            {
+                Some("object")
             }
-            BindingPattern::ArrayPattern(array_pattern) => array_pattern.elements.is_empty(),
-            _ => false,
+            BindingPattern::ArrayPattern(array_pattern) if array_pattern.elements.is_empty() => {
+                Some("array")
+            }
+            _ => None,
         };
-        if is_empty {
+        if let Some(kind) = kind {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S3799",
-                "Remove this empty destructuring pattern.",
+                &format!("Unexpected empty {kind} pattern."),
                 GetSpan::span(pattern),
             );
         }
@@ -336,7 +354,7 @@ impl BindingCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S2068",
-                "Remove this hard-coded credential.",
+                "Review this potentially hardcoded credential.",
                 literal.span,
             );
         } else if embeds_credential(text, &self.rules.password_words) {
@@ -351,7 +369,7 @@ impl BindingCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S2068",
-                "Review this potentially hard-coded credentials.",
+                "Review this potentially hardcoded credential.",
                 literal.span,
             );
         }
@@ -379,10 +397,14 @@ impl BindingCollector<'_, '_> {
             && self.override_depth == 0
             && self.constructor_depth == 0
         {
+            let name = self
+                .function_names
+                .last()
+                .map_or("anonymous", String::as_str);
             self.sink.emit_span(
                 RuleScope::Both,
                 "S1186",
-                "Add logic to this empty function or remove it.",
+                &format!("Unexpected empty function '{name}'."),
                 span,
             );
         }

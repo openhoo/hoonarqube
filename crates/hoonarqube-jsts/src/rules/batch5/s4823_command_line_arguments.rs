@@ -14,7 +14,7 @@ impl SecurityHotspotCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S4823",
-                "Make sure using command line arguments is safe here.",
+                "Make sure that command line arguments are used safely here.",
                 it.span(),
             );
         }

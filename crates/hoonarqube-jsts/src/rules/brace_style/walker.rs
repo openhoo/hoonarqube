@@ -50,7 +50,7 @@ impl BraceStyleCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S1105",
-                "Move the opening curly brace to the end of the previous line.",
+                "Opening curly brace does not appear on the same line as controlling statement.",
                 Span::new(brace_offset, brace_offset.saturating_add(1)),
             );
         }

@@ -15,23 +15,26 @@ pub(crate) fn check_s6303_rds_encryption(
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    const RDS_CREATORS: [&str; 2] = ["create_db_instance", "create_db_cluster"];
-    // CE only evaluates boto3 client calls it can resolve to a real binding;
-    // stub objects stay silent.
-    if !file_ctx.has_boto3_binding {
+    const RDS_CREATORS: [&str; 4] = [
+        "DatabaseCluster",
+        "DatabaseInstance",
+        "CfnDBCluster",
+        "CfnDBInstance",
+    ];
+    if !file_ctx.has_aws_cdk_import {
         return Vec::new();
     }
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
         let unencrypted = RDS_CREATORS.contains(&called_name(&call.func).unwrap_or_default())
-            && (!has_keyword(&call.arguments, "StorageEncrypted")
-                || keyword_value(&call.arguments, "StorageEncrypted")
+            && (!has_keyword(&call.arguments, "storage_encrypted")
+                || keyword_value(&call.arguments, "storage_encrypted")
                     .is_some_and(is_false_literal));
         if unencrypted {
             issues.push(issue_at(
                 "python:S6303",
-                "Encrypt this RDS resource at rest.",
-                call.range(),
+                "Omitting \"storage_encrypted\" and \"storage_encryption_key\" disables RDS encryption. Make sure it is safe here.",
+                call.func.range(),
                 index,
                 source,
             ));

@@ -1,7 +1,6 @@
 use crate::CsLanguage;
 use crate::cst::{issue, parameters_of, range_of};
 use crate::rules::linq_api::methods_grouped_by_name;
-use crate::rules::structure::name_anchor;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -27,11 +26,21 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 let ambiguous = lower <= upper
                     && (params_first != params_second || optional_first > 0 || optional_second > 0);
                 if ambiguous {
+                    let first_line = methods[first].start_position().row + 1;
+                    let anchor = parameters_of(methods[second])
+                        .into_iter()
+                        .find(|parameter| {
+                            let mut cursor = parameter.walk();
+                            parameter.named_children(&mut cursor).count() > 2
+                        })
+                        .unwrap_or(methods[second]);
                     issues.push(issue(
                         language,
                         "S3427",
-                        "Remove the ambiguity between these overloads.",
-                        range_of(name_anchor(methods[second]), source),
+                        format!(
+                            "This method signature overlaps the one defined on line {first_line}, the default parameter value can't be used."
+                        ),
+                        range_of(anchor, source),
                     ));
                 }
             }

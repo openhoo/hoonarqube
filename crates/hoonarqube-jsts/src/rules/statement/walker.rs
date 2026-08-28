@@ -59,7 +59,7 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
         self.sink.emit_span(
             RuleScope::Both,
             "S909",
-            "Remove this \"continue\" statement.",
+            "Unexpected use of continue statement.",
             it.span(),
         );
     }
@@ -68,7 +68,7 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
         self.sink.emit_span(
             RuleScope::Both,
             "S1119",
-            "Remove this labeled statement.",
+            "Refactor the code to remove this label and the need for it.",
             it.label.span(),
         );
         walk_labeled_statement(self, it);
@@ -78,7 +78,7 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
         self.sink.emit_span(
             RuleScope::JsOnly,
             "S1321",
-            "Remove this \"with\" statement.",
+            "Unexpected use of 'with' statement.",
             it.span(),
         );
     }
@@ -87,18 +87,14 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
         self.sink.emit_span(
             RuleScope::Both,
             "S1525",
-            "Remove this debugger statement.",
+            "Unexpected 'debugger' statement.",
             it.span,
         );
     }
 
     fn visit_empty_statement(&mut self, it: &EmptyStatement) {
-        self.sink.emit_span(
-            RuleScope::Both,
-            "S1116",
-            "Remove this empty statement.",
-            it.span,
-        );
+        self.sink
+            .emit_span(RuleScope::Both, "S1116", "Unnecessary semicolon.", it.span);
     }
 
     fn visit_block_statement(&mut self, it: &BlockStatement<'a>) {
@@ -154,7 +150,7 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
     fn visit_expression_statement(&mut self, it: &ExpressionStatement<'a>) {
         match &it.expression {
             Expression::NewExpression(new) => {
-                self.check_discarded_new(new);
+                self.check_discarded_new(new, it.span());
             }
             Expression::CallExpression(call) => {
                 self.check_discarded_pure_call(call);
@@ -176,8 +172,8 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S3696",
-                "Throw an Error object instead of this value.",
-                it.argument.span(),
+                "Expected an error object to be thrown.",
+                it.span(),
             );
         }
         walk_throw_statement(self, it);
@@ -201,11 +197,14 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
 
     fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
         if it.kind == VariableDeclarationKind::Var {
+            let span = it.declarations.first().map_or(it.span(), |declaration| {
+                Span::new(it.span.start, declaration.id.span().end)
+            });
             self.sink.emit_span(
                 RuleScope::Both,
                 "S3504",
-                "Replace \"var\" with \"let\" or \"const\".",
-                it.span(),
+                "Unexpected var, use let or const instead.",
+                span,
             );
         }
         walk_variable_declaration(self, it);
@@ -231,7 +230,7 @@ impl StatementCollector<'_, '_> {
         let interior_text = source_slice(self.source, interior);
         if interior_text.trim().is_empty() {
             self.sink
-                .emit_span(RuleScope::Both, "S108", "Remove this empty block.", span);
+                .emit_span(RuleScope::Both, "S108", "Empty block statement.", span);
         }
     }
 
@@ -244,7 +243,7 @@ impl StatementCollector<'_, '_> {
         self.sink.emit_span(
             RuleScope::Both,
             "S121",
-            "Wrap this statement in curly braces.",
+            "Expected { after 'if' condition.",
             body.span(),
         );
         if self.sink.index.covered_lines(body.span()).count() > 1 {
@@ -267,8 +266,8 @@ impl StatementCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S1066",
-                "Merge this nested \"if\" into the enclosing condition.",
-                block.body[0].span(),
+                "Merge this if statement with the nested one.",
+                Span::new(it.span.start, it.span.start.saturating_add(2)),
             );
         }
         if let Some(Statement::BlockStatement(block)) = &it.alternate
@@ -305,19 +304,20 @@ impl StatementCollector<'_, '_> {
     }
 
     /// `S1848` (discarded instantiation) and `S3984` (discarded `Error`).
-    fn check_discarded_new(&mut self, new: &NewExpression<'_>) {
+    fn check_discarded_new(&mut self, new: &NewExpression<'_>, _statement_span: Span) {
+        let name = source_slice(self.source, new.callee.span());
         self.sink.emit_span(
             RuleScope::Both,
             "S1848",
-            "Use this object instantiation or remove it.",
-            new.span(),
+            &format!("Either remove this useless object instantiation of \"{name}\" or use it."),
+            Span::new(new.span.start, new.callee.span().end),
         );
         if constructor_name(new).is_some_and(is_error_type_name) {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S3984",
-                "Throw this error instead of instantiating it.",
-                new.callee.span(),
+                "Throw this error or remove this useless statement.",
+                new.span(),
             );
         }
     }
@@ -359,7 +359,7 @@ impl StatementCollector<'_, '_> {
                     self.sink.emit_span(
                         RuleScope::Both,
                         "S2208",
-                        "Import only the module members you use.",
+                        "Explicitly import the specific member needed.",
                         specifier.span(),
                     );
                 }
@@ -391,7 +391,7 @@ impl StatementCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S3863",
-                "Merge this import with the adjacent import of the same module.",
+                &format!("'{}' import is duplicated.", it.source.value),
                 it.span(),
             );
         }
@@ -474,7 +474,7 @@ try { k(); l(); } catch { m(); n(); }
         assert_eq!(s122.len(), 6);
         assert!(
             s122.iter()
-                .all(|issue| issue.message == "Only one statement per line is allowed.")
+                .all(|issue| issue.message == "This line has 2 statements. Maximum allowed is 1.")
         );
         assert_eq!(
             s122[0].range,
@@ -545,11 +545,14 @@ switch (s) { case 1: let z = 2; }
 while (x) continue;
 ";
         let flagged = js_keys(source);
-        for key in ["S121", "S6660", "S1066", "S6836", "S909"] {
-            assert!(
-                count_key(&flagged, &format!("javascript:{key}")) >= 1,
-                "expected {key}"
-            );
+        for key in [
+            "javascript:S121",
+            "javascript:S6660",
+            "javascript:S1066",
+            "javascript:S6836",
+            "javascript:S909",
+        ] {
+            assert!(count_key(&flagged, key) >= 1, "expected {key}");
         }
     }
 

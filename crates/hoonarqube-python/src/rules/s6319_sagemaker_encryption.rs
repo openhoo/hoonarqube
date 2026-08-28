@@ -13,20 +13,18 @@ pub(crate) fn check_s6319_sagemaker_encryption(
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    // CE only evaluates boto3 client calls it can resolve to a real binding;
-    // stub objects stay silent.
-    if !file_ctx.has_boto3_binding {
+    if !file_ctx.has_aws_cdk_import {
         return Vec::new();
     }
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if called_name(&call.func) == Some("create_notebook_instance")
-            && !has_keyword(&call.arguments, "VolumeKmsKeyId")
+        if called_name(&call.func) == Some("CfnNotebookInstance")
+            && !has_keyword(&call.arguments, "kms_key_id")
         {
             issues.push(issue_at(
                 "python:S6319",
-                "Encrypt this SageMaker notebook instance at rest.",
-                call.range(),
+                "Omitting kms_key_id disables encryption of SageMaker notebook instances. Make sure it is safe here.",
+                call.func.range(),
                 index,
                 source,
             ));

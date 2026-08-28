@@ -9,7 +9,8 @@ use tree_sitter::Node;
 /// csharpsquid:S6420 — per-invocation client construction burns sockets and
 /// SDK handshake budget; clients are thread-safe and reusable.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    const AZURE_CLIENT_TYPES: [&str; 8] = [
+    const AZURE_CLIENT_TYPES: [&str; 9] = [
+        "HttpClient",
         "BlobContainerClient",
         "BlobClient",
         "BlobServiceClient",
@@ -31,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S6420",
-                "Create this client once and reuse it across invocations.",
+                "Reuse client instances rather than creating new ones with each function invocation.",
                 range_of(creation, source),
             )
         })

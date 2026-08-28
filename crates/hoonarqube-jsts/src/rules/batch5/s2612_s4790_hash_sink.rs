@@ -29,8 +29,8 @@ impl SecurityHotspotCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S4790",
-                &format!("Use a stronger hash algorithm than '{lowered}'."),
-                call.span(),
+                "Make sure this weak hash algorithm is not used in a sensitive context here.",
+                call.callee.span(),
             );
         }
     }

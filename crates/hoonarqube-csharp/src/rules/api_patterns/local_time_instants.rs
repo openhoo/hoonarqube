@@ -2,6 +2,7 @@ use super::support::local_now_stores;
 use crate::CsLanguage;
 use crate::cst::{issue, range_of};
 use crate::rules::dataflow::callable_blocks;
+use crate::rules::literals::declarator_initializer;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -14,11 +15,19 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     for body in callable_blocks(root) {
         for (name, store) in local_now_stores(body, source) {
             if records_instant(name) {
+                let anchor = match store.kind() {
+                    "assignment_expression" => store.child_by_field_name("right"),
+                    "variable_declarator" => store
+                        .child_by_field_name("name")
+                        .and_then(|declared| declarator_initializer(store, declared)),
+                    _ => None,
+                }
+                .unwrap_or(store);
                 issues.push(issue(
                     language,
                     "S6563",
-                    format!("Record '{name}' in UTC with 'DateTime.UtcNow'."),
-                    range_of(store, source),
+                    "Use UTC when recording DateTime instants",
+                    range_of(anchor, source),
                 ));
             }
         }

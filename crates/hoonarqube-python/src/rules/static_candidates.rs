@@ -36,7 +36,7 @@ pub(crate) fn check_static_candidates(
         if !self_used {
             issues.push(issue_at(
                 "python:S2325",
-                "Mark this method '@staticmethod'; it never uses 'self'.",
+                "Make this method static.",
                 site.name_range,
                 index,
                 source,

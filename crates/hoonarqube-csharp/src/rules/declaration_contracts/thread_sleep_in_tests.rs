@@ -16,7 +16,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S2925",
-                    "Remove this 'Thread.Sleep' from the test.",
+                    "Do not use 'Thread.Sleep()' in a test.",
                     range_of(invocation, source),
                 ));
             }

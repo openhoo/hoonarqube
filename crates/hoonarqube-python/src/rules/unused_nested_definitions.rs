@@ -4,7 +4,6 @@ use crate::engine::scope::ScopeKind;
 use crate::engine::scope::SymbolTable;
 use crate::engine::scope::definition_is_used;
 use crate::support::is_dunder_name;
-use crate::support::is_private_name;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
@@ -24,24 +23,17 @@ pub(crate) fn check_unused_nested_definitions(
         {
             continue;
         }
-        let (key, message) = match site.flavor {
-            DefFlavor::Function if is_private_name(&site.name) => (
-                "python:S5603",
-                format!(
-                    "Remove this unused private nested function '{}'.",
-                    site.name
-                ),
-            ),
-            DefFlavor::Function => (
-                "python:S5603",
-                format!("Remove this unused nested function '{}'.", site.name),
-            ),
-            DefFlavor::Class => (
-                "python:S5603",
-                format!("Remove this unused nested class '{}'.", site.name),
-            ),
+        let message = match site.flavor {
+            DefFlavor::Function => "Remove this unused function declaration.",
+            DefFlavor::Class => "Remove this unused class declaration.",
         };
-        issues.push(issue_at(key, &message, site.name_range, index, source));
+        issues.push(issue_at(
+            "python:S5603",
+            message,
+            site.name_range,
+            index,
+            source,
+        ));
     }
     issues
 }

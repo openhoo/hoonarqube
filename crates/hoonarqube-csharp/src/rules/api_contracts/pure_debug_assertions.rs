@@ -1,5 +1,7 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
+use crate::cst::{
+    ancestors_of, collect_kinds, is_error_tainted, issue, node_text, range_from_byte_offsets,
+};
 use crate::rules::expressions::{invocation_arguments, invocation_targets};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -11,39 +13,65 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(call) || !invocation_targets(call, source, Some("Debug"), &["Assert"]) {
             continue;
         }
-        let impure = invocation_arguments(call)
-            .iter()
-            .any(|argument| argument_has_side_effects(*argument, source));
-        if impure {
+        for side_effect in invocation_arguments(call)
+            .into_iter()
+            .flat_map(|argument| argument_side_effects(argument, source))
+        {
             issues.push(issue(
                 language,
                 "S3346",
-                "Keep side effects out of 'Debug.Assert'.",
-                range_of(call, source),
+                "Expressions used in 'Debug.Assert' should not produce side effects.",
+                assert_argument_range(side_effect, source),
             ));
         }
     }
     issues
 }
 
+fn assert_argument_range(side_effect: Node<'_>, source: &str) -> hoonarqube_ir::Range {
+    let bytes = source.as_bytes();
+    let start = side_effect.start_byte();
+    let end = side_effect.end_byte();
+    let expanded_start = if start > 0 && bytes.get(start - 1) == Some(&b'(') {
+        start - 1
+    } else {
+        start
+    };
+    let expanded_end = if bytes.get(end) == Some(&b')') {
+        end + 1
+    } else {
+        end
+    };
+    range_from_byte_offsets(expanded_start, expanded_end, source)
+}
+
 /// Whether the argument subtree computes something (`f()`, `x++`, `a = b`).
-fn argument_has_side_effects(argument: Node<'_>, source: &str) -> bool {
-    !collect_kinds(
+fn argument_side_effects<'a>(argument: Node<'a>, source: &str) -> Vec<Node<'a>> {
+    let mut side_effects = collect_kinds(
         argument,
         &["invocation_expression", "assignment_expression"],
-    )
-    .is_empty()
-        || collect_kinds(
+    );
+    side_effects.extend(
+        collect_kinds(
             argument,
             &["prefix_unary_expression", "postfix_unary_expression"],
         )
         .into_iter()
-        .any(|unary| {
+        .filter(|unary| {
             let mut cursor = unary.walk();
             unary
                 .children(&mut cursor)
                 .any(|child| !child.is_named() && matches!(node_text(child, source), "++" | "--"))
+        }),
+    );
+    let side_effect_ids: std::collections::HashSet<usize> =
+        side_effects.iter().map(tree_sitter::Node::id).collect();
+    side_effects
+        .into_iter()
+        .filter(|node| {
+            !ancestors_of(*node).any(|ancestor| side_effect_ids.contains(&ancestor.id()))
         })
+        .collect()
 }
 
 #[cfg(test)]

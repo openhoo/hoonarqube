@@ -1,32 +1,43 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
-use crate::rules::declaration_contracts::enclosing_method;
+use crate::rules::expressions::binary_operands;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
-/// csharpsquid:S3247 — repeated casts of one expression invite drift; cast
-/// once and reuse the result.
+/// csharpsquid:S3247 — a type check followed by the same cast should use a
+/// declaration pattern.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    let mut seen: std::collections::BTreeMap<(usize, String, String), u32> =
-        std::collections::BTreeMap::new();
     let mut issues = Vec::new();
-    for cast in collect_kinds(root, &["cast_expression"]) {
-        if is_error_tainted(cast) {
+    for conditional in collect_kinds(root, &["if_statement"]) {
+        if is_error_tainted(conditional) {
             continue;
         }
-        let Some((target_type, operand)) = cast_fields(cast, source) else {
+        let Some(condition) = conditional.child_by_field_name("condition") else {
             continue;
         };
-        let scope = enclosing_method(cast).map_or(0, |method| method.id());
-        let key = (scope, target_type, operand);
-        let count = seen.entry(key).or_insert(0);
-        *count += 1;
-        if *count > 1 {
+        if condition.kind() != "is_expression" {
+            continue;
+        }
+        let Some((checked, checked_type)) = binary_operands(condition) else {
+            continue;
+        };
+        let Some(body) = conditional.child_by_field_name("consequence") else {
+            continue;
+        };
+        let repeats_cast = collect_kinds(body, &["cast_expression"])
+            .into_iter()
+            .any(|cast| {
+                cast_fields(cast, source).is_some_and(|(target_type, operand)| {
+                    target_type == node_text(checked_type, source)
+                        && operand == node_text(checked, source)
+                })
+            });
+        if repeats_cast {
             issues.push(issue(
                 language,
                 "S3247",
-                "Cast this expression once and store the result.",
-                range_of(cast, source),
+                "Replace this type-check-and-cast sequence to use pattern matching.",
+                range_of(condition, source),
             ));
         }
     }
@@ -49,24 +60,23 @@ mod tests {
     use crate::tests::{analyze_default, with_key};
 
     #[test]
-    fn s3247_reports_second_and_third_repeats_per_scope() {
+    fn s3247_reports_type_check_followed_by_cast() {
         let report = analyze_default(
-            "class A\n{\n    void M(object item)\n    {\n        var a = (Customer)item;\n        var b = (Customer)item;\n        var c = (Customer)item;\n    }\n    void N(object item)\n    {\n        var d = (Customer)item;\n    }\n}\n",
-        );
-        let flagged = with_key(&report, "csharpsquid:S3247");
-        assert_eq!(flagged.len(), 2);
-        assert_eq!(flagged[0].range.start.line, 6); // document line 5
-        assert_eq!(flagged[1].range.start.line, 7); // document line 6
-    }
-
-    #[test]
-    fn s3247_trims_operand_whitespace_when_matching() {
-        let report = analyze_default(
-            "class A\n{\n    void M(object item)\n    {\n        var a = (Customer)item;\n        var b = (Customer) item;\n    }\n}\n",
+            "class A\n{\n    void M(object item)\n    {\n        if (item is string)\n        {\n            var a = (string)item;\n        }\n    }\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S3247");
         assert_eq!(flagged.len(), 1);
-        assert_eq!(flagged[0].range.start.line, 6); // document line 5
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s3247_matches_cast_operand_whitespace() {
+        let report = analyze_default(
+            "class A\n{\n    void M(object item)\n    {\n        if (item is string)\n        {\n            var a = (string) item;\n        }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3247");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
     }
 
     #[test]

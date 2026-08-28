@@ -42,16 +42,26 @@ pub(crate) fn check_keyword_parentheses(
             continue;
         }
         let keyword = &source[pair[0].range()];
+        let close = matching_close(&significant, open + 1);
+        let issue_range = close.map_or_else(
+            || pair[1].range(),
+            |close| {
+                ruff_text_size::TextRange::new(
+                    pair[1].range().start(),
+                    significant[close].range().end(),
+                )
+            },
+        );
         let mut issue = Issue {
             rule_key: "python:S1721".to_string(),
-            message: format!("Remove the parentheses after '{keyword}'."),
-            range: to_range(pair[0].range(), index, source),
+            message: format!("Remove the parentheses after this \"{keyword}\" keyword."),
+            range: to_range(issue_range, index, source),
             fix: None,
         };
         // `open` is the keyword's index, so the opening paren sits at
         // `open + 1`; an empty interior (`return()`) would close at
         // `open + 2` and must stay fix-less.
-        if let Some(close) = matching_close(&significant, open + 1)
+        if let Some(close) = close
             && close > open + 2
         {
             // The rule requires the opening parenthesis to touch the
@@ -135,7 +145,7 @@ mod tests {
 
         let del_issue = issues
             .iter()
-            .find(|issue| issue.message.contains("'del'"))
+            .find(|issue| issue.message.contains("\"del\""))
             .expect("del finding");
         let fix = del_issue.fix.as_ref().expect("del fix");
         let refs: Vec<&hoonarqube_ir::TextEdit> = fix.edits.iter().collect();
@@ -145,7 +155,7 @@ mod tests {
         // Unparenthesizing an empty tuple changes semantics: stay fix-less.
         let empty_tuple = issues
             .iter()
-            .find(|issue| issue.message.contains("'return'"))
+            .find(|issue| issue.message.contains("\"return\""))
             .expect("return finding");
         assert!(empty_tuple.fix.is_none(), "return() must stay fix-less");
     }

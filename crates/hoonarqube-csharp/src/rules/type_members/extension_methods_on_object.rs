@@ -27,7 +27,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S4225",
-                "Refactor this extension method on 'object' to extend a more specific type.",
+                "Refactor this extension to extend a more concrete type.",
                 range_of(name_node, source),
             )
         })

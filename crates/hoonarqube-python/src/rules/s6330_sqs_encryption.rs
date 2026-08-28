@@ -13,20 +13,19 @@ pub(crate) fn check_s6330_sqs_encryption(
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    // CE only evaluates boto3 client calls it can resolve to a real binding;
-    // stub objects stay silent.
-    if !file_ctx.has_boto3_binding {
+    if !file_ctx.has_aws_cdk_import {
         return Vec::new();
     }
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if called_name(&call.func) == Some("create_queue")
-            && !has_keyword(&call.arguments, "KmsMasterQueueId")
+        if matches!(called_name(&call.func), Some("Queue" | "CfnQueue"))
+            && !has_keyword(&call.arguments, "encryption")
+            && !has_keyword(&call.arguments, "kms_master_key_id")
         {
             issues.push(issue_at(
                 "python:S6330",
-                "Encrypt this SQS queue with a KMS key.",
-                call.range(),
+                "Omitting \"kms_master_key_id\" disables SQS queues encryption. Make sure it is safe here.",
+                call.func.range(),
                 index,
                 source,
             ));

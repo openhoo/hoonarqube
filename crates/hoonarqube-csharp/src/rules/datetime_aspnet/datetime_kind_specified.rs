@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S6562",
-                "Specify the 'DateTimeKind' when constructing this value.",
+                "Provide the \"DateTimeKind\" when creating this object.",
                 range_of(creation, source),
             ));
         }

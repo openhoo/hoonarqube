@@ -14,11 +14,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
         let (initializer, _, update) = for_clauses(for_statement);
         if initializer.is_none() && update.is_none() {
+            let keyword = collect_kinds(for_statement, &["for"])
+                .into_iter()
+                .next()
+                .unwrap_or(for_statement);
             issues.push(issue(
                 language,
                 "S1264",
-                "Convert this 'for' into a 'while'.",
-                range_of(for_statement, source),
+                "Replace this 'for' loop with a 'while' loop.",
+                range_of(keyword, source),
             ));
         }
     }

@@ -15,11 +15,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             .take_while(|ancestor| !CALLABLE_BODY_OWNER_KINDS.contains(&ancestor.kind()))
             .any(|ancestor| ancestor.kind() == "switch_statement");
         if nested_in_switch {
+            let keyword = collect_kinds(switch_statement, &["switch"])
+                .into_iter()
+                .next()
+                .unwrap_or(switch_statement);
             issues.push(issue(
                 language,
                 "S1821",
-                "Refactor this nested 'switch' into a separate method.",
-                range_of(switch_statement, source),
+                "Refactor the code to eliminate this nested 'switch'.",
+                range_of(keyword, source),
             ));
         }
     }

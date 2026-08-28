@@ -1,13 +1,13 @@
 // Family walker for 'flow_nesting' (generated).
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
-use crate::support::{IssueSink, LineIndex, RuleScope};
+use crate::support::{IssueSink, LineIndex, RuleScope, property_key_name};
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     ArrowFunctionExpression, BreakStatement, CatchClause, ContinueStatement, Declaration,
     DoWhileStatement, ExportDefaultDeclarationKind, Expression, ForInStatement, ForOfStatement,
-    ForStatement, FormalParameters, IfStatement, MethodDefinition, ReturnStatement, StaticBlock,
-    SwitchStatement, ThrowStatement, TryStatement, WhileStatement,
+    ForStatement, FormalParameters, Function, IfStatement, MethodDefinition, ReturnStatement,
+    StaticBlock, SwitchStatement, ThrowStatement, TryStatement, WhileStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
@@ -20,6 +20,7 @@ use oxc_span::{GetSpan, Span};
 
 fn check_flow_nesting_rules(
     program: &oxc_ast::ast::Program<'_>,
+    source: &str,
     index: &LineIndex,
     language: JstsLanguage,
 ) -> Vec<Issue> {
@@ -29,6 +30,7 @@ fn check_flow_nesting_rules(
             language,
             issues: Vec::new(),
         },
+        source,
         flow_depth: 0,
         finally_depth: 0,
     };
@@ -38,26 +40,26 @@ fn check_flow_nesting_rules(
 
 /// `S107`, `S134`, and `S1143` in one traversal. Tracks control-flow nesting
 /// depth and `finally` membership, both reset at every function boundary.
-struct ControlFlowNestingCollector<'index> {
+struct ControlFlowNestingCollector<'source, 'index> {
     sink: IssueSink<'index>,
+    source: &'source str,
     /// Number of control-flow constructs enclosing the current node (`S134`).
     flow_depth: u32,
     /// > 0 while walking inside a `finally` clause (`S1143`).
     finally_depth: u32,
 }
 
-impl ControlFlowNestingCollector<'_> {
-    fn check_parameter_count(&mut self, params: &FormalParameters<'_>) {
+impl ControlFlowNestingCollector<'_, '_> {
+    fn check_parameter_count(&mut self, params: &FormalParameters<'_>, name: &str, anchor: Span) {
         let count = params.items.len() + usize::from(params.rest.is_some());
         if count > MAX_FUNCTION_PARAMETERS {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S107",
                 &format!(
-                    "This function has {count} parameters, which is greater \
-                     than the {MAX_FUNCTION_PARAMETERS} authorized."
+                    "Function '{name}' has too many parameters ({count}). Maximum allowed is {MAX_FUNCTION_PARAMETERS}."
                 ),
-                params.span(),
+                anchor,
             );
         }
     }
@@ -80,14 +82,23 @@ impl ControlFlowNestingCollector<'_> {
     /// whose own nesting level exceeds `MAX_CONTROL_FLOW_NESTING`.
     fn check_nesting(&mut self, span: Span) {
         if self.flow_depth >= MAX_CONTROL_FLOW_NESTING {
+            let text = crate::support::source_slice(self.source, span);
+            let keyword_len = ["switch", "while", "catch", "for", "try", "if", "do"]
+                .into_iter()
+                .find(|keyword| text.starts_with(keyword))
+                .map_or(0, str::len);
             self.sink.emit_span(
                 RuleScope::Both,
                 "S134",
                 &format!(
                     "Refactor this code to not nest more than \
-                     {MAX_CONTROL_FLOW_NESTING} control flow statements."
+                     {MAX_CONTROL_FLOW_NESTING} if/for/while/switch/try statements."
                 ),
-                span,
+                Span::new(
+                    span.start,
+                    span.start
+                        .saturating_add(u32::try_from(keyword_len).unwrap_or_default()),
+                ),
             );
         }
     }
@@ -97,7 +108,7 @@ impl ControlFlowNestingCollector<'_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S1143",
-                "Remove this jump statement from this finally block.",
+                "Unsafe usage of ReturnStatement.",
                 span,
             );
         }
@@ -107,11 +118,11 @@ impl ControlFlowNestingCollector<'_> {
     /// subtree.
     fn function_scope(
         &mut self,
-        params: Option<&FormalParameters<'_>>,
+        function: Option<(&FormalParameters<'_>, &str, Span)>,
         walk_children: impl FnOnce(&mut Self),
     ) {
-        if let Some(params) = params {
-            self.check_parameter_count(params);
+        if let Some((params, name, anchor)) = function {
+            self.check_parameter_count(params, name, anchor);
         }
         let saved = self.enter_function();
         walk_children(self);
@@ -119,25 +130,36 @@ impl ControlFlowNestingCollector<'_> {
     }
 }
 
-impl<'a> Visit<'a> for ControlFlowNestingCollector<'_> {
+impl<'a> Visit<'a> for ControlFlowNestingCollector<'_, '_> {
     fn visit_expression(&mut self, it: &Expression<'a>) {
         if let Expression::FunctionExpression(function) = it {
-            self.function_scope(Some(&function.params), |collector| {
-                walk_expression(collector, it);
-            });
+            let name = function
+                .id
+                .as_ref()
+                .map_or("anonymous", |id| id.name.as_str());
+            self.function_scope(
+                Some((&function.params, name, function_anchor(function))),
+                |collector| {
+                    walk_expression(collector, it);
+                },
+            );
         } else {
             walk_expression(self, it);
         }
     }
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
-        self.function_scope(Some(&it.params), |collector| {
-            walk_arrow_function_expression(collector, it);
-        });
+        self.function_scope(
+            Some((&it.params, "anonymous", it.params.span())),
+            |collector| {
+                walk_arrow_function_expression(collector, it);
+            },
+        );
     }
 
     fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
-        self.function_scope(Some(&it.value.params), |collector| {
+        let name = property_key_name(&it.key).unwrap_or("method");
+        self.function_scope(Some((&it.value.params, name, it.key.span())), |collector| {
             walk_method_definition(collector, it);
         });
     }
@@ -150,9 +172,16 @@ impl<'a> Visit<'a> for ControlFlowNestingCollector<'_> {
 
     fn visit_declaration(&mut self, it: &Declaration<'a>) {
         if let Declaration::FunctionDeclaration(function) = it {
-            self.function_scope(Some(&function.params), |collector| {
-                walk_declaration(collector, it);
-            });
+            let name = function
+                .id
+                .as_ref()
+                .map_or("anonymous", |id| id.name.as_str());
+            self.function_scope(
+                Some((&function.params, name, function_anchor(function))),
+                |collector| {
+                    walk_declaration(collector, it);
+                },
+            );
         } else {
             walk_declaration(self, it);
         }
@@ -160,9 +189,16 @@ impl<'a> Visit<'a> for ControlFlowNestingCollector<'_> {
 
     fn visit_export_default_declaration_kind(&mut self, it: &ExportDefaultDeclarationKind<'a>) {
         if let ExportDefaultDeclarationKind::FunctionDeclaration(function) = it {
-            self.function_scope(Some(&function.params), |collector| {
-                walk_export_default_declaration_kind(collector, it);
-            });
+            let name = function
+                .id
+                .as_ref()
+                .map_or("anonymous", |id| id.name.as_str());
+            self.function_scope(
+                Some((&function.params, name, function_anchor(function))),
+                |collector| {
+                    walk_export_default_declaration_kind(collector, it);
+                },
+            );
         } else {
             walk_export_default_declaration_kind(self, it);
         }
@@ -250,13 +286,19 @@ impl<'a> Visit<'a> for ControlFlowNestingCollector<'_> {
     }
 }
 
-impl ControlFlowNestingCollector<'_> {
+impl ControlFlowNestingCollector<'_, '_> {
     fn nested_flow(&mut self, span: Span, walk_children: impl FnOnce(&mut Self)) {
         self.check_nesting(span);
         self.flow_depth += 1;
         walk_children(self);
         self.flow_depth -= 1;
     }
+}
+
+fn function_anchor(function: &Function<'_>) -> Span {
+    function.id.as_ref().map_or(function.params.span(), |id| {
+        Span::new(function.span.start, id.span().end)
+    })
 }
 
 /// `S134`: control-flow statements nested deeper than this are flagged
@@ -268,7 +310,7 @@ const MAX_CONTROL_FLOW_NESTING: u32 = 3;
 const MAX_FUNCTION_PARAMETERS: usize = 7;
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_flow_nesting_rules(ctx.program, ctx.index, ctx.language)
+    check_flow_nesting_rules(ctx.program, ctx.source, ctx.index, ctx.language)
 }
 
 #[cfg(test)]
@@ -294,9 +336,9 @@ mod tests {
         assert_eq!(s107.len(), 1);
         assert_eq!(
             s107[0].message,
-            "This function has 8 parameters, which is greater than the 7 authorized."
+            "Function 'f' has too many parameters (8). Maximum allowed is 7."
         );
-        assert_eq!(s107[0].range.start, pos(1, 10));
+        assert_eq!(s107[0].range.start, pos(1, 0));
 
         // A rest parameter counts as one parameter toward the limit.
         assert_eq!(

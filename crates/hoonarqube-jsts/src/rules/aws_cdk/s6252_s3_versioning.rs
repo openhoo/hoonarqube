@@ -1,6 +1,6 @@
 // Rule module s6252_s3_versioning.
-use super::shared::{BoolPropCheck, CdkFile, required_bool_prop};
-use crate::support::IssueSink;
+use super::shared::{CdkFile, property_span, required_prop};
+use crate::support::{IssueSink, RuleScope};
 use oxc_ast::ast::NewExpression;
 
 const OMITTED: &str =
@@ -18,18 +18,21 @@ pub(crate) fn check_s6252_s3_versioning(
     sink: &mut IssueSink,
 ) {
     if file.is_cdk(&new_expression.callee, "aws_cdk_lib.aws_s3.Bucket") {
-        required_bool_prop(
-            file,
-            new_expression,
-            2,
-            BoolPropCheck {
-                key: "versioned",
-                rule: "S6252",
-                omitted: OMITTED,
-                disabled: UNVERSIONED,
-            },
-            sink,
-        );
+        let property_span = file
+            .props_arg(&new_expression.arguments, 2)
+            .view()
+            .and_then(|props| property_span(props, "versioned"));
+        if let Some(value) =
+            required_prop(file, new_expression, 2, "versioned", "S6252", OMITTED, sink)
+            && file.value_bool(&value) == Some(false)
+        {
+            sink.emit_span(
+                RuleScope::Both,
+                "S6252",
+                UNVERSIONED,
+                property_span.unwrap_or_else(|| value.span()),
+            );
+        }
     }
 }
 

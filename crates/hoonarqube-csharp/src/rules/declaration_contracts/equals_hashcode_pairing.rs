@@ -22,13 +22,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             };
             if overrides.contains(lone)
                 && !overrides.contains(partner)
-                && let Some(method) = member_named(type_node, "method_declaration", lone, source)
+                && member_named(type_node, "method_declaration", lone, source).is_some()
             {
+                let type_name = type_node.child_by_field_name("name").unwrap_or(type_node);
                 issues.push(issue(
                     language,
                     "S1206",
-                    format!("Override 'Equals' and 'GetHashCode' together; '{lone}' is alone."),
-                    range_of(method, source),
+                    format!(
+                        "This {} overrides '{lone}' and should therefore also override '{partner}'.",
+                        if type_node.kind() == "struct_declaration" { "struct" } else { "class" }
+                    ),
+                    range_of(type_name, source),
                 ));
             }
         }
@@ -46,7 +50,7 @@ mod tests {
             analyze_default("struct Key\n{\n    public override int GetHashCode() => 7;\n}\n");
         let flagged = with_key(&report, "csharpsquid:S1206");
         assert_eq!(flagged.len(), 1);
-        assert!(flagged[0].message.contains("GetHashCode' is alone"));
+        assert!(flagged[0].message.contains("also override 'Equals'"));
     }
 
     #[test]

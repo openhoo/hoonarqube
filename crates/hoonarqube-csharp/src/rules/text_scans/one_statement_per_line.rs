@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{issue, range_of, walk_all};
+use crate::cst::{issue, range_from_byte_offsets, walk_all};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -27,12 +27,14 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     });
     let mut issues = Vec::new();
     for row_statements in statements_per_row.values() {
-        for statement in row_statements.iter().skip(1) {
+        if let (Some(first), Some(last)) = (row_statements.first(), row_statements.last())
+            && row_statements.len() > 1
+        {
             issues.push(issue(
                 language,
                 "S122",
-                "Put each statement on its own line.",
-                range_of(*statement, source),
+                "Reformat the code to have only one statement per line.",
+                range_from_byte_offsets(first.start_byte(), last.end_byte(), source),
             ));
         }
     }

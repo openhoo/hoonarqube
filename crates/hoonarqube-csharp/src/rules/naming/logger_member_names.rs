@@ -42,6 +42,7 @@ pub(crate) fn check(
                     let mut declarator_cursor = declaration.walk();
                     declaration
                         .children(&mut declarator_cursor)
+                        .filter(|child| child.kind() == "variable_declarator")
                         .collect::<Vec<Node>>()
                 })
                 .filter_map(|declarator| declarator.child_by_field_name("name"))
@@ -56,7 +57,12 @@ pub(crate) fn check(
                 language,
                 "S6669",
                 format!(
-                    "Rename \"{name_text}\" to match the regular expression \"{}\".",
+                    "Rename this {} '{name_text}' to match the regular expression '{}'.",
+                    if kind == "field_declaration" {
+                        "field"
+                    } else {
+                        "property"
+                    },
                     options.logger_name_format
                 ),
                 range_of(name, source),

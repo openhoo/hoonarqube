@@ -28,7 +28,10 @@ pub(crate) fn check_suite(
         for stmt in &body[start + 1..end] {
             issues.push(Issue {
                 rule_key: format!("{}:S122", language.prefix()),
-                message: "Only one statement per line is allowed.".to_string(),
+                message: format!(
+                    "This line has {} statements. Maximum allowed is 1.",
+                    end - start
+                ),
                 range: index.range(stmt.span()),
                 fix: None,
             });

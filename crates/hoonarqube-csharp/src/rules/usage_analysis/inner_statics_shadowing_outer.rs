@@ -26,10 +26,7 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
                 issues.push(issue(
                     language,
                     "S3218",
-                    format!(
-                        "Rename '{}'; it hides a static member of an outer type.",
-                        member.name
-                    ),
+                    "Rename this field to not shadow the outer class' member with the same name.",
                     range_of(member.anchor, source),
                 ));
             }

@@ -43,7 +43,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S3215",
-                "Do not cast this interface instance to a concrete type; use its interface or a generic parameter.",
+                "Remove this cast and edit the interface to add the missing functionality.",
                 range_of(cast, source),
             )
         })

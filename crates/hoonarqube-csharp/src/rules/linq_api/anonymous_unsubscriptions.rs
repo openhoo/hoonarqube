@@ -1,6 +1,6 @@
 use super::support::child_operator;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, range_from_byte_offsets};
 use crate::rules::expressions::binary_operands;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -21,11 +21,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             })
         })
         .map(|assignment| {
+            let value = binary_operands(assignment).map_or(assignment, |(_, value)| value);
+            let operator_start = source[assignment.start_byte()..value.start_byte()]
+                .rfind("-=")
+                .map_or(value.start_byte(), |offset| {
+                    assignment.start_byte() + offset
+                });
             issue(
                 language,
                 "S3244",
-                "Unsubscribe with the original delegate, not a new anonymous one.",
-                range_of(assignment, source),
+                "Unsubscribe with the same delegate that was used for the subscription.",
+                range_from_byte_offsets(operator_start, value.end_byte(), source),
             )
         })
         .collect()

@@ -24,7 +24,7 @@ pub(crate) fn check_s5708_excepting_non_exceptions(
                 {
                     issues.push(issue_at(
                         "python:S5708",
-                        "Catch an exception derived from BaseException.",
+                        "Change this expression to be a class deriving from BaseException or a tuple of such classes.",
                         handled.range(),
                         index,
                         source,
@@ -34,4 +34,18 @@ pub(crate) fn check_s5708_excepting_non_exceptions(
         }
     }
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5708_flags_literal_except_targets() {
+        let bad = scan("try:\n    work()\nexcept 42:\n    recover()\n");
+        assert_eq!(findings(&bad, "python:S5708").len(), 1);
+
+        let good = scan("try:\n    work()\nexcept ValueError:\n    recover()\n");
+        assert!(findings(&good, "python:S5708").is_empty());
+    }
 }

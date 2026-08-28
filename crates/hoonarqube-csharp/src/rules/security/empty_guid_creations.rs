@@ -19,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S4581",
-                "Generate a new GUID instead of relying on the empty value.",
+                "Use 'Guid.NewGuid()' or 'Guid.Empty' or add arguments to this GUID instantiation.",
                 range_of(creation, source),
             ));
         }

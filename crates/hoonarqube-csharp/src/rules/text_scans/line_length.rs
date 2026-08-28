@@ -13,8 +13,8 @@ pub(crate) fn check(source: &str, language: CsLanguage, options: &AnalyzerOption
             issues.push(Issue {
                 rule_key: rule_key.clone(),
                 message: format!(
-                    "This line exceeds the maximum allowed length of {} characters.",
-                    options.maximum_line_length
+                    "Split this {length} characters long line (which is greater than {} authorized).",
+                    options.maximum_line_length,
                 ),
                 range: hoonarqube_ir::Range {
                     start: hoonarqube_ir::Pos {

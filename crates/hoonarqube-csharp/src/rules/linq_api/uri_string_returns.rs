@@ -1,35 +1,34 @@
-use super::support::methods_grouped_by_name;
 use crate::CsLanguage;
-use crate::cst::{issue, range_of, simple_name};
+use crate::cst::{collect_kinds, issue, node_text, range_of, simple_name};
 use crate::rules::security::return_type_text;
-use crate::rules::structure::name_anchor;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
-/// csharpsquid:S3995 — string returns beside a sibling `System.Uri`
-/// overload lose structure.
+/// csharpsquid:S3995 — URI-shaped method names should return `System.Uri`, not
+/// a string.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for methods in methods_grouped_by_name(root, source).into_values() {
-        if methods.len() < 2 {
+    for method in collect_kinds(root, &["method_declaration"]) {
+        let Some(name) = method.child_by_field_name("name") else {
+            continue;
+        };
+        let method_name = node_text(name, source).to_lowercase();
+        if simple_name(return_type_text(method, source)) != "string"
+            || !(method_name.contains("uri")
+                || method_name.contains("urn")
+                || method_name.contains("url"))
+        {
             continue;
         }
-        let returns_uri = methods
-            .iter()
-            .any(|method| simple_name(return_type_text(*method, source)) == "Uri");
-        if !returns_uri {
+        let Some(return_type) = method.child_by_field_name("returns") else {
             continue;
-        }
-        for method in &methods {
-            if simple_name(return_type_text(*method, source)) == "string" {
-                issues.push(issue(
-                    language,
-                    "S3995",
-                    "Return a 'System.Uri' instead of a string here.",
-                    range_of(name_anchor(*method), source),
-                ));
-            }
-        }
+        };
+        issues.push(issue(
+            language,
+            "S3995",
+            "Change this return type to 'System.Uri'.",
+            range_of(return_type, source),
+        ));
     }
     issues
 }
@@ -47,23 +46,20 @@ mod tests {
     }
 
     #[test]
-    fn s3995_flags_only_the_string_return_of_a_uri_group() {
+    fn s3995_flags_uri_named_string_return() {
         let report = analyze_default(
-            "class C\n{\n    public Uri Load() { return null!; }\n    public string Load() { return \"\"; }\n    public int Save() { return 0; }\n    public string Save() { return \"\"; }\n}\n",
+            "class C\n{\n    public string GetParentUri() { return \"\"; }\n    public string Save() { return \"\"; }\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S3995");
         assert_eq!(flagged.len(), 1);
-        assert_eq!(flagged[0].range.start.line, 4); // document line 3
+        assert_eq!(flagged[0].range.start.line, 3);
     }
 
     #[test]
-    fn s3995_accepts_namespace_qualified_uri_siblings() {
-        let report = analyze_default(
-            "class C\n{\n    public System.Uri Load() { return null!; }\n    public string Load() { return \"\"; }\n}\n",
-        );
-        let flagged = with_key(&report, "csharpsquid:S3995");
-        assert_eq!(flagged.len(), 1);
-        assert_eq!(flagged[0].range.start.line, 4); // document line 3
+    fn s3995_uri_return_type_is_clean() {
+        let report =
+            analyze_default("class C\n{\n    public System.Uri GetUri() { return null!; }\n}\n");
+        assert!(with_key(&report, "csharpsquid:S3995").is_empty());
     }
 
     #[test]

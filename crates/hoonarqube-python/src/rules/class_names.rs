@@ -20,8 +20,11 @@ pub(crate) fn check_class_names(
         if !matches_class_name(class.name.as_str()) {
             issues.push(issue_at(
                 "python:S101",
-                "Rename this class to match the regular expression \
-                     '^_?([A-Z_][a-zA-Z0-9]*|[a-z_][a-z0-9_]*)$'.",
+                &format!(
+                    "Rename class \"{}\" to match the regular expression \
+                     ^_?([A-Z_][a-zA-Z0-9]*|[a-z_][a-z0-9_]*)$.",
+                    class.name
+                ),
                 class.name.range(),
                 index,
                 source,

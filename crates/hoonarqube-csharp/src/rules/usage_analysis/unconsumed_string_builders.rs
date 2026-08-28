@@ -53,10 +53,7 @@ pub(crate) fn check(
         issues.push(issue(
             language,
             "S3063",
-            format!(
-                "The content of StringBuilder '{}' is never consumed.",
-                node_text(name, source)
-            ),
+            "Remove this \"StringBuilder\"; \".ToString()\" is never called.",
             range_of(declarator, source),
         ));
     }
@@ -115,7 +112,7 @@ mod tests {
         assert_eq!(flagged[0].range.start.line, 5);
         assert_eq!(
             flagged[0].message,
-            "The content of StringBuilder 'message' is never consumed."
+            "Remove this \"StringBuilder\"; \".ToString()\" is never called."
         );
     }
 

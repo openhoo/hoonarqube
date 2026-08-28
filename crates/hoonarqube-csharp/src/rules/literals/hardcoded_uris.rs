@@ -17,7 +17,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S1075",
-                "Refactor your code not to use hard-coded URLs.",
+                "Refactor your code not to use hardcoded absolute paths or URIs.",
                 range_of(literal, source),
             )
         })

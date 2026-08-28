@@ -33,17 +33,18 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             };
             candidate.into_iter()
         })
-        .filter_map(|member| member.child_by_field_name("name"))
-        .filter(|name| !node_text(*name, source).eq_ignore_ascii_case("none"))
-        .map(|name| {
+        .filter(|member| {
+            member
+                .child_by_field_name("name")
+                .is_some_and(|name| !node_text(name, source).eq_ignore_ascii_case("none"))
+        })
+        .map(|member| {
+            let name = member.child_by_field_name("name").unwrap_or(member);
             issue(
                 language,
                 "S2346",
-                format!(
-                    "Name this zero-valued '[Flags]' member '{}' 'None' instead.",
-                    node_text(name, source)
-                ),
-                range_of(name, source),
+                format!("Rename '{}' to 'None'.", node_text(name, source)),
+                range_of(member, source),
             )
         })
         .collect()

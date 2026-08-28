@@ -1,42 +1,48 @@
 use super::support::has_modifier;
-use super::support::subtree_contains_kind;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, modifiers_of, range_of, signature_regions};
+use crate::cst::{collect_kinds, issue, modifiers_of, node_text, range_of, simple_name};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
-/// csharpsquid:S4000 — public signatures must not leak pointer types into
-/// managed callers.
+/// csharpsquid:S4000 — externally visible unmanaged pointer fields must be
+/// private or protected-readonly.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for declaration in collect_kinds(
-        root,
-        &[
-            "method_declaration",
-            "constructor_declaration",
-            "operator_declaration",
-            "indexer_declaration",
-            "delegate_declaration",
-        ],
-    ) {
-        if !has_modifier(&modifiers_of(declaration, source), "public") {
+    for field in collect_kinds(root, &["field_declaration"]) {
+        let modifiers = modifiers_of(field, source);
+        if !(has_modifier(&modifiers, "public") || has_modifier(&modifiers, "protected"))
+            || has_modifier(&modifiers, "readonly")
+        {
             continue;
         }
-        let leaks_pointer = signature_regions(declaration)
-            .iter()
-            .any(|region| subtree_contains_kind(*region, "pointer_type"));
-        if !leaks_pointer {
+        let Some(field_type) = collect_kinds(field, &["variable_declaration"])
+            .into_iter()
+            .find_map(|declaration| declaration.child_by_field_name("type"))
+        else {
+            continue;
+        };
+        if field_type.kind() != "pointer_type"
+            && !matches!(
+                simple_name(node_text(field_type, source)),
+                "IntPtr" | "UIntPtr" | "HandleRef"
+            )
+        {
             continue;
         }
-        let anchor = declaration
-            .child_by_field_name("name")
-            .unwrap_or(declaration);
-        issues.push(issue(
-            language,
-            "S4000",
-            "Do not expose pointer types in public signatures.",
-            range_of(anchor, source),
-        ));
+        for declarator in collect_kinds(field, &["variable_declarator"]) {
+            let Some(name) = declarator.child_by_field_name("name") else {
+                continue;
+            };
+            issues.push(issue(
+                language,
+                "S4000",
+                format!(
+                    "Make '{}' 'private' or 'protected readonly'.",
+                    node_text(name, source)
+                ),
+                range_of(name, source),
+            ));
+        }
     }
     issues
 }

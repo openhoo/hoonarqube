@@ -16,12 +16,12 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some(body) = header.child_by_field_name("body") else {
             continue;
         };
-        if trailing_statement_exits(body) {
+        if let Some(exit) = trailing_statement_exit(body) {
             issues.push(issue(
                 language,
                 "S1751",
-                "This loop will execute at most once.",
-                range_of(header, source),
+                "Refactor the containing loop to do more than one iteration.",
+                range_of(exit, source),
             ));
         }
     }
@@ -29,13 +29,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 }
 
 /// Whether a loop body's final statement leaves the loop unconditionally.
-fn trailing_statement_exits(body: Node<'_>) -> bool {
+fn trailing_statement_exit(body: Node<'_>) -> Option<Node<'_>> {
     let statements = if body.kind() == "block" {
         block_statements(body)
     } else {
         vec![body]
     };
-    statements.last().is_some_and(|last| {
+    statements.last().copied().filter(|last| {
         matches!(
             last.kind(),
             "break_statement" | "return_statement" | "throw_statement"
@@ -62,7 +62,7 @@ mod tests {
         );
         let found = with_key(&report, KEY);
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].range.start.line, 3);
+        assert_eq!(found[0].range.start.line, 5);
     }
 
     #[test]

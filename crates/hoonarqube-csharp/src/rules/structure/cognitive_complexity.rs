@@ -35,7 +35,7 @@ pub(crate) fn check(
                 language,
                 "S3776",
                 format!(
-                    "Reduce this function's cognitive complexity from {score} to at most {threshold}."
+                    "Refactor this method to reduce its Cognitive Complexity from {score} to the {threshold} allowed."
                 ),
                 range_of(name_anchor(function), source),
             ));
@@ -137,7 +137,7 @@ mod tests {
         assert_eq!(flagged.len(), 1);
         assert_eq!(
             flagged[0].message,
-            "Reduce this function's cognitive complexity from 2 to at most 1."
+            "Refactor this method to reduce its Cognitive Complexity from 2 to the 1 allowed."
         );
     }
 
@@ -157,7 +157,7 @@ mod tests {
         assert_eq!(flagged.len(), 1);
         assert_eq!(
             flagged[0].message,
-            "Reduce this function's cognitive complexity from 3 to at most 2."
+            "Refactor this method to reduce its Cognitive Complexity from 3 to the 2 allowed."
         );
     }
 
@@ -179,7 +179,7 @@ mod tests {
         assert_eq!(flagged.len(), 1);
         assert_eq!(
             flagged[0].message,
-            "Reduce this function's cognitive complexity from 4 to at most 3."
+            "Refactor this method to reduce its Cognitive Complexity from 4 to the 3 allowed."
         );
     }
 
@@ -199,7 +199,7 @@ mod tests {
         let flagged = with_key(&report, "csharpsquid:S3776");
         assert_eq!(
             flagged[0].message,
-            "Reduce this function's cognitive complexity from 2 to at most 1."
+            "Refactor this method to reduce its Cognitive Complexity from 2 to the 1 allowed."
         );
     }
 }

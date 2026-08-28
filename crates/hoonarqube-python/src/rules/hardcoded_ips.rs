@@ -17,10 +17,12 @@ pub(crate) fn check_hardcoded_ips(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for (text, range) in collect_string_contents(parsed.syntax().body.as_slice()) {
-        if !ip_addresses(&text).is_empty() {
+        if let Some(address) = ip_addresses(&text).into_iter().next() {
             issues.push(Issue {
                 rule_key: "python:S1313".to_string(),
-                message: "Make this IP address configurable.".to_string(),
+                message: format!(
+                    "Make sure using this hardcoded IP address \"{address}\" is safe here."
+                ),
                 range: to_range(range, index, source),
                 fix: None,
             });

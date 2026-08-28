@@ -64,27 +64,21 @@ pub(crate) fn check_s6308_opensearch_encryption(
     };
     let engine = search_engine(file, &view, spec);
     let omitted = format!(
-        "Omitting \"encryptionAtRestOptions\" causes encryption of data at rest to be disabled \
+        "Omitting encryptionAtRest causes encryption of data at rest to be disabled \
          for this {engine} domain. Make sure it is safe here."
     );
+    let props_span = match view {
+        PropsView::Live(object) => object.span(),
+        PropsView::Digested(_) => new_expression.callee.span(),
+    };
     let Some(encryption) = property_value(view, "encryptionAtRestOptions") else {
-        sink.emit_span(
-            RuleScope::Both,
-            "S6308",
-            &omitted,
-            new_expression.callee.span(),
-        );
+        sink.emit_span(RuleScope::Both, "S6308", &omitted, props_span);
         return;
     };
     let Some(enabled) =
         value_object(encryption).and_then(|object| property_value(object, "enabled"))
     else {
-        sink.emit_span(
-            RuleScope::Both,
-            "S6308",
-            &omitted,
-            new_expression.callee.span(),
-        );
+        sink.emit_span(RuleScope::Both, "S6308", &omitted, props_span);
         return;
     };
     if file.value_bool(&enabled) == Some(false) {

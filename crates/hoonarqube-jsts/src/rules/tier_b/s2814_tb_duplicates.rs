@@ -8,7 +8,7 @@ pub(crate) fn check_tb_duplicates(model: &TbModel<'_>, sink: &mut IssueSink<'_>)
         sink.emit_span(
             RuleScope::JsOnly,
             "S2814",
-            &format!("'{name}' is declared more than once in this scope."),
+            &format!("'{name}' is already defined."),
             *second,
         );
     }

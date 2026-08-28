@@ -26,7 +26,7 @@ pub(crate) fn check_notimplemented_raises(
                 {
                     issues.push(issue_at(
                         "python:S5712",
-                        "Return 'NotImplemented' instead of raising 'NotImplementedError'.",
+                        "Return \"NotImplemented\" instead of raising \"NotImplementedError\"",
                         raised.range(),
                         index,
                         source,
@@ -40,7 +40,7 @@ pub(crate) fn check_notimplemented_raises(
 
 // --- python:S5712 — special methods raising NotImplementedError ---------------
 
-const PROTOCOL_DUNDERS: [&str; 34] = [
+const PROTOCOL_DUNDERS: [&str; 33] = [
     "__add__",
     "__sub__",
     "__mul__",
@@ -74,7 +74,6 @@ const PROTOCOL_DUNDERS: [&str; 34] = [
     "__le__",
     "__gt__",
     "__ge__",
-    "__hash__",
 ];
 
 fn is_notimplemented_error_expr(expr: &Expr) -> bool {

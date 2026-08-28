@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, parameters_of, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -11,9 +11,11 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(callable) {
             continue;
         }
-        let special = callable
-            .child_by_field_name("name")
-            .is_some_and(|name| SPECIAL_THROW_METHODS.contains(&node_text(name, source)));
+        let special = callable.child_by_field_name("name").is_some_and(|name| {
+            let method_name = node_text(name, source);
+            SPECIAL_THROW_METHODS.contains(&method_name)
+                && (method_name != "Dispose" || parameters_of(callable).is_empty())
+        });
         if !special {
             continue;
         }
@@ -24,7 +26,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S3877",
-                "Do not throw from this method.",
+                "Remove this 'throw' statement.",
                 range_of(throw_statement, source),
             ));
         }
@@ -56,7 +58,7 @@ mod tests {
     #[test]
     fn s3877_counts_every_throw_statement() {
         let report = analyze_default(
-            "class C\n{\n    public void Dispose(bool failFast)\n    {\n        if (failFast)\n        {\n            throw new System.Exception();\n        }\n        throw new System.InvalidOperationException();\n    }\n}\n",
+            "class C\n{\n    public void Dispose()\n    {\n        if (failFast)\n        {\n            throw new System.Exception();\n        }\n        throw new System.InvalidOperationException();\n    }\n}\n",
         );
         assert_eq!(with_key(&report, "csharpsquid:S3877").len(), 2);
     }

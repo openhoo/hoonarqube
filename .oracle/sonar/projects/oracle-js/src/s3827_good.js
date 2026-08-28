@@ -1,0 +1,2 @@
+function later() {}
+later();

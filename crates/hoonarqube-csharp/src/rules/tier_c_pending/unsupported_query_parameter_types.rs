@@ -1,7 +1,7 @@
 use super::support::member_declared_type;
 use super::support::normalized_type_name;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of, simple_name};
 use crate::rules::modifiers::has_any_attribute;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -24,18 +24,21 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 ],
             )
         })
-        .filter(|property| {
-            member_declared_type(*property).is_some_and(|type_node| {
-                !QUERY_PARAMETER_TYPES.contains(&normalized_type_name(node_text(type_node, source)))
+        .filter_map(|property| {
+            member_declared_type(property).filter(|type_node| {
+                !QUERY_PARAMETER_TYPES
+                    .contains(&normalized_type_name(node_text(*type_node, source)))
             })
         })
-        .filter_map(|property| property.child_by_field_name("name"))
-        .map(|name| {
+        .map(|type_node| {
             issue(
                 language,
                 "S6797",
-                "Use a supported primitive, its nullable form, or an array of those for this query parameter.",
-                range_of(name, source),
+                format!(
+                    "Query parameter type '{}' is not supported.",
+                    simple_name(node_text(type_node, source))
+                ),
+                range_of(type_node, source),
             )
         })
         .collect()

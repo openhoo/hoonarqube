@@ -4,13 +4,14 @@ use crate::cst::{issue, range_of};
 use crate::rules::declaration_contracts::attribute_applications;
 use crate::rules::expressions::enclosing_type;
 use crate::rules::modifiers::has_any_attribute;
+use crate::rules::structure::name_anchor;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S3597 — `[OperationContract]` methods belong to
 /// `[ServiceContract]` types.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    let mut issues = Vec::new();
+    let mut missing_contract_types = Vec::new();
     for (name, _, attribute) in attribute_applications(root, source) {
         if !matches!(name, "OperationContract" | "OperationContractAttribute") {
             continue;
@@ -23,14 +24,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
         let contracted = enclosing_type(method)
             .is_some_and(|ty| has_any_attribute(ty, source, &["ServiceContract"]));
-        if !contracted {
-            issues.push(issue(
-                language,
-                "S3597",
-                "Use '[OperationContract]' only on methods of a '[ServiceContract]' type.",
-                range_of(attribute, source),
-            ));
+        if !contracted
+            && let Some(type_node) = enclosing_type(method)
+            && !missing_contract_types
+                .iter()
+                .any(|existing: &Node<'_>| existing.id() == type_node.id())
+        {
+            missing_contract_types.push(type_node);
         }
     }
-    issues
+    missing_contract_types
+        .into_iter()
+        .map(|type_node| {
+            issue(
+                language,
+                "S3597",
+                "Add the 'ServiceContract' attribute to  this class.",
+                range_of(name_anchor(type_node), source),
+            )
+        })
+        .collect()
 }

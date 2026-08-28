@@ -12,11 +12,11 @@ pub(crate) fn check_unconditional_assertions(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if let Some(verdict) = unconditional_assert_verdict(call, source) {
+        if unconditional_assert_verdict(call, source).is_some() {
             issues.push(issue_at(
                 "python:S5914",
-                &format!("This assertion always {verdict}."),
-                call.range(),
+                "Replace this expression; its boolean value is constant.",
+                call.arguments.args[0].range(),
                 index,
                 source,
             ));
@@ -34,7 +34,15 @@ mod tests {
     fn s5914_flags_only_constant_boolean_assertions() {
         let flagged =
             scan("case.assertTrue(True)\ncase.assertFalse(False)\ncase.assertEqual(a, a)\n");
-        assert_eq!(findings(&flagged, "python:S5914").len(), 2);
+        let issues = findings(&flagged, "python:S5914");
+        assert_eq!(issues.len(), 2);
+        assert!(issues.iter().all(
+            |issue| issue.message == "Replace this expression; its boolean value is constant."
+        ));
+        assert_eq!(
+            (issues[0].range.start.line, issues[0].range.start.column),
+            (1, 16)
+        );
         // CE does not implement the assertEqual(x, x) comparison form.
         assert!(findings(&scan("case.assertEqual(a, a)\n"), "python:S5914").is_empty());
     }

@@ -67,11 +67,27 @@ impl<'a> Visit<'a> for CallArgumentOrderCollector<'_> {
                     matched(&swapped) > baseline
                 });
                 if improved {
+                    let names = argument_names
+                        .iter()
+                        .flatten()
+                        .copied()
+                        .collect::<Vec<_>>()
+                        .join("' and '");
+                    let anchor = it
+                        .arguments
+                        .first()
+                        .and_then(argument_expression)
+                        .zip(it.arguments.last().and_then(argument_expression))
+                        .map_or(it.span(), |(first, last)| {
+                            oxc_span::Span::new(first.span().start, last.span().end)
+                        });
                     self.sink.emit_span(
                         RuleScope::Both,
                         "S2234",
-                        "Check this argument order; the arguments look swapped.",
-                        it.span(),
+                        &format!(
+                            "Arguments '{names}' have the same names but not the same order as the function parameters."
+                        ),
+                        anchor,
                     );
                 }
             }

@@ -21,8 +21,8 @@ pub(crate) fn check_s4502_csrf_disabled(
                 {
                     issues.push(issue_at(
                         "python:S4502",
-                        "Make sure that disabling CSRF protection is safe here.",
-                        decorator.range(),
+                        "Make sure disabling CSRF protection is safe here.",
+                        decorator.expression.range(),
                         index,
                         source,
                     ));

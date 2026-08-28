@@ -41,7 +41,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S2326",
-                    format!("Remove this unused type parameter \"{name}\"."),
+                    format!("'{name}' is not used in the class."),
                     range_of(*parameter, source),
                 ));
             }

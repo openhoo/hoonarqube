@@ -64,11 +64,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 _ => None,
             };
             if written.is_some_and(|name| readonly_fields.contains(name)) {
+                let field_name = written.unwrap_or("field");
+                let property_name = expression_name(left, source).unwrap_or("property");
                 issues.push(issue(
                     language,
                     "S2934",
-                    "This property write may mutate a copy; constrain the type parameter to reference types or drop the 'readonly' modifier.",
-                    range_of(assignment, source),
+                    format!(
+                        "Restrict '{field_name}' to be a reference type or remove this assignment of '{property_name}'; it is useless if '{field_name}' is a value type."
+                    ),
+                    range_of(left, source),
                 ));
             }
         }

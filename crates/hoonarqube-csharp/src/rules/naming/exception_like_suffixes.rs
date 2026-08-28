@@ -30,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S3376",
-                format!("Rename this class so its name ends with \"{tail}\"."),
+                format!("Make this class name end with '{tail}'."),
                 range_of(name, source),
             ));
         }

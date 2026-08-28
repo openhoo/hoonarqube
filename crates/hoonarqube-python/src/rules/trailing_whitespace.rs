@@ -10,12 +10,10 @@ pub(crate) fn check_trailing_whitespace(source: &str) -> Vec<Issue> {
         if content.len() < text.len() {
             issues.push(Issue {
                 rule_key: "python:S1131".to_string(),
-                message: "Remove the trailing whitespaces from this line.".to_string(),
+                message: "Remove the useless trailing whitespaces at the end of this line."
+                    .to_string(),
                 range: hoonarqube_ir::Range {
-                    start: hoonarqube_ir::Pos {
-                        line,
-                        column: to_u32(content.chars().count()),
-                    },
+                    start: hoonarqube_ir::Pos { line, column: 0 },
                     end: hoonarqube_ir::Pos {
                         line,
                         column: to_u32(text.chars().count()),
@@ -49,9 +47,9 @@ mod tests {
             .filter(|issue| issue.rule_key == "python:S1131")
             .collect();
         assert_eq!(flagged.len(), 2);
-        assert_eq!(flagged[0].range.start, pos(1, 1));
+        assert_eq!(flagged[0].range.start, pos(1, 0));
         assert_eq!(flagged[0].range.end, pos(1, 2));
-        assert_eq!(flagged[1].range.start, pos(2, 1));
+        assert_eq!(flagged[1].range.start, pos(2, 0));
         assert_eq!(flagged[1].range.end, pos(2, 2));
     }
 }

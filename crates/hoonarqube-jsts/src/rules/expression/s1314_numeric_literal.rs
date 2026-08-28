@@ -16,7 +16,7 @@ pub(crate) fn check_numeric_literal(sink: &mut IssueSink, it: &NumericLiteral<'_
         sink.emit_span(
             RuleScope::Both,
             "S1314",
-            "Use the \"0o\" prefix for octal literals.",
+            "Octal literals should not be used.",
             it.span,
         );
     }

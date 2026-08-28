@@ -31,8 +31,8 @@ pub(crate) fn check_swallowed_system_exit(
             if !re_raised {
                 issues.push(issue_at(
                     "python:S5754",
-                    "Re-raise 'SystemExit'; swallowing it prevents proper termination.",
-                    handler.range(),
+                    "Reraise this exception to stop the application as the user expects",
+                    inner.type_.as_ref().expect("caught exception type").range(),
                     index,
                     source,
                 ));

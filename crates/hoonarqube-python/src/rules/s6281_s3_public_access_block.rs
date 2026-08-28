@@ -11,25 +11,25 @@ pub(crate) fn check_s6281_s3_public_access_block(
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    // CE only evaluates boto3 client calls it can resolve to a real binding;
-    // stub objects stay silent.
-    if !file_ctx.has_boto3_binding {
+    // SonarPython scopes this rule to AWS CDK constructs.
+    if !file_ctx.has_aws_cdk_import {
         return Vec::new();
     }
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if called_name(&call.func) != Some("put_public_access_block") {
+        if called_name(&call.func) != Some("Bucket") {
             continue;
         }
         let call_text = call_source_text(call, source);
-        let fully_blocked = PUBLIC_ACCESS_BLOCK_KEYS
-            .iter()
-            .all(|key| call_text.contains(key));
+        let fully_blocked = call_text.contains("BlockPublicAccess.BLOCK_ALL")
+            || PUBLIC_ACCESS_BLOCK_KEYS
+                .iter()
+                .all(|key| call_text.contains(key));
         if !fully_blocked {
             issues.push(issue_at(
                 "python:S6281",
-                "Block all four public access settings for this S3 bucket.",
-                call.range(),
+                "No Public Access Block configuration prevents public ACL/policies to be set on this S3 bucket. Make sure it is safe here.",
+                call.func.range(),
                 index,
                 source,
             ));
@@ -41,8 +41,8 @@ pub(crate) fn check_s6281_s3_public_access_block(
 // --- python:S6281 — S3 public access fully blocked --------------------------------
 
 const PUBLIC_ACCESS_BLOCK_KEYS: [&str; 4] = [
-    "BlockPublicAcls",
-    "BlockPublicPolicy",
-    "IgnorePublicAcls",
-    "RestrictPublicBuckets",
+    "block_public_acls=True",
+    "block_public_policy=True",
+    "ignore_public_acls=True",
+    "restrict_public_buckets=True",
 ];

@@ -3,7 +3,6 @@ use crate::support::called_name;
 use crate::support::for_each_expr;
 use crate::support::for_each_stmt_in_scope;
 use crate::support::function_parameters;
-use crate::support::is_none_literal;
 use crate::support::issue_at;
 use crate::support::stmt_exprs;
 use hoonarqube_ir::Issue;
@@ -30,19 +29,11 @@ pub(crate) fn check_mutable_default_mutation(
                 {
                     issues.push(issue_at(
                         "python:S5717",
-                        "Do not mutate this mutable default argument.",
-                        default.range(),
-                        index,
-                        source,
-                    ));
-                }
-                if !is_none_literal(default)
-                    && parameter_is_assigned(&function.body, parameter.parameter.name.as_str())
-                {
-                    issues.push(issue_at(
-                        "python:S5717",
-                        "Do not assign to this parameter; introduce a local variable.",
-                        default.range(),
+                        "Change this default value to \"None\" and initialize this parameter inside the function/method.",
+                        ruff_text_size::TextRange::new(
+                            parameter.parameter.name.start(),
+                            default.end(),
+                        ),
                         index,
                         source,
                     ));
@@ -78,33 +69,11 @@ fn called_name_of_constructor(expr: &Expr) -> bool {
             && call.arguments.keywords.is_empty())
 }
 
-fn parameter_is_assigned(body: &[Stmt], name: &str) -> bool {
-    let mut assigned = false;
-    for_each_stmt_in_scope(body, &mut |stmt| {
-        if let Stmt::Assign(assign) = stmt {
-            for target in &assign.targets {
-                assigned |= matches!(target, Expr::Name(name_target)
-                    if name_target.id.as_str() == name);
-            }
-        }
-    });
-    assigned
-}
-
 fn parameter_is_mutated(body: &[Stmt], name: &str) -> bool {
     let mut mutated = false;
     for_each_stmt_in_scope(body, &mut |stmt| {
-        match stmt {
-            Stmt::AugAssign(aug) => {
-                mutated |= matches!(aug.target.as_ref(), Expr::Name(n) if n.id.as_str() == name);
-            }
-            Stmt::Assign(assign) => {
-                for target in &assign.targets {
-                    mutated |= matches!(target, Expr::Subscript(subscript)
-                        if matches!(subscript.value.as_ref(), Expr::Name(n) if n.id.as_str() == name));
-                }
-            }
-            _ => {}
+        if let Stmt::AugAssign(aug) = stmt {
+            mutated |= matches!(aug.target.as_ref(), Expr::Name(n) if n.id.as_str() == name);
         }
         for expr in stmt_exprs(stmt) {
             for_each_expr(expr, &mut |expr| {

@@ -1,6 +1,6 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
-use crate::rules::expressions::{callee_name, first_named_child, invocation_function};
+use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
+use crate::rules::expressions::{callee_name, first_named_child};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
@@ -9,13 +9,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .filter(|statement| !is_error_tainted(*statement))
         .filter_map(|statement| first_named_child(statement))
         .filter(|expression| {
-            expression.kind() == "invocation_expression" && is_pure_static_call(*expression, source)
+            expression.kind() == "invocation_expression"
+                && PURE_METHODS.contains(&callee_name(*expression, source).unwrap_or(""))
         })
         .map(|expression| {
             issue(
                 language,
                 "S2201",
-                "The result of this side-effect-free call is unused; remove the call or use its value.",
+                format!(
+                    "Use the return value of method '{}'.",
+                    callee_name(expression, source).unwrap_or("method")
+                ),
                 range_of(expression, source),
             )
         })
@@ -26,57 +30,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 /// Subset: a curated pure-API owner/method table (`Math`, `string`,
 /// `DateTime`) called as a bare statement; user-declared pure functions and
 /// discard-pattern assignments stay uncovered.
-const PURE_STATIC_APIS: &[(&str, &[&str])] = &[
-    (
-        "Math",
-        &[
-            "Abs",
-            "BigMul",
-            "Ceiling",
-            "Clamp",
-            "Exp",
-            "Floor",
-            "IEEERemainder",
-            "Log",
-            "Log10",
-            "Log2",
-            "Max",
-            "MaxMagnitude",
-            "Min",
-            "MinMagnitude",
-            "Pow",
-            "Round",
-            "Sign",
-            "Sqrt",
-            "Truncate",
-        ],
-    ),
-    (
-        "string",
-        &[
-            "Compare",
-            "CompareOrdinal",
-            "IsNullOrEmpty",
-            "IsNullOrWhiteSpace",
-        ],
-    ),
-    ("DateTime", &["Compare", "DaysInMonth", "IsLeapYear"]),
+const PURE_METHODS: [&str; 7] = [
+    "Where",
+    "Select",
+    "OrderBy",
+    "OrderByDescending",
+    "All",
+    "Any",
+    "Contains",
 ];
-
-/// Whether the call is a listed pure static API invoked through its owner.
-fn is_pure_static_call(call: Node<'_>, source: &str) -> bool {
-    let Some(function) = invocation_function(call) else {
-        return false;
-    };
-    if function.kind() != "member_access_expression" {
-        return false;
-    }
-    PURE_STATIC_APIS.iter().any(|(owner, methods)| {
-        methods.contains(&callee_name(call, source).unwrap_or(""))
-            && first_named_child(function)
-                .is_some_and(|receiver| node_text(receiver, source).trim().ends_with(owner))
-    })
-}
 
 #[cfg(test)]
 mod tests {
@@ -111,8 +73,8 @@ mod tests {
     }
 
     #[test]
-    fn s2201_flags_qualified_owner_suffix_match() {
-        let report = analyze_default("System.Math.Floor(2.7);\nMyMath.Clamp(value, 0, 10);\n");
+    fn s2201_flags_discarded_linq_results() {
+        let report = analyze_default("values.Where(x => x > 0);\nvalues.OrderBy(x => x);\n");
         let found = with_key(&report, "csharpsquid:S2201");
         assert_eq!(found.len(), 2);
         assert_eq!(found[0].range.start.line, 1);
@@ -120,14 +82,10 @@ mod tests {
     }
 
     #[test]
-    fn s2201_flags_string_and_datetime_owners() {
+    fn s2201_ignores_non_linq_pure_apis_without_semantic_types() {
         let report = analyze_default(
             "Math.Round(2.5);\nstring.IsNullOrWhiteSpace(input);\nDateTime.DaysInMonth(2026, 2);\n",
         );
-        let found = with_key(&report, "csharpsquid:S2201");
-        assert_eq!(found.len(), 3);
-        assert_eq!(found[0].range.start.line, 1);
-        assert_eq!(found[1].range.start.line, 2);
-        assert_eq!(found[2].range.start.line, 3);
+        assert!(with_key(&report, "csharpsquid:S2201").is_empty());
     }
 }

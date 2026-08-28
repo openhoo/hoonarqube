@@ -40,8 +40,8 @@ pub(crate) fn check_generator_return_values(
             {
                 issues.push(issue_at(
                     "python:S2712",
-                    "Generators may only return 'None'; remove this returned value.",
-                    returned.range(),
+                    "Use only \"return\" or only \"yield\", not both.",
+                    function.name.range(),
                     index,
                     source,
                 ));

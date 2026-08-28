@@ -15,8 +15,8 @@ impl TsTypeCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::TsOnly,
                 "S4327",
-                "Remove this assignment of 'this' to a variable; arrow functions keep the lexical 'this'.",
-                it.span(),
+                "Unexpected aliasing of 'this' to local variable.",
+                it.id.span(),
             );
         }
     }

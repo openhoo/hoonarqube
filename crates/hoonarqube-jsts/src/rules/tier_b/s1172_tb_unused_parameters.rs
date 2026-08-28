@@ -10,7 +10,9 @@ pub(crate) fn check_tb_unused_parameters(model: &TbModel<'_>, sink: &mut IssueSi
             sink.emit_span(
                 RuleScope::Both,
                 "S1172",
-                &format!("Remove this unused function parameter '{name}'."),
+                &format!(
+                    "Remove the unused function parameter \"{name}\" or rename it to \"_{name}\" to make intention explicit."
+                ),
                 binding.decl,
             );
         }

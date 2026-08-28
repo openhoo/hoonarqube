@@ -89,7 +89,7 @@ pub(crate) struct TbCallee<'a> {
     pub(crate) constructor: bool,
     pub(crate) chain: Vec<usize>,
     /// Argument positions spelled as bare `undefined` (`S4623`).
-    pub(crate) explicit_undefined: Vec<usize>,
+    pub(crate) explicit_undefined: Vec<(usize, Span)>,
     /// Any spread argument disables positional matching.
     pub(crate) spread: bool,
 }
@@ -105,7 +105,7 @@ pub(crate) struct TbCallSite {
     pub(crate) binding: usize,
     pub(crate) span: Span,
     pub(crate) arity: usize,
-    pub(crate) explicit_undefined: Vec<usize>,
+    pub(crate) explicit_undefined: Vec<(usize, Span)>,
     pub(crate) spread: bool,
 }
 

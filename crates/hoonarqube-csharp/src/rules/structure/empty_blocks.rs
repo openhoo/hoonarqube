@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S108",
-                "Either populate this block or remove it.",
+                "Either remove or fill this block of code.",
                 range_of(block, source),
             ));
         }

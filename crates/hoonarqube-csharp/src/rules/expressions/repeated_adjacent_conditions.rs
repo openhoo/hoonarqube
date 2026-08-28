@@ -26,7 +26,10 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S2760",
-                    "This condition repeats the immediately preceding check.",
+                    format!(
+                        "This condition was just checked on line {}.",
+                        first_condition.start_position().row + 1
+                    ),
                     range_of(second_condition, source),
                 ));
             }

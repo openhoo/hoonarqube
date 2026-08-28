@@ -25,17 +25,19 @@ pub(crate) fn check_tb_mixed_construction(model: &TbModel<'_>, sink: &mut IssueS
         if news.is_empty() || calls.is_empty() {
             continue;
         }
-        let (flagged, message) = if news.len() >= calls.len() {
-            (calls, "invoked")
+        let (flagged, reference, form) = if news.len() >= calls.len() {
+            (calls, news[0], "new")
         } else {
-            (news, "constructed with 'new'")
+            (news, calls[0], "without \"new\"")
         };
-        let name = model.bindings[id].name;
+        let line = sink.index.pos(reference.start).line;
         for span in flagged {
             sink.emit_span(
                 RuleScope::JsOnly,
                 "S3686",
-                &format!("'{name}' is also {message} elsewhere; pick one form."),
+                &format!(
+                    "Correct the use of this function; on line {line} it was called with \"{form}\"."
+                ),
                 span,
             );
         }

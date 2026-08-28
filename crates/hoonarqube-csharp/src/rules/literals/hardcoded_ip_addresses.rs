@@ -9,14 +9,16 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     string_literals(root)
         .into_iter()
-        .filter(|literal| is_ipv4_address(literal_inner_text(*literal, source)))
-        .map(|literal| {
-            issue(
-                language,
-                "S1313",
-                "Refactor this code to not use hard-coded IP addresses.",
-                range_of(literal, source),
-            )
+        .filter_map(|literal| {
+            let address = literal_inner_text(literal, source);
+            is_ipv4_address(address).then(|| {
+                issue(
+                    language,
+                    "S1313",
+                    format!("Make sure using this hardcoded IP address '{address}' is safe here."),
+                    range_of(literal, source),
+                )
+            })
         })
         .collect()
 }

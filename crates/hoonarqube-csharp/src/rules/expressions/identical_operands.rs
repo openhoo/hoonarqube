@@ -26,8 +26,10 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S1764",
-                "Identical sub-expressions are used on both sides of this operator.",
-                range_of(expression, source),
+                format!(
+                    "Correct one of the identical expressions on both sides of operator '{operator}'."
+                ),
+                range_of(right, source),
             ));
         }
     }

@@ -1,6 +1,9 @@
 use crate::engine::file_context::FileContext;
+use crate::support::called_name;
+use crate::support::is_true_literal;
 use crate::support::issue_at;
-use crate::support::sets_true_flag;
+use crate::support::keyword_range;
+use crate::support::keyword_value;
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
@@ -10,21 +13,19 @@ pub(crate) fn check_s6329_public_network_access(
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    // CE only evaluates boto3 client calls it can resolve to a real binding;
-    // stub objects stay silent.
-    if !file_ctx.has_boto3_binding {
+    if !file_ctx.has_aws_cdk_import {
         return Vec::new();
     }
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if PUBLIC_NETWORK_FLAGS
-            .iter()
-            .any(|flag| sets_true_flag(call, flag))
+        if PUBLIC_RESOURCE_CREATORS.contains(&called_name(&call.func).unwrap_or_default())
+            && keyword_value(&call.arguments, "publicly_accessible").is_some_and(is_true_literal)
         {
             issues.push(issue_at(
                 "python:S6329",
-                "Disable public network access for this resource.",
-                call.range(),
+                "Make sure allowing public network access is safe here.",
+                keyword_range(&call.arguments, "publicly_accessible")
+                    .unwrap_or_else(|| call.range()),
                 index,
                 source,
             ));
@@ -35,8 +36,4 @@ pub(crate) fn check_s6329_public_network_access(
 
 // --- python:S6329 — public network access disabled ----------------------------------
 
-const PUBLIC_NETWORK_FLAGS: [&str; 3] = [
-    "PubliclyAccessible",
-    "MapPublicIpOnLaunch",
-    "AssociatePublicIpAddress",
-];
+const PUBLIC_RESOURCE_CREATORS: [&str; 2] = ["CfnReplicationInstance", "CfnDBInstance"];

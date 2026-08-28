@@ -16,7 +16,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S6798",
-                "Mark this '[JSInvokable]' method public.",
+                "Methods marked as 'JSInvokable' should be 'public'.",
                 range_of(name_anchor(method), source),
             )
         })

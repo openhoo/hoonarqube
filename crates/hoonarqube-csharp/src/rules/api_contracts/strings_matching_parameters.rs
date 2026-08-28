@@ -2,6 +2,7 @@ use crate::CsLanguage;
 use crate::cst::{is_error_tainted, issue, node_text, parameters_of, range_of};
 use crate::rules::declaration_contracts::enclosing_method;
 use crate::rules::literals::{literal_inner_text, string_literals};
+use crate::rules::modifiers::has_ancestor_with_kind;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -10,7 +11,7 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for literal in string_literals(root) {
-        if is_error_tainted(literal) {
+        if is_error_tainted(literal) || !has_ancestor_with_kind(literal, &["throw_statement"]) {
             continue;
         }
         let inner = literal_inner_text(literal, source);
@@ -28,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S2302",
-                format!("Replace this string with 'nameof({inner})'."),
+                format!("Replace the string '{inner}' with 'nameof({inner})'."),
                 range_of(literal, source),
             ));
         }
@@ -59,14 +60,10 @@ mod tests {
     }
 
     #[test]
-    fn s2302_counts_every_match_but_respects_enclosing_parameters() {
+    fn s2302_ignores_parameter_names_outside_throw_statements() {
         let report = analyze_default(
             "class A\n{\n    void Save(string userId)\n    {\n        audit(\"userId\");\n        audit(\"userId\");\n    }\n\n    void Send(string batch)\n    {\n        audit(\"batch\");\n        audit(\"userId\");\n    }\n}\n",
         );
-        let flagged = with_key(&report, "csharpsquid:S2302");
-        assert_eq!(flagged.len(), 3);
-        assert_eq!(flagged[0].range.start.line, 5);
-        assert_eq!(flagged[1].range.start.line, 6);
-        assert_eq!(flagged[2].range.start.line, 11);
+        assert!(with_key(&report, "csharpsquid:S2302").is_empty());
     }
 }

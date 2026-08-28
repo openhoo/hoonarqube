@@ -15,8 +15,8 @@ pub(crate) fn check_rx_lazy_quantifiers(seq: &RxSeq, push: &mut dyn FnMut(&str, 
         if next_forces_empty {
             push(
                 "python:S6019",
-                "This reluctant quantifier is followed by an expression that can match the empty string; it behaves like a greedy quantifier.",
-                quant.span,
+                "Remove the '?' from this unnecessarily reluctant quantifier.",
+                lazy.span,
             );
         }
     }
@@ -26,8 +26,8 @@ pub(crate) fn check_rx_lazy_quantifiers(seq: &RxSeq, push: &mut dyn FnMut(&str, 
     {
         push(
             "python:S6019",
-            "This reluctant quantifier is followed by an expression that can match the empty string; it behaves like a greedy quantifier.",
-            last.quant.as_ref().expect("checked").span,
+            "Remove the '?' from this unnecessarily reluctant quantifier.",
+            last.span,
         );
     }
 }

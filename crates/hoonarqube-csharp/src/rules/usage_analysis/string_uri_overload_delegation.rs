@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
     }
     let mut issues = Vec::new();
-    for (name, methods) in groups {
+    for methods in groups.into_values() {
         if methods.len() < 2 {
             continue;
         }
@@ -56,7 +56,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S3997",
-                format!("Delegate this string-based '{name}' overload to the Uri overload."),
+                "Refactor this method so it invokes the overload accepting a 'System.Uri' parameter.",
                 range_of(name_anchor(method), source),
             ));
         }
@@ -94,8 +94,10 @@ mod tests {
         let mut lines: Vec<_> = flagged.iter().map(|found| found.range.start.line).collect();
         lines.sort_unstable();
         assert_eq!(lines, [8, 18]);
-        assert!(flagged.iter().any(|found| found.message.contains("'Load'")));
-        assert!(flagged.iter().any(|found| found.message.contains("'Save'")));
+        assert!(flagged.iter().all(|found| {
+            found.message
+                == "Refactor this method so it invokes the overload accepting a 'System.Uri' parameter."
+        }));
     }
 
     #[test]

@@ -13,23 +13,6 @@ pub(crate) fn is_dunder_all_target(expr: &Expr) -> bool {
     matches!(expr, Expr::Name(name) if name.id.as_str() == "__all__")
 }
 
-pub(crate) fn flag_trailing_continue(
-    body: &[Stmt],
-    issues: &mut Vec<Issue>,
-    index: &LineIndex,
-    source: &str,
-) {
-    if let Some(Stmt::Continue(last)) = body.last() {
-        issues.push(issue_at(
-            "python:S3626",
-            "Remove this redundant jump statement.",
-            last.range(),
-            index,
-            source,
-        ));
-    }
-}
-
 pub(crate) fn len_zero_verdict(left: &Expr, comparator: &Expr, op: ruff_python_ast::CmpOp) -> bool {
     is_len_call(left)
         && is_zero_literal(comparator)
@@ -86,9 +69,16 @@ pub(crate) fn flag_duplicate_branches(
     for (later_index, later) in branches.iter().enumerate() {
         for earlier in &branches[..later_index] {
             if ranges_textually_equal(suite_span(later), suite_span(earlier), source) {
+                let earlier_line = index
+                    .line_column(suite_span(earlier).start(), source)
+                    .line
+                    .get();
                 issues.push(issue_at(
                     rule_key,
-                    "This branch duplicates an earlier one; merge them or change one implementation.",
+                    &format!(
+                        "Either merge this branch with the identical one on line \
+                         \"{earlier_line}\" or change one of the implementations."
+                    ),
                     suite_span(later),
                     index,
                     source,
@@ -182,7 +172,7 @@ pub(crate) fn visit_suites_for_no_effect(
         {
             issues.push(issue_at(
                 "python:S905",
-                "Remove this statement; it has no effect.",
+                "Remove or refactor this statement; it has no side effects.",
                 stmt.range(),
                 index,
                 source,

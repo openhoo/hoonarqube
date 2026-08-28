@@ -25,5 +25,4 @@ mod walker;
 
 pub(crate) use support::assembly_attribute_names;
 pub(crate) use support::file_level_issue;
-pub(crate) use support::is_literal_node;
 pub(crate) use walker::declaration_contract_issues;

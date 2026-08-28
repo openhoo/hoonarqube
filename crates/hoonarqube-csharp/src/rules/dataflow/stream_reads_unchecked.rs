@@ -18,10 +18,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 && STREAM_READ_METHODS.contains(&callee_name(*expression, source).unwrap_or(""))
         })
         .map(|call| {
+            let method = callee_name(call, source).unwrap_or("Read");
             issue(
                 language,
                 "S2674",
-                "Check the value returned by this stream read.",
+                format!(
+                    "Check the return value of the '{method}' call to see how many bytes were read."
+                ),
                 range_of(call, source),
             )
         })

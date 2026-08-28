@@ -64,6 +64,32 @@ pub(crate) fn range_of(node: Node<'_>, source: &str) -> hoonarqube_ir::Range {
     }
 }
 
+/// Half-open range from UTF-8 byte offsets already known to lie on source
+/// boundaries. Text scanners use this to report an exact token inside a
+/// larger tree-sitter node.
+pub(crate) fn range_from_byte_offsets(
+    start: usize,
+    end: usize,
+    source: &str,
+) -> hoonarqube_ir::Range {
+    fn pos_at(offset: usize, source: &str) -> hoonarqube_ir::Pos {
+        let prefix = &source[..offset];
+        hoonarqube_ir::Pos {
+            line: to_u32(prefix.bytes().filter(|byte| *byte == b'\n').count()) + 1,
+            column: to_u32(
+                prefix
+                    .rsplit('\n')
+                    .next()
+                    .map_or(0, |line| line.chars().count()),
+            ),
+        }
+    }
+    hoonarqube_ir::Range {
+        start: pos_at(start, source),
+        end: pos_at(end, source),
+    }
+}
+
 pub(crate) fn issue(
     language: CsLanguage,
     rule: &str,

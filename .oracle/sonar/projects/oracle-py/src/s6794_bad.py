@@ -1,0 +1,1 @@
+Vector: TypeAlias = list[int]

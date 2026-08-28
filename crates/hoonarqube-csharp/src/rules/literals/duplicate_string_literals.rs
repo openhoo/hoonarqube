@@ -6,8 +6,8 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S1192 — string literals repeated up to the configured
-/// threshold deserve a named constant. Occurrences from the second on are
-/// flagged; the empty literal is exempt.
+/// threshold deserve a named constant. The first occurrence anchors the one
+/// issue for that repeated value; the empty literal is exempt.
 pub(crate) fn check(
     root: Node<'_>,
     source: &str,
@@ -29,8 +29,8 @@ pub(crate) fn check(
         if text.is_empty() || counts[text] < threshold {
             continue;
         }
-        if seen.insert(text) {
-            continue; // the first occurrence anchors nothing
+        if !seen.insert(text) {
+            continue;
         }
         issue_text(
             &mut issues,
@@ -43,7 +43,7 @@ pub(crate) fn check(
     issues
 }
 
-/// One S1192 finding for a repeated literal's non-first occurrence.
+/// One S1192 finding for a repeated literal, anchored on its first occurrence.
 fn issue_text(
     issues: &mut Vec<Issue>,
     language: CsLanguage,
@@ -54,7 +54,7 @@ fn issue_text(
     issues.push(issue(
         language,
         "S1192",
-        format!("Define a constant instead of duplicating this literal \"{text}\" {count} times."),
+        format!("Define a constant instead of using this literal '{text}' {count} times."),
         range,
     ));
 }

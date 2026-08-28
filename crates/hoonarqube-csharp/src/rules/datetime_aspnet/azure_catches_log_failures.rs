@@ -17,11 +17,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             !LOGGING_MARKERS.iter().any(|marker| text.contains(marker))
         })
         .map(|catch_clause| {
+            let mut cursor = catch_clause.walk();
+            let anchor = catch_clause
+                .children(&mut cursor)
+                .find(|child| child.kind() == "catch")
+                .unwrap_or(catch_clause);
             issue(
                 language,
                 "S6423",
-                "Log the failure inside this catch block.",
-                range_of(catch_clause, source),
+                "Log exception via ILogger with LogLevel Information, Warning, Error, or Critical.",
+                range_of(anchor, source),
             )
         })
         .collect()

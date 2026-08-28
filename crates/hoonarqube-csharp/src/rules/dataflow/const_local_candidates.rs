@@ -60,11 +60,12 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     && !captured.contains(name)
                     && write_counts.get(name).copied().unwrap_or(0) <= 1
                 {
+                    let name_node = declarator.child_by_field_name("name").unwrap_or(declarator);
                     issues.push(issue(
                         language,
                         "S3353",
-                        format!("Declare '{name}' as 'const'."),
-                        range_of(declarator, source),
+                        format!("Add the 'const' modifier to '{name}'."),
+                        range_of(name_node, source),
                     ));
                 }
             }

@@ -14,10 +14,26 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S3358",
-                "Extract this nested ternary into its own statement.",
+                "Extract this nested ternary operation into an independent statement.",
                 range_of(conditional, source),
             ));
         }
     }
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3358_flags_only_nested_ternaries() {
+        let bad = analyze_default(
+            "class C { int M(bool first, bool second) => first ? (second ? 1 : 2) : 3; }",
+        );
+        assert_eq!(with_key(&bad, "csharpsquid:S3358").len(), 1);
+
+        let good = analyze_default("class C { int M(bool first) => first ? 1 : 2; }");
+        assert!(with_key(&good, "csharpsquid:S3358").is_empty());
+    }
 }

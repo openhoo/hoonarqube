@@ -13,7 +13,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .into_iter()
         .filter_map(|(name, arguments, node)| {
             let silenced = match final_segment(name) {
-                "Ignore" | "IgnoreAttribute" => true,
+                "Ignore" | "IgnoreAttribute" => arguments.is_none(),
                 "Fact" | "Theory" => carries_skip(arguments, source),
                 _ => false,
             };
@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issue(
                     language,
                     "S1607",
-                    "Remove this 'Ignore' annotation and fix the test.",
+                    "Either remove this 'Ignore' attribute or add an explanation about why this test is ignored.",
                     range_of(node, source),
                 )
             })
@@ -77,11 +77,11 @@ mod tests {
     }
 
     #[test]
-    fn s1607_counts_reasoned_and_multiple_ignores() {
+    fn s1607_accepts_reasoned_ignore_and_flags_bare_ignore() {
         let report = analyze_default(
             "class Suite\n{\n    [Ignore(\"flaky\")]\n    void A() { }\n\n    [Ignore]\n    void B() { }\n}\n",
         );
-        assert_eq!(with_key(&report, "csharpsquid:S1607").len(), 2);
+        assert_eq!(with_key(&report, "csharpsquid:S1607").len(), 1);
     }
 
     #[test]

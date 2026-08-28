@@ -27,7 +27,10 @@ pub(crate) fn check_undefined_names(
         }
         issues.push(issue_at(
             "python:S5953",
-            &format!("'{}' is not defined.", load.name),
+            &format!(
+                "{} is not defined. Change its name or define it before using it",
+                load.name
+            ),
             load.range,
             index,
             source,

@@ -1,7 +1,7 @@
 use super::support::logging_calls;
 use super::support::template_argument;
 use crate::CsLanguage;
-use crate::cst::{issue, range_of};
+use crate::cst::{issue, range_from_byte_offsets, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -12,21 +12,36 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some((literal, template)) = template_argument(call, source) else {
             continue;
         };
-        if !template_is_valid(template) {
-            issues.push(issue(
+        match template_error(template) {
+            Some(TemplateError::Syntax) => issues.push(issue(
                 language,
                 "S6674",
-                "Fix this malformed message template.",
+                "Log message template should be syntactically correct.",
                 range_of(literal, source),
-            ));
+            )),
+            Some(TemplateError::EmptyPlaceholder(offset)) => {
+                let start = literal.start_byte() + 1 + offset;
+                issues.push(issue(
+                    language,
+                    "S6674",
+                    "Log message template should not contain empty placeholder.",
+                    range_from_byte_offsets(start, start + 2, source),
+                ));
+            }
+            None => {}
         }
     }
     issues
 }
 
-/// Whether a message template parses: balanced braces, no empty or nested
-/// placeholders, and no stray closing brace.
-fn template_is_valid(template: &str) -> bool {
+enum TemplateError {
+    Syntax,
+    EmptyPlaceholder(usize),
+}
+
+/// First Sonar-compatible template error. A lone closing brace is left to the
+/// logging framework and does not trigger this rule in the pinned analyzer.
+fn template_error(template: &str) -> Option<TemplateError> {
     let bytes = template.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
@@ -37,16 +52,18 @@ fn template_is_valid(template: &str) -> bool {
                     .position(|byte| *byte == b'}')
                     .map(|relative| index + 1 + relative)
                 else {
-                    return false;
+                    return Some(TemplateError::Syntax);
                 };
-                if close == index + 1 || bytes[index + 1..close].contains(&b'{') {
-                    return false;
+                if close == index + 1 {
+                    return Some(TemplateError::EmptyPlaceholder(index));
+                }
+                if bytes[index + 1..close].contains(&b'{') {
+                    return Some(TemplateError::Syntax);
                 }
                 index = close + 1;
             }
-            b'}' => return false,
             _ => index += 1,
         }
     }
-    true
+    None
 }

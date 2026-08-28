@@ -15,8 +15,14 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S1696",
-                "Do not catch 'NullReferenceException'.",
-                range_of(clause, source),
+                "Do not catch NullReferenceException; test for null instead.",
+                range_of(
+                    collect_kinds(clause, &["catch_declaration"])
+                        .first()
+                        .and_then(|declaration| declaration.child_by_field_name("type"))
+                        .unwrap_or(clause),
+                    source,
+                ),
             )
         })
         .collect()

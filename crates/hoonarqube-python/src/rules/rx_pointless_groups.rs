@@ -20,7 +20,7 @@ pub(crate) fn check_rx_pointless_groups(
         {
             push(
                 "python:S6395",
-                "Remove this redundant non-capturing group or apply a quantifier to it.",
+                "Unwrap this unnecessarily grouped subpattern.",
                 group.span,
             );
         }

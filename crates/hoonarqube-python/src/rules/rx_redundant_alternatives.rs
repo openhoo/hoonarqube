@@ -18,7 +18,7 @@ pub(crate) fn check_rx_redundant_alternatives(
                 if rx_branch_covered_by(&branches[earlier], &branches[later]) {
                     push(
                         "python:S5855",
-                        "Remove this redundant alternative; an earlier alternative already matches it.",
+                        "Remove or rework this redundant alternative.",
                         branches[later].span,
                     );
                     break;

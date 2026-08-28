@@ -22,7 +22,7 @@ impl PromiseFlowCollector<'_> {
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S4619",
-                    "Use \"includes\" or \"indexOf\" instead of the \"in\" operator on this array.",
+                    "Use \"indexOf\" or \"includes\" (available from ES2016) instead.",
                     it.span(),
                 );
             }

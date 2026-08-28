@@ -33,13 +33,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             }
             let is_async = modifiers.contains(&"async");
             let method_name = node_text(name, source);
-            let message = if is_async && !method_name.ends_with("Async") {
-                Some("Add the \"Async\" suffix to the name of this method.")
-            } else if !is_async && method_name.ends_with("Async") {
-                Some("Remove the \"Async\" suffix from the name of this method.")
-            } else {
-                None
-            };
+            let message = (is_async && !method_name.ends_with("Async"))
+                .then_some("Add the 'Async' suffix to the name of this method.");
             if let Some(message) = message {
                 issues.push(issue(language, "S4261", message, range_of(name, source)));
             }

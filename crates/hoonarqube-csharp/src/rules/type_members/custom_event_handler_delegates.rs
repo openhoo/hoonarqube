@@ -27,17 +27,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     handler_shapes.contains(simple_name(node_text(type_node, source)))
                 })
         })
-        .flat_map(|declaration| collect_kinds(declaration, &["variable_declarator"]))
-        .filter_map(|declarator| declarator.child_by_field_name("name"))
-        .map(|name_node| {
+        .filter_map(|declaration| declaration.child_by_field_name("type"))
+        .map(|type_node| {
             issue(
                 language,
                 "S3908",
-                format!(
-                    "Use 'EventHandler<T>' instead of this custom delegate for '{}'.",
-                    node_text(name_node, source)
-                ),
-                range_of(name_node, source),
+                "Refactor this delegate to use 'System.EventHandler<TEventArgs>'.",
+                range_of(type_node, source),
             )
         })
         .collect()

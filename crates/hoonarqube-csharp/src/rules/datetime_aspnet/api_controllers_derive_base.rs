@@ -1,7 +1,7 @@
 use super::support::VERB_ATTRIBUTE_NAMES;
 use super::support::controller_actions;
 use crate::CsLanguage;
-use crate::cst::{base_simple_names, collect_kinds, issue, range_of};
+use crate::cst::{base_simple_names, collect_kinds, issue, node_text, range_of};
 use crate::rules::modifiers::has_any_attribute;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -19,11 +19,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     .any(|action| has_any_attribute(*action, source, &VERB_ATTRIBUTE_NAMES))
         })
         .map(|class_node| {
+            let anchor = collect_kinds(class_node, &["identifier"])
+                .into_iter()
+                .find(|identifier| node_text(*identifier, source) == "Controller")
+                .unwrap_or(class_node);
             issue(
                 language,
                 "S6961",
-                "Derive API controllers from 'ControllerBase'.",
-                range_of(class_node, source),
+                "Inherit from ControllerBase instead of Controller.",
+                range_of(anchor, source),
             )
         })
         .collect()

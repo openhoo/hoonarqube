@@ -1,7 +1,9 @@
 use crate::engine::file_context::FileContext;
-use crate::support::call_subtree_open_world;
 use crate::support::called_name;
+use crate::support::has_keyword;
+use crate::support::is_true_literal;
 use crate::support::issue_at;
+use crate::support::keyword_value;
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
@@ -13,20 +15,20 @@ pub(crate) fn check_s6463_unrestricted_egress(
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    // CE only evaluates boto3 client calls it can resolve to a real binding;
-    // stub objects stay silent.
-    if !file_ctx.has_boto3_binding {
+    if !file_ctx.has_aws_cdk_import {
         return Vec::new();
     }
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if called_name(&call.func) == Some("authorize_security_group_egress")
-            && call_subtree_open_world(call)
+        if called_name(&call.func) == Some("SecurityGroup")
+            && (!has_keyword(&call.arguments, "allow_all_outbound")
+                || keyword_value(&call.arguments, "allow_all_outbound")
+                    .is_some_and(is_true_literal))
         {
             issues.push(issue_at(
                 "python:S6463",
-                "Restrict this security group's egress traffic.",
-                call.range(),
+                "Omitting \"allow_all_outbound\" enables unrestricted outbound communications. Make sure it is safe here.",
+                call.func.range(),
                 index,
                 source,
             ));

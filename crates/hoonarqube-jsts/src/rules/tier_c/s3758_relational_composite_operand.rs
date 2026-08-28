@@ -18,14 +18,15 @@ impl TierCLiteralCollector<'_> {
         ) {
             return;
         }
-        let composite = literal_kind(&expression.left).is_some_and(kind_is_composite)
-            || literal_kind(&expression.right).is_some_and(kind_is_composite);
-        if composite {
+        for operand in [&expression.left, &expression.right] {
+            if !literal_kind(operand).is_some_and(kind_is_composite) {
+                continue;
+            }
             self.sink.emit_span(
                 RuleScope::JsOnly,
                 "S3758",
-                "This comparison coerces the operand to '[object Object]'.",
-                expression.span(),
+                "Re-evaluate the data flow; this operand of a numeric comparison could be of type {}.",
+                operand.span(),
             );
         }
     }

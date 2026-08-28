@@ -37,8 +37,8 @@ impl SecurityHotspotCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S5659",
-                "Sign and verify JWTs with strong algorithms only.",
-                call.span(),
+                "Use only strong cipher algorithms when signing this JWT.",
+                call.callee.span(),
             );
         }
     }

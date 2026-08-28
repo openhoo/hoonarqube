@@ -10,19 +10,20 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(property) {
             continue;
         }
-        let named_uri = property
-            .child_by_field_name("name")
+        let property_name = property.child_by_field_name("name");
+        let named_uri = property_name
             .and_then(|name| node_text(name, source).strip_suffix("Uri"))
             .is_some_and(|prefix| !prefix.is_empty());
-        let typed_string = property
+        let string_type = property
             .child_by_field_name("type")
-            .is_some_and(|type_node| simple_name(node_text(type_node, source)) == "string");
-        if named_uri && typed_string {
+            .filter(|type_node| simple_name(node_text(*type_node, source)) == "string");
+        if let (true, Some(string_type)) = (named_uri, string_type) {
+            let name = property_name.map_or("property", |name| node_text(name, source));
             issues.push(issue(
                 language,
                 "S3996",
-                "Expose this URI-valued property as 'System.Uri'.",
-                range_of(property, source),
+                format!("Change the '{name}' property type to 'System.Uri'."),
+                range_of(string_type, source),
             ));
         }
     }

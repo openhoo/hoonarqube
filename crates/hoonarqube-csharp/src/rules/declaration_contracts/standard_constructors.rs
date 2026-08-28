@@ -33,7 +33,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S4027",
-                "Provide the standard exception constructors.",
+                "Implement the missing constructors for this exception.",
                 range_of(name_anchor(class_declaration), source),
             ));
         }

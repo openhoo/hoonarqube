@@ -5,6 +5,14 @@ use crate::rules::modifiers::has_modifier;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
+fn canonical_number_text(text: &str) -> String {
+    let unsuffixed = text.trim_end_matches(['f', 'F', 'd', 'D', 'm', 'M', 'u', 'U', 'l', 'L']);
+    let normalized = unsuffixed.replace('_', "");
+    normalized
+        .parse::<f64>()
+        .map_or(normalized.clone(), |value| value.to_string())
+}
+
 /// csharpsquid:S109 — numbers beyond -1/0/1 deserve names.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     collect_kinds(root, &["integer_literal", "real_literal"])
@@ -14,10 +22,11 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 && !is_small_allowed_number(node_text(*literal, source))
         })
         .map(|literal| {
+            let value = canonical_number_text(node_text(literal, source));
             issue(
                 language,
                 "S109",
-                "Replace this magic number with a named constant.",
+                format!("Assign this magic number '{value}' to a well-named variable or constant, and use that instead."),
                 range_of(literal, source),
             )
         })

@@ -7,12 +7,13 @@ use crate::rules::naming::{TYPE_DECLARATION_KINDS, type_members};
 use crate::rules::structure::is_statement_kind;
 use tree_sitter::Node;
 
-/// The operator token of a binary or assignment expression. Anonymous
-/// tokens carry their spelling as node kind, so no source text is needed.
+/// The operator token of a binary, assignment, or prefix unary expression.
+/// Anonymous tokens carry their spelling as node kind, so no source text is
+/// needed.
 pub(crate) fn operator_of(expression: Node<'_>) -> Option<&'static str> {
-    const OPERATORS: [&str; 23] = [
+    const OPERATORS: [&str; 27] = [
         "==", "!=", "<", ">", "<=", ">=", "&&", "||", "??", "+", "-", "*", "/", "%", "&", "|", "^",
-        "<<", ">>", ">>>", "=", "+=", "-=",
+        "<<", ">>", ">>>", "=", "+=", "-=", "++", "--", "!", "~",
     ];
     let mut cursor = expression.walk();
     let kind = expression
@@ -149,21 +150,6 @@ pub(crate) fn boolean_literal_side(left: Node<'_>, right: Node<'_>, source: &str
         if operand.kind() == "boolean_literal" {
             return Some(node_text(operand, source) == "true");
         }
-    }
-    None
-}
-
-/// The identifier a comparison checks against `null`.
-pub(crate) fn null_check_name<'a>(comparison: Node<'_>, source: &'a str) -> Option<&'a str> {
-    if !matches!(operator_of(comparison), Some("==")) {
-        return None;
-    }
-    let (left, right) = binary_operands(comparison)?;
-    if left.kind() == "null_literal" {
-        return expression_name(right, source);
-    }
-    if right.kind() == "null_literal" {
-        return expression_name(left, source);
     }
     None
 }
@@ -464,13 +450,15 @@ pub(crate) fn declares_string_local(scope: Node<'_>, name: &str, source: &str) -
         .any(|declaration| {
             let typed_string = first_named_child(*declaration)
                 .is_some_and(|type_node| node_text(type_node, source) == "string");
-            typed_string
-                && collect_kinds(*declaration, &["variable_declarator"])
-                    .iter()
-                    .any(|declarator| {
-                        first_named_child(*declarator)
-                            .and_then(|identifier| expression_name(identifier, source))
-                            == Some(name)
-                    })
+            collect_kinds(*declaration, &["variable_declarator"])
+                .iter()
+                .any(|declarator| {
+                    let names_match = first_named_child(*declarator)
+                        .and_then(|identifier| expression_name(identifier, source))
+                        == Some(name);
+                    names_match
+                        && (typed_string
+                            || !collect_kinds(*declarator, &["string_literal"]).is_empty())
+                })
         })
 }

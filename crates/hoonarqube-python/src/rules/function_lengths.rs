@@ -25,14 +25,15 @@ pub(crate) fn check_function_lengths(
                 .line
                 .get();
             let end_line = index.line_column(function.range().end(), source).line.get();
-            let lines = end_line - start_line + 1;
+            let lines = end_line.saturating_sub(start_line);
             let maximum = options.maximum_function_length;
             if to_u32(lines) > maximum {
                 issues.push(issue_at(
                     "python:S138",
                     &format!(
-                        "This function has {lines} lines, which is greater than the \
-                     {maximum} authorized."
+                        "This function \"{}\" has {lines} lines of code, which is greater than \
+                         the {maximum} authorized. Split it into smaller functions.",
+                        function.name
                     ),
                     function.name.range(),
                     index,

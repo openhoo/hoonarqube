@@ -1,6 +1,6 @@
 use super::support::operator_of;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
+use crate::cst::{ancestors_of, collect_kinds, is_error_tainted, issue, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -12,15 +12,34 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(unary) || !matches!(operator_of(unary), Some("++" | "--")) {
             continue;
         }
-        let parent_kind = unary.parent().map(|parent| parent.kind());
-        if matches!(parent_kind, Some("expression_statement" | "for_statement")) {
+        let mixed = ancestors_of(unary)
+            .take_while(|ancestor| {
+                !matches!(ancestor.kind(), "expression_statement" | "for_statement")
+            })
+            .any(|ancestor| {
+                matches!(
+                    ancestor.kind(),
+                    "binary_expression" | "conditional_expression" | "invocation_expression"
+                )
+            });
+        if !mixed {
             continue;
         }
+        let mut cursor = unary.walk();
+        let operator = unary
+            .children(&mut cursor)
+            .find(|child| matches!(child.kind(), "++" | "--"))
+            .unwrap_or(unary);
+        let operation = if operator.kind() == "--" {
+            "decrement"
+        } else {
+            "increment"
+        };
         issues.push(issue(
             language,
             "S881",
-            "Extract this increment or decrement into its own statement.",
-            range_of(unary, source),
+            format!("Extract this {operation} operation into a dedicated statement."),
+            range_of(operator, source),
         ));
     }
     issues
@@ -44,11 +63,22 @@ mod tests {
         assert!(with_key(&report, "csharpsquid:S881").is_empty());
     }
 
-    // DISCREPANCY vs SonarQube S881: embedded increments never fire.
-    // `operator_of` (expressions/support.rs) matches only its 23-entry
-    // operator table, which lacks `++` and `--`, so prefix and postfix
-    // unary nodes yield `None` and every embedded increment such as
-    // `var j = i++;` is silently skipped. Flagging cases are omitted
-    // until the implementation recognizes unary tokens; SQ reports each
-    // embedded update at its own line.
+    #[test]
+    fn s881_flags_embedded_prefix_and_postfix_updates() {
+        let report = analyze_default(
+            "class C\n{\n    int M(int i)\n    {\n        var first = i++ + 1;\n        Consume(--first);\n        return first;\n    }\n}\n",
+        );
+        let issues = with_key(&report, "csharpsquid:S881");
+        assert_eq!(issues.len(), 2);
+        assert_eq!(issues[0].range.start.line, 5);
+        assert_eq!(issues[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s881_spares_updates_used_only_as_assignment_values() {
+        let report = analyze_default(
+            "class C\n{\n    int M(int i)\n    {\n        var first = i++;\n        return --first;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S881").is_empty());
+    }
 }

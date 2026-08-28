@@ -17,11 +17,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             if member.kind() == "constructor_declaration"
                 && has_modifier(&modifiers_of(member, source), "public")
             {
+                let public_keyword = collect_kinds(member, &["public"])
+                    .into_iter()
+                    .next()
+                    .unwrap_or(member);
                 issues.push(issue(
                     language,
                     "S3442",
-                    "Change this constructor's visibility to 'protected' or lower.",
-                    range_of(member, source),
+                    "Change the visibility of this constructor to 'protected'.",
+                    range_of(public_keyword, source),
                 ));
             }
         }

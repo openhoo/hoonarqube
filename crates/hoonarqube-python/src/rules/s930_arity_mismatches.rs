@@ -1,4 +1,5 @@
 use crate::engine::calls::LocalSignatures;
+use crate::engine::calls::S930ArityProblem;
 use crate::engine::calls::s930_arity_problem;
 use crate::support::called_name;
 use crate::support::for_each_expr;
@@ -36,10 +37,21 @@ pub(crate) fn check_s930_arity_mismatches(
                     return;
                 };
                 let label = called_name(&call.func).unwrap_or_default();
+                let message = match problem {
+                    S930ArityProblem::Missing { missing, expected } => format!(
+                        "Add {missing} missing arguments; '{label}' expects {expected} positional arguments."
+                    ),
+                    S930ArityProblem::TooMany { extra, expected } => format!(
+                        "Remove {extra} arguments; '{label}' expects {expected} positional arguments."
+                    ),
+                    S930ArityProblem::MissingKeywordOnly => {
+                        format!("Add missing keyword-only arguments required by '{label}'.")
+                    }
+                };
                 issues.push(issue_at(
                     "python:S930",
-                    &format!("The call to '{label}' passes {problem}."),
-                    call.range(),
+                    &message,
+                    call.func.range(),
                     index,
                     source,
                 ));

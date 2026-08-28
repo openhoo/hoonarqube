@@ -35,7 +35,7 @@ pub(crate) fn check_exit_reraises_argument(
             {
                 issues.push(issue_at(
                     "python:S5706",
-                    "Remove this 'raise'; '__exit__' must not re-raise the exception argument.",
+                    "Remove this \"raise\" statement and return \"False\" instead.",
                     raised.range(),
                     index,
                     source,

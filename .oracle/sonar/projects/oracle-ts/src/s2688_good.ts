@@ -1,0 +1,1 @@
+if (Number.isNaN(total)) {}

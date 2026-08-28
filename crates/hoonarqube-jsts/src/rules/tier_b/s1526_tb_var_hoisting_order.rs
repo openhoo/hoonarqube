@@ -2,7 +2,7 @@
 use crate::engine::scope_model::{TbKind, TbModel};
 use crate::support::{IssueSink, RuleScope};
 
-/// S1526 (JS only) — identifiers read textually before their `var`
+/// S1526 — identifiers read textually before their `var`
 /// declarator (hoisting order).
 pub(crate) fn check_tb_var_hoisting_order(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
     for binding in &model.bindings {
@@ -17,9 +17,9 @@ pub(crate) fn check_tb_var_hoisting_order(model: &TbModel<'_>, sink: &mut IssueS
             .copied()
         {
             sink.emit_span(
-                RuleScope::JsOnly,
+                RuleScope::Both,
                 "S1526",
-                &format!("Move the declaration of '{name}' above this usage; 'var' is hoisted."),
+                &format!("Move the declaration of \"{name}\" before this usage."),
                 read,
             );
         }
@@ -34,7 +34,13 @@ mod tests {
     fn var_read_before_its_declarator_flagged() {
         let flagged = js("function f() {\n  console.log(hoisted);\n  var hoisted = 1;\n}\nf();\n");
         assert_eq!(filtered(&flagged, "S1526").len(), 1);
+        let flagged_ts =
+            ts_keys("function f() {\n  console.log(hoisted);\n  var hoisted = 1;\n}\nf();\n");
+        assert_eq!(count_key(&flagged_ts, "typescript:S1526"), 1);
         let clean = js("function f() {\n  var hoisted = 1;\n  console.log(hoisted);\n}\nf();\n");
         assert_eq!(filtered(&clean, "S1526").len(), 0);
+        let clean_ts =
+            ts_keys("function f() {\n  var hoisted = 1;\n  console.log(hoisted);\n}\nf();\n");
+        assert_eq!(count_key(&clean_ts, "typescript:S1526"), 0);
     }
 }

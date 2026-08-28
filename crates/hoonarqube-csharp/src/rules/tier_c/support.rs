@@ -146,11 +146,12 @@ pub(crate) fn local_type_table<'t>(
 }
 
 /// Derived-field sites whose name collides (case-sensitively or not) with a
-/// field of the type's first file-local base: `(derived text, name, base text)`.
+/// field of the type's first file-local base:
+/// `(derived text, name, base-field text, base-type text)`.
 pub(crate) fn shadowed_field_sites<'t>(
     root: Node<'t>,
     source: &'t str,
-) -> Vec<(&'t str, Node<'t>, &'t str)> {
+) -> Vec<(&'t str, Node<'t>, &'t str, &'t str)> {
     let types = local_type_table(root, source);
     let mut sites = Vec::new();
     for declaration in local_type_declarations(root) {
@@ -168,7 +169,7 @@ pub(crate) fn shadowed_field_sites<'t>(
             for base_field in field_declarators(base_declaration) {
                 let base_field_text = node_text(base_field.0, source);
                 if derived.eq_ignore_ascii_case(base_field_text) {
-                    sites.push((derived, name_node, base_field_text));
+                    sites.push((derived, name_node, base_field_text, base_name));
                     break;
                 }
             }
@@ -262,6 +263,7 @@ fn has_params_modifier(parameter: Node<'_>, source: &str) -> bool {
 pub(crate) struct ParameterUnit<'a> {
     pub(crate) has_params: bool,
     pub(crate) default_value: Option<Node<'a>>,
+    pub(crate) name: Option<Node<'a>>,
 }
 
 /// Normalized parameters of a callable's `parameter_list`, grouped across
@@ -297,11 +299,13 @@ pub(crate) fn parameter_units<'a>(declaration: Node<'a>, source: &str) -> Vec<Pa
                 return ParameterUnit {
                     has_params: has_params_modifier(*only, source),
                     default_value: parameter_default_value(*only),
+                    name: only.child_by_field_name("name"),
                 };
             }
             ParameterUnit {
                 has_params: flattened_params,
                 default_value: None,
+                name: None,
             }
         })
         .collect()

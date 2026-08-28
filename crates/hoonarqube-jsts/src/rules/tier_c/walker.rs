@@ -140,7 +140,7 @@ fn flag_mixed_return_kinds(
             issues.push(span_issue(
                 index,
                 format!("{}:S3800", language.prefix()),
-                "Refactor this function so that it always returns the same type.",
+                "Refactor this function to always return the same type.",
                 facts.span,
             ));
         }
@@ -382,10 +382,10 @@ mod tests {
     fn relational_comparisons_reject_object_operands() {
         const CLEAN: &str = "const ordered = 'a' < 'b';\n";
         let violating: &str = "const ordered = {} < {};\n";
-        assert_eq!(count_key(&js_keys(violating), "javascript:S3758"), 1);
+        assert_eq!(count_key(&js_keys(violating), "javascript:S3758"), 2);
 
         let array: &str = "const ordered = [1] >= [2];\n";
-        assert_eq!(count_key(&js_keys(array), "javascript:S3758"), 1);
+        assert_eq!(count_key(&js_keys(array), "javascript:S3758"), 2);
 
         assert_eq!(count_key(&js_keys(CLEAN), "javascript:S3758"), 0);
     }

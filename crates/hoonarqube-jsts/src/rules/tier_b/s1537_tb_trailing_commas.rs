@@ -31,7 +31,7 @@ pub(crate) fn check_tb_trailing_commas(
                 sink.emit_span(
                     RuleScope::Both,
                     "S1537",
-                    "Remove this unneeded trailing comma.",
+                    "Unexpected trailing comma.",
                     Span::new(comma_offset, comma_offset + 1),
                 );
             }
@@ -39,8 +39,8 @@ pub(crate) fn check_tb_trailing_commas(
             sink.emit_span(
                 RuleScope::Both,
                 "S3723",
-                "Add a trailing comma after the last element.",
-                Span::new(closer, closer + 1),
+                "Missing trailing comma.",
+                Span::new(last_element.end, closer),
             );
         }
     }

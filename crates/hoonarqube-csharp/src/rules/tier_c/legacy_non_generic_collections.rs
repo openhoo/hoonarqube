@@ -1,33 +1,37 @@
 use crate::CsLanguage;
-use crate::cst::{is_error_tainted, issue, node_text, range_of};
-use crate::rules::security::identifier_usages;
+use crate::cst::{
+    base_simple_names, collect_kinds, is_error_tainted, issue, modifiers_of, range_of,
+};
+use crate::rules::modifiers::has_modifier;
+use crate::rules::structure::name_anchor;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    identifier_usages(root, source, &LEGACY_COLLECTION_TYPES)
+    collect_kinds(root, &["class_declaration", "struct_declaration"])
         .into_iter()
-        .filter(|identifier| !is_error_tainted(*identifier))
-        .filter(|identifier| {
-            identifier
-                .parent()
-                .is_some_and(|parent| parent.kind() != "generic_name")
+        .filter(|declaration| !is_error_tainted(*declaration))
+        .filter(|declaration| has_modifier(&modifiers_of(*declaration, source), "public"))
+        .filter(|declaration| {
+            base_simple_names(*declaration, source)
+                .iter()
+                .any(|base| NON_GENERIC_COLLECTION_BASES.contains(base))
         })
-        .map(|identifier| {
+        .map(|declaration| {
             issue(
                 language,
                 "S3909",
-                format!(
-                    "Replace the legacy non-generic collection '{}' with its generic equivalent.",
-                    node_text(identifier, source)
-                ),
-                range_of(identifier, source),
+                "Refactor this collection to implement 'System.Collections.ObjectModel.Collection<T>'.",
+                range_of(name_anchor(declaration), source),
             )
         })
         .collect()
 }
 
-/// csharpsquid:S3909 — legacy non-generic collections (`ArrayList`,
-/// `Hashtable`, non-generic `Queue`/`Stack`/`SortedList`). Generic uses such
-/// as `Queue<int>` are excluded by their `generic_name` parent.
-const LEGACY_COLLECTION_TYPES: [&str; 5] =
-    ["ArrayList", "Hashtable", "Queue", "Stack", "SortedList"];
+/// Public collections should expose the generic collection contract.
+const NON_GENERIC_COLLECTION_BASES: [&str; 5] = [
+    "CollectionBase",
+    "IEnumerable",
+    "ICollection",
+    "IList",
+    "IDictionary",
+];

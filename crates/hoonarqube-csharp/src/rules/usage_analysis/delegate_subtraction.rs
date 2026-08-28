@@ -1,7 +1,7 @@
 use super::support::typed_variables;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
-use crate::rules::expressions::{binary_operands, expression_name, operator_of};
+use crate::rules::expressions::{binary_operands, operator_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -17,7 +17,11 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some((left, right)) = binary_operands(binary) else {
             continue;
         };
-        if left.kind() != "identifier" || expression_name(right, source).is_none() {
+        if left.kind() != "identifier"
+            || !collect_kinds(right, &["binary_expression"])
+                .into_iter()
+                .any(|chain| operator_of(chain) == Some("+"))
+        {
             continue;
         }
         let name = node_text(left, source);
@@ -29,7 +33,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S3172",
-                "Subtracting delegates silently removes handlers; unsubscribe with '-=' instead.",
+                "Review this subtraction of a chain of delegates: it may not work as you expect.",
                 range_of(binary, source),
             ));
         }
@@ -71,11 +75,11 @@ mod tests {
     #[test]
     fn s3172_matches_handler_suffix_types() {
         let report = analyze_default(
-            "class C\n{\n    void M()\n    {\n        FooHandler pipeline = FooHandler.Empty;\n        var trimmed = pipeline - pipeline;\n    }\n}\n",
+            "class C\n{\n    void M()\n    {\n        FooHandler first = FooHandler.Empty;\n        FooHandler second = FooHandler.Empty;\n        FooHandler pipeline = first + second;\n        var trimmed = pipeline - (first + second);\n    }\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S3172");
         assert_eq!(flagged.len(), 1);
-        assert_eq!(flagged[0].range.start.line, 6);
+        assert_eq!(flagged[0].range.start.line, 8);
     }
 
     #[test]
@@ -105,13 +109,13 @@ mod tests {
     #[test]
     fn s3172_reports_each_delegate_subtraction_distinctly() {
         let report = analyze_default(
-            "class C\n{\n    delegate void Handler();\n    void M()\n    {\n        Handler alpha = null;\n        Handler beta = null;\n        var first = alpha - beta;\n        var second = beta - alpha;\n    }\n}\n",
+            "class C\n{\n    delegate void Handler();\n    void M()\n    {\n        Handler alpha = null;\n        Handler beta = null;\n        Handler gamma = null;\n        var first = alpha - (beta + gamma);\n        var second = beta - (alpha + gamma);\n    }\n}\n",
         );
         let mut lines: Vec<u32> = with_key(&report, "csharpsquid:S3172")
             .iter()
             .map(|issue| issue.range.start.line)
             .collect();
         lines.sort_unstable();
-        assert_eq!(lines, vec![8, 9]);
+        assert_eq!(lines, vec![9, 10]);
     }
 }

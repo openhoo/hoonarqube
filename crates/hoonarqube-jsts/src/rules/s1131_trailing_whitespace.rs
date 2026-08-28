@@ -19,7 +19,7 @@ fn check_trailing_whitespace(source: &str, language: JstsLanguage) -> Vec<Issue>
         let start_column = to_u32(content.len() - trailing);
         issues.push(Issue {
             rule_key: rule_key.clone(),
-            message: "Remove all trailing whitespaces.".to_string(),
+            message: "Trailing spaces not allowed.".to_string(),
             range: hoonarqube_ir::Range {
                 start: hoonarqube_ir::Pos {
                     line: line_number,
@@ -50,7 +50,7 @@ mod tests {
             report.issues,
             vec![issue(
                 "javascript:S1131",
-                "Remove all trailing whitespaces.",
+                "Trailing spaces not allowed.",
                 (1, 14),
                 (1, 17),
             )]

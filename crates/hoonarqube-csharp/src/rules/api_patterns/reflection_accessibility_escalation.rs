@@ -13,16 +13,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .filter(|call| {
             REFLECTION_MEMBER_LOOKUPS.contains(&callee_name(*call, source).unwrap_or(""))
         })
-        .filter(|call| {
-            uses_binding_flags(*call, source, &["NonPublic"])
-                && uses_binding_flags(*call, source, &["Instance", "Static"])
-        })
-        .map(|call| {
+        .filter_map(|call| binding_flags_argument(call, source))
+        .map(|flags| {
             issue(
                 language,
                 "S3011",
-                "Reflecting over non-public members bypasses accessibility checks.",
-                range_of(call, source),
+                "Make sure that this accessibility bypass is safe here.",
+                range_of(flags, source),
             )
         })
         .collect()
@@ -41,10 +38,24 @@ const REFLECTION_MEMBER_LOOKUPS: [&str; 8] = [
 ];
 
 /// Binding flags mentioned anywhere in an invocation's arguments.
-fn uses_binding_flags(invocation: Node<'_>, source: &str, wanted: &[&str]) -> bool {
-    invocation_arguments(invocation).iter().any(|argument| {
-        collect_kinds(*argument, &["member_access_expression"])
-            .into_iter()
-            .any(|access| wanted.contains(&expression_name(access, source).unwrap_or("")))
-    })
+fn binding_flags_argument<'t>(invocation: Node<'t>, source: &str) -> Option<Node<'t>> {
+    invocation_arguments(invocation)
+        .into_iter()
+        .find_map(|argument| {
+            let accesses = collect_kinds(argument, &["member_access_expression"]);
+            let names: Vec<&str> = accesses
+                .iter()
+                .copied()
+                .filter_map(|access| expression_name(access, source))
+                .collect();
+            if names.contains(&"NonPublic")
+                && (names.contains(&"Instance") || names.contains(&"Static"))
+            {
+                accesses
+                    .into_iter()
+                    .find(|access| expression_name(*access, source) == Some("NonPublic"))
+            } else {
+                None
+            }
+        })
 }

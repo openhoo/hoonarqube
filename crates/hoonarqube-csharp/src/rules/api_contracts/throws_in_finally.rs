@@ -12,7 +12,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S1163",
-                "Do not throw from a finally block.",
+                "Refactor this code to not throw exceptions in finally blocks.",
                 range_of(throw, source),
             )
         })

@@ -1,43 +1,82 @@
 use crate::CsLanguage;
 use crate::cst::{
-    collect_kinds, is_error_tainted, issue, modifiers_of, node_text, parameters_of, range_of,
-    simple_name,
+    attributes_of, base_simple_names, collect_kinds, is_error_tainted, issue, node_text,
+    parameters_of, range_of, simple_name,
 };
-use crate::rules::modifiers::has_modifier;
+use crate::rules::expressions::member_declarations_of_kind;
+use crate::rules::naming::TYPE_DECLARATION_KINDS;
+use crate::rules::type_members::assembly_attribute_names;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
-/// csharpsquid:S4212 — serialization constructors stay hidden from callers.
+/// csharpsquid:S4212 — serialization constructors need the same security
+/// demand as ordinary constructors in partially trusted assemblies.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    const SERIALIZATION_PARAM_TYPES: [&str; 2] = ["SerializationInfo", "StreamingContext"];
+    if !assembly_attribute_names(root, source).iter().any(|name| {
+        matches!(
+            *name,
+            "AllowPartiallyTrustedCallers" | "AllowPartiallyTrustedCallersAttribute"
+        )
+    }) {
+        return Vec::new();
+    }
+
     let mut issues = Vec::new();
-    for constructor in collect_kinds(root, &["constructor_declaration"]) {
-        if is_error_tainted(constructor) {
-            continue;
-        }
-        let param_types: Vec<String> = parameters_of(constructor)
-            .into_iter()
-            .filter_map(|param| param.child_by_field_name("type"))
-            .map(|ty| simple_name(node_text(ty, source)).to_string())
-            .collect();
-        if !SERIALIZATION_PARAM_TYPES
-            .iter()
-            .all(|wanted| param_types.iter().any(|found| found == wanted))
+    for type_node in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
+        if is_error_tainted(type_node)
+            || !base_simple_names(type_node, source).contains(&"ISerializable")
         {
             continue;
         }
-        let modifiers = modifiers_of(constructor, source);
-        let family_visible = has_modifier(&modifiers, "protected");
-        let exposed = has_modifier(&modifiers, "public")
-            || (has_modifier(&modifiers, "internal") && !family_visible);
-        if exposed {
-            issues.push(issue(
-                language,
-                "S4212",
-                "Reduce the visibility of this serialization constructor.",
-                range_of(constructor, source),
-            ));
+        let constructors = member_declarations_of_kind(type_node, "constructor_declaration");
+        let has_secured_regular_constructor = constructors.iter().any(|constructor| {
+            !is_serialization_constructor(*constructor, source)
+                && has_security_demand(*constructor, source)
+        });
+        if !has_secured_regular_constructor {
+            continue;
+        }
+
+        for constructor in constructors {
+            if is_serialization_constructor(constructor, source)
+                && !has_security_demand(constructor, source)
+            {
+                let anchor = constructor
+                    .child_by_field_name("name")
+                    .unwrap_or(constructor);
+                issues.push(issue(
+                    language,
+                    "S4212",
+                    "Secure this serialization constructor.",
+                    range_of(anchor, source),
+                ));
+            }
         }
     }
     issues
+}
+
+fn is_serialization_constructor(constructor: Node<'_>, source: &str) -> bool {
+    let param_types: Vec<&str> = parameters_of(constructor)
+        .into_iter()
+        .filter_map(|parameter| parameter.child_by_field_name("type"))
+        .map(|ty| simple_name(node_text(ty, source)))
+        .collect();
+    ["SerializationInfo", "StreamingContext"]
+        .iter()
+        .all(|wanted| param_types.contains(wanted))
+}
+
+fn has_security_demand(constructor: Node<'_>, source: &str) -> bool {
+    attributes_of(constructor, source).iter().any(|name| {
+        matches!(
+            *name,
+            "FileIOPermission"
+                | "SecurityPermission"
+                | "PrincipalPermission"
+                | "PermissionSet"
+                | "EnvironmentPermission"
+                | "RegistryPermission"
+        )
+    })
 }

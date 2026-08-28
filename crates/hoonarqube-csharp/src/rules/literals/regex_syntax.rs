@@ -16,15 +16,39 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .filter(|(_, pattern)| {
             is_string_literal(*pattern) && !is_valid_regex(literal_inner_text(*pattern, source))
         })
-        .map(|(anchor, _)| {
+        .map(|(_, pattern)| {
+            let value = literal_inner_text(pattern, source);
             issue(
                 language,
                 "S5856",
-                "Fix this invalid regular expression.",
-                range_of(anchor, source),
+                regex_error_message(value),
+                range_of(pattern, source),
             )
         })
         .collect()
+}
+
+fn regex_error_message(pattern: &str) -> String {
+    if pattern.contains('[') && !pattern.contains(']') {
+        return format!(
+            "Fix the syntax error inside this regex: Invalid pattern '{pattern}' at offset {}. Unterminated [] set.",
+            pattern.chars().count()
+        );
+    }
+    let chars: Vec<char> = pattern.chars().collect();
+    for index in 1..chars.len().saturating_sub(1) {
+        if chars[index] == '-'
+            && chars[index - 1].is_ascii_alphanumeric()
+            && chars[index + 1].is_ascii_alphanumeric()
+            && chars[index - 1] > chars[index + 1]
+        {
+            return format!(
+                "Fix the syntax error inside this regex: Invalid pattern '{pattern}' at offset {}. [x-y] range in reverse order.",
+                index + 2
+            );
+        }
+    }
+    format!("Fix the syntax error inside this regex: Invalid pattern '{pattern}'.")
 }
 
 /// Hand-rolled syntactic validation of regular-expression patterns:

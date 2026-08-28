@@ -41,11 +41,17 @@ pub(crate) fn check_s5886_return_hint_mismatches(
             if hint_accepts_literal(hint, kind) {
                 return;
             }
+            let actual_type = match kind {
+                "string" => "str",
+                "boolean" => "bool",
+                "none" => "None",
+                other => other,
+            };
             issues.push(issue_at(
                 "python:S5886",
                 &format!(
-                    "This return value does not match the '{annotation_text}' \
-                     return type."
+                    "Return a value of type \"{annotation_text}\" instead of \"{actual_type}\" or update function \"{}\" type hint.",
+                    function.name.as_str()
                 ),
                 value.range(),
                 index,

@@ -22,8 +22,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S4143",
-                    "Remove this write; it is overwritten by the next statement.",
-                    range_of(pair[0], source),
+                    "Verify this is the index/key that was intended; a value has already been set for it.",
+                    range_of(pair[1], source),
                 ));
             }
         }
@@ -53,8 +53,8 @@ mod tests {
         );
         let flagged = with_key(&report, "csharpsquid:S4143");
         assert_eq!(flagged.len(), 2);
-        assert_eq!(flagged[0].range.start.line, 5); // document line 4
-        assert_eq!(flagged[1].range.start.line, 6); // document line 5
+        assert_eq!(flagged[0].range.start.line, 6);
+        assert_eq!(flagged[1].range.start.line, 7);
     }
 
     #[test]
@@ -64,7 +64,7 @@ mod tests {
         );
         let flagged = with_key(&report, "csharpsquid:S4143");
         assert_eq!(flagged.len(), 1);
-        assert_eq!(flagged[0].range.start.line, 5); // document line 4
+        assert_eq!(flagged[0].range.start.line, 6);
     }
 
     #[test]

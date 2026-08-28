@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{issue, modifiers_of, range_of};
+use crate::cst::{ancestors_of, issue, modifiers_of, range_of};
 use crate::rules::naming::has_explicit_interface_specifier;
 use crate::rules::structure::is_attributed;
 use crate::symbol_table::{
@@ -16,20 +16,31 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
             || has_contract_modifier(&modifiers)
             || is_attributed(member.declaration, source)
             || owner_is_partial(member.owner, source)
+            || member.flavor != MemberFlavor::Field
             || member.name == "Main"
             || (member.flavor == MemberFlavor::Method
                 && has_explicit_interface_specifier(member.declaration))
-            || !symbols.uses_of(member.name).is_empty()
         {
+            continue;
+        }
+        let writes = symbols.writes_of(member.name);
+        if !member.has_initializer && writes.is_empty() {
+            continue;
+        }
+        if symbols.uses_of(member.name).into_iter().any(|usage| {
+            !writes.iter().any(|write| {
+                write.id() == usage.id()
+                    || ancestors_of(usage).any(|ancestor| ancestor.id() == write.id())
+            })
+        }) {
             continue;
         }
         issues.push(issue(
             language,
             "S4487",
             format!(
-                "Remove the unused private {} '{}'.",
-                member.flavor.word(),
-                member.name
+                "Remove this unread private field '{}' or refactor the code to use its value.",
+                member.name,
             ),
             range_of(member.anchor, source),
         ));
@@ -48,22 +59,26 @@ mod tests {
     }
 
     #[test]
-    fn s4487_reports_flavor_specific_messages_per_member_kind() {
+    fn s4487_reports_initialized_unread_fields_only() {
         let report = analyze_default(
-            "class A\n{\n    private int Stale;\n    private bool Gone { get; set; }\n    public int Live;\n}\n",
+            "class A\n{\n    private int Stale = 1;\n    private bool Gone { get; set; }\n    public int Live;\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S4487");
-        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged.len(), 1);
         assert_eq!(flagged[0].range.start.line, 3);
         assert_eq!(
             flagged[0].message,
-            "Remove the unused private field 'Stale'."
+            "Remove this unread private field 'Stale' or refactor the code to use its value."
         );
-        assert_eq!(flagged[1].range.start.line, 4);
-        assert_eq!(
-            flagged[1].message,
-            "Remove the unused private property 'Gone'."
+    }
+
+    #[test]
+    fn s4487_reports_fields_only_written_in_constructor() {
+        let report = analyze_default(
+            "public class Archive\n{\n    private int stale;\n    private bool gone;\n\n    public Archive()\n    {\n        stale = 1;\n        gone = false;\n    }\n}\n",
         );
+        let flagged = with_key(&report, "csharpsquid:S4487");
+        assert_eq!(flagged.len(), 2);
     }
 
     #[test]

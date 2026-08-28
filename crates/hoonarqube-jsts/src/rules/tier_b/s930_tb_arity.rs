@@ -39,9 +39,9 @@ mod tests {
     #[test]
     fn arity_mismatch_against_local_function_flagged() {
         let flagged = js("function add(a, b) { return a + b; }\nadd(1);\nadd(1, 2, 3);\n");
-        assert_eq!(filtered(&flagged, "S930").len(), 2);
+        assert_eq!(count_key(&report_keys(&flagged), "javascript:S930"), 2);
         let rest_clean =
             js("function pick(first, ...rest) { return rest; }\npick(1);\npick(1, 2, 3);\n");
-        assert_eq!(filtered(&rest_clean, "S930").len(), 0);
+        assert_eq!(count_key(&report_keys(&rest_clean), "javascript:S930"), 0);
     }
 }

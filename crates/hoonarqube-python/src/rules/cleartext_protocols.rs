@@ -24,7 +24,7 @@ pub(crate) fn check_cleartext_protocols(
     ];
     let mut issues = Vec::new();
     for (text, range) in collect_string_contents(parsed.syntax().body.as_slice()) {
-        let mut flagged = false;
+        let mut flagged_protocol = None;
         for scheme in CLEARTEXT_SCHEMES {
             let mut search = 0usize;
             while let Some(relative) = text[search..].find(scheme) {
@@ -37,21 +37,39 @@ pub(crate) fn check_cleartext_protocols(
                     || host.ends_with(".example.org")
                     || host.ends_with(".example.com");
                 if !safe && !host.is_empty() {
-                    flagged = true;
+                    flagged_protocol = Some(scheme.trim_end_matches("://"));
                 }
                 search = start;
             }
         }
-        if flagged {
+        if let Some(protocol) = flagged_protocol {
             issues.push(Issue {
                 rule_key: "python:S5332".to_string(),
-                message:
-                    "Use an encrypted protocol such as HTTPS instead of this cleartext connection."
-                        .to_string(),
+                message: match protocol {
+                    "http" => "Using http protocol is insecure. Use https instead",
+                    "ftp" => "Using ftp protocol is insecure. Use sftp, scp or ftps instead",
+                    "telnet" => "Using telnet protocol is insecure. Use ssh instead",
+                    _ => unreachable!("fixed cleartext protocol list"),
+                }
+                .to_string(),
                 range: to_range(range, index, source),
                 fix: None,
             });
         }
     }
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5332_flags_remote_cleartext_urls_and_spares_safe_hosts() {
+        let bad = scan("web = 'http://unsafe.test/path'\nfiles = 'ftp://files.test/data'\n");
+        assert_eq!(findings(&bad, "python:S5332").len(), 2);
+
+        let good = scan("secure = 'https://unsafe.test'\nlocal = 'http://localhost:8000'\n");
+        assert!(findings(&good, "python:S5332").is_empty());
+    }
 }

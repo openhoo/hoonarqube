@@ -1,7 +1,7 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of, simple_name};
 use crate::rules::expressions::{
-    callee_name, expression_name, invocation_arguments, invocation_receiver,
+    callee_name, expression_name, invocation_arguments, invocation_function, invocation_receiver,
 };
 use crate::rules::literals::declarator_initializer;
 use crate::rules::naming::TYPE_DECLARATION_KINDS;
@@ -37,39 +37,47 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         };
         let callee = callee_name(call, source).unwrap_or("");
         let arguments = invocation_arguments(call);
-        let replacement = if LIST_LIKE_TYPES.contains(&receiver_type.as_str()) {
+        let rule = if LIST_LIKE_TYPES.contains(&receiver_type.as_str()) {
             match (callee, arguments.len()) {
-                ("FirstOrDefault", 1..=2) => Some(("Find", "S6602")),
-                ("All", 1) => Some(("TrueForAll", "S6603")),
-                ("Any", 1) => Some(("Exists", "S6605")),
-                ("ElementAt", 1) | ("First" | "Last", 0) => Some(("indexing", "S6608")),
+                ("FirstOrDefault", 1..=2) => Some("S6602"),
+                ("All", 1) => Some("S6603"),
+                ("Any", 1) => Some("S6605"),
+                ("ElementAt", 1) | ("First" | "Last", 0) => Some("S6608"),
                 _ => None,
             }
         } else {
             match (callee, arguments.len()) {
                 ("Min", 0)
-                    if matches!(
-                        receiver_type.as_str(),
-                        "SortedSet" | "ImmutableSortedSet" | "HashSet"
-                    ) =>
+                    if matches!(receiver_type.as_str(), "SortedSet" | "ImmutableSortedSet") =>
                 {
-                    Some(("Min property", "S6609"))
+                    Some("S6609")
                 }
                 ("Max", 0)
                     if matches!(receiver_type.as_str(), "SortedSet" | "ImmutableSortedSet") =>
                 {
-                    Some(("Max property", "S6609"))
+                    Some("S6609")
                 }
-                ("First" | "Last", 0) if receiver_type == "LinkedList" => {
-                    Some(("First/Last property", "S6613"))
-                }
+                ("First" | "Last", 0) if receiver_type == "LinkedList" => Some("S6613"),
                 _ => None,
             }
         };
-        if let Some((suggestion, rule)) = replacement {
-            let message =
-                format!("Use '{suggestion}' on this '{receiver_type}' instead of '{callee}'.");
-            issues.push(issue(language, rule, message, range_of(call, source)));
+        if let Some(rule) = rule {
+            let message = match rule {
+                "S6602" => "\"Find\" method should be used instead of the \"FirstOrDefault\" extension method.".to_owned(),
+                "S6603" => "The collection-specific \"TrueForAll\" method should be used instead of the \"All\" extension".to_owned(),
+                "S6605" => "Collection-specific \"Exists\" method should be used instead of the \"Any\" extension.".to_owned(),
+                "S6608" => match callee {
+                    "First" => "Indexing at 0 should be used instead of the \"Enumerable\" extension method \"First\"".to_owned(),
+                    "Last" => "Indexing at Count-1 should be used instead of the \"Enumerable\" extension method \"Last\"".to_owned(),
+                    _ => "Indexing should be used instead of the \"Enumerable\" extension method \"ElementAt\"".to_owned(),
+                },
+                "S6609" => format!("\"{callee}\" property of Set type should be used instead of the \"{callee}()\" extension method."),
+                _ => format!("'{callee}' property of 'LinkedList' should be used instead of the '{callee}()' extension method."),
+            };
+            let anchor = invocation_function(call)
+                .and_then(|function| function.child_by_field_name("name"))
+                .unwrap_or(call);
+            issues.push(issue(language, rule, message, range_of(anchor, source)));
         }
     }
     issues

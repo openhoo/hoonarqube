@@ -19,11 +19,12 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             .iter()
             .any(|invocation| looks_like_assertion(*invocation, source));
         if !asserts {
+            let name = method.child_by_field_name("name").unwrap_or(method);
             issues.push(issue(
                 language,
                 "S2699",
-                "Add an assertion to this test method.",
-                range_of(method, source),
+                "Add at least one assertion to this test case.",
+                range_of(name, source),
             ));
         }
     }
@@ -63,7 +64,7 @@ mod tests {
         );
         let flagged = with_key(&report, "csharpsquid:S2699");
         assert_eq!(flagged.len(), 2);
-        assert_eq!(flagged[0].range.start.line, 3);
-        assert_eq!(flagged[1].range.start.line, 10);
+        assert_eq!(flagged[0].range.start.line, 4);
+        assert_eq!(flagged[1].range.start.line, 11);
     }
 }

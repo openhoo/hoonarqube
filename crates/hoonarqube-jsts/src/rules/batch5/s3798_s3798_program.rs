@@ -18,7 +18,7 @@ impl MiscCollector<'_> {
                         self.sink.emit_span(
                             RuleScope::JsOnly,
                             "S3798",
-                            "Declare this symbol in a narrower scope instead of globally.",
+                            "Define this declaration in a local scope or bind explicitly the property to the global object.",
                             declarator.span(),
                         );
                     }
@@ -27,7 +27,7 @@ impl MiscCollector<'_> {
                     self.sink.emit_span(
                         RuleScope::JsOnly,
                         "S3798",
-                        "Declare this function in a narrower scope instead of globally.",
+                        "Define this declaration in a local scope or bind explicitly the property to the global object.",
                         function.span(),
                     );
                 }

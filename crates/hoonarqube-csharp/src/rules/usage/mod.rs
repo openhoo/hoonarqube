@@ -10,5 +10,4 @@ pub(crate) mod unused_private_members;
 pub(crate) mod unused_usings;
 mod walker;
 
-pub(crate) use support::mentions_identifier_outside_parameter_list;
 pub(crate) use walker::usage_heuristic_issues;

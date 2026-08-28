@@ -28,9 +28,28 @@ pub(crate) fn check_constant_none_comparisons(
                 })
         });
         if constant_involved {
+            let (operator, outcome) = match compare.ops.first() {
+                Some(ruff_python_ast::CmpOp::Eq | ruff_python_ast::CmpOp::Is) => (
+                    if compare.ops[0] == ruff_python_ast::CmpOp::Eq {
+                        "=="
+                    } else {
+                        "is"
+                    },
+                    "False",
+                ),
+                Some(ruff_python_ast::CmpOp::NotEq | ruff_python_ast::CmpOp::IsNot) => (
+                    if compare.ops[0] == ruff_python_ast::CmpOp::NotEq {
+                        "!="
+                    } else {
+                        "is not"
+                    },
+                    "True",
+                ),
+                _ => continue,
+            };
             issues.push(issue_at(
                 "python:S5727",
-                "Review this comparison; it involves only constants and 'None'.",
+                &format!("Remove this {operator} comparison; it will always be {outcome}."),
                 compare.range(),
                 index,
                 source,

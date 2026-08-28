@@ -4,16 +4,16 @@ use crate::engine::rx::RxParsed;
 use crate::engine::rx::for_each_class;
 use crate::engine::rx::for_each_rx_item;
 use crate::engine::rx::rx_complexity;
-use crate::engine::rx::rx_root_span;
 use crate::rules::curly_quantifier::check_curly_quantifier;
 use crate::rules::rx_class::check_rx_class;
-use ruff_text_size::TextRange;
+use ruff_text_size::{TextRange, TextSize};
 
 pub(crate) fn check_rx_style_shapes(
     parsed: &RxParsed,
     source: &str,
     verbose: bool,
     options: &AnalyzerOptions,
+    pattern_range: TextRange,
     push: &mut dyn FnMut(&str, &str, TextRange),
 ) {
     let _ = verbose;
@@ -22,17 +22,28 @@ pub(crate) fn check_rx_style_shapes(
     if score > options.regex_maximum_complexity {
         push(
             "python:S5843",
-            "Reduce the complexity of this regular expression.",
-            rx_root_span(&parsed.root),
+            &format!(
+                "Simplify this regular expression to reduce its complexity from {score} to the {} allowed.",
+                options.regex_maximum_complexity
+            ),
+            TextRange::at(pattern_range.start(), TextSize::new(1)),
         );
     }
     // python:S5857 — reluctant quantifiers on the wildcard.
     for_each_rx_item(&parsed.root, &mut |item| {
         if matches!(item.atom, RxAtom::Dot) && item.quant.as_ref().is_some_and(|quant| quant.lazy) {
+            let quant = item.quant.as_ref().expect("checked");
+            let next = source[usize::from(item.span.end())..]
+                .chars()
+                .next()
+                .unwrap_or('>');
+            let repetition = if quant.min == 0 { '*' } else { '+' };
             push(
                 "python:S5857",
-                "Replace this reluctant quantifier with a negated character class.",
-                item.quant.as_ref().expect("checked").span,
+                &format!(
+                    "Replace this use of a reluctant quantifier with \"[^{next}]{repetition}\"."
+                ),
+                item.span,
             );
         }
         // python:S6396 / python:S6353 — curly-quantifier conciseness.
@@ -42,7 +53,7 @@ pub(crate) fn check_rx_style_shapes(
     });
     // Class-level checks.
     for_each_class(&parsed.root, &mut |class| {
-        check_rx_class(class, push);
+        check_rx_class(class, source, push);
     });
 }
 

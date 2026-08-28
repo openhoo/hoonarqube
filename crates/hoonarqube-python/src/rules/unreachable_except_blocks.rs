@@ -51,7 +51,7 @@ pub(crate) fn check_unreachable_except_blocks(
             } else if seen_types.iter().any(|previous| previous == &normalized) {
                 issues.push(issue_at(
                     "python:S1045",
-                    "An earlier except clause catches the same exceptions.",
+                    "Catch this exception only once; it is already handled by a previous except clause.",
                     type_expr.range(),
                     index,
                     source,

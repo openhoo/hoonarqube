@@ -22,17 +22,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     (unit.default_value, base_unit.default_value)
                     && node_text(value, source) != node_text(base_value, source)
                 {
-                    return overriding.child_by_field_name("name");
+                    return Some(value);
                 }
             }
             None
         })
-        .map(|name| {
+        .map(|value| {
             issue(
                 language,
                 "S1006",
-                "Make this override's default value match the overridden method.",
-                range_of(name, source),
+                "Use the default parameter value defined in the overridden method.",
+                range_of(value, source),
             )
         })
         .collect()

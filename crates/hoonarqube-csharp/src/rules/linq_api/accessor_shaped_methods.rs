@@ -2,6 +2,8 @@ use crate::CsLanguage;
 use crate::cst::{
     collect_kinds, is_error_tainted, issue, node_text, parameters_of, range_of, simple_name,
 };
+use crate::rules::expressions::enclosing_type;
+use crate::rules::modifiers::{accessibility_rank, type_declared_rank};
 use crate::rules::security::return_type_text;
 use crate::rules::structure::name_anchor;
 use hoonarqube_ir::Issue;
@@ -12,6 +14,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     let mut issues = Vec::new();
     for method in collect_kinds(root, &["method_declaration"]) {
         if is_error_tainted(method) {
+            continue;
+        }
+        let modifiers = crate::cst::modifiers_of(method, source);
+        if accessibility_rank(&modifiers) < 4
+            || enclosing_type(method)
+                .is_none_or(|type_node| type_declared_rank(type_node, source) != 6)
+        {
             continue;
         }
         let Some(name) = method.child_by_field_name("name") else {
@@ -33,21 +42,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S4049",
-                "Convert this getter method into a property.",
-                range_of(name_anchor(method), source),
-            ));
-        } else if spelled.len() > 3
-            && spelled.starts_with("Set")
-            && spelled
-                .chars()
-                .nth(3)
-                .is_some_and(|c: char| c.is_ascii_uppercase())
-            && parameters == 1
-        {
-            issues.push(issue(
-                language,
-                "S4049",
-                "Convert this setter method into a property.",
+                format!("Consider making method '{spelled}' a property."),
                 range_of(name_anchor(method), source),
             ));
         }
@@ -62,7 +57,7 @@ mod tests {
     #[test]
     fn s4049_enforces_prefix_case_and_shape_boundaries() {
         let report = analyze_default(
-            "class F\n{\n    public string Get() { return name; }\n    public string Gets() { return name; }\n    public void SetName() { }\n    public void Setname(string newValue) { }\n    public void GetName() { }\n    public string GetName(int id) { return name; }\n    public void SetValue(string newValue) { }\n}\n",
+            "public class F\n{\n    public string Get() { return name; }\n    public string Gets() { return name; }\n    public void SetName() { }\n    public void Setname(string newValue) { }\n    public void GetName() { }\n    public string GetName(int id) { return name; }\n    public string GetTitle() { return name; }\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S4049");
         assert_eq!(flagged.len(), 1);

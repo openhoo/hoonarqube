@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{base_simple_names, collect_kinds, is_error_tainted, issue, range_of};
+use crate::cst::{base_simple_names, collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::structure::name_anchor;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -16,11 +16,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             .iter()
             .any(|base| base.starts_with("IEquatable"));
         if !implements {
+            let name = name_anchor(struct_declaration);
             issues.push(issue(
                 language,
                 "S3898",
-                "Implement 'IEquatable<T>' on this value type.",
-                range_of(name_anchor(struct_declaration), source),
+                format!(
+                    "Implement 'IEquatable<T>' in value type '{}'.",
+                    node_text(name, source)
+                ),
+                range_of(name, source),
             ));
         }
     }

@@ -28,11 +28,18 @@ pub(crate) fn check_rx_alternation_shapes(
     {
         let leading_start = branches.first().and_then(rx_leading_anchor_span);
         let trailing_end = branches.last().and_then(rx_trailing_anchor_span);
-        if let Some(span) = leading_start.or(trailing_end) {
+        if leading_start.is_some() || trailing_end.is_some() {
             push(
                 "python:S5850",
-                "Group this alternation so the anchors apply to all alternatives.",
-                span,
+                "Group parts of the regex together to make the intended operator precedence explicit.",
+                TextRange::new(
+                    branches
+                        .first()
+                        .expect("at least two branches")
+                        .span
+                        .start(),
+                    branches.last().expect("at least two branches").span.end(),
+                ),
             );
         }
     }
@@ -62,7 +69,7 @@ fn check_contradictory_lookaheads(items: &[RxItem], push: &mut dyn FnMut(&str, &
         {
             push(
                 "python:S6002",
-                "This lookahead contradicts the rest of the regular expression.",
+                "Remove or fix this lookahead assertion that can never be true.",
                 pair[1].span,
             );
         }
@@ -79,7 +86,7 @@ fn check_contradictory_lookaheads(items: &[RxItem], push: &mut dyn FnMut(&str, &
                     {
                         push(
                             "python:S6002",
-                            "This lookahead contradicts the rest of the regular expression.",
+                            "Remove or fix this lookahead assertion that can never be true.",
                             lookahead.span,
                         );
                     }

@@ -27,22 +27,24 @@ fn check_arrow_body_consistency(
     // Flag whichever style is the minority; on ties flag expression bodies.
     let minority_is_block = block_bodies < expression_bodies;
     let tie = block_bodies == expression_bodies;
-    let flagged_arrows: Vec<Span> = collector
+    let flagged_arrows: Vec<(Span, bool)> = collector
         .arrows
         .iter()
         .filter(|(span, uses_block_body)| {
             let _ = span;
             *uses_block_body == minority_is_block || (tie && !*uses_block_body)
         })
-        .map(|(span, _)| *span)
+        .copied()
         .collect();
-    for span in flagged_arrows {
-        collector.sink.emit_span(
-            RuleScope::Both,
-            "S3524",
-            "Use a consistent arrow function body style in this file.",
-            span,
-        );
+    for (span, uses_block_body) in flagged_arrows {
+        let message = if uses_block_body {
+            "Remove curly braces and \"return\" from this arrow function body."
+        } else {
+            "Add curly braces and \"return\" to this arrow function body."
+        };
+        collector
+            .sink
+            .emit_span(RuleScope::Both, "S3524", message, span);
     }
     collector.sink.issues
 }
@@ -58,7 +60,7 @@ struct ArrowStyleCollector<'index> {
 impl<'a> Visit<'a> for ArrowStyleCollector<'_> {
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
         let uses_block_body = matches!(it.body, ArrowFunctionBody::FunctionBody(_));
-        self.arrows.push((it.span(), uses_block_body));
+        self.arrows.push((it.body.span(), uses_block_body));
         walk_arrow_function_expression(self, it);
     }
 }

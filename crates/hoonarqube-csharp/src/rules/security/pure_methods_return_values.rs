@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S3603",
-                "Methods annotated '[Pure]' must return a value.",
+                "Remove the 'Pure' attribute or change the method to return a value.",
                 range_of(attribute, source),
             ));
         }

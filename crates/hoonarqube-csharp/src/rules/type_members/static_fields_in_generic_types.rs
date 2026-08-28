@@ -1,7 +1,7 @@
 use super::support::static_field_declarators;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, node_text, range_of};
-use crate::rules::modifiers::type_parameter_list_of;
+use crate::cst::{collect_kinds, issue, modifiers_of, range_of};
+use crate::rules::modifiers::{has_modifier, type_parameter_list_of};
 use crate::rules::naming::TYPE_DECLARATION_KINDS;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -15,16 +15,22 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         }
         for declarator in static_field_declarators(type_node, source) {
+            let Some(field) = declarator
+                .parent()
+                .and_then(|declaration| declaration.parent())
+            else {
+                continue;
+            };
+            if has_modifier(&modifiers_of(field, source), "readonly") {
+                continue;
+            }
             let Some(name_node) = declarator.child_by_field_name("name") else {
                 continue;
             };
             issues.push(issue(
                 language,
                 "S2743",
-                format!(
-                    "Move the static field '{}' to a non-generic type; it is shared across instantiations.",
-                    node_text(name_node, source)
-                ),
+                "A static field in a generic type is not shared among instances of different close constructed types.",
                 range_of(name_node, source),
             ));
         }

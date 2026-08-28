@@ -35,7 +35,7 @@ pub(crate) fn check_dunder_all_strings(
             if !matches!(element, Expr::StringLiteral(_)) {
                 issues.push(issue_at(
                     "python:S2823",
-                    "Only string literals are allowed in '__all__'.",
+                    "Replace this symbol with a string; \"__all__\" can only contain strings.",
                     element.range(),
                     index,
                     source,

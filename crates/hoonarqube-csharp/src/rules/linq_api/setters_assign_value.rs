@@ -30,11 +30,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         })
                 });
         if ignores_value {
+            let set_keyword = collect_kinds(accessor, &["set"])
+                .into_iter()
+                .next()
+                .unwrap_or(accessor);
             issues.push(issue(
                 language,
                 "S3237",
-                "Assign the 'value' keyword in this setter.",
-                range_of(accessor, source),
+                "Use the 'value' contextual keyword in this property set accessor declaration.",
+                range_of(set_keyword, source),
             ));
         }
     }

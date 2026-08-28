@@ -1,7 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::call_path_matches;
 use crate::support::dotted_name_parent_in;
-use crate::support::is_call_method;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
@@ -14,12 +12,6 @@ pub(crate) fn check_s4787_encrypting_data(
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    const ENCRYPTION_APIS: [&str; 4] = [
-        "cryptography.fernet.Fernet",
-        "cryptography.hazmat.primitives.ciphers.Cipher",
-        "nacl.secret.SecretBox",
-        "nacl.public.PrivateKey",
-    ];
     const PYCRYPTO_CIPHERS: [&str; 8] = [
         "AES",
         "DES",
@@ -32,10 +24,8 @@ pub(crate) fn check_s4787_encrypting_data(
     ];
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        let encrypts = is_call_method(call, "Fernet")
-            || call_path_matches(call, &ENCRYPTION_APIS, &["Crypto.Cipher."], &[])
-            || (is_call_method(call, "new")
-                && dotted_name_parent_in(&call.func, &PYCRYPTO_CIPHERS));
+        let encrypts = crate::support::is_call_method(call, "new")
+            && dotted_name_parent_in(&call.func, &PYCRYPTO_CIPHERS);
         if encrypts {
             issues.push(issue_at(
                 "python:S4787",
@@ -61,7 +51,7 @@ mod tests {
             "f = Fernet(secret)\n",
             "c = cryptography.hazmat.primitives.ciphers.Cipher(a, b)\n"
         );
-        assert_eq!(findings(&scan(flagged), "python:S4787").len(), 3);
+        assert_eq!(findings(&scan(flagged), "python:S4787").len(), 1);
         assert!(
             findings(
                 &scan("digest = hashlib.sha256(b\"data\")\n"),

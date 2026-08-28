@@ -1,6 +1,8 @@
-use super::support::local_type_declarations;
+use super::support::{graph_reaches, local_inheritance_graph, local_type_declarations};
 use crate::CsLanguage;
-use crate::cst::{base_simple_names, is_error_tainted, issue, node_text, range_of};
+use crate::cst::{
+    base_simple_names, is_error_tainted, issue, node_text, range_from_byte_offsets, range_of,
+};
 use crate::rules::structure::name_anchor;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -8,27 +10,72 @@ use tree_sitter::Node;
 /// csharpsquid:S1939 — inheritance lists repeating an entry or repeating the
 /// declared type's own name.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    local_type_declarations(root)
-        .into_iter()
-        .filter(|declaration| !is_error_tainted(*declaration))
-        .filter(|declaration| {
-            let bases = base_simple_names(*declaration, source);
-            let duplicated =
-                (0..bases.len()).any(|index| bases[index + 1..].contains(&bases[index]));
+    let graph = local_inheritance_graph(root, source);
+    let mut issues = Vec::new();
+    for declaration in local_type_declarations(root) {
+        if is_error_tainted(declaration) {
+            continue;
+        }
+        let bases = base_nodes(declaration);
+        let issue_count = issues.len();
+        for (index, candidate) in bases.iter().enumerate() {
+            let candidate_name = crate::cst::simple_name(node_text(*candidate, source));
+            if let Some(implementer) = bases.iter().enumerate().find_map(|(other_index, other)| {
+                let other_name = crate::cst::simple_name(node_text(*other, source));
+                (other_index != index
+                    && graph_reaches(&graph, other_name, |current| current == candidate_name))
+                .then_some(other_name)
+            }) {
+                issues.push(issue(
+                    language,
+                    "S1939",
+                    format!(
+                        "'{implementer}' implements '{candidate_name}' so '{candidate_name}' can be removed from the inheritance list."
+                    ),
+                    base_entry_range(*candidate, source),
+                ));
+            }
+        }
+        if issues.len() == issue_count {
+            let base_names = base_simple_names(declaration, source);
+            let duplicated = (0..base_names.len())
+                .any(|index| base_names[index + 1..].contains(&base_names[index]));
             let self_named = declaration
                 .child_by_field_name("name")
-                .is_some_and(|name| bases.contains(&node_text(name, source)));
-            duplicated || self_named
-        })
-        .map(|declaration| {
-            issue(
-                language,
-                "S1939",
-                "Remove the redundant entry from this inheritance list.",
-                range_of(name_anchor(declaration), source),
-            )
-        })
-        .collect()
+                .is_some_and(|name| base_names.contains(&node_text(name, source)));
+            if duplicated || self_named {
+                issues.push(issue(
+                    language,
+                    "S1939",
+                    "Remove the redundant entry from this inheritance list.",
+                    range_of(name_anchor(declaration), source),
+                ));
+            }
+        }
+    }
+    issues
+}
+
+fn base_entry_range(base: Node<'_>, source: &str) -> hoonarqube_ir::Range {
+    let end = if source.as_bytes().get(base.end_byte()) == Some(&b',') {
+        base.end_byte() + 1
+    } else {
+        base.end_byte()
+    };
+    range_from_byte_offsets(base.start_byte(), end, source)
+}
+
+fn base_nodes(type_node: Node<'_>) -> Vec<Node<'_>> {
+    let mut nodes = Vec::new();
+    let mut cursor = type_node.walk();
+    for list in type_node
+        .children(&mut cursor)
+        .filter(|child| child.kind() == "base_list")
+    {
+        let mut list_cursor = list.walk();
+        nodes.extend(list.children(&mut list_cursor).filter(Node::is_named));
+    }
+    nodes
 }
 #[cfg(test)]
 mod tests {

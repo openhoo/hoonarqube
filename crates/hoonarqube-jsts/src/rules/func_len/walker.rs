@@ -41,21 +41,23 @@ struct FunctionLengthCollector<'index> {
 }
 
 impl FunctionLengthCollector<'_> {
-    fn check_length(&mut self, span: Span) {
+    fn check_length(&mut self, span: Span, anchor: Span) {
         let start_line = self.sink.index.pos(span.start).line;
         let end_line = self.sink.index.pos(span.end).line;
-        let length = end_line - start_line;
+        let length = end_line - start_line + 1;
         if length > self.maximum_function_lines {
+            let anchor_start = self.sink.index.pos(anchor.start);
+            let anchor_end = self.sink.index.pos(anchor.end);
             self.sink.emit_pos(
                 RuleScope::Both,
                 "S138",
                 &format!(
-                    "This function has {} lines, which is greater than the {} authorized. \
-                     Split it into smaller pieces.",
+                    "This function has {} lines, which is greater than the {} lines authorized. \
+                     Split it into smaller functions.",
                     length, self.maximum_function_lines
                 ),
-                (start_line, 0),
-                (start_line, 0),
+                (anchor_start.line, anchor_start.column),
+                (anchor_end.line, anchor_end.column),
             );
         }
     }
@@ -64,32 +66,50 @@ impl FunctionLengthCollector<'_> {
 impl<'a> Visit<'a> for FunctionLengthCollector<'_> {
     fn visit_expression(&mut self, it: &Expression<'a>) {
         if let Expression::FunctionExpression(function) = it {
-            self.check_length(function.span());
+            self.check_length(
+                function.span(),
+                function
+                    .id
+                    .as_ref()
+                    .map_or_else(|| function.span(), GetSpan::span),
+            );
         }
         walk_expression(self, it);
     }
 
     fn visit_declaration(&mut self, it: &Declaration<'a>) {
         if let Declaration::FunctionDeclaration(function) = it {
-            self.check_length(function.span());
+            self.check_length(
+                function.span(),
+                function
+                    .id
+                    .as_ref()
+                    .map_or_else(|| function.span(), GetSpan::span),
+            );
         }
         walk_declaration(self, it);
     }
 
     fn visit_export_default_declaration_kind(&mut self, it: &ExportDefaultDeclarationKind<'a>) {
         if let ExportDefaultDeclarationKind::FunctionDeclaration(function) = it {
-            self.check_length(function.span());
+            self.check_length(
+                function.span(),
+                function
+                    .id
+                    .as_ref()
+                    .map_or_else(|| function.span(), GetSpan::span),
+            );
         }
         walk_export_default_declaration_kind(self, it);
     }
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
-        self.check_length(it.span());
+        self.check_length(it.span(), it.span());
         walk_arrow_function_expression(self, it);
     }
 
     fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
-        self.check_length(it.span());
+        self.check_length(it.span(), it.key.span());
         walk_method_definition(self, it);
     }
 }
@@ -119,7 +139,7 @@ mod tests {
     #[test]
     fn s138_allows_functions_at_exact_boundary_length() {
         let rules = RuleOptions {
-            maximum_function_lines: 4,
+            maximum_function_lines: 5,
             ..RuleOptions::default()
         };
         let at_limit = keys_with_rules("function big() {\n  a();\n  b();\n  c();\n}\n", &rules);

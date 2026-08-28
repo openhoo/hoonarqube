@@ -42,8 +42,8 @@ impl SecurityHotspotCollector<'_, '_> {
         self.sink.emit_span(
             RuleScope::Both,
             "S2819",
-            "Make sure this message handler verifies the sender origin.",
-            call.span(),
+            "Verify the origin of the received message.",
+            call.callee.span(),
         );
     }
 }

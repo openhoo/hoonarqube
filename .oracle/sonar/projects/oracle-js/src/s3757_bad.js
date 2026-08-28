@@ -1,0 +1,1 @@
+const nan = parseInt('abc');

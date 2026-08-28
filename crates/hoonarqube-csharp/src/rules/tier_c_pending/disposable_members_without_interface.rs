@@ -5,6 +5,7 @@ use crate::cst::{
     base_simple_names, collect_kinds, is_error_tainted, issue, modifiers_of, node_text, range_of,
     simple_name,
 };
+use crate::rules::literals::declarator_initializer;
 use crate::rules::modifiers::has_modifier;
 use crate::rules::naming::type_members;
 use hoonarqube_ir::Issue;
@@ -25,21 +26,32 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 .iter()
                 .any(|name| *name == "IDisposable" || DISPOSABLE_TYPES.contains(name))
         })
-        .filter(|class| {
-            type_members(*class).into_iter().any(|member| {
-                matches!(member.kind(), "field_declaration" | "property_declaration")
-                    && member_declared_type(member).is_some_and(|type_node| {
+        .filter_map(|class| {
+            let owned_name = type_members(class)
+                .into_iter()
+                .filter(|member| member.kind() == "field_declaration")
+                .filter(|member| {
+                    member_declared_type(*member).is_some_and(|type_node| {
                         let declared = simple_name(node_text(type_node, source));
                         declared == "IDisposable" || DISPOSABLE_TYPES.contains(&declared)
                     })
-            })
+                })
+                .flat_map(|field| collect_kinds(field, &["variable_declarator"]))
+                .find_map(|declarator| {
+                    let name = declarator.child_by_field_name("name")?;
+                    declarator_initializer(declarator, name)
+                        .filter(|value| value.kind() == "object_creation_expression")?;
+                    Some(node_text(name, source))
+                })?;
+            Some((class.child_by_field_name("name")?, owned_name))
         })
-        .filter_map(|class| class.child_by_field_name("name"))
-        .map(|name| {
+        .map(|(name, owned_name)| {
             issue(
                 language,
                 "S2931",
-                "Implement 'IDisposable' on this class; it declares disposable members.",
+                format!(
+                    "Implement 'IDisposable' in this class and use the 'Dispose' method to call 'Dispose' on '{owned_name}'."
+                ),
                 range_of(name, source),
             )
         })
@@ -51,10 +63,10 @@ mod tests {
     use crate::tests::{analyze_default, with_key};
 
     #[test]
-    fn s2931_disposable_properties_trigger_the_rule_too() {
+    fn s2931_observed_disposable_properties_are_not_owned() {
         let report =
             analyze_default("class Cache\n{\n    public FileStream Stream { get; set; }\n}\n");
-        assert_eq!(with_key(&report, "csharpsquid:S2931").len(), 1);
+        assert!(with_key(&report, "csharpsquid:S2931").is_empty());
     }
 
     #[test]
@@ -71,22 +83,23 @@ mod tests {
     }
 
     #[test]
-    fn s2931_idisposable_typed_members_count() {
+    fn s2931_uninitialized_idisposable_members_are_not_owned() {
         let report = analyze_default("class Cache\n{\n    private IDisposable resource;\n}\n");
-        assert_eq!(with_key(&report, "csharpsquid:S2931").len(), 1);
+        assert!(with_key(&report, "csharpsquid:S2931").is_empty());
     }
 
     #[test]
     fn s2931_qualified_member_types_still_match_the_table() {
-        let report =
-            analyze_default("class Cache\n{\n    private System.IO.FileStream stream;\n}\n");
+        let report = analyze_default(
+            "class Cache\n{\n    private System.IO.FileStream stream = new System.IO.FileStream();\n}\n",
+        );
         assert_eq!(with_key(&report, "csharpsquid:S2931").len(), 1);
     }
 
     #[test]
     fn s2931_flags_each_offending_class_distinctly() {
         let report = analyze_default(
-            "class First\n{\n    private FileStream stream;\n}\nclass Second\n{\n    private SqlConnection connection;\n}\n",
+            "class First\n{\n    private FileStream stream = new FileStream();\n}\nclass Second\n{\n    private SqlConnection connection = new SqlConnection();\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S2931");
         assert_eq!(flagged.len(), 2);

@@ -24,13 +24,23 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             binary_operands(*shift)
                 .is_some_and(|(_, right)| NON_INTEGER_LITERALS.contains(&right.kind()))
         })
-        .map(|shift| {
-            issue(
+        .filter_map(|shift| {
+            let (_, right) = binary_operands(shift)?;
+            let type_name = match right.kind() {
+                "string_literal" => "string",
+                "boolean_literal" => "bool",
+                "null_literal" => "null",
+                "real_literal" => "double",
+                _ => return None,
+            };
+            Some(issue(
                 language,
                 "S3449",
-                "Use an integer as the right operand of this shift.",
-                range_of(shift, source),
-            )
+                format!(
+                    "Remove this erroneous shift, it will fail because '{type_name}' can't be implicitly converted to 'int'."
+                ),
+                range_of(right, source),
+            ))
         })
         .collect()
 }

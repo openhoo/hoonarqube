@@ -85,7 +85,7 @@ impl TsTypeCollector<'_, '_> {
                         self.sink.emit_span(
                             RuleScope::TsOnly,
                             "S4621",
-                            "Remove this duplicated type member.",
+                            "Remove this duplicated type or replace with another one.",
                             ts_type.span(),
                         );
                     } else {

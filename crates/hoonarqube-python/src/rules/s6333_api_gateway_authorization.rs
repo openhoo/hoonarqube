@@ -1,5 +1,7 @@
 use crate::engine::file_context::FileContext;
+use crate::support::called_name;
 use crate::support::issue_at;
+use crate::support::keyword_range;
 use crate::support::keyword_value;
 use crate::support::string_literal_text;
 use hoonarqube_ir::Issue;
@@ -13,23 +15,22 @@ pub(crate) fn check_s6333_api_gateway_authorization(
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    // CE only evaluates boto3 client calls it can resolve to a real binding;
-    // stub objects stay silent.
-    if !file_ctx.has_boto3_binding {
+    if !file_ctx.has_aws_cdk_import {
         return Vec::new();
     }
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        let open_auth = ["AuthorizationType", "authorizationType"]
-            .iter()
-            .find_map(|name| keyword_value(&call.arguments, name))
-            .and_then(string_literal_text)
-            .is_some_and(|value| value == "NONE");
+        let open_auth = matches!(called_name(&call.func), Some("add_method" | "CfnRoute"))
+            && keyword_value(&call.arguments, "authorization_type").is_some_and(|value| {
+                string_literal_text(value).as_deref() == Some("NONE")
+                    || source[value.range()].split('.').next_back() == Some("NONE")
+            });
         if open_auth {
             issues.push(issue_at(
                 "python:S6333",
-                "Require authentication for this API Gateway method.",
-                call.range(),
+                "Make sure that creating public APIs is safe here.",
+                keyword_range(&call.arguments, "authorization_type")
+                    .unwrap_or_else(|| call.range()),
                 index,
                 source,
             ));

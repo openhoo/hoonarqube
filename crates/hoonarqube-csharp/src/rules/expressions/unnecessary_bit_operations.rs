@@ -3,7 +3,7 @@ use super::support::first_named_child;
 use super::support::is_zero_literal;
 use super::support::operator_of;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_from_byte_offsets};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -18,22 +18,19 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some((left, right)) = binary_operands(expression) else {
             continue;
         };
-        let zero_on_either = is_zero_literal(left, source) || is_zero_literal(right, source);
-        let minus_one_on_either = is_negative_one(left, source) || is_negative_one(right, source);
-        let identical = node_text(left, source).trim() == node_text(right, source).trim();
-        let verdict = match operator_of(expression) {
-            Some("&") if zero_on_either => Some("'and' with zero always yields zero."),
-            Some("|") if minus_one_on_either => Some("'or' with -1 always yields -1."),
-            Some("|") if zero_on_either => Some("'or' with zero changes nothing."),
-            Some("^") if identical => Some("'xor' of identical operands always yields zero."),
-            _ => None,
-        };
-        if let Some(verdict) = verdict {
+        let operator = operator_of(expression);
+        let unnecessary = matches!(operator, Some("&")) && is_negative_one(right, source)
+            || matches!(operator, Some("|" | "^")) && is_zero_literal(right, source);
+        if unnecessary {
+            let operator_node = expression
+                .children(&mut expression.walk())
+                .find(|child| !child.is_named() && Some(child.kind()) == operator)
+                .unwrap_or(left);
             issues.push(issue(
                 language,
                 "S2437",
-                format!("Remove this unnecessary bit operation: {verdict}"),
-                range_of(expression, source),
+                "Remove this unnecessary bit operation.",
+                range_from_byte_offsets(operator_node.start_byte(), right.end_byte(), source),
             ));
         }
     }
@@ -45,4 +42,20 @@ fn is_negative_one(operand: Node<'_>, source: &str) -> bool {
     operand.kind() == "prefix_unary_expression"
         && operator_of(operand) == Some("-")
         && first_named_child(operand).is_some_and(|literal| node_text(literal, source) == "1")
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2437_flags_constant_and_identity_bit_operations() {
+        let bad = analyze_default(
+            "class C { int M(int value) => (value & -1) + (value | 0) + (value ^ 0); }",
+        );
+        assert_eq!(with_key(&bad, "csharpsquid:S2437").len(), 3);
+
+        let good = analyze_default("class C { int M(int value) => value | 1; }");
+        assert!(with_key(&good, "csharpsquid:S2437").is_empty());
+    }
 }

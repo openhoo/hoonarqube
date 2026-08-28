@@ -49,8 +49,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S2930",
-                    format!("Dispose this '{name}' instance or wrap it in a 'using' statement."),
-                    range_of(name_node, source),
+                    format!("Dispose '{name}' when it is no longer needed."),
+                    range_of(declarator, source),
                 ));
             }
         }

@@ -1,28 +1,19 @@
-use crate::support::to_u32;
 use hoonarqube_ir::Issue;
+use std::path::Path;
 
 /// python:S113 — file must end with a newline character; empty files exempt.
-pub(crate) fn check_ends_with_newline(source: &str) -> Vec<Issue> {
+pub(crate) fn check_ends_with_newline(path: &Path, source: &str) -> Vec<Issue> {
     if source.is_empty() || source.ends_with('\n') {
         return Vec::new();
     }
-    let last_line = to_u32(source.split_inclusive('\n').count());
-    let length = source.split_inclusive('\n').next_back().map_or(0, |chunk| {
-        to_u32(chunk.trim_end_matches('\r').chars().count())
-    });
+    let file_name = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    );
     vec![Issue {
         rule_key: "python:S113".to_string(),
-        message: "Add a newline character at the end of this file.".to_string(),
-        range: hoonarqube_ir::Range {
-            start: hoonarqube_ir::Pos {
-                line: last_line,
-                column: 0,
-            },
-            end: hoonarqube_ir::Pos {
-                line: last_line,
-                column: length,
-            },
-        },
+        message: format!("Add a new line at the end of this file \"{file_name}\"."),
+        range: hoonarqube_ir::Range::file_level(),
         fix: None,
     }]
 }
@@ -32,7 +23,6 @@ mod tests {
 
     use std::path::PathBuf;
 
-    use crate::test_support::pos;
     use crate::{AnalyzerOptions, analyze};
 
     #[test]
@@ -46,10 +36,9 @@ mod tests {
         assert_eq!(newline_issues.len(), 1);
         assert_eq!(
             newline_issues[0].message,
-            "Add a newline character at the end of this file."
+            "Add a new line at the end of this file \"t.py\"."
         );
-        assert_eq!(newline_issues[0].range.start, pos(1, 0));
-        assert_eq!(newline_issues[0].range.end, pos(1, 5));
+        assert!(newline_issues[0].range.is_file_level());
         assert!(
             analyze(PathBuf::from("t.py"), "", &AnalyzerOptions::default())
                 .issues

@@ -25,7 +25,7 @@ pub(crate) fn check_unreachable_test_methods(
                 if name.contains("test") && !name.starts_with("test") {
                     issues.push(issue_at(
                         "python:S5899",
-                        "Rename this method to start with 'test' or remove it; test runners will not discover it.",
+                        "Rename this method so that it starts with \"test\" or remove this unused helper.",
                         function.name.range(),
                         index,
                         source,

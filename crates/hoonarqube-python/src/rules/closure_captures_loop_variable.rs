@@ -1,5 +1,6 @@
 use crate::engine::file_context::FileContext;
 use crate::support::collect_target_names;
+use crate::support::for_each_expr;
 use crate::support::for_each_stmt;
 use crate::support::for_each_stmt_expr;
 use crate::support::issue_at;
@@ -30,13 +31,29 @@ pub(crate) fn check_closure_captures_loop_variable(
             if let Expr::Lambda(lambda) = expr
                 && loads_any_name(&lambda.body, &targets)
             {
-                issues.push(issue_at(
-                    "python:S1515",
-                    "This closure captures a loop variable by reference; bind it with a default argument.",
-                    lambda.range(),
-                    index,
-                    source,
-                ));
+                let mut reported = false;
+                for_each_expr(&lambda.body, &mut |node| {
+                    if reported {
+                        return;
+                    }
+                    if let Expr::Name(name) = node
+                        && targets.iter().any(|target| target == name.id.as_str())
+                    {
+                        let variable = name.id.as_str();
+                        issues.push(issue_at(
+                            "python:S1515",
+                            &format!(
+                                "Add a parameter to the parent lambda function and use variable \
+                                 \"{variable}\" as its default value; The value of \"{variable}\" \
+                                 might change at the next loop iteration."
+                            ),
+                            name.range(),
+                            index,
+                            source,
+                        ));
+                        reported = true;
+                    }
+                });
             }
         });
         for_each_stmt(&for_stmt.body, &mut |nested| {
@@ -45,7 +62,11 @@ pub(crate) fn check_closure_captures_loop_variable(
             {
                 issues.push(issue_at(
                     "python:S1515",
-                    "This closure captures a loop variable by reference; bind it with a default argument.",
+                    &format!(
+                        "Add a parameter to function \"{}\" and use a captured loop variable as \
+                         its default value; The value might change at the next loop iteration.",
+                        function.name
+                    ),
                     function.name.range(),
                     index,
                     source,

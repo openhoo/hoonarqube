@@ -37,11 +37,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     | (">" | ">=", CounterDirection::Increasing)
             );
         if strands {
+            let movement = match direction {
+                CounterDirection::Increasing => "incremented",
+                CounterDirection::Decreasing => "decremented",
+            };
             issues.push(issue(
                 language,
                 "S2251",
-                format!("The counter '{counter}' moves away from this loop's bound."),
-                range_of(for_statement, source),
+                format!("'{counter}' is {movement} and will never reach 'stop condition'."),
+                range_of(update, source),
             ));
         }
     }

@@ -14,13 +14,10 @@ pub(crate) fn check_s4829_standard_input(
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    const STDIN_READERS: [&str; 6] = [
+    const STDIN_READERS: [&str; 3] = [
         "sys.stdin.read",
         "sys.stdin.readline",
         "sys.stdin.readlines",
-        "sys.stdin.buffer.read",
-        "sys.stdin.buffer.readline",
-        "sys.stdin.buffer.readlines",
     ];
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
@@ -28,10 +25,15 @@ pub(crate) fn check_s4829_standard_input(
             && matches!(call.func.as_ref(), Expr::Name(_))
             || call_path_matches(call, &STDIN_READERS, &[], &[]);
         if reads_input {
+            let range = if matches!(call.func.as_ref(), Expr::Name(_)) {
+                call.range()
+            } else {
+                call.func.range()
+            };
             issues.push(issue_at(
                 "python:S4829",
                 "Make sure that reading the standard input is safe here.",
-                call.range(),
+                range,
                 index,
                 source,
             ));

@@ -21,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S6444",
-                "Provide a timeout when constructing this 'Regex'.",
+                "Pass a timeout to limit the execution time.",
                 range_of(creation, source),
             ));
         }
@@ -37,7 +37,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S6444",
-                "Provide a timeout for this 'Regex' call.",
+                "Pass a timeout to limit the execution time.",
                 range_of(invocation, source),
             ));
         }

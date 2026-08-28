@@ -25,7 +25,10 @@ pub(crate) fn check_classmethod_parameter_names(
         {
             issues.push(issue_at(
                 "python:S2710",
-                "Rename this first parameter to 'cls'.",
+                &format!(
+                    "Rename \"{}\" to a valid class parameter name or add the missing class parameter.",
+                    first.name
+                ),
                 first.name.range(),
                 index,
                 source,

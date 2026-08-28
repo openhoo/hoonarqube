@@ -9,7 +9,7 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     walk_all(root, &mut |node| {
-        if !matches!(node.kind(), "integer_literal" | "real_literal") {
+        if node.kind() != "integer_literal" {
             return;
         }
         let lowered = node_text(node, source).to_ascii_lowercase();
@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         issues.push(issue(
             language,
             "S2148",
-            "Add digit separators (underscores) to this number.",
+            "Add underscores to this numeric value for readability.",
             range_of(node, source),
         ));
     });
@@ -31,12 +31,5 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 
 fn is_large_unseparated_number(lowered: &str) -> bool {
     let digits = lowered.trim_end_matches(|c: char| c.is_ascii_alphabetic());
-    if digits.contains('.') || digits.contains('e') {
-        digits
-            .parse::<f64>()
-            .map_or(true, |value| value >= 10_000.0)
-    } else {
-        // Overflowing integer literals are certainly beyond the threshold.
-        digits.parse::<i128>().map_or(true, |value| value >= 10_000)
-    }
+    digits.chars().filter(char::is_ascii_digit).count() >= 7
 }

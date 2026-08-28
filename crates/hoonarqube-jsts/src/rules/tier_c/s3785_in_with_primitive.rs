@@ -26,8 +26,8 @@ impl TierCLiteralCollector<'_> {
             self.sink.emit_span(
                 RuleScope::JsOnly,
                 "S3785",
-                "'in' checks object members; this right operand is a primitive.",
-                expression.span(),
+                "TypeError can be thrown as this operand might have primitive type.",
+                expression.right.span(),
             );
         }
     }

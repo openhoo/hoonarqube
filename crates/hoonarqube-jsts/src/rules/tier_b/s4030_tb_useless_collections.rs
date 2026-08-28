@@ -25,7 +25,7 @@ pub(crate) fn check_tb_useless_collections(
             sink.emit_span(
                 RuleScope::Both,
                 "S4030",
-                &format!("'{name}' is written to but never read; remove this collection."),
+                "Either use this collection's contents or remove the collection.",
                 *decl_span,
             );
         }

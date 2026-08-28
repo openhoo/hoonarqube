@@ -1,67 +1,59 @@
 {
-  "commercial_2025_4_4_tags": [
-    {
-      "amd64_digest": "sha256:7fe3c0b1c1e2b478b0d4f64ddb266217e2aeed89efb455c8759442b9efafb2a2",
-      "edition": "datacenter-app",
-      "index_digest": "sha256:98880118dc3a8808d4745dec13a9cc3caed10815a8577fbeb96b89cd78bd6988",
-      "tag": "2025.4.4-datacenter-app"
-    },
-    {
-      "amd64_digest": "sha256:e1daa9aee1b55c1b906151474546eb7fb0f65a72b80f9b07daeb24c15dde038e",
-      "edition": "datacenter-search",
-      "index_digest": "sha256:58fcca8e52c38f39e2519b9af528de59431698c6addd99de05d46392d8b7aab2",
-      "tag": "2025.4.4-datacenter-search"
-    },
-    {
-      "amd64_digest": "sha256:19669f25f8e7a6e0db916ef85d631a7c57edd6177759a00e2d6dec1ea26f5c75",
-      "edition": "developer",
-      "index_digest": "sha256:a57d5f0820621f4c31349afc104fd811d9cbb129139145aa377b1324770e96fb",
-      "tag": "2025.4.4-developer"
-    },
-    {
-      "amd64_digest": "sha256:63125ba14a26193f8b3080000d64ea14c188fb07f561dd2f47a5aea8c83fe667",
-      "edition": "enterprise",
-      "index_digest": "sha256:118365cd2dabf1f1653762e73e1daeb588a5f66b4a9f2cacd60e350f4d9327b2",
-      "tag": "2025.4.4-enterprise"
-    }
-  ],
-  "docker_hub_query_url": "https://hub.docker.com/v2/repositories/library/sonarqube/tags/?page_size=100&name=2025.4.4",
-  "guidance_urls": [
-    "https://docs.sonarsource.com/sonarqube-community-build/server-installation/from-docker-image/set-up-and-start-container.md",
-    "https://docs.sonarsource.com/sonarqube-server/2025.4/server-installation/from-docker-image/set-up-and-start-container.md",
-    "https://docs.sonarsource.com/sonarqube-server/2025.4/server-update-and-maintenance/release-notes.md"
-  ],
-  "missing_community_tag_attempts": [
-    {
-      "http_status": 404,
-      "tag": "2025.4.4-community",
-      "url": "https://hub.docker.com/v2/repositories/library/sonarqube/tags/2025.4.4-community/"
-    },
-    {
-      "http_status": 404,
-      "tag": "2025.4.4.119049-community",
-      "url": "https://hub.docker.com/v2/repositories/library/sonarqube/tags/2025.4.4.119049-community/"
-    },
-    {
-      "http_status": 404,
-      "tag": "25.4.4.119049-community",
-      "url": "https://hub.docker.com/v2/repositories/library/sonarqube/tags/25.4.4.119049-community/"
-    }
-  ],
-  "nearest_nonmatching_community": {
-    "acceptable_substitute": false,
-    "amd64_digest": "sha256:e84115afa8be166a42586f04670a17fcb71c05b48afc76cbf8f1d0f19e44f578",
-    "index_digest": "sha256:133863e7cb79bf435d75164fa1c032c54ac2d0f0623c20b928814d2b5a78704f",
-    "tag": "25.4.0.105899-community"
+  "schema_version": 3,
+  "source_capture": {
+    "edition": "enterprise",
+    "server_version": "2025.4.4.119049",
+    "sha256": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
   },
-  "reason": "No Community edition artifact exists on Docker Hub for SonarQube Server 2025.4.4.119049: the only four 2025.4.4 tags are commercial editions, every exact Community tag spelling returns HTTP 404, and nearby artifacts such as 25.4.0.105899-community are not acceptable substitutes.",
-  "result": "exact-community-artifact-unavailable",
-  "schema_version": 1,
-  "tag_searches_without_results": [
+  "target": {
+    "oracle_edition": "community",
+    "requires_license": false,
+    "includes_enterprise_rules": true,
+    "classification": "community-plus-enterprise-unverified"
+  },
+  "community_build_evidence": [
     {
-      "count": 0,
-      "name_filter": "119049"
+      "version": "25.4.0.105899",
+      "image": "docker.io/library/sonarqube:25.4.0.105899-community",
+      "index_digest": "sha256:133863e7cb79bf435d75164fa1c032c54ac2d0f0623c20b928814d2b5a78704f",
+      "amd64_digest": "sha256:e84115afa8be166a42586f04670a17fcb71c05b48afc76cbf8f1d0f19e44f578",
+      "csharp_rule_count": 450
+    },
+    {
+      "version": "26.8.0.126808",
+      "image": "docker.io/library/sonarqube:26.8.0.126808-community",
+      "index_digest": "sha256:4152a10d90904b97a29e82c964f7eba0c6d587ca118a0320e7dfdaf5d1a99760",
+      "amd64_digest": "sha256:9026624a61cd25542a402a9e7213dd7dbb39724ac9597e331e6b85362558c079"
     }
   ],
-  "target_server_version": "2025.4.4.119049"
+  "csharp_analyzer_evidence": {
+    "base_analyzer_sha256": "58262a64e51209a5849086575955b3486e75e91b48bf41604461fb0a9455e87e",
+    "enterprise_analyzer_sha256": "25bcb4ad610729ea05fa5377255be325ef971757f8d8bc02ff6bfd42ec580dc6",
+    "enterprise_unverified_rule_count": 17
+  },
+  "enterprise_unverified_rules": {
+    "csharp": [
+      "csharpsquid:S2053",
+      "csharpsquid:S2222",
+      "csharpsquid:S2259",
+      "csharpsquid:S2583",
+      "csharpsquid:S2589",
+      "csharpsquid:S3329",
+      "csharpsquid:S3655",
+      "csharpsquid:S3900",
+      "csharpsquid:S3949",
+      "csharpsquid:S3966",
+      "csharpsquid:S4158",
+      "csharpsquid:S4347",
+      "csharpsquid:S5773",
+      "csharpsquid:S6781",
+      "csharpsquid:S7130",
+      "csharpsquid:S7131",
+      "csharpsquid:S7133"
+    ],
+    "javascript": [],
+    "typescript": [],
+    "python": []
+  },
+  "derivation": "The listed C# keys are owned by SonarAnalyzer.Enterprise.CSharp.dll and absent from the contemporaneous Community Build catalog. They remain implemented and locally tested, but Community-only oracle runs must report them as unverified instead of claiming behavioral parity. Commercial security, architecture, and DBD plugin rule resources have an empty intersection with the captured JavaScript, TypeScript, and Python catalogs."
 }

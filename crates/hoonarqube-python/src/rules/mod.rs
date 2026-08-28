@@ -74,6 +74,7 @@ use crate::rules::function_return_counts::check_function_return_counts;
 use crate::rules::gather_validate_indices::check_gather_validate_indices;
 use crate::rules::generator_into_constructor::check_generator_into_constructor;
 use crate::rules::generator_return_values::check_generator_return_values;
+use crate::rules::generic_exception_raised::check_generic_exception_raised;
 use crate::rules::identical_if_else_branches::check_identical_if_else_branches;
 use crate::rules::identical_operands::check_identical_operands;
 use crate::rules::identical_sibling_functions::check_identical_sibling_functions;
@@ -493,6 +494,7 @@ fn tier_a2_web_async_typing_checks(
     ));
     issues.extend(check_except_star_groups(parsed, index, source));
     issues.extend(check_unraised_exceptions(parsed, index, source));
+    issues.extend(check_generic_exception_raised(parsed, index, source));
     issues.extend(check_incompatible_assert_literals(index, source, file_ctx));
     issues.extend(check_duplicate_call_arguments(index, source, file_ctx));
     issues.extend(check_skip_without_reason(index, source, file_ctx));
@@ -547,21 +549,13 @@ pub(crate) fn check_regex_battery(
         match parse_regex(units) {
             Err(err) => issues.push(issue_at(
                 "python:S5856",
-                "Fix the syntax error inside this regular expression.",
-                err.span,
+                "Fix the syntax error inside this regex.",
+                ruff_text_size::TextRange::at(err.span.start(), ruff_text_size::TextSize::new(1)),
                 index,
                 source,
             )),
             Ok(ast) => {
-                run_structural_regex_rules(
-                    &ast,
-                    units,
-                    site.verbose,
-                    options,
-                    &mut issues,
-                    index,
-                    source,
-                );
+                run_structural_regex_rules(&ast, site, options, &mut issues, index, source);
             }
         }
     }
@@ -1029,6 +1023,8 @@ mod generator_into_constructor;
 
 mod generator_return_values;
 
+mod generic_exception_raised;
+
 pub(crate) mod hardcoded_credentials;
 
 pub(crate) mod hardcoded_ips;
@@ -1190,6 +1186,7 @@ mod property_accessor_arities;
 pub(crate) mod py2_backticks;
 
 pub(crate) mod py2_inequality;
+pub(crate) mod py2_statements;
 
 mod pytz_timezone_usage;
 

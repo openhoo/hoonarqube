@@ -1,16 +1,15 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
-use crate::rules::expressions::{callee_name, first_named_child};
+use crate::rules::expressions::{callee_name, first_named_child, invocation_function};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S3456 — converting a string to a char array only to index or
 /// iterate it allocates for nothing; strings are enumerable already.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    /// Whether the node converts through `ToCharArray()`/`ToArray()`.
+    /// Whether the node converts through `string.ToCharArray()`.
     fn conversion_call(node: Node<'_>, source: &str) -> bool {
-        node.kind() == "invocation_expression"
-            && matches!(callee_name(node, source), Some("ToCharArray" | "ToArray"))
+        node.kind() == "invocation_expression" && callee_name(node, source) == Some("ToCharArray")
     }
 
     let mut issues = Vec::new();
@@ -22,8 +21,11 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S3456",
-                "Index the string directly instead of this array conversion.",
-                range_of(access, source),
+                "Remove this redundant 'ToCharArray' call.",
+                first_named_child(access)
+                    .and_then(invocation_function)
+                    .and_then(|function| function.child_by_field_name("name"))
+                    .map_or_else(|| range_of(access, source), |name| range_of(name, source)),
             ));
         }
     }
@@ -44,15 +46,20 @@ fn foreach_conversion_issues(
             continue;
         }
         let mut cursor = foreach_statement.walk();
-        let iterates_conversion = foreach_statement
+        let conversion = foreach_statement
             .children(&mut cursor)
-            .any(|child| conversion_call(child, source));
-        if iterates_conversion {
+            .find(|child| conversion_call(*child, source));
+        if let Some(conversion) = conversion {
             issues.push(issue(
                 language,
                 "S3456",
-                "Iterate the string directly instead of this array conversion.",
-                range_of(foreach_statement, source),
+                "Remove this redundant 'ToCharArray' call.",
+                invocation_function(conversion)
+                    .and_then(|function| function.child_by_field_name("name"))
+                    .map_or_else(
+                        || range_of(foreach_statement, source),
+                        |name| range_of(name, source),
+                    ),
             ));
         }
     }
@@ -62,11 +69,11 @@ mod tests {
     use crate::tests::{analyze_default, with_key};
 
     #[test]
-    fn s3456_flags_to_array_indexing() {
+    fn s3456_spares_linq_to_array_indexing() {
         let report = analyze_default(
             "class C\n{\n    char First(string s)\n    {\n        return s.ToArray()[0];\n    }\n}\n",
         );
-        assert_eq!(with_key(&report, "csharpsquid:S3456").len(), 1);
+        assert!(with_key(&report, "csharpsquid:S3456").is_empty());
     }
 
     #[test]

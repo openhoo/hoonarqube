@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, modifiers_of, range_of, simple_name};
+use crate::cst::{attributes_of, collect_kinds, issue, modifiers_of, range_of};
 use crate::rules::expressions::is_test_attributed;
 use crate::rules::modifiers::has_modifier;
 use crate::rules::security::return_type_text;
@@ -14,44 +14,52 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if !is_test_attributed(method, source) {
             continue;
         }
-        if !has_modifier(&modifiers_of(method, source), "public") {
-            issues.push(issue(
-                language,
-                "S3433",
-                "Make this test method public.",
-                range_of(method, source),
-            ));
+        let attributes = attributes_of(method, source);
+        let xunit = attributes
+            .iter()
+            .any(|attribute| matches!(*attribute, "Fact" | "Theory"));
+        let modifiers = modifiers_of(method, source);
+        let mut faults = Vec::new();
+        if !xunit && !has_modifier(&modifiers, "public") {
+            faults.push("'public'");
         }
-        let returns = simple_name(return_type_text(method, source));
-        if !TEST_RETURN_TYPES.contains(&returns) {
+        if method.child_by_field_name("type_parameters").is_some()
+            && !attributes
+                .iter()
+                .any(|attribute| matches!(*attribute, "Theory" | "TestCase" | "TestCaseSource"))
+        {
+            faults.push("non-generic");
+        }
+        if has_modifier(&modifiers, "async") && return_type_text(method, source) == "void" && !xunit
+        {
+            faults.push("non-'async' or return 'Task'");
+        }
+        if !faults.is_empty() {
+            let name = method.child_by_field_name("name").unwrap_or(method);
             issues.push(issue(
                 language,
                 "S3433",
-                "Test methods must not return values.",
-                range_of(method, source),
+                format!("Make this test method {}.", faults.join(" and ")),
+                range_of(name, source),
             ));
         }
     }
     issues
 }
 
-/// Return shapes valid for test methods.
-const TEST_RETURN_TYPES: [&str; 3] = ["void", "Task", "ValueTask"];
-
 #[cfg(test)]
 mod tests {
     use crate::tests::{analyze_default, with_key};
 
     #[test]
-    fn s3433_flags_missing_public_and_value_returns_together() {
+    fn s3433_flags_non_public_nunit_test_methods() {
         let report = analyze_default(
             "class T\n{\n    [Fact]\n    int Compute() { return 1; }\n\n    [Test]\n    internal Task Load() { return Task.CompletedTask; }\n\n    [TestMethod]\n    public ValueTask Save() { return ValueTask.CompletedTask; }\n\n    public int Plain() { return 2; }\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S3433");
-        assert_eq!(flagged.len(), 3);
-        assert_eq!(flagged[0].range.start.line, 3);
-        assert_eq!(flagged[1].range.start.line, 3);
-        assert_eq!(flagged[2].range.start.line, 6);
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 7);
+        assert_eq!(flagged[0].message, "Make this test method 'public'.");
     }
 
     #[test]

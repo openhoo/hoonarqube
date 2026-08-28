@@ -1,0 +1,1 @@
+const re = /ab+c/;

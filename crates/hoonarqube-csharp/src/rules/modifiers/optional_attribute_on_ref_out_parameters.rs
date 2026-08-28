@@ -1,7 +1,8 @@
 use super::support::has_attribute;
 use super::support::has_modifier;
 use crate::CsLanguage;
-use crate::cst::{attributes_of, collect_kinds, issue, modifiers_of, range_of};
+use crate::cst::{attributes_of, collect_kinds, issue, modifiers_of, node_text, range_of};
+use crate::rules::expressions::first_named_child;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -16,11 +17,21 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         }
         if has_attribute(&attributes_of(parameter, source), "Optional") {
+            let modifier = if has_modifier(&parameter_modifiers, "out") {
+                "out"
+            } else {
+                "ref"
+            };
+            let optional = collect_kinds(parameter, &["attribute"])
+                .into_iter()
+                .find(|attribute| node_text(*attribute, source).starts_with("Optional"))
+                .and_then(first_named_child)
+                .unwrap_or(parameter);
             issues.push(issue(
                 language,
                 "S3447",
-                "Remove this '[Optional]' attribute; the parameter is by reference.",
-                range_of(parameter, source),
+                format!("Remove the 'Optional' attribute, it cannot be used with '{modifier}'."),
+                range_of(optional, source),
             ));
         }
     }

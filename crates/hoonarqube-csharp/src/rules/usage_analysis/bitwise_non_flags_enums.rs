@@ -42,11 +42,19 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             .iter()
             .any(|identifier| value_names.contains(node_text(*identifier, source)));
         if touches_enum {
+            let enum_name = enum_types.iter().next().copied().unwrap_or("enum");
+            let mut cursor = expression.walk();
+            let operator = expression
+                .children(&mut cursor)
+                .find(|child| matches!(child.kind(), "|" | "&" | "^" | "|=" | "&=" | "^="))
+                .unwrap_or(expression);
             issues.push(issue(
                 language,
                 "S3265",
-                "This enum is not marked [Flags]; avoid bitwise operations on its values.",
-                range_of(expression, source),
+                format!(
+                    "Mark enum '{enum_name}' with 'Flags' attribute or remove this bitwise operation."
+                ),
+                range_of(operator, source),
             ));
         }
     }

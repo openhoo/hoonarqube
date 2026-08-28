@@ -36,8 +36,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S2445",
-                "Declare this lock field 'readonly'.",
-                range_of(lock_statement, source),
+                format!("Do not lock on writable field '{name}', use a readonly field instead."),
+                range_of(expression, source),
             ));
         }
     }

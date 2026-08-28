@@ -13,8 +13,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S1215",
-                "Remove this call to 'GC.Collect'.",
-                range_of(access, source),
+                "Refactor the code to remove this use of 'GC.Collect'.",
+                range_of(access.child_by_field_name("name").unwrap_or(access), source),
             )
         })
         .collect()

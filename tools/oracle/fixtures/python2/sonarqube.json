@@ -1,0 +1,33 @@
+{
+  "schema_version": 2,
+  "oracle_versions": ["9.9.8.100196", "26.8.0.126808"],
+  "issues": [
+    {
+      "rule": "python:ExecStatementUsage",
+      "file": "source.py",
+      "message": "Do not use exec statement.",
+      "range": {
+        "start": {"line": 1, "column": 0},
+        "end": {"line": 1, "column": 4}
+      }
+    },
+    {
+      "rule": "python:PrintStatementUsage",
+      "file": "source.py",
+      "message": "Replace print statement by built-in function.",
+      "range": {
+        "start": {"line": 3, "column": 0},
+        "end": {"line": 3, "column": 5}
+      }
+    },
+    {
+      "rule": "python:BackticksUsage",
+      "file": "source.py",
+      "message": "Use \"repr\" instead.",
+      "range": {
+        "start": {"line": 5, "column": 8},
+        "end": {"line": 5, "column": 13}
+      }
+    }
+  ]
+}

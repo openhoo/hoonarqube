@@ -34,13 +34,14 @@ pub(crate) fn check_s2201_ignored_pure_returns(
         if !discarded {
             continue;
         }
+        let label = match call.func.as_ref() {
+            Expr::Attribute(attribute) => format!("str.{}", attribute.attr),
+            _ => called_name(&call.func).unwrap_or_default().to_string(),
+        };
         issues.push(issue_at(
             "python:S2201",
-            &format!(
-                "The return value of '{}' is not used.",
-                called_name(&call.func).unwrap_or_default()
-            ),
-            call.range(),
+            &format!("The return value of \"{label}\" must be used."),
+            call.func.range(),
             index,
             source,
         ));

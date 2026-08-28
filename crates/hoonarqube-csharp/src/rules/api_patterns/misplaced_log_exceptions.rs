@@ -1,7 +1,9 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::dataflow::callable_blocks;
-use crate::rules::expressions::{callee_name, first_named_child, invocation_arguments};
+use crate::rules::expressions::{
+    callee_name, first_named_child, invocation_arguments, invocation_function,
+};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -34,11 +36,12 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     .any(|identifier| caught.contains(node_text(identifier, source)))
             });
             if late_exception {
+                let anchor = invocation_function(call).unwrap_or(call);
                 issues.push(issue(
                     language,
                     "S6668",
-                    "Pass the exception directly after the message template.",
-                    range_of(call, source),
+                    "Logging arguments should be passed to the correct parameter.",
+                    range_of(anchor, source),
                 ));
             }
         }

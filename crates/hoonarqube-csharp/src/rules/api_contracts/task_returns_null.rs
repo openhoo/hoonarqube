@@ -25,11 +25,12 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             let returns_null = first_named_child(statement)
                 .is_some_and(|expression| expression.kind() == "null_literal");
             if returns_null {
+                let null = first_named_child(statement).unwrap_or(statement);
                 issues.push(issue(
                     language,
                     "S4586",
-                    "Return 'Task.CompletedTask' instead of null.",
-                    range_of(statement, source),
+                    "Do not return null from this method, instead return 'Task.FromResult<T>(null)', 'Task.CompletedTask' or 'Task.Delay(0)'.",
+                    range_of(null, source),
                 ));
             }
         }

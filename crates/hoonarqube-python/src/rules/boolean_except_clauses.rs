@@ -30,7 +30,7 @@ pub(crate) fn check_boolean_except_clauses(
             if boolean {
                 issues.push(issue_at(
                     "python:S5714",
-                    "Simplify this except specification; boolean expressions cannot be caught.",
+                    "Rewrite this \"except\" expression as a tuple of exception classes.",
                     type_expr.range(),
                     index,
                     source,

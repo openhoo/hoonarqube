@@ -31,7 +31,9 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S3872",
-                    "Rename this parameter; it duplicates the name of its method.",
+                    format!(
+                        "Rename the parameter '{parameter_text}' so that it does not duplicate the method name."
+                    ),
                     range_of(parameter_name, source),
                 ));
             }

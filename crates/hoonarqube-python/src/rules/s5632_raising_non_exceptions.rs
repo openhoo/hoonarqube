@@ -21,12 +21,26 @@ pub(crate) fn check_s5632_raising_non_exceptions(
         {
             issues.push(issue_at(
                 "python:S5632",
-                "Raise an exception derived from BaseException.",
-                exc.range(),
+                "Change this code so that it raises an object deriving from BaseException.",
+                raise.range(),
                 index,
                 source,
             ));
         }
     }
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5632_flags_literal_raises_and_spares_exception_instances() {
+        let bad = scan("raise 42\n");
+        assert_eq!(findings(&bad, "python:S5632").len(), 1);
+
+        let good = scan("raise ValueError('bad')\n");
+        assert!(findings(&good, "python:S5632").is_empty());
+    }
 }

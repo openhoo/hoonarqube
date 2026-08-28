@@ -53,8 +53,8 @@ impl<'a> Visit<'a> for ExceptionHandlingCollector<'a> {
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S2737",
-                    "This catch clause does nothing but rethrow the caught exception.",
-                    thrown.span(),
+                    "Add logic to this catch clause or eliminate it and rethrow the exception automatically.",
+                    Span::new(it.span.start, it.span.start.saturating_add(5)),
                 );
             }
         }
@@ -81,12 +81,12 @@ impl<'a> Visit<'a> for ExceptionHandlingCollector<'a> {
             if let Some(body) = &it.value.body {
                 scanner.visit_function_body(body);
             }
-            if scanner.found {
+            if let Some(span) = scanner.found {
                 self.sink.emit_span(
                     RuleScope::JsOnly,
                     "S2432",
-                    "Setters should not return values.",
-                    it.key.span(),
+                    "Setter cannot return a value.",
+                    span,
                 );
             }
         }
@@ -98,13 +98,13 @@ impl<'a> Visit<'a> for ExceptionHandlingCollector<'a> {
 /// function subtrees while scanning setter bodies.
 #[derive(Default)]
 struct ReturnValueScanner {
-    found: bool,
+    found: Option<Span>,
 }
 
 impl<'a> Visit<'a> for ReturnValueScanner {
     fn visit_return_statement(&mut self, it: &ReturnStatement<'a>) {
         if it.argument.is_some() {
-            self.found = true;
+            self.found.get_or_insert(it.span());
         }
     }
 

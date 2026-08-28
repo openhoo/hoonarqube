@@ -23,16 +23,14 @@ impl ReactCollector<'_> {
         let Some(JSXAttributeValue::ExpressionContainer(container)) = &key_attribute.value else {
             return;
         };
-        let is_index_key = matches!(
-            container.expression.as_expression(),
-            Some(Expression::Identifier(reference)) if reference.name == index_param.as_str()
-        );
-        if is_index_key {
+        if let Some(Expression::Identifier(reference)) = container.expression.as_expression()
+            && reference.name == index_param.as_str()
+        {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S6479",
-                "Avoid using the array index as the 'key'; use a stable identifier instead.",
-                key_attribute.span(),
+                "Do not use Array index in keys",
+                reference.span(),
             );
         }
     }

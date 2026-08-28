@@ -89,11 +89,20 @@ impl<'a> LoopFlowCollector<'a, '_> {
 
     fn flag_many_jumps(&mut self, jumps: u32, span: Span) {
         if jumps > 1 {
+            let keyword_len = ["while", "for", "do"]
+                .into_iter()
+                .find(|keyword| source_slice(self.source, span).starts_with(keyword))
+                .map_or(0, str::len);
+            let keyword_span = Span::new(
+                span.start,
+                span.start
+                    .saturating_add(u32::try_from(keyword_len).unwrap_or_default()),
+            );
             self.sink.emit_span(
                 RuleScope::Both,
                 "S135",
-                "Reduce the number of break and continue statements in this loop to at most one.",
-                span,
+                "Reduce the total number of \"break\" and \"continue\" statements in this loop to use one at most.",
+                keyword_span,
             );
         }
     }
@@ -103,11 +112,19 @@ impl<'a> LoopFlowCollector<'a, '_> {
         let frame = self.pop_frame();
         self.flag_many_jumps(frame.jumps, span);
         if endless && !frame.terminators {
+            let keyword_len = ["while", "for", "do"]
+                .into_iter()
+                .find(|keyword| source_slice(self.source, span).starts_with(keyword))
+                .map_or(0, str::len);
             self.sink.emit_span(
                 RuleScope::JsOnly,
                 "S2189",
-                "Refactor this loop; it currently loops forever.",
-                span,
+                "Correct this loop's end condition to not be invariant.",
+                Span::new(
+                    span.start,
+                    span.start
+                        .saturating_add(u32::try_from(keyword_len).unwrap_or_default()),
+                ),
             );
         }
     }
@@ -153,10 +170,14 @@ impl<'a> LoopFlowCollector<'a, '_> {
             operator == BinaryOperator::LessThan
         };
         if conflicts {
+            let direction = match update.operator {
+                UpdateOperator::Increment => "incremented",
+                UpdateOperator::Decrement => "decremented",
+            };
             self.sink.emit_span(
                 RuleScope::Both,
                 "S2251",
-                "The loop counter moves away from the bound tested by this loop condition.",
+                &format!("\"{counter}\" is {direction} and will never reach its stop condition."),
                 update.span(),
             );
         }
@@ -167,11 +188,20 @@ impl<'a> LoopFlowCollector<'a, '_> {
         if let Some(update) = &it.update
             && !span_contains_word(self.source, update.span(), counter)
         {
+            let tested = it.test.as_ref().map_or_else(
+                || vec![counter],
+                |test| identifier_tokens(source_slice(self.source, test.span())),
+            );
+            let updated = identifier_tokens(source_slice(self.source, update.span()));
             self.sink.emit_span(
                 RuleScope::Both,
                 "S1994",
-                "Modify the loop counter in the update clause or remove the clause.",
-                update.span(),
+                &format!(
+                    "This loop's stop condition tests \"{}\" but the incrementer updates \"{}\".",
+                    tested.join(", "),
+                    updated.join(", ")
+                ),
+                Span::new(it.span.start, it.span.start.saturating_add(3)),
             );
         }
     }
@@ -210,6 +240,28 @@ impl<'a> LoopFlowCollector<'a, '_> {
             body.span(),
         );
     }
+}
+
+fn identifier_tokens(source: &str) -> Vec<&str> {
+    let mut names = Vec::new();
+    let bytes = source.as_bytes();
+    let mut cursor = 0;
+    while cursor < bytes.len() {
+        if !is_identifier_byte(bytes[cursor]) || bytes[cursor].is_ascii_digit() {
+            cursor += 1;
+            continue;
+        }
+        let start = cursor;
+        cursor += 1;
+        while cursor < bytes.len() && is_identifier_byte(bytes[cursor]) {
+            cursor += 1;
+        }
+        let name = &source[start..cursor];
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names
 }
 
 impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
@@ -276,8 +328,8 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S2310",
-                "Remove this assignment of the loop counter inside the loop body.",
-                it.span(),
+                &format!("Remove this assignment of \"{name}\"."),
+                it.left.span(),
             );
         }
         walk_assignment_expression(self, it);
@@ -290,8 +342,8 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S2310",
-                "Remove this modification of the loop counter inside the loop body.",
-                it.span(),
+                &format!("Remove this assignment of \"{name}\"."),
+                it.argument.span(),
             );
         }
     }
@@ -312,7 +364,9 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S888",
-                &format!("Replace '{operator_text}' operator with <=, >=, < or >."),
+                &format!(
+                    "Replace '{operator_text}' operator with one of '<=', '>=', '<', or '>' comparison operators."
+                ),
                 test.span(),
             );
         }
@@ -371,14 +425,14 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
             Expression::ArrayExpression(_) => self.sink.emit_span(
                 RuleScope::Both,
                 "S4139",
-                "Do not use for-in to iterate over an array.",
-                it.right.span(),
+                "Use \"for...of\" to iterate over this \"Array\".",
+                Span::new(it.span.start, it.span.start.saturating_add(3)),
             ),
             Expression::StringLiteral(_) => self.sink.emit_span(
                 RuleScope::Both,
                 "S4139",
-                "Do not use for-in to iterate over a string.",
-                it.right.span(),
+                "Use \"for...of\" to iterate over this \"String\".",
+                Span::new(it.span.start, it.span.start.saturating_add(3)),
             ),
             _ => {}
         }
@@ -391,7 +445,7 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S1535",
-                "Guard this for-in loop with a hasOwnProperty check.",
+                "Restrict what this loop acts on by testing each property.",
                 it.span(),
             );
         }

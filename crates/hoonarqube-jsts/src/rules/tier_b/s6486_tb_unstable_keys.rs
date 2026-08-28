@@ -14,7 +14,7 @@ pub(crate) fn check_tb_unstable_keys(
         sink.emit_span(
             RuleScope::Both,
             "S6486",
-            "Use a stable identifier as the key; random values recreate elements on every render.",
+            "Do not use generated values for keys of React list components.",
             span,
         );
     }

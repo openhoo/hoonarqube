@@ -2,7 +2,7 @@ use super::support::declared_type_names;
 use super::support::is_predefined_value_type_text;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of, simple_name};
-use crate::rules::expressions::{callee_name, invocation_arguments};
+use crate::rules::expressions::{callee_name, invocation_arguments, invocation_function};
 use crate::rules::literals::argument_expression;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -43,15 +43,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 .into_iter()
                 .map(argument_expression)
                 .collect();
-            expressions.iter().any(|argument| VALUE_LITERALS.contains(&argument.kind()))
+            expressions
+                .iter()
+                .any(|argument| VALUE_LITERALS.contains(&argument.kind()))
                 || (value_typed(expressions[0]) && value_typed(expressions[1]))
         })
         .map(|call| {
             issue(
                 language,
                 "S2995",
-                "'ReferenceEquals' always returns false for value types; compare with '==' or 'Equals' instead.",
-                range_of(call, source),
+                "Use a different kind of comparison for these value types.",
+                range_of(invocation_function(call).unwrap_or(call), source),
             )
         })
         .collect()

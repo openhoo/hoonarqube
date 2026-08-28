@@ -35,8 +35,10 @@ pub(crate) fn check_parameter_and_local_names(
                 if !matches_snake_case(name.as_str()) {
                     issues.push(issue_at(
                         "python:S117",
-                        "Rename this parameter to match the regular expression \
-                     '^[_a-z][a-z0-9_]*$'.",
+                        &format!(
+                            "Rename this parameter \"{name}\" to match the regular expression \
+                             ^[_a-z][a-z0-9_]*$."
+                        ),
                         name.range(),
                         index,
                         source,

@@ -37,11 +37,12 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             _ => false,
         };
         if constant_return {
+            let name_node = method.child_by_field_name("name").unwrap_or(method);
             issues.push(issue(
                 language,
                 "S3400",
-                "Remove this method and declare a constant for its value instead.",
-                range_of(method, source),
+                "Remove this method and declare a constant for this value.",
+                range_of(name_node, source),
             ));
         }
     }

@@ -23,8 +23,8 @@ struct ParenFrame {
     commas: usize,
     /// Any significant non-whitespace content besides the commas themselves.
     content: bool,
-    /// Whether the previous significant token was another `(`.
-    follows_open: bool,
+    /// Opening parenthesis made redundant by this immediately nested pair.
+    redundant_open: Option<usize>,
 }
 
 pub(crate) fn check_redundant_parentheses(
@@ -42,28 +42,29 @@ pub(crate) fn check_redundant_parentheses(
             let position = base + relative;
             match character {
                 '(' => {
-                    let follows_open = last_significant == Some('(');
+                    let redundant_open = (last_significant == Some('('))
+                        .then(|| stack.last().map(|frame| frame.open))
+                        .flatten();
                     stack.push(ParenFrame {
                         open: position,
                         commas: 0,
                         content: false,
-                        follows_open,
+                        redundant_open,
                     });
                     last_significant = Some('(');
                 }
                 ')' => {
                     if let Some(frame) = stack.pop()
-                        && frame.follows_open
+                        && let Some(redundant_open) = frame.redundant_open
                         && frame.commas == 0
                         && frame.content
                         && next_significant_closes(&segments, position + 1)
                     {
-                        let start = TextSize::from(to_u32(frame.open));
-                        let end = TextSize::from(to_u32(position + character.len_utf8()));
+                        let start = TextSize::from(to_u32(redundant_open));
                         issues.push(issue_at(
                             "python:S1110",
-                            "Remove these useless parentheses.",
-                            TextRange::new(start, end),
+                            "Remove those useless parentheses.",
+                            TextRange::at(start, TextSize::new(1)),
                             index,
                             source,
                         ));

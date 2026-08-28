@@ -2,7 +2,7 @@
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::rules::shared::statement_ends_with_jump;
-use crate::support::{IssueSink, LineIndex, RuleScope, unparenthesized};
+use crate::support::{IssueSink, LineIndex, RuleScope, source_slice, unparenthesized};
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     Expression, IfStatement, LogicalOperator, Statement, SwitchCase, SwitchStatement,
@@ -13,6 +13,7 @@ use oxc_span::GetSpan;
 
 fn check_switch_flow(
     program: &oxc_ast::ast::Program<'_>,
+    source: &str,
     index: &LineIndex,
     language: JstsLanguage,
 ) -> Vec<Issue> {
@@ -22,6 +23,7 @@ fn check_switch_flow(
             language,
             issues: Vec::new(),
         },
+        source,
         in_else_if_chain: false,
         case_depth: 0,
     };
@@ -34,8 +36,9 @@ fn check_switch_flow(
 /// (missing `default`), `S4524` (default not last), `S3616` (sequence or
 /// logical-OR case test), `S1479` (too many cases), `S1301` (switch
 /// convertible to `if`), and `S1821` (switch nested inside a case).
-struct SwitchFlowCollector<'index> {
+struct SwitchFlowCollector<'source, 'index> {
     sink: IssueSink<'index>,
+    source: &'source str,
     /// Set while visiting the `alternate` of an enclosing `if`; detects
     /// chains whose last link lacks a final `else` (`S126`).
     in_else_if_chain: bool,
@@ -43,14 +46,17 @@ struct SwitchFlowCollector<'index> {
     case_depth: u32,
 }
 
-impl<'a> Visit<'a> for SwitchFlowCollector<'_> {
+impl<'a> Visit<'a> for SwitchFlowCollector<'_, '_> {
     fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
         if self.in_else_if_chain && it.alternate.is_none() {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S126",
-                "Add a final \"else\" clause to this if/else-if chain.",
-                it.span(),
+                "Add the missing \"else\" clause.",
+                oxc_span::Span::new(
+                    it.span.start.saturating_sub(5),
+                    it.span.start.saturating_add(2),
+                ),
             );
         }
         let saved_in_chain = self.in_else_if_chain;
@@ -68,16 +74,16 @@ impl<'a> Visit<'a> for SwitchFlowCollector<'_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S1821",
-                "Extract this nested switch statement from its parent case.",
-                it.span(),
+                "Refactor the code to eliminate this nested \"switch\".",
+                oxc_span::Span::new(it.span.start, it.span.start.saturating_add(6)),
             );
         }
         if it.cases.iter().all(|case| case.test.is_some()) {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S131",
-                "Add a \"default\" case to this switch statement.",
-                it.span(),
+                "Add a \"default\" clause to this \"switch\" statement.",
+                oxc_span::Span::new(it.span.start, it.span.start.saturating_add(6)),
             );
         }
         let last_case_index = it.cases.len().saturating_sub(1);
@@ -86,24 +92,20 @@ impl<'a> Visit<'a> for SwitchFlowCollector<'_> {
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S4524",
-                    "Move this default case to the end of this switch statement.",
-                    case.span(),
+                    "Move this \"default\" clause to the end of this \"switch\" statement.",
+                    oxc_span::Span::new(case.span.start, case.span.start.saturating_add(7)),
                 );
             }
         }
-        if it.cases.len() > MAX_SWITCH_CASES {
+        let tested_cases = it.cases.iter().filter(|case| case.test.is_some()).count();
+        if tested_cases > MAX_SWITCH_CASES {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S1479",
-                &format!(
-                    "Reduce the number of switch cases from {} to at most {}.",
-                    it.cases.len(),
-                    MAX_SWITCH_CASES
-                ),
-                it.span(),
+                &format!("Reduce the number of non-empty switch cases from {tested_cases} to at most {MAX_SWITCH_CASES}."),
+                oxc_span::Span::new(it.span.start, it.span.start.saturating_add(6)),
             );
         }
-        let tested_cases = it.cases.iter().filter(|case| case.test.is_some()).count();
         if (1..=MAX_TINY_SWITCH_CASES).contains(&tested_cases) {
             self.sink.emit_span(
                 RuleScope::Both,
@@ -117,12 +119,15 @@ impl<'a> Visit<'a> for SwitchFlowCollector<'_> {
 
     fn visit_switch_case(&mut self, it: &SwitchCase<'a>) {
         if let Some(test) = &it.test
-            && case_test_is_sequence_or_or(test)
+            && let Some((count, effective)) = case_test_details(test)
         {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S3616",
-                "Remove this sequence expression or logical OR from the case test.",
+                &format!(
+                    "Explicitly specify {count} separate cases that fall through; currently this case clause only works for \"{}\".",
+                    source_slice(self.source, effective)
+                ),
                 test.span(),
             );
         }
@@ -159,16 +164,30 @@ pub(crate) const MAX_SWITCH_CASES: usize = 30;
 
 /// Whether a case test uses a sequence expression or a logical OR
 /// (`S3616`).
-fn case_test_is_sequence_or_or(test: &Expression<'_>) -> bool {
+fn case_test_details(test: &Expression<'_>) -> Option<(usize, oxc_span::Span)> {
     match unparenthesized(test) {
-        Expression::SequenceExpression(_) => true,
-        Expression::LogicalExpression(logical) => logical.operator == LogicalOperator::Or,
-        _ => false,
+        Expression::SequenceExpression(sequence) => Some((
+            sequence.expressions.len(),
+            sequence.expressions.last()?.span(),
+        )),
+        Expression::LogicalExpression(logical) if logical.operator == LogicalOperator::Or => {
+            Some((logical_or_operand_count(test), logical.left.span()))
+        }
+        _ => None,
+    }
+}
+
+fn logical_or_operand_count(test: &Expression<'_>) -> usize {
+    match unparenthesized(test) {
+        Expression::LogicalExpression(logical) if logical.operator == LogicalOperator::Or => {
+            logical_or_operand_count(&logical.left) + logical_or_operand_count(&logical.right)
+        }
+        _ => 1,
     }
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_switch_flow(ctx.program, ctx.index, ctx.language)
+    check_switch_flow(ctx.program, ctx.source, ctx.index, ctx.language)
 }
 
 #[cfg(test)]

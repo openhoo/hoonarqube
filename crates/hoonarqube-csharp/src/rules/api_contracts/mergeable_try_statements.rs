@@ -16,7 +16,10 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issues.push(issue(
                     language,
                     "S2327",
-                    "Merge these try statements sharing identical handlers.",
+                    format!(
+                        "Combine this 'try' with the one starting on line {}.",
+                        pair[0].start_position().row + 1
+                    ),
                     range_of(pair[1], source),
                 ));
             }

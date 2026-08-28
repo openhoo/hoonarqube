@@ -1,5 +1,4 @@
 use crate::rules::batch5::collectors::SecurityHotspotCollector;
-use crate::rules::batch5::collectors::first_string_argument;
 use crate::rules::shared::sink_callee_name;
 use crate::support::RuleScope;
 use crate::support::expression_root_name;
@@ -21,8 +20,9 @@ impl SecurityHotspotCollector<'_, '_> {
             flagged = true;
         }
         if !flagged
-            && sink_callee_name(&call.callee) == Some("require")
-            && first_string_argument(call) == Some("xpath")
+            && sink_callee_name(&call.callee) == Some("select")
+            && let Expression::StaticMemberExpression(member) = &call.callee
+            && expression_root_name(&member.object) == Some("xpath")
         {
             flagged = true;
         }
@@ -30,8 +30,8 @@ impl SecurityHotspotCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S4817",
-                "Make sure evaluating this XPath expression is safe here.",
-                call.span(),
+                "Make sure that executing this XPATH expression is safe.",
+                call.callee.span(),
             );
         }
     }

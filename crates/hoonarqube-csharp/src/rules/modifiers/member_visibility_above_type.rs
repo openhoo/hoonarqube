@@ -4,6 +4,7 @@ use super::support::type_declared_rank;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, issue, modifiers_of, range_of};
 use crate::rules::naming::type_members;
+use crate::rules::structure::name_anchor;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -36,21 +37,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         ],
     ) {
         let type_rank = type_declared_rank(type_node, source);
-        for member in type_members(type_node) {
+        let exceeds = type_members(type_node).into_iter().any(|member| {
             if !MEMBER_KINDS.contains(&member.kind()) {
-                continue;
+                return false;
             }
             let member_modifiers = modifiers_of(member, source);
             if !has_any_accessibility(&member_modifiers)
                 || accessibility_rank(&member_modifiers) <= type_rank
             {
-                continue;
+                return false;
             }
+            true
+        });
+        if exceeds {
             issues.push(issue(
                 language,
                 "S3059",
-                "Reduce this member's visibility to match its container.",
-                range_of(member, source),
+                "Types should not have members with visibility set higher than the type's visibility",
+                range_of(name_anchor(type_node), source),
             ));
         }
     }

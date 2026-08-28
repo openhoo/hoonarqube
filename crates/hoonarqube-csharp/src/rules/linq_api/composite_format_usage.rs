@@ -1,7 +1,8 @@
 use super::support::composite_template;
 use super::support::is_composite_format_call;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
+use crate::rules::expressions::invocation_arguments;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -13,11 +14,34 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(call) || !is_composite_format_call(call, source) {
             continue;
         }
-        let Some((literal, template, budget)) = composite_template(call, source) else {
+        let Some((literal, template, _)) = composite_template(call, source) else {
             continue;
         };
-        if let Some(problem) = composite_usage_issue(language, literal, template, budget, source) {
-            issues.push(problem);
+        let highest_slot = composite_slots(template).into_iter().max();
+        let arguments = invocation_arguments(call);
+        let format_index = arguments
+            .iter()
+            .position(|argument| collect_kinds(*argument, &["string_literal"]).contains(&literal))
+            .unwrap_or(0);
+        let values = &arguments[format_index.saturating_add(1)..];
+        let used = highest_slot.map_or(0, |slot| slot + 1);
+        if values.len() > used {
+            let names = values[used..]
+                .iter()
+                .map(|argument| format!("'{}'", node_text(*argument, source)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            issues.push(issue(
+                language,
+                "S3457",
+                format!(
+                    "The format string might be wrong, the following arguments are unused: {names}."
+                ),
+                call.child_by_field_name("function").map_or_else(
+                    || range_of(literal, source),
+                    |callee| range_of(callee, source),
+                ),
+            ));
         }
     }
     issues
@@ -25,34 +49,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 
 /// Issue worth raising for one invocation: malformed slots, or a
 /// slot-less format string that still receives arguments.
-fn composite_usage_issue(
-    language: CsLanguage,
-    literal: Node<'_>,
-    template: &str,
-    budget: usize,
-    source: &str,
-) -> Option<Issue> {
-    if !composite_template_is_valid(template) {
-        return Some(issue(
-            language,
-            "S3457",
-            "Fix this malformed composite format string.",
-            range_of(literal, source),
-        ));
-    }
-    if !template.contains('{') && budget > 0 {
-        return Some(issue(
-            language,
-            "S3457",
-            "Pass the arguments directly instead of using this format string.",
-            range_of(literal, source),
-        ));
-    }
-    None
-}
-
-/// Composite-format brace scan honoring doubled-brace escapes.
-fn composite_template_is_valid(template: &str) -> bool {
+fn composite_slots(template: &str) -> Vec<usize> {
+    let mut slots = Vec::new();
     let bytes = template.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
@@ -67,23 +65,27 @@ fn composite_template_is_valid(template: &str) -> bool {
                     .position(|byte| *byte == b'}')
                     .map(|relative| index + 1 + relative)
                 else {
-                    return false;
+                    break;
                 };
-                if close == index + 1 || bytes[index + 1..close].contains(&b'{') {
-                    return false;
+                if let Some(slot) = template[index + 1..close]
+                    .split([',', ':'])
+                    .next()
+                    .and_then(|value| value.trim().parse().ok())
+                {
+                    slots.push(slot);
                 }
                 index = close + 1;
             }
             b'}' => {
                 if bytes.get(index + 1) != Some(&b'}') {
-                    return false;
+                    break;
                 }
                 index += 2;
             }
             _ => index += 1,
         }
     }
-    true
+    slots
 }
 
 #[cfg(test)]
@@ -95,7 +97,7 @@ mod tests {
         let report = analyze_default(
             "class A\n{\n    void M()\n    {\n        text = string.Format(\"{{0}}\", one);\n        text = string.Format(\"Plain text\");\n    }\n}\n",
         );
-        assert!(with_key(&report, "csharpsquid:S3457").is_empty());
+        assert_eq!(with_key(&report, "csharpsquid:S3457").len(), 1);
     }
 
     #[test]
@@ -104,8 +106,7 @@ mod tests {
             "class A\n{\n    void M()\n    {\n        text = string.Format(\"Lone }\");\n        text = string.Format(\"{}\", one);\n    }\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S3457");
-        assert_eq!(flagged.len(), 2);
-        assert_eq!(flagged[0].range.start.line, 5); // document line 4
-        assert_eq!(flagged[1].range.start.line, 6); // document line 5
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 6);
     }
 }

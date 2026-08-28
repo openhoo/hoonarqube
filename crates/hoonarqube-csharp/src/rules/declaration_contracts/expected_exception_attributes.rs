@@ -10,9 +10,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         root,
         source,
         language,
-        &["ExpectedException", "ExpectedExceptionAttribute"],
+        &[
+            "ExpectedException",
+            "ExpectedExceptionAttribute",
+            "NUnit.Framework.ExpectedException",
+            "NUnit.Framework.ExpectedExceptionAttribute",
+            "Microsoft.VisualStudio.TestTools.UnitTesting.ExpectedException",
+            "Microsoft.VisualStudio.TestTools.UnitTesting.ExpectedExceptionAttribute",
+        ],
         "S3431",
-        "Replace this 'ExpectedException' annotation with assertions.",
+        "Replace the 'ExpectedException' attribute with a throw assertion or a try/catch block.",
     )
 }
 

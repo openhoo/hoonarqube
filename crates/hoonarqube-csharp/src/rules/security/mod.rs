@@ -35,6 +35,5 @@ pub(crate) mod winforms_entry_points;
 
 pub(crate) use support::attributed_declaration;
 pub(crate) use support::call_argument_nodes;
-pub(crate) use support::identifier_usages;
 pub(crate) use support::return_type_text;
 pub(crate) use walker::security_deny_list_issues;

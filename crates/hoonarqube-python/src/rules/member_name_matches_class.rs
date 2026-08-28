@@ -45,10 +45,10 @@ fn flag_matching_members(
     source: &str,
 ) {
     let lowered_class = class.name.id.to_lowercase();
-    let mut push = |name_range: ruff_text_size::TextRange| {
+    let mut push = |name: &str, name_range: ruff_text_size::TextRange| {
         issues.push(issue_at(
             "python:S1700",
-            "Rename this member to not match an existing class name.",
+            &format!("Rename field \"{name}\""),
             name_range,
             index,
             source,
@@ -56,17 +56,13 @@ fn flag_matching_members(
     };
     for stmt in &class.body {
         match stmt {
-            Stmt::FunctionDef(function) => {
-                if function.name.id.to_lowercase() == lowered_class {
-                    push(function.name.range());
-                }
-            }
+            Stmt::FunctionDef(_) => {}
             _ => {
                 for target in binding_stmt_targets(stmt) {
                     if let ruff_python_ast::Expr::Name(name) = target
                         && name.id.to_lowercase() == lowered_class
                     {
-                        push(name.range());
+                        push(name.id.as_str(), name.range());
                     }
                 }
             }
@@ -80,14 +76,11 @@ mod tests {
     use crate::test_support::{findings, scan};
 
     #[test]
-    fn s1700_flags_case_insensitive_member_matches() {
-        let flagged = scan("class Parser:\n    def parser(self):\n        pass\n");
-        let found = findings(&flagged, "python:S1700");
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].range.start.line, 2);
-
+    fn s1700_flags_case_insensitive_field_matches() {
         let field = scan("class Config:\n    CONFIG = 1\n");
         assert_eq!(findings(&field, "python:S1700").len(), 1);
+        let method = scan("class Parser:\n    def parser(self):\n        pass\n");
+        assert!(findings(&method, "python:S1700").is_empty());
     }
 
     #[test]

@@ -1,0 +1,1 @@
+stamp = datetime.datetime.utcnow()

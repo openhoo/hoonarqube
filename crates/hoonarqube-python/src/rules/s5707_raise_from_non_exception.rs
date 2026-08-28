@@ -21,7 +21,7 @@ pub(crate) fn check_s5707_raise_from_non_exception(
         {
             issues.push(issue_at(
                 "python:S5707",
-                "Raise from an exception instance or None instead of this value.",
+                "Replace this expression with an exception or None",
                 cause.range(),
                 index,
                 source,
@@ -29,4 +29,18 @@ pub(crate) fn check_s5707_raise_from_non_exception(
         }
     }
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5707_flags_non_exception_raise_causes() {
+        let bad = scan("raise ValueError('bad') from 42\n");
+        assert_eq!(findings(&bad, "python:S5707").len(), 1);
+
+        let good = scan("raise ValueError('bad') from KeyError('cause')\n");
+        assert!(findings(&good, "python:S5707").is_empty());
+    }
 }

@@ -958,7 +958,7 @@ fn print_snapshot(catalog: &Catalog, json: bool) -> ExitCode {
         return ExitCode::SUCCESS;
     }
     println!("server_version: {}", snapshot.server_version);
-    println!("edition: {}", snapshot.edition);
+    println!("oracle_edition: {}", snapshot.oracle_edition);
     println!("instance_mode: {}", snapshot.instance_mode);
     println!("captured_at_utc: {}", snapshot.captured_at_utc);
     println!("total_rules: {}", snapshot.total_rules);
@@ -1012,14 +1012,11 @@ fn unknown_language(value: &str) -> ExitCode {
     ExitCode::from(2)
 }
 
-/// Strips the `repository:` prefix from a catalog external key for the
-/// `SonarQube` Generic Issue Import `ruleId` field (e.g. `python:S103` becomes
-/// `S103`); keys without a prefix pass through unchanged.
+/// Keeps the repository-qualified catalog key as the Generic Issue Import rule
+/// id. A single report can contain Python, JS/TS, and C#; stripping the prefix
+/// would collapse distinct rules such as `python:S112` and `csharpsquid:S112`.
 fn sonar_rule_id(rule_key: &str) -> &str {
-    match rule_key.split_once(':') {
-        Some((_, rule_id)) => rule_id,
-        None => rule_key,
-    }
+    rule_key
 }
 
 /// Renders the human-readable analyze report: one line per finding, then a
@@ -1049,45 +1046,85 @@ fn render_text_report(reports: &[hoonarqube_ir::FileReport]) -> String {
     out
 }
 
-/// Builds a `SonarQube` Generic Issue Import document: every finding becomes one
-/// issue with `engineId`/`ruleId`/`severity`/`type` and a single
-/// `primaryLocation`. Severity and type always resolve through the frozen
-/// catalog; the `INFO`/`CODE_SMELL` pair only covers rule keys absent from
-/// it. Positions reuse the IR convention (1-based lines, 0-based columns);
-/// optional fields are omitted rather than emitted as null.
+/// Builds the current `SonarQube` Generic Issue Import document. Every used rule
+/// is defined once in the top-level `rules` array; findings reference it by the
+/// repository-qualified `ruleId`. Catalog classification and impacts remain the
+/// single metadata source. Positions reuse the IR convention (1-based lines,
+/// 0-based columns); optional fields are omitted rather than emitted as null.
 fn sonar_import_value(
     catalog: &Catalog,
     reports: &[hoonarqube_ir::FileReport],
 ) -> serde_json::Value {
-    let issues: Vec<serde_json::Value> = reports
-        .iter()
-        .flat_map(|report| {
-            let file_path = report.path.display().to_string();
-            report.issues.iter().map(move |issue| {
-                let (severity, rule_type) = match catalog.rule(&issue.rule_key) {
-                    Some(record) => (record.severity.as_str(), record.rule_type.as_str()),
-                    None => ("INFO", "CODE_SMELL"),
-                };
+    let mut rules = std::collections::BTreeMap::new();
+    let mut issues = Vec::new();
+    for report in reports {
+        let file_path = report.path.display().to_string();
+        for issue in &report.issues {
+            let rule_id = sonar_rule_id(&issue.rule_key);
+            rules.entry(rule_id.to_string()).or_insert_with(|| {
+                let (clean_code_attribute, rule_type, severity, impacts) =
+                    match catalog.rule(&issue.rule_key) {
+                        Some(record) => (
+                            record
+                                .clean_code_attribute
+                                .as_deref()
+                                .unwrap_or("CONVENTIONAL"),
+                            record.rule_type.as_str(),
+                            record.severity.as_str(),
+                            record
+                                .impacts
+                                .iter()
+                                .map(|impact| {
+                                    serde_json::json!({
+                                        "softwareQuality": impact.software_quality,
+                                        "severity": impact.severity,
+                                    })
+                                })
+                                .collect::<Vec<_>>(),
+                        ),
+                        None => (
+                            "CONVENTIONAL",
+                            "CODE_SMELL",
+                            "INFO",
+                            vec![serde_json::json!({
+                                "softwareQuality": "MAINTAINABILITY",
+                                "severity": "MEDIUM",
+                            })],
+                        ),
+                    };
                 serde_json::json!({
+                    "id": rule_id,
+                    "name": issue.rule_key,
+                    "description": format!("Hoonarqube finding for `{}`.", issue.rule_key),
                     "engineId": "hoonarqube",
-                    "ruleId": sonar_rule_id(&issue.rule_key),
-                    "severity": severity,
+                    "cleanCodeAttribute": clean_code_attribute,
                     "type": rule_type,
-                    "primaryLocation": {
-                        "message": &issue.message,
-                        "filePath": file_path,
-                        "textRange": {
-                            "startLine": issue.range.start.line,
-                            "startColumn": issue.range.start.column,
-                            "endLine": issue.range.end.line,
-                            "endColumn": issue.range.end.column,
-                        },
-                    },
+                    "severity": severity,
+                    "impacts": impacts,
                 })
-            })
-        })
-        .collect();
-    serde_json::json!({ "issues": issues })
+            });
+            let mut primary_location = serde_json::json!({
+                "message": &issue.message,
+                "filePath": file_path,
+            });
+            if !issue.range.is_file_level() {
+                primary_location["textRange"] = serde_json::json!({
+                    "startLine": issue.range.start.line,
+                    "startColumn": issue.range.start.column,
+                    "endLine": issue.range.end.line,
+                    "endColumn": issue.range.end.column,
+                });
+            }
+            issues.push(serde_json::json!({
+                "ruleId": rule_id,
+                "primaryLocation": primary_location,
+            }));
+        }
+    }
+    serde_json::json!({
+        "rules": rules.into_values().collect::<Vec<_>>(),
+        "issues": issues,
+    })
 }
 
 /// Validates input paths and the requested output format, then walks and
@@ -1190,14 +1227,24 @@ mod tests {
         ];
 
         let value = sonar_import_value(embedded(), &reports);
+        let rules = value["rules"].as_array().expect("rules array");
         let issues = value["issues"].as_array().expect("issues array");
+        assert_eq!(rules.len(), 2);
         assert_eq!(issues.len(), 2);
 
+        let first_rule = &rules[0];
+        assert_eq!(first_rule["id"], "javascript:S1523");
+        assert_eq!(first_rule["engineId"], "hoonarqube");
+        assert_eq!(first_rule["severity"], "CRITICAL");
+        assert_eq!(first_rule["type"], "SECURITY_HOTSPOT");
+        assert!(first_rule["cleanCodeAttribute"].is_string());
+        assert!(first_rule["impacts"].is_array());
+
         let first = &issues[0];
-        assert_eq!(first["engineId"], "hoonarqube");
-        assert_eq!(first["ruleId"], "S1523");
-        assert_eq!(first["severity"], "CRITICAL");
-        assert_eq!(first["type"], "SECURITY_HOTSPOT");
+        assert_eq!(first["ruleId"], "javascript:S1523");
+        assert!(first.get("engineId").is_none());
+        assert!(first.get("severity").is_none());
+        assert!(first.get("type").is_none());
         assert_eq!(
             first["primaryLocation"]["message"],
             "Remove this usage of 'eval'."
@@ -1208,9 +1255,7 @@ mod tests {
         assert_eq!(first["primaryLocation"]["textRange"]["endLine"], 1);
         assert_eq!(first["primaryLocation"]["textRange"]["endColumn"], 4);
 
-        assert_eq!(issues[1]["ruleId"], "LineLength");
-        assert_eq!(issues[1]["severity"], "MAJOR");
-        assert_eq!(issues[1]["type"], "CODE_SMELL");
+        assert_eq!(issues[1]["ruleId"], "python:LineLength");
         assert_eq!(issues[1]["primaryLocation"]["filePath"], "src/long.py");
 
         // Generic-import optional fields are omitted, never emitted as null.
@@ -1220,7 +1265,26 @@ mod tests {
     #[test]
     fn sonar_import_of_clean_report_has_empty_issue_list() {
         let value = sonar_import_value(embedded(), &[]);
+        assert_eq!(value["rules"].as_array().map(Vec::len), Some(0));
         assert_eq!(value["issues"].as_array().map(Vec::len), Some(0));
+    }
+
+    #[test]
+    fn sonar_import_omits_text_range_for_file_level_issues() {
+        let reports = vec![sample_report(
+            "src/no-newline.py",
+            "python",
+            vec![Issue {
+                rule_key: "python:S113".to_string(),
+                message: "Add a new line at the end of this file \"no-newline.py\".".to_string(),
+                range: Range::file_level(),
+                fix: None,
+            }],
+        )];
+        let value = sonar_import_value(embedded(), &reports);
+        let primary = &value["issues"][0]["primaryLocation"];
+        assert_eq!(primary["filePath"], "src/no-newline.py");
+        assert!(primary.get("textRange").is_none());
     }
 
     #[test]
@@ -1240,9 +1304,41 @@ mod tests {
         )];
 
         let value = sonar_import_value(embedded(), &reports);
-        let first = &value["issues"][0];
-        assert_eq!(first["severity"], "INFO");
-        assert_eq!(first["type"], "CODE_SMELL");
+        let rule = &value["rules"][0];
+        assert_eq!(rule["id"], "python:S999999");
+        assert_eq!(rule["severity"], "INFO");
+        assert_eq!(rule["type"], "CODE_SMELL");
+        assert_eq!(rule["cleanCodeAttribute"], "CONVENTIONAL");
+        assert_eq!(rule["impacts"][0]["softwareQuality"], "MAINTAINABILITY");
+        assert_eq!(value["issues"][0]["ruleId"], "python:S999999");
+    }
+
+    #[test]
+    fn sonar_import_keeps_same_numeric_key_distinct_across_languages() {
+        let issue = |rule_key: &str| Issue {
+            rule_key: rule_key.to_string(),
+            message: "generic exception".to_string(),
+            range: Range {
+                start: Pos { line: 1, column: 0 },
+                end: Pos { line: 1, column: 1 },
+            },
+            fix: None,
+        };
+        let reports = vec![
+            sample_report("src/a.py", "python", vec![issue("python:S112")]),
+            sample_report("src/a.cs", "csharp", vec![issue("csharpsquid:S112")]),
+        ];
+
+        let value = sonar_import_value(embedded(), &reports);
+        let ids = value["rules"]
+            .as_array()
+            .expect("rules")
+            .iter()
+            .map(|rule| rule["id"].as_str().expect("id"))
+            .collect::<Vec<_>>();
+        assert_eq!(ids, ["csharpsquid:S112", "python:S112"]);
+        assert_eq!(value["issues"][0]["ruleId"], "python:S112");
+        assert_eq!(value["issues"][1]["ruleId"], "csharpsquid:S112");
     }
 
     /// Unique temp path for `fix_file` tests; callers clean up after use.
@@ -1514,9 +1610,9 @@ mod tests {
     }
 
     #[test]
-    fn sonar_rule_id_strips_repository_prefix() {
-        assert_eq!(sonar_rule_id("typescript:S122"), "S122");
-        assert_eq!(sonar_rule_id("python:LineLength"), "LineLength");
+    fn sonar_rule_id_preserves_repository_prefix() {
+        assert_eq!(sonar_rule_id("typescript:S122"), "typescript:S122");
+        assert_eq!(sonar_rule_id("python:LineLength"), "python:LineLength");
         assert_eq!(sonar_rule_id("S103"), "S103");
     }
 

@@ -32,8 +32,8 @@ impl ReactCollector<'_> {
         self.sink.emit_span(
             RuleScope::Both,
             "S6439",
-            "This branch renders a literal; guard it with an explicit boolean condition.",
-            container.span(),
+            "Convert the conditional to a boolean to avoid leaked value",
+            logical.left.span(),
         );
     }
 }

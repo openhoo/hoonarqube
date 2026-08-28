@@ -11,11 +11,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             return;
         }
         let text = node_text(node, source);
-        let is_empty = if text.starts_with("///") {
-            false
-        } else if let Some(rest) = text.strip_prefix("//") {
-            rest.trim().is_empty()
-        } else if let Some(inner) = text.strip_prefix("/*") {
+        let is_empty = if let Some(inner) = text.strip_prefix("/*") {
             let inner = inner.strip_suffix("*/").unwrap_or(inner);
             inner.chars().all(|c| c.is_whitespace() || c == '*')
         } else {
@@ -25,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S4663",
-                "Remove this empty comment.",
+                "Remove this empty comment",
                 range_of(node, source),
             ));
         }

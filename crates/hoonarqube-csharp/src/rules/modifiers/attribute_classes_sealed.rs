@@ -9,9 +9,7 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for class_node in collect_kinds(root, &["class_declaration"]) {
-        let derives_attribute = base_simple_names(class_node, source)
-            .iter()
-            .any(|name| *name == "Attribute" || name.ends_with("Attribute"));
+        let derives_attribute = base_simple_names(class_node, source).contains(&"Attribute");
         if !derives_attribute {
             continue;
         }
@@ -19,6 +17,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if has_modifier(&modifiers, "sealed")
             || has_modifier(&modifiers, "abstract")
             || has_modifier(&modifiers, "static")
+            || !has_modifier(&modifiers, "public")
         {
             continue;
         }
@@ -28,7 +27,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         issues.push(issue(
             language,
             "S4060",
-            "Mark this attribute class 'sealed' or 'abstract'.",
+            "Seal this attribute or make it abstract.",
             range_of(name, source),
         ));
     }

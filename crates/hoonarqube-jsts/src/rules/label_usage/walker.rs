@@ -44,7 +44,7 @@ impl<'a> Visit<'a> for LabelUsageCollector<'_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S1219",
-                "Remove this unnecessary label.",
+                &format!("Remove this misleading \"{}\" label.", it.label.name),
                 it.label.span(),
             );
         }
@@ -52,7 +52,7 @@ impl<'a> Visit<'a> for LabelUsageCollector<'_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S1439",
-                "Only loops and switch statements should be labeled.",
+                &format!("Remove this \"{}\" label.", it.label.name),
                 it.label.span(),
             );
         }

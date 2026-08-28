@@ -32,7 +32,7 @@ pub(crate) fn check(
                 language,
                 "S1067",
                 format!(
-                    "Reduce the number of logical operators ({count} > {}).",
+                    "Reduce the number of conditional operators ({count}) used in the expression (maximum allowed {}).",
                     options.maximum_logical_operators
                 ),
                 range_of(expression, source),

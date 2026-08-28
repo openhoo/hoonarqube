@@ -10,16 +10,30 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     let mut issues = Vec::new();
     for (expression, left, right) in comparisons(root) {
         let float_side = left.kind() == "real_literal" || right.kind() == "real_literal";
-        if matches!(operator_of(expression), Some("==" | "!=")) && float_side {
+        let operator = operator_of(expression);
+        if matches!(operator, Some("==" | "!=")) && float_side {
+            let operator_node =
+                collect_operator(expression, operator.expect("checked")).unwrap_or(expression);
             issues.push(issue(
                 language,
                 "S1244",
-                "Compare floating-point values with a tolerance instead of equality.",
-                range_of(expression, source),
+                if operator == Some("==") {
+                    "Do not check floating point equality with exact values, use a range instead."
+                } else {
+                    "Do not check floating point inequality with exact values, use a range instead."
+                },
+                range_of(operator_node, source),
             ));
         }
     }
     issues
+}
+
+fn collect_operator<'t>(expression: Node<'t>, operator: &str) -> Option<Node<'t>> {
+    let mut cursor = expression.walk();
+    expression
+        .children(&mut cursor)
+        .find(|child| !child.is_named() && child.kind() == operator)
 }
 
 #[cfg(test)]

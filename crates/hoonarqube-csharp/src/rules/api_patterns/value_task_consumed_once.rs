@@ -2,67 +2,86 @@ use crate::CsLanguage;
 use crate::cst::{collect_kinds, issue, node_text, range_of, simple_name};
 use crate::rules::expressions::{expression_name, first_named_child};
 use hoonarqube_ir::Issue;
+use std::collections::{HashMap, HashSet};
 use tree_sitter::Node;
 
-/// csharpsquid:S5034 — a `ValueTask` may be consumed exactly once;
-/// awaiting it twice corrupts state. Bound: locals and parameters typed
-/// `ValueTask…`, consumption via `await`/`.Result`/`.AsTask()`.
+/// csharpsquid:S5034 — a `ValueTask` may be consumed exactly once. Sonar
+/// anchors the issue on the first consumption when later use makes it unsafe.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    let value_task_locals: std::collections::HashSet<String> =
-        collect_kinds(root, &["variable_declarator"])
-            .into_iter()
-            .filter(|declarator| {
-                declarator
-                    .parent()
-                    .and_then(|parent| parent.child_by_field_name("type"))
-                    .is_some_and(|type_node| {
-                        simple_name(node_text(type_node, source)) == "ValueTask"
-                    })
-            })
-            .filter_map(|declarator| declarator.child_by_field_name("name"))
-            .map(|name| node_text(name, source).to_owned())
-            .collect();
-    if value_task_locals.is_empty() {
-        return Vec::new();
-    }
-    let mut consumed: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut issues = Vec::new();
-    let mut record_consumption = |name: Option<&str>, node: Node<'_>, issues: &mut Vec<Issue>| {
-        if let Some(name) = name
-            && value_task_locals.contains(name)
-        {
-            if consumed.contains(name) {
-                issues.push(issue(
-                    language,
-                    "S5034",
-                    format!("'{name}' is consumed more than once."),
-                    range_of(node, source),
-                ));
-            }
-            consumed.insert(name.to_owned());
-        }
-    };
+    let value_task_locals: HashSet<&str> = collect_kinds(root, &["variable_declarator"])
+        .into_iter()
+        .filter(|declarator| {
+            declarator
+                .parent()
+                .and_then(|parent| parent.child_by_field_name("type"))
+                .is_some_and(|type_node| simple_name(node_text(type_node, source)) == "ValueTask")
+        })
+        .filter_map(|declarator| declarator.child_by_field_name("name"))
+        .map(|name| node_text(name, source))
+        .collect();
+
+    let mut consumptions: HashMap<&str, Vec<Node<'_>>> = HashMap::new();
     for await_expression in collect_kinds(root, &["await_expression"]) {
-        let operand = first_named_child(await_expression);
-        record_consumption(
-            operand
-                .filter(|operand| operand.kind() == "identifier")
-                .map(|operand| node_text(operand, source)),
-            await_expression,
-            &mut issues,
-        );
+        if let Some(operand) = first_named_child(await_expression)
+            && operand.kind() == "identifier"
+        {
+            let name = node_text(operand, source);
+            if value_task_locals.contains(name) {
+                consumptions.entry(name).or_default().push(operand);
+            }
+        }
     }
     for access in collect_kinds(root, &["member_access_expression"]) {
-        let member = expression_name(access, source).unwrap_or("");
-        if matches!(member, "Result" | "AsTask" | "GetAwaiter") {
-            let base = access.child_by_field_name("expression");
-            record_consumption(
-                base.filter(|base| base.kind() == "identifier")
-                    .map(|base| node_text(base, source)),
-                access,
-                &mut issues,
-            );
+        if !matches!(
+            expression_name(access, source),
+            Some("Result" | "AsTask" | "GetAwaiter")
+        ) {
+            continue;
+        }
+        if let Some(base) = access.child_by_field_name("expression")
+            && base.kind() == "identifier"
+        {
+            let name = node_text(base, source);
+            if value_task_locals.contains(name) {
+                consumptions.entry(name).or_default().push(base);
+            }
         }
     }
-    issues
+
+    consumptions
+        .into_values()
+        .filter(|nodes| nodes.len() > 1)
+        .filter_map(|nodes| nodes.first().copied())
+        .map(|first| {
+            issue(
+                language,
+                "S5034",
+                "Refactor this 'ValueTask' usage to consume it only once.",
+                range_of(first, source),
+            )
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s5034_anchors_first_of_repeated_consumptions() {
+        let report = analyze_default(
+            "class C\n{\n    async Task M()\n    {\n        ValueTask<int> pending = Load();\n        var first = await pending;\n        var second = await pending;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S5034");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 6);
+    }
+
+    #[test]
+    fn s5034_accepts_one_consumption() {
+        let report = analyze_default(
+            "class C\n{\n    async Task M()\n    {\n        ValueTask<int> pending = Load();\n        var value = await pending;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S5034").is_empty());
+    }
 }

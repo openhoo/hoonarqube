@@ -13,7 +13,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(
                 language,
                 "S6932",
-                "Bind this data through a model instead of reading the request.",
+                "Use model binding instead of accessing the raw request data",
                 range_of(access, source),
             )
         })

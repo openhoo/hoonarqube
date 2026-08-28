@@ -1,6 +1,6 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
-use crate::rules::expressions::{callee_name, invocation_arguments};
+use crate::rules::expressions::{callee_name, invocation_arguments, invocation_function};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -15,12 +15,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let flagged = matches!(callee_name(call, source), Some("CompareTo") if count == 1)
             || matches!(callee_name(call, source), Some("IndexOf" | "LastIndexOf") if count <= 1);
         if flagged {
-            issues.push(issue(
-                language,
-                "S1449",
-                "Pass the culture or comparison type to this operation.",
-                range_of(call, source),
-            ));
+            let callee = callee_name(call, source).unwrap_or("operation");
+            let name = invocation_function(call)
+                .and_then(|function| function.child_by_field_name("name"))
+                .unwrap_or(call);
+            let message = if callee == "CompareTo" {
+                "Use 'CompareOrdinal' or 'Compare' with the locale specified instead of 'CompareTo'."
+            } else {
+                "Define the locale to be used in this string operation."
+            };
+            issues.push(issue(language, "S1449", message, range_of(name, source)));
         }
     }
     issues

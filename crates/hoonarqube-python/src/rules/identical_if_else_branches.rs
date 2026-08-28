@@ -5,7 +5,7 @@ use crate::support::suite_span;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Stmt;
 use ruff_source_file::LineIndex;
-use ruff_text_size::Ranged;
+use ruff_text_size::{Ranged, TextRange, TextSize};
 
 // --- python:S3923 — identical `if`/`else` branches ---------------------------
 
@@ -27,8 +27,8 @@ pub(crate) fn check_identical_if_else_branches(
         }
         issues.push(issue_at(
             "python:S3923",
-            "Either merge this branch with the identical one or change one of the implementations.",
-            if_stmt.range(),
+            "Remove this if statement or edit its code blocks so that they're not all the same.",
+            TextRange::new(if_stmt.start(), if_stmt.start() + TextSize::new(2)),
             index,
             source,
         ));

@@ -18,7 +18,7 @@ pub(crate) fn check_tb_null_accesses(
         sink.emit_span(
             RuleScope::JsOnly,
             "S2259",
-            &format!("This property access on '{kind}' will throw a TypeError."),
+            &format!("TypeError can be thrown as \"{kind}\" might be null or undefined here."),
             span,
         );
     }
@@ -37,11 +37,10 @@ mod tests {
 
     #[test]
     fn null_member_access_is_javascript_only() {
-        let sources = ["null.foo();\n", "undefined.bar;\n", "value(null.x);\n"];
-        for source in sources {
-            assert_eq!(filtered(&js(source), "S2259").len(), 1, "{source}");
-            assert_eq!(filtered(&ts(source), "S2259").len(), 0, "{source}");
-        }
+        assert_eq!(filtered(&js("undefined.bar;\n"), "S2259").len(), 1);
+        assert_eq!(filtered(&js("null.foo();\n"), "S2259").len(), 0);
+        assert_eq!(filtered(&js("value(null.x);\n"), "S2259").len(), 0);
+        assert_eq!(filtered(&ts("undefined.bar;\n"), "S2259").len(), 0);
         assert_eq!(filtered(&js("null?.foo;\n"), "S2259").len(), 0);
     }
 }

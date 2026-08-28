@@ -20,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S2219",
-                "Use the 'is' type pattern instead of comparing GetType() with typeof().",
+                "Use the 'is' operator instead.",
                 range_of(expression, source),
             ));
         }
@@ -41,4 +41,20 @@ fn gettype_invocation(operand: Node<'_>, source: &str) -> bool {
         && collect_kinds(operand, &["argument_list"])
             .iter()
             .all(|list| list.named_child_count() == 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2219_flags_gettype_typeof_comparisons_in_either_order() {
+        let bad = analyze_default(
+            "class C { bool M(object value) => value.GetType() == typeof(string) || typeof(int) != value.GetType(); }",
+        );
+        assert_eq!(with_key(&bad, "csharpsquid:S2219").len(), 2);
+
+        let good = analyze_default("class C { bool M(object value) => value is string; }");
+        assert!(with_key(&good, "csharpsquid:S2219").is_empty());
+    }
 }

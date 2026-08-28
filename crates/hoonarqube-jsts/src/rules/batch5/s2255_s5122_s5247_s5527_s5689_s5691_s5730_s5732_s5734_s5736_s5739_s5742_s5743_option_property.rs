@@ -66,8 +66,8 @@ impl SecurityHotspotCollector<'_, '_> {
             "set-cookie" => self.sink.emit_span(
                 RuleScope::Both,
                 "S2255",
-                "Make sure this cookie is sent over HTTPS only.",
-                call.span(),
+                "Make sure that cookie is written safely here.",
+                call.callee.span(),
             ),
             "access-control-allow-origin" if value == "*" => self.sink.emit_span(
                 RuleScope::Both,

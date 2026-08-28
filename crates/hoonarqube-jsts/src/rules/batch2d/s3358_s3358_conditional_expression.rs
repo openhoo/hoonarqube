@@ -16,7 +16,7 @@ impl EsIdiomCollector<'_> {
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S3358",
-                    "Refactor this nested ternary expression.",
+                    "Extract this nested ternary operation into an independent statement.",
                     nested.span(),
                 );
             }

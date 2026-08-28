@@ -23,12 +23,17 @@ const LANGUAGES: [(&str, &str); 4] = [
     ("python", "py"),
 ];
 
-/// The only classification accepted anywhere in the evidence chain.
-const CLASSIFICATION: &str = "licensed-only-unclassified";
+const SCOPE_CLASSIFICATION: &str = "community-plus-enterprise-unverified";
+const COMMUNITY_CLASSIFICATION: &str = "community-base";
+const ENTERPRISE_UNVERIFIED_CLASSIFICATION: &str = "enterprise-unverified";
 
 const SNAPSHOT_TOML: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../catalog/snapshot.toml"
+));
+const COMMUNITY_EVIDENCE_JSON: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../catalog/community-artifact-resolution.json"
 ));
 const CSHARP_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -56,13 +61,17 @@ pub struct Snapshot {
     pub captured_at_utc: String,
     pub server_version: String,
     pub edition: String,
+    pub oracle_edition: String,
     pub instance_mode: String,
-    pub valid_license: bool,
     pub page_size: u64,
-    pub community_classification: String,
+    pub scope_classification: String,
     pub community_evidence_sha256: String,
     pub catalog_sha256: String,
+    /// Rule count in the immutable source capture.
+    pub source_total_rules: usize,
+    /// Rule count exposed by the shipped catalog.
     pub total_rules: usize,
+    pub unverified_rules: BTreeMap<String, Vec<String>>,
     pub languages: BTreeMap<String, SnapshotLanguage>,
     pub endpoints: BTreeMap<String, ResponseReceipt>,
     pub plugins: Vec<PluginFact>,
@@ -75,6 +84,7 @@ pub struct Snapshot {
 pub struct SnapshotLanguage {
     pub language: String,
     pub repository: String,
+    pub source_total: u64,
     pub total: u64,
     pub unique_keys: usize,
     pub page_count: usize,
@@ -276,17 +286,21 @@ impl LanguageCatalog {
 fn verify(snapshot_text: &str, rule_texts: [&str; 4]) -> Result<Catalog, String> {
     let snapshot: Snapshot = toml::from_str(snapshot_text)
         .map_err(|error| format!("catalog snapshot is invalid: {error}"))?;
-    if snapshot.schema_version != 1 {
+    if snapshot.schema_version != 3 {
         return Err("unsupported catalog snapshot schema".to_owned());
     }
-    if !snapshot.valid_license {
-        return Err("snapshot lacks valid license evidence".to_owned());
+    if snapshot.scope_classification != SCOPE_CLASSIFICATION {
+        return Err("snapshot has invalid scope classification".to_owned());
     }
-    if snapshot.community_classification != CLASSIFICATION {
-        return Err("snapshot has invalid Community classification".to_owned());
+    if snapshot.oracle_edition != "community" {
+        return Err("snapshot oracle is not Community".to_owned());
+    }
+    if snapshot.community_evidence_sha256 != sha256(COMMUNITY_EVIDENCE_JSON.as_bytes()) {
+        return Err("Community scope evidence hash mismatch".to_owned());
     }
 
-    let mut total = 0_usize;
+    let mut source_total = 0_usize;
+    let mut scoped_total = 0_usize;
     let mut catalog_hasher = Sha256::new();
     let mut languages = Vec::with_capacity(LANGUAGES.len());
     for ((language_name, language_id), rule_text) in LANGUAGES.iter().copied().zip(rule_texts) {
@@ -295,7 +309,7 @@ fn verify(snapshot_text: &str, rule_texts: [&str; 4]) -> Result<Catalog, String>
         if catalog.language != language_id {
             return Err("catalog language mismatch".to_owned());
         }
-        if catalog.classification != CLASSIFICATION {
+        if catalog.classification != SCOPE_CLASSIFICATION {
             return Err("catalog classification mismatch".to_owned());
         }
         if catalog.source_capture_sha256 != snapshot.capture_sha256 {
@@ -315,7 +329,32 @@ fn verify(snapshot_text: &str, rule_texts: [&str; 4]) -> Result<Catalog, String>
             .languages
             .get(language_name)
             .ok_or_else(|| format!("snapshot lacks {language_name}"))?;
-        if !counts_match(receipt.total, catalog.rules.len()) {
+        let unverified = snapshot
+            .unverified_rules
+            .get(language_name)
+            .ok_or_else(|| format!("snapshot lacks {language_name} unverified rules"))?;
+        if !unverified.windows(2).all(|pair| pair[0] < pair[1]) {
+            return Err("unverified rules are not strictly key-sorted".to_owned());
+        }
+        if unverified.iter().any(|key| {
+            !key.starts_with(&format!("{}:", receipt.repository))
+                || catalog.rules.iter().all(|rule| &rule.external_key != key)
+        }) {
+            return Err("invalid or missing unverified rule".to_owned());
+        }
+        if catalog.rules.iter().any(|rule| {
+            let expected = if unverified.binary_search(&rule.external_key).is_ok() {
+                ENTERPRISE_UNVERIFIED_CLASSIFICATION
+            } else {
+                COMMUNITY_CLASSIFICATION
+            };
+            rule.classification != expected
+        }) {
+            return Err("rule verification classification mismatch".to_owned());
+        }
+        if !counts_match(receipt.source_total, catalog.rules.len())
+            || !counts_match(receipt.total, catalog.rules.len())
+        {
             return Err("catalog count mismatch".to_owned());
         }
         if snapshot.rule_files.get(language_name) != Some(&sha256(rule_text.as_bytes())) {
@@ -323,15 +362,19 @@ fn verify(snapshot_text: &str, rule_texts: [&str; 4]) -> Result<Catalog, String>
         }
         hash_record(&mut catalog_hasher, language_name.as_bytes());
         hash_record(&mut catalog_hasher, rule_text.as_bytes());
-        total += catalog.rules.len();
+        source_total += catalog.rules.len();
+        scoped_total += catalog.rules.len();
         languages.push(LanguageCatalog {
             name: language_name,
             language_id,
             catalog,
         });
     }
-    if total != snapshot.total_rules {
+    if source_total != snapshot.source_total_rules {
         return Err("snapshot total rule count mismatch".to_owned());
+    }
+    if scoped_total != snapshot.total_rules {
+        return Err("snapshot scoped rule count mismatch".to_owned());
     }
     if hex::encode(catalog_hasher.finalize()) != snapshot.catalog_sha256 {
         return Err("catalog aggregate hash mismatch".to_owned());
@@ -380,9 +423,9 @@ mod tests {
     fn embedded_catalog_passes_full_verification() {
         let catalog = super::embedded();
         let snapshot = catalog.snapshot();
-        assert_eq!(snapshot.schema_version, 1);
-        assert!(snapshot.valid_license);
-        assert_eq!(snapshot.community_classification, super::CLASSIFICATION);
+        assert_eq!(snapshot.schema_version, 3);
+        assert_eq!(snapshot.oracle_edition, "community");
+        assert_eq!(snapshot.scope_classification, super::SCOPE_CLASSIFICATION);
         assert_eq!(snapshot.server_version, "2025.4.4.119049");
         assert_eq!(catalog.languages().count(), LANGUAGES.len());
         assert!(catalog.language("python").is_some());
@@ -392,12 +435,14 @@ mod tests {
     #[test]
     fn verify_accepts_pristine_embedded_texts() {
         let catalog = verify(SNAPSHOT_TOML, PRISTINE).expect("pristine texts must verify");
+        assert_eq!(catalog.snapshot().source_total_rules, 1620);
         assert_eq!(catalog.snapshot().total_rules, 1620);
     }
 
     #[test]
     fn embedded_rule_counts_match_snapshot_evidence() {
         let catalog = super::embedded();
+        assert_eq!(catalog.snapshot().source_total_rules, 1620);
         assert_eq!(catalog.snapshot().total_rules, 1620);
         let expected = [
             ("csharp", 467),

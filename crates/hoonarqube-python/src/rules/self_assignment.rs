@@ -22,10 +22,22 @@ pub(crate) fn check_self_assignment(
                     is_assignable_shape(target)
                         && exprs_textually_equal(target, &assign.value, source)
                 }) {
+                    let operator_start = assign
+                        .targets
+                        .last()
+                        .map_or(assign.start(), ruff_text_size::Ranged::end);
+                    let between = &source
+                        [ruff_text_size::TextRange::new(operator_start, assign.value.start())];
+                    let relative = between.find('=').expect("assignment operator");
+                    let equals = operator_start
+                        + ruff_text_size::TextSize::from(crate::support::to_u32(relative));
                     issues.push(issue_at(
                         "python:S1656",
-                        "Remove this self-assignment.",
-                        assign.range(),
+                        "Remove or correct this useless self-assignment.",
+                        ruff_text_size::TextRange::new(
+                            equals,
+                            equals + ruff_text_size::TextSize::new(1),
+                        ),
                         index,
                         source,
                     ));
@@ -38,7 +50,7 @@ pub(crate) fn check_self_assignment(
                 {
                     issues.push(issue_at(
                         "python:S1656",
-                        "Remove this self-assignment.",
+                        "Remove or correct this useless self-assignment.",
                         annotated.range(),
                         index,
                         source,
