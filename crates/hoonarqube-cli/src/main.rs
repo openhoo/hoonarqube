@@ -16,7 +16,11 @@ use hoonarqube_ir::{Range, TextEdit, apply_fixes};
 mod analyze;
 
 #[derive(Parser)]
-#[command(name = "hoonarqube", about = "Hoonarqube analyzer command line")]
+#[command(
+    name = "hoonarqube",
+    version,
+    about = "Hoonarqube analyzer command line"
+)]
 struct Cli {
     /// Emit machine-readable JSON instead of human text.
     #[arg(long, global = true)]
