@@ -194,9 +194,13 @@ def ensure_container():
 def scan_project(proj):
     if proj == "oracle-cs":
         return scan_csharp_project(proj)
-    ensure_project_and_profile(proj)
     scanner = os.environ.get("SONAR_SCANNER", "sonar-scanner")
     scanner_path = shutil.which(scanner) if os.path.sep not in scanner else scanner
+    podman_path = shutil.which("podman")
+    if (not scanner_path or not Path(scanner_path).is_file()) and not podman_path:
+        print(f"  scan {proj}: FAILED (set SONAR_SCANNER or install podman)")
+        return False
+    ensure_project_and_profile(proj)
     d = (ORACLE / "projects" / proj).resolve()
     token = oracle_token()
     with (
@@ -225,7 +229,7 @@ def scan_project(proj):
             if proj == "oracle-rust":
                 command.append("-Dsonar.rust.clippy.enabled=true")
             r = subprocess.run(command, cwd=d, capture_output=True, text=True)
-        elif shutil.which("podman"):
+        elif podman_path:
             scanner_image = "docker.io/sonarsource/sonar-scanner-cli:latest"
             command = [
                 "podman", "run", "--rm", "--network", "host",
@@ -265,9 +269,6 @@ def scan_project(proj):
             if proj == "oracle-rust":
                 command.append("-Dsonar.rust.clippy.enabled=true")
             r = subprocess.run(command, capture_output=True, text=True)
-        else:
-            print(f"  scan {proj}: FAILED (set SONAR_SCANNER or install podman)")
-            return False
         if "EXECUTION SUCCESS" not in r.stdout:
             print(f"  scan {proj}: FAILED\n{(r.stdout + r.stderr)[-1000:]}")
             return False
