@@ -1,3 +1,4 @@
+use super::support::collect_in_callable;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::expressions::first_named_child;
@@ -30,27 +31,28 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             if !creates_disposable {
                 continue;
             }
-            for return_statement in collect_kinds(body, &["return_statement"]) {
-                let returns_variable =
+            let returns_variable = collect_in_callable(body, "return_statement")
+                .into_iter()
+                .any(|return_statement| {
                     first_named_child(return_statement).is_some_and(|expression| {
                         expression.kind() == "identifier"
                             && node_text(expression, source) == node_text(name, source)
-                    });
-                if returns_variable {
-                    let keyword = collect_kinds(using_statement, &["using"])
-                        .into_iter()
-                        .next()
-                        .unwrap_or(using_statement);
-                    issues.push(issue(
-                        language,
-                        "S2997",
-                        format!(
-                            "Remove the 'using' statement; it will cause automatic disposal of '{}'.",
-                            node_text(name, source)
-                        ),
-                        range_of(keyword, source),
-                    ));
-                }
+                    })
+                });
+            if returns_variable {
+                let keyword = collect_kinds(using_statement, &["using"])
+                    .into_iter()
+                    .next()
+                    .unwrap_or(using_statement);
+                issues.push(issue(
+                    language,
+                    "S2997",
+                    format!(
+                        "Remove the 'using' statement; it will cause automatic disposal of '{}'.",
+                        node_text(name, source)
+                    ),
+                    range_of(keyword, source),
+                ));
             }
         }
     }
@@ -119,5 +121,21 @@ mod tests {
         assert_eq!(flagged.len(), 2);
         assert_eq!(flagged[0].range.start.line, 5);
         assert_eq!(flagged[1].range.start.line, 13);
+    }
+
+    #[test]
+    fn s2997_ignores_deferred_returns_inside_nested_functions() {
+        let report = analyze_default(
+            "class C\n{\n    void M()\n    {\n        using (var stream = new System.IO.MemoryStream())\n        {\n            System.Func<System.IO.Stream> later = () => stream;\n            System.IO.Stream Local() { return stream; }\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2997").is_empty());
+    }
+
+    #[test]
+    fn s2997_reports_one_issue_for_multiple_return_paths() {
+        let report = analyze_default(
+            "class C\n{\n    System.IO.Stream M(bool first)\n    {\n        using (var stream = new System.IO.MemoryStream())\n        {\n            if (first) return stream;\n            return stream;\n        }\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S2997").len(), 1);
     }
 }

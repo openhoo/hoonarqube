@@ -1,6 +1,8 @@
 use super::support::mentions_identifier_outside_parameter_list;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, modifiers_of, node_text, parameters_of, range_of};
+use crate::cst::{
+    collect_kinds, is_error_tainted, issue, modifiers_of, node_text, parameters_of, range_of,
+};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -10,6 +12,7 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     collect_kinds(root, &["method_declaration", "constructor_declaration"])
         .into_iter()
+        .filter(|callable| !is_error_tainted(*callable))
         .filter(|callable| {
             !modifiers_of(*callable, source)
                 .iter()
@@ -99,5 +102,21 @@ mod tests {
             "class C\n{\n    void M()\n    {\n        System.Action<int> a = (int orphan) => Log();\n        System.Action<int> b = delegate(int leftover) { Log(); };\n        a(1);\n        b(2);\n    }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S1172").is_empty());
+    }
+
+    #[test]
+    fn s1172_does_not_treat_named_argument_labels_as_reads() {
+        let report = analyze_default(
+            "class C\n{\n    void M(int value)\n    {\n        Other(value: 1);\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S1172").len(), 1);
+    }
+
+    #[test]
+    fn s1172_does_not_treat_member_names_as_parameter_reads() {
+        let report = analyze_default(
+            "class C\n{\n    int value;\n    void M(int value)\n    {\n        this.value = 1;\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S1172").len(), 1);
     }
 }

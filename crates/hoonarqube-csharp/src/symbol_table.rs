@@ -117,39 +117,37 @@ pub(crate) fn build_usage_symbols<'t>(root: Node<'t>, source: &'t str) -> UsageS
         references: Vec::new(),
         writes: Vec::new(),
     };
-    collect_usage_symbols(root, None, source, &mut symbols);
+    collect_usage_symbols(root, source, &mut symbols);
     symbols
 }
 
-fn collect_usage_symbols<'t>(
-    node: Node<'t>,
-    type_owner: Option<Node<'t>>,
-    source: &'t str,
-    symbols: &mut UsageSymbols<'t>,
-) {
-    if node.is_error() || node.is_missing() {
-        return;
-    }
-    let mut inner_owner = type_owner;
-    if TYPE_DECLARATION_KINDS.contains(&node.kind()) {
-        symbols.types.push(TypeSymbol {
-            declaration: node,
-            parent: type_owner,
-        });
-        collect_declared_members(node, type_owner.is_some(), source, symbols);
-        inner_owner = Some(node);
-    } else if node.kind() == "identifier" {
-        symbols.references.push(Reference {
-            name: node_text(node, source),
-            node,
-            introduces_binding: introduces_binding(node),
-        });
-    } else if let Some(site) = write_site(node, source) {
-        symbols.writes.push(site);
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_usage_symbols(child, inner_owner, source, symbols);
+fn collect_usage_symbols<'t>(root: Node<'t>, source: &'t str, symbols: &mut UsageSymbols<'t>) {
+    let mut pending = vec![(root, None)];
+    while let Some((node, type_owner)) = pending.pop() {
+        if node.is_error() || node.is_missing() {
+            continue;
+        }
+        let mut child_owner = type_owner;
+        if TYPE_DECLARATION_KINDS.contains(&node.kind()) {
+            symbols.types.push(TypeSymbol {
+                declaration: node,
+                parent: type_owner,
+            });
+            collect_declared_members(node, type_owner.is_some(), source, symbols);
+            child_owner = Some(node);
+        } else if node.kind() == "identifier" {
+            symbols.references.push(Reference {
+                name: node_text(node, source),
+                node,
+                introduces_binding: introduces_binding(node),
+            });
+        } else if let Some(site) = write_site(node, source) {
+            symbols.writes.push(site);
+        }
+        let mut cursor = node.walk();
+        let mut children: Vec<Node<'t>> = node.children(&mut cursor).collect();
+        children.reverse();
+        pending.extend(children.into_iter().map(|child| (child, child_owner)));
     }
 }
 
@@ -166,7 +164,28 @@ fn introduces_binding(identifier: Node<'_>) -> bool {
     ) {
         return true;
     }
-    kind.ends_with("_declaration") && parent.child_by_field_name("name") == Some(identifier)
+    if kind.ends_with("_declaration") && parent.child_by_field_name("name") == Some(identifier) {
+        return true;
+    }
+    match kind {
+        "foreach_statement" => parent.child_by_field_name("left") == Some(identifier),
+        "declaration_expression"
+        | "declaration_pattern"
+        | "from_clause"
+        | "list_pattern"
+        | "local_function_statement"
+        | "recursive_pattern"
+        | "type_parameter" => parent.child_by_field_name("name") == Some(identifier),
+        // Every direct identifier in these nodes introduces a name. Query
+        // expressions used to compute it live below expression children.
+        "implicit_parameter"
+        | "join_clause"
+        | "join_into_clause"
+        | "let_clause"
+        | "parenthesized_variable_designation"
+        | "tuple_pattern" => true,
+        _ => false,
+    }
 }
 
 /// The field a write expression targets: bare identifiers and `this.x`.
@@ -174,15 +193,10 @@ fn write_target_name<'a>(target: Node<'_>, source: &'a str) -> Option<&'a str> {
     match target.kind() {
         "identifier" => Some(node_text(target, source)),
         "member_access_expression" => {
-            let mut cursor = target.walk();
-            let named: Vec<Node> = target
-                .children(&mut cursor)
-                .filter(tree_sitter::Node::is_named)
-                .collect();
-            let receiver = named.first()?;
-            let name = named.last()?;
-            (receiver.kind() == "this_expression" && name.kind() == "identifier")
-                .then(|| node_text(*name, source))
+            let receiver = target.child(0)?;
+            let name = target.child_by_field_name("name")?;
+            (matches!(receiver.kind(), "this" | "this_expression") && name.kind() == "identifier")
+                .then(|| node_text(name, source))
         }
         _ => None,
     }
@@ -227,7 +241,7 @@ fn collect_declared_members<'t>(
         let is_static_or_const =
             has_modifier(&modifiers, "static") || has_modifier(&modifiers, "const");
         if matches!(flavor, MemberFlavor::Field | MemberFlavor::EventField) {
-            for declarator in collect_kinds(member, &["variable_declarator"]) {
+            for declarator in direct_variable_declarators(member) {
                 let Some(anchor) = declarator.child_by_field_name("name").or_else(|| {
                     collect_kinds(declarator, &["identifier"])
                         .into_iter()
@@ -268,14 +282,33 @@ fn collect_declared_members<'t>(
     }
 }
 
+/// Variable declarators owned by a field/event declaration. Descendant
+/// declarators inside lambda or anonymous-method initializers are locals,
+/// not additional type members.
+fn direct_variable_declarators(member: Node<'_>) -> Vec<Node<'_>> {
+    let mut member_cursor = member.walk();
+    let Some(declaration) = member
+        .named_children(&mut member_cursor)
+        .find(|child| child.kind() == "variable_declaration")
+    else {
+        return Vec::new();
+    };
+    let mut declaration_cursor = declaration.walk();
+    declaration
+        .named_children(&mut declaration_cursor)
+        .filter(|child| child.kind() == "variable_declarator")
+        .collect()
+}
+
 /// Nearest ancestor among `kinds`, if any.
 pub(crate) fn nearest_ancestor_of_kinds<'t>(node: Node<'t>, kinds: &[&str]) -> Option<Node<'t>> {
     ancestors_of(node).find(|ancestor| kinds.contains(&ancestor.kind()))
 }
 
-/// Effective private visibility: explicit modifiers win, nested members
-/// default to private, top-level ones to internal.
-pub(crate) fn is_private_member(declaration: Node<'_>, source: &str, nested_type: bool) -> bool {
+/// Effective private visibility: explicit modifiers win. Class, struct,
+/// and record members default to private regardless of whether their owner
+/// itself is nested; interface members default to public.
+pub(crate) fn is_private_member(declaration: Node<'_>, source: &str, _nested_type: bool) -> bool {
     let modifiers = modifiers_of(declaration, source);
     if modifiers
         .iter()
@@ -283,7 +316,9 @@ pub(crate) fn is_private_member(declaration: Node<'_>, source: &str, nested_type
     {
         return false;
     }
-    has_modifier(&modifiers, "private") || nested_type
+    has_modifier(&modifiers, "private")
+        || nearest_ancestor_of_kinds(declaration, &TYPE_DECLARATION_KINDS)
+            .is_some_and(|owner| owner.kind() != "interface_declaration")
 }
 
 /// Modifiers tying a member to inheritance or tooling contracts, where
@@ -324,6 +359,18 @@ pub(crate) fn is_matching_constructor_write(
     field_is_static: bool,
     source: &str,
 ) -> bool {
+    if nearest_ancestor_of_kinds(
+        write,
+        &[
+            "anonymous_method_expression",
+            "lambda_expression",
+            "local_function_statement",
+        ],
+    )
+    .is_some()
+    {
+        return false;
+    }
     let Some(owner) = nearest_ancestor_of_kinds(write, &TIER_B_MEMBER_KINDS) else {
         return false;
     };
@@ -334,7 +381,30 @@ pub(crate) fn is_matching_constructor_write(
 /// Whether the member declares executable code (blocks or expression
 /// arrows), separating real members from auto-properties.
 pub(crate) fn declares_executable_code(declaration: Node<'_>) -> bool {
-    !collect_kinds(declaration, &["block", "arrow_expression_clause"]).is_empty()
+    let mut pending = vec![declaration];
+    while let Some(node) = pending.pop() {
+        if node != declaration
+            && matches!(
+                node.kind(),
+                "anonymous_method_expression"
+                    | "lambda_expression"
+                    | "local_function_statement"
+                    | "class_declaration"
+                    | "interface_declaration"
+                    | "struct_declaration"
+                    | "record_declaration"
+                    | "enum_declaration"
+            )
+        {
+            continue;
+        }
+        if matches!(node.kind(), "block" | "arrow_expression_clause") {
+            return true;
+        }
+        let mut cursor = node.walk();
+        pending.extend(node.children(&mut cursor));
+    }
+    false
 }
 
 /// Whether the member touches instance state: sibling member references
@@ -350,5 +420,211 @@ pub(crate) fn touches_instance_data(member: &MemberSymbol<'_>, symbols: &UsageSy
             && reference.name != member.name
             && owner_names.contains(reference.name)
     });
-    sibling_reference || !collect_kinds(member.declaration, &["this_expression"]).is_empty()
+    sibling_reference || !collect_kinds(member.declaration, &["this", "this_expression"]).is_empty()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        MemberFlavor, build_usage_symbols, declares_executable_code, is_matching_constructor_write,
+        is_private_member, touches_instance_data,
+    };
+    use crate::parse;
+    use std::fmt::Write as _;
+
+    #[test]
+    fn field_initializer_locals_are_not_registered_as_members() {
+        let source = r"
+class C
+{
+    private int first = 1, second = 2;
+    private System.Func<int> compute = () =>
+    {
+        var scratch = 1;
+        return scratch;
+    };
+}
+";
+        let tree = parse(source);
+        let symbols = build_usage_symbols(tree.root_node(), source);
+        let members: Vec<(&str, MemberFlavor)> = symbols
+            .members
+            .iter()
+            .map(|member| (member.name, member.flavor))
+            .collect();
+
+        assert_eq!(
+            members,
+            vec![
+                ("first", MemberFlavor::Field),
+                ("second", MemberFlavor::Field),
+                ("compute", MemberFlavor::Field),
+            ]
+        );
+    }
+
+    #[test]
+    fn nested_types_keep_distinct_owners_and_unicode_names() {
+        let source =
+            "class Outer { int größe; class Inner { int größe; void M() { this.größe++; } } }";
+        let tree = parse(source);
+        let symbols = build_usage_symbols(tree.root_node(), source);
+        let fields: Vec<_> = symbols
+            .members
+            .iter()
+            .filter(|member| member.flavor == MemberFlavor::Field)
+            .collect();
+
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].name, "größe");
+        assert_eq!(fields[1].name, "größe");
+        assert_ne!(fields[0].owner, fields[1].owner);
+        assert_eq!(symbols.writes_of("größe").len(), 1);
+        let method = symbols
+            .members
+            .iter()
+            .find(|member| member.flavor == MemberFlavor::Method)
+            .expect("nested method is indexed");
+        assert!(touches_instance_data(method, &symbols));
+    }
+
+    #[test]
+    fn usage_collection_handles_deeply_nested_types_iteratively() {
+        const DEPTH: usize = 2_000;
+        let mut source = String::new();
+        for index in 0..DEPTH {
+            write!(&mut source, "class C{index} {{").expect("writing to a String cannot fail");
+        }
+        source.push_str("int leaf;");
+        for _ in 0..DEPTH {
+            source.push('}');
+        }
+
+        let tree = parse(&source);
+        let symbols = build_usage_symbols(tree.root_node(), &source);
+
+        assert_eq!(symbols.types.len(), DEPTH);
+        assert_eq!(symbols.members.len(), 1);
+        assert_eq!(symbols.members[0].name, "leaf");
+        assert_eq!(
+            symbols
+                .types
+                .iter()
+                .filter(|symbol| symbol.parent.is_none())
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn non_declaration_binding_forms_are_not_counted_as_uses() {
+        let source = r"
+class C<T>
+{
+    void M(int[] values, object value)
+    {
+        foreach (var item in values) { }
+        if (value is int number) { }
+        Local();
+        void Local() { }
+        var query = from entry in values
+                    let doubled = entry * 2
+                    select doubled;
+        System.Action<int> action = parameter => parameter.ToString();
+    }
+}
+";
+        let tree = parse(source);
+        let symbols = build_usage_symbols(tree.root_node(), source);
+        let binding_names: Vec<&str> = symbols
+            .references
+            .iter()
+            .filter(|reference| reference.introduces_binding)
+            .map(|reference| reference.name)
+            .collect();
+
+        for expected in ["T", "item", "number", "Local", "entry", "doubled"] {
+            assert!(
+                binding_names.contains(&expected),
+                "{expected} should introduce a binding; got {binding_names:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn default_member_visibility_comes_from_owner_kind_not_owner_nesting() {
+        let source = "class Top { int Compute() => 1; interface Contract { int Compute() => 1; } }";
+        let tree = parse(source);
+        let symbols = build_usage_symbols(tree.root_node(), source);
+        let methods: Vec<_> = symbols
+            .members
+            .iter()
+            .filter(|member| member.flavor == MemberFlavor::Method)
+            .collect();
+
+        assert_eq!(methods.len(), 2);
+        assert!(is_private_member(
+            methods[0].declaration,
+            source,
+            methods[0].nested_type
+        ));
+        assert!(!is_private_member(
+            methods[1].declaration,
+            source,
+            methods[1].nested_type
+        ));
+    }
+
+    #[test]
+    fn deferred_constructor_writes_do_not_qualify_fields_as_readonly() {
+        let source = r"
+class C
+{
+    int direct;
+    int deferred;
+    C()
+    {
+        direct = 1;
+        System.Action assign = () => deferred = 1;
+    }
+}
+";
+        let tree = parse(source);
+        let symbols = build_usage_symbols(tree.root_node(), source);
+        let direct = symbols
+            .writes
+            .iter()
+            .find(|write| write.name == "direct")
+            .expect("direct write is indexed");
+        let deferred = symbols
+            .writes
+            .iter()
+            .find(|write| write.name == "deferred")
+            .expect("deferred write is indexed");
+
+        assert!(is_matching_constructor_write(direct.node, false, source));
+        assert!(!is_matching_constructor_write(deferred.node, false, source));
+    }
+
+    #[test]
+    fn lambda_initializer_block_does_not_make_auto_property_executable() {
+        let source = r"
+class C
+{
+    System.Func<int> Value { get; } = () => { return 1; };
+    int Computed { get { return 1; } }
+}
+";
+        let tree = parse(source);
+        let symbols = build_usage_symbols(tree.root_node(), source);
+        let properties: Vec<_> = symbols
+            .members
+            .iter()
+            .filter(|member| member.flavor == MemberFlavor::Property)
+            .collect();
+
+        assert_eq!(properties.len(), 2);
+        assert!(!declares_executable_code(properties[0].declaration));
+        assert!(declares_executable_code(properties[1].declaration));
+    }
 }

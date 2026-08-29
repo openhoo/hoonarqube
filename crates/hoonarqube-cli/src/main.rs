@@ -163,7 +163,7 @@ fn mechanical_fixed(source: &str) -> Option<(String, usize)> {
         .is_some_and(|newline| newline > 0 && source.as_bytes()[newline - 1] == b'\r');
     let mut fixed = String::with_capacity(source.len() + usize::from(uses_crlf) + 1);
     fixed.push_str(source);
-    if uses_crlf {
+    if uses_crlf && !source.ends_with('\r') {
         fixed.push('\r');
     }
     fixed.push('\n');
@@ -500,7 +500,11 @@ fn write_applied_content(
     if !source_matches_plan(plan, warnings) {
         return false;
     }
-    if let Err(error) = std::fs::write(&plan.path, &outcome.content) {
+    if let Err(error) = replace_file(
+        &plan.path,
+        plan.source.as_bytes(),
+        outcome.content.as_bytes(),
+    ) {
         warnings.push(format!("cannot write {}: {error}", plan.path.display()));
         return false;
     }
@@ -508,10 +512,188 @@ fn write_applied_content(
     true
 }
 
+/// Writes a complete sibling temporary file, preserves the original mode, and
+/// renames it over `path`. Readers therefore see either complete old content or
+/// complete new content. A hard-linked input gets its own rewritten inode, so
+/// applying a fix cannot unexpectedly mutate another path outside the target.
+///
+#[cfg(windows)]
+fn replace_file(path: &std::path::Path, expected: &[u8], content: &[u8]) -> std::io::Result<()> {
+    use atomicwrites::{AllowOverwrite, AtomicFile};
+
+    let metadata = std::fs::symlink_metadata(path)?;
+    AtomicFile::new(path, AllowOverwrite)
+        .write(|temporary| {
+            // The callback completes before atomicwrites publishes with
+            // MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH). Recheck the
+            // source after the temporary write to close the same race as the
+            // Unix implementation.
+            temporary.write_all(content)?;
+            temporary.set_permissions(metadata.permissions())?;
+            temporary.sync_all()?;
+            ensure_regular_source_matches(path, expected)
+        })
+        .map_err(std::io::Error::from)
+}
+
+#[cfg(not(windows))]
+fn replace_file(path: &std::path::Path, expected: &[u8], content: &[u8]) -> std::io::Result<()> {
+    replace_file_by_rename(path, expected, content)
+}
+
+#[cfg(not(windows))]
+fn replace_file_by_rename(
+    path: &std::path::Path,
+    expected: &[u8],
+    content: &[u8],
+) -> std::io::Result<()> {
+    let mut cleanup = prepare_replacement_temp(path, content)?;
+    // Keep the expensive temporary-file write outside the final
+    // compare/rename window. This recheck also rejects a late symlink swap.
+    ensure_regular_source_matches(path, expected)?;
+    std::fs::rename(cleanup.path(), path)?;
+    cleanup.disarm();
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn prepare_replacement_temp(
+    path: &std::path::Path,
+    content: &[u8],
+) -> std::io::Result<TempFileCleanup> {
+    use std::io::ErrorKind;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+    const ATTEMPTS: usize = 100;
+
+    let metadata = std::fs::symlink_metadata(path)?;
+    let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let mut last_collision = None;
+    for _ in 0..ATTEMPTS {
+        let nonce = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+        let temp_path = parent.join(format!(".hoonarqube-{}-{nonce}.tmp", std::process::id()));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        let mut temp = match options.open(&temp_path) {
+            Ok(temp) => temp,
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                last_collision = Some(error);
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        let cleanup = TempFileCleanup::new(temp_path);
+        temp.write_all(content)?;
+        temp.set_permissions(metadata.permissions())?;
+        temp.sync_all()?;
+        drop(temp);
+        return Ok(cleanup);
+    }
+    Err(last_collision.unwrap_or_else(|| {
+        std::io::Error::new(
+            ErrorKind::AlreadyExists,
+            "could not allocate a temporary rewrite file",
+        )
+    }))
+}
+
+fn ensure_regular_source_matches(path: &std::path::Path, expected: &[u8]) -> std::io::Result<()> {
+    use std::io::ErrorKind;
+
+    if first_symlinked_ancestor(path)?.is_some() {
+        return Err(std::io::Error::new(
+            ErrorKind::InvalidInput,
+            "path has a symlinked directory ancestor",
+        ));
+    }
+    let metadata = std::fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(std::io::Error::new(
+            ErrorKind::InvalidInput,
+            "path is no longer a regular file",
+        ));
+    }
+    if std::fs::read(path)? != expected {
+        return Err(std::io::Error::other("file changed after analysis"));
+    }
+    Ok(())
+}
+
+/// Finds the nearest lexically named parent that is currently a symlink.
+/// Empty relative-path ancestors are skipped; inspection errors fail closed.
+fn first_symlinked_ancestor(path: &std::path::Path) -> std::io::Result<Option<std::path::PathBuf>> {
+    for ancestor in path.ancestors().skip(1) {
+        if ancestor.as_os_str().is_empty() {
+            continue;
+        }
+        if std::fs::symlink_metadata(ancestor)?
+            .file_type()
+            .is_symlink()
+        {
+            return Ok(Some(ancestor.to_path_buf()));
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(not(windows))]
+struct TempFileCleanup {
+    path: std::path::PathBuf,
+    armed: bool,
+}
+
+#[cfg(not(windows))]
+impl TempFileCleanup {
+    fn new(path: std::path::PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+#[cfg(not(windows))]
+impl Drop for TempFileCleanup {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
 /// Rejects path replacement between planning and writing. Collection already
 /// excludes symlinks in fix mode; this second check closes the ordinary
 /// plan/apply gap and prevents writes through a path replaced with a symlink.
 fn apply_path_is_regular_file(path: &std::path::Path, warnings: &mut Vec<String>) -> bool {
+    match first_symlinked_ancestor(path) {
+        Ok(Some(ancestor)) => {
+            warnings.push(format!(
+                "cannot fix {}: directory {} is a symbolic link",
+                path.display(),
+                ancestor.display()
+            ));
+            return false;
+        }
+        Ok(None) => {}
+        Err(error) => {
+            warnings.push(format!(
+                "cannot inspect ancestors of {}: {error}",
+                path.display()
+            ));
+            return false;
+        }
+    }
     match std::fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             warnings.push(format!(
@@ -867,7 +1049,7 @@ fn run_fix_dry_run(
         rows.push(result.row);
     }
 
-    if json {
+    let output_ok = if json {
         print_json(&serde_json::json!({
             "files": rows,
             "planned": plans.iter().map(|plan| plan.fixes.len()).sum::<usize>(),
@@ -878,7 +1060,7 @@ fn run_fix_dry_run(
             "verified": 0,
             "unverified": 0,
             "warnings": warnings,
-        }));
+        }))
     } else {
         println!(
             "would apply {} rule fix(es) across {} file(s), \
@@ -889,8 +1071,13 @@ fn run_fix_dry_run(
             totals.mechanical,
             totals.skipped
         );
+        true
+    };
+    if output_ok {
+        exit_with_warnings(warnings)
+    } else {
+        ExitCode::FAILURE
     }
-    exit_with_warnings(warnings)
 }
 
 #[derive(Default)]
@@ -1025,7 +1212,7 @@ fn run_fix_apply(
     for warning in &*warnings {
         eprintln!("{warning}");
     }
-    if json {
+    let output_ok = if json {
         print_json(&serde_json::json!({
             "files": rows,
             "applied": totals.applied,
@@ -1035,7 +1222,7 @@ fn run_fix_apply(
             "unverified": totals.unverified,
             "regressions": totals.regressions,
             "warnings": warnings,
-        }));
+        }))
     } else {
         println!(
             "applied {} rule fix(es) across {} file(s), \
@@ -1049,8 +1236,9 @@ fn run_fix_apply(
             totals.skipped,
             totals.regressions
         );
-    }
-    if warnings.is_empty() && totals.unverified == 0 && totals.regressions == 0 {
+        true
+    };
+    if output_ok && warnings.is_empty() && totals.unverified == 0 && totals.regressions == 0 {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
@@ -1073,7 +1261,9 @@ fn run_rules_list(catalog: &Catalog, lang: Option<&str>, json: bool) -> ExitCode
     };
     let rules: Vec<&RuleRecord> = languages.collect();
     if json {
-        print_json(&rules);
+        if !print_json(&rules) {
+            return ExitCode::FAILURE;
+        }
     } else {
         for rule in rules {
             print_rule_row(rule);
@@ -1091,7 +1281,9 @@ fn run_rules_search(catalog: &Catalog, lang: Option<&str>, query: &str, json: bo
         .filter(|rule| rule_matches(rule, &query_lower))
         .collect();
     if json {
-        print_json(&matched);
+        if !print_json(&matched) {
+            return ExitCode::FAILURE;
+        }
     } else if matched.is_empty() {
         println!("no matching rules");
     } else {
@@ -1108,7 +1300,9 @@ fn run_rules_info(catalog: &Catalog, external_key: &str, json: bool) -> ExitCode
         return ExitCode::from(1);
     };
     if json {
-        print_json(rule);
+        if !print_json(rule) {
+            return ExitCode::FAILURE;
+        }
     } else {
         print_rule_info(rule);
     }
@@ -1152,8 +1346,11 @@ fn rule_matches(rule: &RuleRecord, query_lower: &str) -> bool {
 fn print_snapshot(catalog: &Catalog, json: bool) -> ExitCode {
     let snapshot = catalog.snapshot();
     if json {
-        print_json(snapshot);
-        return ExitCode::SUCCESS;
+        return if print_json(snapshot) {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        };
     }
     println!("server_version: {}", snapshot.server_version);
     println!("oracle_edition: {}", snapshot.oracle_edition);
@@ -1198,11 +1395,28 @@ fn print_rule_info(rule: &RuleRecord) {
     }
 }
 
-fn print_json<T: serde::Serialize>(value: &T) {
-    let stdout = std::io::stdout();
-    let mut out = stdout.lock();
-    serde_json::to_writer(&mut out, value).expect("serialize catalog data");
-    out.write_all(b"\n").expect("write trailing newline");
+fn json_line<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, serde_json::Error> {
+    let mut serialized = serde_json::to_vec(value)?;
+    serialized.push(b'\n');
+    Ok(serialized)
+}
+
+/// Emits one complete JSON document. Serialization happens before stdout is
+/// touched, so unsupported values such as non-UTF-8 paths cannot leave a
+/// truncated document or panic the process.
+fn print_json<T: serde::Serialize>(value: &T) -> bool {
+    let serialized = match json_line(value) {
+        Ok(serialized) => serialized,
+        Err(error) => {
+            eprintln!("cannot serialize JSON output: {error}");
+            return false;
+        }
+    };
+    if let Err(error) = std::io::stdout().lock().write_all(&serialized) {
+        eprintln!("cannot write JSON output: {error}");
+        return false;
+    }
+    true
 }
 
 fn unknown_language(value: &str) -> ExitCode {
@@ -1362,14 +1576,19 @@ fn run_analyze(
         eprintln!("{warning}");
     }
 
-    match format {
-        AnalyzeFormat::Json => {
-            print_json(&hoonarqube_ir::AnalysisReport { files: reports });
-        }
+    let output_ok = match format {
+        AnalyzeFormat::Json => print_json(&hoonarqube_ir::AnalysisReport { files: reports }),
         AnalyzeFormat::Sonar => print_json(&sonar_import_value(catalog, &reports)),
-        AnalyzeFormat::Text => print!("{}", render_text_report(&reports)),
+        AnalyzeFormat::Text => {
+            print!("{}", render_text_report(&reports));
+            true
+        }
+    };
+    if output_ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
     }
-    ExitCode::SUCCESS
 }
 
 #[cfg(test)]
@@ -1560,6 +1779,14 @@ mod tests {
     }
 
     #[test]
+    fn mechanical_fixing_completes_a_dangling_cr_without_duplicating_it() {
+        let (fixed, applied) = mechanical_fixed("alpha\r\nbeta\r").expect("repair");
+
+        assert_eq!(applied, 1);
+        assert_eq!(fixed, "alpha\r\nbeta\r\n");
+    }
+
+    #[test]
     fn mechanical_fixing_leaves_clean_sources_untouched() {
         assert!(mechanical_fixed("x = 1\ny = 2\n").is_none());
     }
@@ -1706,6 +1933,43 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn apply_replaces_a_hard_link_without_mutating_its_alias_and_preserves_mode() {
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+
+        let dir = temp_fix_path("hard-link");
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let alias = dir.join("outside.py");
+        let file = dir.join("find.py");
+        std::fs::write(&alias, "value = 1").expect("write alias");
+        std::fs::set_permissions(&alias, std::fs::Permissions::from_mode(0o751)).expect("set mode");
+        std::fs::hard_link(&alias, &file).expect("hard link");
+        let options = analyze::analyzer_options_bundle(embedded());
+        let mut warnings = Vec::new();
+        let plans = fix_plans(std::slice::from_ref(&file), &[], &options, &mut warnings);
+
+        let outcome = apply_plan(&plans[0], &options, &mut warnings).expect("applies");
+
+        assert!(outcome.written);
+        assert!(warnings.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(&file).expect("fixed"),
+            "value = 1\n"
+        );
+        assert_eq!(std::fs::read_to_string(&alias).expect("alias"), "value = 1");
+        let fixed_metadata = std::fs::metadata(&file).expect("fixed metadata");
+        let alias_metadata = std::fs::metadata(&alias).expect("alias metadata");
+        assert_ne!(fixed_metadata.ino(), alias_metadata.ino());
+        assert_eq!(fixed_metadata.permissions().mode() & 0o777, 0o751);
+        assert_eq!(
+            std::fs::read_dir(&dir).expect("read fixture").count(),
+            2,
+            "temporary rewrite file must be removed"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn apply_rejects_file_replaced_with_symlink_after_planning() {
         let (dir, file) = temp_python_fixture("symlink-swap", S1721_SOURCE);
         let outside = temp_fix_path("symlink-target");
@@ -1728,6 +1992,39 @@ mod tests {
         assert!(warnings[0].ends_with("path is a symbolic link"));
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_file(&outside);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn apply_rejects_parent_directory_replaced_with_symlink_after_planning() {
+        let root = temp_fix_path("parent-symlink-swap");
+        let original_parent = root.join("original");
+        let outside_parent = root.join("outside");
+        std::fs::create_dir_all(&original_parent).expect("create original parent");
+        std::fs::create_dir_all(&outside_parent).expect("create outside parent");
+        let file = original_parent.join("find.py");
+        let outside = outside_parent.join("find.py");
+        std::fs::write(&file, S1721_SOURCE).expect("write planned source");
+        std::fs::write(&outside, S1721_SOURCE).expect("write outside target");
+        let options = analyze::analyzer_options_bundle(embedded());
+        let mut warnings = Vec::new();
+        let plans = fix_plans(std::slice::from_ref(&file), &[], &options, &mut warnings);
+        assert!(warnings.is_empty());
+
+        std::fs::remove_file(&file).expect("remove planned file");
+        std::fs::remove_dir(&original_parent).expect("remove planned parent");
+        std::os::unix::fs::symlink(&outside_parent, &original_parent)
+            .expect("replace parent with symlink");
+        let outcome = apply_plan(&plans[0], &options, &mut warnings);
+
+        assert!(outcome.is_none());
+        assert_eq!(
+            std::fs::read_to_string(&outside).expect("read outside"),
+            S1721_SOURCE
+        );
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("is a symbolic link"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -1954,6 +2251,30 @@ mod tests {
             unified_diff(std::path::Path::new("t.py"), "", "x = 1\n"),
             "--- a/t.py\n+++ b/t.py\n@@ -0,0 +1,1 @@\n+x = 1\n"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn json_serialization_rejects_non_utf8_paths_without_partial_output() {
+        use std::os::unix::ffi::OsStringExt as _;
+
+        let report = hoonarqube_ir::AnalysisReport {
+            files: vec![FileReport {
+                path: std::path::PathBuf::from(std::ffi::OsString::from_vec(vec![
+                    0xff, b'.', b'p', b'y',
+                ])),
+                language: "python".to_string(),
+                issues: Vec::new(),
+                metrics: FileMetrics {
+                    lines: 0,
+                    code_lines: 0,
+                    comment_lines: 0,
+                },
+            }],
+        };
+
+        let error = json_line(&report).expect_err("invalid path must fail serialization");
+        assert!(error.to_string().contains("invalid UTF-8"));
     }
 
     #[test]

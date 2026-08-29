@@ -343,9 +343,9 @@
 {"key": "javascript:S6330", "bad": "s6330_bad.js", "expect_lines_min": 1}
 {"key": "javascript:S6332", "bad": "s6332_bad.js", "expect_lines_min": 1}
 {"key": "javascript:S6333", "bad": "s6333_bad.js", "expect_lines_min": 1}
-{"key":"javascript:S1438","infra":"upstream analysis infrastructure required"}
-{"key":"javascript:S1874","infra":"upstream analysis infrastructure required"}
-{"key":"javascript:S6627","infra":"upstream analysis infrastructure required"}
+{"key":"javascript:S1438","infra":"exact semicolon detection requires token-preserving automatic-semicolon-insertion boundaries"}
+{"key":"javascript:S1874","infra":"deprecated API detection requires semantic symbol resolution and dependency declaration metadata"}
+{"key":"javascript:S6627","infra":"internal API import detection requires cross-file module resolution"}
 {"key":"javascript:S2260","bad":"s2260_bad.js","expect_lines_min":1}
 {"key":"javascript:S3812","bad":"s3812_bad.js","expect_lines_min":1}
 {"key":"javascript:S7059","bad":"s7059_bad.js","expect_lines_min":1}

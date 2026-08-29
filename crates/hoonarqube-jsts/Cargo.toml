@@ -5,12 +5,13 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+publish.workspace = true
 
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
-hoonarqube-ir = { version = "0.1.0", path = "../hoonarqube-ir" }
+hoonarqube-ir = { version = "0.2.0", path = "../hoonarqube-ir" }
 oxc_allocator = "0.146.0"
 oxc_ast_visit = "0.146.0"
 oxc_ast = "0.146.0"
@@ -19,6 +20,6 @@ oxc_span = "0.146.0"
 oxc_syntax = "0.146.0"
 
 [dev-dependencies]
-hoonarqube-core = { version = "0.1.0", path = "../hoonarqube-core" }
+hoonarqube-core = { version = "0.2.0", path = "../hoonarqube-core" }
 [lints]
 workspace = true

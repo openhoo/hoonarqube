@@ -13,7 +13,7 @@ pub struct ReachingFacts<D: Ord> {
     defs: BTreeSet<D>,
 }
 
-impl<D: Ord + Clone> ReachingFacts<D> {
+impl<D: Ord> ReachingFacts<D> {
     /// Creates an empty fact set.
     #[must_use]
     pub fn new() -> Self {
@@ -65,7 +65,9 @@ impl<D: Ord + Clone> ReachingFacts<D> {
     pub fn defs(&self) -> impl Iterator<Item = &D> {
         self.defs.iter()
     }
+}
 
+impl<D: Ord + Clone> ReachingFacts<D> {
     /// Union of both fact sets (the may-meet).
     #[must_use]
     pub fn union(&self, other: &Self) -> Self {
@@ -96,7 +98,7 @@ impl<D: Ord + Clone> ReachingFacts<D> {
     }
 }
 
-impl<D: Ord + Clone> Default for ReachingFacts<D> {
+impl<D: Ord> Default for ReachingFacts<D> {
     fn default() -> Self {
         Self::new()
     }
@@ -111,7 +113,7 @@ pub struct LivenessFacts<V: Ord> {
     variables: BTreeSet<V>,
 }
 
-impl<V: Ord + Clone> LivenessFacts<V> {
+impl<V: Ord> LivenessFacts<V> {
     /// Creates an empty fact set.
     #[must_use]
     pub fn new() -> Self {
@@ -161,7 +163,9 @@ impl<V: Ord + Clone> LivenessFacts<V> {
     pub fn live_vars(&self) -> impl Iterator<Item = &V> {
         self.variables.iter()
     }
+}
 
+impl<V: Ord + Clone> LivenessFacts<V> {
     /// Union of both fact sets (the may-meet).
     #[must_use]
     pub fn union(&self, other: &Self) -> Self {
@@ -196,7 +200,7 @@ impl<V: Ord + Clone> LivenessFacts<V> {
     }
 }
 
-impl<V: Ord + Clone> Default for LivenessFacts<V> {
+impl<V: Ord> Default for LivenessFacts<V> {
     fn default() -> Self {
         Self::new()
     }
@@ -206,6 +210,10 @@ impl<V: Ord + Clone> Default for LivenessFacts<V> {
 mod tests {
 
     use crate::test_support::{Lv, Rd, lv, rd};
+    use crate::{LivenessFacts, ReachingFacts};
+
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+    struct NonClone(u8);
 
     #[test]
     fn reaching_facts_set_operations() {
@@ -243,5 +251,17 @@ mod tests {
         assert_eq!(Lv::meet_intersection(&facts, &lv(&["c"])), lv(&["c"]));
         assert_eq!(facts.live_vars().count(), 2);
         assert_eq!(Lv::default().len(), 0);
+    }
+
+    #[test]
+    fn basic_fact_operations_do_not_require_clone_values() {
+        let mut reaching = ReachingFacts::<NonClone>::new();
+        assert!(reaching.insert(NonClone(1)));
+        reaching.kill_where(|definition| definition.0 == 2);
+        assert!(reaching.contains(&NonClone(1)));
+
+        let mut liveness = LivenessFacts::<NonClone>::default();
+        assert!(liveness.use_var(NonClone(2)));
+        assert!(liveness.kill_var(&NonClone(2)));
     }
 }

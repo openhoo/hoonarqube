@@ -3,6 +3,7 @@ use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::structure::{else_alternative, is_else_alternative};
 use hoonarqube_ir::Issue;
+use std::collections::HashMap;
 use tree_sitter::Node;
 
 /// csharpsquid:S1862 — a condition repeats along its if/else-if chain. Each
@@ -13,15 +14,14 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(header) || is_else_alternative(header) {
             continue;
         }
-        let mut seen: Vec<(&str, usize)> = Vec::new();
+        let mut seen = HashMap::new();
         let mut current = Some(header);
         while let Some(if_statement) = current {
             if let Some(condition) =
                 first_named_child(if_statement).filter(|condition| !is_error_tainted(*condition))
             {
                 let text = node_text(condition, source);
-                if let Some((_, first_line)) = seen.iter().find(|(seen_text, _)| *seen_text == text)
-                {
+                if let Some(first_line) = seen.get(text) {
                     issues.push(issue(
                         language,
                         "S1862",
@@ -29,7 +29,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         range_of(condition, source),
                     ));
                 } else {
-                    seen.push((text, condition.start_position().row + 1));
+                    seen.insert(text, condition.start_position().row + 1);
                 }
             }
             current = else_alternative(if_statement)

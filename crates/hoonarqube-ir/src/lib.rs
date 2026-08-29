@@ -237,7 +237,12 @@ impl std::error::Error for FixApplyError {}
 /// to a character column. A column equal to the line's character count
 /// addresses the insertion point right after the content (before the
 /// terminator or EOF).
-fn resolve_pos(line_starts: &[usize], source: &str, pos: Pos) -> Option<usize> {
+fn resolve_pos(
+    line_starts: &[usize],
+    ascii_lines: &[bool],
+    source: &str,
+    pos: Pos,
+) -> Option<usize> {
     if pos.line == 0 {
         return None;
     }
@@ -255,6 +260,9 @@ fn resolve_pos(line_starts: &[usize], source: &str, pos: Pos) -> Option<usize> {
     };
     let content = source.get(start..end)?;
     let target = usize::try_from(pos.column).ok()?;
+    if ascii_lines.get(line_index) == Some(&true) {
+        return (target <= content.len()).then_some(start + target);
+    }
     let mut seen = 0_usize;
     for (char_offset, _) in content.char_indices() {
         if seen == target {
@@ -286,6 +294,16 @@ pub fn apply_fixes(source: &str, edits: &[&TextEdit]) -> Result<String, FixApply
             line_starts.push(offset + 1);
         }
     }
+    let ascii_lines: Vec<bool> = line_starts
+        .iter()
+        .enumerate()
+        .map(|(index, start)| {
+            let end = line_starts
+                .get(index + 1)
+                .map_or(source.len(), |next| next - 1);
+            source[*start..end].is_ascii()
+        })
+        .collect();
 
     let mut mapped: Vec<(usize, usize, usize)> = Vec::with_capacity(edits.len());
     for (index, edit) in edits.iter().enumerate() {
@@ -293,13 +311,14 @@ pub fn apply_fixes(source: &str, edits: &[&TextEdit]) -> Result<String, FixApply
         if (range.start.line, range.start.column) > (range.end.line, range.end.column) {
             return Err(FixApplyError::InvertedRange { index });
         }
-        let Some(start_offset) = resolve_pos(&line_starts, source, range.start) else {
+        let Some(start_offset) = resolve_pos(&line_starts, &ascii_lines, source, range.start)
+        else {
             return Err(FixApplyError::OutOfBounds {
                 index,
                 pos: range.start,
             });
         };
-        let Some(end_offset) = resolve_pos(&line_starts, source, range.end) else {
+        let Some(end_offset) = resolve_pos(&line_starts, &ascii_lines, source, range.end) else {
             return Err(FixApplyError::OutOfBounds {
                 index,
                 pos: range.end,
@@ -322,12 +341,26 @@ pub fn apply_fixes(source: &str, edits: &[&TextEdit]) -> Result<String, FixApply
         }
     }
 
-    let mut ordered = mapped;
-    ordered.sort_by_key(|&(start, _, _)| std::cmp::Reverse(start));
-    let mut fixed = source.to_string();
-    for (start, end, index) in ordered {
-        fixed.replace_range(start..end, edits[index].replacement.as_str());
+    // Construct the result in one forward pass. Repeated descending
+    // `replace_range` calls shift the unchanged suffix once per edit and turn
+    // a large batch of otherwise independent edits into quadratic work.
+    let removed: usize = mapped.iter().map(|(start, end, _)| end - start).sum();
+    let replacement: usize = mapped
+        .iter()
+        .map(|(_, _, index)| edits[*index].replacement.len())
+        .sum();
+    let capacity = source
+        .len()
+        .saturating_sub(removed)
+        .saturating_add(replacement);
+    let mut fixed = String::with_capacity(capacity);
+    let mut cursor = 0_usize;
+    for (start, end, index) in mapped {
+        fixed.push_str(&source[cursor..start]);
+        fixed.push_str(&edits[index].replacement);
+        cursor = end;
     }
+    fixed.push_str(&source[cursor..]);
     Ok(fixed)
 }
 
@@ -474,6 +507,17 @@ mod tests {
         let edits = [edit((1, 3), (1, 6), "Y"), edit((1, 0), (1, 3), "X")];
         let fixed = apply_fixes(source, &edits.iter().collect::<Vec<_>>()).expect("applies");
         assert_eq!(fixed, "XY\n");
+    }
+
+    #[test]
+    fn apply_fixes_handles_many_edits_in_one_forward_rewrite() {
+        let source = "a".repeat(10_000);
+        let edits: Vec<_> = (0..5_000)
+            .map(|column| edit((1, column * 2), (1, column * 2 + 1), "bc"))
+            .collect();
+        let fixed = apply_fixes(&source, &edits.iter().collect::<Vec<_>>()).expect("applies");
+
+        assert_eq!(fixed, "bca".repeat(5_000));
     }
 
     #[test]

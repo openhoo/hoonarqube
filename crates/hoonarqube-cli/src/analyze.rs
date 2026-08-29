@@ -75,6 +75,9 @@ pub(crate) fn collect_input_files(
                 continue;
             }
         };
+        if mode == InputMode::Fix && reject_symlinked_ancestor(path, warnings) {
+            continue;
+        }
         if metadata.file_type().is_symlink() {
             collect_explicit_symlink(path, mode, &mut files, warnings);
         } else if metadata.is_dir() {
@@ -90,6 +93,27 @@ pub(crate) fn collect_input_files(
     files.sort();
     files.dedup();
     files
+}
+
+fn reject_symlinked_ancestor(path: &Path, warnings: &mut Vec<String>) -> bool {
+    match crate::first_symlinked_ancestor(path) {
+        Ok(Some(ancestor)) => {
+            warnings.push(format!(
+                "skipping path through symlinked directory {}: {}",
+                ancestor.display(),
+                path.display()
+            ));
+            true
+        }
+        Ok(None) => false,
+        Err(error) => {
+            warnings.push(format!(
+                "cannot inspect path ancestors: {}: {error}",
+                path.display()
+            ));
+            true
+        }
+    }
 }
 
 fn collect_explicit_symlink(
@@ -516,6 +540,30 @@ mod tests {
                 .iter()
                 .all(|warning| warning.starts_with("skipping symlinked file: "))
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fix_mode_rejects_files_reached_through_a_symlinked_parent() {
+        let target = TempDir::new("fix-parent-symlink-target");
+        let outside = target.write("nested/outside.py", "value = 1");
+        let fixture = TempDir::new("fix-parent-symlink-input");
+        let linked_parent = fixture.0.join("linked");
+        std::os::unix::fs::symlink(target.0.join("nested"), &linked_parent)
+            .expect("parent symlink");
+        let linked_file = linked_parent.join("outside.py");
+
+        let mut warnings = Vec::new();
+        let files = collect_input_files(
+            std::slice::from_ref(&linked_file),
+            InputMode::Fix,
+            &mut warnings,
+        );
+
+        assert!(files.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].starts_with("skipping path through symlinked directory "));
+        assert_eq!(fs::read_to_string(outside).expect("outside"), "value = 1");
     }
 
     #[test]

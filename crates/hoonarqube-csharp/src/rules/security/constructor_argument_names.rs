@@ -2,7 +2,7 @@ use super::support::attributed_declaration;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, issue, node_text, parameters_of, range_of};
 use crate::rules::declaration_contracts::attribute_applications;
-use crate::rules::expressions::enclosing_type;
+use crate::rules::expressions::{enclosing_type, member_declarations_of_kind};
 use crate::rules::literals::literal_inner_text;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -28,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         }
         let supplied = enclosing_type(member).is_some_and(|ty| {
-            collect_kinds(ty, &["constructor_declaration"])
+            member_declarations_of_kind(ty, "constructor_declaration")
                 .iter()
                 .any(|ctor| {
                     parameters_of(*ctor).iter().any(|param| {
@@ -48,4 +48,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
     }
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4260_nested_type_constructors_do_not_satisfy_outer_attributes() {
+        let report = analyze_default(
+            "class Outer { [ConstructorArgument(\"value\")] int field; class Inner { Inner(int value) { } } }",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S4260").len(), 1);
+    }
 }

@@ -1,9 +1,15 @@
 import json
+import sys
 import unittest
 from pathlib import Path
 
 
 REPO = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(REPO / "tools/oracle"))
+
+from parity import load_infra_boundaries  # noqa: E402
+
+
 PROJECTS = {
     "oracle-py": ("python", "src"),
     "oracle-js": ("javascript", "src"),
@@ -16,6 +22,8 @@ PROJECTS = {
 
 class FixtureCorpusTests(unittest.TestCase):
     def test_declared_expectations_are_unique_catalog_rules_with_real_controls(self):
+        approved_infra = load_infra_boundaries(REPO / "catalog/infra-boundaries.json")
+        declared_infra = {}
         for project, (language, source_relative) in PROJECTS.items():
             with self.subTest(project=project):
                 project_dir = REPO / ".oracle/sonar/projects" / project
@@ -42,13 +50,19 @@ class FixtureCorpusTests(unittest.TestCase):
                     path.name for path in source_dir.iterdir() if path.is_file()
                 }
                 for row in rows:
-                    if row.get("skip") or row.get("infra"):
+                    if row.get("infra") is not None:
+                        self.assertIn(row["key"], approved_infra)
+                        self.assertEqual(row["infra"], approved_infra[row["key"]])
+                        declared_infra[row["key"]] = row["infra"]
+                        continue
+                    if row.get("skip"):
                         continue
                     bad = row.get("bad")
                     self.assertIsInstance(bad, str, row["key"])
                     good = row.get("good", bad.replace("_bad", "_good"))
                     self.assertIn(bad, available, row["key"])
                     self.assertIn(good, available, row["key"])
+        self.assertEqual(set(declared_infra), set(approved_infra))
 
 
 if __name__ == "__main__":

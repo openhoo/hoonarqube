@@ -16,6 +16,15 @@ use crate::support::{IssueSink, RuleScope};
 /// scans also run on patterns the mini parser rejects; everything
 /// structure-based needs a successful parse.
 pub(crate) fn check_constant_regex_site(sink: &mut IssueSink, site: &RegexSite) {
+    if !valid_flags(&site.flags) {
+        sink.emit_span(
+            RuleScope::Both,
+            "S5856",
+            "Invalid regular expression flags.",
+            site.span,
+        );
+        return;
+    }
     check_control_characters(sink, site);
     check_unicode_constructs_without_u_flag(sink, site);
     let unicode_mode = site.has_flag('u') || site.has_flag('v');
@@ -44,6 +53,13 @@ pub(crate) fn check_constant_regex_site(sink: &mut IssueSink, site: &RegexSite) 
     check_misleading_class_characters(sink, site, &parsed);
     check_regex_complexity(sink, site, &parsed);
     check_exponential_backtracking(sink, site, &parsed);
+}
+
+fn valid_flags(flags: &str) -> bool {
+    let mut seen = std::collections::BTreeSet::new();
+    flags.chars().all(|flag| {
+        matches!(flag, 'd' | 'g' | 'i' | 'm' | 's' | 'u' | 'v' | 'y') && seen.insert(flag)
+    }) && !(seen.contains(&'u') && seen.contains(&'v'))
 }
 
 /// `S6324`: bare C0 control characters other than the tab/newline
@@ -608,6 +624,10 @@ mod tests {
 
         let clean = js_keys("const re = /[ab]/u;\n");
         assert_eq!(count_key(&clean, "javascript:S5868"), 0);
+
+        // Combining marks after a closed class are outside `[...]`.
+        let trailing = js_keys("const re = /[a]x\u{0301}/u;\n");
+        assert_eq!(count_key(&trailing, "javascript:S5868"), 0);
     }
 
     #[test]

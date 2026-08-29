@@ -48,14 +48,18 @@ use tree_sitter::Node;
 /// Gathers every issue contributed by this rule family.
 pub(crate) fn contract_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
-    issues.extend(attribute_contract_issues(root, source, language));
-    issues.extend(member_contract_issues(root, source, language));
+    append_attribute_contract_issues(&mut issues, root, source, language);
+    append_member_contract_issues(&mut issues, root, source, language);
     issues
 }
 
-/// Gathers every Tier-A7 attribute-contract issue.
-fn attribute_contract_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    let mut issues = Vec::new();
+/// Appends every Tier-A7 attribute-contract issue.
+fn append_attribute_contract_issues(
+    issues: &mut Vec<Issue>,
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) {
     issues.extend(check_obsolete_tracked(root, source, language));
     issues.extend(check_obsolete_without_reason(root, source, language));
     issues.extend(check_suppression_tracked(root, source, language));
@@ -77,12 +81,15 @@ fn attribute_contract_issues(root: Node<'_>, source: &str, language: CsLanguage)
     issues.extend(check_typed_equals_needs_iequatable(root, source, language));
     issues.extend(check_structs_implement_iequatable(root, source, language));
     issues.extend(check_suppress_finalize_usage(root, source, language));
-    issues
 }
 
-/// Gathers every Tier-A8 member-contract issue.
-fn member_contract_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    let mut issues = Vec::new();
+/// Appends every Tier-A8 member-contract issue.
+fn append_member_contract_issues(
+    issues: &mut Vec<Issue>,
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) {
     issues.extend(check_gc_collect_calls(root, source, language));
     issues.extend(check_exit_method_calls(root, source, language));
     issues.extend(check_console_output(root, source, language));
@@ -107,5 +114,4 @@ fn member_contract_issues(root: Node<'_>, source: &str, language: CsLanguage) ->
     issues.extend(check_ordering_after_filtering(root, source, language));
     issues.extend(check_string_to_array_iteration(root, source, language));
     issues.extend(check_string_concatenation_in_loops(root, source, language));
-    issues
 }

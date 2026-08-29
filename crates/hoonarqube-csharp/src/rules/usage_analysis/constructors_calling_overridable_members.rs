@@ -1,3 +1,4 @@
+use super::support::collect_in_callable;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, modifiers_of, range_of};
 use crate::rules::expressions::{callee_name, enclosing_type, invocation_function};
@@ -36,14 +37,14 @@ pub(crate) fn check(
         let Some(body) = body_of(constructor) else {
             continue;
         };
-        for invocation in collect_kinds(body, &["invocation_expression"]) {
+        for invocation in collect_in_callable(body, "invocation_expression") {
             if is_error_tainted(invocation) {
                 continue;
             }
             let Some(callee) = callee_name(invocation, source) else {
                 continue;
             };
-            if overridable.contains(callee) {
+            if overridable.contains(callee) && dispatches_on_current_instance(invocation) {
                 issues.push(issue(
                     language,
                     "S1699",
@@ -59,6 +60,21 @@ pub(crate) fn check(
         }
     }
     issues
+}
+
+fn dispatches_on_current_instance(invocation: Node<'_>) -> bool {
+    let Some(function) = invocation_function(invocation) else {
+        return false;
+    };
+    if function.kind() == "identifier" {
+        return true;
+    }
+    if function.kind() != "member_access_expression" {
+        return false;
+    }
+    function
+        .child(0)
+        .is_some_and(|receiver| matches!(receiver.kind(), "this" | "this_expression"))
 }
 
 #[cfg(test)]
@@ -110,6 +126,22 @@ mod tests {
     fn s1699_owner_scoped_lookup_misses_inherited_virtuals() {
         let report = analyze_default(
             "class Base\n{\n    protected virtual void Initialize() { }\n}\n\nclass Derived : Base\n{\n    public Derived()\n    {\n        Initialize();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1699").is_empty());
+    }
+
+    #[test]
+    fn s1699_ignores_calls_on_other_instances() {
+        let report = analyze_default(
+            "class A\n{\n    public A(A other)\n    {\n        other.Initialize();\n    }\n\n    protected virtual void Initialize() { }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1699").is_empty());
+    }
+
+    #[test]
+    fn s1699_ignores_deferred_calls_inside_constructor_closures() {
+        let report = analyze_default(
+            "class A\n{\n    public A()\n    {\n        System.Action later = () => Initialize();\n    }\n\n    protected virtual void Initialize() { }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S1699").is_empty());
     }

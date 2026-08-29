@@ -28,7 +28,6 @@ use super::value_task_consumed_once::check as check_value_task_consumed_once;
 use super::world_writable_file_modes::check as check_world_writable_file_modes;
 use super::xxe_vulnerable_parsers::check as check_xxe_vulnerable_parsers;
 use crate::CsLanguage;
-use crate::rules::linq_api::check_linq_receivers;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -82,6 +81,5 @@ pub(crate) fn framework_api_issues(
     ));
     issues.extend(check_discarded_async_calls(root, source, language));
     issues.extend(check_copying_property_getters(root, source, language));
-    issues.extend(check_linq_receivers(root, source, language));
     issues
 }

@@ -1,3 +1,4 @@
+use super::support::owned_by_callable;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, parameters_of, range_of};
 use hoonarqube_ir::Issue;
@@ -19,7 +20,10 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if !special {
             continue;
         }
-        for throw_statement in collect_kinds(callable, &["throw_statement"]) {
+        for throw_statement in collect_kinds(callable, &["throw_statement"])
+            .into_iter()
+            .filter(|throw_statement| owned_by_callable(*throw_statement, callable))
+        {
             if is_error_tainted(throw_statement) {
                 continue;
             }
@@ -31,7 +35,6 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             ));
         }
     }
-    let _ = source;
     issues
 }
 
@@ -67,6 +70,14 @@ mod tests {
     fn s3877_spares_similarly_named_regular_methods() {
         let report = analyze_default(
             "class C\n{\n    void DisposeAll()\n    {\n        throw new System.Exception();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3877").is_empty());
+    }
+
+    #[test]
+    fn s3877_spares_throws_owned_by_nested_callables() {
+        let report = analyze_default(
+            "class C\n{\n    public override string ToString()\n    {\n        void Fail() { throw new System.Exception(); }\n        System.Func<string> delayed = () => throw new System.Exception();\n        return \"ok\";\n    }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S3877").is_empty());
     }

@@ -5,13 +5,22 @@ use oxc_ast::ast::{AssignmentExpression, AssignmentOperator, Expression, UnaryOp
 use oxc_span::{GetSpan, Span};
 
 /// `S2757` (the `x =+ 1` typo), `S6643`/`S2424` (writes into built-ins).
-pub(crate) fn check_assignment_rules(sink: &mut IssueSink, it: &AssignmentExpression<'_>) {
+pub(crate) fn check_assignment_rules(
+    sink: &mut IssueSink,
+    source: &str,
+    it: &AssignmentExpression<'_>,
+) {
     if it.operator == AssignmentOperator::Assign
         && let Expression::UnaryExpression(unary) = &it.right
         && matches!(
             unary.operator,
             UnaryOperator::UnaryPlus | UnaryOperator::UnaryNegation
         )
+        && usize::try_from(unary.span.start)
+            .ok()
+            .and_then(|start| start.checked_sub(1))
+            .and_then(|before| source.as_bytes().get(before))
+            == Some(&b'=')
     {
         sink.emit_span(
             RuleScope::Both,
@@ -89,9 +98,24 @@ mod tests {
 
     #[test]
     fn s2424_allows_plain_targets_and_compound_assignment() {
-        let findings = js_keys("obj.prop = 1;\nx += 1;\ny = 1 - 2;\n");
+        let findings = js_keys("obj.prop = 1;\nx += 1;\ny = 1 - 2;\nz = +1;\n");
         assert_eq!(count_key(&findings, "javascript:S2424"), 0);
         assert_eq!(count_key(&findings, "javascript:S2757"), 0);
+    }
+
+    #[test]
+    fn s2757_requires_adjacent_assignment_and_unary_operators() {
+        let clean = js_keys("x =\u{00a0}+1;\n");
+        assert_eq!(count_key(&clean, "javascript:S2757"), 0);
+
+        let report = js("x =+1;\n");
+        let finding = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key.ends_with(":S2757"))
+            .expect("sign-swap finding");
+        assert_eq!(finding.range.start.column, 2);
+        assert_eq!(finding.range.end.column, 4);
     }
 
     #[test]

@@ -91,9 +91,11 @@ pub(crate) fn literal_string_value(argument: &oxc_ast::ast::Argument<'_>) -> Opt
 pub(crate) fn constructor_regex_site(
     arguments: &[oxc_ast::ast::Argument<'_>],
 ) -> Option<RegexSite> {
-    let values: Vec<Option<String>> = arguments.iter().map(literal_string_value).collect();
-    let pattern = values.first()?.clone()?;
-    let flags = values.get(1).cloned().flatten().unwrap_or_default();
+    let pattern = literal_string_value(arguments.first()?)?;
+    let flags = match arguments.get(1) {
+        Some(argument) => literal_string_value(argument)?,
+        None => String::new(),
+    };
     Some(RegexSite {
         span: arguments.first()?.span(),
         pattern_base: 0,

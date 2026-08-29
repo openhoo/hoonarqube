@@ -63,7 +63,9 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 
 #[cfg(test)]
 mod tests {
+    use super::check;
     use crate::tests::{analyze_default, with_key};
+    use crate::{CsLanguage, parse};
 
     const KEY: &str = "csharpsquid:S3949";
 
@@ -121,5 +123,16 @@ mod tests {
         let report =
             analyze_default("class C {\n    long M() {\n        return 65536 * 65536;\n    }\n}\n");
         assert_eq!(with_key(&report, KEY).len(), 1);
+    }
+
+    #[test]
+    fn s3949_deep_parenthesization_is_stack_safe() {
+        let opening = "(".repeat(2_000);
+        let closing = ")".repeat(2_000);
+        let source =
+            format!("class C {{ int M() {{ return {opening}2147483647{closing} + 1; }} }}");
+        let tree = parse(&source);
+        let issues = check(tree.root_node(), &source, CsLanguage::CSharp);
+        assert_eq!(issues.len(), 1);
     }
 }

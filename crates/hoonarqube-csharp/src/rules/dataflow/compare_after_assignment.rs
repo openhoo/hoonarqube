@@ -1,3 +1,4 @@
+use super::support::collect_owned_kinds;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, issue, node_text, range_of};
 use crate::rules::expressions::{binary_operands, operator_of};
@@ -21,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some(body) = conditional.child_by_field_name("consequence") else {
             continue;
         };
-        let repeats_assignment = collect_kinds(body, &["assignment_expression"])
+        let repeats_assignment = collect_owned_kinds(body, &["assignment_expression"])
             .into_iter()
             .any(|assignment| {
                 operator_of(assignment) == Some("=")
@@ -97,6 +98,14 @@ mod tests {
     fn equality_guard_is_not_reported() {
         let report = analyze_default(
             "class C {\n    void M(int n) {\n        if (n == 1) {\n            n = 1;\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn local_function_assignment_does_not_satisfy_outer_guard() {
+        let report = analyze_default(
+            "class C {\n    void M(int n) {\n        if (n != 1) {\n            void Local() { n = 1; }\n            Local();\n        }\n    }\n}\n",
         );
         assert!(with_key(&report, KEY).is_empty());
     }

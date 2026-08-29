@@ -17,21 +17,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some(operator) = operator_of(expression) else {
             continue;
         };
-        if operator != "==" && operator != "<=" {
-            continue;
-        }
         let Some((left, right)) = binary_operands(expression) else {
             continue;
         };
         let zero = |operand: Node<'_>| {
             operand.kind() == "integer_literal" && node_text(operand, source) == "0"
         };
-        let count = if is_count_expression(left, source) && zero(right) {
-            Some(left)
-        } else if zero(left) && is_count_expression(right, source) {
-            Some(right)
-        } else {
-            None
+        let count = match operator {
+            "==" | "<=" if is_count_expression(left, source) && zero(right) => Some(left),
+            "==" | ">=" if zero(left) && is_count_expression(right, source) => Some(right),
+            _ => None,
         };
         if let Some(count) = count {
             let anchor = match count.kind() {
@@ -100,9 +95,9 @@ mod tests {
     use crate::tests::{analyze_default, with_key};
 
     #[test]
-    fn s1155_flags_zero_comparisons_in_both_orientations_of_le() {
+    fn s1155_flags_only_comparisons_equivalent_to_empty() {
         let report = analyze_default(
-            "class A\n{\n    void M()\n    {\n        if (items.Count() <= 0) return;\n        if (0 <= items.Count()) return;\n    }\n}\n",
+            "class A\n{\n    void M()\n    {\n        if (items.Count() <= 0) return;\n        if (0 >= items.Count()) return;\n        if (0 <= items.Count()) return;\n        if (items.Count() >= 0) return;\n    }\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S1155");
         assert_eq!(flagged.len(), 2);

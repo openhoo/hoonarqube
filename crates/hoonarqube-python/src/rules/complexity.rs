@@ -2,6 +2,7 @@ use crate::AnalyzerOptions;
 use crate::support::child_bodies;
 use crate::support::child_exprs;
 use crate::support::for_each_function_def;
+use crate::support::for_each_stmt;
 use crate::support::issue_at;
 use crate::support::stmt_exprs;
 use hoonarqube_ir::Issue;
@@ -143,18 +144,13 @@ fn flag_functions(
     for_each_function_def(parsed.syntax().body.as_slice(), false, &mut sink);
 }
 
-/// Recurses over every class definition in the tree.
+/// Visits every class definition in the tree.
 fn visit_classes(suite: &[Stmt], visit: &mut impl FnMut(&StmtClassDef)) {
-    for stmt in suite {
+    for_each_stmt(suite, &mut |stmt| {
         if let Stmt::ClassDef(class) = stmt {
             visit(class);
-            visit_classes(&class.body, visit);
-        } else {
-            for body in child_bodies(stmt) {
-                visit_classes(body, visit);
-            }
         }
-    }
+    });
 }
 
 /// `(cognitive, cyclomatic)` of one function body.
@@ -174,6 +170,12 @@ struct Measurer {
     cyclomatic: u32,
     nesting: u32,
     logic_chain: Option<BoolOp>,
+}
+
+enum ExprWork<'a> {
+    Visit(&'a Expr),
+    RestoreLogic(Option<BoolOp>),
+    RestoreNesting(u32),
 }
 
 impl Measurer {
@@ -288,55 +290,75 @@ impl Measurer {
     }
 
     fn walk_expr(&mut self, expr: &Expr) {
-        match expr {
-            Expr::BoolOp(bool_op) => {
-                self.cyclomatic += bool_op
-                    .values
-                    .len()
-                    .saturating_sub(1)
-                    .try_into()
-                    .unwrap_or(u32::MAX);
-                if self.logic_chain != Some(bool_op.op) {
-                    self.cognitive += 1;
-                }
-                let saved_chain = self.logic_chain;
-                self.logic_chain = Some(bool_op.op);
-                for value in &bool_op.values {
-                    self.walk_expr(value);
-                }
-                self.logic_chain = saved_chain;
-            }
-            Expr::If(if_exp) => {
-                self.cognitive += 1 + self.nesting;
-                let saved = self.nesting;
-                self.nesting += 1;
-                self.walk_expr(&if_exp.test);
-                self.walk_expr(&if_exp.body);
-                self.walk_expr(&if_exp.orelse);
-                self.nesting = saved;
-            }
-            Expr::ListComp(comp) => self.walk_comprehensions(&comp.generators),
-            Expr::SetComp(comp) => self.walk_comprehensions(&comp.generators),
-            Expr::Generator(comp) => self.walk_comprehensions(&comp.generators),
-            Expr::DictComp(comp) => self.walk_comprehensions(&comp.generators),
-            other => {
-                for child in child_exprs(other) {
-                    self.walk_expr(child);
-                }
+        let mut pending = vec![ExprWork::Visit(expr)];
+        while let Some(work) = pending.pop() {
+            match work {
+                ExprWork::Visit(expr) => match expr {
+                    Expr::BoolOp(bool_op) => {
+                        self.cyclomatic += bool_op
+                            .values
+                            .len()
+                            .saturating_sub(1)
+                            .try_into()
+                            .unwrap_or(u32::MAX);
+                        if self.logic_chain != Some(bool_op.op) {
+                            self.cognitive += 1;
+                        }
+                        let saved_chain = self.logic_chain;
+                        self.logic_chain = Some(bool_op.op);
+                        pending.push(ExprWork::RestoreLogic(saved_chain));
+                        pending.extend(bool_op.values.iter().rev().map(ExprWork::Visit));
+                    }
+                    Expr::If(if_exp) => {
+                        self.cognitive += 1 + self.nesting;
+                        let saved = self.nesting;
+                        self.nesting += 1;
+                        pending.push(ExprWork::RestoreNesting(saved));
+                        pending.push(ExprWork::Visit(&if_exp.orelse));
+                        pending.push(ExprWork::Visit(&if_exp.body));
+                        pending.push(ExprWork::Visit(&if_exp.test));
+                    }
+                    Expr::ListComp(comp) => {
+                        pending.push(ExprWork::Visit(&comp.elt));
+                        self.push_comprehensions(&comp.generators, &mut pending);
+                    }
+                    Expr::SetComp(comp) => {
+                        pending.push(ExprWork::Visit(&comp.elt));
+                        self.push_comprehensions(&comp.generators, &mut pending);
+                    }
+                    Expr::Generator(comp) => {
+                        pending.push(ExprWork::Visit(&comp.elt));
+                        self.push_comprehensions(&comp.generators, &mut pending);
+                    }
+                    Expr::DictComp(comp) => {
+                        pending.push(ExprWork::Visit(&comp.value));
+                        if let Some(key) = &comp.key {
+                            pending.push(ExprWork::Visit(key));
+                        }
+                        self.push_comprehensions(&comp.generators, &mut pending);
+                    }
+                    other => {
+                        pending.extend(child_exprs(other).into_iter().rev().map(ExprWork::Visit));
+                    }
+                },
+                ExprWork::RestoreLogic(saved) => self.logic_chain = saved,
+                ExprWork::RestoreNesting(saved) => self.nesting = saved,
             }
         }
     }
 
-    /// Comprehension filters are decision points; `for` clauses stay out of
-    /// both counters per the catalog enumeration.
-    fn walk_comprehensions(&mut self, generators: &[Comprehension]) {
+    fn push_comprehensions<'a>(
+        &mut self,
+        generators: &'a [Comprehension],
+        pending: &mut Vec<ExprWork<'a>>,
+    ) {
         for generator in generators {
             self.cyclomatic += u32::try_from(generator.ifs.len()).unwrap_or(u32::MAX);
-            self.walk_expr(&generator.target);
-            self.walk_expr(&generator.iter);
-            for filter in &generator.ifs {
-                self.walk_expr(filter);
-            }
+        }
+        for generator in generators.iter().rev() {
+            pending.extend(generator.ifs.iter().rev().map(ExprWork::Visit));
+            pending.push(ExprWork::Visit(&generator.iter));
+            pending.push(ExprWork::Visit(&generator.target));
         }
     }
 }
@@ -387,6 +409,23 @@ mod tests {
             found[0].message,
             "Refactor this function to reduce its Cognitive Complexity from 2 to the 1 allowed."
         );
+    }
+
+    #[test]
+    fn complexity_walks_comprehension_result_expressions() {
+        let source = "def choose(values):\n    return [(1 if value else 2) for value in values]\n";
+        let options = AnalyzerOptions {
+            maximum_cognitive_complexity: 0,
+            maximum_function_complexity: 1,
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze(PathBuf::from("t.py"), source, &options);
+        assert_eq!(findings(&report, "python:S3776").len(), 1);
+
+        let bool_source =
+            "def choose(values):\n    return [value > 0 and value < 10 for value in values]\n";
+        let report = analyze(PathBuf::from("t.py"), bool_source, &options);
+        assert_eq!(findings(&report, "python:FunctionComplexity").len(), 1);
     }
 
     #[test]

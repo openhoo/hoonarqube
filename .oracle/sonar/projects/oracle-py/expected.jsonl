@@ -304,7 +304,7 @@
 {"key": "python:S7632", "bad": "s7632_bad.py", "expect_lines_min": 1}
 {"key": "python:S112", "bad": "s112_bad.py", "expect_lines_min": 1}
 {"key": "python:S905", "bad": "s905_bad.py", "expect_lines_min": 1}
-{"key":"python:S6786","infra":"upstream analysis infrastructure required"}
+{"key":"python:S6786","infra":"GraphQL introspection detection requires third-party symbol resolution and inheritance semantics"}
 {"key":"python:S4784","bad":"s4784_bad.py","expect_lines_min":1}
 {"key":"python:S5247","bad":"s5247_bad.py","expect_lines_min":1}
 {"key":"python:S5300","bad":"s5300_bad.py","expect_lines_min":1}

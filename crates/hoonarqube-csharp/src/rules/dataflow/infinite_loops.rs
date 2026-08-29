@@ -1,3 +1,4 @@
+use super::support::collect_owned_kinds;
 use crate::CsLanguage;
 use crate::cst::{ancestors_of, collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::expressions::{
@@ -19,10 +20,20 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some(body) = header.child_by_field_name("body") else {
             continue;
         };
-        if !subtree_escapes(body) {
+        if !subtree_escapes(header, body) {
             let anchor = ancestors_of(header)
-                .find(|ancestor| ancestor.kind() == "method_declaration")
-                .and_then(|method| method.child_by_field_name("name"))
+                .find(|ancestor| {
+                    matches!(
+                        ancestor.kind(),
+                        "local_function_statement"
+                            | "method_declaration"
+                            | "constructor_declaration"
+                            | "destructor_declaration"
+                            | "operator_declaration"
+                            | "accessor_declaration"
+                    )
+                })
+                .and_then(|callable| callable.child_by_field_name("name"))
                 .unwrap_or(header);
             issues.push(issue(
                 language,
@@ -59,7 +70,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         // (`if (n <= 1) return 1; return Fact(n - 1);`): every escape
         // site must live inside the trailing call itself.
         let unguarded_tail = tail_call.is_some()
-            && collect_kinds(body, &["return_statement", "throw_statement"])
+            && collect_owned_kinds(body, &["return_statement", "throw_statement"])
                 .into_iter()
                 .all(|site| {
                     site.start_byte() >= last.start_byte() && site.end_byte() <= last.end_byte()
@@ -89,8 +100,8 @@ fn condition_true_at_entry(header: Node<'_>, source: &str) -> bool {
 
 /// Whether a subtree offers any way out: `break`, `return`, `throw`, or
 /// an outward `goto`.
-fn subtree_escapes(node: Node<'_>) -> bool {
-    collect_kinds(
+fn subtree_escapes(header: Node<'_>, node: Node<'_>) -> bool {
+    collect_owned_kinds(
         node,
         &[
             "break_statement",
@@ -100,7 +111,24 @@ fn subtree_escapes(node: Node<'_>) -> bool {
         ],
     )
     .iter()
-    .any(|escape| !is_error_tainted(*escape))
+    .any(|escape| {
+        if is_error_tainted(*escape) {
+            return false;
+        }
+        escape.kind() != "break_statement"
+            || ancestors_of(*escape)
+                .find(|ancestor| {
+                    matches!(
+                        ancestor.kind(),
+                        "while_statement"
+                            | "for_statement"
+                            | "foreach_statement"
+                            | "do_statement"
+                            | "switch_statement"
+                    )
+                })
+                .is_some_and(|owner| owner.id() == header.id())
+    })
 }
 
 #[cfg(test)]
@@ -164,5 +192,25 @@ mod tests {
             "class C {\n    void M() {\n        do {\n            throw new System.InvalidOperationException();\n        } while (true);\n    }\n}\n",
         );
         assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2190_nested_local_return_does_not_escape_outer_loop() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        while (true) {\n            void Local() { return; }\n            Local();\n        }\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 2);
+    }
+
+    #[test]
+    fn s2190_break_from_nested_loop_does_not_escape_outer_loop() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        while (true) {\n            while (true) { break; }\n        }\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 2);
     }
 }

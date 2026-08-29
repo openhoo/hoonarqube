@@ -108,6 +108,7 @@ fn check_tb_flow_rules<'p>(
         status: TbHalt::Live,
         depth: 0,
         decl_kind: oxc_ast::ast::VariableDeclarationKind::Let,
+        target_write_depth: 0,
     };
     flow.visit_program(program);
 }
@@ -214,6 +215,41 @@ mod tests {
         );
         assert_eq!(filtered(&flagged, "S4165").len(), 1);
         assert_eq!(filtered(&flagged, "S1854").len(), 0);
+    }
+
+    #[test]
+    fn flow_tracks_reads_uninitialized_declarations_and_nested_function_depth() {
+        let read_before_overwrite =
+            js("function f() {\n  let x = a();\n  use(x);\n  x = b();\n  return x;\n}\nf();\n");
+        assert_eq!(filtered(&read_before_overwrite, "S1854").len(), 0);
+
+        for source in [
+            "function f() { let x; x = value(); return x; }\nf();\n",
+            "function f() { var x = value(); var x; return x; }\nf();\n",
+        ] {
+            assert_eq!(filtered(&js(source), "S1854").len(), 0);
+        }
+
+        let nested = js(
+            "if (condition) {\n  function f() { let x = a(); x = b(); return x; }\n  use(f);\n}\n",
+        );
+        assert_eq!(filtered(&nested, "S1854").len(), 1);
+
+        let logical =
+            js("function f(c) { let x = a(); c && use(x); x = b(); return x; }\nf(true);\n");
+        assert_eq!(filtered(&logical, "S1854").len(), 0);
+
+        let member_target =
+            js("function f() { let x = a(); object[x] = (x = b()); return x; }\nf();\n");
+        assert_eq!(filtered(&member_target, "S1854").len(), 0);
+
+        let destructuring_target =
+            js("function f() { let x = a(); [x] = items; return x; }\nf();\n");
+        assert_eq!(filtered(&destructuring_target, "S1854").len(), 1);
+
+        let destructuring_default =
+            js("function f() { let x = a(); [x = use(x)] = []; x = b(); return x; }\nf();\n");
+        assert_eq!(filtered(&destructuring_default, "S1854").len(), 1);
     }
 
     #[test]

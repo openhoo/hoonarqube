@@ -1,4 +1,4 @@
-use super::support::operator_of;
+use super::support::{enclosing_callable, operator_of};
 use crate::CsLanguage;
 use crate::cst::{ancestors_of, collect_kinds, is_error_tainted, issue, range_of};
 use hoonarqube_ir::Issue;
@@ -12,9 +12,11 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(unary) || !matches!(operator_of(unary), Some("++" | "--")) {
             continue;
         }
+        let callable = enclosing_callable(unary).map(|owner| owner.id());
         let mixed = ancestors_of(unary)
             .take_while(|ancestor| {
                 !matches!(ancestor.kind(), "expression_statement" | "for_statement")
+                    && Some(ancestor.id()) != callable
             })
             .any(|ancestor| {
                 matches!(
@@ -78,6 +80,14 @@ mod tests {
     fn s881_spares_updates_used_only_as_assignment_values() {
         let report = analyze_default(
             "class C\n{\n    int M(int i)\n    {\n        var first = i++;\n        return --first;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S881").is_empty());
+    }
+
+    #[test]
+    fn s881_does_not_mix_lambda_body_with_outer_invocation() {
+        let report = analyze_default(
+            "class C { void M(int i) { Consume(() => i++); Consume(delegate { return --i; }); } }",
         );
         assert!(with_key(&report, "csharpsquid:S881").is_empty());
     }

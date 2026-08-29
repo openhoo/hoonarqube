@@ -1,6 +1,10 @@
+use super::support::{identifier_write, walk_owned};
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of, simple_name};
+use crate::cst::{
+    ancestors_of, collect_kinds, is_error_tainted, issue, node_text, range_of, simple_name,
+};
 use crate::rules::expressions::{callee_name, first_named_child, invocation_arguments};
+use crate::rules::structure::body_of;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -57,11 +61,42 @@ fn stored_array_accessed(root: Node<'_>, creation: Node<'_>, source: &str) -> bo
         return false;
     };
     let name_text = node_text(name, source);
-    collect_kinds(root, &["element_access_expression"])
-        .into_iter()
-        .filter(|access| access.start_byte() > declarator.end_byte())
-        .filter_map(first_named_child)
-        .any(|receiver| node_text(receiver, source) == name_text)
+    let scope = ancestors_of(creation)
+        .find(|ancestor| {
+            matches!(
+                ancestor.kind(),
+                "method_declaration"
+                    | "constructor_declaration"
+                    | "destructor_declaration"
+                    | "operator_declaration"
+                    | "accessor_declaration"
+                    | "local_function_statement"
+                    | "lambda_expression"
+                    | "anonymous_method_expression"
+            )
+        })
+        .and_then(body_of)
+        .unwrap_or(root);
+    let mut still_empty = true;
+    let mut accessed = false;
+    walk_owned(scope, &mut |node| {
+        if accessed || node.start_byte() <= declarator.end_byte() {
+            return;
+        }
+        if node.kind() == "identifier"
+            && node_text(node, source) == name_text
+            && identifier_write(node).is_some()
+        {
+            still_empty = false;
+        } else if still_empty
+            && node.kind() == "element_access_expression"
+            && first_named_child(node)
+                .is_some_and(|receiver| node_text(receiver, source) == name_text)
+        {
+            accessed = true;
+        }
+    });
+    accessed
 }
 
 fn push_issue(issues: &mut Vec<Issue>, creation: Node<'_>, source: &str, language: CsLanguage) {
@@ -219,5 +254,21 @@ mod tests {
         let found = with_key(&report, KEY);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s4158_same_name_access_in_another_method_does_not_share_provenance() {
+        let report = analyze_default(
+            "class C {\n    int[] Empty() {\n        int[] cells = new int[0];\n        return cells;\n    }\n    int Read(int[] cells) {\n        return cells[0];\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s4158_reassignment_clears_empty_array_provenance() {
+        let report = analyze_default(
+            "class C {\n    int M() {\n        int[] cells = new int[0];\n        cells = new int[1];\n        return cells[0];\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
     }
 }

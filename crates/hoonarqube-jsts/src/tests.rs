@@ -973,3 +973,27 @@ fn configurable_typescript_rules_use_full_catalog_keys() {
     assert_eq!(count_key(&good_keys, "typescript:S104"), 0);
     assert_eq!(count_key(&good_keys, "typescript:S1451"), 0);
 }
+
+#[test]
+fn deeply_nested_valid_program_does_not_overflow_the_process_stack() {
+    const DEPTH: usize = 5_000;
+    let mut source = String::with_capacity(DEPTH * 2 + 24);
+    source.push_str(&"{".repeat(DEPTH));
+    source.push_str("const value = 1;\n");
+    source.push_str(&"}".repeat(DEPTH));
+
+    let report = analyze(
+        PathBuf::from("deep.js"),
+        &source,
+        JstsLanguage::JavaScript,
+        &AnalyzerOptions::default(),
+    );
+
+    assert!(
+        report
+            .issues
+            .iter()
+            .all(|issue| issue.rule_key != "javascript:S2260"),
+        "valid deeply nested source must still parse"
+    );
+}

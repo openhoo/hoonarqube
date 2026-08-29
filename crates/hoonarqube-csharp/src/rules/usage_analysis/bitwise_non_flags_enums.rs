@@ -1,4 +1,4 @@
-use super::support::typed_variables;
+use super::support::{enclosing_callable, enclosing_type};
 use crate::CsLanguage;
 use crate::cst::{
     attributes_of, collect_kinds, is_error_tainted, issue, node_text, range_of, simple_name,
@@ -9,28 +9,11 @@ use tree_sitter::Node;
 
 /// csharpsquid:S3265 — bitwise operations need `[Flags]` enums.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    let (enum_types, enum_members) = non_flags_enum_names(root, source);
+    let enum_types = non_flags_enum_names(root, source);
     if enum_types.is_empty() {
         return Vec::new();
     }
-    let mut value_names = enum_members;
-    for (variable, type_name) in typed_variables(root, source) {
-        if enum_types.contains(type_name) {
-            value_names.insert(variable);
-        }
-    }
-    for parameter in collect_kinds(root, &["parameter"]) {
-        let Some(type_node) = parameter.child_by_field_name("type") else {
-            continue;
-        };
-        if !enum_types.contains(simple_name(node_text(type_node, source))) {
-            continue;
-        }
-        let Some(name) = parameter.child_by_field_name("name") else {
-            continue;
-        };
-        value_names.insert(node_text(name, source));
-    }
+    let typed_values = typed_values(root, source);
     let mut issues = Vec::new();
     let mut expressions = collect_kinds(root, &["binary_expression"]);
     expressions.extend(collect_kinds(root, &["assignment_expression"]));
@@ -38,11 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(expression) || bitwise_operator(expression).is_none() {
             continue;
         }
-        let touches_enum = collect_kinds(expression, &["identifier"])
-            .iter()
-            .any(|identifier| value_names.contains(node_text(*identifier, source)));
-        if touches_enum {
-            let enum_name = enum_types.iter().next().copied().unwrap_or("enum");
+        if let Some(enum_name) = touched_enum(expression, source, &enum_types, &typed_values) {
             let mut cursor = expression.walk();
             let operator = expression
                 .children(&mut cursor)
@@ -63,15 +42,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 
 /// Non-`[Flags]` enum type names declared in the file plus the names of
 /// their members.
-fn non_flags_enum_names<'a>(
-    root: Node<'a>,
-    source: &'a str,
-) -> (
-    std::collections::HashSet<&'a str>,
-    std::collections::HashSet<&'a str>,
-) {
+fn non_flags_enum_names<'a>(root: Node<'a>, source: &'a str) -> std::collections::HashSet<&'a str> {
     let mut types = std::collections::HashSet::new();
-    let mut members = std::collections::HashSet::new();
     for enum_node in collect_kinds(root, &["enum_declaration"]) {
         if has_attribute(&attributes_of(enum_node, source), "Flags") {
             continue;
@@ -79,13 +51,88 @@ fn non_flags_enum_names<'a>(
         if let Some(name) = enum_node.child_by_field_name("name") {
             types.insert(node_text(name, source));
         }
-        for body_child in collect_kinds(enum_node, &["enum_member_declaration"]) {
-            if let Some(name) = body_child.child_by_field_name("name") {
-                members.insert(node_text(name, source));
-            }
+    }
+    types
+}
+
+struct TypedValue<'t> {
+    name: String,
+    type_name: String,
+    scope: Node<'t>,
+}
+
+fn typed_values<'t>(root: Node<'t>, source: &str) -> Vec<TypedValue<'t>> {
+    let mut values = Vec::new();
+    for parameter in collect_kinds(root, &["parameter"]) {
+        if let Some((type_node, name, scope)) = parameter
+            .child_by_field_name("type")
+            .zip(parameter.child_by_field_name("name"))
+            .zip(enclosing_callable(parameter))
+            .map(|((type_node, name), scope)| (type_node, name, scope))
+        {
+            values.push(TypedValue {
+                name: node_text(name, source).to_string(),
+                type_name: simple_name(node_text(type_node, source)).to_string(),
+                scope,
+            });
         }
     }
-    (types, members)
+    for declarator in collect_kinds(root, &["variable_declarator"]) {
+        let Some(name) = declarator.child_by_field_name("name") else {
+            continue;
+        };
+        let Some(declaration) = declarator.parent() else {
+            continue;
+        };
+        let Some(type_node) = declaration.child_by_field_name("type") else {
+            continue;
+        };
+        let Some(scope) = enclosing_callable(declarator).or_else(|| enclosing_type(declarator))
+        else {
+            continue;
+        };
+        values.push(TypedValue {
+            name: node_text(name, source).to_string(),
+            type_name: simple_name(node_text(type_node, source)).to_string(),
+            scope,
+        });
+    }
+    values
+}
+
+fn touched_enum<'a>(
+    expression: Node<'_>,
+    source: &'a str,
+    enum_types: &std::collections::HashSet<&'a str>,
+    typed_values: &[TypedValue<'_>],
+) -> Option<&'a str> {
+    for identifier in collect_kinds(expression, &["identifier"]) {
+        let name = node_text(identifier, source);
+        if enum_types.contains(name)
+            && identifier
+                .parent()
+                .is_some_and(|parent| parent.kind() == "member_access_expression")
+        {
+            return Some(name);
+        }
+        let site = identifier.byte_range();
+        if let Some(value) = typed_values
+            .iter()
+            .filter(|value| {
+                value.name == name
+                    && value.scope.start_byte() <= site.start
+                    && value.scope.end_byte() >= site.end
+            })
+            .min_by_key(|value| value.scope.end_byte() - value.scope.start_byte())
+            && enum_types.contains(value.type_name.as_str())
+        {
+            return enum_types
+                .iter()
+                .find(|enum_name| **enum_name == value.type_name)
+                .copied();
+        }
+    }
+    None
 }
 
 /// The bitwise operator of a binary or assignment expression.
@@ -153,5 +200,25 @@ mod tests {
             .collect();
         lines.sort_unstable();
         assert_eq!(lines, vec![10, 11]);
+    }
+
+    #[test]
+    fn s3265_does_not_leak_typed_names_between_methods() {
+        let report = analyze_default(
+            "enum Mode { On, Off }\nclass C\n{\n    int EnumBits(Mode value) => (int)(value | Mode.On);\n    int IntegerBits(int value) => value | 1;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3265");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 4);
+    }
+
+    #[test]
+    fn s3265_reports_the_enum_actually_used() {
+        let report = analyze_default(
+            "enum Alpha { A, B }\nenum Beta { A, B }\nclass C\n{\n    int Mix(Beta value) => (int)(value | Beta.A);\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3265");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'Beta'"));
     }
 }

@@ -1,3 +1,4 @@
+use super::support::collect_in_callable;
 use crate::CsLanguage;
 use crate::cst::{
     collect_kinds, is_error_tainted, issue, modifiers_of, node_text, parameters_of, range_of,
@@ -75,7 +76,7 @@ fn push_issue(
 
 /// The assignment overwriting `variable` before any read within `scope`.
 fn ignored_initial_value<'t>(scope: Node<'t>, variable: &str, source: &str) -> Option<Node<'t>> {
-    let mut references: Vec<Node> = collect_kinds(scope, &["identifier"])
+    let mut references: Vec<Node> = collect_in_callable(scope, "identifier")
         .into_iter()
         .filter(|candidate| {
             !is_error_tainted(*candidate) && node_text(*candidate, source) == variable
@@ -112,4 +113,25 @@ fn catch_offender<'a>(catch_clause: Node<'a>, source: &'a str) -> Option<(Node<'
     let name_node = declaration.child_by_field_name("name")?;
     let name = node_text(name_node, source);
     Some((ignored_initial_value(block, name, source)?, name))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1226_ignores_assignments_deferred_into_closures() {
+        let report = analyze_default(
+            "class C\n{\n    public void Run(int value)\n    {\n        System.Action later = () => value = 0;\n        System.Console.WriteLine(value);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1226").is_empty());
+    }
+
+    #[test]
+    fn s1226_ignores_nested_local_function_rebinding() {
+        let report = analyze_default(
+            "class C\n{\n    public void Run(int value)\n    {\n        void Reset() { value = 0; }\n        System.Console.WriteLine(value);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1226").is_empty());
+    }
 }

@@ -20,13 +20,14 @@ pub(crate) fn check(
             .map(switch_sections_of)
             .unwrap_or_default()
         {
-            let statement_count = to_u32(section_statements(section).len());
+            let statements = section_statements(section);
+            let statement_count = to_u32(statements.len());
             if statement_count > options.maximum_switch_section_lines {
-                let label_end = source[section.start_byte()..section.end_byte()]
-                    .find(':')
-                    .map_or(section.end_byte(), |offset| {
-                        section.start_byte() + offset + 1
-                    });
+                let mut cursor = section.walk();
+                let label_end = section
+                    .children(&mut cursor)
+                    .find(|child| child.kind() == ":")
+                    .map_or(section.end_byte(), |colon| colon.end_byte());
                 issues.push(issue(
                     language,
                     "S1151",
@@ -40,4 +41,35 @@ pub(crate) fn check(
         }
     }
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::AnalyzerOptions;
+    use crate::tests::{analyze_options, with_key};
+
+    #[test]
+    fn s1151_counts_statements_not_physical_lines() {
+        let source = "class C\n{\n    void M(int value)\n    {\n        switch (value)\n        {\n            case 1:\n                Call(\n                    value);\n                break;\n        }\n    }\n}\n";
+        let options = AnalyzerOptions {
+            maximum_switch_section_lines: 2,
+            ..Default::default()
+        };
+        let report = analyze_options(source, &options);
+        let flagged = with_key(&report, "csharpsquid:S1151");
+        assert!(flagged.is_empty());
+    }
+
+    #[test]
+    fn s1151_label_range_uses_label_colon_not_colon_inside_string() {
+        let source = "class C\n{\n    void M(string value)\n    {\n        switch (value)\n        {\n            case \"http://\":\n                First();\n                Second();\n        }\n    }\n}\n";
+        let options = AnalyzerOptions {
+            maximum_switch_section_lines: 1,
+            ..Default::default()
+        };
+        let report = analyze_options(source, &options);
+        let flagged = with_key(&report, "csharpsquid:S1151");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.end.column, 27);
+    }
 }

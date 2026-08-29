@@ -2,7 +2,7 @@ use super::support::logging_calls;
 use crate::CsLanguage;
 use crate::cst::{issue, range_of};
 use crate::rules::expressions::invocation_arguments;
-use crate::rules::literals::argument_expression;
+use crate::rules::literals::{argument_expression, is_string_literal};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -17,7 +17,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 .copied()
                 .map(|first| (call, argument_expression(first)))
         })
-        .filter(|(_, expression)| expression.kind() != "string_literal")
+        .filter(|(_, expression)| !is_string_literal(*expression))
         .map(|(_, expression)| {
             let message = if expression.kind() == "interpolated_string_expression" {
                 "Don't use string interpolation in logging message templates."
@@ -27,4 +27,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issue(language, "S2629", message, range_of(expression, source))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s2629_accepts_verbatim_and_raw_static_templates() {
+        let report = analyze_default(
+            "class C\n{\n    void M()\n    {\n        logger.LogInformation(@\"Value {Value}\", value);\n        logger.LogInformation(\"\"\"Value {Value}\"\"\", value);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2629").is_empty());
+    }
 }

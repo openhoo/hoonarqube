@@ -1,4 +1,4 @@
-use crate::cst::{collect_kinds, node_text};
+use crate::cst::{collect_kinds, node_text, parameters_of};
 use crate::rules::expressions::{first_named_child, integer_literal_value, operator_of};
 use crate::rules::structure::body_of;
 use tree_sitter::Node;
@@ -50,15 +50,17 @@ pub(crate) fn identifier_write(node: Node<'_>) -> Option<WriteKind> {
 }
 
 /// Bodies of callables that carry a block: methods, constructors,
-/// destructors, operators, accessors, and local functions.
+/// destructors, operators, accessors, local functions, and closures.
 pub(crate) fn callable_blocks(root: Node<'_>) -> Vec<Node<'_>> {
-    const CALLABLE_KINDS: [&str; 6] = [
+    const CALLABLE_KINDS: [&str; 8] = [
         "method_declaration",
         "constructor_declaration",
         "destructor_declaration",
         "operator_declaration",
         "accessor_declaration",
         "local_function_statement",
+        "lambda_expression",
+        "anonymous_method_expression",
     ];
     collect_kinds(root, &CALLABLE_KINDS)
         .into_iter()
@@ -71,9 +73,43 @@ pub(crate) fn callable_blocks(root: Node<'_>) -> Vec<Node<'_>> {
 /// skips them entirely.
 pub(crate) fn captured_names(body: Node<'_>, source: &str) -> std::collections::HashSet<String> {
     let mut names = std::collections::HashSet::new();
-    for closure in collect_kinds(body, &["lambda_expression", "anonymous_method_expression"]) {
+    for closure in collect_kinds(
+        body,
+        &[
+            "lambda_expression",
+            "anonymous_method_expression",
+            "local_function_statement",
+        ],
+    ) {
+        let declared = closure_declared_names(closure, source);
         for identifier in collect_kinds(closure, &["identifier"]) {
-            names.insert(node_text(identifier, source).to_owned());
+            let name = node_text(identifier, source);
+            if !declared.contains(name) {
+                names.insert(name.to_owned());
+            }
+        }
+    }
+    names
+}
+
+fn closure_declared_names<'a>(
+    closure: Node<'_>,
+    source: &'a str,
+) -> std::collections::HashSet<&'a str> {
+    let mut names = std::collections::HashSet::new();
+    if let Some(parameters) = closure.child_by_field_name("parameters")
+        && parameters.kind() == "identifier"
+    {
+        names.insert(node_text(parameters, source));
+    }
+    for parameter in parameters_of(closure) {
+        if let Some(name) = parameter.child_by_field_name("name") {
+            names.insert(node_text(name, source));
+        }
+    }
+    for declarator in collect_kinds(closure, &["variable_declarator"]) {
+        if let Some(name) = declarator.child_by_field_name("name") {
+            names.insert(node_text(name, source));
         }
     }
     names
@@ -82,21 +118,25 @@ pub(crate) fn captured_names(body: Node<'_>, source: &str) -> std::collections::
 /// Signed constant value of an integer literal, a `MinValue`/`MaxValue`
 /// identifier, or a negation/parenthesization thereof.
 pub(crate) fn constant_integer_value(expression: Node<'_>, source: &str) -> Option<i128> {
-    match expression.kind() {
-        "integer_literal" => integer_literal_value(node_text(expression, source))
+    let mut current = expression;
+    let mut negated = false;
+    loop {
+        match current.kind() {
+            "parenthesized_expression" => current = first_named_child(current)?,
+            "prefix_unary_expression" if unary_operator(current) == Some("-") => {
+                negated = !negated;
+                current = first_named_child(current)?;
+            }
+            _ => break,
+        }
+    }
+    let value = match current.kind() {
+        "integer_literal" => integer_literal_value(node_text(current, source))
             .and_then(|value| i64::try_from(value).ok())
             .map(i128::from),
-        "parenthesized_expression" => {
-            first_named_child(expression).and_then(|inner| constant_integer_value(inner, source))
-        }
-        "prefix_unary_expression" if unary_operator(expression) == Some("-") => {
-            first_named_child(expression)
-                .and_then(|operand| constant_integer_value(operand, source))
-                .map(|value| -value)
-        }
         // `int.MaxValue` parses as a member access, not an identifier,
         // so the known-constant table keys on text alone.
-        _ => match node_text(expression, source) {
+        _ => match node_text(current, source) {
             "int.MinValue" | "Int32.MinValue" => Some(i128::from(i32::MIN)),
             "int.MaxValue" | "Int32.MaxValue" => Some(i128::from(i32::MAX)),
             "short.MinValue" => Some(i128::from(i16::MIN)),
@@ -105,32 +145,95 @@ pub(crate) fn constant_integer_value(expression: Node<'_>, source: &str) -> Opti
             "long.MaxValue" | "Int64.MaxValue" => Some(i128::from(i64::MAX)),
             _ => None,
         },
+    }?;
+    Some(if negated { -value } else { value })
+}
+
+/// Pre-order walk owned by one callable. Nested callables execute in a
+/// different dataflow scope and are therefore visited only by their own
+/// [`callable_blocks`] entry.
+pub(crate) fn walk_owned<'t>(node: Node<'t>, visit: &mut impl FnMut(Node<'t>)) {
+    let mut pending = vec![node];
+    while let Some(current) = pending.pop() {
+        visit(current);
+        if is_nested_callable(current) {
+            continue;
+        }
+        push_children_in_document_order(current, &mut pending);
     }
 }
 
-/// Pre-order walk that does not descend into `block` nodes; used when
-/// the enclosing statement list already visits those blocks separately.
+/// Collects nodes belonging to one callable, without leaking through a
+/// local function, lambda, or anonymous-method boundary.
+pub(crate) fn collect_owned_kinds<'t>(root: Node<'t>, kinds: &[&str]) -> Vec<Node<'t>> {
+    let mut matched = Vec::new();
+    walk_owned(root, &mut |node| {
+        if kinds.contains(&node.kind()) {
+            matched.push(node);
+        }
+    });
+    matched
+}
+
+/// Pre-order walk that does not descend into `block` nodes or nested
+/// callables; used when the owning statement list visits blocks itself.
 pub(crate) fn walk_except_blocks<'t>(node: Node<'t>, visit: &mut impl FnMut(Node<'t>)) {
-    visit(node);
-    if node.kind() == "block" {
-        return;
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        walk_except_blocks(child, visit);
+    let mut pending = vec![node];
+    while let Some(current) = pending.pop() {
+        visit(current);
+        if current.kind() == "block" || is_nested_callable(current) {
+            continue;
+        }
+        push_children_in_document_order(current, &mut pending);
     }
 }
 
-/// Whether the member body guards `name` somewhere: a `HasValue` check,
-/// an explicit null comparison, an `is not null` pattern, or a
-/// null-conditional access. Guarded names are exempt entirely.
-pub(crate) fn name_is_guarded(body_text: &str, name: &str) -> bool {
-    [
-        "{name}.HasValue",
-        "{name} != null",
-        "{name} is not null",
-        "{name}?.",
-    ]
-    .iter()
-    .any(|pattern| body_text.contains(pattern.replace("{name}", name).as_str()))
+fn is_nested_callable(node: Node<'_>) -> bool {
+    matches!(
+        node.kind(),
+        "local_function_statement" | "lambda_expression" | "anonymous_method_expression"
+    )
+}
+
+fn push_children_in_document_order<'t>(node: Node<'t>, pending: &mut Vec<Node<'t>>) {
+    let mut cursor = node.walk();
+    let mut children: Vec<_> = node.children(&mut cursor).collect();
+    children.reverse();
+    pending.extend(children);
+}
+
+/// Names guarded inside one callable by a `HasValue` check, explicit
+/// null comparison, `is not null` pattern, or null-conditional access.
+pub(crate) fn guarded_names(body: Node<'_>, source: &str) -> std::collections::HashSet<String> {
+    let mut guarded = std::collections::HashSet::new();
+    walk_owned(body, &mut |node| {
+        if node.kind() != "identifier" {
+            return;
+        }
+        let Some(parent) = node.parent().filter(|parent| {
+            matches!(
+                parent.kind(),
+                "member_access_expression"
+                    | "binary_expression"
+                    | "is_pattern_expression"
+                    | "conditional_access_expression"
+            )
+        }) else {
+            return;
+        };
+        let name = node_text(node, source);
+        let text = node_text(parent, source);
+        if [
+            format!("{name}.HasValue"),
+            format!("{name} != null"),
+            format!("{name} is not null"),
+            format!("{name}?."),
+        ]
+        .iter()
+        .any(|pattern| text.contains(pattern))
+        {
+            guarded.insert(name.to_owned());
+        }
+    });
+    guarded
 }

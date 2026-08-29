@@ -1,13 +1,14 @@
 use super::{
     ArrowFunctionBody, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator,
-    AssignmentTarget, BindingIdentifier, BindingPattern, BlockStatement, BreakStatement,
-    CatchClause, ConditionalExpression, ContinueStatement, DoWhileStatement, Expression,
-    ForInStatement, ForOfStatement, ForStatement, FormalParameters, Function, GetSpan, HashMap,
-    IfStatement, IssueSink, LogicalExpression, MemberExpression, ReturnStatement, RuleScope,
-    ScopeFlags, SimpleAssignmentTarget, Span, Statement, StaticBlock, SwitchStatement,
-    ThrowStatement, TryStatement, UpdateExpression, VariableDeclaration, VariableDeclarationKind,
+    AssignmentTarget, AssignmentTargetPropertyIdentifier, AssignmentTargetWithDefault,
+    BindingIdentifier, BindingPattern, BlockStatement, BreakStatement, CatchClause,
+    ConditionalExpression, ContinueStatement, DoWhileStatement, Expression, ForInStatement,
+    ForOfStatement, ForStatement, FormalParameters, Function, GetSpan, HashMap, IfStatement,
+    IssueSink, LogicalExpression, MemberExpression, ReturnStatement, RuleScope, ScopeFlags,
+    SimpleAssignmentTarget, Span, Statement, StaticBlock, SwitchStatement, ThrowStatement,
+    TryStatement, UpdateExpression, VariableDeclaration, VariableDeclarationKind,
     VariableDeclarator, Visit, WhileStatement, source_slice, unparenthesized,
-    walk_for_in_statement, walk_for_of_statement, walk_for_statement,
+    walk_for_in_statement, walk_for_of_statement, walk_for_statement, walk_member_expression,
 };
 
 /// Reachability of the code following the current point.
@@ -46,6 +47,10 @@ pub(crate) struct TbFlow<'p, 's, 'i> {
     pub(crate) depth: u32,
     /// Kind of the declaration whose declarators are currently visited.
     pub(crate) decl_kind: VariableDeclarationKind,
+    /// Positive while identifiers in a destructuring assignment target are
+    /// writes. Member objects/keys and default expressions temporarily reset
+    /// this depth because they are reads.
+    pub(crate) target_write_depth: u32,
 }
 
 impl<'p> TbFlow<'p, '_, '_> {
@@ -175,6 +180,46 @@ impl<'p> TbFlow<'p, '_, '_> {
             self.status = TbHalt::Live;
         }
     }
+
+    fn track_identifier_declaration(
+        &mut self,
+        identifier: &BindingIdentifier<'p>,
+        init: Option<&Expression<'p>>,
+    ) {
+        let name = identifier.name.as_str();
+        match (self.decl_kind, init) {
+            (VariableDeclarationKind::Var, Some(value)) => {
+                // A `var` redeclaration writes the existing function-scoped
+                // binding rather than shadowing it.
+                self.write(name, identifier.span, Some(value.span()), false);
+            }
+            (VariableDeclarationKind::Var, None) => {
+                // An initializer-less `var` is a runtime no-op, including
+                // when it redeclares an existing function-scoped binding.
+            }
+            (VariableDeclarationKind::Const, _) | (_, None) => {
+                self.env.remove(name);
+            }
+            (_, Some(value)) => {
+                // Block-scoped declarations shadow like-named outer bindings:
+                // a fresh scope entry, not an overwrite.
+                self.env.insert(
+                    name,
+                    TbPending {
+                        site: identifier.span,
+                        value: Some(value.span()),
+                        initial: false,
+                    },
+                );
+            }
+        }
+    }
+
+    fn forget_pattern_declaration(&mut self, pattern: &BindingPattern<'p>) {
+        for name in bound_names(pattern) {
+            self.env.remove(name);
+        }
+    }
 }
 
 impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
@@ -197,6 +242,7 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
 
     fn visit_function(&mut self, function: &Function<'p>, _flags: ScopeFlags) {
         let saved = (std::mem::take(&mut self.env), self.status, self.depth);
+        self.depth = 0;
         self.enter_function(&function.params);
         if let Some(body) = &function.body {
             self.process_statements(&body.statements);
@@ -208,6 +254,7 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
 
     fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'p>) {
         let saved = (std::mem::take(&mut self.env), self.status, self.depth);
+        self.depth = 0;
         self.enter_function(&arrow.params);
         if let ArrowFunctionBody::FunctionBody(body) = &arrow.body {
             self.process_statements(&body.statements);
@@ -270,9 +317,10 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
         let saved_status = self.status;
         self.depth += 1;
         self.visit_expression(&node.right);
+        let rhs = std::mem::take(&mut self.env);
         self.depth = saved_depth;
         self.status = saved_status;
-        self.env = pre;
+        self.env = intersect_envs(pre, &rhs);
     }
 
     fn visit_switch_statement(&mut self, node: &SwitchStatement<'p>) {
@@ -410,14 +458,25 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
             }
             return;
         }
-        self.visit_expression(&assign.right);
         if let Some((name, span)) = tb_assignment_target(&assign.left) {
             if assign.operator != AssignmentOperator::Assign {
+                // Compound assignments read the old left-hand value before
+                // evaluating the RHS.
                 self.read(name);
             }
+            self.visit_expression(&assign.right);
             self.write(name, span, Some(assign.right.span()), false);
+        } else if let Some(simple) = assign.left.as_simple_assignment_target() {
+            // Member objects and computed keys evaluate before the RHS.
+            self.visit_simple_assignment_target(simple);
+            self.visit_expression(&assign.right);
         } else {
+            // Destructuring evaluates the RHS first, then performs writes and
+            // evaluates any default initializers left-to-right.
+            self.visit_expression(&assign.right);
+            self.target_write_depth += 1;
             self.visit_assignment_target(&assign.left);
+            self.target_write_depth -= 1;
         }
     }
 
@@ -430,6 +489,39 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
             }
             other => self.visit_simple_assignment_target(other),
         }
+    }
+
+    fn visit_identifier_reference(&mut self, reference: &oxc_ast::ast::IdentifierReference<'p>) {
+        if self.target_write_depth > 0 {
+            self.write(reference.name.as_str(), reference.span, None, false);
+        } else {
+            self.read(reference.name.as_str());
+        }
+    }
+
+    fn visit_member_expression(&mut self, member: &MemberExpression<'p>) {
+        let saved = std::mem::replace(&mut self.target_write_depth, 0);
+        walk_member_expression(self, member);
+        self.target_write_depth = saved;
+    }
+
+    fn visit_assignment_target_with_default(&mut self, target: &AssignmentTargetWithDefault<'p>) {
+        let saved = std::mem::replace(&mut self.target_write_depth, 0);
+        self.visit_expression(&target.init);
+        self.target_write_depth = saved;
+        self.visit_assignment_target(&target.binding);
+    }
+
+    fn visit_assignment_target_property_identifier(
+        &mut self,
+        property: &AssignmentTargetPropertyIdentifier<'p>,
+    ) {
+        let saved = std::mem::replace(&mut self.target_write_depth, 0);
+        if let Some(init) = &property.init {
+            self.visit_expression(init);
+        }
+        self.target_write_depth = saved;
+        self.visit_identifier_reference(&property.binding);
     }
 
     fn visit_variable_declaration(&mut self, declaration: &VariableDeclaration<'p>) {
@@ -447,34 +539,9 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
         }
         match &declarator.id {
             BindingPattern::BindingIdentifier(identifier) => {
-                let name = identifier.name.as_str();
-                if self.decl_kind == VariableDeclarationKind::Var {
-                    // A `var` redeclaration writes the existing function-
-                    // scoped binding rather than shadowing it, so it
-                    // reports like any other assignment (`S1854`, `S1226`,
-                    // `S4165`).
-                    let value = declarator.init.as_ref().map(GetSpan::span);
-                    self.write(name, identifier.span, value, false);
-                } else if self.decl_kind == VariableDeclarationKind::Const {
-                    self.env.remove(name);
-                } else {
-                    // Block-scoped declarations shadow like-named outer
-                    // bindings: a fresh scope entry, not an overwrite.
-                    self.env.insert(
-                        name,
-                        TbPending {
-                            site: identifier.span,
-                            value: declarator.init.as_ref().map(GetSpan::span),
-                            initial: false,
-                        },
-                    );
-                }
+                self.track_identifier_declaration(identifier, declarator.init.as_ref());
             }
-            pattern => {
-                for name in bound_names(pattern) {
-                    self.env.remove(name);
-                }
-            }
+            pattern => self.forget_pattern_declaration(pattern),
         }
     }
 }

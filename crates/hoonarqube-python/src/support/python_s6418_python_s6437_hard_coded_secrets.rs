@@ -307,13 +307,21 @@ pub(crate) fn collect_target_names(target: &Expr, names: &mut Vec<String>) {
 /// Whether any `break` lexically bound to a loop over `suite` exists. Breaks
 /// inside nested loop bodies belong to the inner loop and do not count.
 pub(crate) fn suite_can_break(suite: &[Stmt]) -> bool {
-    suite.iter().any(|stmt| match stmt {
-        Stmt::Break(_) => true,
-        Stmt::For(inner) => suite_can_break(&inner.orelse),
-        Stmt::While(inner) => suite_can_break(&inner.orelse),
-        Stmt::FunctionDef(_) | Stmt::ClassDef(_) => false,
-        _ => child_bodies(stmt).iter().any(|body| suite_can_break(body)),
-    })
+    let mut pending: Vec<&Stmt> = suite.iter().rev().collect();
+    while let Some(stmt) = pending.pop() {
+        match stmt {
+            Stmt::Break(_) => return true,
+            Stmt::For(inner) => pending.extend(inner.orelse.iter().rev()),
+            Stmt::While(inner) => pending.extend(inner.orelse.iter().rev()),
+            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
+            _ => {
+                for body in child_bodies(stmt).into_iter().rev() {
+                    pending.extend(body.iter().rev());
+                }
+            }
+        }
+    }
+    false
 }
 
 pub(crate) fn visit_ifexp_branches(
@@ -323,24 +331,30 @@ pub(crate) fn visit_ifexp_branches(
     index: &LineIndex,
     source: &str,
 ) {
-    match expr {
-        Expr::If(nested) => {
-            if in_branch {
-                issues.push(issue_at(
-                    "python:S3358",
-                    "Extract this nested conditional expression into an independent statement.",
-                    nested.range(),
-                    index,
-                    source,
-                ));
+    let mut pending = vec![(expr, in_branch)];
+    while let Some((expr, in_branch)) = pending.pop() {
+        match expr {
+            Expr::If(nested) => {
+                if in_branch {
+                    issues.push(issue_at(
+                        "python:S3358",
+                        "Extract this nested conditional expression into an independent statement.",
+                        nested.range(),
+                        index,
+                        source,
+                    ));
+                }
+                pending.push((&nested.orelse, true));
+                pending.push((&nested.body, true));
+                pending.push((&nested.test, false));
             }
-            visit_ifexp_branches(&nested.test, false, issues, index, source);
-            visit_ifexp_branches(&nested.body, true, issues, index, source);
-            visit_ifexp_branches(&nested.orelse, true, issues, index, source);
-        }
-        _ => {
-            for child in child_exprs(expr) {
-                visit_ifexp_branches(child, in_branch, issues, index, source);
+            _ => {
+                pending.extend(
+                    child_exprs(expr)
+                        .into_iter()
+                        .rev()
+                        .map(|child| (child, in_branch)),
+                );
             }
         }
     }
@@ -408,13 +422,14 @@ pub(crate) fn constant_literal_text(expr: &Expr) -> Option<String> {
 /// Like [`for_each_stmt`] but does not descend into nested function or class
 /// scopes.
 pub(crate) fn for_each_stmt_in_scope(stmts: &[Stmt], visit: &mut impl FnMut(&Stmt)) {
-    for stmt in stmts {
+    let mut pending: Vec<&Stmt> = stmts.iter().rev().collect();
+    while let Some(stmt) = pending.pop() {
         visit(stmt);
         if matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
             continue;
         }
-        for body in child_bodies(stmt) {
-            for_each_stmt_in_scope(body, visit);
+        for body in child_bodies(stmt).into_iter().rev() {
+            pending.extend(body.iter().rev());
         }
     }
 }

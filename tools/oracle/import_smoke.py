@@ -14,7 +14,12 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from parity import parse_report_task, wait_for_compute_engine
+from parity import (
+    parse_json,
+    parse_report_task,
+    validate_search_page,
+    wait_for_compute_engine,
+)
 
 
 REPO = Path(__file__).resolve().parent.parent.parent
@@ -22,6 +27,8 @@ SOURCE = Path("tools/oracle/fixtures/import-smoke/src/sample.py")
 RULE = "external_hoonarqube:python:S112"
 MESSAGE = "Replace this generic exception class with a more specific one."
 HTTP_TIMEOUT_SECONDS = 30
+BUILD_TIMEOUT_SECONDS = 900
+SCAN_TIMEOUT_SECONDS = 900
 
 
 def request_json(url: str, token: str, path: str, params=None):
@@ -30,13 +37,15 @@ def request_json(url: str, token: str, path: str, params=None):
     encoded = base64.b64encode(f"{token}:".encode()).decode()
     request.add_header("Authorization", f"Basic {encoded}")
     with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
-        return json.load(response)
+        return parse_json(response.read().decode("utf-8"), context=f"Sonar API {path}")
 
 
 def verify_imported_issue(payload):
     issues = payload.get("issues") if isinstance(payload, dict) else None
     if not isinstance(issues, list):
         raise ValueError("issues response lacks issues list")
+    if any(not isinstance(issue, dict) for issue in issues):
+        raise ValueError("issues response contains a non-object issue")
     matches = [issue for issue in issues if issue.get("rule") == RULE]
     if len(matches) != 1:
         raise ValueError(f"expected exactly one {RULE} issue, got {len(matches)}")
@@ -52,6 +61,31 @@ def verify_imported_issue(payload):
     if issue.get("textRange") != expected_range:
         raise ValueError("imported issue range differs")
     return issue
+
+
+def fetch_all_issues(url, token, project):
+    issues, page = [], 1
+    expected_total = expected_page_size = None
+    while True:
+        payload = request_json(
+            url,
+            token,
+            "/api/issues/search",
+            {"componentKeys": project, "ps": 500, "p": page},
+        )
+        page_issues, total, page_size, done = validate_search_page(
+            payload,
+            "issues",
+            page,
+            expected_total=expected_total,
+            expected_page_size=expected_page_size,
+        )
+        if expected_total is None:
+            expected_total, expected_page_size = total, page_size
+        issues.extend(page_issues)
+        if done:
+            return {"issues": issues}
+        page += 1
 
 
 def main():
@@ -74,7 +108,10 @@ def main():
         parser.error("pass --token or set SONAR_IMPORT_TOKEN")
 
     subprocess.run(
-        ["cargo", "build", "-q", "-p", "hoonarqube-cli"], cwd=REPO, check=True
+        ["cargo", "build", "-q", "-p", "hoonarqube-cli"],
+        cwd=REPO,
+        check=True,
+        timeout=BUILD_TIMEOUT_SECONDS,
     )
     with tempfile.TemporaryDirectory(prefix="hoonarqube-import-smoke-") as temp:
         temp_path = Path(temp)
@@ -92,10 +129,13 @@ def main():
                 cwd=REPO,
                 stdout=output,
                 check=True,
+                timeout=BUILD_TIMEOUT_SECONDS,
             )
-        generated = json.loads(report.read_text())
-        if not isinstance(generated.get("rules"), list) or not isinstance(
-            generated.get("issues"), list
+        generated = parse_json(report.read_text(), context="generated import report")
+        if (
+            not isinstance(generated, dict)
+            or not isinstance(generated.get("rules"), list)
+            or not isinstance(generated.get("issues"), list)
         ):
             raise SystemExit(
                 "generated report does not use current rules/issues schema"
@@ -114,10 +154,12 @@ def main():
             ],
             cwd=REPO,
             check=True,
+            timeout=SCAN_TIMEOUT_SECONDS,
         )
-        task_id = parse_report_task((scanner_work / "report-task.txt").read_text())[
-            "ceTaskId"
-        ]
+        task_id = parse_report_task(
+            (scanner_work / "report-task.txt").read_text(),
+            expected_project=args.project,
+        )["ceTaskId"]
         status = wait_for_compute_engine(
             task_id,
             lambda value: (
@@ -130,12 +172,7 @@ def main():
         if status != "SUCCESS":
             raise SystemExit(f"SonarQube Compute Engine finished with {status}")
 
-        payload = request_json(
-            args.sonar_url,
-            args.token,
-            "/api/issues/search",
-            {"componentKeys": args.project, "ps": 100},
-        )
+        payload = fetch_all_issues(args.sonar_url, args.token, args.project)
         issue = verify_imported_issue(payload)
         print(
             json.dumps(

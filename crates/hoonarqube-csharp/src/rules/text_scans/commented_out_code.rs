@@ -27,7 +27,11 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             run_start = Some(comment);
             run_has_code = false;
         }
-        run_has_code |= looks_like_code(node_text(comment, source).trim_start_matches('/'));
+        run_has_code |= looks_like_code(
+            node_text(comment, source)
+                .trim_start_matches('/')
+                .trim_start(),
+        );
         expected_next_row = Some(comment.end_position().row + 1);
     }
     if run_has_code {
@@ -38,7 +42,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 
 /// Heuristic: does this stripped comment line look like commented-out code?
 fn looks_like_code(line: &str) -> bool {
-    let trimmed = line.trim_end();
+    let trimmed = line.trim();
     if trimmed.is_empty() {
         return false;
     }
@@ -70,4 +74,17 @@ fn push_commented_out_code(
         "Remove this commented out code.",
         range_of(start, source),
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s125_recognizes_simple_declarations_after_comment_spacing() {
+        let report = analyze_default("class C\n{\n    // int removed;\n}\n");
+        let flagged = with_key(&report, "csharpsquid:S125");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
 }

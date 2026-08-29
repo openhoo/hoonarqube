@@ -1,4 +1,4 @@
-use super::support::is_multidimensional_array;
+use super::support::{field_declarators, field_type, is_multidimensional_array};
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, issue, range_of};
 use hoonarqube_ir::Issue;
@@ -20,12 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let type_node = declaration
             .child_by_field_name("returns")
             .or_else(|| declaration.child_by_field_name("type"))
-            .or_else(|| {
-                collect_kinds(declaration, &["variable_declaration"])
-                    .into_iter()
-                    .next()
-                    .and_then(|variable| variable.child_by_field_name("type"))
-            });
+            .or_else(|| field_type(declaration));
         let Some(type_node) = type_node else {
             continue;
         };
@@ -33,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         }
         let anchors: Vec<Node<'_>> = if declaration.kind() == "field_declaration" {
-            collect_kinds(declaration, &["variable_declarator"])
+            field_declarators(declaration)
                 .into_iter()
                 .filter_map(|declarator| declarator.child_by_field_name("name"))
                 .collect()

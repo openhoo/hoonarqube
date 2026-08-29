@@ -23,12 +23,44 @@ impl TsTypeCollector<'_, '_> {
             && it.optional
             && union_contains_undefined(&annotation.type_annotation)
         {
+            let question = self
+                .source
+                .get(it.key.span().end as usize..annotation.span.start as usize)
+                .and_then(|gap| gap.find('?'))
+                .map_or(it.key.span().end, |offset| {
+                    it.key
+                        .span()
+                        .end
+                        .saturating_add(u32::try_from(offset).unwrap_or(u32::MAX))
+                });
             self.sink.emit_span(
                 RuleScope::TsOnly,
                 "S4782",
                 "Consider removing 'undefined' type or '?' specifier, one of them is redundant.",
-                oxc_span::Span::new(it.key.span().end, it.key.span().end.saturating_add(1)),
+                oxc_span::Span::new(question, question.saturating_add(1)),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn redundant_optional_marker_anchors_actual_question_token_after_unicode() {
+        let source = "interface X { café\u{00a0}?: string | undefined }\n";
+        let report = ts(source);
+        let finding = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key.ends_with(":S4782"))
+            .expect("redundant optional marker finding");
+        let question = source.find('?').expect("question mark");
+        assert_eq!(
+            finding.range.start.column,
+            u32::try_from(source[..question].chars().count()).expect("column")
+        );
+        assert_eq!(finding.range.end.column, finding.range.start.column + 1);
     }
 }

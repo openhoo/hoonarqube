@@ -1,6 +1,6 @@
 use crate::cst::{
-    ancestors_of, attributes_of, collect_kinds, is_error_tainted, modifiers_of, node_text,
-    parameters_of,
+    ancestors_of, attributes_of, canonical_identifier, collect_kinds, is_error_tainted,
+    modifiers_of, node_text, parameters_of,
 };
 use crate::rules::modifiers::has_modifier;
 use crate::rules::naming::{TYPE_DECLARATION_KINDS, type_members};
@@ -66,7 +66,7 @@ pub(crate) fn first_named_child(node: Node<'_>) -> Option<Node<'_>> {
 /// the member name of a member access (`x.Count` → `Count`).
 pub(crate) fn expression_name<'a>(expression: Node<'_>, source: &'a str) -> Option<&'a str> {
     match expression.kind() {
-        "identifier" => Some(node_text(expression, source)),
+        "identifier" => Some(canonical_identifier(node_text(expression, source))),
         "member_access_expression" => {
             let mut cursor = expression.walk();
             let named: Vec<Node> = expression
@@ -74,7 +74,7 @@ pub(crate) fn expression_name<'a>(expression: Node<'_>, source: &'a str) -> Opti
                 .filter(tree_sitter::Node::is_named)
                 .collect();
             let last = named.last()?;
-            (last.kind() == "identifier").then(|| node_text(*last, source))
+            (last.kind() == "identifier").then(|| canonical_identifier(node_text(*last, source)))
         }
         _ => None,
     }
@@ -82,7 +82,8 @@ pub(crate) fn expression_name<'a>(expression: Node<'_>, source: &'a str) -> Opti
 
 /// Whether the operand is the literal `0`.
 pub(crate) fn is_zero_literal(operand: Node<'_>, source: &str) -> bool {
-    operand.kind() == "integer_literal" && node_text(operand, source) == "0"
+    operand.kind() == "integer_literal"
+        && integer_literal_value(node_text(operand, source)) == Some(0)
 }
 
 /// Parses an integer literal's binary, decimal, or hexadecimal value.
@@ -125,23 +126,38 @@ pub(crate) fn field_and_property_names(
     for member in type_members(type_declaration) {
         match member.kind() {
             "field_declaration" | "event_field_declaration" => {
-                for declarator in collect_kinds(member, &["variable_declarator"]) {
+                for declarator in field_declarators(member) {
                     if let Some(identifier) = first_named_child(declarator)
                         && identifier.kind() == "identifier"
                     {
-                        names.insert(node_text(identifier, source).to_string());
+                        names.insert(
+                            canonical_identifier(node_text(identifier, source)).to_string(),
+                        );
                     }
                 }
             }
             "property_declaration" => {
                 if let Some(name) = member.child_by_field_name("name") {
-                    names.insert(node_text(name, source).to_string());
+                    names.insert(canonical_identifier(node_text(name, source)).to_string());
                 }
             }
             _ => {}
         }
     }
     names
+}
+
+/// Variable declarators belonging directly to a field or event-field
+/// declaration. Declarators inside lambda initializers are excluded.
+pub(crate) fn field_declarators(field: Node<'_>) -> Vec<Node<'_>> {
+    direct_named_children(field)
+        .find(|child| child.kind() == "variable_declaration")
+        .map(|declaration| {
+            direct_named_children(declaration)
+                .filter(|child| child.kind() == "variable_declarator")
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Boolean-literal value on either side of a comparison, if present.
@@ -187,6 +203,168 @@ pub(crate) fn is_test_attributed(declaration: Node<'_>, source: &str) -> bool {
 /// The nearest enclosing type declaration, if any.
 pub(crate) fn enclosing_type(node: Node<'_>) -> Option<Node<'_>> {
     ancestors_of(node).find(|ancestor| TYPE_DECLARATION_KINDS.contains(&ancestor.kind()))
+}
+
+/// The nearest callable declaration owning `node`. Lambdas and anonymous
+/// methods count as separate callables so their declarations do not leak into
+/// an enclosing method's analysis.
+pub(crate) fn enclosing_callable(node: Node<'_>) -> Option<Node<'_>> {
+    ancestors_of(node).find(|ancestor| is_callable_kind(ancestor.kind()))
+}
+
+/// Type spelling of the visible declaration bound to a bare identifier.
+/// Local declarations and parameters win over fields and properties.
+pub(crate) fn resolved_identifier_type<'a>(
+    identifier: Node<'_>,
+    source: &'a str,
+) -> Option<&'a str> {
+    local_identifier_type(identifier, source)
+        .or_else(|| enclosing_type(identifier).and_then(|ty| member_type(ty, identifier, source)))
+}
+
+/// Type spelling of a visible local or parameter bound to a bare identifier.
+pub(crate) fn local_identifier_type<'a>(identifier: Node<'_>, source: &'a str) -> Option<&'a str> {
+    let wanted = (identifier.kind() == "identifier")
+        .then(|| canonical_identifier(node_text(identifier, source)))?;
+    let mut owner = identifier.parent();
+    while let Some(node) = owner {
+        if (is_callable_kind(node.kind()) || node.kind() == "compilation_unit")
+            && let Some(declaration_type) = local_type_in_owner(node, identifier, wanted, source)
+        {
+            return Some(declaration_type);
+        }
+        owner = node.parent();
+    }
+    None
+}
+
+const CALLABLE_KINDS: [&str; 9] = [
+    "method_declaration",
+    "constructor_declaration",
+    "destructor_declaration",
+    "operator_declaration",
+    "conversion_operator_declaration",
+    "accessor_declaration",
+    "local_function_statement",
+    "lambda_expression",
+    "anonymous_method_expression",
+];
+
+fn is_callable_kind(kind: &str) -> bool {
+    CALLABLE_KINDS.contains(&kind)
+}
+
+fn local_type_in_owner<'a>(
+    owner: Node<'_>,
+    identifier: Node<'_>,
+    wanted: &str,
+    source: &'a str,
+) -> Option<&'a str> {
+    collect_kinds(owner, &["parameter", "variable_declaration"])
+        .into_iter()
+        .filter(|declaration| is_local_declaration(*declaration))
+        .filter(|declaration| declaration.start_byte() <= identifier.start_byte())
+        .filter(|declaration| declaration_owned_by(*declaration, owner))
+        .filter(|declaration| declaration_visible_at(*declaration, identifier))
+        .filter_map(|declaration| {
+            declaration_name_matches(declaration, wanted, source)
+                .then(|| declaration.child_by_field_name("type"))
+                .flatten()
+        })
+        .max_by_key(Node::start_byte)
+        .map(|type_node| node_text(type_node, source))
+}
+
+fn is_local_declaration(declaration: Node<'_>) -> bool {
+    declaration.kind() == "parameter"
+        || !ancestors_of(declaration).any(|ancestor| {
+            matches!(
+                ancestor.kind(),
+                "field_declaration" | "event_field_declaration"
+            )
+        })
+}
+
+fn declaration_owned_by(declaration: Node<'_>, owner: Node<'_>) -> bool {
+    let actual_owner = ancestors_of(declaration).find(|ancestor| {
+        is_callable_kind(ancestor.kind()) || ancestor.kind() == "compilation_unit"
+    });
+    actual_owner.is_some_and(|actual| actual.id() == owner.id())
+}
+
+fn declaration_visible_at(declaration: Node<'_>, identifier: Node<'_>) -> bool {
+    if declaration.kind() == "parameter" {
+        return true;
+    }
+    ancestors_of(declaration)
+        .find(|ancestor| {
+            matches!(
+                ancestor.kind(),
+                "block"
+                    | "switch_section"
+                    | "for_statement"
+                    | "foreach_statement"
+                    | "using_statement"
+                    | "fixed_statement"
+            )
+        })
+        .is_none_or(|scope| {
+            scope.start_byte() <= identifier.start_byte()
+                && scope.end_byte() >= identifier.end_byte()
+        })
+}
+
+fn declaration_name_matches(declaration: Node<'_>, wanted: &str, source: &str) -> bool {
+    if declaration.kind() == "parameter" {
+        return declaration
+            .child_by_field_name("name")
+            .is_some_and(|name| canonical_identifier(node_text(name, source)) == wanted);
+    }
+    direct_named_children(declaration)
+        .filter(|child| child.kind() == "variable_declarator")
+        .any(|declarator| {
+            declarator
+                .child_by_field_name("name")
+                .or_else(|| first_named_child(declarator))
+                .is_some_and(|name| canonical_identifier(node_text(name, source)) == wanted)
+        })
+}
+
+fn member_type<'a>(type_node: Node<'_>, identifier: Node<'_>, source: &'a str) -> Option<&'a str> {
+    let wanted = canonical_identifier(node_text(identifier, source));
+    for member in type_members(type_node) {
+        if member.kind() == "property_declaration"
+            && member
+                .child_by_field_name("name")
+                .is_some_and(|name| canonical_identifier(node_text(name, source)) == wanted)
+        {
+            return member
+                .child_by_field_name("type")
+                .map(|ty| node_text(ty, source));
+        }
+        if member.kind() != "field_declaration" {
+            continue;
+        }
+        let Some(declaration) =
+            direct_named_children(member).find(|child| child.kind() == "variable_declaration")
+        else {
+            continue;
+        };
+        if declaration_name_matches(declaration, wanted, source) {
+            return declaration
+                .child_by_field_name("type")
+                .map(|ty| node_text(ty, source));
+        }
+    }
+    None
+}
+
+fn direct_named_children(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .filter(tree_sitter::Node::is_named)
+        .collect::<Vec<_>>()
+        .into_iter()
 }
 
 /// The function expression of an invocation (`f` of `f(args)`).
@@ -328,7 +506,7 @@ pub(crate) fn overridden_names(
         .into_iter()
         .filter(|method| has_modifier(&modifiers_of(*method, source), "override"))
         .filter_map(|method| method.child_by_field_name("name"))
-        .map(|name| node_text(name, source).to_string())
+        .map(|name| canonical_identifier(node_text(name, source)).to_string())
         .collect()
 }
 
@@ -348,7 +526,7 @@ pub(crate) fn declared_method_names(
     member_declarations_of_kind(type_node, "method_declaration")
         .into_iter()
         .filter_map(|method| method.child_by_field_name("name"))
-        .map(|name| node_text(name, source).to_string())
+        .map(|name| canonical_identifier(node_text(name, source)).to_string())
         .collect()
 }
 
@@ -372,7 +550,10 @@ pub(crate) fn member_named<'t>(
         .find(|member| {
             member
                 .child_by_field_name("name")
-                .is_some_and(|member_name| node_text(member_name, source) == name)
+                .is_some_and(|member_name| {
+                    canonical_identifier(node_text(member_name, source))
+                        == canonical_identifier(name)
+                })
         })
 }
 
@@ -393,7 +574,7 @@ pub(crate) fn mutable_field_names<'t>(type_node: Node<'t>, source: &'t str) -> V
             let modifiers = modifiers_of(*field, source);
             !has_modifier(&modifiers, "readonly") && !has_modifier(&modifiers, "const")
         })
-        .flat_map(|field| collect_kinds(field, &["variable_declarator"]))
+        .flat_map(field_declarators)
         .filter_map(|declarator| first_named_child(declarator))
         .filter_map(|identifier| expression_name(identifier, source))
         .collect()
@@ -403,7 +584,9 @@ pub(crate) fn mutable_field_names<'t>(type_node: Node<'t>, source: &'t str) -> V
 pub(crate) fn references_identifier(scope: Node<'_>, name: &str, source: &str) -> bool {
     collect_kinds(scope, &["identifier"])
         .iter()
-        .any(|identifier| node_text(*identifier, source) == name)
+        .any(|identifier| {
+            canonical_identifier(node_text(*identifier, source)) == canonical_identifier(name)
+        })
 }
 
 /// The member name invoked through `base.Member(...)` (`base.Equals(x)` →
@@ -432,11 +615,13 @@ pub(crate) fn lambda_shape<'s>(lambda: Node<'s>, source: &'s str) -> Option<(&'s
     let head = *named.first()?;
     let parameter = match head.kind() {
         // The whole name rides on the `implicit_parameter` node itself.
-        "implicit_parameter" => node_text(head, source),
+        "implicit_parameter" => canonical_identifier(node_text(head, source)),
         "parameter_list" => {
             let parameter = first_named_child(head)?;
             let identifiers = collect_kinds(parameter, &["identifier"]);
-            identifiers.last().map(|id| node_text(*id, source))?
+            identifiers
+                .last()
+                .map(|id| canonical_identifier(node_text(*id, source)))?
         }
         _ => return None,
     };

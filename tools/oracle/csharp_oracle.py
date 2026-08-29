@@ -167,6 +167,11 @@ def validate_options(
     analyzers: Iterable[Path], enabled_rules: Iterable[str], error_log: str | None
 ) -> tuple[tuple[Path, ...], tuple[str, ...]]:
     analyzer_paths = tuple(Path(path).resolve() for path in analyzers)
+    if len(analyzer_paths) != len(set(analyzer_paths)):
+        raise ValueError("duplicate C# analyzer path")
+    analyzer_names = [path.name for path in analyzer_paths]
+    if len(analyzer_names) != len(set(analyzer_names)):
+        raise ValueError("C# analyzer file names must be unique")
     missing_analyzers = [path for path in analyzer_paths if not path.is_file()]
     if missing_analyzers:
         raise ValueError(f"C# analyzer does not exist: {missing_analyzers[0]}")

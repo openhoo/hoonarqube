@@ -78,6 +78,7 @@ pub(crate) struct FnFacts {
     pub(crate) r#async: bool,
     pub(crate) generator: bool,
     pub(crate) return_kinds: Vec<LiteralKind>,
+    pub(crate) has_valued_return: bool,
     /// Span of a parameter that only selects the function's behavior.
     pub(crate) selector_span: Option<Span>,
     pub(crate) span: Span,
@@ -86,7 +87,7 @@ pub(crate) struct FnFacts {
 impl FnFacts {
     /// Whether calls of this function provably produce no usable value.
     pub(crate) fn is_void(&self) -> bool {
-        !self.r#async && !self.generator && self.return_kinds.is_empty()
+        !self.r#async && !self.generator && !self.has_valued_return
     }
 }
 
@@ -108,16 +109,18 @@ const SELECTOR_PARAM_NAMES: [&str; 5] = ["type", "kind", "action", "mode", "comm
 pub(crate) struct BodyScan {
     pub(crate) params: Vec<(String, Span)>,
     pub(crate) return_kinds: Vec<LiteralKind>,
+    pub(crate) has_valued_return: bool,
     pub(crate) selector_comparisons: u32,
     pub(crate) switches_on_param: bool,
 }
 
 impl<'a> Visit<'a> for BodyScan {
     fn visit_return_statement(&mut self, it: &ReturnStatement<'a>) {
-        if let Some(argument) = &it.argument
-            && let Some(kind) = literal_kind(argument)
-        {
-            self.return_kinds.push(kind);
+        if let Some(argument) = &it.argument {
+            self.has_valued_return = true;
+            if let Some(kind) = literal_kind(argument) {
+                self.return_kinds.push(kind);
+            }
         }
         walk_return_statement(self, it);
     }
@@ -216,6 +219,7 @@ impl<'a> Visit<'a> for FunctionCensus {
                 generator: function.generator,
                 selector_span: scan.selector_span(),
                 return_kinds: scan.return_kinds,
+                has_valued_return: scan.has_valued_return,
                 span: id.span(),
             };
             self.functions.insert(id.name.to_string(), facts);
@@ -233,8 +237,11 @@ impl<'a> Visit<'a> for FunctionCensus {
                         scan_body(&body.statements, parameter_spans(&arrow.params))
                     } else {
                         let mut scan = BodyScan::default();
-                        if let Some(kind) = arrow.body.as_expression().and_then(literal_kind) {
-                            scan.return_kinds.push(kind);
+                        if let Some(expression) = arrow.body.as_expression() {
+                            scan.has_valued_return = true;
+                            if let Some(kind) = literal_kind(expression) {
+                                scan.return_kinds.push(kind);
+                            }
                         }
                         scan
                     };
@@ -244,6 +251,7 @@ impl<'a> Visit<'a> for FunctionCensus {
                         generator: false,
                         selector_span: scan.selector_span(),
                         return_kinds: scan.return_kinds,
+                        has_valued_return: scan.has_valued_return,
                         span: arrow.span,
                     };
                     self.functions.insert(name.to_string(), facts);
@@ -259,6 +267,7 @@ impl<'a> Visit<'a> for FunctionCensus {
                         generator: function.generator,
                         selector_span: scan.selector_span(),
                         return_kinds: scan.return_kinds,
+                        has_valued_return: scan.has_valued_return,
                         span: function.span,
                     };
                     self.functions.insert(name.to_string(), facts);

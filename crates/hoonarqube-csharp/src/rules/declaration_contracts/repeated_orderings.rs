@@ -9,8 +9,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     collect_kinds(root, &["invocation_expression"])
         .into_iter()
         .filter(|invocation| !is_error_tainted(*invocation))
-        .filter(|invocation| callee_name(*invocation, source) == Some("OrderBy"))
-        .filter(|invocation| receiver_chain_matches(*invocation, source, |name| name == "OrderBy"))
+        .filter(|invocation| {
+            matches!(
+                callee_name(*invocation, source),
+                Some("OrderBy" | "OrderByDescending")
+            )
+        })
+        .filter(|invocation| {
+            receiver_chain_matches(*invocation, source, |name| {
+                matches!(name, "OrderBy" | "OrderByDescending")
+            })
+        })
         .map(|invocation| {
             issue(
                 language,
@@ -43,7 +52,7 @@ mod tests {
         let report = analyze_default(
             "class C\n{\n    void Sort(System.Collections.Generic.List<int> items)\n    {\n        items.OrderBy(a => a).OrderByDescending(b => b);\n    }\n}\n",
         );
-        assert!(with_key(&report, "csharpsquid:S3169").is_empty());
+        assert_eq!(with_key(&report, "csharpsquid:S3169").len(), 1);
     }
 
     #[test]

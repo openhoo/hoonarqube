@@ -1,3 +1,4 @@
+use super::support::resolved_identifier_type;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::expressions::{callee_name, invocation_arguments, invocation_receiver};
@@ -18,9 +19,10 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 return false;
             };
             is_empty_string(receiver, source)
-                || arguments
-                    .first()
-                    .is_some_and(|argument| is_empty_string(*argument, source))
+                || (receiver_is_string(receiver, source)
+                    && arguments
+                        .first()
+                        .is_some_and(|argument| is_empty_string(*argument, source)))
         })
         .map(|invocation| {
             issue(
@@ -31,6 +33,11 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             )
         })
         .collect()
+}
+
+fn receiver_is_string(receiver: Node<'_>, source: &str) -> bool {
+    receiver.kind() == "string_literal"
+        || resolved_identifier_type(receiver, source) == Some("string")
 }
 
 fn is_empty_string(expression: Node<'_>, source: &str) -> bool {
@@ -87,5 +94,11 @@ mod tests {
             "class A\n{\n    void M(string name)\n    {\n        var empty = name.Equals(string.Empty);\n    }\n}\n",
         );
         assert_eq!(with_key(&report, "csharpsquid:S3256").len(), 1);
+    }
+
+    #[test]
+    fn s3256_does_not_assume_object_receivers_are_strings() {
+        let report = analyze_default("class C { bool M(object value) => value.Equals(\"\"); }");
+        assert!(with_key(&report, "csharpsquid:S3256").is_empty());
     }
 }

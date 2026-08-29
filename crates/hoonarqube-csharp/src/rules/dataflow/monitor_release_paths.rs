@@ -1,6 +1,7 @@
 use super::support::callable_blocks;
+use super::support::collect_owned_kinds;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, node_text, range_of, simple_name};
+use crate::cst::{issue, node_text, range_of, simple_name};
 use crate::rules::expressions::{callee_name, invocation_arguments, invocation_receiver};
 use crate::rules::literals::argument_expression;
 use crate::rules::modifiers::has_ancestor_with_kind;
@@ -50,7 +51,7 @@ pub(crate) fn monitor_operations<'a, 't>(
     body: Node<'t>,
     source: &'a str,
 ) -> Vec<(&'a str, &'a str, Node<'t>)> {
-    collect_kinds(body, &["invocation_expression"])
+    collect_owned_kinds(body, &["invocation_expression"])
         .into_iter()
         .filter_map(|call| {
             let method = callee_name(call, source)?;
@@ -127,5 +128,15 @@ mod tests {
         let report =
             analyze_default("class C {\n    void M() {\n        Monitor.Exit(gate);\n    }\n}\n");
         assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2222_nested_local_finally_cannot_release_outer_monitor() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        Monitor.Enter(gate);\n        void Local() {\n            try { Work(); } finally { Monitor.Exit(gate); }\n        }\n        Local();\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
     }
 }

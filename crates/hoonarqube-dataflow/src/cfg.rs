@@ -82,6 +82,12 @@ impl<T> Cfg<T> {
         self.payloads.len()
     }
 
+    /// Returns whether `block` is a valid id for this graph.
+    #[must_use]
+    pub fn contains_block(&self, block: BlockId) -> bool {
+        block.index() < self.payloads.len()
+    }
+
     /// Returns the number of directed edges.
     #[must_use]
     pub fn edge_count(&self) -> usize {
@@ -145,6 +151,8 @@ impl<T> Cfg<T> {
     ///
     /// Panics if either endpoint is not a valid id for this graph.
     pub fn add_edge(&mut self, from: BlockId, to: BlockId) -> bool {
+        self.assert_valid_block(from);
+        self.assert_valid_block(to);
         let succs = &mut self.succs[from.index()];
         if succs.contains(&to) {
             return false;
@@ -160,6 +168,8 @@ impl<T> Cfg<T> {
     ///
     /// Panics if either endpoint is not a valid id for this graph.
     pub fn remove_edge(&mut self, from: BlockId, to: BlockId) -> bool {
+        self.assert_valid_block(from);
+        self.assert_valid_block(to);
         let succs = &mut self.succs[from.index()];
         let Some(pos) = succs.iter().position(|&succ| succ == to) else {
             return false;
@@ -189,28 +199,39 @@ impl<T> Cfg<T> {
     ///
     /// # Panics
     ///
-    /// Panics if the block count exceeds [`u32::MAX`] (unreachable in
-    /// practice; enforced at every append).
+    /// Panics if appending another block would make the block count exceed
+    /// [`u32::MAX`] (unreachable in practice; enforced at every append).
     #[must_use]
     pub fn next_block_id(&self) -> BlockId {
         let len = u32::try_from(self.payloads.len()).expect("block count exceeds u32::MAX");
+        assert!(len < u32::MAX, "block count reached u32::MAX");
         BlockId::new(len)
+    }
+
+    pub(crate) fn assert_valid_block(&self, block: BlockId) {
+        assert!(
+            self.contains_block(block),
+            "block {} is not valid for a graph with {} blocks",
+            block.index(),
+            self.node_count()
+        );
     }
 
     /// Collects every block reachable from the entry along forward edges.
     #[must_use]
     pub fn reachable_from_entry(&self) -> BTreeSet<BlockId> {
-        let mut seen = BTreeSet::new();
-        seen.insert(self.entry);
+        let mut seen = vec![false; self.payloads.len()];
+        seen[self.entry.index()] = true;
         let mut stack = vec![self.entry];
         while let Some(block) = stack.pop() {
             for &next in &self.succs[block.index()] {
-                if seen.insert(next) {
+                if !seen[next.index()] {
+                    seen[next.index()] = true;
                     stack.push(next);
                 }
             }
         }
-        seen
+        self.blocks().filter(|block| seen[block.index()]).collect()
     }
 
     /// Drops every block unreachable from the entry and renumbers the rest
@@ -307,6 +328,7 @@ impl<T> Cfg<T> {
         let idoms = self.compute_idoms(&reverse_post_order, &rpo_pos);
         let children = self.dominator_children(&idoms);
         let entry = self.entry;
+        let (preorder, postorder) = Self::dominator_intervals(entry, &children);
         // Strip only the entry self-reference: genuine idominators pointing at
         // the entry must stay visible to callers.
         let public_idoms = idoms
@@ -320,6 +342,8 @@ impl<T> Cfg<T> {
             idoms: public_idoms,
             reachable,
             children,
+            preorder,
+            postorder,
         }
     }
 
@@ -376,6 +400,28 @@ impl<T> Cfg<T> {
             }
         }
         children
+    }
+
+    fn dominator_intervals(entry: BlockId, children: &[Vec<BlockId>]) -> (Vec<usize>, Vec<usize>) {
+        let mut preorder = vec![usize::MAX; children.len()];
+        let mut postorder = vec![usize::MAX; children.len()];
+        let mut clock = 0usize;
+        preorder[entry.index()] = clock;
+        clock += 1;
+        let mut stack = vec![(entry, 0usize)];
+        while let Some(frame) = stack.last_mut() {
+            if let Some(&child) = children[frame.0.index()].get(frame.1) {
+                frame.1 += 1;
+                preorder[child.index()] = clock;
+                clock += 1;
+                stack.push((child, 0));
+            } else {
+                let (block, _) = stack.pop().expect("stack contains current frame");
+                postorder[block.index()] = clock;
+                clock += 1;
+            }
+        }
+        (preorder, postorder)
     }
 
     fn intersect(
@@ -489,6 +535,8 @@ pub struct Dominators {
     idoms: Vec<Option<BlockId>>,
     reachable: Vec<bool>,
     children: Vec<Vec<BlockId>>,
+    preorder: Vec<usize>,
+    postorder: Vec<usize>,
 }
 
 impl Dominators {
@@ -540,23 +588,29 @@ impl Dominators {
     /// Panics if either argument is not a valid id of the originating graph.
     #[must_use]
     pub fn strictly_dominates(&self, a: BlockId, b: BlockId) -> bool {
-        if a == b || !self.reachable[b.index()] {
-            return false;
-        }
-        let mut cursor = b;
-        while let Some(next) = self.idoms[cursor.index()] {
-            if next == a {
-                return true;
-            }
-            cursor = next;
-        }
-        false
+        self.assert_valid_block(a);
+        self.assert_valid_block(b);
+        a != b
+            && self.reachable[a.index()]
+            && self.reachable[b.index()]
+            && self.preorder[a.index()] < self.preorder[b.index()]
+            && self.postorder[b.index()] < self.postorder[a.index()]
+    }
+
+    fn assert_valid_block(&self, block: BlockId) {
+        assert!(
+            block.index() < self.idoms.len(),
+            "block {} is not valid for a dominator tree with {} blocks",
+            block.index(),
+            self.idoms.len()
+        );
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
 
     use crate::test_support::{Def, Nop, St, Use, block_by_payload, stmts};
 
@@ -590,6 +644,8 @@ mod tests {
     fn cfg_edges_stay_mirrored_and_deduplicated() {
         let mut cfg: Cfg<St> = Cfg::new(Nop, Nop);
         let node = cfg.append_node(Nop);
+        assert!(cfg.contains_block(node));
+        assert!(!cfg.contains_block(BlockId::new(99)));
         assert_eq!(
             cfg.next_block_id(),
             BlockId::new(u32::try_from(node.index() + 1).expect("id fits u32")),
@@ -601,6 +657,24 @@ mod tests {
         assert!(cfg.remove_edge(cfg.entry(), node));
         assert!(!cfg.remove_edge(cfg.entry(), node));
         assert!(cfg.predecessors(node).is_empty());
+    }
+
+    #[test]
+    fn invalid_edge_endpoints_do_not_partially_mutate_graph() {
+        let mut cfg: Cfg<St> = Cfg::new(Nop, Nop);
+        let before_edges = cfg.edge_count();
+        let before_successors = cfg.successors(cfg.entry()).to_vec();
+        let invalid = BlockId::new(99);
+
+        let add = catch_unwind(AssertUnwindSafe(|| cfg.add_edge(cfg.entry(), invalid)));
+        assert!(add.is_err());
+        assert_eq!(cfg.edge_count(), before_edges);
+        assert_eq!(cfg.successors(cfg.entry()), before_successors);
+
+        let remove = catch_unwind(AssertUnwindSafe(|| cfg.remove_edge(cfg.entry(), invalid)));
+        assert!(remove.is_err());
+        assert_eq!(cfg.edge_count(), before_edges);
+        assert_eq!(cfg.successors(cfg.entry()), before_successors);
     }
 
     #[test]
@@ -753,5 +827,175 @@ mod tests {
             Nop,
         );
         assert_eq!(cfg.reachable_from_entry().len(), cfg.node_count());
+    }
+
+    #[test]
+    fn graph_algorithms_match_independent_references() {
+        for mask in 0..(1_u64 << 9) {
+            check_graph_algorithms(&graph_from_mask(3, mask));
+        }
+
+        let mut state = 0x6a09_e667_f3bc_c909_u64;
+        for nodes in 4..=8 {
+            for _ in 0..128 {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                check_graph_algorithms(&graph_from_mask(nodes, state));
+            }
+        }
+    }
+
+    #[test]
+    fn graph_algorithms_are_stack_safe_on_deep_cycles() {
+        const NODES: usize = 25_000;
+        let mut cfg = Cfg::disconnected(0_u32, 1);
+        for payload in 2..u32::try_from(NODES).expect("test size fits u32") {
+            cfg.append_node(payload);
+        }
+        let first_body = BlockId::new(2);
+        cfg.add_edge(cfg.entry(), first_body);
+        for index in 2..NODES - 1 {
+            cfg.add_edge(
+                BlockId::new(u32::try_from(index).expect("index fits u32")),
+                BlockId::new(u32::try_from(index + 1).expect("index fits u32")),
+            );
+        }
+        let tail = BlockId::new(u32::try_from(NODES - 1).expect("index fits u32"));
+        cfg.add_edge(tail, first_body);
+        cfg.add_edge(tail, cfg.exit());
+
+        assert_eq!(cfg.reachable_from_entry().len(), NODES);
+        assert_eq!(cfg.blocks_on_cycles().len(), NODES - 2);
+        let dominators = cfg.dominators();
+        assert!(dominators.strictly_dominates(cfg.entry(), cfg.exit()));
+        assert_eq!(
+            dominators.immediate_dominator(first_body),
+            Some(cfg.entry())
+        );
+    }
+
+    fn graph_from_mask(nodes: usize, mask: u64) -> Cfg<u8> {
+        let mut cfg = Cfg::disconnected(0, 1);
+        for payload in 2..u8::try_from(nodes).expect("test size fits u8") {
+            cfg.append_node(payload);
+        }
+        for from in 0..nodes {
+            for to in 0..nodes {
+                let bit = from * nodes + to;
+                if mask & (1_u64 << bit) != 0 {
+                    cfg.add_edge(
+                        BlockId::new(u32::try_from(from).expect("index fits u32")),
+                        BlockId::new(u32::try_from(to).expect("index fits u32")),
+                    );
+                }
+            }
+        }
+        cfg
+    }
+
+    fn check_graph_algorithms(cfg: &Cfg<u8>) {
+        let reachable = cfg.reachable_from_entry();
+        let expected_reachable = cfg
+            .blocks()
+            .filter(|&block| path_exists(cfg, cfg.entry(), block, None))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(reachable, expected_reachable);
+        check_reachable_pruning(cfg, &reachable);
+
+        let expected_cycles = cfg
+            .blocks()
+            .filter(|&block| {
+                cfg.successors(block)
+                    .iter()
+                    .any(|&successor| path_exists(cfg, successor, block, None))
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(cfg.blocks_on_cycles(), expected_cycles);
+        assert_eq!(cfg.contains_cycle(), !expected_cycles.is_empty());
+
+        let dominators = cfg.dominators();
+        for dominated in cfg.blocks() {
+            let strict = cfg
+                .blocks()
+                .filter(|&candidate| {
+                    candidate != dominated && reference_dominates(cfg, candidate, dominated)
+                })
+                .collect::<Vec<_>>();
+            let expected_idom = strict.iter().copied().find(|&candidate| {
+                strict
+                    .iter()
+                    .all(|&other| other == candidate || reference_dominates(cfg, other, candidate))
+            });
+            assert_eq!(dominators.immediate_dominator(dominated), expected_idom);
+            for candidate in cfg.blocks() {
+                assert_eq!(
+                    dominators.dominates(candidate, dominated),
+                    reference_dominates(cfg, candidate, dominated)
+                );
+            }
+        }
+    }
+
+    fn check_reachable_pruning(cfg: &Cfg<u8>, reachable: &BTreeSet<BlockId>) {
+        let mut keep = reachable.clone();
+        keep.insert(cfg.exit());
+        let kept = keep.iter().copied().collect::<Vec<_>>();
+        let mut remap = vec![None; cfg.node_count()];
+        for (new_index, old) in kept.iter().enumerate() {
+            remap[old.index()] = Some(BlockId::new(
+                u32::try_from(new_index).expect("index fits u32"),
+            ));
+        }
+
+        let pruned = cfg.clone().into_reachable_subgraph();
+        assert_eq!(pruned.node_count(), kept.len());
+        assert_eq!(
+            pruned.entry(),
+            remap[cfg.entry().index()].expect("entry kept")
+        );
+        assert_eq!(pruned.exit(), remap[cfg.exit().index()].expect("exit kept"));
+        for &old in &kept {
+            let new = remap[old.index()].expect("kept block remapped");
+            assert_eq!(pruned.payload(new), cfg.payload(old));
+            let expected_successors = cfg
+                .successors(old)
+                .iter()
+                .filter_map(|successor| remap[successor.index()])
+                .collect::<Vec<_>>();
+            let expected_predecessors = cfg
+                .predecessors(old)
+                .iter()
+                .filter_map(|predecessor| remap[predecessor.index()])
+                .collect::<Vec<_>>();
+            assert_eq!(pruned.successors(new), expected_successors);
+            assert_eq!(pruned.predecessors(new), expected_predecessors);
+        }
+    }
+
+    fn reference_dominates(cfg: &Cfg<u8>, candidate: BlockId, block: BlockId) -> bool {
+        path_exists(cfg, cfg.entry(), block, None)
+            && (candidate == block || !path_exists(cfg, cfg.entry(), block, Some(candidate)))
+    }
+
+    fn path_exists(cfg: &Cfg<u8>, start: BlockId, target: BlockId, skip: Option<BlockId>) -> bool {
+        if Some(start) == skip {
+            return false;
+        }
+        let mut seen = vec![false; cfg.node_count()];
+        seen[start.index()] = true;
+        let mut stack = vec![start];
+        while let Some(block) = stack.pop() {
+            if block == target {
+                return true;
+            }
+            for &next in cfg.successors(block) {
+                if Some(next) != skip && !seen[next.index()] {
+                    seen[next.index()] = true;
+                    stack.push(next);
+                }
+            }
+        }
+        false
     }
 }

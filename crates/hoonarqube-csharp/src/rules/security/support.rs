@@ -32,6 +32,28 @@ pub(crate) fn call_argument_nodes(call: Node<'_>) -> Vec<Node<'_>> {
         .unwrap_or_default()
 }
 
+/// Expression carried by an argument wrapper. Named arguments expose their
+/// name as the first named child, so the value is deliberately taken last.
+pub(crate) fn argument_value(argument: Node<'_>) -> Node<'_> {
+    let mut cursor = argument.walk();
+    argument
+        .named_children(&mut cursor)
+        .last()
+        .unwrap_or(argument)
+}
+
+/// Value of a named call or attribute argument.
+pub(crate) fn named_argument_value<'t>(
+    argument: Node<'t>,
+    source: &str,
+    wanted: &str,
+) -> Option<Node<'t>> {
+    argument
+        .child_by_field_name("name")
+        .is_some_and(|name| node_text(name, source) == wanted)
+        .then(|| argument_value(argument))
+}
+
 /// Identifier nodes spelling one of `names`, ignoring using directives where
 /// the name merely imports a namespace.
 pub(crate) fn identifier_usages<'t>(root: Node<'t>, source: &str, names: &[&str]) -> Vec<Node<'t>> {

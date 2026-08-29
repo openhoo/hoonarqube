@@ -16,7 +16,6 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     issues
 }
 
-const LIST_MARKER: &str = "List<";
 const MESSAGE: &str = "use a generic collection designed for inheritance";
 
 fn check_public_methods(
@@ -32,14 +31,14 @@ fn check_public_methods(
         if let Some(return_type) = method
             .child_by_field_name("returns")
             .or_else(|| method.child_by_field_name("type"))
-            .filter(|type_node| node_text(*type_node, source).contains(LIST_MARKER))
+            .filter(|type_node| contains_list_type(*type_node, source))
         {
             push_issue(return_type, "method", source, language, issues);
         }
         for parameter_type in parameters_of(method)
             .iter()
             .filter_map(|parameter| parameter.child_by_field_name("type"))
-            .filter(|type_node| node_text(*type_node, source).contains(LIST_MARKER))
+            .filter(|type_node| contains_list_type(*type_node, source))
         {
             push_issue(parameter_type, "method", source, language, issues);
         }
@@ -75,7 +74,16 @@ fn exposed_list_type<'tree>(member: Node<'tree>, source: &str) -> Option<Node<'t
             .into_iter()
             .find_map(first_named_child),
     }
-    .filter(|type_node| node_text(*type_node, source).contains(LIST_MARKER))
+    .filter(|type_node| contains_list_type(*type_node, source))
+}
+
+fn contains_list_type(type_node: Node<'_>, source: &str) -> bool {
+    collect_kinds(type_node, &["generic_name"])
+        .into_iter()
+        .any(|generic| {
+            first_named_child(generic)
+                .is_some_and(|identifier| node_text(identifier, source) == "List")
+        })
 }
 
 fn push_issue(
@@ -113,5 +121,15 @@ mod tests {
             "class A\n{\n    int Total(List<int> xs)\n    {\n        List<int> copy = xs;\n        return copy.Count;\n    }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S3956").is_empty());
+    }
+
+    #[test]
+    fn s3956_matches_list_identifiers_not_substrings() {
+        let report = analyze_default(
+            "class A\n{\n    public MyList<int> Custom() => null;\n    public IList<int> Interface() => null;\n    public System.Collections.Generic.List < int > Concrete() => null;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3956");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
     }
 }

@@ -22,6 +22,9 @@ SonarQube Generic Issue Import JSON.
 | `hoonarqube-bench` | Multi-language throughput benchmark over seeded synthetic fixtures |
 | `xtask` | Catalog audit + implemented-rule coverage reporting |
 
+All workspace packages are source-only and inherit `publish = false`; GitHub
+source releases do not imply crates.io publication.
+
 ## Analyzer architecture
 
 The Python and JS/TS analyzers follow this shared per-rule layout. C#, Go, and
@@ -67,17 +70,18 @@ against the frozen catalog:
 ### Documented gaps
 
 The uncovered keys require out-of-repository infrastructure or reflect deliberate
-parser-fidelity limits; each is recorded as a skip note next to the nearest related
-implementation:
+parser-fidelity limits. Each exact key and reason is recorded in
+`catalog/infra-boundaries.json`:
 
-- External deprecated-API database — `javascript:S1874`, `typescript:S1874`.
+- TypeScript-checker semantic symbol and dependency metadata —
+  `javascript:S1874`, `typescript:S1874`.
 - Cross-file module resolution — `javascript:S6627`, `typescript:S4328`,
   `typescript:S6627`.
 - TypeScript-checker-grade type semantics — `typescript:S4325`, `S6606`.
 - Roslyn-grade type lattice / inheritance coupling graphs — `csharpsquid:S110`, `S1200`,
   `S1944`, `S3242`, `S3246`, `S4047`.
-- Razor component surface (.razor files are not ingested) — `csharpsquid:S6802`.
-- Production runtime configuration introspection — `python:S6786`.
+- Blazor compilation and semantic invocation binding — `csharpsquid:S6802`.
+- Third-party GraphQL symbol resolution and inheritance semantics — `python:S6786`.
 - ASI reconstruction from a tolerant parse — `javascript:S1438`, `typescript:S1438`.
 
 All 1,724 actionable implementations now have direct, repository-qualified test
@@ -86,15 +90,24 @@ infrastructure-classified rows are still parity gaps. Direct tests and
 implementation markers do not prove SonarQube-equivalent behavior. See
 [PARITY.md](PARITY.md) for the exact oracle contract and current failures.
 
-The frozen Community C# base analyzer can certify 408 of 467 catalog rows.
-Forty-two rows remain infrastructure gaps; 17 implemented commercial rules are
-explicitly `enterprise-unverified` because Community cannot execute them. They
-remain shipped and locally tested, but no Enterprise parity claim is made.
+The latest public C# analyzer (`SonarAnalyzer.CSharp` 10.33.0.1635) certifies
+302 exact full-corpus contracts. Another 106 rules match their designated
+bad/good fixtures exactly but diverge on cross-fixture interactions, so remain
+failing `BAD_MISMATCH` rows. Forty-two rows remain direct-oracle infrastructure
+gaps; 17 implemented commercial rules are explicitly `enterprise-unverified`
+because Community cannot execute them. They remain shipped and locally tested,
+but no Enterprise parity claim is made.
 
 Go Community parity is 36/36 exact. Rust Community parity is 80/85 exact;
 five implemented rules are upstream-unverified because SonarQube 26.8 requests
 removed or invalid Clippy contracts. They still require bad-fire/good-clean
 local evidence and are not counted as exact passes.
+
+A fresh SonarQube 26.8 run certifies 117 Python, 119 JavaScript, and 115
+TypeScript full-corpus contracts. Those projects still have 833 fail-closed
+rows spanning finding mismatches, misses, good-control fires, catalog drift,
+legacy/configuration skips, and approved infrastructure boundaries. Local
+coverage therefore does not imply analyzer parity.
 
 ## Usage
 
@@ -138,11 +151,15 @@ parentheses remedy. See [QUICKFIX.md](QUICKFIX.md) for the parity inventory.
 ## Development
 
 ```bash
-cargo test --workspace --all-targets  # full suite, including benches/examples
-cargo run -q -p xtask -- catalog coverage --strict --allow-infra
+cargo test --locked --workspace --all-targets --all-features  # full suite, including benches/examples
+cargo run --locked -q -p xtask -- catalog coverage --strict --allow-infra
 python3 -m unittest discover -s tools/oracle -p 'test_*.py' -v
-cargo clippy --workspace --all-targets   # zero-warning policy (pedantic)
+cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+RUSTDOCFLAGS='-D warnings' cargo doc --locked --workspace --all-features --no-deps
 cargo fmt --all --check
+cargo deny check
+ruff check tools/oracle --exclude tools/oracle/fixtures --extend-select C90,PLR0911,PLR0912,PLR0915,PERF,SIM,B
+ruff format --check tools/oracle --exclude tools/oracle/fixtures
 ```
 
 Conventions: one rule per file under `rules/`, its tests co-located in the same file; shared logic

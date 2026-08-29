@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -7,32 +7,62 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
+use syn::parse::Parser as _;
 use syn::visit::{self, Visit as _};
 
-const LANGUAGES: [(&str, &str); 6] = [
-    ("csharp", "cs"),
-    ("javascript", "js"),
-    ("typescript", "ts"),
-    ("python", "py"),
-    ("go", "go"),
-    ("rust", "rust"),
+const LANGUAGES: [(&str, &str, &str); 6] = [
+    ("csharp", "cs", "csharpsquid"),
+    ("javascript", "js", "javascript"),
+    ("typescript", "ts", "typescript"),
+    ("python", "py", "python"),
+    ("go", "go", "go"),
+    ("rust", "rust", "rust"),
+];
+const REQUIRED_ENDPOINTS: [&str; 6] = [
+    "api/navigation/global",
+    "api/plugins/installed",
+    "api/server/version",
+    "api/settings/values?keys=sonar.multi-quality-mode.enabled",
+    "api/system/status",
+    "api/webservices/list",
 ];
 const COMMUNITY_CLASSIFICATION: &str = "community-base";
 const ENTERPRISE_UNVERIFIED_CLASSIFICATION: &str = "enterprise-unverified";
 const SCOPE_CLASSIFICATION: &str = "community-plus-enterprise-unverified";
+const INFRA_BOUNDARIES_JSON: &str = include_str!("../../catalog/infra-boundaries.json");
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InfraBoundaryManifest {
+    schema_version: u16,
+    boundaries: BTreeMap<String, InfraBoundary>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InfraBoundary {
+    reason: String,
+    implementation_gap: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawManifest {
     schema_version: u16,
     captured_at_utc: String,
+    approval_id: String,
+    instance: String,
+    base_origin: String,
     server_version: String,
     page_size: u64,
+    project_prefix: String,
     endpoints: BTreeMap<String, RawResponseReceipt>,
     languages: BTreeMap<String, RawLanguageReceipt>,
     snapshot_sha256: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct RawResponseReceipt {
     status: u16,
     bytes: usize,
@@ -40,6 +70,7 @@ struct RawResponseReceipt {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct RawLanguageReceipt {
     language: String,
     repository: String,
@@ -61,6 +92,7 @@ struct CommunityResolution {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CommunityTarget {
     oracle_edition: String,
     requires_license: bool,
@@ -69,6 +101,7 @@ struct CommunityTarget {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct RuleCatalog {
     schema_version: u16,
     language: String,
@@ -78,6 +111,7 @@ struct RuleCatalog {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct RuleRecord {
     external_key: String,
     language: String,
@@ -102,12 +136,14 @@ struct RuleRecord {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct ImpactFact {
     software_quality: String,
     severity: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct ParameterFact {
     key: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -117,6 +153,7 @@ struct ParameterFact {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct Snapshot {
     schema_version: u16,
     capture_sha256: String,
@@ -139,6 +176,7 @@ struct Snapshot {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct SnapshotLanguage {
     language: String,
     repository: String,
@@ -168,6 +206,7 @@ struct SnapshotLanguage {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct PluginFact {
     key: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -189,6 +228,29 @@ pub fn import(
     output: &Path,
     merge: bool,
 ) -> Result<()> {
+    let original_digest = catalog_directory_digest(output)?;
+    let staging = allocate_catalog_sibling(output, "staging")?;
+    let mut staging_cleanup = DirectoryCleanup::new(staging.clone());
+    if original_digest.is_some() {
+        copy_catalog_directory(output, &staging)?;
+    }
+
+    import_into(capture, community_resolution, &staging, merge)?;
+    ensure!(
+        catalog_directory_digest(output)? == original_digest,
+        "catalog output changed during import"
+    );
+    publish_catalog_directory(output, &staging, original_digest.is_some())?;
+    staging_cleanup.disarm();
+    Ok(())
+}
+
+fn import_into(
+    capture: &Path,
+    community_resolution: &Path,
+    output: &Path,
+    merge: bool,
+) -> Result<()> {
     let manifest_bytes = read(capture.join("manifest.json"))?;
     let manifest: RawManifest =
         serde_json::from_slice(&manifest_bytes).context("raw capture manifest is invalid")?;
@@ -198,6 +260,16 @@ pub fn import(
     );
     ensure!(manifest.page_size > 0, "raw capture page size is zero");
     ensure!(
+        !manifest.captured_at_utc.is_empty()
+            && !manifest.approval_id.trim().is_empty()
+            && !manifest.instance.is_empty()
+            && !manifest.base_origin.is_empty()
+            && !manifest.server_version.is_empty()
+            && !manifest.project_prefix.is_empty()
+            && is_sha256(&manifest.snapshot_sha256),
+        "raw capture provenance is incomplete"
+    );
+    ensure!(
         !manifest.languages.is_empty(),
         "raw capture has no languages"
     );
@@ -205,7 +277,7 @@ pub fn import(
         manifest.languages.keys().all(|name| {
             LANGUAGES
                 .iter()
-                .any(|(known_name, _)| known_name == &name.as_str())
+                .any(|(known_name, _, _)| known_name == &name.as_str())
         }),
         "raw capture contains an unknown language"
     );
@@ -217,22 +289,30 @@ pub fn import(
     }
     verify_raw_manifest(capture, &manifest, &manifest_bytes)?;
 
-    let (community_bytes, resolution) =
-        validated_community_resolution(community_resolution, &manifest.server_version)?;
-
-    let imported_rule_files = import_rule_catalogs(capture, output, &manifest, &resolution)?;
+    let (community_bytes, resolution) = validated_community_resolution(community_resolution)?;
 
     let (edition, mode) = imported_instance_evidence(capture, &manifest.server_version)?;
     let plugins = extract_plugins(&read_json(capture.join("plugins-installed.json"))?)?;
-
-    let imported_languages = snapshot_languages(&manifest, &edition, &mode);
-    let mut snapshot = if merge {
+    let existing_snapshot = if merge {
         let snapshot_text = fs::read_to_string(output.join("snapshot.toml"))
             .context("merge import requires an existing catalog snapshot")?;
         let mut existing: Snapshot =
             toml::from_str(&snapshot_text).context("existing catalog snapshot is invalid")?;
         migrate_snapshot_provenance(&mut existing)?;
-        validate_merge_base(output, &existing)?;
+        validate_catalog_state(output, &existing).context("merge-base catalog is invalid")?;
+        Some(existing)
+    } else {
+        None
+    };
+    let imported_rule_files = import_rule_catalogs(capture, output, &manifest, &resolution, merge)?;
+    write_generated_file(
+        &output.join("community-artifact-resolution.json"),
+        &community_bytes,
+        merge,
+    )?;
+
+    let imported_languages = snapshot_languages(&manifest, &edition, &mode);
+    let mut snapshot = if let Some(mut existing) = existing_snapshot {
         existing.languages.extend(imported_languages);
         existing.rule_files.extend(imported_rule_files);
         existing.schema_version = 4;
@@ -266,12 +346,171 @@ pub fn import(
     snapshot.source_total_rules = total_rules;
     snapshot.total_rules = total_rules;
     snapshot.rule_files = rule_files;
+    validate_catalog_state(output, &snapshot).context("imported catalog is invalid")?;
     let snapshot_bytes = toml::to_string_pretty(&snapshot)?.into_bytes();
     let snapshot_path = output.join("snapshot.toml");
     if merge {
         write_atomic_replace(&snapshot_path, &snapshot_bytes)
     } else {
         write_atomic_same(&snapshot_path, &snapshot_bytes)
+    }
+}
+
+fn allocate_catalog_sibling(output: &Path, purpose: &str) -> Result<PathBuf> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+    let parent = output.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let name = output
+        .file_name()
+        .context("catalog output path has no final component")?
+        .to_string_lossy();
+    for _ in 0..100 {
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        let candidate = parent.join(format!(".{name}.{purpose}-{}-{id}", std::process::id()));
+        match fs::create_dir(&candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => {
+                return Err(error).context("failed to allocate catalog staging directory");
+            }
+        }
+    }
+    bail!("failed to allocate catalog staging directory")
+}
+
+fn copy_catalog_directory(source: &Path, destination: &Path) -> Result<()> {
+    let metadata = fs::symlink_metadata(source)
+        .with_context(|| format!("failed to inspect {}", source.display()))?;
+    ensure!(
+        metadata.is_dir() && !metadata.file_type().is_symlink(),
+        "catalog output is not a regular directory"
+    );
+    copy_catalog_children(source, destination)?;
+    fs::set_permissions(destination, metadata.permissions())?;
+    Ok(())
+}
+
+fn copy_catalog_children(source: &Path, destination: &Path) -> Result<()> {
+    let mut entries: Vec<_> = fs::read_dir(source)?.collect::<std::io::Result<_>>()?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    for entry in entries {
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        let metadata = fs::symlink_metadata(&source_path)?;
+        ensure!(
+            !metadata.file_type().is_symlink(),
+            "catalog contains symbolic link {}",
+            source_path.display()
+        );
+        if metadata.is_dir() {
+            fs::create_dir(&destination_path)?;
+            copy_catalog_children(&source_path, &destination_path)?;
+            fs::set_permissions(&destination_path, metadata.permissions())?;
+        } else {
+            ensure!(
+                metadata.is_file(),
+                "catalog contains non-file entry {}",
+                source_path.display()
+            );
+            fs::copy(&source_path, &destination_path)?;
+        }
+    }
+    Ok(())
+}
+
+fn catalog_directory_digest(output: &Path) -> Result<Option<String>> {
+    match fs::symlink_metadata(output) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to inspect {}", output.display()));
+        }
+        Ok(metadata) => ensure!(
+            metadata.is_dir() && !metadata.file_type().is_symlink(),
+            "catalog output is not a regular directory"
+        ),
+    }
+    let mut hasher = Sha256::new();
+    hash_catalog_children(output, output, &mut hasher)?;
+    Ok(Some(hex::encode(hasher.finalize())))
+}
+
+fn hash_catalog_children(root: &Path, directory: &Path, hasher: &mut Sha256) -> Result<()> {
+    let mut entries: Vec<_> = fs::read_dir(directory)?.collect::<std::io::Result<_>>()?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    for entry in entries {
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path)?;
+        ensure!(
+            !metadata.file_type().is_symlink(),
+            "catalog contains symbolic link {}",
+            path.display()
+        );
+        let relative = path.strip_prefix(root)?;
+        hash_record(hasher, relative.to_string_lossy().as_bytes());
+        if metadata.is_dir() {
+            hash_record(hasher, b"directory");
+            hash_catalog_children(root, &path, hasher)?;
+        } else {
+            ensure!(
+                metadata.is_file(),
+                "catalog contains non-file entry {}",
+                path.display()
+            );
+            hash_record(hasher, b"file");
+            hash_record(hasher, &fs::read(&path)?);
+        }
+    }
+    Ok(())
+}
+
+fn publish_catalog_directory(output: &Path, staging: &Path, replacing: bool) -> Result<()> {
+    if !replacing {
+        fs::rename(staging, output).context("failed to publish catalog directory")?;
+        return Ok(());
+    }
+
+    let backup = allocate_catalog_sibling(output, "backup")?;
+    fs::remove_dir(&backup)?;
+    fs::rename(output, &backup).context("failed to reserve existing catalog for rollback")?;
+    if let Err(publish_error) = fs::rename(staging, output) {
+        let rollback = fs::rename(&backup, output);
+        return match rollback {
+            Ok(()) => {
+                Err(publish_error).context("failed to publish catalog directory; rolled back")
+            }
+            Err(rollback_error) => bail!(
+                "failed to publish catalog directory ({publish_error}); rollback also failed ({rollback_error})"
+            ),
+        };
+    }
+    // Publication is complete. Failure to delete this private rollback copy
+    // must not turn a successful transaction into a reported failure.
+    let _ = fs::remove_dir_all(backup);
+    Ok(())
+}
+
+struct DirectoryCleanup {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl DirectoryCleanup {
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for DirectoryCleanup {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = fs::remove_dir_all(&self.path);
+        }
     }
 }
 
@@ -316,11 +555,12 @@ fn import_rule_catalogs(
     output: &Path,
     manifest: &RawManifest,
     resolution: &CommunityResolution,
+    replace: bool,
 ) -> Result<BTreeMap<String, String>> {
     let rules_dir = output.join("rules");
-    fs::create_dir_all(&rules_dir)?;
     let mut rule_files = BTreeMap::new();
-    for (language_name, language_id) in LANGUAGES {
+    let mut prepared = Vec::new();
+    for (language_name, language_id, repository) in LANGUAGES {
         let Some(receipt) = manifest.languages.get(language_name) else {
             continue;
         };
@@ -329,6 +569,7 @@ fn import_rule_catalogs(
             language_name,
             receipt,
             language_id,
+            repository,
             manifest.page_size,
         )?;
         let mut catalog =
@@ -350,16 +591,25 @@ fn import_rule_catalogs(
             classification.clone_into(&mut rule.classification);
         }
         ensure!(
-            unverified
-                .iter()
-                .all(|key| catalog.rules.iter().any(|rule| &rule.external_key == key)),
+            unverified.iter().all(|key| {
+                key.strip_prefix(repository)
+                    .and_then(|rest| rest.strip_prefix(':'))
+                    .is_some_and(|marker| !marker.is_empty())
+                    && catalog.rules.iter().any(|rule| &rule.external_key == key)
+            }),
             "source capture lacks an Enterprise-unverified rule"
         );
         SCOPE_CLASSIFICATION.clone_into(&mut catalog.classification);
+        audit_rule_facts(&catalog, language_id, repository)?;
         let bytes = serde_json::to_vec_pretty(&catalog)?;
         reject_forbidden_output(&bytes)?;
         let digest = sha256(&bytes);
-        write_atomic_same(&rules_dir.join(format!("{language_name}.json")), &bytes)?;
+        prepared.push((language_name, bytes, digest));
+    }
+    fs::create_dir_all(&rules_dir)?;
+    for (language_name, bytes, digest) in prepared {
+        let path = rules_dir.join(format!("{language_name}.json"));
+        write_generated_file(&path, &bytes, replace)?;
         rule_files.insert(language_name.to_owned(), digest);
     }
     Ok(rule_files)
@@ -391,27 +641,41 @@ fn migrate_snapshot_provenance(snapshot: &mut Snapshot) -> Result<()> {
             .get_or_insert_with(|| snapshot.instance_mode.clone());
         language.page_size.get_or_insert(snapshot.page_size);
     }
+    snapshot.schema_version = 4;
     Ok(())
 }
 
-fn validate_merge_base(output: &Path, snapshot: &Snapshot) -> Result<()> {
+fn validate_catalog_state(output: &Path, snapshot: &Snapshot) -> Result<()> {
+    audit_snapshot(snapshot)?;
+    let evidence_path = output.join("community-artifact-resolution.json");
+    let (evidence_bytes, resolution) = validated_community_resolution(&evidence_path)?;
     ensure!(
-        snapshot.scope_classification == SCOPE_CLASSIFICATION,
-        "merge-base snapshot has invalid scope classification"
+        snapshot.community_evidence_sha256 == sha256(&evidence_bytes)
+            && snapshot.unverified_rules == resolution.enterprise_unverified_rules,
+        "catalog Community evidence mismatch"
     );
-    for (name, receipt) in &snapshot.languages {
-        let bytes = read(output.join("rules").join(format!("{name}.json")))?;
-        ensure!(
-            snapshot.rule_files.get(name) == Some(&sha256(&bytes)),
-            "merge-base catalog file hash mismatch"
-        );
-        let catalog: RuleCatalog = serde_json::from_slice(&bytes)
-            .with_context(|| format!("merge-base catalog {name} is invalid"))?;
-        ensure!(
-            Some(&catalog.source_capture_sha256) == receipt.source_capture_sha256.as_ref(),
-            "merge-base catalog provenance mismatch"
-        );
+    let mut source_total = 0_usize;
+    let mut scoped_total = 0_usize;
+    let mut catalog_hasher = Sha256::new();
+    for (name, language_id, repository) in LANGUAGES {
+        let (source_count, scoped_count) = audit_language(
+            output,
+            snapshot,
+            name,
+            language_id,
+            repository,
+            true,
+            &mut catalog_hasher,
+        )?;
+        source_total += source_count;
+        scoped_total += scoped_count;
     }
+    ensure!(
+        source_total == snapshot.source_total_rules
+            && scoped_total == snapshot.total_rules
+            && hex::encode(catalog_hasher.finalize()) == snapshot.catalog_sha256,
+        "catalog aggregate mismatch"
+    );
     Ok(())
 }
 
@@ -419,7 +683,7 @@ fn aggregate_catalog(output: &Path) -> Result<(String, usize, BTreeMap<String, S
     let mut hasher = Sha256::new();
     let mut total = 0_usize;
     let mut files = BTreeMap::new();
-    for (name, _) in LANGUAGES {
+    for (name, _, _) in LANGUAGES {
         let bytes = read(output.join("rules").join(format!("{name}.json")))?;
         let catalog: RuleCatalog =
             serde_json::from_slice(&bytes).with_context(|| format!("catalog {name} is invalid"))?;
@@ -431,10 +695,7 @@ fn aggregate_catalog(output: &Path) -> Result<(String, usize, BTreeMap<String, S
     Ok((hex::encode(hasher.finalize()), total, files))
 }
 
-fn validated_community_resolution(
-    path: &Path,
-    _server_version: &str,
-) -> Result<(Vec<u8>, CommunityResolution)> {
+fn validated_community_resolution(path: &Path) -> Result<(Vec<u8>, CommunityResolution)> {
     let bytes = read(path)?;
     let evidence: CommunityResolution = serde_json::from_slice(&bytes)
         .context("Community artifact-resolution evidence is invalid")?;
@@ -453,7 +714,7 @@ fn validated_community_resolution(
         evidence.enterprise_unverified_rules.len() == LANGUAGES.len()
             && LANGUAGES
                 .iter()
-                .all(|(name, _)| evidence.enterprise_unverified_rules.contains_key(*name)),
+                .all(|(name, _, _)| evidence.enterprise_unverified_rules.contains_key(*name)),
         "Community evidence language scope mismatch"
     );
     Ok((bytes, evidence))
@@ -484,35 +745,31 @@ pub fn audit(snapshot_path: &Path, require_pages_complete: bool) -> Result<()> {
         .with_context(|| format!("failed to read {}", snapshot_path.display()))?;
     let snapshot: Snapshot =
         toml::from_str(&snapshot_text).context("catalog snapshot is invalid")?;
-    ensure!(
-        snapshot.schema_version == 4,
-        "unsupported catalog snapshot schema"
-    );
-    ensure!(
-        snapshot.oracle_edition == "community",
-        "snapshot oracle is not Community"
-    );
-    ensure!(
-        snapshot.scope_classification == SCOPE_CLASSIFICATION,
-        "snapshot has invalid scope classification"
-    );
+    audit_snapshot(&snapshot)?;
     let root = snapshot_path
         .parent()
         .context("snapshot path has no parent")?;
-    let community_evidence = read(root.join("community-artifact-resolution.json"))?;
+    let community_path = root.join("community-artifact-resolution.json");
+    let (community_evidence, resolution) = validated_community_resolution(&community_path)?;
+    ensure!(
+        resolution.enterprise_unverified_rules == snapshot.unverified_rules,
+        "snapshot unverified rules differ from Community evidence"
+    );
     ensure!(
         snapshot.community_evidence_sha256 == sha256(&community_evidence),
         "Community scope evidence hash mismatch"
     );
+
     let mut source_total = 0_usize;
     let mut scoped_total = 0_usize;
     let mut catalog_hasher = Sha256::new();
-    for (language_name, language_id) in LANGUAGES {
+    for (language_name, language_id, repository) in LANGUAGES {
         let (source_count, scoped_count) = audit_language(
             root,
             &snapshot,
             language_name,
             language_id,
+            repository,
             require_pages_complete,
             &mut catalog_hasher,
         )?;
@@ -534,12 +791,66 @@ pub fn audit(snapshot_path: &Path, require_pages_complete: bool) -> Result<()> {
     Ok(())
 }
 
+fn audit_snapshot(snapshot: &Snapshot) -> Result<()> {
+    ensure!(
+        snapshot.schema_version == 4,
+        "unsupported catalog snapshot schema"
+    );
+    ensure!(
+        snapshot.oracle_edition == "community",
+        "snapshot oracle is not Community"
+    );
+    ensure!(
+        snapshot.scope_classification == SCOPE_CLASSIFICATION,
+        "snapshot has invalid scope classification"
+    );
+    ensure!(
+        is_sha256(&snapshot.capture_sha256)
+            && is_sha256(&snapshot.catalog_sha256)
+            && !snapshot.captured_at_utc.is_empty()
+            && !snapshot.server_version.is_empty()
+            && !snapshot.edition.is_empty()
+            && !snapshot.instance_mode.is_empty()
+            && snapshot.page_size > 0,
+        "snapshot capture provenance is incomplete"
+    );
+    ensure!(
+        has_exact_language_keys(&snapshot.languages)
+            && has_exact_language_keys(&snapshot.unverified_rules)
+            && has_exact_language_keys(&snapshot.rule_files),
+        "snapshot language scope mismatch"
+    );
+    ensure!(
+        snapshot.endpoints.len() == REQUIRED_ENDPOINTS.len()
+            && REQUIRED_ENDPOINTS
+                .iter()
+                .all(|endpoint| snapshot.endpoints.contains_key(*endpoint))
+            && snapshot.endpoints.values().all(|receipt| {
+                (200..300).contains(&receipt.status)
+                    && receipt.bytes > 0
+                    && is_sha256(&receipt.sha256)
+            }),
+        "snapshot endpoint provenance is incomplete"
+    );
+    ensure!(
+        !snapshot.plugins.is_empty()
+            && snapshot
+                .plugins
+                .windows(2)
+                .all(|pair| pair[0].key < pair[1].key)
+            && snapshot.plugins.iter().all(|plugin| !plugin.key.is_empty()),
+        "snapshot plugin provenance is incomplete"
+    );
+    Ok(())
+}
+
 fn audit_language(
     root: &Path,
     snapshot: &Snapshot,
     language_name: &str,
     language_id: &str,
-    require_pages_complete: bool,
+    repository: &str,
+    _require_pages_complete: bool,
     catalog_hasher: &mut Sha256,
 ) -> Result<(usize, usize)> {
     let path = root.join("rules").join(format!("{language_name}.json"));
@@ -547,6 +858,10 @@ fn audit_language(
     reject_forbidden_output(&bytes)?;
     let catalog: RuleCatalog = serde_json::from_slice(&bytes)
         .with_context(|| format!("invalid catalog file {}", path.display()))?;
+    ensure!(
+        catalog.schema_version == 1,
+        "unsupported rule catalog schema"
+    );
     ensure!(catalog.language == language_id, "catalog language mismatch");
     ensure!(
         catalog.classification == SCOPE_CLASSIFICATION,
@@ -572,7 +887,8 @@ fn audit_language(
         language_name,
         receipt,
         &catalog,
-        require_pages_complete,
+        language_id,
+        repository,
     )?;
     ensure!(
         snapshot.rule_files.get(language_name) == Some(&sha256(&bytes)),
@@ -588,8 +904,13 @@ fn audit_language_receipt(
     language_name: &str,
     receipt: &SnapshotLanguage,
     catalog: &RuleCatalog,
-    require_pages_complete: bool,
+    language_id: &str,
+    repository: &str,
 ) -> Result<()> {
+    ensure!(
+        receipt.language == language_id && receipt.repository == repository,
+        "language receipt identity mismatch"
+    );
     ensure!(
         receipt.source_capture_sha256.as_deref() == Some(catalog.source_capture_sha256.as_str()),
         "catalog capture provenance mismatch"
@@ -597,6 +918,14 @@ fn audit_language_receipt(
     ensure!(
         receipt.oracle_edition.as_deref() == Some("community")
             && receipt.page_size.is_some_and(|size| size > 0)
+            && receipt
+                .source_capture_sha256
+                .as_deref()
+                .is_some_and(is_sha256)
+            && is_sha256(&receipt.query_sha256)
+            && is_sha256(&receipt.pages_sha256)
+            && is_sha256(&receipt.keys_sha256)
+            && is_sha256(&receipt.shows_sha256)
             && receipt
                 .server_version
                 .as_deref()
@@ -625,7 +954,9 @@ fn audit_language_receipt(
     );
     ensure!(
         unverified.iter().all(|key| {
-            key.starts_with(&format!("{}:", receipt.repository))
+            key.strip_prefix(repository)
+                .and_then(|rest| rest.strip_prefix(':'))
+                .is_some_and(|marker| !marker.is_empty())
                 && catalog.rules.iter().any(|rule| &rule.external_key == key)
         }),
         "invalid or missing unverified rule"
@@ -646,25 +977,91 @@ fn audit_language_receipt(
             && catalog.rules.len() as u64 == receipt.total,
         "catalog count mismatch"
     );
-    if require_pages_complete {
-        let expected_pages = receipt
-            .source_total
-            .max(1)
-            .div_ceil(receipt.page_size.context("language page size is missing")?);
-        ensure!(
-            receipt.page_count as u64 == expected_pages,
-            "page count mismatch"
-        );
-        ensure!(
-            receipt.unique_keys as u64 == receipt.source_total,
-            "unique-key count mismatch"
-        );
-        ensure!(
-            receipt.show_count as u64 == receipt.source_total,
-            "show count mismatch"
-        );
-    }
+    audit_rule_facts(catalog, language_id, repository)?;
+    let expected_pages = receipt
+        .source_total
+        .max(1)
+        .div_ceil(receipt.page_size.context("language page size is missing")?);
+    ensure!(
+        counts_match(expected_pages, receipt.page_count),
+        "page count mismatch"
+    );
+    ensure!(
+        counts_match(receipt.source_total, receipt.unique_keys),
+        "unique-key count mismatch"
+    );
+    ensure!(
+        counts_match(receipt.source_total, receipt.show_count),
+        "show count mismatch"
+    );
     Ok(())
+}
+
+fn audit_rule_facts(catalog: &RuleCatalog, language_id: &str, repository: &str) -> Result<()> {
+    ensure!(
+        is_sha256(&catalog.source_capture_sha256)
+            && catalog.rules.iter().all(|rule| {
+                rule.language == language_id
+                    && rule.repository == repository
+                    && rule
+                        .external_key
+                        .strip_prefix(repository)
+                        .and_then(|rest| rest.strip_prefix(':'))
+                        .is_some_and(|marker| !marker.is_empty())
+            }),
+        "catalog rule identity mismatch"
+    );
+    ensure!(
+        catalog.rules.iter().all(|rule| {
+            rule.provenance_id == catalog.source_capture_sha256
+                && !rule.status.is_empty()
+                && !rule.scope.is_empty()
+                && !rule.severity.is_empty()
+                && !rule.rule_type.is_empty()
+                && rule
+                    .clean_code_attribute
+                    .as_ref()
+                    .is_none_or(|value| !value.is_empty())
+                && rule
+                    .clean_code_attribute_category
+                    .as_ref()
+                    .is_none_or(|value| !value.is_empty())
+                && rule.impacts.iter().all(|impact| {
+                    !impact.software_quality.is_empty() && !impact.severity.is_empty()
+                })
+                && rule
+                    .parameters
+                    .iter()
+                    .all(|parameter| !parameter.key.is_empty())
+                && all_unique(
+                    rule.parameters
+                        .iter()
+                        .map(|parameter| parameter.key.as_str()),
+                )
+        }),
+        "catalog contains incomplete rule facts"
+    );
+    Ok(())
+}
+
+fn all_unique<'a>(values: impl Iterator<Item = &'a str>) -> bool {
+    let mut seen = BTreeSet::new();
+    values.into_iter().all(|value| seen.insert(value))
+}
+
+fn has_exact_language_keys<T>(map: &BTreeMap<String, T>) -> bool {
+    map.len() == LANGUAGES.len() && LANGUAGES.iter().all(|(name, _, _)| map.contains_key(*name))
+}
+
+fn counts_match(total: u64, count: usize) -> bool {
+    u64::try_from(count).is_ok_and(|count| count == total)
+}
+
+fn is_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// Audits implemented-rule coverage of the analyzer crates against the frozen catalogs.
@@ -681,12 +1078,14 @@ fn audit_language_receipt(
 pub fn coverage(lang: Option<&str>, strict: bool, allow_infra: bool) -> Result<()> {
     if let Some(lang) = lang {
         ensure!(
-            LANGUAGES.iter().any(|(name, _)| *name == lang),
-            "unknown language {lang}; expected one of csharp, javascript, typescript, python"
+            LANGUAGES.iter().any(|(name, _, _)| *name == lang),
+            "unknown language {lang}; expected one of csharp, javascript, typescript, python, go, rust"
         );
     }
+    audit(Path::new("catalog/snapshot.toml"), true)
+        .context("catalog integrity audit failed before coverage")?;
     let mut rows = Vec::new();
-    for (name, language_id) in LANGUAGES {
+    for (name, language_id, _) in LANGUAGES {
         if lang.is_some_and(|filter| filter != name) {
             continue;
         }
@@ -745,8 +1144,7 @@ fn coverage_language(name: &'static str, language_id: &str) -> Result<LanguageCo
         .with_context(|| format!("no analyzer crate maps language {name}"))?;
     let mut production_literals = Vec::new();
     let mut test_literals = Vec::new();
-    let mut sources = Vec::new();
-    collect_rust_sources(Path::new(source_dir), &mut sources);
+    let sources = collect_rust_sources(Path::new(source_dir))?;
     for path in &sources {
         let source = fs::read_to_string(path)
             .with_context(|| format!("failed to read analyzer source {}", path.display()))?;
@@ -760,17 +1158,21 @@ fn coverage_language(name: &'static str, language_id: &str) -> Result<LanguageCo
         ));
     }
     let keys = coverage_keys(name, language_id)?;
+    let boundaries = infra_boundaries()?;
     // Infra classification takes precedence over marker matching: a key that
     // only appears in a documented skip note must not count as implemented.
-    let (infra_keys, actionable_keys): (Vec<_>, Vec<_>) = keys
-        .iter()
-        .partition(|key| infra_rules(name).contains(&key.as_str()));
+    let (infra_keys, actionable_keys): (Vec<_>, Vec<_>) = keys.iter().partition(|key| {
+        boundaries
+            .get(key.as_str())
+            .is_some_and(|boundary| boundary.implementation_gap)
+    });
     let infra = infra_keys.into_iter().cloned().collect::<Vec<_>>();
     let actionable: Vec<String> = actionable_keys.into_iter().cloned().collect();
     let missing = missing_rules(&actionable, &production_literals, false);
+    let missing_set = missing.iter().map(String::as_str).collect::<HashSet<_>>();
     let implemented_keys = actionable
         .iter()
-        .filter(|key| !missing.contains(key))
+        .filter(|key| !missing_set.contains(key.as_str()))
         .cloned()
         .collect::<Vec<_>>();
     let untested = missing_rules(&implemented_keys, &test_literals, true);
@@ -790,26 +1192,43 @@ fn coverage_language(name: &'static str, language_id: &str) -> Result<LanguageCo
 fn partition_rust_source(path: &Path, source: &str) -> Result<(Vec<String>, Vec<String>)> {
     let parsed = syn::parse_file(source)
         .with_context(|| format!("failed to parse analyzer source {}", path.display()))?;
-    if is_test_source_path(path) {
-        return Ok((Vec::new(), string_literals(&parsed.items)));
+    let mut collector = PartitionedStringLiteralCollector {
+        in_test: is_test_source_path(path),
+        ..PartitionedStringLiteralCollector::default()
+    };
+    for item in &parsed.items {
+        collector.visit_item(item);
     }
-
-    let (test_items, production_items): (Vec<_>, Vec<_>) =
-        parsed.items.into_iter().partition(item_is_cfg_test);
-    Ok((
-        string_literals(&production_items),
-        string_literals(&test_items),
-    ))
+    Ok((collector.production, collector.tests))
 }
 
 #[derive(Default)]
-struct StringLiteralCollector {
-    values: Vec<String>,
+struct PartitionedStringLiteralCollector {
+    production: Vec<String>,
+    tests: Vec<String>,
+    in_test: bool,
 }
 
-impl<'ast> visit::Visit<'ast> for StringLiteralCollector {
+impl PartitionedStringLiteralCollector {
+    fn values(&mut self) -> &mut Vec<String> {
+        if self.in_test {
+            &mut self.tests
+        } else {
+            &mut self.production
+        }
+    }
+}
+
+impl<'ast> visit::Visit<'ast> for PartitionedStringLiteralCollector {
+    fn visit_item(&mut self, item: &'ast syn::Item) {
+        let previous = self.in_test;
+        self.in_test |= item_requires_test(item);
+        visit::visit_item(self, item);
+        self.in_test = previous;
+    }
+
     fn visit_lit_str(&mut self, literal: &'ast syn::LitStr) {
-        self.values.push(literal.value());
+        self.values().push(literal.value());
     }
 
     fn visit_attribute(&mut self, _attribute: &'ast syn::Attribute) {
@@ -818,7 +1237,7 @@ impl<'ast> visit::Visit<'ast> for StringLiteralCollector {
     }
 
     fn visit_macro(&mut self, item_macro: &'ast syn::Macro) {
-        collect_token_literals(item_macro.tokens.clone(), &mut self.values);
+        collect_token_literals(item_macro.tokens.clone(), self.values());
     }
 }
 
@@ -836,14 +1255,6 @@ fn collect_token_literals(tokens: proc_macro2::TokenStream, values: &mut Vec<Str
     }
 }
 
-fn string_literals(items: &[syn::Item]) -> Vec<String> {
-    let mut collector = StringLiteralCollector::default();
-    for item in items {
-        collector.visit_item(item);
-    }
-    collector.values
-}
-
 fn is_test_source_path(path: &Path) -> bool {
     path.components()
         .any(|component| component.as_os_str() == "tests")
@@ -852,14 +1263,62 @@ fn is_test_source_path(path: &Path) -> bool {
             .is_some_and(|stem| stem == "tests" || stem == "test_support")
 }
 
-fn item_is_cfg_test(item: &syn::Item) -> bool {
-    item_attrs(item).iter().any(|attribute| {
-        attribute.path().is_ident("cfg")
-            && matches!(
-                &attribute.meta,
-                syn::Meta::List(list) if list.tokens.to_string() == "test"
-            )
-    })
+fn item_requires_test(item: &syn::Item) -> bool {
+    item_attrs(item).iter().any(attribute_requires_test)
+}
+
+fn attribute_requires_test(attribute: &syn::Attribute) -> bool {
+    attribute.path().is_ident("cfg")
+        && attribute
+            .parse_args::<syn::Meta>()
+            .is_ok_and(|meta| !cfg_can_be_true_without_test(&meta))
+}
+
+fn cfg_can_be_true_without_test(meta: &syn::Meta) -> bool {
+    match meta {
+        syn::Meta::Path(path) => !path.is_ident("test"),
+        syn::Meta::NameValue(_) => true,
+        syn::Meta::List(list) => {
+            let Ok(nested) =
+                syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated
+                    .parse2(list.tokens.clone())
+            else {
+                return true;
+            };
+            if list.path.is_ident("all") {
+                nested.iter().all(cfg_can_be_true_without_test)
+            } else if list.path.is_ident("any") {
+                nested.iter().any(cfg_can_be_true_without_test)
+            } else if list.path.is_ident("not") && nested.len() == 1 {
+                cfg_can_be_false_without_test(&nested[0])
+            } else {
+                true
+            }
+        }
+    }
+}
+
+fn cfg_can_be_false_without_test(meta: &syn::Meta) -> bool {
+    match meta {
+        syn::Meta::Path(_) | syn::Meta::NameValue(_) => true,
+        syn::Meta::List(list) => {
+            let Ok(nested) =
+                syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated
+                    .parse2(list.tokens.clone())
+            else {
+                return true;
+            };
+            if list.path.is_ident("all") {
+                nested.iter().any(cfg_can_be_false_without_test)
+            } else if list.path.is_ident("any") {
+                nested.iter().all(cfg_can_be_false_without_test)
+            } else if list.path.is_ident("not") && nested.len() == 1 {
+                cfg_can_be_true_without_test(&nested[0])
+            } else {
+                true
+            }
+        }
+    }
 }
 
 fn item_attrs(item: &syn::Item) -> &[syn::Attribute] {
@@ -883,49 +1342,52 @@ fn item_attrs(item: &syn::Item) -> &[syn::Attribute] {
     }
 }
 
-/// Rule keys excluded from the actionable gap count and listed separately:
-/// implementations requiring infrastructure outside this repository (external
-/// datasets, real type-checker engines, cross-file or runtime-configuration
-/// context), or deliberate non-emissions rooted in parser-fidelity limits
-/// (each documented as a skip note next to the nearest implementation).
-fn infra_rules(name: &str) -> &'static [&'static str] {
-    match name {
-        "javascript" => &["javascript:S1438", "javascript:S1874", "javascript:S6627"],
-        "typescript" => &[
-            "typescript:S1438",
-            "typescript:S1874",
-            "typescript:S4325",
-            "typescript:S4328",
-            "typescript:S6606",
-            "typescript:S6627",
-        ],
-        "python" => &["python:S6786"],
-        "csharp" => &[
-            "csharpsquid:S110",
-            "csharpsquid:S1200",
-            "csharpsquid:S1944",
-            "csharpsquid:S3242",
-            "csharpsquid:S3246",
-            "csharpsquid:S4047",
-            "csharpsquid:S6802",
-        ],
-        _ => &[],
+/// Loads the single source of truth for implementation and oracle boundaries.
+fn infra_boundaries() -> Result<BTreeMap<String, InfraBoundary>> {
+    let manifest: InfraBoundaryManifest = serde_json::from_str(INFRA_BOUNDARIES_JSON)
+        .context("failed to parse catalog/infra-boundaries.json")?;
+    ensure!(
+        manifest.schema_version == 1,
+        "infra boundary schema_version must be 1"
+    );
+    ensure!(
+        !manifest.boundaries.is_empty(),
+        "infra boundary manifest must not be empty"
+    );
+    for (key, boundary) in &manifest.boundaries {
+        ensure!(!key.is_empty(), "infra boundary key must not be empty");
+        ensure!(
+            !boundary.reason.trim().is_empty(),
+            "infra boundary {key} reason must not be empty"
+        );
     }
+    Ok(manifest.boundaries)
 }
 
-/// Recursively collects `*.rs` paths under one analyzer crate's `src` tree.
-fn collect_rust_sources(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_rust_sources(&path, out);
-        } else if path.extension().is_some_and(|ext| ext == "rs") {
-            out.push(path);
+/// Iteratively collects `*.rs` paths without following symbolic links.
+fn collect_rust_sources(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut pending = vec![dir.to_path_buf()];
+    let mut sources = Vec::new();
+    while let Some(directory) = pending.pop() {
+        let entries = fs::read_dir(&directory).with_context(|| {
+            format!("failed to read analyzer directory {}", directory.display())
+        })?;
+        for entry in entries {
+            let entry = entry
+                .with_context(|| format!("failed to read entry under {}", directory.display()))?;
+            let file_type = entry
+                .file_type()
+                .with_context(|| format!("failed to inspect {}", entry.path().display()))?;
+            let path = entry.path();
+            if file_type.is_dir() {
+                pending.push(path);
+            } else if file_type.is_file() && path.extension().is_some_and(|ext| ext == "rs") {
+                sources.push(path);
+            }
         }
     }
+    sources.sort();
+    Ok(sources)
 }
 
 /// Analyzer crate source tree scanned for rule markers, by catalog name.
@@ -963,12 +1425,20 @@ fn coverage_keys(name: &str, language_id: &str) -> Result<Vec<String>> {
 /// Keys arrive strictly sorted from the frozen catalog, so the result preserves
 /// that order without re-sorting.
 fn missing_rules(keys: &[String], literals: &[String], qualified: bool) -> Vec<String> {
+    let exact = literals.iter().map(String::as_str).collect::<HashSet<_>>();
+    let dynamic = literals
+        .iter()
+        .filter_map(|literal| dynamic_rule_marker(literal))
+        .collect::<HashSet<_>>();
     keys.iter()
         .map(String::as_str)
         .filter(|key| {
-            !literals
-                .iter()
-                .any(|literal| literal_marks_rule(literal, key, qualified))
+            if qualified {
+                !exact.contains(key)
+            } else {
+                let marker = rule_key_marker(key);
+                !exact.contains(key) && !exact.contains(marker) && !dynamic.contains(marker)
+            }
         })
         .map(str::to_owned)
         .collect()
@@ -985,18 +1455,9 @@ fn rule_key_marker(external_key: &str) -> &str {
     }
 }
 
-fn literal_marks_rule(literal: &str, key: &str, qualified: bool) -> bool {
-    if qualified {
-        return literal == key;
-    }
-    let marker = rule_key_marker(key);
-    if literal == key || literal == marker {
-        return true;
-    }
-    let Some(prefix) = literal.strip_suffix(marker) else {
-        return false;
-    };
-    prefix.ends_with(':') && prefix.contains('{') && prefix.contains('}')
+fn dynamic_rule_marker(literal: &str) -> Option<&str> {
+    let (prefix, marker) = literal.rsplit_once(':')?;
+    (prefix.contains('{') && prefix.contains('}') && !marker.is_empty()).then_some(marker)
 }
 
 fn print_coverage(rows: &[LanguageCoverage]) {
@@ -1161,15 +1622,26 @@ fn validate_receipt(
     language_name: &str,
     receipt: &RawLanguageReceipt,
     language: &str,
+    repository: &str,
     page_size: u64,
 ) -> Result<()> {
-    ensure!(receipt.language == language, "language receipt mismatch");
     ensure!(
-        receipt.unique_keys as u64 == receipt.total,
+        receipt.language == language && receipt.repository == repository,
+        "language receipt mismatch"
+    );
+    ensure!(
+        is_sha256(&receipt.query_sha256)
+            && is_sha256(&receipt.pages_sha256)
+            && is_sha256(&receipt.keys_sha256)
+            && is_sha256(&receipt.shows_sha256),
+        "language receipt provenance is incomplete"
+    );
+    ensure!(
+        counts_match(receipt.total, receipt.unique_keys),
         "unique key closure mismatch"
     );
     ensure!(
-        receipt.show_count as u64 == receipt.total,
+        counts_match(receipt.total, receipt.show_count),
         "show closure mismatch"
     );
     let expected_pages = if receipt.total == 0 {
@@ -1178,15 +1650,64 @@ fn validate_receipt(
         receipt.total.div_ceil(page_size)
     };
     ensure!(
-        receipt.page_count as u64 == expected_pages,
+        counts_match(expected_pages, receipt.page_count),
         "page closure mismatch"
     );
 
     let language_dir = capture.join("rules").join(language_name);
+    let keys = validate_capture_index(&language_dir, receipt)?;
+
+    let mut pages_hasher = Sha256::new();
+    let mut page_keys = BTreeSet::new();
+    for page in 1..=receipt.page_count {
+        let bytes = read(language_dir.join(format!("page-{page:04}.json")))?;
+        let value: Value =
+            serde_json::from_slice(&bytes).context("captured rule page is invalid")?;
+        validate_captured_rule_page(
+            &value,
+            page,
+            page_size,
+            receipt,
+            page_keys.len(),
+            &mut page_keys,
+        )?;
+        hash_record(&mut pages_hasher, &bytes);
+    }
+    ensure!(
+        count_files_with_prefix(&language_dir, "page-", ".json")? == receipt.page_count,
+        "captured page file count mismatch"
+    );
+    ensure!(
+        hex::encode(pages_hasher.finalize()) == receipt.pages_sha256,
+        "captured page aggregate hash mismatch"
+    );
+    ensure!(
+        page_keys.iter().eq(keys.iter()),
+        "captured page keys differ from keys.json"
+    );
+
+    validate_captured_shows(&language_dir, receipt, &keys)
+}
+
+fn validate_capture_index(
+    language_dir: &Path,
+    receipt: &RawLanguageReceipt,
+) -> Result<Vec<String>> {
     let query_bytes = read(language_dir.join("query.json"))?;
     ensure!(
         sha256(&query_bytes) == receipt.query_sha256,
         "query hash mismatch"
+    );
+    let query: Value = serde_json::from_slice(&query_bytes).context("query.json is invalid")?;
+    let query = query.as_object().context("query.json must be an object")?;
+    ensure!(
+        query.len() == 4
+            && query.get("include_external").and_then(Value::as_bool) == Some(false)
+            && query.get("is_template").and_then(Value::as_bool) == Some(false)
+            && query.get("languages").and_then(Value::as_str) == Some(receipt.language.as_str())
+            && query.get("repositories").and_then(Value::as_str)
+                == Some(receipt.repository.as_str()),
+        "captured query does not match language receipt"
     );
     let keys_bytes = read(language_dir.join("keys.json"))?;
     ensure!(
@@ -1198,30 +1719,43 @@ fn validate_receipt(
         .as_array()
         .context("keys.json must be an array")?
         .iter()
-        .map(|value| value.as_str().context("rule key is not a string"))
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::to_owned)
+                .context("rule key is not a string")
+        })
         .collect::<Result<Vec<_>>>()?;
-    ensure!(keys.len() as u64 == receipt.total, "keys count mismatch");
-
-    let mut pages_hasher = Sha256::new();
-    for page in 1..=receipt.page_count {
-        let bytes = read(language_dir.join(format!("page-{page:04}.json")))?;
-        serde_json::from_slice::<Value>(&bytes).context("captured rule page is invalid")?;
-        hash_record(&mut pages_hasher, &bytes);
-    }
     ensure!(
-        count_files_with_prefix(&language_dir, "page-", ".json")? == receipt.page_count,
-        "captured page file count mismatch"
+        counts_match(receipt.total, keys.len()),
+        "keys count mismatch"
     );
     ensure!(
-        hex::encode(pages_hasher.finalize()) == receipt.pages_sha256,
-        "captured page aggregate hash mismatch"
+        keys.windows(2).all(|pair| pair[0] < pair[1]),
+        "keys.json is not strictly sorted"
     );
+    Ok(keys)
+}
 
+fn validate_captured_shows(
+    language_dir: &Path,
+    receipt: &RawLanguageReceipt,
+    keys: &[String],
+) -> Result<()> {
     let shows_dir = language_dir.join("show");
     let mut shows_hasher = Sha256::new();
     for (ordinal, key) in keys.iter().enumerate() {
         let bytes = read(shows_dir.join(format!("{ordinal:04}.json")))?;
-        serde_json::from_slice::<Value>(&bytes).context("captured rule show is invalid")?;
+        let value: Value =
+            serde_json::from_slice(&bytes).context("captured rule show is invalid")?;
+        ensure!(
+            value
+                .get("rule")
+                .and_then(|rule| rule.get("key"))
+                .and_then(Value::as_str)
+                == Some(key.as_str()),
+            "captured rule show key mismatch"
+        );
         hash_record(&mut shows_hasher, key.as_bytes());
         hash_record(&mut shows_hasher, &bytes);
     }
@@ -1233,6 +1767,59 @@ fn validate_receipt(
         hex::encode(shows_hasher.finalize()) == receipt.shows_sha256,
         "captured show aggregate hash mismatch"
     );
+    Ok(())
+}
+
+fn validate_captured_rule_page(
+    value: &Value,
+    page: usize,
+    page_size: u64,
+    receipt: &RawLanguageReceipt,
+    prior_keys: usize,
+    keys: &mut BTreeSet<String>,
+) -> Result<()> {
+    let paging = value
+        .get("paging")
+        .context("captured rule page lacks paging")?;
+    ensure!(
+        paging.get("pageIndex").and_then(Value::as_u64) == u64::try_from(page).ok(),
+        "captured rule page index mismatch"
+    );
+    ensure!(
+        paging.get("pageSize").and_then(Value::as_u64) == Some(page_size),
+        "captured rule page size mismatch"
+    );
+    ensure!(
+        paging.get("total").and_then(Value::as_u64) == Some(receipt.total),
+        "captured rule page total mismatch"
+    );
+    let rules = value
+        .get("rules")
+        .and_then(Value::as_array)
+        .context("captured rule page lacks rules array")?;
+    let prior_keys = u64::try_from(prior_keys).context("captured key count does not fit u64")?;
+    let expected = receipt
+        .total
+        .checked_sub(prior_keys)
+        .context("captured pages exceed receipt total")?
+        .min(page_size);
+    ensure!(
+        counts_match(expected, rules.len()),
+        "captured rule page length mismatch"
+    );
+    for rule in rules {
+        let key = rule
+            .get("key")
+            .and_then(Value::as_str)
+            .context("captured rule page record lacks key")?;
+        ensure!(
+            key.strip_prefix(&receipt.repository)
+                .and_then(|rest| rest.strip_prefix(':'))
+                .is_some_and(|marker| !marker.is_empty()),
+            "captured rule page key has wrong repository"
+        );
+        ensure!(keys.insert(key.to_owned()), "duplicate captured rule key");
+    }
     Ok(())
 }
 
@@ -1251,6 +1838,13 @@ fn verify_raw_manifest(
     ensure!(
         sha256(&canonical_json(&manifest_value)?) == manifest.snapshot_sha256,
         "raw capture manifest identity mismatch"
+    );
+    ensure!(
+        manifest.endpoints.len() == REQUIRED_ENDPOINTS.len()
+            && REQUIRED_ENDPOINTS
+                .iter()
+                .all(|endpoint| manifest.endpoints.contains_key(*endpoint)),
+        "raw capture endpoint scope mismatch"
     );
 
     for (endpoint, file) in [
@@ -1271,6 +1865,10 @@ fn verify_raw_manifest(
         ensure!(
             (200..300).contains(&receipt.status),
             "raw capture endpoint {endpoint} was not successful"
+        );
+        ensure!(
+            receipt.bytes > 0 && is_sha256(&receipt.sha256),
+            "raw capture endpoint {endpoint} provenance is incomplete"
         );
         let bytes = read(capture.join(file))?;
         ensure!(bytes.len() == receipt.bytes, "endpoint byte count mismatch");
@@ -1463,6 +2061,18 @@ fn write_atomic_same(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+fn write_generated_file(path: &Path, bytes: &[u8], replace: bool) -> Result<()> {
+    match fs::read(path) {
+        Ok(existing) if existing == bytes => Ok(()),
+        Ok(_) if replace => write_atomic_replace(path, bytes),
+        Ok(_) => bail!("refusing conflicting generated file {}", path.display()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            write_atomic_same(path, bytes)
+        }
+        Err(error) => Err(error).with_context(|| format!("failed to read {}", path.display())),
+    }
+}
+
 fn write_atomic_replace(path: &Path, bytes: &[u8]) -> Result<()> {
     ensure!(
         path.is_file(),
@@ -1572,6 +2182,161 @@ mod tests {
     }
 
     #[test]
+    fn rust_partition_tracks_nested_and_composed_test_cfgs() {
+        let source = r#"
+            mod outer {
+                const PROD: &str = "python:S100";
+                #[cfg(all(test, unix))]
+                mod unix_tests { const TEST: &str = "python:S101"; }
+                #[cfg(not(not(test)))]
+                const ALSO_TEST: &str = "python:S102";
+                #[cfg(any(test, feature = "special"))]
+                const OPTIONAL_PROD: &str = "python:S103";
+            }
+        "#;
+        let (production, tests) = partition_rust_source(Path::new("rule.rs"), source).unwrap();
+        assert!(production.contains(&"python:S100".to_owned()));
+        assert!(production.contains(&"python:S103".to_owned()));
+        assert!(!production.contains(&"python:S101".to_owned()));
+        assert!(!production.contains(&"python:S102".to_owned()));
+        assert!(tests.contains(&"python:S101".to_owned()));
+        assert!(tests.contains(&"python:S102".to_owned()));
+    }
+
+    #[test]
+    fn raw_receipts_reject_unknown_fields() {
+        let value = serde_json::json!({
+            "status": 200,
+            "bytes": 1,
+            "sha256": "0".repeat(64),
+            "unexpected": true,
+        });
+        assert!(serde_json::from_value::<RawResponseReceipt>(value).is_err());
+    }
+
+    #[test]
+    fn captured_pages_enforce_lengths_and_repository_identity() {
+        let receipt = RawLanguageReceipt {
+            language: "py".to_owned(),
+            repository: "python".to_owned(),
+            query_sha256: "0".repeat(64),
+            total: 2,
+            unique_keys: 2,
+            page_count: 1,
+            pages_sha256: "0".repeat(64),
+            keys_sha256: "0".repeat(64),
+            show_count: 2,
+            shows_sha256: "0".repeat(64),
+        };
+        let valid = serde_json::json!({
+            "paging": {"pageIndex": 1, "pageSize": 2, "total": 2},
+            "rules": [{"key": "python:S100"}, {"key": "python:S101"}],
+        });
+        let mut keys = BTreeSet::new();
+        validate_captured_rule_page(&valid, 1, 2, &receipt, 0, &mut keys).unwrap();
+        assert_eq!(keys.len(), 2);
+
+        let short = serde_json::json!({
+            "paging": {"pageIndex": 1, "pageSize": 2, "total": 2},
+            "rules": [{"key": "python:S100"}],
+        });
+        assert!(
+            validate_captured_rule_page(&short, 1, 2, &receipt, 0, &mut BTreeSet::new()).is_err()
+        );
+
+        let wrong_repository = serde_json::json!({
+            "paging": {"pageIndex": 1, "pageSize": 2, "total": 2},
+            "rules": [{"key": "python:S100"}, {"key": "other:S101"}],
+        });
+        assert!(
+            validate_captured_rule_page(
+                &wrong_repository,
+                1,
+                2,
+                &receipt,
+                0,
+                &mut BTreeSet::new(),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn generated_merge_files_replace_only_when_authorized() {
+        let directory = std::env::temp_dir().join(format!(
+            "hoonarqube-xtask-generated-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        fs::create_dir(&directory).unwrap();
+        let path = directory.join("rules.json");
+        write_generated_file(&path, b"first", false).unwrap();
+        assert!(write_generated_file(&path, b"second", false).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"first");
+        write_generated_file(&path, b"second", true).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"second");
+        fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn catalog_directory_publication_replaces_the_complete_tree() {
+        let root = std::env::temp_dir().join(format!(
+            "hoonarqube-xtask-catalog-publish-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        let output = root.join("catalog");
+        let staging = root.join("staging");
+        fs::create_dir_all(output.join("rules")).unwrap();
+        fs::write(output.join("obsolete.json"), b"old").unwrap();
+        fs::write(output.join("rules/python.json"), b"old-python").unwrap();
+        fs::create_dir_all(staging.join("rules")).unwrap();
+        fs::write(staging.join("snapshot.toml"), b"new-snapshot").unwrap();
+        fs::write(staging.join("rules/python.json"), b"new-python").unwrap();
+
+        publish_catalog_directory(&output, &staging, true).unwrap();
+
+        assert!(!output.join("obsolete.json").exists());
+        assert_eq!(
+            fs::read(output.join("snapshot.toml")).unwrap(),
+            b"new-snapshot"
+        );
+        assert_eq!(
+            fs::read(output.join("rules/python.json")).unwrap(),
+            b"new-python"
+        );
+        assert!(!staging.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn catalog_directory_publication_rolls_back_a_failed_swap() {
+        let root = std::env::temp_dir().join(format!(
+            "hoonarqube-xtask-catalog-rollback-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        let output = root.join("catalog");
+        fs::create_dir_all(&output).unwrap();
+        fs::write(output.join("snapshot.toml"), b"original").unwrap();
+
+        let error = publish_catalog_directory(&output, &root.join("missing"), true).unwrap_err();
+
+        assert!(error.to_string().contains("rolled back"));
+        assert_eq!(fs::read(output.join("snapshot.toml")).unwrap(), b"original");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn strict_coverage_treats_infra_and_missing_tests_as_gaps() {
         let infra = LanguageCoverage {
             name: "python",
@@ -1594,8 +2359,26 @@ mod tests {
     }
 
     #[test]
+    fn infrastructure_boundaries_have_exact_implementation_gap_count() {
+        let boundaries = infra_boundaries().unwrap();
+        assert_eq!(boundaries.len(), 52);
+        assert_eq!(
+            boundaries
+                .values()
+                .filter(|boundary| boundary.implementation_gap)
+                .count(),
+            17
+        );
+        assert!(
+            boundaries
+                .get("python:S6786")
+                .is_some_and(|boundary| boundary.implementation_gap)
+        );
+    }
+
+    #[test]
     fn every_catalog_language_maps_to_analyzer_source() {
-        for (name, _) in LANGUAGES {
+        for (name, _, _) in LANGUAGES {
             assert!(coverage_source_dir(name).is_some());
         }
         assert_eq!(coverage_source_dir("unknown"), None);

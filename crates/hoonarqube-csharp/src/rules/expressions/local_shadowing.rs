@@ -1,7 +1,8 @@
 use super::support::field_and_property_names;
 use super::support::first_named_child;
+use super::support::member_declarations_of_kind;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
+use crate::cst::{ancestors_of, collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::naming::TYPE_DECLARATION_KINDS;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -19,7 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         }
         let property_names: std::collections::HashSet<String> =
-            collect_kinds(type_declaration, &["property_declaration"])
+            member_declarations_of_kind(type_declaration, "property_declaration")
                 .into_iter()
                 .filter_map(|property| property.child_by_field_name("name"))
                 .map(|name| node_text(name, source).to_owned())
@@ -44,7 +45,11 @@ fn shadowing_local_issues(
 ) -> Vec<Issue> {
     collect_kinds(type_declaration, &["local_declaration_statement"])
         .into_iter()
-        .flat_map(|local| collect_kinds(local, &["variable_declarator"]))
+        .filter(|local| {
+            super::support::enclosing_type(*local)
+                .is_some_and(|owner| owner.id() == type_declaration.id())
+        })
+        .flat_map(local_declarators)
         .filter_map(|declarator| {
             let identifier = first_named_child(declarator)?;
             (identifier.kind() == "identifier").then_some(identifier)
@@ -64,6 +69,17 @@ fn shadowing_local_issues(
                     range_of(identifier, source),
                 )
             })
+        })
+        .collect()
+}
+
+fn local_declarators(local: Node<'_>) -> Vec<Node<'_>> {
+    collect_kinds(local, &["variable_declarator"])
+        .into_iter()
+        .filter(|declarator| {
+            ancestors_of(*declarator)
+                .find(|ancestor| ancestor.kind() == "local_declaration_statement")
+                .is_some_and(|owner| owner.id() == local.id())
         })
         .collect()
 }
@@ -126,5 +142,40 @@ mod tests {
         let flagged = with_key(&report, "csharpsquid:S1117");
         assert_eq!(flagged.len(), 1);
         assert_eq!(flagged[0].range.start.line, 7);
+    }
+
+    #[test]
+    fn s1117_does_not_apply_outer_members_to_nested_type_locals() {
+        let report = analyze_default(
+            "class Outer\n{\n    int value;\n    class Inner\n    {\n        void M()\n        {\n            int value = 1;\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1117").is_empty());
+    }
+
+    #[test]
+    fn s1117_reports_nested_and_outer_members_once_with_correct_kind() {
+        let report = analyze_default(
+            "class Outer\n{\n    int value;\n    void M() { int value = 1; }\n    class Inner\n    {\n        int value { get; }\n        void M() { int value = 1; }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1117");
+        assert_eq!(flagged.len(), 2);
+        assert!(flagged[0].message.contains("the field"));
+        assert!(flagged[1].message.contains("the property"));
+    }
+
+    #[test]
+    fn s1117_nested_lambda_local_is_not_traversed_twice() {
+        let report = analyze_default(
+            "class C { int value; void M() { System.Action action = () => { int value = 1; }; } }",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S1117").len(), 1);
+    }
+
+    #[test]
+    fn s1117_does_not_treat_lambda_initializer_locals_as_fields() {
+        let report = analyze_default(
+            "class C { System.Action action = () => { int value = 1; }; void M() { int value = 2; } }",
+        );
+        assert!(with_key(&report, "csharpsquid:S1117").is_empty());
     }
 }

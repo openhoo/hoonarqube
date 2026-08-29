@@ -25,4 +25,17 @@ mod tests {
         let clean = js("var first = 1;\nvar second = 2;\n");
         assert_eq!(filtered(&clean, "S2814").len(), 0);
     }
+
+    #[test]
+    fn every_redeclaration_is_reported_once_without_pairwise_duplicates() {
+        let report = js("var dup;\nvar dup;\nvar dup;\n");
+        let issues: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S2814"))
+            .collect();
+        assert_eq!(issues.len(), 2);
+        assert_eq!(issues[0].range.start.line, 2);
+        assert_eq!(issues[1].range.start.line, 3);
+    }
 }

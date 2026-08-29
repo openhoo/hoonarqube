@@ -1,6 +1,6 @@
 use super::support::type_parameter_list_of;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, node_text, range_of};
+use crate::cst::{collect_kinds, issue, node_text, parameters_of, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -12,16 +12,18 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some((list, _)) = type_parameter_list_of(method) else {
             continue;
         };
-        let Some(parameters) = method.child_by_field_name("parameters") else {
-            continue;
-        };
-        let used: std::collections::HashSet<&str> = collect_kinds(parameters, &["identifier"])
-            .iter()
-            .map(|identifier| node_text(*identifier, source))
-            .collect();
-        let has_unused = collect_kinds(list, &["type_parameter"])
+        let used: std::collections::HashSet<&str> = parameters_of(method)
             .into_iter()
-            .any(|parameter| !used.contains(node_text(parameter, source)));
+            .filter_map(|parameter| parameter.child_by_field_name("type"))
+            .flat_map(|parameter_type| collect_kinds(parameter_type, &["identifier"]))
+            .map(|identifier| node_text(identifier, source))
+            .collect();
+        let mut list_cursor = list.walk();
+        let has_unused = list
+            .children(&mut list_cursor)
+            .filter(|child| child.kind() == "type_parameter")
+            .filter_map(|parameter| parameter.child_by_field_name("name"))
+            .any(|name| !used.contains(node_text(name, source)));
         if has_unused {
             let Some(name) = method.child_by_field_name("name") else {
                 continue;
@@ -35,4 +37,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
     }
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s4018_does_not_treat_parameter_name_as_type_parameter_use() {
+        let report = analyze_default("class C\n{\n    public void M<T>(int T) { }\n}\n");
+        assert_eq!(with_key(&report, "csharpsquid:S4018").len(), 1);
+    }
 }

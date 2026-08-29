@@ -1,3 +1,4 @@
+use super::support::field_declarators;
 use super::support::has_any_accessibility;
 use super::support::has_modifier;
 use crate::CsLanguage;
@@ -16,7 +17,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             && !has_modifier(&modifiers, "readonly")
             && has_any_accessibility(&modifiers)
         {
-            for declarator in collect_kinds(field, &["variable_declarator"]) {
+            for declarator in field_declarators(field) {
                 let name = declarator.child_by_field_name("name").unwrap_or(declarator);
                 let name_text = node_text(name, source);
                 issues.push(issue(

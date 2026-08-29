@@ -56,7 +56,18 @@ fn looks_like_secret(value: &str, sensibility: u32) -> bool {
         value.chars().any(|c| c.is_ascii_digit()),
         value.chars().any(|c| !c.is_ascii_alphanumeric()),
     ];
-    value.len() >= 8
+    value.chars().count() >= 8
         && classes.iter().filter(|seen| **seen).count()
             >= usize::try_from(sensibility).unwrap_or(usize::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s6418_minimum_length_counts_characters_not_utf8_bytes() {
+        let report = analyze_default("var apiKey = \"aA1!éé\";\n");
+        assert!(with_key(&report, "csharpsquid:S6418").is_empty());
+    }
 }

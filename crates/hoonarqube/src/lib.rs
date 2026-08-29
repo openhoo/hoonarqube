@@ -84,54 +84,35 @@ pub use hoonarqube_core::language_for_path;
 mod tests {
     use super::{AnalyzerOptions, analyze};
     use crate::catalog;
-    use std::path::PathBuf;
-    use std::sync::atomic::{AtomicU32, Ordering};
-
-    fn unique_python_fixture(source: &str) -> PathBuf {
-        static COUNTER: AtomicU32 = AtomicU32::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "hoonarqube-facade-smoke-{}-{}.py",
-            std::process::id(),
-            COUNTER.fetch_add(1, Ordering::Relaxed),
-        ));
-        std::fs::write(&path, source).expect("write smoke-test fixture");
-        path
-    }
+    use std::path::Path;
 
     /// Facade end-to-end contract: analyzing a Python fixture through this
     /// crate yields findings whose rule keys resolve in the re-exported
-    /// embedded catalog, including a deterministic trailing-whitespace hit.
+    /// embedded catalog for every registered language.
     #[test]
     fn analyze_finding_rule_keys_resolve_through_embedded_catalog() {
-        let source = "x = 1 \n";
-        let path = unique_python_fixture(source);
-
-        let report =
-            analyze(&path, source, &AnalyzerOptions::default()).expect(".py fixture must analyze");
-        assert!(
-            !report.issues.is_empty(),
-            "fixture must produce at least one finding"
-        );
-
         let embedded = catalog::embedded();
-        for issue in &report.issues {
-            let record = embedded.rule(&issue.rule_key).unwrap_or_else(|| {
-                panic!(
-                    "rule key {} must resolve through the embedded catalog",
-                    issue.rule_key
-                )
-            });
-            assert_eq!(record.external_key, issue.rule_key);
+        let fixtures = [
+            ("fixture.py", "x = 1 \n"),
+            ("fixture.js", "eval('x');\n"),
+            ("fixture.ts", "eval('x');\n"),
+            ("fixture.cs", "\tint x;\nclass A\n{\n}\n"),
+            ("fixture.go", "package p\nfunc bad_name() {}\n"),
+            ("fixture.rs", "fn main() { println!(\"hello\"); }\n"),
+        ];
+        for (path, source) in fixtures {
+            let report = analyze(Path::new(path), source, &AnalyzerOptions::default())
+                .unwrap_or_else(|| panic!("{path} must be registered"));
+            assert!(!report.issues.is_empty(), "{path} must produce a finding");
+            for issue in &report.issues {
+                let record = embedded.rule(&issue.rule_key).unwrap_or_else(|| {
+                    panic!(
+                        "rule key {} from {path} must resolve through the embedded catalog",
+                        issue.rule_key
+                    )
+                });
+                assert_eq!(record.external_key, issue.rule_key);
+            }
         }
-
-        assert!(
-            report
-                .issues
-                .iter()
-                .any(|issue| issue.rule_key == "python:S1131"),
-            "trailing-whitespace fixture must flag python:S1131"
-        );
-
-        let _ = std::fs::remove_file(&path);
     }
 }

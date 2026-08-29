@@ -12,9 +12,10 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .filter(|literal| !is_error_tainted(*literal))
         .filter(|literal| {
             let text = node_text(*literal, source);
+            let digits = text.trim_end_matches(['u', 'U', 'l', 'L']);
             integer_literal_value(text).is_some()
-                && text.contains('_')
-                && text.split('_').skip(1).any(|group| group.len() != 3)
+                && digits.contains('_')
+                && digits.split('_').skip(1).any(|group| group.len() != 3)
         })
         .map(|literal| {
             issue(
@@ -62,6 +63,14 @@ mod tests {
     fn s3937_accepts_regular_binary_literal_groups() {
         let report = analyze_default(
             "class A\n{\n    void M()\n    {\n        var bits = 0b101_010_101;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3937").is_empty());
+    }
+
+    #[test]
+    fn s3937_ignores_integer_type_suffixes_when_measuring_groups() {
+        let report = analyze_default(
+            "class A\n{\n    long decimalValue = 1_000L;\n    ulong binaryValue = 0b101_010UL;\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S3937").is_empty());
     }

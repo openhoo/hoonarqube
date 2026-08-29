@@ -184,7 +184,8 @@ impl<'a> Visit<'a> for ComplexityWalker {
         self.visit_expression(&it.test);
         let saved = self.nesting;
         self.nesting += 1;
-        walk_conditional_expression(self, it);
+        self.visit_expression(&it.consequent);
+        self.visit_expression(&it.alternate);
         self.nesting = saved;
     }
 

@@ -94,35 +94,29 @@ pub fn analyze(
     source: &str,
     options: &AnalyzerOptions,
 ) -> Option<hoonarqube_ir::FileReport> {
-    let report = match language_for_path(path)? {
-        Language::Python => hoonarqube_python::analyze(path.to_path_buf(), source, &options.python),
-        Language::JavaScript => hoonarqube_jsts::analyze(
-            path.to_path_buf(),
-            source,
-            JstsLanguage::JavaScript,
-            &options.jsts,
-        ),
-        Language::TypeScript => hoonarqube_jsts::analyze(
-            path.to_path_buf(),
-            source,
-            JstsLanguage::TypeScript,
-            &options.jsts,
-        ),
-        Language::CSharp => hoonarqube_csharp::analyze(
-            path.to_path_buf(),
-            source,
-            CsLanguage::CSharp,
-            &options.csharp,
-        ),
-        Language::Go => hoonarqube_go::analyze(path.to_path_buf(), source, &options.go),
-        Language::Rust => hoonarqube_rust::analyze(path.to_path_buf(), source, &options.rust),
+    let language = language_for_path(path)?;
+    let path = path.to_path_buf();
+    let report = match language {
+        Language::Python => hoonarqube_python::analyze(path, source, &options.python),
+        Language::JavaScript => {
+            hoonarqube_jsts::analyze(path, source, JstsLanguage::JavaScript, &options.jsts)
+        }
+        Language::TypeScript => {
+            hoonarqube_jsts::analyze(path, source, JstsLanguage::TypeScript, &options.jsts)
+        }
+        Language::CSharp => {
+            hoonarqube_csharp::analyze(path, source, CsLanguage::CSharp, &options.csharp)
+        }
+        Language::Go => hoonarqube_go::analyze(path, source, &options.go),
+        Language::Rust => hoonarqube_rust::analyze(path, source, &options.rust),
     };
     Some(report)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{AnalyzerOptions, Language, analyze, language_for_path};
+    use super::{AnalyzerOptions, EXTENSIONS, Language, analyze, language_for_path};
+    use std::collections::HashSet;
     use std::path::Path;
 
     #[test]
@@ -146,6 +140,22 @@ mod tests {
             let path = Path::new(&file);
             assert_eq!(language_for_path(path), Some(expected), "extension {ext}");
         }
+    }
+
+    #[test]
+    fn extension_registry_has_unique_canonical_keys_and_claims_every_language() {
+        let mut extensions = HashSet::new();
+        let mut languages = HashSet::new();
+        for (extension, language) in EXTENSIONS {
+            assert!(!extension.is_empty());
+            assert!(extension.bytes().all(|byte| byte.is_ascii_lowercase()));
+            assert!(
+                extensions.insert(*extension),
+                "duplicate extension {extension}"
+            );
+            languages.insert(*language);
+        }
+        assert_eq!(languages.len(), 6, "every language needs an extension");
     }
 
     #[test]

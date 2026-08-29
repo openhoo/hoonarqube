@@ -1,3 +1,4 @@
+use super::support::member_uses;
 use crate::CsLanguage;
 use crate::cst::{issue, modifiers_of, range_of};
 use crate::rules::modifiers::has_modifier;
@@ -22,7 +23,7 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
         {
             continue;
         }
-        let uses = symbols.uses_of(member.name);
+        let uses = member_uses(symbols, member, source);
         if uses.is_empty() {
             continue;
         }
@@ -100,5 +101,14 @@ mod tests {
             "class C\n{\n    private int orphan;\n\n    public void Touch()\n    {\n        Log(\"noop\");\n    }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S1450").is_empty());
+    }
+
+    #[test]
+    fn s1450_does_not_borrow_method_homes_from_unrelated_types() {
+        let report = analyze_default(
+            "class A\n{\n    private int scratch;\n    public int Run() { scratch = 1; return scratch; }\n}\n\nclass B\n{\n    private int scratch;\n    public int Other() { scratch = 2; return scratch; }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1450");
+        assert_eq!(flagged.len(), 2);
     }
 }

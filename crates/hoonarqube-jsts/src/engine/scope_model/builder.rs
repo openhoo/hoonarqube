@@ -193,6 +193,9 @@ impl<'a> TbBuilder<'a, '_> {
                 self.declare_pattern(&parameter.pattern, TbKind::Param);
             }
         }
+        if let Some(rest) = &parameters.rest {
+            self.declare_pattern(&rest.rest.argument, TbKind::Param);
+        }
     }
 
     /// `for (let v of xs)` assigns `v` although no assignment node exists.
@@ -486,8 +489,8 @@ pub(crate) fn signature_arity(parameters: &oxc_ast::ast::FormalParameters<'_>) -
     let minimum = parameters
         .items
         .iter()
-        .filter(|parameter| parameter.initializer.is_none() && !parameter.optional)
-        .count();
+        .rposition(|parameter| parameter.initializer.is_none() && !parameter.optional)
+        .map_or(0, |position| position + 1);
     let maximum = parameters.rest.is_none().then(|| parameters.items.len());
     TbSignature {
         minimum,

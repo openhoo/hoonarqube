@@ -19,9 +19,9 @@
 //! exist in this crate; the coverage audit gaps are explained here in code:
 //!
 //! - `javascript:S1874` / `typescript:S1874` (usage of deprecated APIs):
-//!   detection needs a deprecated-API database (browser/ECMAScript
-//!   compatibility dataset) that is not bundled with the analyzer. Without
-//!   that data, any single-file approximation would be guesswork.
+//!   detection needs TypeScript program diagnostics backed by semantic symbol
+//!   resolution and dependency declaration metadata. Without that context,
+//!   any single-file approximation would be guesswork.
 //! - `javascript:S6627` / `typescript:S4328` / `typescript:S6627` (imports
 //!   of internal APIs and unresolvable imports): detection needs cross-file
 //!   module resolution to prove whether an imported `_`-prefixed internal
@@ -36,7 +36,7 @@
 //!   heuristic only fires on legitimate semicolon-free style.
 use crate::context::{AnalysisContext, RuleOptions};
 use crate::support::{
-    LineIndex, extension_of, file_metrics, scan_comments, sort_issues, source_type_for, span_issue,
+    LineIndex, file_metrics, scan_comments, sort_issues, source_type_for, span_issue,
 };
 
 mod context;
@@ -48,6 +48,11 @@ use std::path::PathBuf;
 use hoonarqube_ir::Issue;
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
+
+// Oxc's generated visitors recurse once per AST level. Keep that recursion off
+// the caller's usually small test/runtime stack: adversarial but valid source
+// must not abort the whole analyzer process before a report can be produced.
+const ANALYZER_STACK_SIZE: usize = 128 * 1024 * 1024;
 
 /// Language of one analyzed file; selects the issue `rule_key` prefix and the
 /// parser's source type.
@@ -149,7 +154,28 @@ pub fn analyze(
     // (structural thresholds, hotspot knobs) are pinned to their catalog
     // defaults inside the rule modules.
     let rules = RuleOptions::from(options);
-    analyze_with_rules(path, source, language, options, &rules)
+    analyze_on_scoped_stack(path, source, language, options, &rules)
+}
+
+fn analyze_on_scoped_stack(
+    path: PathBuf,
+    source: &str,
+    language: JstsLanguage,
+    options: &AnalyzerOptions,
+    rules: &RuleOptions,
+) -> hoonarqube_ir::FileReport {
+    std::thread::scope(|scope| {
+        let worker = std::thread::Builder::new()
+            .name("hoonarqube-jsts".to_owned())
+            .stack_size(ANALYZER_STACK_SIZE)
+            .spawn_scoped(scope, move || {
+                analyze_with_rules(path, source, language, options, rules)
+            })
+            .unwrap_or_else(|error| panic!("failed to start JS/TS analyzer worker: {error}"));
+        worker
+            .join()
+            .unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+    })
 }
 
 fn analyze_with_rules(
@@ -160,12 +186,7 @@ fn analyze_with_rules(
     rules: &RuleOptions,
 ) -> hoonarqube_ir::FileReport {
     let allocator = Allocator::default();
-    let parsed = Parser::new(
-        &allocator,
-        source,
-        source_type_for(language, extension_of(&path)),
-    )
-    .parse();
+    let parsed = Parser::new(&allocator, source, source_type_for(language, &path)).parse();
     let index = LineIndex::new(source);
     // One comment-scan pass shared by every comment-consuming check and by
     // `file_metrics` (previously up to seven identical scans per file).

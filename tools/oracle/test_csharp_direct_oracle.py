@@ -130,6 +130,56 @@ class CSharpDirectOracleTests(unittest.TestCase):
             )
             self.assertEqual(catalog_rule_ids(path), ["S100", "S200"])
 
+    def test_catalog_and_sarif_rule_scope_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog = root / "csharp.json"
+            catalog.write_text(
+                json.dumps(
+                    {
+                        "rules": [
+                            {"external_key": "csharpsquid:S100"},
+                            {"external_key": "csharpsquid:S100"},
+                        ]
+                    }
+                )
+            )
+            with self.assertRaisesRegex(ValueError, "duplicate rule IDs"):
+                catalog_rule_ids(catalog)
+
+            sarif = root / "target.sarif"
+            sarif.write_text(
+                json.dumps(
+                    {
+                        "runs": [
+                            {
+                                "results": [
+                                    {
+                                        "ruleId": "S200",
+                                        "message": "unexpected",
+                                        "locations": [
+                                            {
+                                                "resultFile": {
+                                                    "uri": "fixture.cs",
+                                                    "region": {
+                                                        "startLine": 1,
+                                                        "startColumn": 1,
+                                                        "endLine": 1,
+                                                        "endColumn": 2,
+                                                    },
+                                                }
+                                            }
+                                        ],
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                )
+            )
+            with self.assertRaisesRegex(ValueError, "absent from C# catalog"):
+                sarif_issues([sarif], allowed_rule_ids={"S100"})
+
     def test_rejects_malformed_sonar_results_instead_of_dropping_them(self):
         valid = {
             "ruleId": "S1905",
@@ -184,6 +234,33 @@ class CSharpDirectOracleTests(unittest.TestCase):
                     path.write_text(json.dumps(report))
                     with self.assertRaisesRegex(ValueError, "SARIF"):
                         sarif_issues([path])
+
+    def test_only_allowlisted_infra_rules_may_lack_primary_locations(self):
+        result = {
+            "ruleId": "S3904",
+            "message": "Provide an explicit CLSCompliant attribute.",
+            "locations": [],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "target.sarif"
+            path.write_text(json.dumps({"runs": [{"results": [result]}]}))
+
+            with self.assertRaisesRegex(ValueError, "primary location"):
+                sarif_issues([path], allowed_rule_ids={"S3904"})
+            self.assertEqual(
+                sarif_issues(
+                    [path],
+                    allowed_rule_ids={"S3904"},
+                    unlocated_rule_ids={"S3904"},
+                ),
+                [],
+            )
+            with self.assertRaisesRegex(ValueError, "within catalog scope"):
+                sarif_issues(
+                    [path],
+                    allowed_rule_ids={"S3904"},
+                    unlocated_rule_ids={"S9999"},
+                )
 
 
 if __name__ == "__main__":

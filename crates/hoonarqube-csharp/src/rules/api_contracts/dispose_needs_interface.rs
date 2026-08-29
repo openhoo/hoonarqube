@@ -1,6 +1,8 @@
 use super::support::dispose_methods;
 use crate::CsLanguage;
-use crate::cst::{base_simple_names, collect_kinds, is_error_tainted, issue, range_of};
+use crate::cst::{
+    base_simple_names, collect_kinds, is_error_tainted, issue, parameters_of, range_of,
+};
 use crate::rules::naming::TYPE_DECLARATION_KINDS;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -13,7 +15,9 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .filter(|type_node| !is_error_tainted(*type_node))
         .filter(|type_node| !base_simple_names(*type_node, source).contains(&"IDisposable"))
         .filter_map(|type_node| {
-            let dispose = dispose_methods(type_node, source).into_iter().next()?;
+            let dispose = dispose_methods(type_node, source)
+                .into_iter()
+                .find(|method| parameters_of(*method).is_empty())?;
             let name = dispose.child_by_field_name("name").unwrap_or(dispose);
             Some(issue(
                 language,
@@ -38,6 +42,14 @@ mod tests {
     #[test]
     fn s2953_interface_without_dispose_method_is_not_flagged() {
         let report = analyze_default("class Odd : IDisposable\n{\n}\n");
+        assert!(with_key(&report, "csharpsquid:S2953").is_empty());
+    }
+
+    #[test]
+    fn s2953_spares_overloads_that_are_not_idisposable_dispose() {
+        let report = analyze_default(
+            "class Formatter\n{\n    public void Dispose(bool flush) { }\n    public void Dispose(int count) { }\n}\n",
+        );
         assert!(with_key(&report, "csharpsquid:S2953").is_empty());
     }
 }

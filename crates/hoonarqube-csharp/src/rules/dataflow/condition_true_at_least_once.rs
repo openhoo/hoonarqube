@@ -1,7 +1,8 @@
 use super::support::constant_integer_value;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
-use crate::rules::expressions::binary_operands;
+use crate::rules::expressions::{binary_operands, operator_of};
+use crate::rules::literals::declarator_initializer;
 use crate::rules::structure::{binary_operator, counter_name, for_clauses};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -50,10 +51,25 @@ fn counter_entry_value<'a>(loop_header: Node<'_>, source: &'a str) -> Option<(&'
         return None;
     };
     let counter = counter_name(initializer, source)?;
-    let literal = collect_kinds(initializer, &["integer_literal"])
+    let declaration_value = collect_kinds(initializer, &["variable_declarator"])
         .into_iter()
-        .next()?;
-    let value = constant_integer_value(literal, source)?;
+        .find_map(|declarator| {
+            let name = declarator.child_by_field_name("name")?;
+            if node_text(name, source) != counter {
+                return None;
+            }
+            declarator_initializer(declarator, name)
+        });
+    let assignment_value = collect_kinds(initializer, &["assignment_expression"])
+        .into_iter()
+        .find_map(|assignment| {
+            let left = assignment.child_by_field_name("left")?;
+            if operator_of(assignment) != Some("=") || node_text(left, source) != counter {
+                return None;
+            }
+            assignment.child_by_field_name("right")
+        });
+    let value = constant_integer_value(declaration_value.or(assignment_value)?, source)?;
     Some((counter, value))
 }
 
@@ -206,5 +222,13 @@ mod tests {
         let found = with_key(&report, KEY);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].range.start.line, 4);
+    }
+
+    #[test]
+    fn negative_for_initializer_keeps_its_sign() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        for (int i = -5; i < 0; i++) {\n            Tick(i);\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
     }
 }

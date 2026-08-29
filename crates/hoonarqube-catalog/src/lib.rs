@@ -9,20 +9,29 @@
 //! only mean corrupted build artifacts. [`embedded`] therefore panics with a
 //! precise message instead of ever exposing unverified catalog data.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
-/// Embedded languages in canonical audit order: `(catalog name, language id)`.
-const LANGUAGES: [(&str, &str); 6] = [
-    ("csharp", "cs"),
-    ("javascript", "js"),
-    ("typescript", "ts"),
-    ("python", "py"),
-    ("go", "go"),
-    ("rust", "rust"),
+/// Embedded languages in canonical audit order: `(catalog name, language id, repository)`.
+const LANGUAGES: [(&str, &str, &str); 6] = [
+    ("csharp", "cs", "csharpsquid"),
+    ("javascript", "js", "javascript"),
+    ("typescript", "ts", "typescript"),
+    ("python", "py", "python"),
+    ("go", "go", "go"),
+    ("rust", "rust", "rust"),
+];
+
+const REQUIRED_ENDPOINTS: [&str; 6] = [
+    "api/navigation/global",
+    "api/plugins/installed",
+    "api/server/version",
+    "api/settings/values?keys=sonar.multi-quality-mode.enabled",
+    "api/system/status",
+    "api/webservices/list",
 ];
 
 const SCOPE_CLASSIFICATION: &str = "community-plus-enterprise-unverified";
@@ -205,6 +214,21 @@ pub struct Catalog {
     languages: Vec<LanguageCatalog>,
 }
 
+#[derive(Debug, Deserialize)]
+struct CommunityResolution {
+    schema_version: u16,
+    target: CommunityTarget,
+    enterprise_unverified_rules: BTreeMap<String, Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CommunityTarget {
+    oracle_edition: String,
+    requires_license: bool,
+    includes_enterprise_rules: bool,
+    classification: String,
+}
+
 /// Returns the process-wide verified embedded catalog.
 ///
 /// Verification replays the `xtask catalog audit` semantics once; the result is cached
@@ -310,28 +334,21 @@ impl LanguageCatalog {
 fn verify(snapshot_text: &str, rule_texts: [&str; 6]) -> Result<Catalog, String> {
     let snapshot: Snapshot = toml::from_str(snapshot_text)
         .map_err(|error| format!("catalog snapshot is invalid: {error}"))?;
-    if snapshot.schema_version != 4 {
-        return Err("unsupported catalog snapshot schema".to_owned());
-    }
-    if snapshot.scope_classification != SCOPE_CLASSIFICATION {
-        return Err("snapshot has invalid scope classification".to_owned());
-    }
-    if snapshot.oracle_edition != "community" {
-        return Err("snapshot oracle is not Community".to_owned());
-    }
-    if snapshot.community_evidence_sha256 != sha256(COMMUNITY_EVIDENCE_JSON.as_bytes()) {
-        return Err("Community scope evidence hash mismatch".to_owned());
-    }
+    verify_snapshot(&snapshot)?;
+    verify_community_evidence(&snapshot)?;
 
     let mut source_total = 0_usize;
     let mut scoped_total = 0_usize;
     let mut catalog_hasher = Sha256::new();
     let mut languages = Vec::with_capacity(LANGUAGES.len());
-    for ((language_name, language_id), rule_text) in LANGUAGES.iter().copied().zip(rule_texts) {
+    for ((language_name, language_id, repository), rule_text) in
+        LANGUAGES.iter().copied().zip(rule_texts)
+    {
         let language = verify_language(
             &snapshot,
             language_name,
             language_id,
+            repository,
             rule_text,
             &mut catalog_hasher,
         )?;
@@ -354,15 +371,96 @@ fn verify(snapshot_text: &str, rule_texts: [&str; 6]) -> Result<Catalog, String>
     })
 }
 
+fn verify_snapshot(snapshot: &Snapshot) -> Result<(), String> {
+    if snapshot.schema_version != 4 {
+        return Err("unsupported catalog snapshot schema".to_owned());
+    }
+    if snapshot.scope_classification != SCOPE_CLASSIFICATION {
+        return Err("snapshot has invalid scope classification".to_owned());
+    }
+    if snapshot.oracle_edition != "community" {
+        return Err("snapshot oracle is not Community".to_owned());
+    }
+    if !is_sha256(&snapshot.capture_sha256)
+        || !is_sha256(&snapshot.catalog_sha256)
+        || snapshot.captured_at_utc.is_empty()
+        || snapshot.server_version.is_empty()
+        || snapshot.edition.is_empty()
+        || snapshot.instance_mode.is_empty()
+        || snapshot.page_size == 0
+    {
+        return Err("snapshot capture provenance is incomplete".to_owned());
+    }
+    if !has_exact_language_keys(&snapshot.languages)
+        || !has_exact_language_keys(&snapshot.unverified_rules)
+        || !has_exact_language_keys(&snapshot.rule_files)
+    {
+        return Err("snapshot language scope mismatch".to_owned());
+    }
+    if snapshot.endpoints.len() != REQUIRED_ENDPOINTS.len()
+        || REQUIRED_ENDPOINTS
+            .iter()
+            .any(|endpoint| !snapshot.endpoints.contains_key(*endpoint))
+        || snapshot.endpoints.values().any(|receipt| {
+            !(200..300).contains(&receipt.status)
+                || receipt.bytes == 0
+                || !is_sha256(&receipt.sha256)
+        })
+    {
+        return Err("snapshot endpoint provenance is incomplete".to_owned());
+    }
+    if snapshot.plugins.is_empty()
+        || !snapshot
+            .plugins
+            .windows(2)
+            .all(|pair| pair[0].key < pair[1].key)
+        || snapshot.plugins.iter().any(|plugin| plugin.key.is_empty())
+    {
+        return Err("snapshot plugin provenance is incomplete".to_owned());
+    }
+    Ok(())
+}
+
+fn verify_community_evidence(snapshot: &Snapshot) -> Result<(), String> {
+    if snapshot.community_evidence_sha256 != sha256(COMMUNITY_EVIDENCE_JSON.as_bytes()) {
+        return Err("Community scope evidence hash mismatch".to_owned());
+    }
+    let evidence: CommunityResolution = serde_json::from_str(COMMUNITY_EVIDENCE_JSON)
+        .map_err(|error| format!("Community artifact-resolution evidence is invalid: {error}"))?;
+    if evidence.schema_version != 3 {
+        return Err("unsupported Community evidence schema".to_owned());
+    }
+    if evidence.target.oracle_edition != "community"
+        || evidence.target.requires_license
+        || !evidence.target.includes_enterprise_rules
+        || evidence.target.classification != SCOPE_CLASSIFICATION
+    {
+        return Err(
+            "Community evidence does not describe the declared mixed rule scope".to_owned(),
+        );
+    }
+    if !has_exact_language_keys(&evidence.enterprise_unverified_rules) {
+        return Err("Community evidence language scope mismatch".to_owned());
+    }
+    if evidence.enterprise_unverified_rules != snapshot.unverified_rules {
+        return Err("snapshot unverified rules differ from Community evidence".to_owned());
+    }
+    Ok(())
+}
+
 fn verify_language(
     snapshot: &Snapshot,
     language_name: &'static str,
     language_id: &'static str,
+    repository: &'static str,
     rule_text: &str,
     catalog_hasher: &mut Sha256,
 ) -> Result<LanguageCatalog, String> {
     let catalog: RuleCatalog = serde_json::from_str(rule_text)
         .map_err(|error| format!("invalid catalog file {language_name}.json: {error}"))?;
+    if catalog.schema_version != 1 {
+        return Err("unsupported rule catalog schema".to_owned());
+    }
     if catalog.language != language_id {
         return Err("catalog language mismatch".to_owned());
     }
@@ -383,18 +481,7 @@ fn verify_language(
         .languages
         .get(language_name)
         .ok_or_else(|| format!("snapshot lacks {language_name}"))?;
-    if catalog.source_capture_sha256 != receipt.source_capture_sha256 {
-        return Err("catalog capture provenance mismatch".to_owned());
-    }
-    if receipt.oracle_edition != "community"
-        || receipt.page_size == 0
-        || receipt.server_version.is_empty()
-        || receipt.captured_at_utc.is_empty()
-        || receipt.source_edition.is_empty()
-        || receipt.instance_mode.is_empty()
-    {
-        return Err("language capture provenance is incomplete".to_owned());
-    }
+    verify_language_receipt(receipt, &catalog, language_id, repository)?;
     let unverified = snapshot
         .unverified_rules
         .get(language_name)
@@ -403,7 +490,9 @@ fn verify_language(
         return Err("unverified rules are not strictly key-sorted".to_owned());
     }
     if unverified.iter().any(|key| {
-        !key.starts_with(&format!("{}:", receipt.repository))
+        key.strip_prefix(repository)
+            .and_then(|rest| rest.strip_prefix(':'))
+            .is_none_or(str::is_empty)
             || catalog.rules.iter().all(|rule| &rule.external_key != key)
     }) {
         return Err("invalid or missing unverified rule".to_owned());
@@ -418,6 +507,7 @@ fn verify_language(
     }) {
         return Err("rule verification classification mismatch".to_owned());
     }
+    verify_rule_facts(&catalog, language_id, repository)?;
     if !counts_match(receipt.source_total, catalog.rules.len())
         || !counts_match(receipt.total, catalog.rules.len())
     {
@@ -433,6 +523,109 @@ fn verify_language(
         language_id,
         catalog,
     })
+}
+
+fn verify_language_receipt(
+    receipt: &SnapshotLanguage,
+    catalog: &RuleCatalog,
+    language_id: &str,
+    repository: &str,
+) -> Result<(), String> {
+    if receipt.language != language_id || receipt.repository != repository {
+        return Err("language receipt identity mismatch".to_owned());
+    }
+    if catalog.source_capture_sha256 != receipt.source_capture_sha256 {
+        return Err("catalog capture provenance mismatch".to_owned());
+    }
+    if receipt.oracle_edition != "community"
+        || receipt.page_size == 0
+        || !is_sha256(&receipt.source_capture_sha256)
+        || !is_sha256(&receipt.query_sha256)
+        || !is_sha256(&receipt.pages_sha256)
+        || !is_sha256(&receipt.keys_sha256)
+        || !is_sha256(&receipt.shows_sha256)
+        || receipt.server_version.is_empty()
+        || receipt.captured_at_utc.is_empty()
+        || receipt.source_edition.is_empty()
+        || receipt.instance_mode.is_empty()
+    {
+        return Err("language capture provenance is incomplete".to_owned());
+    }
+    let expected_pages = receipt.source_total.max(1).div_ceil(receipt.page_size);
+    if !counts_match(receipt.source_total, receipt.unique_keys)
+        || !counts_match(receipt.source_total, receipt.show_count)
+        || !counts_match(expected_pages, receipt.page_count)
+    {
+        return Err("language capture closure mismatch".to_owned());
+    }
+    Ok(())
+}
+
+fn verify_rule_facts(
+    catalog: &RuleCatalog,
+    language_id: &str,
+    repository: &str,
+) -> Result<(), String> {
+    if !is_sha256(&catalog.source_capture_sha256)
+        || catalog.rules.iter().any(|rule| {
+            rule.language != language_id
+                || rule.repository != repository
+                || rule
+                    .external_key
+                    .strip_prefix(repository)
+                    .and_then(|rest| rest.strip_prefix(':'))
+                    .is_none_or(str::is_empty)
+        })
+    {
+        return Err("catalog rule identity mismatch".to_owned());
+    }
+    if catalog.rules.iter().any(|rule| {
+        rule.provenance_id != catalog.source_capture_sha256
+            || rule.status.is_empty()
+            || rule.scope.is_empty()
+            || rule.severity.is_empty()
+            || rule.rule_type.is_empty()
+            || rule
+                .clean_code_attribute
+                .as_ref()
+                .is_some_and(String::is_empty)
+            || rule
+                .clean_code_attribute_category
+                .as_ref()
+                .is_some_and(String::is_empty)
+            || rule
+                .impacts
+                .iter()
+                .any(|impact| impact.software_quality.is_empty() || impact.severity.is_empty())
+            || rule
+                .parameters
+                .iter()
+                .any(|parameter| parameter.key.is_empty())
+            || !all_unique(
+                rule.parameters
+                    .iter()
+                    .map(|parameter| parameter.key.as_str()),
+            )
+    }) {
+        return Err("catalog contains incomplete rule facts".to_owned());
+    }
+    Ok(())
+}
+
+fn all_unique<'a>(values: impl Iterator<Item = &'a str>) -> bool {
+    let mut seen = BTreeSet::new();
+    values.into_iter().all(|value| seen.insert(value))
+}
+
+fn has_exact_language_keys<T>(map: &BTreeMap<String, T>) -> bool {
+    map.len() == LANGUAGES.len() && LANGUAGES.iter().all(|(name, _, _)| map.contains_key(*name))
+}
+
+fn is_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// Whether `rules` are strictly ascending by `external_key`.
@@ -632,6 +825,47 @@ mod tests {
         assert!(
             error.contains("unknown field `name`"),
             "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn unsupported_per_language_schema_fails_verification() {
+        let tampered = PYTHON_JSON.replacen("\"schema_version\": 1", "\"schema_version\": 2", 1);
+        let mut rule_texts = PRISTINE;
+        rule_texts[3] = &tampered;
+        let error = verify(SNAPSHOT_TOML, rule_texts).expect_err("unknown schema must fail");
+        assert_eq!(error, "unsupported rule catalog schema");
+    }
+
+    #[test]
+    fn mismatched_rule_repository_fails_verification() {
+        let tampered = PYTHON_JSON.replacen(
+            "\"repository\": \"python\"",
+            "\"repository\": \"not-python\"",
+            1,
+        );
+        let mut rule_texts = PRISTINE;
+        rule_texts[3] = &tampered;
+        let error = verify(SNAPSHOT_TOML, rule_texts).expect_err("wrong repository must fail");
+        assert_eq!(error, "catalog rule identity mismatch");
+    }
+
+    #[test]
+    fn incomplete_page_closure_fails_verification() {
+        let tampered = SNAPSHOT_TOML.replacen("unique_keys = 335", "unique_keys = 334", 1);
+        assert_ne!(tampered, SNAPSHOT_TOML);
+        let error = verify(&tampered, PRISTINE).expect_err("incomplete key closure must fail");
+        assert_eq!(error, "language capture closure mismatch");
+    }
+
+    #[test]
+    fn snapshot_unverified_scope_must_match_community_evidence() {
+        let tampered = SNAPSHOT_TOML.replacen("    \"csharpsquid:S2053\",\n", "", 1);
+        assert_ne!(tampered, SNAPSHOT_TOML);
+        let error = verify(&tampered, PRISTINE).expect_err("changed scope must fail");
+        assert_eq!(
+            error,
+            "snapshot unverified rules differ from Community evidence"
         );
     }
 }

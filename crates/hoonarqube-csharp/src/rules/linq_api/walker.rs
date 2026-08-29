@@ -33,6 +33,7 @@ use crate::rules::api_contracts::{
     check_unconstrained_assertions, check_utility_class_constructors, check_weak_identity_locks,
     comment_tag_issues,
 };
+use crate::rules::linq_api::check_linq_receivers;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -101,10 +102,37 @@ pub(crate) fn linq_api_issues(root: Node<'_>, source: &str, language: CsLanguage
     issues.extend(check_array_arguments_for_params_calls(
         root, source, language,
     ));
+    issues.extend(check_linq_receivers(root, source, language));
     issues.extend(check_readonly_primitive_fields(root, source, language));
     issues.extend(check_assembly_versions(root, source, language));
     issues.extend(check_public_list_signatures(root, source, language));
     issues.extend(check_collection_property_setters(root, source, language));
     issues.extend(check_debugger_display_references(root, source, language));
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use super::linq_api_issues;
+    use crate::rules::api_patterns::framework_api_issues;
+    use crate::{CsLanguage, parse};
+
+    #[test]
+    fn linq_receiver_rules_run_once_in_their_own_family() {
+        let source = "class C { int M(List<int> values) => values.First(); }";
+        let tree = parse(source);
+        let root = tree.root_node();
+
+        let linq_findings = linq_api_issues(root, source, CsLanguage::CSharp)
+            .into_iter()
+            .filter(|issue| issue.rule_key == "csharpsquid:S6608")
+            .count();
+        let framework_findings = framework_api_issues(root, source, CsLanguage::CSharp)
+            .into_iter()
+            .filter(|issue| issue.rule_key == "csharpsquid:S6608")
+            .count();
+
+        assert_eq!(linq_findings, 1);
+        assert_eq!(framework_findings, 0);
+    }
 }

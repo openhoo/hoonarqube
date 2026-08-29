@@ -16,8 +16,8 @@ use oxc_ast::ast::{
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_assignment_expression, walk_call_expression, walk_class, walk_formal_parameter,
-    walk_function, walk_function_body, walk_method_definition, walk_ts_interface_declaration,
-    walk_variable_declarator,
+    walk_function, walk_function_body, walk_method_definition, walk_object_property,
+    walk_ts_interface_declaration, walk_variable_declarator,
 };
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeFlags;
@@ -148,6 +148,7 @@ impl<'a> Visit<'a> for BindingCollector<'a, '_> {
             );
         }
         self.check_credential_pair(property_key_name(&it.key), Some(&it.value));
+        walk_object_property(self, it);
     }
 
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
@@ -644,5 +645,12 @@ export { Model };
         let construct_signature = ts_keys("interface Factory {\n  new (): Factory;\n}\n");
         assert_eq!(count_key(&construct_signature, "typescript:S4124"), 1);
         assert_eq!(count_key(&construct_signature, "typescript:S4023"), 0);
+    }
+
+    #[test]
+    fn object_property_values_are_traversed_for_nested_binding_rules() {
+        let report = js("const values = { Empty: class {}, callback: function empty() {} };\n");
+        assert_eq!(filtered(&report, "S2094").len(), 1);
+        assert_eq!(filtered(&report, "S1186").len(), 1);
     }
 }

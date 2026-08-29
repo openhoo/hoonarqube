@@ -9,6 +9,24 @@ import parity_suite
 
 
 class ParitySuiteFailClosedTests(unittest.TestCase):
+    def test_fixture_inventory_includes_jsx_and_tsx_variants(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ("one.js", "two.jsx", "ignored.ts"):
+                (root / name).touch()
+
+            self.assertEqual(
+                parity_suite.fixture_file_names("oracle-js", root),
+                ["one.js", "two.jsx"],
+            )
+
+    def test_rust_scanner_keeps_native_rule_identity_across_plugin_versions(self):
+        command = parity_suite.local_scanner_command("/scanner", "oracle-rust", "/work")
+
+        self.assertIn("-Dsonar.rust.clippy.enabled=true", command)
+        self.assertIn("-Dsonar.rust.clippy.enable=true", command)
+        self.assertFalse(any("clippyReport.reportPaths" in arg for arg in command))
+
     def test_empty_oracle_token_fails_closed(self):
         with (
             mock.patch.dict(
@@ -83,6 +101,35 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
                 "oracle-py.frozen-2025_4.sq.json",
             )
 
+    def test_artifact_evidence_rejects_stale_or_missing_untagged_results(self):
+        with (
+            mock.patch.object(parity_suite, "RESULT_TAG", ""),
+            mock.patch.object(
+                parity_suite, "artifact_input_sha256", return_value="current"
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "lacks oracle input"):
+                parity_suite.validate_artifact_evidence({}, "oracle-py", "sq")
+            with self.assertRaisesRegex(ValueError, "stale or mismatched"):
+                parity_suite.validate_artifact_evidence(
+                    {
+                        "oracle_evidence": {
+                            "project": "oracle-py",
+                            "kind": "sq",
+                            "input_sha256": "old",
+                        }
+                    },
+                    "oracle-py",
+                    "sq",
+                )
+
+    def test_result_tag_cannot_bypass_missing_artifact_evidence(self):
+        with (
+            mock.patch.object(parity_suite, "RESULT_TAG", "community-26_8"),
+            self.assertRaisesRegex(ValueError, "lacks oracle input"),
+        ):
+            parity_suite.validate_artifact_evidence({}, "oracle-py", "sq")
+
     def test_result_filename_does_not_mutate_filtered_projects(self):
         projects = ["oracle-py"]
         with mock.patch.object(parity_suite, "RESULT_TAG", "frozen-2025_4"):
@@ -96,11 +143,23 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
     def test_standard_issue_fetch_validates_and_reads_every_page(self):
         pages = [
             {
-                "issues": [{"rule": "python:S1", "component": "p:one.py"}],
+                "issues": [
+                    {
+                        "rule": "python:S1",
+                        "component": "oracle-py:src/one.py",
+                        "message": "one",
+                    }
+                ],
                 "paging": {"pageIndex": 1, "pageSize": 1, "total": 2},
             },
             {
-                "issues": [{"rule": "python:S2", "component": "p:two.py"}],
+                "issues": [
+                    {
+                        "rule": "python:S2",
+                        "component": "oracle-py:src/two.py",
+                        "message": "two",
+                    }
+                ],
                 "paging": {"pageIndex": 2, "pageSize": 1, "total": 2},
             },
         ]

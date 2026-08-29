@@ -1,6 +1,6 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
-use crate::rules::dataflow::callable_blocks;
+use crate::cst::{is_error_tainted, issue, node_text, range_of};
+use crate::rules::dataflow::{callable_blocks, collect_owned_kinds};
 use crate::rules::expressions::{callee_name, invocation_arguments, invocation_receiver};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -13,31 +13,49 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     let mut issues = Vec::new();
     for body in callable_blocks(root) {
         let operations = lock_operations(body, source, &ACQUIRE, &RELEASE);
-        for (index, (method, object, node)) in operations.iter().enumerate() {
-            if RELEASE.contains(method) {
+        let mut stack: Vec<(&str, &str, Node<'_>, bool)> = Vec::new();
+        for (method, object, node) in operations {
+            if ACQUIRE.contains(&method) {
+                stack.push((method, object, node, false));
                 continue;
             }
-            let wanted_release = if *method == ACQUIRE[0] {
-                RELEASE[0]
-            } else {
-                RELEASE[1]
+            let Some(top) = stack.last_mut() else {
+                continue;
             };
-            let matched = operations[index + 1..]
-                .iter()
-                .any(|(later_method, later_object, _)| {
-                    later_method == &wanted_release && later_object == object
-                });
-            if !matched {
-                issues.push(issue(
-                    language,
-                    "S7131",
-                    format!("Call '{wanted_release}' for this lock before returning."),
-                    range_of(*node, source),
-                ));
+            let wanted_release = release_for(top.0);
+            if top.1 == object && wanted_release == method {
+                let (_, _, acquire, mismatched) = stack.pop().expect("stack is not empty");
+                if mismatched {
+                    issues.push(lock_issue(language, source, acquire, wanted_release));
+                }
+            } else {
+                top.3 = true;
             }
         }
+        issues.extend(
+            stack.into_iter().map(|(method, _, node, _)| {
+                lock_issue(language, source, node, release_for(method))
+            }),
+        );
     }
     issues
+}
+
+fn release_for(acquire: &str) -> &'static str {
+    if acquire == "AcquireReaderLock" {
+        "ReleaseReaderLock"
+    } else {
+        "ReleaseWriterLock"
+    }
+}
+
+fn lock_issue(language: CsLanguage, source: &str, node: Node<'_>, wanted_release: &str) -> Issue {
+    issue(
+        language,
+        "S7131",
+        format!("Call '{wanted_release}' for this lock before returning."),
+        range_of(node, source),
+    )
 }
 
 /// Acquire/release invocations by lock-object text, document order:
@@ -48,7 +66,7 @@ fn lock_operations<'a, 't>(
     acquire_names: &[&str],
     release_names: &[&str],
 ) -> Vec<(&'a str, &'a str, Node<'t>)> {
-    collect_kinds(body, &["invocation_expression"])
+    collect_owned_kinds(body, &["invocation_expression"])
         .into_iter()
         .filter(|call| !is_error_tainted(*call))
         .filter_map(|call| {

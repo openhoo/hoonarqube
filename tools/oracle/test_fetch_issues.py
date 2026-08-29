@@ -54,6 +54,12 @@ class FetchIssuesPaginationTests(unittest.TestCase):
                             "line": 3,
                             "message": "rename it",
                             "component": "project:fixtures/example.py",
+                            "textRange": {
+                                "startLine": 3,
+                                "startOffset": 1,
+                                "endLine": 3,
+                                "endOffset": 4,
+                            },
                         }
                     ],
                     "paging": {"pageIndex": 1, "total": 2, "pageSize": 1},
@@ -65,6 +71,7 @@ class FetchIssuesPaginationTests(unittest.TestCase):
                         {
                             "rule": "python:S101",
                             "component": "project:fixtures/other.py",
+                            "message": "file issue",
                         }
                     ],
                     "paging": {"pageIndex": 2, "total": 2, "pageSize": 1},
@@ -88,15 +95,20 @@ class FetchIssuesPaginationTests(unittest.TestCase):
             [
                 {
                     "rule": "python:S100",
-                    "line": 3,
                     "message": "rename it",
                     "file": "example.py",
+                    "range": {
+                        "start": {"line": 3, "column": 1},
+                        "end": {"line": 3, "column": 4},
+                    },
+                    "hotspot": False,
                 },
                 {
                     "rule": "python:S101",
-                    "line": None,
-                    "message": "",
+                    "message": "file issue",
                     "file": "other.py",
+                    "range": None,
+                    "hotspot": False,
                 },
             ],
         )

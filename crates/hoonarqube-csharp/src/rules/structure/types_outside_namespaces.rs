@@ -1,14 +1,18 @@
 use super::support::name_anchor;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
+use crate::cst::{collect_kinds, issue, range_of};
 use crate::rules::naming::TYPE_DECLARATION_KINDS;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
-/// csharpsquid:S3903 — types live in named namespaces. A compilation unit
-/// holding a single type stays untouched: a lone top-level type is a
-/// common, deliberate layout.
+/// csharpsquid:S3903 — every top-level type lives in a named namespace.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    if collect_kinds(root, &["file_scoped_namespace_declaration"])
+        .into_iter()
+        .any(|declaration| declaration.parent() == Some(root))
+    {
+        return Vec::new();
+    }
     let file_scope_types: Vec<Node> = collect_kinds(root, &TYPE_DECLARATION_KINDS)
         .into_iter()
         .filter(|type_declaration| {
@@ -17,14 +21,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 .is_some_and(|parent| parent.kind() == "compilation_unit")
         })
         .collect();
-    if file_scope_types.len() < 2 {
-        return Vec::new();
-    }
     let mut issues = Vec::new();
     for type_declaration in file_scope_types {
-        if is_error_tainted(type_declaration) {
-            continue;
-        }
         let name = name_anchor(type_declaration);
         issues.push(issue(
             language,

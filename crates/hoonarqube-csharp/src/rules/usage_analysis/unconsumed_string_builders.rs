@@ -1,3 +1,4 @@
+use super::support::local_uses;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of, simple_name};
 use crate::rules::expressions::{callee_name, invocation_function};
@@ -38,8 +39,7 @@ pub(crate) fn check(
         if !builds_content {
             continue;
         }
-        let uses: Vec<Node> = symbols
-            .uses_of(node_text(name, source))
+        let uses: Vec<Node> = local_uses(symbols, declarator, node_text(name, source))
             .into_iter()
             .filter(|use_site| use_site.byte_range().start > declarator.byte_range().end)
             .collect();
@@ -159,5 +159,15 @@ mod tests {
         assert_eq!(flagged.len(), 2);
         assert_eq!(flagged[0].range.start.line, 5);
         assert_eq!(flagged[1].range.start.line, 6);
+    }
+
+    #[test]
+    fn s3063_does_not_borrow_consumption_from_another_method() {
+        let report = analyze_default(
+            "class C\n{\n    void First()\n    {\n        var text = new StringBuilder();\n        text.Append(1);\n    }\n\n    string Second()\n    {\n        var text = new StringBuilder();\n        return text.ToString();\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3063");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
     }
 }

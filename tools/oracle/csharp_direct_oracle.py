@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import shutil
 import subprocess
 import tempfile
@@ -18,11 +17,18 @@ from typing import Any, Iterable
 from urllib.parse import unquote, urlparse
 
 from csharp_oracle import generate_solution, is_sonar_rule_id
+from parity import (
+    input_paths_sha256,
+    load_infra_boundaries,
+    read_json,
+    write_json_atomic,
+)
 
 
 REPO = Path(__file__).resolve().parent.parent.parent
 DEFAULT_SOURCE = REPO / ".oracle/sonar/projects/oracle-cs"
 DEFAULT_CATALOG = REPO / "catalog/rules/csharp.json"
+BUILD_TIMEOUT_SECONDS = 1800
 
 
 def sha256_file(path: Path) -> str:
@@ -34,13 +40,27 @@ def sha256_file(path: Path) -> str:
 
 
 def catalog_rule_ids(path: Path) -> list[str]:
-    catalog = json.loads(path.read_text())
-    return sorted(
-        {
-            str(rule["external_key"]).rsplit(":", 1)[-1]
-            for rule in catalog.get("rules", [])
-        }
-    )
+    catalog = read_json(path)
+    if not isinstance(catalog, dict) or not isinstance(catalog.get("rules"), list):
+        raise ValueError("C# catalog must contain a rules list")
+    rule_ids = []
+    for index, rule in enumerate(catalog["rules"]):
+        if not isinstance(rule, dict):
+            raise ValueError(f"C# catalog rule {index} must be an object")
+        key = rule.get("external_key")
+        if not isinstance(key, str) or not key.startswith("csharpsquid:"):
+            raise ValueError(
+                f"C# catalog rule {index} must have a csharpsquid external key"
+            )
+        rule_id = key.removeprefix("csharpsquid:")
+        if not is_sonar_rule_id(rule_id):
+            raise ValueError(f"invalid C# catalog rule ID: {rule_id}")
+        rule_ids.append(rule_id)
+    if not rule_ids:
+        raise ValueError("C# catalog must not be empty")
+    if len(rule_ids) != len(set(rule_ids)):
+        raise ValueError("C# catalog contains duplicate rule IDs")
+    return sorted(rule_ids)
 
 
 def _message_text(value: Any) -> str | None:
@@ -151,17 +171,19 @@ def _sarif_results(report: Any) -> Iterable[dict[str, Any]]:
             yield result
 
 
-def sarif_issues(paths: Iterable[Path]) -> list[dict[str, Any]]:
+def sarif_issues(
+    paths: Iterable[Path],
+    *,
+    allowed_rule_ids: Iterable[str] | None = None,
+    unlocated_rule_ids: Iterable[str] = (),
+) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
+    allowed = set(allowed_rule_ids) if allowed_rule_ids is not None else None
+    unlocated = set(unlocated_rule_ids)
+    if allowed is not None and not unlocated <= allowed:
+        raise ValueError("unlocated C# rule allowlist must be within catalog scope")
     for path in sorted(paths):
-        report = json.loads(path.read_text())
-        try:
-            for result in _sarif_results(report):
-                issue = _sarif_issue(result)
-                if issue is not None:
-                    issues.append(issue)
-        except ValueError as error:
-            raise ValueError(f"invalid SARIF report {path}: {error}") from error
+        issues.extend(_sarif_path_issues(path, allowed, unlocated))
     return sorted(
         issues,
         key=lambda issue: (
@@ -172,6 +194,35 @@ def sarif_issues(paths: Iterable[Path]) -> list[dict[str, Any]]:
             issue["message"],
         ),
     )
+
+
+def _sarif_path_issues(
+    path: Path, allowed: set[str] | None, unlocated: set[str]
+) -> list[dict[str, Any]]:
+    try:
+        report = read_json(path)
+        issues = []
+        for result in _sarif_results(report):
+            raw_rule_id = result.get("ruleId")
+            if is_sonar_rule_id(raw_rule_id):
+                assert isinstance(raw_rule_id, str)
+                if allowed is not None and raw_rule_id not in allowed:
+                    raise ValueError(
+                        f"SARIF result {raw_rule_id} is absent from C# catalog"
+                    )
+                if _location(result) is None and raw_rule_id in unlocated:
+                    if _message_text(result.get("message")) is None:
+                        raise ValueError(
+                            f"SARIF result {raw_rule_id} message must contain text"
+                        )
+                    continue
+            issue = _sarif_issue(result)
+            if issue is None:
+                continue
+            issues.append(issue)
+        return issues
+    except ValueError as error:
+        raise ValueError(f"invalid SARIF report {path}: {error}") from error
 
 
 def run(
@@ -191,19 +242,23 @@ def run(
         enabled_rules=rule_ids,
         error_log="target.sarif",
     )
-    build = subprocess.run(
-        [
-            "dotnet",
-            "build",
-            str(solution),
-            "--no-incremental",
-            "--disable-build-servers",
-            "--verbosity:quiet",
-        ],
-        cwd=workspace,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        build = subprocess.run(
+            [
+                "dotnet",
+                "build",
+                str(solution),
+                "--no-incremental",
+                "--disable-build-servers",
+                "--verbosity:quiet",
+            ],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=BUILD_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError("native target build timed out") from error
     print(
         f"native target build: {fixture_count} isolated fixture project(s), exit {build.returncode}"
     )
@@ -218,6 +273,11 @@ def run(
     report = {
         "schema_version": 2,
         "project": "oracle-cs",
+        "oracle_evidence": {
+            "project": "oracle-cs",
+            "kind": "sq",
+            "input_sha256": input_paths_sha256(REPO, [source, catalog]),
+        },
         "server": {
             "kind": "direct-roslyn-analyzer",
             "limitations": [
@@ -233,10 +293,17 @@ def run(
                 for path in analyzers
             ],
         },
-        "issues": sarif_issues(sarif_paths),
+        "issues": sarif_issues(
+            sarif_paths,
+            allowed_rule_ids=rule_ids,
+            unlocated_rule_ids={
+                key.removeprefix("csharpsquid:")
+                for key in load_infra_boundaries(REPO / "catalog/infra-boundaries.json")
+                if key.startswith("csharpsquid:")
+            },
+        ),
     }
-    result.parent.mkdir(parents=True, exist_ok=True)
-    result.write_text(json.dumps(report, indent=1) + "\n")
+    write_json_atomic(result, report, indent=1)
     print(f"direct analyzer issues: {len(report['issues'])}")
     print(f"result: {result}")
     return report
@@ -277,7 +344,7 @@ def main() -> int:
                     Path(directory),
                     args.limit,
                 )
-    except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as error:
+    except (OSError, ValueError, RuntimeError) as error:
         print(f"direct C# oracle failed: {error}")
         return 1
     return 0

@@ -1,8 +1,10 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, node_text, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::expressions::block_statements;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
+
+type HandlerSignature = (Vec<Vec<String>>, Option<Vec<String>>);
 
 /// csharpsquid:S2327 — adjacent identical handlers merge into one `try`.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
@@ -12,7 +14,11 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             if pair[0].kind() != "try_statement" || pair[1].kind() != "try_statement" {
                 continue;
             }
-            if try_handler_signature(pair[0], source) == try_handler_signature(pair[1], source) {
+            if is_error_tainted(pair[0]) || is_error_tainted(pair[1]) {
+                continue;
+            }
+            let first = try_handler_signature(pair[0], source);
+            if first.is_some() && first == try_handler_signature(pair[1], source) {
                 issues.push(issue(
                     language,
                     "S2327",
@@ -29,18 +35,37 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 }
 
 /// Catch and finally handler signature of a try statement, as written.
-fn try_handler_signature(try_statement: Node<'_>, source: &str) -> (Vec<String>, Option<String>) {
+fn try_handler_signature(try_statement: Node<'_>, source: &str) -> Option<HandlerSignature> {
     let mut cursor = try_statement.walk();
     let mut catches = Vec::new();
     let mut fin = None;
     for child in try_statement.children(&mut cursor) {
         match child.kind() {
-            "catch_clause" => catches.push(node_text(child, source).trim().to_string()),
-            "finally_clause" => fin = Some(node_text(child, source).trim().to_string()),
+            "catch_clause" => catches.push(syntax_tokens(child, source)),
+            "finally_clause" => fin = Some(syntax_tokens(child, source)),
             _ => {}
         }
     }
-    (catches, fin)
+    (!catches.is_empty() || fin.is_some()).then_some((catches, fin))
+}
+
+/// Trivia-insensitive token stream. Literal and comment contents remain exact,
+/// so formatting differences disappear without changing handler behavior.
+fn syntax_tokens(root: Node<'_>, source: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut pending = vec![root];
+    while let Some(node) = pending.pop() {
+        if node.child_count() == 0 {
+            tokens.push(format!("{}:{:?}", node.kind(), node_text(node, source)));
+            continue;
+        }
+        for index in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(index) {
+                pending.push(child);
+            }
+        }
+    }
+    tokens
 }
 
 #[cfg(test)]
@@ -69,5 +94,13 @@ mod tests {
             "class A\n{\n    void M()\n    {\n        try { One(); } catch (IOException e) { Heal(); } finally { First(); }\n        try { Two(); } catch (IOException e) { Heal(); } finally { Second(); }\n    }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S2327").is_empty());
+    }
+
+    #[test]
+    fn s2327_ignores_handler_formatting_differences() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        try { One(); } catch (IOException e) { Heal(); }\n        try { Two(); }\n        catch ( IOException e )\n        {\n            Heal ( );\n        }\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S2327").len(), 1);
     }
 }

@@ -95,6 +95,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "atomicwrites"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ef1bb8d1b645fe38d51dfc331d720fb5fc2c94b440c76cc79c80ff265ca33e3"
+dependencies = [
+ "rustix 0.38.44",
+ "tempfile",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
 name = "attribute-derive"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -487,6 +498,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
+name = "errno"
+version = "0.3.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -656,7 +677,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hoonarqube"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hoonarqube-catalog",
  "hoonarqube-core",
@@ -665,7 +686,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-bench"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hoonarqube-csharp",
  "hoonarqube-go",
@@ -676,7 +697,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-catalog"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hex",
  "serde",
@@ -687,8 +708,9 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "atomicwrites",
  "clap",
  "hoonarqube-catalog",
  "hoonarqube-core",
@@ -699,7 +721,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hoonarqube-csharp",
  "hoonarqube-go",
@@ -711,7 +733,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-csharp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hoonarqube-core",
  "hoonarqube-ir",
@@ -721,11 +743,11 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-dataflow"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "hoonarqube-go"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hoonarqube-ir",
  "tree-sitter",
@@ -734,7 +756,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-ir"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -742,7 +764,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-jsts"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hoonarqube-core",
  "hoonarqube-ir",
@@ -756,7 +778,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-python"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hoonarqube-ir",
  "ruff_python_ast",
@@ -767,7 +789,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-rust"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hoonarqube-ir",
  "regex",
@@ -1106,6 +1128,18 @@ name = "libc"
 version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
+
+[[package]]
+name = "linux-raw-sys"
+version = "0.4.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d26c52dbd32dccf2d10cac7725f8eae5296885fb5703b261f7d0a0739ec807ab"
+
+[[package]]
+name = "linux-raw-sys"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
 name = "litemap"
@@ -1943,6 +1977,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustix"
+version = "0.38.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdb5bc1ae2baa591800df16c9ca78619bf65c0488b41b96ccec5d11220d8c154"
+dependencies = [
+ "bitflags",
+ "errno",
+ "libc",
+ "linux-raw-sys 0.4.15",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rustix"
+version = "1.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6fe4565b9518b83ef4f91bb47ce29620ca828bd32cb7e408f0062e9930ba190"
+dependencies = [
+ "bitflags",
+ "errno",
+ "libc",
+ "linux-raw-sys 0.12.1",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "rustls"
 version = "0.23.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2300,6 +2360,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "tempfile"
+version = "3.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
+dependencies = [
+ "fastrand",
+ "getrandom 0.4.3",
+ "once_cell",
+ "rustix 1.1.4",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2906,7 +2979,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",

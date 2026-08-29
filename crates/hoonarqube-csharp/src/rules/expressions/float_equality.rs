@@ -1,7 +1,7 @@
 use super::support::comparisons;
 use super::support::operator_of;
 use crate::CsLanguage;
-use crate::cst::{issue, range_of};
+use crate::cst::{issue, node_text, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -9,7 +9,7 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for (expression, left, right) in comparisons(root) {
-        let float_side = left.kind() == "real_literal" || right.kind() == "real_literal";
+        let float_side = is_floating_literal(left, source) || is_floating_literal(right, source);
         let Some(operator @ ("==" | "!=")) = operator_of(expression) else {
             continue;
         };
@@ -28,6 +28,14 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
     }
     issues
+}
+
+fn is_floating_literal(node: Node<'_>, source: &str) -> bool {
+    node.kind() == "real_literal"
+        && !node_text(node, source)
+            .chars()
+            .last()
+            .is_some_and(|suffix| matches!(suffix, 'm' | 'M'))
 }
 
 fn collect_operator<'t>(expression: Node<'t>, operator: &str) -> Option<Node<'t>> {
@@ -85,5 +93,11 @@ mod tests {
         let flagged = with_key(&report, "csharpsquid:S1244");
         assert_eq!(flagged.len(), 1);
         assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s1244_ignores_exact_decimal_equality() {
+        let report = analyze_default("class C { bool M(decimal value) => value == 0.1m; }");
+        assert!(with_key(&report, "csharpsquid:S1244").is_empty());
     }
 }

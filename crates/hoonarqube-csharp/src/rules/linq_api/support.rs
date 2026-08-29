@@ -2,7 +2,7 @@ use crate::cst::{collect_kinds, is_error_tainted, node_text};
 use crate::rules::expressions::{
     callee_name, enclosing_type, invocation_arguments, invocation_targets,
 };
-use crate::rules::literals::{argument_expression, literal_inner_text};
+use crate::rules::literals::{argument_expression, is_string_literal, literal_inner_text};
 use tree_sitter::Node;
 
 /// Whether an invocation feeds a composite format template (`string.Format`,
@@ -23,7 +23,7 @@ pub(crate) fn composite_template<'a>(
     let arguments = invocation_arguments(call);
     let position = arguments
         .iter()
-        .position(|argument| argument_expression(*argument).kind() == "string_literal")?;
+        .position(|argument| is_string_literal(argument_expression(*argument)))?;
     let literal = argument_expression(arguments[position]);
     let budget = arguments.len() - position - 1;
     Some((literal, literal_inner_text(literal, source), budget))

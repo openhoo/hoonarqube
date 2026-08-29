@@ -1,3 +1,4 @@
+use super::support::collect_in_callable;
 use crate::CsLanguage;
 use crate::cst::{
     base_simple_names, collect_kinds, is_error_tainted, issue, modifiers_of, node_text, range_of,
@@ -35,7 +36,7 @@ fn is_eligible_method(method: Node<'_>, source: &str) -> bool {
 }
 
 fn flag_block_returns(body: Node<'_>, source: &str, language: CsLanguage, issues: &mut Vec<Issue>) {
-    for return_statement in collect_kinds(body, &["return_statement"]) {
+    for return_statement in collect_in_callable(body, "return_statement") {
         if is_error_tainted(return_statement) {
             continue;
         }
@@ -51,7 +52,7 @@ fn flag_arrow_returns(
     language: CsLanguage,
     issues: &mut Vec<Issue>,
 ) {
-    for arrow in collect_kinds(method, &["arrow_expression_clause"]) {
+    for arrow in collect_in_callable(method, "arrow_expression_clause") {
         if !is_error_tainted(arrow)
             && let Some(expression) = null_expression(arrow)
         {
@@ -97,4 +98,17 @@ const COLLECTION_TYPE_NAMES: [&str; 16] = [
 fn is_collection_return(returns: Node<'_>, source: &str) -> bool {
     let text = node_text(returns, source).trim();
     text.ends_with("[]") || COLLECTION_TYPE_NAMES.contains(&simple_name(text))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1168_ignores_null_returns_inside_nested_functions() {
+        let report = analyze_default(
+            "class C\n{\n    System.Collections.Generic.IEnumerable<int> Values()\n    {\n        object Local() => null;\n        System.Func<object> later = () => null;\n        return new int[0];\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1168").is_empty());
+    }
 }

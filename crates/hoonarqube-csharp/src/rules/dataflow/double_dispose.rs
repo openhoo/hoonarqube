@@ -1,8 +1,9 @@
 use super::support::WriteKind;
 use super::support::callable_blocks;
 use super::support::identifier_write;
+use super::support::walk_owned;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, node_text, range_of, walk_all};
+use crate::cst::{collect_kinds, issue, node_text, range_of};
 use crate::rules::expressions::{callee_name, expression_name, invocation_receiver};
 use crate::symbol_table::nearest_ancestor_of_kinds;
 use hoonarqube_ir::Issue;
@@ -17,7 +18,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     let mut issues = Vec::new();
     for body in callable_blocks(root) {
         let mut disposed: std::collections::HashSet<String> = std::collections::HashSet::new();
-        walk_all(body, &mut |node| match node.kind() {
+        walk_owned(body, &mut |node| match node.kind() {
             "invocation_expression" => {
                 if callee_name(node, source) != Some("Dispose") {
                     return;
@@ -119,5 +120,15 @@ mod tests {
             "class C {\n    void M() {\n        Make().Dispose();\n        Other().Dispose();\n    }\n}\n",
         );
         assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s3966_local_function_state_does_not_leak_or_duplicate() {
+        let report = analyze_default(
+            "class C {\n    void M(Gate gate) {\n        gate.Dispose();\n        void Local(Gate gate) {\n            gate.Dispose();\n            gate.Dispose();\n        }\n        Local(Spawn());\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 6);
     }
 }

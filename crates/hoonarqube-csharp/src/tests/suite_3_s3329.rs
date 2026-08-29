@@ -1178,6 +1178,26 @@ fn s3011_flags_nonpublic_reflection_lookups() {
         "class C {\n    void M() {\n        var field = typeof(A).GetField(\"shown\", BindingFlags.Public | BindingFlags.Instance);\n        Log(field);\n    }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S3011").is_empty());
+
+    let propagated_plural = analyze_default(
+        "class C { void M() { var type = typeof(A); var flags = BindingFlags.NonPublic | BindingFlags.Static; var methods = type.GetMethods(flags); } }\n",
+    );
+    assert_eq!(with_key(&propagated_plural, "csharpsquid:S3011").len(), 1);
+
+    let static_import = analyze_default(
+        "using static System.Reflection.BindingFlags;\nclass C { void M() { var fields = typeof(A).GetFields(NonPublic | Instance); } }\n",
+    );
+    assert_eq!(with_key(&static_import, "csharpsquid:S3011").len(), 1);
+
+    let custom_api = analyze_default(
+        "class Lookup { public void GetFields(object flags) { } }\nclass C { void M(Lookup lookup) { lookup.GetFields(BindingFlags.NonPublic | BindingFlags.Instance); } }\n",
+    );
+    assert!(with_key(&custom_api, "csharpsquid:S3011").is_empty());
+
+    let escaped_api = analyze_default(
+        "class C { void M() { var field = typeof(A).@GetField(\"secret\", BindingFlags.@NonPublic | BindingFlags.@Instance); } }\n",
+    );
+    assert_eq!(with_key(&escaped_api, "csharpsquid:S3011").len(), 1);
 }
 
 #[test]
@@ -1189,6 +1209,16 @@ fn s3925_flags_incomplete_iserializable_implementations() {
         "[Serializable]\nsealed class Good : ISerializable {\n    Good(SerializationInfo info, StreamingContext context) {\n    }\n    public void GetObjectData(SerializationInfo info, StreamingContext context) {\n    }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S3925").is_empty());
+
+    let wrong_overloads = analyze_default(
+        "[Serializable]\nclass Wrong : ISerializable {\n    public Wrong(SerializationInfo info, StreamingContext context) { }\n    public virtual int GetObjectData(SerializationInfo info, StreamingContext context) => 0;\n    public virtual void GetObjectData(SerializationInfo info) { }\n}\n",
+    );
+    assert_eq!(with_key(&wrong_overloads, "csharpsquid:S3925").len(), 1);
+
+    let explicit = analyze_default(
+        "[Serializable]\nclass Explicit : ISerializable {\n    protected Explicit(SerializationInfo info, StreamingContext context) { }\n    void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context) { }\n}\n",
+    );
+    assert!(with_key(&explicit, "csharpsquid:S3925").is_empty());
 }
 
 #[test]
@@ -1211,6 +1241,15 @@ fn s4159_flags_exported_contracts_without_implementation() {
 
     let clean = analyze_default("[Export(typeof(IRepo))]\nclass Good : IRepo {\n}\n");
     assert!(with_key(&clean, "csharpsquid:S4159").is_empty());
+
+    let generic_and_named = analyze_default(
+        "[ExportAttribute(contractType: typeof (Contracts.IRepo<System.String>))]\nclass Generic : IRepo<System.String> {\n}\n",
+    );
+    assert!(with_key(&generic_and_named, "csharpsquid:S4159").is_empty());
+
+    let nested_attribute =
+        analyze_default("class Outer {\n    [Export(typeof(IMissing))]\n    class Inner { }\n}\n");
+    assert_eq!(with_key(&nested_attribute, "csharpsquid:S4159").len(), 1);
 }
 
 #[test]
@@ -1224,6 +1263,16 @@ fn s4277_flags_shared_mef_parts_created_with_new() {
         "class Plain {\n}\nclass User {\n    void M() {\n        var p = new Plain();\n        Use(p);\n    }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S4277").is_empty());
+
+    let namespace_collision = analyze_default(
+        "namespace One { [PartCreationPolicy(CreationPolicy.Shared)] class Part { } }\nnamespace Two { class Part { } class User { void M() { var p = new Part(); } } }\n",
+    );
+    assert!(with_key(&namespace_collision, "csharpsquid:S4277").is_empty());
+
+    let direct_attribute_only = analyze_default(
+        "class Outer { [PartCreationPolicy(CreationPolicy.Shared)] class Inner { } }\nclass User { void M() { var p = new Outer(); } }\n",
+    );
+    assert!(with_key(&direct_attribute_only, "csharpsquid:S4277").is_empty());
 }
 
 #[test]
@@ -1325,6 +1374,19 @@ fn s4226_flags_extensions_next_to_extended_types() {
         "static class Extensions {\n    public static int Count2(this string s) => 1;\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S4226").is_empty());
+
+    let separate_namespaces = analyze_default(
+        "namespace Domain { class Repo { } }\nnamespace Extensions { static class RepoExtensions { public static int Count2(this Domain.Repo repo) => 1; } }\n",
+    );
+    assert!(with_key(&separate_namespaces, "csharpsquid:S4226").is_empty());
+
+    let attributed_parameter = analyze_default(
+        "namespace Domain { class Repo { } static class RepoExtensions { public static int Count2([Tag] this Repo repo) => 1; } }\n",
+    );
+    assert_eq!(
+        with_key(&attributed_parameter, "csharpsquid:S4226").len(),
+        1
+    );
 }
 
 #[test]
@@ -1593,12 +1655,12 @@ fn s2551_flags_locking_on_this_type_and_strings() {
 
 #[test]
 fn s2114_flags_collections_passed_to_their_own_methods() {
-    let violating = analyze_default("items.AddRange(items);\nitems.InsertRange(items, 0);\n");
+    let violating = analyze_default("items.Except(items);\nitems.Union(items);\n");
     let flagged = with_key(&violating, "csharpsquid:S2114");
     assert_eq!(flagged.len(), 2);
     assert_eq!(flagged[1].range.start.line, 2);
 
-    let clean = analyze_default("items.AddRange(others);\nitems.Union(more);\n");
+    let clean = analyze_default("items.Except(others);\nitems.Union(more);\n");
     assert!(with_key(&clean, "csharpsquid:S2114").is_empty());
 }
 
@@ -1789,6 +1851,16 @@ fn s7131_flags_reader_writer_locks_without_matching_release() {
         "class C {\n    void M(Lock gate) {\n        gate.AcquireWriterLock(0);\n        Work();\n        gate.ReleaseWriterLock();\n    }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S7131").is_empty());
+
+    let unbalanced = analyze_default(
+        "class C { void M(Lock gate) { gate.AcquireReaderLock(0); gate.AcquireWriterLock(0); gate.ReleaseWriterLock(); } }\n",
+    );
+    assert_eq!(with_key(&unbalanced, "csharpsquid:S7131").len(), 1);
+
+    let crossed = analyze_default(
+        "class C { void M(Lock gate) { gate.AcquireReaderLock(0); gate.AcquireWriterLock(0); gate.ReleaseReaderLock(); gate.ReleaseWriterLock(); } }\n",
+    );
+    assert_eq!(with_key(&crossed, "csharpsquid:S7131").len(), 2);
 }
 
 #[test]
@@ -1801,6 +1873,16 @@ fn s7133_flags_monitors_never_released_in_the_member() {
         "class C {\n    void A(object gate) {\n        Monitor.Enter(gate);\n        try {\n            Work();\n        } finally {\n            Monitor.Exit(gate);\n        }\n    }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S7133").is_empty());
+
+    let unbalanced = analyze_default(
+        "class C { void M(object gate) { Monitor.Enter(gate); Monitor.Enter(gate); Monitor.Exit(gate); } }\n",
+    );
+    assert_eq!(with_key(&unbalanced, "csharpsquid:S7133").len(), 1);
+
+    let nested_callable = analyze_default(
+        "class C { void M(object gate) { Monitor.Enter(gate); void Release() { Monitor.Exit(gate); } Release(); } }\n",
+    );
+    assert_eq!(with_key(&nested_callable, "csharpsquid:S7133").len(), 1);
 }
 
 #[test]

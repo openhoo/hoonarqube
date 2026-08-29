@@ -1,5 +1,6 @@
 use super::support::WriteKind;
 use super::support::callable_blocks;
+use super::support::collect_owned_kinds;
 use super::support::identifier_write;
 use super::support::walk_except_blocks;
 use crate::CsLanguage;
@@ -20,7 +21,7 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for body in callable_blocks(root) {
-        for block in collect_kinds(body, &["block"]) {
+        for block in collect_owned_kinds(body, &["block"]) {
             let mut tainted = std::collections::HashSet::new();
             let mut clean = std::collections::HashSet::new();
             for statement in block_statements(block) {
@@ -148,7 +149,7 @@ fn update_sql_taint(
     tainted: &mut std::collections::HashSet<String>,
     clean: &mut std::collections::HashSet<String>,
 ) {
-    for identifier in collect_kinds(statement, &["identifier"]) {
+    for identifier in collect_owned_kinds(statement, &["identifier"]) {
         let Some(write) = identifier_write(identifier) else {
             continue;
         };
@@ -233,5 +234,15 @@ mod tests {
             "class C {\n    void M(string name) {\n        Log($\"hello {name}\");\n    }\n}\n",
         );
         assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s2077_local_function_usage_is_reported_once() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        void Local(string table) {\n            var sql = $\"SELECT * FROM {table}\";\n            cmd.ExecuteReader(sql);\n        }\n        Local(\"users\");\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 5);
     }
 }

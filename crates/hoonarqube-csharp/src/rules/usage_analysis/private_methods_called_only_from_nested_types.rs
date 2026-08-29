@@ -1,3 +1,4 @@
+use super::support::member_uses;
 use crate::CsLanguage;
 use crate::cst::{issue, node_text, range_of};
 use crate::rules::naming::TYPE_DECLARATION_KINDS;
@@ -20,7 +21,7 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
         {
             continue;
         }
-        let uses = symbols.uses_of(member.name);
+        let uses = member_uses(symbols, member, source);
         if uses.is_empty() {
             continue;
         }
@@ -47,4 +48,27 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
         }
     }
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3398_ignores_same_named_calls_in_unrelated_types() {
+        let report = analyze_default(
+            "class Outer\n{\n    private void Work() { }\n    private class Inner\n    {\n        public void Run() { Work(); }\n    }\n}\n\nclass Other\n{\n    private void Work() { }\n    public void Run() { Work(); }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3398");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s3398_nested_method_shadow_does_not_count_as_outer_call() {
+        let report = analyze_default(
+            "class Outer\n{\n    private void Work() { }\n    private class Inner\n    {\n        private void Work() { }\n        public void Run() { Work(); }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3398").is_empty());
+    }
 }

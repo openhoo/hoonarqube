@@ -1,4 +1,5 @@
 use super::Span;
+use std::collections::HashMap;
 
 // ===========================================================================
 // Tier B — file-local scope/symbol table
@@ -225,12 +226,18 @@ fn record_shadows(model: &mut TbModel<'_>, scope: usize, ids: &[usize]) {
 
 fn record_duplicates(model: &mut TbModel<'_>, ids: &[usize]) {
     let duplicate_kind = |kind| matches!(kind, TbKind::Var | TbKind::Function);
-    for (i, &left) in ids.iter().enumerate() {
-        for &right in ids.iter().skip(i + 1) {
-            let (a, b) = (&model.bindings[left], &model.bindings[right]);
-            if a.name == b.name && duplicate_kind(a.kind) && duplicate_kind(b.kind) {
-                model.duplicates.push((a.decl, b.decl, a.name));
-            }
+    let mut first_by_name: HashMap<&str, usize> = HashMap::new();
+    for &id in ids {
+        let binding = &model.bindings[id];
+        if !duplicate_kind(binding.kind) {
+            continue;
+        }
+        if let Some(&first) = first_by_name.get(binding.name) {
+            model
+                .duplicates
+                .push((model.bindings[first].decl, binding.decl, binding.name));
+        } else {
+            first_by_name.insert(binding.name, id);
         }
     }
 }

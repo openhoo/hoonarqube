@@ -31,6 +31,8 @@ mod walker;
 pub(crate) use monitor_release_paths::monitor_operations;
 pub(crate) use support::WriteKind;
 pub(crate) use support::callable_blocks;
+pub(crate) use support::collect_owned_kinds;
 pub(crate) use support::identifier_write;
 pub(crate) use support::unary_operator;
+pub(crate) use support::walk_owned;
 pub(crate) use walker::dataflow_cfg_issues;

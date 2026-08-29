@@ -1,3 +1,4 @@
+use super::support::{member_uses, member_writes};
 use crate::CsLanguage;
 use crate::cst::{issue, modifiers_of, range_of};
 use crate::rules::modifiers::has_modifier;
@@ -23,12 +24,11 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
         {
             continue;
         }
-        let writes = symbols.writes_of(member.name);
+        let writes = member_writes(symbols, member, source);
         if writes.is_empty() && !member.has_initializer {
             continue;
         }
-        if symbols
-            .uses_of(member.name)
+        if member_uses(symbols, member, source)
             .iter()
             .any(|use_site| is_ref_or_out_argument(*use_site, source))
         {
@@ -96,6 +96,16 @@ mod tests {
     fn s2933_accepts_static_constructor_writes_for_static_fields() {
         let report = analyze_default(
             "class C\n{\n    private static int counter;\n\n    static C()\n    {\n        counter = 42;\n    }\n\n    public int Value()\n    {\n        return counter;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2933");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s2933_does_not_borrow_writes_from_unrelated_types() {
+        let report = analyze_default(
+            "class A\n{\n    private int value;\n    public A() { value = 1; }\n}\n\nclass B\n{\n    private int value;\n    public void Set() { value = 2; }\n}\n",
         );
         let flagged = with_key(&report, "csharpsquid:S2933");
         assert_eq!(flagged.len(), 1);

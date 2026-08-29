@@ -6,7 +6,8 @@
 //! catalog (`csharpsquid:S103`); severity and type always resolve through the
 //! frozen `hoonarqube-catalog` catalog via [`hoonarqube_ir::Issue::rule_key`],
 //! never duplicated here. Syntax errors emit no issues (no catalog-backed
-//! `ParsingError` rule exists for C#).
+//! `ParsingError` rule exists for C#), except exact S2306 declaration recovery
+//! for valid contextual-keyword identifiers misparsed by tree-sitter.
 //!
 //! # Documented coverage gaps (INFRA skips)
 //!
@@ -19,8 +20,9 @@
 //!   (type-lattice and inheritance-coupling checks): detection needs
 //!   Roslyn-grade type lattice / inheritance coupling graphs that a
 //!   single-pass tree-sitter syntax tree cannot provide.
-//! - `csharpsquid:S6802` (Razor component surface): `.razor` files are not
-//!   ingested by this analyzer.
+//! - `csharpsquid:S6802` (Blazor loop lambdas): detection needs a compilation
+//!   containing `RenderTreeBuilder` plus semantic invocation binding, which a
+//!   single-pass tree-sitter syntax tree cannot provide.
 
 use std::path::PathBuf;
 
@@ -157,6 +159,27 @@ pub fn analyze(
 ) -> hoonarqube_ir::FileReport {
     let tree = parse(source);
     let root = tree.root_node();
+    let metrics = metrics::file_metrics(root, source);
+    if root.has_error() {
+        // tree-sitter-c-sharp currently recovers valid contextual-keyword
+        // declarations such as `int await` with ERROR nodes. Its declaration
+        // names remain exact identifier nodes, so preserve S2306 and the
+        // independent file-scope S3903 evidence without running other rules.
+        let mut issues =
+            rules::modifiers::contextual_keyword_identifiers::check(root, source, language);
+        if !issues.is_empty() {
+            issues.extend(rules::structure::types_outside_namespaces::check(
+                root, source, language,
+            ));
+        }
+        hoonarqube_ir::sort_issues(&mut issues);
+        return hoonarqube_ir::FileReport {
+            path,
+            language: language.prefix().to_string(),
+            issues,
+            metrics,
+        };
+    }
     let mut issues = Vec::new();
     issues.extend(rules::text_scans::text_issues(
         root, &path, source, language, options,
@@ -209,7 +232,7 @@ pub fn analyze(
         path,
         language: language.prefix().to_string(),
         issues,
-        metrics: metrics::file_metrics(tree.root_node(), source),
+        metrics,
     }
 }
 

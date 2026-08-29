@@ -1,8 +1,9 @@
 use crate::CsLanguage;
 use crate::cst::{
-    base_simple_names, collect_kinds, is_error_tainted, issue, modifiers_of, range_of,
+    base_simple_names, collect_kinds, is_error_tainted, issue, modifiers_of, node_text,
+    parameters_of, range_of, simple_name,
 };
-use crate::rules::expressions::constructor_arities;
+use crate::rules::expressions::{constructor_arities, member_declarations_of_kind};
 use crate::rules::modifiers::has_modifier;
 use crate::rules::structure::name_anchor;
 use hoonarqube_ir::Issue;
@@ -11,7 +12,6 @@ use tree_sitter::Node;
 /// csharpsquid:S4027 — exception types provide `( )`, `(string)`, and
 /// `(string, Exception)` constructors so callers can wrap uniformly.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    const STANDARD_ARITIES: [usize; 3] = [0, 1, 2];
     let mut issues = Vec::new();
     for class_declaration in collect_kinds(root, &["class_declaration"]) {
         if is_error_tainted(class_declaration) {
@@ -27,8 +27,14 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         {
             continue;
         }
+        let constructors =
+            member_declarations_of_kind(class_declaration, "constructor_declaration");
+        let standard_signatures: [&[&str]; 3] = [&[], &["string"], &["string", "Exception"]];
         let arities = constructor_arities(class_declaration);
-        let complete = STANDARD_ARITIES.iter().all(|arity| arities.contains(arity));
+        let complete = [0, 1, 2].iter().all(|arity| arities.contains(arity))
+            && standard_signatures
+                .into_iter()
+                .all(|signature| has_constructor(&constructors, signature, source));
         if !complete {
             issues.push(issue(
                 language,
@@ -39,6 +45,21 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
     }
     issues
+}
+
+fn has_constructor(constructors: &[Node<'_>], signature: &[&str], source: &str) -> bool {
+    constructors.iter().any(|constructor| {
+        let parameters = parameters_of(*constructor);
+        parameters.len() == signature.len()
+            && parameters
+                .iter()
+                .zip(signature)
+                .all(|(parameter, expected)| {
+                    parameter.child_by_field_name("type").is_some_and(|ty| {
+                        simple_name(node_text(ty, source)).trim_end_matches('?') == *expected
+                    })
+                })
+    })
 }
 #[cfg(test)]
 mod tests {
@@ -71,6 +92,14 @@ mod tests {
     #[test]
     fn s4027_checks_custom_exception_bases_by_name() {
         let report = analyze_default("class DbError : DataException\n{\n}\n");
+        assert_eq!(with_key(&report, "csharpsquid:S4027").len(), 1);
+    }
+
+    #[test]
+    fn s4027_requires_standard_parameter_types_not_only_arities() {
+        let report = analyze_default(
+            "class BadException : System.Exception\n{\n    public BadException() { }\n    public BadException(int code) { }\n    public BadException(int code, int detail) { }\n}\n",
+        );
         assert_eq!(with_key(&report, "csharpsquid:S4027").len(), 1);
     }
 }

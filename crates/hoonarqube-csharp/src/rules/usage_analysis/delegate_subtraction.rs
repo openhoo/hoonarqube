@@ -1,4 +1,4 @@
-use super::support::typed_variables;
+use super::support::{enclosing_callable, typed_variables};
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::expressions::{binary_operands, operator_of};
@@ -8,7 +8,6 @@ use tree_sitter::Node;
 /// csharpsquid:S3172 — delegate subtraction hides removed handlers.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let delegates = declared_delegate_names(root, source);
-    let variables = typed_variables(root, source);
     let mut issues = Vec::new();
     for binary in collect_kinds(root, &["binary_expression"]) {
         if is_error_tainted(binary) || operator_of(binary) != Some("-") {
@@ -25,8 +24,9 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         }
         let name = node_text(left, source);
-        let delegate_typed = variables
-            .iter()
+        let delegate_typed = enclosing_callable(binary)
+            .into_iter()
+            .flat_map(|scope| typed_variables(scope, source))
             .filter(|(variable, _)| *variable == name)
             .any(|(_, type_name)| is_delegate_type_name(Some(type_name), &delegates));
         if delegate_typed {
@@ -117,5 +117,15 @@ mod tests {
             .collect();
         lines.sort_unstable();
         assert_eq!(lines, vec![9, 10]);
+    }
+
+    #[test]
+    fn s3172_does_not_leak_delegate_types_between_methods() {
+        let report = analyze_default(
+            "class C\n{\n    void Delegates()\n    {\n        Handler pipeline = null;\n        var trimmed = pipeline - (pipeline + pipeline);\n    }\n\n    int Numbers()\n    {\n        int pipeline = 4;\n        return pipeline - (pipeline + pipeline);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3172");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 6);
     }
 }

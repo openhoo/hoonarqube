@@ -17,7 +17,7 @@ fn pascal_case_suggestion(name: &str) -> String {
         } else {
             suggestion.push(character);
         }
-        capitalize = character.is_ascii_digit();
+        capitalize = false;
     }
     suggestion
 }

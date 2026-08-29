@@ -72,6 +72,7 @@ impl<T> CfgBuilder<T> {
     ///
     /// Panics if `target` is not a valid id for this graph.
     pub fn jump_to(&mut self, target: BlockId) {
+        self.cfg.assert_valid_block(target);
         for open in std::mem::take(&mut self.frontier) {
             self.cfg.add_edge(open, target);
         }
@@ -93,6 +94,17 @@ impl<T> CfgBuilder<T> {
 
     /// Replaces the open frontier with `targets`.
     pub fn set_frontier<I>(&mut self, targets: I)
+    where
+        I: IntoIterator<Item = BlockId>,
+    {
+        let targets = targets.into_iter().collect::<Vec<_>>();
+        for &target in &targets {
+            self.cfg.assert_valid_block(target);
+        }
+        self.frontier = targets;
+    }
+
+    pub(crate) fn set_valid_frontier<I>(&mut self, targets: I)
     where
         I: IntoIterator<Item = BlockId>,
     {
@@ -146,6 +158,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
 
     use crate::test_support::{Def, Nop, St, Use, block_by_payload};
 
@@ -225,6 +238,25 @@ mod tests {
     fn builder_finish_without_blocks_links_entry_to_exit() {
         let cfg: Cfg<St> = CfgBuilder::new(Use("entry"), Use("exit")).finish();
         assert_eq!(cfg.edge_count(), 1);
+        assert!(cfg.has_edge(cfg.entry(), cfg.exit()));
+    }
+
+    #[test]
+    fn invalid_frontier_updates_are_atomic() {
+        let mut builder: CfgBuilder<St> = CfgBuilder::new(Nop, Nop);
+        let original = builder.frontier().to_vec();
+        let invalid = BlockId::new(99);
+
+        let set = catch_unwind(AssertUnwindSafe(|| {
+            builder.set_frontier([builder.exit(), invalid]);
+        }));
+        assert!(set.is_err());
+        assert_eq!(builder.frontier(), original);
+
+        let jump = catch_unwind(AssertUnwindSafe(|| builder.jump_to(invalid)));
+        assert!(jump.is_err());
+        assert_eq!(builder.frontier(), original);
+        let cfg = builder.finish();
         assert!(cfg.has_edge(cfg.entry(), cfg.exit()));
     }
 }

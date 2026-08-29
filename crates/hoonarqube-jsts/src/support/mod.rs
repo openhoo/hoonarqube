@@ -28,19 +28,32 @@ impl RuleScope {
     }
 }
 
-pub(crate) fn extension_of(path: &Path) -> Option<&str> {
-    path.extension().and_then(|ext| ext.to_str())
-}
-
-pub(crate) fn source_type_for(language: JstsLanguage, extension: Option<&str>) -> SourceType {
-    let mut source_type = match language {
-        JstsLanguage::JavaScript => SourceType::mjs(),
-        JstsLanguage::TypeScript => SourceType::ts(),
-    };
-    if matches!(extension, Some("jsx" | "tsx")) {
-        source_type = source_type.with_jsx(true);
-    }
-    source_type
+pub(crate) fn source_type_for(language: JstsLanguage, path: &Path) -> SourceType {
+    // Oxc distinguishes CommonJS, modules, JSX, and declaration files.
+    // Normalize because the repository router accepts extensions without
+    // regard to ASCII case.
+    let detected = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| SourceType::from_path(name.to_ascii_lowercase()).ok());
+    detected
+        .map(|source_type| {
+            if source_type.is_javascript() {
+                // JavaScript tooling commonly accepts JSX in `.js`, `.mjs`,
+                // and `.cjs`; Oxc documents that tolerant behavior too.
+                source_type.with_jsx(true)
+            } else {
+                source_type
+            }
+        })
+        .filter(|source_type| match language {
+            JstsLanguage::JavaScript => source_type.is_javascript(),
+            JstsLanguage::TypeScript => source_type.is_typescript(),
+        })
+        .unwrap_or_else(|| match language {
+            JstsLanguage::JavaScript => SourceType::mjs(),
+            JstsLanguage::TypeScript => SourceType::ts(),
+        })
 }
 
 pub(crate) use hoonarqube_ir::u32_saturating as to_u32;
@@ -76,6 +89,16 @@ impl<'src> LineIndex<'src> {
     }
 
     pub(crate) fn pos(&self, offset: u32) -> hoonarqube_ir::Pos {
+        // Tolerant rules sometimes derive a nearby token offset. Clamp those
+        // callers to a valid UTF-8 boundary so reporting malformed source can
+        // never panic.
+        let mut offset = usize::try_from(offset)
+            .unwrap_or(self.source.len())
+            .min(self.source.len());
+        while offset > 0 && !self.source.is_char_boundary(offset) {
+            offset -= 1;
+        }
+        let offset = to_u32(offset);
         let line = self.line_of(offset);
         let line_start = self.line_starts[line - 1];
         let column = to_u32(
@@ -224,7 +247,7 @@ impl Scanner {
             let c = self.chars[i];
             if c == '\n' {
                 if self.state == ScanState::LineComment {
-                    self.close_comment(self.offsets[i]);
+                    self.close_comment(self.offsets[i], self.offsets[i]);
                     self.state = ScanState::Code;
                 }
                 i += 1;
@@ -235,7 +258,7 @@ impl Scanner {
             }
         }
         // Unterminated `//` or `/* …` at end of file still yields a span.
-        self.close_comment(self.source_len);
+        self.close_comment(self.source_len, self.source_len);
     }
 
     /// Records a comment that starts at `i` (byte span starts there, body
@@ -247,11 +270,11 @@ impl Scanner {
 
     /// Closes the currently open comment at byte offset `end` (exclusive for
     /// the body, inclusive for the token).
-    pub(crate) fn close_comment(&mut self, end: u32) {
+    pub(crate) fn close_comment(&mut self, token_end: u32, body_end: u32) {
         if let Some((token_start, body_start)) = self.open_comment.take() {
             self.comments.push(ScannedComment {
-                token: Span::new(token_start, end),
-                body: Span::new(body_start, end),
+                token: Span::new(token_start, token_end),
+                body: Span::new(body_start, body_end),
             });
         }
     }
@@ -265,7 +288,7 @@ impl Scanner {
             ScanState::BlockComment => {
                 let closing = c == '*' && next == Some('/');
                 if closing {
-                    self.close_comment(self.offsets[i] + 2);
+                    self.close_comment(self.offsets[i] + 2, self.offsets[i]);
                     self.state = ScanState::Code;
                 }
                 (if closing { 2 } else { 1 }, closing)
@@ -589,6 +612,36 @@ mod scanner_tests {
     use super::*;
     use crate::test_support::{count_key, js_keys};
 
+    #[test]
+    fn source_type_preserves_path_semantics_case_insensitively() {
+        let jsx = source_type_for(JstsLanguage::JavaScript, Path::new("Component.JS"));
+        assert!(jsx.is_jsx());
+        assert!(jsx.is_unambiguous());
+
+        let cjs = source_type_for(JstsLanguage::JavaScript, Path::new("module.CJS"));
+        assert!(cjs.is_commonjs());
+        assert!(cjs.is_jsx());
+
+        let tsx = source_type_for(JstsLanguage::TypeScript, Path::new("Component.TSX"));
+        assert!(tsx.is_typescript());
+        assert!(tsx.is_jsx());
+
+        let declaration = source_type_for(JstsLanguage::TypeScript, Path::new("types.D.CTS"));
+        assert!(declaration.is_typescript_definition());
+        assert!(declaration.is_commonjs());
+    }
+
+    #[test]
+    fn line_index_clamps_synthetic_offsets_to_utf8_boundaries() {
+        let source = "café";
+        let index = LineIndex::new(source);
+        assert_eq!(index.pos(4), hoonarqube_ir::Pos { line: 1, column: 3 });
+        assert_eq!(
+            index.pos(u32::MAX),
+            hoonarqube_ir::Pos { line: 1, column: 4 }
+        );
+    }
+
     fn comment_bodies(source: &str) -> Vec<&str> {
         scan_comments(source)
             .iter()
@@ -605,7 +658,7 @@ mod scanner_tests {
     #[test]
     fn block_body_inside_substitution_keeps_comments_visible() {
         let source = "const s = `${xs.map(x => { /* inner */ return x; })}`;\n// TODO fix\n";
-        assert_eq!(comment_bodies(source), vec![" inner */", " TODO fix"]);
+        assert_eq!(comment_bodies(source), vec![" inner ", " TODO fix"]);
 
         let flagged = js_keys("const s = `${xs.map(x => { return x; })}`;\n// TODO refactor\n");
         assert!(count_key(&flagged, "javascript:S1135") >= 1);

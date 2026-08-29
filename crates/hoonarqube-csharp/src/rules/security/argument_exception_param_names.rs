@@ -1,11 +1,11 @@
-use super::support::call_argument_nodes;
+use super::support::{argument_value, call_argument_nodes, named_argument_value};
 use crate::CsLanguage;
 use crate::cst::{
     collect_kinds, is_error_tainted, issue, node_text, parameters_of, range_of, simple_name,
 };
 use crate::rules::declaration_contracts::enclosing_method;
 use crate::rules::expressions::creation_type_text;
-use crate::rules::literals::{argument_expression, literal_inner_text};
+use crate::rules::literals::literal_inner_text;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -28,10 +28,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let exception_type = simple_name(creation_type_text(creation, source));
         let arguments = call_argument_nodes(creation);
         let parameter_name_index = usize::from(exception_type == "ArgumentException");
-        let Some(argument) = arguments.get(parameter_name_index) else {
+        let Some(argument) = arguments
+            .iter()
+            .find(|argument| named_argument_value(**argument, source, "paramName").is_some())
+            .copied()
+            .or_else(|| arguments.get(parameter_name_index).copied())
+        else {
             continue;
         };
-        let value = argument_expression(*argument);
+        let value = argument_value(argument);
         if value.kind() != "string_literal" {
             continue;
         }
@@ -54,4 +59,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
     }
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s3928_named_param_name_uses_its_value_regardless_of_order() {
+        let clean = analyze_default(
+            "class Guard { void Check(int amount) { throw new ArgumentException(paramName: \"amount\", message: \"bad\"); } }",
+        );
+        assert!(with_key(&clean, "csharpsquid:S3928").is_empty());
+
+        let bad = analyze_default(
+            "class Guard { void Check(int amount) { throw new ArgumentException(paramName: \"other\", message: \"bad\"); } }",
+        );
+        let flagged = with_key(&bad, "csharpsquid:S3928");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'other'"));
+    }
 }

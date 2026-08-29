@@ -32,10 +32,14 @@ type FixtureGenerator = fn(&mut Rng) -> String;
 /// Short usage text printed for malformed command lines.
 const USAGE: &str = "usage: hoonarqube-bench [--iterations N]";
 
-/// Loss-enough widening for throughput math; benchmark counts stay tiny.
+/// Widen an integer count for approximate throughput math.
+///
+/// Values above `2^53` may be rounded, as expected for an `f64`, but must not
+/// be truncated: byte counts can exceed `u32::MAX` at high iteration counts.
 #[must_use]
+#[allow(clippy::cast_precision_loss)]
 fn to_f64(value: u64) -> f64 {
-    f64::from(u32::try_from(value).unwrap_or(u32::MAX))
+    value as f64
 }
 
 /// Loss-enough widening of an issue count.
@@ -723,6 +727,14 @@ mod tests {
         let rate = throughput(2, 2 * MB, Duration::from_secs(1));
         assert!((rate.files_per_second - 2.0).abs() < 1e-9);
         assert!((rate.megabytes_per_second - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn throughput_does_not_truncate_counts_above_u32() {
+        let count = u64::from(u32::MAX) + 1;
+        let rate = throughput(count, count, Duration::from_secs(1));
+        assert!((rate.files_per_second - 4_294_967_296.0).abs() < f64::EPSILON);
+        assert!(rate.megabytes_per_second > 4_095.0);
     }
 
     #[test]

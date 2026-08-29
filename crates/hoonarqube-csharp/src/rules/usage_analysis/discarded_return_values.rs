@@ -1,3 +1,4 @@
+use super::support::member_uses;
 use crate::CsLanguage;
 use crate::cst::{issue, modifiers_of, node_text, range_of};
 use crate::rules::expressions::invocation_function;
@@ -26,8 +27,16 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
         {
             continue;
         }
-        let call_sites: Vec<Node> = symbols
-            .uses_of(member.name)
+        let overloaded = symbols.members.iter().any(|candidate| {
+            candidate.declaration != member.declaration
+                && candidate.owner == member.owner
+                && candidate.flavor == MemberFlavor::Method
+                && candidate.name == member.name
+        });
+        if overloaded {
+            continue;
+        }
+        let call_sites: Vec<Node> = member_uses(symbols, member, source)
             .into_iter()
             .filter_map(invocation_callee_site)
             .collect();
@@ -136,6 +145,32 @@ mod tests {
     fn s3241_requires_every_caller_to_discard() {
         let report = analyze_default(
             "class A\n{\n    private int Compute() => 42;\n    public int Run()\n    {\n        var captured = Compute();\n        Compute();\n        return captured;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3241").is_empty());
+    }
+
+    #[test]
+    fn s3241_does_not_borrow_captured_calls_from_unrelated_types() {
+        let report = analyze_default(
+            "class A\n{\n    private int Compute() => 1;\n    public void Run() { Compute(); }\n}\n\nclass B\n{\n    private int Compute() => 2;\n    public int Run() { return Compute(); }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3241");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s3241_skips_overloads_without_signature_resolution() {
+        let report = analyze_default(
+            "class A\n{\n    private int Compute(int value) => value;\n    private int Compute(string value) => value.Length;\n    public void Run() { Compute(1); Compute(\"x\"); }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3241").is_empty());
+    }
+
+    #[test]
+    fn s3241_does_not_treat_local_function_calls_as_member_calls() {
+        let report = analyze_default(
+            "class A\n{\n    private int Compute() => 1;\n    public void Run()\n    {\n        int Compute() => 2;\n        Compute();\n    }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S3241").is_empty());
     }

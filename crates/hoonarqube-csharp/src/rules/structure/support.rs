@@ -24,6 +24,35 @@ pub(crate) const CALLABLE_BODY_OWNER_KINDS: [&str; 6] = [
     "local_function_statement",
 ];
 
+/// Whether a node opens an executable scope whose control flow does not
+/// belong to the surrounding callable.
+pub(crate) fn is_callable_scope(kind: &str) -> bool {
+    CALLABLE_BODY_OWNER_KINDS.contains(&kind)
+        || matches!(kind, "lambda_expression" | "anonymous_method_expression")
+}
+
+/// Collect matching nodes without descending into nested local functions,
+/// lambdas, or anonymous methods. The root itself is always traversed.
+pub(crate) fn collect_kinds_in_callable<'t>(root: Node<'t>, kinds: &[&str]) -> Vec<Node<'t>> {
+    let mut matched = Vec::new();
+    let mut cursor = root.walk();
+    loop {
+        let node = cursor.node();
+        if kinds.contains(&node.kind()) {
+            matched.push(node);
+        }
+        let may_descend = node == root || !is_callable_scope(node.kind());
+        if may_descend && cursor.goto_first_child() {
+            continue;
+        }
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                return matched;
+            }
+        }
+    }
+}
+
 /// True for nodes forming statements: explicit `block`s and `*_statement`s.
 pub(crate) fn is_statement_kind(kind: &str) -> bool {
     kind == "block" || kind.ends_with("_statement")
@@ -110,7 +139,7 @@ pub(crate) fn for_clauses(
         if child.kind() == ";" {
             semicolons_seen += 1;
         } else if child.is_named() && semicolons_seen < clauses.len() {
-            clauses[semicolons_seen] = Some(child);
+            clauses[semicolons_seen].get_or_insert(child);
         }
     }
     (clauses[0], clauses[1], clauses[2])

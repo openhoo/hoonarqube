@@ -40,27 +40,32 @@ jobs:
       - name: Rust format
         run: cargo fmt --all --check
 
+      - name: Source-only publication policy
+        run: |
+          cargo metadata --locked --format-version 1 --no-deps |
+            jq -e 'all(.packages[]; .publish == [])'
+
       - name: Rust lint
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 
       - name: Rust documentation
         env:
           RUSTDOCFLAGS: -D warnings
-        run: cargo doc --workspace --no-deps
+        run: cargo doc --locked --workspace --all-features --no-deps
 
       - name: Rust tests
-        run: cargo test --workspace --all-targets
+        run: cargo test --locked --workspace --all-targets --all-features
 
       - name: Self-analysis complexity
         run: |
-          cargo run -q -p hoonarqube-cli -- --json analyze crates xtask |
+          cargo run --locked -q -p hoonarqube-cli -- --json analyze crates xtask |
             jq -e '[.files[].issues[] | select(.rule_key == "rust:S3776")] | length == 0'
 
       - name: Frozen catalog integrity
-        run: cargo run -q -p xtask -- catalog audit --require-pages-complete
+        run: cargo run --locked -q -p xtask -- catalog audit --require-pages-complete
 
       - name: Actionable rule coverage
-        run: cargo run -q -p xtask -- catalog coverage --strict --allow-infra
+        run: cargo run --locked -q -p xtask -- catalog coverage --strict --allow-infra
 
       - name: Oracle harness tests
         run: python3 -m unittest discover -s tools/oracle -p 'test_*.py' -v
@@ -73,3 +78,4 @@ jobs:
           python3 -m pip install --disable-pip-version-check ruff==0.15.20
           ruff check tools/oracle --exclude tools/oracle/fixtures \
             --extend-select C90,PLR0911,PLR0912,PLR0915,PERF,SIM,B
+          ruff format --check tools/oracle --exclude tools/oracle/fixtures

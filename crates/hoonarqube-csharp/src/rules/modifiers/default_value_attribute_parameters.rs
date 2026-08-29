@@ -1,6 +1,6 @@
-use super::support::has_attribute;
+use super::support::{attribute_named, has_attribute};
 use crate::CsLanguage;
-use crate::cst::{attributes_of, collect_kinds, issue, node_text, range_of};
+use crate::cst::{attributes_of, collect_kinds, issue, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -10,14 +10,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     let mut issues = Vec::new();
     for parameter in collect_kinds(root, &["parameter"]) {
         if has_attribute(&attributes_of(parameter, source), "DefaultValue") {
-            let anchor = collect_kinds(parameter, &["attribute"])
-                .into_iter()
-                .find(|attribute| {
-                    attribute
-                        .child_by_field_name("name")
-                        .is_some_and(|name| node_text(name, source).ends_with("DefaultValue"))
-                })
-                .unwrap_or(parameter);
+            let anchor = attribute_named(parameter, source, "DefaultValue").unwrap_or(parameter);
             issues.push(issue(
                 language,
                 "S3451",

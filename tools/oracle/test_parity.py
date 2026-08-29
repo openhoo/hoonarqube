@@ -1,4 +1,6 @@
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -6,14 +8,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from parity import (
+    canonical_sonar_issue,
     classify_sq_misses,
     compare_reports,
     counts,
     failure_count,
+    input_paths_sha256,
+    load_infra_boundaries,
     parse_report_task,
+    read_json,
+    read_secret_file,
     validate_oracle_report,
     validate_search_page,
     wait_for_compute_engine,
+    write_json_atomic,
 )
 
 
@@ -97,7 +105,7 @@ class StrictParityTests(unittest.TestCase):
         self.assertEqual(malformed[0]["status"], "INVALID_EXPECTATION")
         self.assertEqual(failure_count(malformed), 1)
 
-    def compare(self, expected, sonar, ours, infra=()):
+    def compare(self, expected, sonar, ours, infra=None):
         return compare_reports(expected, sonar, ours, infra)
 
     def test_exact_finding_multiset_passes(self):
@@ -132,6 +140,41 @@ class StrictParityTests(unittest.TestCase):
             ours_report(ours_issue(), ours_issue(line=2)),
         )
         self.assertEqual(rows[0]["status"], "BAD_MISMATCH")
+
+    def test_incidental_findings_are_part_of_exact_rule_comparison(self):
+        incidental = "s999_bad.py"
+        ours = {
+            "files": [
+                {"path": BAD, "issues": [ours_issue()]},
+                {"path": incidental, "issues": [ours_issue()]},
+            ]
+        }
+        rows = compare_reports(
+            [expectation()],
+            oracle_report(oracle_issue()),
+            ours,
+            catalog_keys=[RULE],
+            available_files=[BAD, GOOD, incidental],
+        )
+        self.assertEqual(rows[0]["status"], "BAD_MISMATCH")
+        self.assertEqual(rows[0]["ours_other"][0]["message"], MESSAGE)
+
+    def test_uncontracted_rules_and_unknown_files_are_invalid_artifacts(self):
+        rows = compare_reports(
+            [expectation()],
+            oracle_report(
+                oracle_issue(rule="python:S999"), oracle_issue(file="unknown.py")
+            ),
+            ours_report(),
+            catalog_keys=[RULE],
+            available_files=[BAD, GOOD],
+        )
+        invalid = [row for row in rows if row["status"] == "INVALID_ARTIFACT"]
+        self.assertEqual(len(invalid), 2)
+        self.assertTrue(
+            any("absent from oracle contract" in row["reason"] for row in invalid)
+        )
+        self.assertTrue(any("unknown fixture" in row["reason"] for row in invalid))
 
     def test_each_missing_side_and_both_missing_are_distinct_failures(self):
         ours_missing = self.compare(
@@ -185,14 +228,41 @@ class StrictParityTests(unittest.TestCase):
         self.assertEqual(local_good[0]["status"], "GOOD_FIRE")
 
     def test_skip_and_infra_are_explicit_fail_closed_gaps(self):
+        reason = "GraphQL semantic model unavailable"
         rows = self.compare(
-            [expectation(skip="config"), expectation(key="python:S6786")],
+            [
+                expectation(skip="config"),
+                expectation(key="python:S6786", infra=reason),
+            ],
             oracle_report(),
             ours_report(),
-            infra={"python:S6786"},
+            infra={"python:S6786": reason},
         )
         self.assertEqual([row["status"] for row in rows], ["SKIPPED", "INFRA"])
         self.assertEqual(failure_count(rows), 2)
+
+    def test_infra_self_classification_requires_exact_central_approval(self):
+        declared = expectation(infra="invented exception")
+        unapproved = self.compare([declared], oracle_report(), ours_report())
+        self.assertEqual(unapproved[0]["status"], "INVALID_EXPECTATION")
+        self.assertIn("unapproved", unapproved[0]["reason"])
+
+        mismatched = self.compare(
+            [declared],
+            oracle_report(),
+            ours_report(),
+            infra={RULE: "approved reason"},
+        )
+        self.assertEqual(mismatched[0]["status"], "INVALID_EXPECTATION")
+        self.assertIn("does not match", mismatched[0]["reason"])
+
+        malformed = self.compare(
+            [expectation(infra=True)],
+            oracle_report(),
+            ours_report(),
+            infra={RULE: "approved reason"},
+        )
+        self.assertEqual(malformed[0]["status"], "INVALID_EXPECTATION")
 
     def test_duplicate_and_malformed_expectations_fail(self):
         rows = self.compare(
@@ -351,6 +421,106 @@ class StrictParityTests(unittest.TestCase):
         self.assertEqual(rows[0]["status"], "INVALID_EXPECTATION")
         self.assertEqual(rows[0]["reason"], "expectation must be an object")
 
+    def test_local_report_rejects_duplicate_paths_and_basename_collisions(self):
+        duplicate = {
+            "files": [
+                {"path": "/fixtures/a.py", "issues": []},
+                {"path": "/fixtures/a.py", "issues": []},
+            ]
+        }
+        collision = {
+            "files": [
+                {"path": "/one/a.py", "issues": []},
+                {"path": "/two/a.py", "issues": []},
+            ]
+        }
+        with self.assertRaisesRegex(ValueError, "duplicate hoonarqube"):
+            compare_reports([expectation()], oracle_report(), duplicate)
+        with self.assertRaisesRegex(ValueError, "basename collision"):
+            compare_reports([expectation()], oracle_report(), collision)
+
+    def test_sonar_api_issue_normalization_is_strict(self):
+        issue = {
+            "rule": RULE,
+            "component": "oracle-py:src/s112_bad.py",
+            "message": MESSAGE,
+            "textRange": {
+                "startLine": 2,
+                "startOffset": 3,
+                "endLine": 2,
+                "endOffset": 8,
+            },
+        }
+        normalized = canonical_sonar_issue(
+            issue, hotspot=False, expected_project="oracle-py"
+        )
+        self.assertEqual(normalized["file"], BAD)
+        with self.assertRaisesRegex(ValueError, "line-only"):
+            canonical_sonar_issue(
+                {**issue, "textRange": None, "line": 2}, hotspot=False
+            )
+        with self.assertRaisesRegex(ValueError, "message"):
+            canonical_sonar_issue(
+                {key: value for key, value in issue.items() if key != "message"},
+                hotspot=False,
+            )
+
+    def test_strict_json_io_rejects_nonstandard_constants_and_writes_atomically(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "artifact.json"
+            path.write_text('{"value": NaN}\n')
+            with self.assertRaisesRegex(ValueError, "non-standard JSON"):
+                read_json(path)
+            path.write_text('{"value": 1, "value": 2}\n')
+            with self.assertRaisesRegex(ValueError, "duplicate JSON object key"):
+                read_json(path)
+            write_json_atomic(path, {"value": 1}, indent=1)
+            self.assertEqual(read_json(path), {"value": 1})
+            self.assertEqual(list(Path(directory).glob("*.tmp")), [])
+
+    @unittest.skipUnless(os.name == "posix", "POSIX permission contract")
+    def test_secret_files_reject_broad_permissions_and_symlinks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            token = root / "token"
+            token.write_text("secret\n")
+            token.chmod(0o600)
+            self.assertEqual(read_secret_file(token), "secret\n")
+
+            token.chmod(0o640)
+            with self.assertRaisesRegex(RuntimeError, "group/other access"):
+                read_secret_file(token)
+
+            token.chmod(0o600)
+            link = root / "token-link"
+            link.symlink_to(token)
+            with self.assertRaisesRegex(RuntimeError, "securely open"):
+                read_secret_file(link)
+
+    def test_checked_in_infra_manifest_is_strict_and_nonempty(self):
+        boundaries = load_infra_boundaries(
+            Path(__file__).resolve().parent.parent.parent
+            / "catalog/infra-boundaries.json"
+        )
+        self.assertEqual(len(boundaries), 52)
+        self.assertIn("python:S6786", boundaries)
+
+    def test_input_fingerprint_is_order_stable_and_rejects_symlinks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "first.txt"
+            second = root / "second.txt"
+            first.write_text("one")
+            second.write_text("two")
+            self.assertEqual(
+                input_paths_sha256(root, [first, second]),
+                input_paths_sha256(root, [second, first]),
+            )
+            link = root / "link.txt"
+            link.symlink_to(first)
+            with self.assertRaisesRegex(ValueError, "must not be a symlink"):
+                input_paths_sha256(root, [link])
+
     def test_file_level_zero_sentinel_matches_absent_sonar_range(self):
         sonar = oracle_report(
             {
@@ -415,6 +585,13 @@ class StrictParityTests(unittest.TestCase):
         self.assertEqual(task["ceTaskId"], "task-123")
         with self.assertRaisesRegex(ValueError, "lacks ceTaskId"):
             parse_report_task("projectKey=oracle-py\n")
+        with self.assertRaisesRegex(ValueError, "duplicate ceTaskId"):
+            parse_report_task("ceTaskId=one\nceTaskId=two\n")
+        with self.assertRaisesRegex(ValueError, "projectKey must be 'oracle-js'"):
+            parse_report_task(
+                "projectKey=oracle-py\nceTaskId=one\n",
+                expected_project="oracle-js",
+            )
 
     def test_compute_engine_waits_for_commit_and_fails_closed(self):
         statuses = iter(["PENDING", "IN_PROGRESS", "SUCCESS"])
@@ -436,6 +613,10 @@ class StrictParityTests(unittest.TestCase):
         )
         self.assertEqual(failed, "FAILED")
         self.assertEqual(timed_out, "TIMEOUT")
+        with self.assertRaisesRegex(ValueError, "invalid compute engine status"):
+            wait_for_compute_engine(
+                "task-123", lambda _task: None, lambda: None, attempts=1
+            )
 
 
 if __name__ == "__main__":

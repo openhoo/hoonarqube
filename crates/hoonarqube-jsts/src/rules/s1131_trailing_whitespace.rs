@@ -16,7 +16,8 @@ fn check_trailing_whitespace(source: &str, language: JstsLanguage) -> Vec<Issue>
             continue;
         }
         let line_number = to_u32(zero_based) + 1;
-        let start_column = to_u32(content.len() - trailing);
+        let end_column = to_u32(content.chars().count());
+        let start_column = end_column.saturating_sub(to_u32(trailing));
         issues.push(Issue {
             rule_key: rule_key.clone(),
             message: "Trailing spaces not allowed.".to_string(),
@@ -27,7 +28,7 @@ fn check_trailing_whitespace(source: &str, language: JstsLanguage) -> Vec<Issue>
                 },
                 end: hoonarqube_ir::Pos {
                     line: line_number,
-                    column: to_u32(content.len()),
+                    column: end_column,
                 },
             },
             fix: None,
@@ -55,6 +56,18 @@ mod tests {
                 (1, 17),
             )]
         );
+    }
+
+    #[test]
+    fn trailing_whitespace_columns_count_unicode_characters() {
+        let report = js("const café = 1;  \n");
+        let issue = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "javascript:S1131")
+            .expect("trailing whitespace finding");
+        assert_eq!(issue.range.start.column, 15);
+        assert_eq!(issue.range.end.column, 17);
     }
 
     #[test]

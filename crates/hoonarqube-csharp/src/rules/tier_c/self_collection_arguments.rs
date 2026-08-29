@@ -10,14 +10,21 @@ use tree_sitter::Node;
 /// receivers matched textually against identifier arguments; property chains
 /// and aliased references stay uncovered.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    const SAME_COLLECTION_METHODS: [&str; 7] = [
-        "AddRange",
-        "InsertRange",
-        "CopyTo",
-        "Concat",
-        "Union",
-        "Intersect",
+    const SAME_COLLECTION_METHODS: [&str; 14] = [
         "Except",
+        "ExceptWith",
+        "Intersect",
+        "IntersectWith",
+        "IsProperSubsetOf",
+        "IsProperSupersetOf",
+        "IsSubsetOf",
+        "IsSupersetOf",
+        "Overlaps",
+        "SequenceEqual",
+        "SetEquals",
+        "SymmetricExceptWith",
+        "Union",
+        "UnionWith",
     ];
     collect_kinds(root, &["invocation_expression"])
         .into_iter()
@@ -41,12 +48,25 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         })
         .map(|call| {
             let receiver = invocation_receiver(call).unwrap_or(call);
+            let callee = callee_name(call, source).unwrap_or("");
+            let behavior = match callee {
+                "Intersect" | "IntersectWith" | "Union" | "UnionWith" => {
+                    "This operation always produces the same collection."
+                }
+                "Except" | "ExceptWith" | "SymmetricExceptWith" => {
+                    "This operation always produces an empty collection."
+                }
+                "IsProperSubsetOf" | "IsProperSupersetOf" => {
+                    "Comparing to itself always returns false."
+                }
+                _ => "Comparing to itself always returns true.",
+            };
             issue(
                 language,
                 "S2114",
                 format!(
-                    "Change one instance of '{}' to a different value; This operation will probably result in an unexpected behavior.",
-                    node_text(receiver, source)
+                    "Change one instance of '{}' to a different value; {behavior}",
+                    node_text(receiver, source),
                 ),
                 range_of(receiver, source),
             )
@@ -65,8 +85,8 @@ mod tests {
     }
 
     #[test]
-    fn s2114_flags_concat_and_union_self_references() {
-        let report = analyze_default("items.Concat(items);\nset.Union(set);\n");
+    fn s2114_flags_intersect_and_union_self_references() {
+        let report = analyze_default("items.Intersect(items);\nset.Union(set);\n");
         let flagged = with_key(&report, "csharpsquid:S2114");
         assert_eq!(flagged.len(), 2);
         assert_eq!(flagged[0].range.start.line, 1);
@@ -74,11 +94,16 @@ mod tests {
     }
 
     #[test]
-    fn s2114_flags_copy_to_self_reference() {
-        let report = analyze_default("list.CopyTo(list, 0);\n");
+    fn s2114_flags_set_self_reference_with_exact_behavior() {
+        let report = analyze_default("set.ExceptWith(set);\n");
         let flagged = with_key(&report, "csharpsquid:S2114");
         assert_eq!(flagged.len(), 1);
         assert_eq!(flagged[0].range.start.line, 1);
+        assert!(
+            flagged[0]
+                .message
+                .ends_with("always produces an empty collection.")
+        );
     }
 
     #[test]

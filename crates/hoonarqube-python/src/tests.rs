@@ -790,6 +790,41 @@ fn s5953_flags_undefined_name_loads() {
 }
 
 #[test]
+fn global_declarations_resolve_only_real_module_bindings() {
+    let source = concat!(
+        "existing = 1\n",
+        "def read_existing():\n    global existing\n    return existing\n",
+        "def read_missing():\n    global missing\n    return missing\n",
+    );
+    let found = findings_of(source, "python:S5953");
+    assert_eq!(
+        found,
+        vec!["missing is not defined. Change its name or define it before using it"]
+    );
+}
+
+#[test]
+fn tf_global_declarations_still_count_as_global_captures() {
+    let source = concat!(
+        "state = 1\n",
+        "@tf.function\n",
+        "def read():\n    global state\n    return state\n",
+    );
+    assert_eq!(findings_of(source, "python:S6911").len(), 1);
+}
+
+#[test]
+fn lambda_defaults_are_evaluated_in_the_enclosing_scope() {
+    let source = concat!(
+        "def consume(value):\n    return value\n",
+        "callback = lambda value=consume(): value\n",
+        "broken = lambda value=missing_default: value\n",
+    );
+    assert_eq!(findings_of(source, "python:S930").len(), 1);
+    assert_eq!(findings_of(source, "python:S5953").len(), 1);
+}
+
+#[test]
 fn s5953_accepts_match_capture_pattern_bindings() {
     let source = concat!(
         "def handle(cmd):\n",
@@ -2079,6 +2114,39 @@ fn s930_checks_methods_and_constructors_file_locally() {
 }
 
 #[test]
+fn s930_models_keywords_and_class_descriptor_binding() {
+    let flagged = concat!(
+        "def optional(value=1):\n    return value\n",
+        "optional(unknown=1)\n",
+        "def positional(value, /):\n    return value\n",
+        "positional(value=1)\n",
+        "def duplicate(value):\n    return value\n",
+        "duplicate(1, value=2)\n",
+        "def required_option(*, token, **options):\n    return token, options\n",
+        "required_option()\n",
+        "class Service:\n",
+        "    def run(self, value):\n        return value\n",
+        "Service.run(1)\n",
+    );
+    assert_eq!(findings_of(flagged, "python:S930").len(), 5);
+
+    let clean = concat!(
+        "def flexible(value, /, **options):\n    return value, options\n",
+        "flexible(1, value=2)\n",
+        "class Service:\n",
+        "    def run(self, value):\n        return value\n",
+        "    @classmethod\n",
+        "    def build(cls, value):\n        return cls()\n",
+        "    @staticmethod\n",
+        "    def parse(value):\n        return value\n",
+        "Service.run(object(), 1)\n",
+        "Service.build(1)\n",
+        "Service.parse(1)\n",
+    );
+    assert!(findings_of(clean, "python:S930").is_empty());
+}
+
+#[test]
 fn local_call_resolution_drops_redefined_and_rebound_names() {
     let source = concat!(
         "def target(value):\n    return value\n",
@@ -2094,6 +2162,28 @@ fn local_call_resolution_drops_redefined_and_rebound_names() {
     );
     assert!(findings_of(source, "python:S930").is_empty());
     assert!(findings_of(source, "python:S5655").is_empty());
+}
+
+#[test]
+fn local_call_resolution_observes_real_module_scope_writes() {
+    let source = concat!(
+        "global declared\n",
+        "def declared(value):\n    return value\n",
+        "declared()\n",
+        "def outside(value):\n    return value\n",
+        "callback = lambda: (outside := external)\n",
+        "outside()\n",
+        "def handled(value):\n    return value\n",
+        "try:\n    operation()\n",
+        "except Exception as handled:\n    pass\n",
+        "handled()\n",
+        "def captured(value):\n    return value\n",
+        "match subject:\n    case captured:\n        pass\n",
+        "captured()\n",
+    );
+    // The declaration is not a write, and the lambda's body has its own
+    // scope. Exception and pattern captures do overwrite module names.
+    assert_eq!(findings_of(source, "python:S930").len(), 2);
 }
 
 #[test]
@@ -2114,6 +2204,25 @@ fn s930_walks_deep_local_inheritance_iteratively() {
 }
 
 #[test]
+fn s930_uses_python_c3_order_for_diamond_inheritance() {
+    let source = concat!(
+        "class Root:\n",
+        "    def ping(self):\n        return None\n",
+        "class Left(Root):\n    pass\n",
+        "class Right(Root):\n",
+        "    def ping(self, value):\n        return value\n",
+        "class Combined(Left, Right):\n    pass\n",
+        "instance = Combined()\n",
+        "instance.ping()\n",
+        "instance.ping(1)\n",
+    );
+    let report = scan(source);
+    let found = findings(&report, "python:S930");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start.line, 12);
+}
+
+#[test]
 fn s5655_flags_arguments_contradicting_parameter_annotations() {
     let flagged = concat!(
         "def repeat(text: str, times: int) -> str:\n",
@@ -2131,6 +2240,40 @@ fn s5655_flags_arguments_contradicting_parameter_annotations() {
         "loose([1])\n"
     );
     assert!(findings_of(clean, "python:S5655").is_empty());
+}
+
+#[test]
+fn s5655_checks_known_slots_around_variadics_and_descriptors() {
+    let flagged = concat!(
+        "def gather(label: str, *items, enabled: bool = True, **options):\n",
+        "    return label, items, enabled, options\n",
+        "gather(1, enabled='yes')\n",
+        "class Parser:\n",
+        "    def parse(self, value: str):\n        return value\n",
+        "Parser.parse(object(), 1)\n",
+    );
+    assert_eq!(findings_of(flagged, "python:S5655").len(), 3);
+
+    let clean = concat!(
+        "def positional(value: str, /, **options):\n    return value, options\n",
+        "positional('ok', value=1)\n",
+        "def unpacked(first: str, second: str):\n    return first, second\n",
+        "unpacked(*values, 1)\n",
+    );
+    assert!(findings_of(clean, "python:S5655").is_empty());
+}
+
+#[test]
+fn s5655_requires_known_qualified_annotation_provenance() {
+    let source = concat!(
+        "import custom\n",
+        "import typing\n",
+        "def opaque(value: custom.str):\n    return value\n",
+        "opaque(1)\n",
+        "def known(value: typing.Dict[str, int]):\n    return value\n",
+        "known([])\n",
+    );
+    assert_eq!(findings_of(source, "python:S5655").len(), 1);
 }
 
 #[test]

@@ -1,3 +1,4 @@
+use super::support::enclosing_type;
 use crate::CsLanguage;
 use crate::cst::{
     base_simple_names, collect_kinds, is_error_tainted, issue, node_text, range_of, simple_name,
@@ -14,7 +15,9 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(class_node)
             || !base_simple_names(class_node, source).contains(&"IDisposable")
             || !owns_unmanaged_pointer(class_node, source)
-            || !collect_kinds(class_node, &["destructor_declaration"]).is_empty()
+            || collect_kinds(class_node, &["destructor_declaration"])
+                .into_iter()
+                .any(|destructor| enclosing_type(destructor) == Some(class_node))
         {
             continue;
         }
@@ -31,6 +34,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 fn owns_unmanaged_pointer(class_node: Node<'_>, source: &str) -> bool {
     collect_kinds(class_node, &["field_declaration"])
         .into_iter()
+        .filter(|field| enclosing_type(*field) == Some(class_node))
         .filter_map(|field| {
             collect_kinds(field, &["variable_declaration"])
                 .into_iter()
@@ -84,5 +88,18 @@ mod tests {
             "class A : IDisposable\n{\n    public void Dispose()\n    {\n    }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S4002").is_empty());
+    }
+
+    #[test]
+    fn s4002_does_not_borrow_pointer_or_finalizer_from_nested_type() {
+        let missing_pointer = analyze_default(
+            "class Outer : IDisposable\n{\n    public void Dispose() { }\n    class Inner\n    {\n        private IntPtr resource;\n    }\n}\n",
+        );
+        assert!(with_key(&missing_pointer, "csharpsquid:S4002").is_empty());
+
+        let missing_finalizer = analyze_default(
+            "class Outer : IDisposable\n{\n    private IntPtr resource;\n    public void Dispose() { }\n    class Inner\n    {\n        ~Inner() { }\n    }\n}\n",
+        );
+        assert_eq!(with_key(&missing_finalizer, "csharpsquid:S4002").len(), 1);
     }
 }

@@ -1,33 +1,22 @@
-use super::support::{comparisons, operator_of};
+use super::support::{comparisons, operator_of, resolved_identifier_type};
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, node_text, range_of};
+use crate::cst::{issue, node_text, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S2198 — comparisons against constants outside an operand
 /// type's range are constant results.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    let float_names: std::collections::HashSet<&str> = collect_kinds(root, &["parameter"])
-        .into_iter()
-        .filter(|parameter| {
-            parameter
-                .child_by_field_name("type")
-                .is_some_and(|ty| node_text(ty, source) == "float")
-        })
-        .filter_map(|parameter| parameter.child_by_field_name("name"))
-        .map(|name| node_text(name, source))
-        .collect();
-
     comparisons(root)
         .into_iter()
         .filter(|(expression, _, _)| {
             matches!(operator_of(*expression), Some("<" | ">" | "<=" | ">="))
         })
         .filter(|(_, left, right)| {
-            (float_names.contains(node_text(*left, source))
-                && node_text(*right, source) == "double.MaxValue")
-                || (float_names.contains(node_text(*right, source))
-                    && node_text(*left, source) == "double.MaxValue")
+            (node_text(*right, source) == "double.MaxValue"
+                && resolved_identifier_type(*left, source) == Some("float"))
+                || (node_text(*left, source) == "double.MaxValue"
+                    && resolved_identifier_type(*right, source) == Some("float"))
         })
         .map(|(expression, _, _)| {
             issue(
@@ -59,5 +48,13 @@ mod tests {
 
         let good = analyze_default("class C { bool M(double value) => value <= double.MaxValue; }");
         assert!(with_key(&good, "csharpsquid:S2198").is_empty());
+    }
+
+    #[test]
+    fn s2198_does_not_leak_parameter_types_between_methods() {
+        let report = analyze_default(
+            "class C { bool Float(float value) => value <= double.MaxValue; bool Wide(double value) => value <= double.MaxValue; }",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S2198").len(), 1);
     }
 }

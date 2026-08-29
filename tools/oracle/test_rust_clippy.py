@@ -1,4 +1,7 @@
+import json
+import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 import rust_clippy
@@ -16,6 +19,47 @@ class RustClippyOracleTests(unittest.TestCase):
             expected,
             set(rust_clippy.CLIPPY_LINTS) | set(rust_clippy.NATIVE_RULES),
         )
+
+    def test_upstream_exemptions_are_exact_and_exhaustive(self):
+        rows = rust_clippy.expectations(PROJECT)
+        reasons = {
+            str(row["key"]): row["upstream_unverified"]
+            for row in rows
+            if "upstream_unverified" in row
+        }
+        self.assertEqual(
+            reasons,
+            {
+                key: boundary["reason"]
+                for key, boundary in rust_clippy.UPSTREAM_BOUNDARIES.items()
+            },
+        )
+
+    def test_plugin_rule_lints_reads_native_mapping_and_rejects_duplicates(self):
+        resource = "org/sonar/l10n/rust/rules/clippy/rules.json"
+        with tempfile.TemporaryDirectory() as directory:
+            plugin = Path(directory) / "plugin.jar"
+            with zipfile.ZipFile(plugin, "w") as archive:
+                archive.writestr(
+                    resource,
+                    json.dumps([{"ruleKey": "S1", "lintId": "clippy::one"}]),
+                )
+            self.assertEqual(
+                rust_clippy.plugin_rule_lints(plugin), {"rust:S1": "clippy::one"}
+            )
+
+            with zipfile.ZipFile(plugin, "w") as archive:
+                archive.writestr(
+                    resource,
+                    json.dumps(
+                        [
+                            {"ruleKey": "S1", "lintId": "clippy::one"},
+                            {"ruleKey": "S1", "lintId": "clippy::two"},
+                        ]
+                    ),
+                )
+            with self.assertRaisesRegex(RuntimeError, "duplicate Clippy mapping"):
+                rust_clippy.plugin_rule_lints(plugin)
 
     def test_rewrite_span_paths_updates_nested_spans(self):
         value = {

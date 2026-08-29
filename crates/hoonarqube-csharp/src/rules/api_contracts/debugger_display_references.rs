@@ -48,16 +48,27 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     issues
 }
 
-/// `{Member}` references inside a `DebuggerDisplay` value.
+/// Root member names referenced by `{Member}`, `{Member.Child}`, or
+/// `{Member().Child}` expressions inside a `DebuggerDisplay` value.
 fn debugger_display_members(value: &str) -> Vec<&str> {
     let mut members = Vec::new();
     let mut rest = value;
     while let Some(open) = rest.find('{') {
         let after = &rest[open + 1..];
+        if let Some(stripped) = after.strip_prefix('{') {
+            rest = stripped;
+            continue;
+        }
         match after.find('}') {
             Some(close) => {
                 let token = &after[..close];
-                let bare = token.split([',', ':', '(']).next().unwrap_or(token).trim();
+                let expression = token.split([',', ':']).next().unwrap_or(token).trim();
+                let expression = expression.strip_prefix("this.").unwrap_or(expression);
+                let bare = expression
+                    .split(['.', '(', '['])
+                    .next()
+                    .unwrap_or(expression)
+                    .trim();
                 if !bare.is_empty() {
                     members.push(bare);
                 }
@@ -102,6 +113,22 @@ mod tests {
     fn s4545_ignores_attributes_on_non_type_owners() {
         let report = analyze_default(
             "class Card\n{\n    [DebuggerDisplay(\"{Nope}\")]\n    public string label;\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4545").is_empty());
+    }
+
+    #[test]
+    fn s4545_resolves_roots_of_member_chains() {
+        let report = analyze_default(
+            "[DebuggerDisplay(\"{Name.Length} {this.Name} {Compute().Value}\")]\nclass Card\n{\n    public string Name { get; set; }\n    object Compute() => Name;\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4545").is_empty());
+    }
+
+    #[test]
+    fn s4545_ignores_escaped_open_braces() {
+        let report = analyze_default(
+            "[DebuggerDisplay(\"{{Missing}} {Name}\")]\nclass Card\n{\n    public string Name { get; set; }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S4545").is_empty());
     }

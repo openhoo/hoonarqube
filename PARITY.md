@@ -72,6 +72,11 @@ Important statuses:
   `INFRA` all fail closed. `PASS`, `ENTERPRISE_UNVERIFIED`, and
   `UPSTREAM_UNVERIFIED` are non-failing; only `PASS` is exact parity.
 
+Every `INFRA` row must match an exact key and reason in
+`catalog/infra-boundaries.json`. Fixture manifests cannot self-classify a new
+exception, change its reason, or silently retain a removed boundary. The same
+manifest identifies the 17 implementation gaps used by catalog coverage.
+
 Enterprise-unverified rules still require local evidence. If Hoonarqube misses
 their bad fixture or fires on their good control, the result is `OURS_MISS` or
 `GOOD_FIRE`, not `ENTERPRISE_UNVERIFIED`.
@@ -80,7 +85,7 @@ Oracle artifacts use schema version 2 and retain complete messages/ranges.
 Legacy line-only artifacts are rejected. `--quick` validates cached artifacts;
 a full run refreshes scanner results.
 
-## Current evidence — 2026-08-28
+## Current evidence — 2026-08-29
 
 Current state is **not full parity**.
 
@@ -91,13 +96,21 @@ Current state is **not full parity**.
 - Go's current Community oracle has 36 exact passes. Rust has 80 exact passes
   and five upstream-unverified rows (`S1858`, `S3723`, `S3807`, `S4275`,
   `S7450`); all 85 Rust bad/good fixture contracts pass locally.
-- Forty-two oracle/import harness tests pass, including fail-closed Rust Clippy
-  report generation and upstream-unverified semantics.
+- A fresh SonarQube 26.8 scan gives 117 Python, 119 JavaScript, and 115
+  TypeScript exact passes. The three projects retain 833 fail-closed rows:
+  284 `BAD_MISMATCH`, 15 `GOOD_FIRE`, 451 `SQ_MISS`, 31 `BEYOND_CE`,
+  31 findings from new upstream rules outside the frozen catalog, 11 legacy or
+  configuration skips, and 10 approved infrastructure boundaries.
+- Seventy-six local oracle/import harness tests pass as of 2026-08-29, including
+  fail-closed Rust Clippy report generation and upstream-unverified semantics.
 - Seventeen Enterprise C# rules remain implemented and locally tested. Their
   exact keys and analyzer ownership are integrity-checked in
   `catalog/community-artifact-resolution.json`.
-- Community C# direct-oracle evidence has 408 exact passes, zero observed
-  mismatches, 42 infrastructure gaps, and 17 Enterprise-unverified rows.
+- The latest public C# analyzer (`SonarAnalyzer.CSharp` 10.33.0.1635) gives 302
+  exact full-corpus passes. Another 106 rules match their designated bad/good
+  fixtures exactly but diverge on findings produced in other rules' fixtures;
+  these remain failing `BAD_MISMATCH` rows. Forty-two rows remain exact,
+  manifest-approved infrastructure gaps, and 17 are Enterprise-unverified.
 - Commercial analyzer execution is not part of routine development or CI.
   Enterprise parity for those 17 rows remains intentionally unverified.
 - Expectation manifests cover all 1,741 catalog keys. Tracked corpus contains
@@ -107,10 +120,10 @@ Current state is **not full parity**.
 
 ```bash
 cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo run -q -p xtask -- catalog audit --require-pages-complete
-cargo run -q -p xtask -- catalog coverage --strict --allow-infra
+cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+cargo test --locked --workspace --all-targets --all-features
+cargo run --locked -q -p xtask -- catalog audit --require-pages-complete
+cargo run --locked -q -p xtask -- catalog coverage --strict --allow-infra
 PYTHONPATH=tools/oracle python3 -m unittest discover -s tools/oracle -p 'test_*.py' -v
 python3 tools/oracle/csharp_direct_oracle.py \
   --analyzer /path/to/SonarAnalyzer.CSharp.dll \
@@ -119,13 +132,17 @@ SONAR_ORACLE_RESULT_TAG=community-base-direct \
   python3 tools/oracle/parity_suite.py --project oracle-cs --quick
 python3 tools/oracle/parity_suite.py \
   --project oracle-go --project oracle-rust
+python3 tools/oracle/verify_rust_upstream.py \
+  .oracle/sonar/projects/oracle-rust /path/to/sonar-rust-plugin.jar \
+  .oracle/sonar/results/oracle-rust.upstream-contract.json
 ```
 
 A full Community server refresh requires `SONAR_DOTNET_SCANNER` and a .NET 10
 SDK for C#. Generic scans fall back to Podman; Rust fallback builds the tracked
 scanner image and mounts the local Rustup toolchain so SonarQube runs Clippy
 itself. Token remains outside repository in
-`.oracle/sonar/token` or `SONAR_ORACLE_TOKEN`.
+`.oracle/sonar/token` or `SONAR_ORACLE_TOKEN`. File-backed tokens must be
+caller-owned regular files with no group or other permissions.
 
 GitHub workflow runs reproducible local gates. Routine Community certification
 can be green with explicit unverified rows; exact full parity remains unclaimed

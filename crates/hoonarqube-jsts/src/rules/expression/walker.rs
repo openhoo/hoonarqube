@@ -211,7 +211,7 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
     }
 
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
-        check_assignment_rules(&mut self.sink, it);
+        check_assignment_rules(&mut self.sink, self.source, it);
         walk_assignment_expression(self, it);
     }
 
@@ -226,9 +226,18 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
     }
 
     fn visit_sequence_expression(&mut self, it: &SequenceExpression<'a>) {
-        let comma = it.expressions.first().map_or(it.span(), |first| {
-            oxc_span::Span::new(first.span().end, first.span().end + 1)
-        });
+        let comma = it
+            .expressions
+            .first()
+            .zip(it.expressions.get(1))
+            .and_then(|(first, second)| {
+                let start = usize::try_from(first.span().end).ok()?;
+                let end = usize::try_from(second.span().start).ok()?;
+                let offset = self.source.get(start..end)?.find(',')?;
+                let comma = crate::support::to_u32(start + offset);
+                Some(oxc_span::Span::new(comma, comma.saturating_add(1)))
+            })
+            .unwrap_or_else(|| it.span());
         self.sink.emit_span(
             RuleScope::Both,
             "S878",
@@ -435,6 +444,23 @@ host = '10.0.0.1';
 
         let nested = js_keys("const v = a ? b : (c ? d : e);\n");
         assert_eq!(count_key(&nested, "javascript:S1774"), 2);
+    }
+
+    #[test]
+    fn comma_operator_span_uses_the_actual_token_after_unicode_trivia() {
+        let source = "(a\u{00a0}, b);\n";
+        let report = js(source);
+        let finding = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key.ends_with(":S878"))
+            .expect("comma operator finding");
+        let comma = source.find(',').expect("comma");
+        assert_eq!(
+            finding.range.start.column,
+            u32::try_from(source[..comma].chars().count()).expect("column")
+        );
+        assert_eq!(finding.range.end.column, finding.range.start.column + 1);
     }
 
     #[test]

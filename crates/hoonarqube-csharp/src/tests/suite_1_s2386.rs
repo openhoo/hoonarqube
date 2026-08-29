@@ -66,13 +66,20 @@ fn line_length_honors_option_with_exact_boundary_clean() {
 
 #[test]
 fn broken_source_neither_panics_nor_emits_issues() {
+    let options = AnalyzerOptions {
+        maximum_line_length: 1,
+        ..AnalyzerOptions::default()
+    };
+    // This contains unrecoverable declaration syntax, plus text that would
+    // trigger S103 and S105 if rule families ran on the recovered tree.
     let report = analyze(
         PathBuf::from("t.cs"),
-        "class {{{ ;;; ???\n",
+        "\tclass {{{ ;;; ???\n",
         CsLanguage::CSharp,
-        &AnalyzerOptions::default(),
+        &options,
     );
     assert!(report.issues.is_empty());
+    assert_eq!(report.metrics.lines, 1);
 }
 
 #[test]
@@ -481,8 +488,9 @@ fn s2386_flags_mutable_public_static_fields() {
         "class Counter\n{\n    public static int[] hits;\n}\nclass Frozen\n{\n    public static readonly int[] start = new int[0];\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S2386");
-    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged.len(), 2);
     assert_eq!(flagged[0].range.start.line, 3);
+    assert_eq!(flagged[1].range.start.line, 7);
 }
 
 #[test]
@@ -777,13 +785,13 @@ fn s3168_flags_async_void_methods() {
 
 #[test]
 fn s2306_flags_async_await_identifiers_but_not_keywords() {
-    let report = analyze_default(
-        "int async = 1;\nint await = 2;\n\nclass Sleeper\n{\n    public async void NapAsync()\n    {\n    }\n}\n",
-    );
+    let source = "class Sleeper\n{\n    private int async;\n\n    private int Get()\n    {\n        int await = async;\n        return await;\n    }\n\n    public async void NapAsync()\n    {\n        await System.Threading.Tasks.Task.Yield();\n    }\n}\n";
+    let tree = crate::parse(source);
+    let report = analyze_default(source);
     let flagged = with_key(&report, "csharpsquid:S2306");
-    assert_eq!(flagged.len(), 2);
-    assert_eq!(flagged[0].range.start.line, 1);
-    assert_eq!(flagged[1].range.start.line, 2);
+    assert_eq!(flagged.len(), 2, "{}", tree.root_node().to_sexp());
+    assert_eq!(flagged[0].range.start.line, 3);
+    assert_eq!(flagged[1].range.start.line, 7);
 }
 
 #[test]
@@ -1324,7 +1332,10 @@ fn s3903_moves_file_scope_types_into_namespaces() {
     assert_eq!(flagged[1].range.start.line, 6);
 
     let lone = analyze_default("class Solo\n{\n    int member;\n}\n");
-    assert!(with_key(&lone, "csharpsquid:S3903").is_empty());
+    assert_eq!(with_key(&lone, "csharpsquid:S3903").len(), 1);
+
+    let file_scoped = analyze_default("namespace Example;\nclass Scoped { }\n");
+    assert!(with_key(&file_scoped, "csharpsquid:S3903").is_empty());
 }
 
 #[test]

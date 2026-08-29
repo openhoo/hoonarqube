@@ -1,9 +1,10 @@
+use super::support::collect_in_callable;
 use crate::CsLanguage;
 use crate::cst::{
     collect_kinds, is_error_tainted, issue, modifiers_of, node_text, parameters_of, range_of,
 };
 use crate::rules::expressions::{
-    callee_name, comparisons, expression_name, first_named_child, invocation_arguments,
+    binary_operands, callee_name, expression_name, first_named_child, invocation_arguments,
     invocation_function, operator_of,
 };
 use crate::rules::modifiers::has_modifier;
@@ -38,10 +39,10 @@ fn check_parameters(
         let Some(name) = nullable_parameter_name(parameter, source) else {
             continue;
         };
-        if null_guards_parameter(body, name, source) {
-            continue;
-        }
         if let Some(dereference) = first_dereference(body, name, source) {
+            if null_guards_parameter(body, name, dereference.start_byte(), source) {
+                continue;
+            }
             issues.push(issue(
                 language,
                 "S3900",
@@ -70,7 +71,7 @@ fn nullable_parameter_name<'a>(parameter: Node<'_>, source: &'a str) -> Option<&
 }
 
 fn first_dereference<'t>(body: Node<'t>, name: &str, source: &str) -> Option<Node<'t>> {
-    collect_kinds(body, &["identifier"])
+    collect_in_callable(body, "identifier")
         .into_iter()
         .find(|identifier| {
             !is_error_tainted(*identifier)
@@ -91,21 +92,34 @@ fn is_dereference_parent(parent: Node<'_>, identifier: Node<'_>) -> bool {
 }
 
 /// Whether the body guards `parameter` against null explicitly.
-fn null_guards_parameter(body: Node<'_>, parameter: &str, source: &str) -> bool {
-    let comparison_guard = comparisons(body).iter().any(|(expression, left, right)| {
-        matches!(operator_of(*expression), Some("==" | "!="))
-            && [left, right]
-                .iter()
-                .any(|side| side.kind() == "identifier" && node_text(**side, source) == parameter)
-            && [left, right]
-                .iter()
-                .any(|side| side.kind() == "null_literal")
-    });
+fn null_guards_parameter(body: Node<'_>, parameter: &str, before: usize, source: &str) -> bool {
+    let comparison_guard = collect_in_callable(body, "binary_expression")
+        .into_iter()
+        .filter(|expression| expression.start_byte() < before)
+        .filter_map(|expression| {
+            binary_operands(expression).map(|(left, right)| (expression, left, right))
+        })
+        .any(|(expression, left, right)| {
+            matches!(operator_of(expression), Some("==" | "!="))
+                && [left, right].iter().any(|side| {
+                    side.kind() == "identifier" && node_text(*side, source) == parameter
+                })
+                && [left, right]
+                    .iter()
+                    .any(|side| side.kind() == "null_literal")
+        });
     comparison_guard
-        || node_text(body, source).contains(&format!("{parameter} is null"))
-        || node_text(body, source).contains(&format!("{parameter} is not null"))
-        || collect_kinds(body, &["invocation_expression"])
+        || collect_in_callable(body, "is_pattern_expression")
             .iter()
+            .filter(|pattern| pattern.start_byte() < before)
+            .any(|pattern| {
+                let text = node_text(*pattern, source);
+                text.contains(&format!("{parameter} is null"))
+                    || text.contains(&format!("{parameter} is not null"))
+            })
+        || collect_in_callable(body, "invocation_expression")
+            .iter()
+            .filter(|invocation| invocation.start_byte() < before)
             .any(|invocation| {
                 callee_name(*invocation, source)
                     .is_some_and(|callee| callee.ends_with("ThrowIfNull"))
@@ -176,5 +190,25 @@ mod tests {
             "class C\n{\n    public int A(string? t)\n    {\n        if (t is not null)\n        {\n            return t.Length;\n        }\n        return -1;\n    }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S3900").is_empty());
+    }
+
+    #[test]
+    fn s3900_ignores_guards_inside_nested_closures() {
+        let report = analyze_default(
+            "class C\n{\n    public int Length(string? text)\n    {\n        System.Action later = () =>\n        {\n            if (text != null) Log(text);\n        };\n        return text.Length;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3900");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 9);
+    }
+
+    #[test]
+    fn s3900_does_not_accept_guards_after_first_dereference() {
+        let report = analyze_default(
+            "class C\n{\n    public int Length(string? text)\n    {\n        int length = text.Length;\n        if (text == null) return 0;\n        return length;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3900");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
     }
 }

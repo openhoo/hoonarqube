@@ -11,9 +11,9 @@
 //! because the infrastructure it requires does not exist in this crate; the
 //! coverage audit gap is explained here in code:
 //!
-//! - `python:S6786` (runtime configuration introspection): detection needs
-//!   production runtime configuration context that single-file static
-//!   analysis cannot see.
+//! - `python:S6786` (GraphQL introspection): detection needs third-party
+//!   symbol resolution and inheritance semantics to identify GraphQL views
+//!   and accepted introspection-blocking middleware or validation rules.
 
 use crate::engine::file_context::FileContext;
 #[cfg(test)]

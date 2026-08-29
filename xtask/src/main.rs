@@ -622,15 +622,18 @@ fn capture_rule_pages(
             response_page == page,
             "rules search returned wrong page index"
         );
-        let rules = body
-            .get("rules")
-            .and_then(Value::as_array)
-            .context("rules search response lacks rules array")?;
+        let rules = validate_search_page(&body, page_size, response_total, keys.len())?;
         for rule in rules {
             let key = rule
                 .get("key")
                 .and_then(Value::as_str)
                 .context("rules search record lacks key")?;
+            ensure!(
+                key.strip_prefix(query.repository)
+                    .and_then(|rest| rest.strip_prefix(':'))
+                    .is_some_and(|marker| !marker.is_empty()),
+                "rules search returned key outside requested repository"
+            );
             ensure!(keys.insert(key.to_owned()), "duplicate rule key {key}");
         }
         let canonical = canonical_json(&body)?;
@@ -669,6 +672,35 @@ fn capture_rule_pages(
         page_count,
         pages_sha256: hex::encode(pages_hasher.finalize()),
     })
+}
+
+fn validate_search_page(
+    body: &Value,
+    page_size: u64,
+    total: u64,
+    prior_keys: usize,
+) -> Result<&[Value]> {
+    let paging = body
+        .get("paging")
+        .context("rules search response lacks paging")?;
+    ensure!(
+        paging.get("pageSize").and_then(Value::as_u64) == Some(page_size),
+        "rules search returned wrong page size"
+    );
+    let rules = body
+        .get("rules")
+        .and_then(Value::as_array)
+        .context("rules search response lacks rules array")?;
+    let prior_keys = u64::try_from(prior_keys).context("captured rule count does not fit u64")?;
+    let remaining = total
+        .checked_sub(prior_keys)
+        .context("rules search returned more records than paging.total")?;
+    let expected = remaining.min(page_size);
+    ensure!(
+        u64::try_from(rules.len()).is_ok_and(|length| length == expected),
+        "rules search page length differs from paging contract"
+    );
+    Ok(rules)
 }
 
 fn capture_rule_shows(
@@ -1008,6 +1040,33 @@ mod tests {
             }]
         });
         assert_eq!(documented_rule_page_size(&value).unwrap(), 500);
+    }
+
+    #[test]
+    fn search_pages_must_match_reported_page_size_and_remaining_total() {
+        let valid = json!({
+            "paging": {"pageIndex": 1, "pageSize": 2, "total": 3},
+            "rules": [{"key": "python:S100"}, {"key": "python:S101"}],
+        });
+        assert_eq!(validate_search_page(&valid, 2, 3, 0).unwrap().len(), 2);
+
+        let wrong_size = json!({
+            "paging": {"pageIndex": 1, "pageSize": 1, "total": 3},
+            "rules": [{"key": "python:S100"}, {"key": "python:S101"}],
+        });
+        assert!(validate_search_page(&wrong_size, 2, 3, 0).is_err());
+
+        let truncated = json!({
+            "paging": {"pageIndex": 1, "pageSize": 2, "total": 3},
+            "rules": [{"key": "python:S100"}],
+        });
+        assert!(validate_search_page(&truncated, 2, 3, 0).is_err());
+
+        let final_page = json!({
+            "paging": {"pageIndex": 2, "pageSize": 2, "total": 3},
+            "rules": [{"key": "python:S102"}],
+        });
+        assert_eq!(validate_search_page(&final_page, 2, 3, 2).unwrap().len(), 1);
     }
 
     #[test]

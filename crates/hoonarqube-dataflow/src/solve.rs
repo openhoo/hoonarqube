@@ -382,4 +382,123 @@ mod tests {
         assert_eq!(result.in_fact(cfg.entry()), &rd(&[("seed", 1)]));
         assert_eq!(result.out_fact(cfg.entry()), result.in_fact(cfg.entry()));
     }
+
+    #[test]
+    fn forward_and_backward_solvers_match_synchronous_reference() {
+        const BOUNDARY: u64 = 1_u64 << 63;
+        for mask in 0..(1_u64 << 9) {
+            let cfg = graph_from_mask(3, mask);
+            for direction in [Direction::Forward, Direction::Backward] {
+                let actual = solve_dataflow(
+                    &cfg,
+                    direction,
+                    &BOUNDARY,
+                    |left, right| left | right,
+                    |facts, payload| facts | (1_u64 << payload),
+                    |_block, facts| *facts,
+                );
+                let expected = synchronous_union_solve(&cfg, direction, BOUNDARY);
+                assert_eq!(actual.in_facts, expected.in_facts);
+                assert_eq!(actual.out_facts, expected.out_facts);
+            }
+        }
+    }
+
+    #[test]
+    fn solver_is_stack_safe_on_deep_graphs() {
+        const NODES: usize = 50_000;
+        let mut cfg = Cfg::disconnected(0_u8, 1);
+        for payload in 2..NODES {
+            cfg.append_node(u8::try_from(payload % 64).expect("remainder fits u8"));
+        }
+        let mut previous = cfg.entry();
+        for index in 2..NODES {
+            let next = BlockId::new(u32::try_from(index).expect("index fits u32"));
+            cfg.add_edge(previous, next);
+            previous = next;
+        }
+        cfg.add_edge(previous, cfg.exit());
+
+        let result = solve_dataflow(
+            &cfg,
+            Direction::Forward,
+            &0_u64,
+            |left, right| left | right,
+            |facts, payload| facts | (1_u64 << payload),
+            |_block, facts| *facts,
+        );
+        assert_eq!(result.out_fact(cfg.exit()).count_ones(), 64);
+    }
+
+    fn graph_from_mask(nodes: usize, mask: u64) -> Cfg<u8> {
+        let mut cfg = Cfg::disconnected(0, 1);
+        for payload in 2..u8::try_from(nodes).expect("test size fits u8") {
+            cfg.append_node(payload);
+        }
+        for from in 0..nodes {
+            for to in 0..nodes {
+                let bit = from * nodes + to;
+                if mask & (1_u64 << bit) != 0 {
+                    cfg.add_edge(
+                        BlockId::new(u32::try_from(from).expect("index fits u32")),
+                        BlockId::new(u32::try_from(to).expect("index fits u32")),
+                    );
+                }
+            }
+        }
+        cfg
+    }
+
+    fn synchronous_union_solve(
+        cfg: &Cfg<u8>,
+        direction: Direction,
+        boundary: u64,
+    ) -> DataflowResult<u64> {
+        let mut result = DataflowResult {
+            in_facts: vec![0; cfg.node_count()],
+            out_facts: vec![0; cfg.node_count()],
+        };
+        let root = direction.root(cfg);
+        let reachable = oriented_reachable(cfg, direction);
+        loop {
+            let previous = result.clone();
+            for block in cfg.blocks().filter(|block| reachable[block.index()]) {
+                let side = if block == root {
+                    boundary
+                } else {
+                    direction
+                        .readers(cfg, block)
+                        .iter()
+                        .fold(0, |facts, &reader| {
+                            facts
+                                | match direction {
+                                    Direction::Forward => previous.out_facts[reader.index()],
+                                    Direction::Backward => previous.in_facts[reader.index()],
+                                }
+                        })
+                };
+                let computed = side | (1_u64 << cfg.payload(block));
+                direction.store(&mut result, block, side, computed);
+            }
+            if result.in_facts == previous.in_facts && result.out_facts == previous.out_facts {
+                return result;
+            }
+        }
+    }
+
+    fn oriented_reachable(cfg: &Cfg<u8>, direction: Direction) -> Vec<bool> {
+        let root = direction.root(cfg);
+        let mut reachable = vec![false; cfg.node_count()];
+        reachable[root.index()] = true;
+        let mut stack = vec![root];
+        while let Some(block) = stack.pop() {
+            for &next in direction.spread(cfg, block) {
+                if !reachable[next.index()] {
+                    reachable[next.index()] = true;
+                    stack.push(next);
+                }
+            }
+        }
+        reachable
+    }
 }

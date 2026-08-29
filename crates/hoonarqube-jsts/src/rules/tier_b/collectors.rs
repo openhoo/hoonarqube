@@ -72,6 +72,7 @@ use oxc_ast_visit::walk::walk_for_in_statement;
 use oxc_ast_visit::walk::walk_for_of_statement;
 use oxc_ast_visit::walk::walk_if_statement;
 use oxc_ast_visit::walk::walk_import_declaration;
+use oxc_ast_visit::walk::walk_jsx_attribute;
 use oxc_ast_visit::walk::walk_object_pattern;
 use oxc_ast_visit::walk::walk_switch_statement;
 use oxc_ast_visit::walk::walk_ts_type_parameter_declaration;
@@ -1019,6 +1020,7 @@ impl<'p> Visit<'p> for UnstableKeyCollector {
         {
             self.sites.push(call.span());
         }
+        walk_jsx_attribute(self, attribute);
     }
 }
 

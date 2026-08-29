@@ -64,10 +64,11 @@ pub(crate) fn child_bodies(stmt: &Stmt) -> Vec<&[Stmt]> {
 
 /// Depth-first visit of every statement in the tree.
 pub(crate) fn for_each_stmt(stmts: &[Stmt], visit: &mut impl FnMut(&Stmt)) {
-    for stmt in stmts {
+    let mut pending: Vec<&Stmt> = stmts.iter().rev().collect();
+    while let Some(stmt) = pending.pop() {
         visit(stmt);
-        for body in child_bodies(stmt) {
-            for_each_stmt(body, visit);
+        for body in child_bodies(stmt).into_iter().rev() {
+            pending.extend(body.iter().rev());
         }
     }
 }
@@ -87,7 +88,12 @@ pub(crate) fn child_exprs(expr: &Expr) -> Vec<&Expr> {
             children.push(&e.right);
         }
         Expr::UnaryOp(e) => children.push(&e.operand),
-        Expr::Lambda(e) => children.push(&e.body),
+        Expr::Lambda(e) => {
+            if let Some(parameters) = &e.parameters {
+                push_parameter_exprs(parameters, &mut children);
+            }
+            children.push(&e.body);
+        }
         Expr::If(e) => {
             children.push(&e.test);
             children.push(&e.body);
@@ -163,9 +169,10 @@ fn push_generator_exprs<'a>(
 }
 
 pub(crate) fn for_each_expr(expr: &Expr, visit: &mut impl FnMut(&Expr)) {
-    visit(expr);
-    for child in child_exprs(expr) {
-        for_each_expr(child, visit);
+    let mut pending = vec![expr];
+    while let Some(expr) = pending.pop() {
+        visit(expr);
+        pending.extend(child_exprs(expr).into_iter().rev());
     }
 }
 
@@ -181,15 +188,16 @@ pub(crate) fn for_each_stmt_expr(stmts: &[Stmt], visit: &mut impl FnMut(&Expr)) 
 /// Like [`for_each_stmt_expr`] but does not descend into nested function or
 /// class scopes.
 pub(crate) fn for_each_stmt_expr_in_scope(stmts: &[Stmt], visit: &mut impl FnMut(&Expr)) {
-    for stmt in stmts {
+    let mut pending: Vec<&Stmt> = stmts.iter().rev().collect();
+    while let Some(stmt) = pending.pop() {
         if matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
             continue;
         }
         for expr in stmt_exprs(stmt) {
             for_each_expr(expr, visit);
         }
-        for body in child_bodies(stmt) {
-            for_each_stmt_expr_in_scope(body, visit);
+        for body in child_bodies(stmt).into_iter().rev() {
+            pending.extend(body.iter().rev());
         }
     }
 }

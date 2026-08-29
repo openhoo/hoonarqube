@@ -4,7 +4,7 @@ use super::support::first_named_child;
 use super::support::integer_literal_value;
 use super::support::operator_of;
 use crate::CsLanguage;
-use crate::cst::{issue, node_text, range_of};
+use crate::cst::{collect_kinds, issue, node_text, range_of, simple_name};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -21,18 +21,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     let mut issues = Vec::new();
     for (expression, left, right) in comparisons(root) {
-        let size_member = [left, right].into_iter().find_map(|operand| {
-            expression_name(operand, source).filter(|name| matches!(*name, "Count" | "Length"))
+        let size_operand = [left, right].into_iter().find(|operand| {
+            expression_name(*operand, source).is_some_and(|name| matches!(name, "Count" | "Length"))
         });
         let negative_side = [left, right]
             .iter()
             .any(|o| negative_value(*o, source).is_some());
-        if let Some(size_member) = size_member.filter(|_| negative_side) {
-            let collection_type = if size_member == "Count" {
-                "ICollection"
-            } else {
-                "Array"
-            };
+        if let Some(size_operand) = size_operand.filter(|_| negative_side) {
+            let size_member = expression_name(size_operand, source).unwrap_or("Count");
+            let collection_type = collection_type(root, size_operand, size_member, source);
             issues.push(issue(
                 language,
                 "S3981",
@@ -44,6 +41,51 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
     }
     issues
+}
+
+fn collection_type(
+    root: Node<'_>,
+    size_operand: Node<'_>,
+    size_member: &str,
+    source: &str,
+) -> String {
+    if size_member == "Length" {
+        return "Array".to_string();
+    }
+    let receiver_name = size_operand
+        .child_by_field_name("expression")
+        .and_then(|receiver| expression_name(receiver, source));
+    let declared = receiver_name.and_then(|name| declared_type(root, name, source));
+    declared.map_or_else(
+        || "ICollection".to_string(),
+        |type_text| {
+            let simple = simple_name(type_text);
+            if type_text.contains('<') {
+                format!("{simple}<T>")
+            } else {
+                simple.to_string()
+            }
+        },
+    )
+}
+
+fn declared_type<'a>(root: Node<'_>, name: &str, source: &'a str) -> Option<&'a str> {
+    collect_kinds(root, &["parameter", "variable_declaration"])
+        .into_iter()
+        .find(|declaration| {
+            declaration
+                .child_by_field_name("name")
+                .is_some_and(|candidate| node_text(candidate, source) == name)
+                || collect_kinds(*declaration, &["variable_declarator"])
+                    .into_iter()
+                    .any(|declarator| {
+                        declarator
+                            .child_by_field_name("name")
+                            .is_some_and(|candidate| node_text(candidate, source) == name)
+                    })
+        })
+        .and_then(|declaration| declaration.child_by_field_name("type"))
+        .map(|type_node| node_text(type_node, source))
 }
 
 #[cfg(test)]

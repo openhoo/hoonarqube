@@ -296,7 +296,7 @@ impl PatternParser<'_> {
             kind,
             alternatives,
             start,
-            end: self.end_offset(),
+            end: self.current_offset(),
         })
     }
 
@@ -517,7 +517,7 @@ impl PatternParser<'_> {
             negated,
             items,
             start,
-            end: self.end_offset(),
+            end: self.current_offset(),
         })
     }
 

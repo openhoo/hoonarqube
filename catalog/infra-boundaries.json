@@ -1,0 +1,213 @@
+{
+  "schema_version": 1,
+  "boundaries": {
+    "csharpsquid:S110": {
+      "reason": "inheritance depth requires a resolved semantic base-type graph",
+      "implementation_gap": true
+    },
+    "csharpsquid:S1200": {
+      "reason": "class coupling requires semantic type binding and distinct dependency symbols",
+      "implementation_gap": true
+    },
+    "csharpsquid:S1313": {
+      "reason": "direct analyzer excludes security hotspots",
+      "implementation_gap": false
+    },
+    "csharpsquid:S1944": {
+      "reason": "impossible interface casts require a compilation-wide implementer graph",
+      "implementation_gap": true
+    },
+    "csharpsquid:S2068": {
+      "reason": "direct analyzer excludes security hotspots",
+      "implementation_gap": false
+    },
+    "csharpsquid:S2077": {
+      "reason": "direct analyzer excludes taint analysis",
+      "implementation_gap": false
+    },
+    "csharpsquid:S2092": {
+      "reason": "direct analyzer excludes security hotspots and server-side security sensors",
+      "implementation_gap": false
+    },
+    "csharpsquid:S2245": {
+      "reason": "direct analyzer excludes security hotspots and server-side security sensors",
+      "implementation_gap": false
+    },
+    "csharpsquid:S2257": {
+      "reason": "direct analyzer excludes security hotspots and server-side security sensors",
+      "implementation_gap": false
+    },
+    "csharpsquid:S2612": {
+      "reason": "direct analyzer excludes security hotspots and server-side security sensors",
+      "implementation_gap": false
+    },
+    "csharpsquid:S3216": {
+      "reason": "requires class-library project role inference",
+      "implementation_gap": false
+    },
+    "csharpsquid:S3242": {
+      "reason": "base-type parameter suggestions require semantic member and usage binding",
+      "implementation_gap": true
+    },
+    "csharpsquid:S3246": {
+      "reason": "generic variance suggestions require semantic type-parameter usage analysis",
+      "implementation_gap": true
+    },
+    "csharpsquid:S3330": {
+      "reason": "direct analyzer excludes security hotspots and server-side security sensors",
+      "implementation_gap": false
+    },
+    "csharpsquid:S3363": {
+      "reason": "requires Entity Framework model identity",
+      "implementation_gap": false
+    },
+    "csharpsquid:S3904": {
+      "reason": "requires assembly-level project context",
+      "implementation_gap": false
+    },
+    "csharpsquid:S3990": {
+      "reason": "requires assembly-level project context",
+      "implementation_gap": false
+    },
+    "csharpsquid:S3992": {
+      "reason": "requires assembly-level project context",
+      "implementation_gap": false
+    },
+    "csharpsquid:S4026": {
+      "reason": "requires assembly resource project context",
+      "implementation_gap": false
+    },
+    "csharpsquid:S4036": {
+      "reason": "direct analyzer excludes security hotspots and server-side security sensors",
+      "implementation_gap": false
+    },
+    "csharpsquid:S4047": {
+      "reason": "generic ref-parameter suggestions require resolved parameter type symbols",
+      "implementation_gap": true
+    },
+    "csharpsquid:S4210": {
+      "reason": "requires executable WinForms project context",
+      "implementation_gap": false
+    },
+    "csharpsquid:S4212": {
+      "reason": "requires legacy Code Access Security assembly identity",
+      "implementation_gap": false
+    },
+    "csharpsquid:S4260": {
+      "reason": "requires XAML project context",
+      "implementation_gap": false
+    },
+    "csharpsquid:S4502": {
+      "reason": "direct analyzer excludes security hotspots and server-side security sensors",
+      "implementation_gap": false
+    },
+    "csharpsquid:S4507": {
+      "reason": "direct analyzer excludes security hotspots and server-side security sensors",
+      "implementation_gap": false
+    },
+    "csharpsquid:S4790": {
+      "reason": "direct analyzer excludes security hotspots and server-side security sensors",
+      "implementation_gap": false
+    },
+    "csharpsquid:S4792": {
+      "reason": "direct analyzer excludes security hotspots and server-side security sensors",
+      "implementation_gap": false
+    },
+    "csharpsquid:S5042": {
+      "reason": "direct analyzer excludes security hotspots and server-side security sensors",
+      "implementation_gap": false
+    },
+    "csharpsquid:S5122": {
+      "reason": "direct analyzer excludes security hotspots and server-side security sensors",
+      "implementation_gap": false
+    },
+    "csharpsquid:S5332": {
+      "reason": "direct analyzer excludes security hotspots and server-side security sensors",
+      "implementation_gap": false
+    },
+    "csharpsquid:S5443": {
+      "reason": "direct analyzer excludes security hotspots and server-side security sensors",
+      "implementation_gap": false
+    },
+    "csharpsquid:S5693": {
+      "reason": "direct analyzer excludes security hotspots and server-side security sensors",
+      "implementation_gap": false
+    },
+    "csharpsquid:S5753": {
+      "reason": "direct analyzer excludes security hotspots and server-side security sensors",
+      "implementation_gap": false
+    },
+    "csharpsquid:S5766": {
+      "reason": "direct analyzer excludes security hotspots",
+      "implementation_gap": false
+    },
+    "csharpsquid:S6418": {
+      "reason": "direct analyzer excludes security hotspots",
+      "implementation_gap": false
+    },
+    "csharpsquid:S6444": {
+      "reason": "direct analyzer excludes security hotspots",
+      "implementation_gap": false
+    },
+    "csharpsquid:S6640": {
+      "reason": "direct analyzer excludes security hotspots",
+      "implementation_gap": false
+    },
+    "csharpsquid:S6802": {
+      "reason": "Blazor loop lambdas require RenderTreeBuilder compilation and semantic invocation binding",
+      "implementation_gap": true
+    },
+    "csharpsquid:S6960": {
+      "reason": "requires ASP.NET controller dependency graph context",
+      "implementation_gap": false
+    },
+    "csharpsquid:S6965": {
+      "reason": "requires ASP.NET endpoint routing project metadata",
+      "implementation_gap": false
+    },
+    "csharpsquid:S6968": {
+      "reason": "requires ASP.NET response metadata project context",
+      "implementation_gap": false
+    },
+    "javascript:S1438": {
+      "reason": "exact semicolon detection requires token-preserving automatic-semicolon-insertion boundaries",
+      "implementation_gap": true
+    },
+    "javascript:S1874": {
+      "reason": "deprecated API detection requires semantic symbol resolution and dependency declaration metadata",
+      "implementation_gap": true
+    },
+    "javascript:S6627": {
+      "reason": "internal API import detection requires cross-file module resolution",
+      "implementation_gap": true
+    },
+    "python:S6786": {
+      "reason": "GraphQL introspection detection requires third-party symbol resolution and inheritance semantics",
+      "implementation_gap": true
+    },
+    "typescript:S1438": {
+      "reason": "exact semicolon detection requires token-preserving automatic-semicolon-insertion boundaries",
+      "implementation_gap": true
+    },
+    "typescript:S1874": {
+      "reason": "deprecated API detection requires semantic symbol resolution and dependency declaration metadata",
+      "implementation_gap": true
+    },
+    "typescript:S4325": {
+      "reason": "unnecessary type assertion detection requires TypeScript checker type semantics",
+      "implementation_gap": true
+    },
+    "typescript:S4328": {
+      "reason": "unresolvable import detection requires cross-file module resolution",
+      "implementation_gap": true
+    },
+    "typescript:S6606": {
+      "reason": "type alias simplification requires TypeScript checker type semantics",
+      "implementation_gap": true
+    },
+    "typescript:S6627": {
+      "reason": "internal API import detection requires cross-file module resolution",
+      "implementation_gap": true
+    }
+  }
+}

@@ -60,13 +60,17 @@ pub(crate) fn expression_issues(root: Node<'_>, source: &str, language: CsLangua
     issues.extend(check_null_check_with_is(root, source, language));
     issues.extend(check_gettype_typeof_comparisons(root, source, language));
     issues.extend(check_null_or_empty_patterns(root, source, language));
-    issues.extend(constant_fold_issues(root, source, language));
+    append_constant_fold_issues(&mut issues, root, source, language);
     issues
 }
 
-/// Gathers every Tier-A6 constant-fold pattern issue.
-fn constant_fold_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    let mut issues = Vec::new();
+/// Appends every Tier-A6 constant-fold pattern issue.
+fn append_constant_fold_issues(
+    issues: &mut Vec<Issue>,
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+) {
     issues.extend(check_identical_operands(root, source, language));
     issues.extend(check_repeated_chain_conditions(root, source, language));
     issues.extend(check_identical_branches(root, source, language));
@@ -80,5 +84,4 @@ fn constant_fold_issues(root: Node<'_>, source: &str, language: CsLanguage) -> V
     issues.extend(check_dropped_objects(root, source, language));
     issues.extend(check_unthrown_exceptions(root, source, language));
     issues.extend(check_not_implemented_throws(root, source, language));
-    issues
 }

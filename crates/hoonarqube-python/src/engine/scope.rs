@@ -686,37 +686,38 @@ fn record_expr_loads(
     in_annotation: bool,
     loop_depth: u32,
 ) {
-    match expr {
-        Expr::Name(name) => match name.ctx {
-            ruff_python_ast::ExprContext::Store => {
-                bind_symbol(
-                    &mut table.scopes[current],
-                    name.id.as_str(),
-                    name.range(),
-                    BindingKind::Assignment,
-                    loop_depth,
-                );
+    let mut pending = vec![expr];
+    while let Some(expr) = pending.pop() {
+        match expr {
+            Expr::Name(name) => match name.ctx {
+                ruff_python_ast::ExprContext::Store => {
+                    bind_symbol(
+                        &mut table.scopes[current],
+                        name.id.as_str(),
+                        name.range(),
+                        BindingKind::Assignment,
+                        loop_depth,
+                    );
+                }
+                ruff_python_ast::ExprContext::Load | ruff_python_ast::ExprContext::Del => {
+                    table.scopes[current].loads.push((
+                        name.id.as_str().to_string(),
+                        name.range(),
+                        in_annotation,
+                    ));
+                }
+                ruff_python_ast::ExprContext::Invalid => {}
+            },
+            Expr::Named(_)
+            | Expr::Lambda(_)
+            | Expr::ListComp(_)
+            | Expr::SetComp(_)
+            | Expr::Generator(_)
+            | Expr::DictComp(_) => {
+                record_scope_creating_expr(table, current, expr, in_annotation, loop_depth);
             }
-            ruff_python_ast::ExprContext::Load | ruff_python_ast::ExprContext::Del => {
-                table.scopes[current].loads.push((
-                    name.id.as_str().to_string(),
-                    name.range(),
-                    in_annotation,
-                ));
-            }
-            ruff_python_ast::ExprContext::Invalid => {}
-        },
-        Expr::Named(_)
-        | Expr::Lambda(_)
-        | Expr::ListComp(_)
-        | Expr::SetComp(_)
-        | Expr::Generator(_)
-        | Expr::DictComp(_) => {
-            record_scope_creating_expr(table, current, expr, in_annotation, loop_depth);
-        }
-        _ => {
-            for child in child_exprs(expr) {
-                record_expr_loads(table, current, child, in_annotation, loop_depth);
+            _ => {
+                pending.extend(child_exprs(expr).into_iter().rev());
             }
         }
     }
@@ -823,6 +824,13 @@ fn record_lambda_scope(
     lambda: &ExprLambda,
     in_annotation: bool,
 ) {
+    if let Some(parameters) = &lambda.parameters {
+        let mut header_exprs = Vec::new();
+        push_parameter_exprs(parameters, &mut header_exprs);
+        for expr in header_exprs {
+            record_expr_loads(table, current, expr, in_annotation, 0);
+        }
+    }
     let fn_scope = push_symbol_scope(table, ScopeKind::Function, current);
     if let Some(parameters) = &lambda.parameters {
         for parameter in named_parameters(parameters) {
@@ -918,10 +926,18 @@ fn resolve_name(table: &SymbolTable, start: usize, name: &str) -> Option<usize> 
     let mut cursor = start;
     loop {
         let scope = &table.scopes[cursor];
-        if scope.bindings.contains_key(name)
-            || scope.global_names.iter().any(|declared| declared == name)
-            || scope.nonlocal_names.iter().any(|declared| declared == name)
-        {
+        if scope.global_names.iter().any(|declared| declared == name) {
+            // A global declaration redirects both loads and stores to the
+            // module. A same-scope binding represents a redirected store that
+            // this lightweight table recorded before resolution.
+            return (table.scopes[0].bindings.contains_key(name)
+                || scope.bindings.contains_key(name))
+            .then_some(0);
+        }
+        if scope.nonlocal_names.iter().any(|declared| declared == name) {
+            return resolve_nonlocal_name(table, scope.parent, name);
+        }
+        if scope.bindings.contains_key(name) {
             return Some(cursor);
         }
         let mut next = scope.parent?;
@@ -932,6 +948,21 @@ fn resolve_name(table: &SymbolTable, start: usize, name: &str) -> Option<usize> 
         }
         cursor = next;
     }
+}
+
+fn resolve_nonlocal_name(
+    table: &SymbolTable,
+    mut cursor: Option<usize>,
+    name: &str,
+) -> Option<usize> {
+    while let Some(current) = cursor {
+        let scope = &table.scopes[current];
+        if scope.kind == ScopeKind::Function && scope.bindings.contains_key(name) {
+            return Some(current);
+        }
+        cursor = scope.parent;
+    }
+    None
 }
 
 pub(crate) fn scope_is_within(table: &SymbolTable, scope: usize, ancestor: usize) -> bool {

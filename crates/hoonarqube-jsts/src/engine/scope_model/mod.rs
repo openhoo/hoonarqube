@@ -119,4 +119,27 @@ mod tests {
             assert_eq!(head.reads.len(), 1, "the arrow body reads the head binding");
         });
     }
+
+    #[test]
+    fn rest_parameters_are_declared_and_signature_minimum_uses_last_required_position() {
+        with_model(
+            "function f(...args) { args = []; return args; }\n",
+            |model| {
+                let args = binding(model, "args", false);
+                assert_eq!(args.kind, TbKind::Param);
+                assert_eq!(args.writes.len(), 1);
+                assert!(model.implicit_globals.is_empty());
+            },
+        );
+
+        let allocator = Allocator::default();
+        let parsed =
+            Parser::new(&allocator, "function f(a = 0, b) {}\n", SourceType::mjs()).parse();
+        let model = build_tb_model(&parsed.program);
+        let signature = binding(&model, "f", true)
+            .arity
+            .as_ref()
+            .expect("signature");
+        assert_eq!(signature.minimum, 2);
+    }
 }

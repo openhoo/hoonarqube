@@ -3,6 +3,7 @@ use super::support::is_composite_format_call;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::expressions::invocation_arguments;
+use crate::rules::literals::argument_expression;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -21,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let arguments = invocation_arguments(call);
         let format_index = arguments
             .iter()
-            .position(|argument| collect_kinds(*argument, &["string_literal"]).contains(&literal))
+            .position(|argument| argument_expression(*argument).id() == literal.id())
             .unwrap_or(0);
         let values = &arguments[format_index.saturating_add(1)..];
         let used = highest_slot.map_or(0, |slot| slot + 1);

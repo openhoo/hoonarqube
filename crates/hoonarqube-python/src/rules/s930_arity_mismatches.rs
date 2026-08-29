@@ -47,6 +47,12 @@ pub(crate) fn check_s930_arity_mismatches(
                     S930ArityProblem::MissingKeywordOnly => {
                         format!("Add missing keyword-only arguments required by '{label}'.")
                     }
+                    S930ArityProblem::UnexpectedKeyword => {
+                        format!("Remove the unexpected keyword argument passed to '{label}'.")
+                    }
+                    S930ArityProblem::DuplicateArgument => {
+                        format!("Remove the duplicate argument passed to '{label}'.")
+                    }
                 };
                 issues.push(issue_at(
                     "python:S930",

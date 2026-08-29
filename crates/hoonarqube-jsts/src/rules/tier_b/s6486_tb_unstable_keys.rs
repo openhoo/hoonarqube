@@ -40,5 +40,9 @@ mod tests {
         let stable =
             jsx("const rows = items.map((item) => (\n  <li key={item.id}>{item}</li>\n));\n");
         assert_eq!(filtered(&stable, "S6486").len(), 0);
+
+        let nested_attribute =
+            jsx("const row = <Box content={<li key={Math.random()}>x</li>} />;\n");
+        assert_eq!(filtered(&nested_attribute, "S6486").len(), 1);
     }
 }

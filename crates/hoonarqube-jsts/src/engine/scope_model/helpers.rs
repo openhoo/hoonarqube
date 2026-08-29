@@ -1,6 +1,6 @@
 use super::{
     BTreeMap, BTreeSet, Declaration, Expression, GetSpan, Span, VariableDeclarator, Visit,
-    binding_identifier_name, unparenthesized, walk_declaration,
+    binding_identifier_name, unparenthesized, walk_declaration, walk_variable_declarator,
 };
 
 /// Parameter names of named function declarations, for the `S2234` name
@@ -42,6 +42,7 @@ pub(crate) fn collect_array_binding_names(program: &oxc_ast::ast::Program<'_>) -
             {
                 self.names.insert(name.to_string());
             }
+            walk_variable_declarator(self, it);
         }
     }
     let mut collector = Collector::default();

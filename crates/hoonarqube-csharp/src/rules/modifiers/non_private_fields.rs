@@ -1,4 +1,5 @@
 use super::support::accessibility_rank;
+use super::support::field_declarators;
 use super::support::has_modifier;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, issue, modifiers_of, node_text, range_of};
@@ -18,7 +19,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 .is_some_and(|type_node| type_declared_rank(type_node, source) == 6);
         if !has_modifier(&modifiers, "const") && !has_modifier(&modifiers, "static") && real_public
         {
-            for declarator in collect_kinds(field, &["variable_declarator"]) {
+            for declarator in field_declarators(field) {
                 let name = declarator.child_by_field_name("name").unwrap_or(declarator);
                 issues.push(issue(
                     language,

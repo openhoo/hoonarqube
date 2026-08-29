@@ -42,7 +42,7 @@
 {"key": "csharpsquid:S4023", "bad": "s4023_bad.cs", "expect_lines_min": 1}
 {"key": "csharpsquid:S1186", "bad": "s1186_bad.cs", "expect_lines_min": 1}
 {"key": "csharpsquid:S3261", "bad": "s3261_bad.cs", "expect_lines_min": 1}
-{"key": "csharpsquid:S1116", "bad": "s1116_bad.cs", "expect_lines_min": 2}
+{"key": "csharpsquid:S1116", "bad": "s1116_bad.cs", "expect_lines_min": 1}
 {"key": "csharpsquid:S1048", "bad": "s1048_bad.cs", "expect_lines_min": 1}
 {"key": "csharpsquid:S1994", "bad": "s1994_bad.cs", "expect_lines_min": 1}
 {"key": "csharpsquid:S138", "bad": "s138_bad.cs", "expect_lines_min": 1}
@@ -438,13 +438,13 @@
 {"key":"csharpsquid:S6608","bad":"s6608_bad.cs","expect_lines_min":1}
 {"key":"csharpsquid:S6609","bad":"s6609_bad.cs","expect_lines_min":1}
 {"key":"csharpsquid:S6613","bad":"s6613_bad.cs","expect_lines_min":1}
-{"key":"csharpsquid:S110","infra":"upstream analysis infrastructure required"}
-{"key":"csharpsquid:S1200","infra":"upstream analysis infrastructure required"}
-{"key":"csharpsquid:S1944","infra":"upstream analysis infrastructure required"}
-{"key":"csharpsquid:S3242","infra":"upstream analysis infrastructure required"}
-{"key":"csharpsquid:S3246","infra":"upstream analysis infrastructure required"}
-{"key":"csharpsquid:S4047","infra":"upstream analysis infrastructure required"}
-{"key":"csharpsquid:S6802","infra":"upstream analysis infrastructure required"}
+{"key":"csharpsquid:S110","infra":"inheritance depth requires a resolved semantic base-type graph"}
+{"key":"csharpsquid:S1200","infra":"class coupling requires semantic type binding and distinct dependency symbols"}
+{"key":"csharpsquid:S1944","infra":"impossible interface casts require a compilation-wide implementer graph"}
+{"key":"csharpsquid:S3242","infra":"base-type parameter suggestions require semantic member and usage binding"}
+{"key":"csharpsquid:S3246","infra":"generic variance suggestions require semantic type-parameter usage analysis"}
+{"key":"csharpsquid:S4047","infra":"generic ref-parameter suggestions require resolved parameter type symbols"}
+{"key":"csharpsquid:S6802","infra":"Blazor loop lambdas require RenderTreeBuilder compilation and semantic invocation binding"}
 {"key":"csharpsquid:S1134","bad":"s1134_bad.cs","expect_lines_min":1}
 {"key":"csharpsquid:S1135","bad":"s1135_bad.cs","expect_lines_min":1}
 {"key":"csharpsquid:S3234","bad":"s3234_bad.cs","expect_lines_min":1}

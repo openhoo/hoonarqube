@@ -1,4 +1,5 @@
 use crate::cst::{ancestors_of, collect_kinds, is_error_tainted, issue, range_of, to_u32};
+use crate::rules::structure::is_callable_scope;
 use crate::{AnalyzerOptions, CsLanguage};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -17,6 +18,7 @@ pub(crate) fn check(
             continue;
         }
         let depth = ancestors_of(construct)
+            .take_while(|ancestor| !is_callable_scope(ancestor.kind()))
             .filter(|ancestor| NESTING_CONSTRUCT_KINDS.contains(&ancestor.kind()))
             .count();
         if to_u32(depth) == options.maximum_nesting_level {
@@ -69,3 +71,19 @@ const NESTING_CONSTRUCT_KINDS: [&str; 12] = [
     "lock_statement",
     "fixed_statement",
 ];
+
+#[cfg(test)]
+mod tests {
+    use crate::AnalyzerOptions;
+    use crate::tests::{analyze_options, with_key};
+
+    #[test]
+    fn s134_resets_nesting_inside_local_callable_scopes() {
+        let source = "class C\n{\n    void M(bool outer, bool inner)\n    {\n        if (outer)\n        {\n            void Local()\n            {\n                if (inner) { }\n            }\n        }\n    }\n}\n";
+        let options = AnalyzerOptions {
+            maximum_nesting_level: 1,
+            ..Default::default()
+        };
+        assert!(with_key(&analyze_options(source, &options), "csharpsquid:S134").is_empty());
+    }
+}

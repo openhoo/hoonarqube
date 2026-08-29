@@ -1,4 +1,4 @@
-use crate::cst::{collect_kinds, node_text};
+use crate::cst::{canonical_identifier, collect_kinds, node_text, simple_name};
 use tree_sitter::Node;
 
 /// Every plain, verbatim, and raw string literal in the file, document
@@ -48,14 +48,33 @@ pub(crate) fn literal_inner_text<'a>(literal: Node<'_>, source: &'a str) -> &'a 
         .unwrap_or(trimmed)
 }
 
+/// Byte offset of [`literal_inner_text`] relative to the literal node. This
+/// keeps diagnostics exact for plain, verbatim, and variable-width raw-string
+/// delimiters.
+pub(crate) fn literal_inner_offset(literal: Node<'_>, source: &str) -> usize {
+    let text = node_text(literal, source);
+    let trimmed = text.trim_start_matches('@');
+    let prefix = text.len() - trimmed.len();
+    let quotes = trimmed
+        .chars()
+        .take_while(|character| *character == '"')
+        .count();
+    prefix
+        + if quotes >= 3 {
+            quotes
+        } else {
+            usize::from(trimmed.starts_with('"'))
+        }
+}
+
 /// Simple name of an assignment target: bare identifiers and the trailing
 /// member of `this.Password`-style accesses.
 pub(crate) fn assignment_target_name<'a>(target: Node<'_>, source: &'a str) -> Option<&'a str> {
     match target.kind() {
-        "identifier" => Some(node_text(target, source)),
+        "identifier" => Some(canonical_identifier(node_text(target, source))),
         "member_access_expression" => {
             let name = target.child_by_field_name("name")?;
-            Some(node_text(name, source))
+            Some(canonical_identifier(node_text(name, source)))
         }
         _ => None,
     }
@@ -125,7 +144,7 @@ pub(crate) fn argument_expression(argument: Node<'_>) -> Node<'_> {
 pub(crate) fn is_regex_creation(creation: Node<'_>, source: &str) -> bool {
     creation
         .child_by_field_name("type")
-        .is_none_or(|type_node| node_text(type_node, source) != "Regex")
+        .is_none_or(|type_node| simple_name(node_text(type_node, source)) != "Regex")
         .then_some(())
         .is_none()
 }
@@ -141,7 +160,7 @@ pub(crate) fn regex_static_pattern<'t>(invocation: Node<'t>, source: &str) -> Op
     }
     let receiver = function.child_by_field_name("expression")?;
     let name = function.child_by_field_name("name")?;
-    if node_text(receiver, source) != "Regex"
+    if simple_name(node_text(receiver, source)) != "Regex"
         || !REGEX_PATTERN_METHODS.contains(&node_text(name, source))
     {
         return None;

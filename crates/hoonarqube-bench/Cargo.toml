@@ -5,17 +5,18 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+publish.workspace = true
 
 [[bin]]
 name = "hoonarqube-bench"
 path = "src/main.rs"
 
 [dependencies]
-hoonarqube-csharp = { version = "0.1.0", path = "../hoonarqube-csharp" }
-hoonarqube-go = { version = "0.1.0", path = "../hoonarqube-go" }
-hoonarqube-jsts = { version = "0.1.0", path = "../hoonarqube-jsts" }
-hoonarqube-python = { version = "0.1.0", path = "../hoonarqube-python" }
-hoonarqube-rust = { version = "0.1.0", path = "../hoonarqube-rust" }
+hoonarqube-csharp = { version = "0.2.0", path = "../hoonarqube-csharp" }
+hoonarqube-go = { version = "0.2.0", path = "../hoonarqube-go" }
+hoonarqube-jsts = { version = "0.2.0", path = "../hoonarqube-jsts" }
+hoonarqube-python = { version = "0.2.0", path = "../hoonarqube-python" }
+hoonarqube-rust = { version = "0.2.0", path = "../hoonarqube-rust" }
 
 [lints]
 workspace = true

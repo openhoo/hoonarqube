@@ -1,8 +1,9 @@
 use super::support::callable_blocks;
 use super::support::captured_names;
+use super::support::collect_owned_kinds;
 use super::support::identifier_write;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, modifiers_of, node_text, range_of, simple_name};
+use crate::cst::{issue, modifiers_of, node_text, range_of, simple_name};
 use crate::rules::literals::declarator_initializer;
 use crate::rules::modifiers::has_modifier;
 use hoonarqube_ir::Issue;
@@ -23,10 +24,10 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 fn body_const_candidates(body: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let captured = captured_names(body, source);
     let write_counts = identifier_write_counts(body, source);
-    collect_kinds(body, &["local_declaration_statement"])
+    collect_owned_kinds(body, &["local_declaration_statement"])
         .into_iter()
         .filter(|declaration| is_const_candidate_declaration(*declaration, source))
-        .flat_map(|declaration| collect_kinds(declaration, &["variable_declarator"]))
+        .flat_map(|declaration| collect_owned_kinds(declaration, &["variable_declarator"]))
         .filter_map(|declarator| {
             const_candidate_issue(declarator, source, language, &captured, &write_counts)
         })
@@ -38,7 +39,7 @@ fn identifier_write_counts<'a>(
     source: &'a str,
 ) -> std::collections::HashMap<&'a str, u32> {
     let mut counts = std::collections::HashMap::new();
-    for identifier in collect_kinds(body, &["identifier"]) {
+    for identifier in collect_owned_kinds(body, &["identifier"]) {
         if identifier_write(identifier).is_some() {
             *counts.entry(node_text(identifier, source)).or_default() += 1;
         }
@@ -150,5 +151,15 @@ mod tests {
             "class C {\n    void M() {\n        int attempts = 1;\n        attempts++;\n        Log(attempts);\n    }\n}\n",
         );
         assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn same_named_local_function_write_does_not_hide_outer_candidate() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        int attempts = 1;\n        void Local() {\n            int attempts = 2;\n            attempts++;\n            Use(attempts);\n        }\n        Use(attempts);\n        Local();\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
     }
 }

@@ -98,7 +98,10 @@ pub(crate) enum RegexNode {
 
 pub(crate) const CLASS_DIGIT: [(char, char); 1] = [('0', '9')];
 
-pub(crate) const CLASS_WORD: [(char, char); 3] = [('a', 'z'), ('A', 'Z'), ('0', '9')];
+pub(crate) const CLASS_WORD: [(char, char); 4] = [('a', 'z'), ('A', 'Z'), ('0', '9'), ('_', '_')];
+
+const MAX_MATCHER_PATTERN_NODES: usize = 512;
+const MAX_REPETITION_STATES: usize = 100_000;
 
 pub(crate) fn regex_search(pattern: &str, subject: &str) -> bool {
     let Some(alternatives) = parse_regex(pattern) else {
@@ -181,16 +184,47 @@ pub(crate) fn match_repeat(
     pos: usize,
     tail: &mut dyn FnMut(usize) -> bool,
 ) -> bool {
-    let may_repeat_more = max.is_none_or(|limit| count < limit);
-    if may_repeat_more
-        && match_node(node, text, pos, &mut |next| {
-            // Zero-width repetitions would loop forever; reject them.
-            next != pos && match_repeat(node, min, max, count + 1, text, next, tail)
-        })
-    {
-        return true;
+    // Keep repetition over long subjects off the call stack. Each frontier
+    // contains the distinct positions reachable after exactly N repeats;
+    // trying frontiers in reverse preserves greedy boolean semantics.
+    let remaining = text.len().saturating_sub(pos);
+    let limit = max.unwrap_or(remaining).min(remaining);
+    let mut levels = vec![vec![pos]];
+    let mut work = 0_usize;
+    while count + levels.len() - 1 < limit {
+        let mut next_level = Vec::new();
+        let mut exhausted = false;
+        let Some(current_level) = levels.last() else {
+            return false;
+        };
+        for &current in current_level {
+            match_node(node, text, current, &mut |next| {
+                work += 1;
+                if work > MAX_REPETITION_STATES {
+                    exhausted = true;
+                    return true;
+                }
+                if next != current {
+                    next_level.push(next);
+                }
+                false
+            });
+            if exhausted {
+                return false;
+            }
+        }
+        next_level.sort_unstable();
+        next_level.dedup();
+        if next_level.is_empty() {
+            break;
+        }
+        levels.push(next_level);
     }
-    count >= min && tail(pos)
+    levels
+        .iter()
+        .enumerate()
+        .rev()
+        .any(|(level, positions)| count + level >= min && positions.iter().copied().any(&mut *tail))
 }
 
 pub(crate) fn parse_regex(pattern: &str) -> Option<Vec<Vec<RegexNode>>> {
@@ -198,6 +232,7 @@ pub(crate) fn parse_regex(pattern: &str) -> Option<Vec<Vec<RegexNode>>> {
         chars: pattern.chars().collect(),
         pos: 0,
         depth: 0,
+        nodes: 0,
     };
     let alternatives = parser.parse_group_body()?;
     parser.expect_end()?;
@@ -209,6 +244,7 @@ pub(crate) struct RegexParser {
     pub(crate) pos: usize,
     /// Current `(` nesting level; bounded by [`MAX_GROUP_DEPTH`].
     pub(crate) depth: u32,
+    pub(crate) nodes: usize,
 }
 
 impl RegexParser {
@@ -327,6 +363,10 @@ impl RegexParser {
     }
 
     pub(crate) fn parse_atom(&mut self) -> Option<RegexNode> {
+        self.nodes += 1;
+        if self.nodes > MAX_MATCHER_PATTERN_NODES {
+            return None;
+        }
         match self.bump()? {
             '(' => {
                 // A `(?:` head opens a plain non-capturing group; captures are
@@ -364,7 +404,9 @@ impl RegexParser {
                 '\\' => self.escape_ranges()?,
                 literal => vec![(literal, literal)],
             };
-            if self.peek() == Some('-')
+            if first.len() == 1
+                && first[0].0 == first[0].1
+                && self.peek() == Some('-')
                 && self
                     .chars
                     .get(self.pos + 1)
@@ -375,7 +417,11 @@ impl RegexParser {
                     '\\' => self.escape_ranges()?.pop()?.0,
                     upper => upper,
                 };
-                ranges.push((first.first()?.0, upper));
+                let lower = first[0].0;
+                if upper < lower {
+                    return None;
+                }
+                ranges.push((lower, upper));
             } else {
                 ranges.extend(first);
             }
@@ -425,6 +471,9 @@ impl RegexParser {
                 negated: true,
                 ranges: vec![(' ', ' '), ('\t', '\t'), ('\n', '\r')],
             }),
+            't' => Some(RegexNode::Char('\t')),
+            'n' => Some(RegexNode::Char('\n')),
+            'r' => Some(RegexNode::Char('\r')),
             escaped => Some(RegexNode::Char(escaped)),
         }
     }

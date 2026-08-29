@@ -1,6 +1,7 @@
 use super::support::WriteKind;
 use super::support::callable_blocks;
 use super::support::captured_names;
+use super::support::collect_owned_kinds;
 use super::support::identifier_write;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, issue, modifiers_of, node_text, range_of};
@@ -32,7 +33,7 @@ fn check_callable_blocks(
     issues: &mut Vec<Issue>,
 ) {
     let captured = captured_names(body, source);
-    for block in collect_kinds(body, &["block"]) {
+    for block in collect_owned_kinds(body, &["block"]) {
         check_block(block, body, source, language, &captured, issues);
     }
 }
@@ -88,7 +89,7 @@ fn tracked_local_names(
         .into_iter()
         .filter(|name| !captured.contains(name))
         .filter(|name| {
-            collect_kinds(body, &["identifier"])
+            collect_owned_kinds(body, &["identifier"])
                 .iter()
                 .filter(|identifier| node_text(**identifier, source) == name)
                 .count()
@@ -107,7 +108,7 @@ fn block_declared_local_names(block: Node<'_>, source: &str) -> Vec<String> {
         {
             continue;
         }
-        for declarator in collect_kinds(statement, &["variable_declarator"]) {
+        for declarator in collect_owned_kinds(statement, &["variable_declarator"]) {
             if let Some(name) = declarator.child_by_field_name("name") {
                 let text = node_text(name, source);
                 if text != "_" {
@@ -127,7 +128,7 @@ fn consume_reads<'t>(
     tracked: &std::collections::HashSet<String>,
     pending: &mut Vec<(String, WriteKind, Node<'t>)>,
 ) {
-    for identifier in collect_kinds(statement, &["identifier"]) {
+    for identifier in collect_owned_kinds(statement, &["identifier"]) {
         let name = node_text(identifier, source);
         if tracked.contains(name) && identifier_write(identifier).is_none() {
             pending.retain(|(pending_name, _, _)| pending_name != name);
@@ -146,7 +147,7 @@ fn register_declaration_stores<'t>(
     issues: &mut Vec<Issue>,
     language: CsLanguage,
 ) {
-    for declarator in collect_kinds(statement, &["variable_declarator"]) {
+    for declarator in collect_owned_kinds(statement, &["variable_declarator"]) {
         let Some(name_node) = declarator.child_by_field_name("name") else {
             continue;
         };
@@ -168,7 +169,7 @@ fn register_expression_stores<'t>(
     issues: &mut Vec<Issue>,
     language: CsLanguage,
 ) {
-    for identifier in collect_kinds(statement, &["identifier"]) {
+    for identifier in collect_owned_kinds(statement, &["identifier"]) {
         let Some(write) = identifier_write(identifier) else {
             continue;
         };
@@ -323,5 +324,15 @@ mod tests {
         let found = with_key(&report, "csharpsquid:S1854");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s1854_local_function_store_is_analyzed_once() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        void Local() {\n            int value = 1;\n            value = 2;\n            Use(value);\n        }\n        Local();\n    }\n}\n",
+        );
+        let found = with_key(&report, "csharpsquid:S1854");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 4);
     }
 }

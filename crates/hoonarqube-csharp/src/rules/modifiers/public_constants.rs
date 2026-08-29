@@ -1,4 +1,4 @@
-use super::support::has_modifier;
+use super::support::{field_declarators, has_modifier};
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, issue, modifiers_of, range_of};
 use crate::rules::expressions::enclosing_type;
@@ -17,7 +17,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             && enclosing_type(field)
                 .is_some_and(|type_node| type_declared_rank(type_node, source) == 6)
         {
-            for declarator in collect_kinds(field, &["variable_declarator"]) {
+            for declarator in field_declarators(field) {
                 let name = declarator.child_by_field_name("name").unwrap_or(declarator);
                 issues.push(issue(
                     language,

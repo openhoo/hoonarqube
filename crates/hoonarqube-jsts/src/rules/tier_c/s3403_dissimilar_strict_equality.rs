@@ -21,6 +21,24 @@ impl TierCLiteralCollector<'_> {
             return;
         };
         if left != right {
+            let operator = if expression.operator == BinaryOperator::StrictEquality {
+                "==="
+            } else {
+                "!=="
+            };
+            let start = expression.left.span().end as usize;
+            let end = expression.right.span().start as usize;
+            let operator_span = self
+                .source
+                .get(start..end)
+                .and_then(|gap| gap.find(operator))
+                .map_or_else(
+                    || expression.span(),
+                    |offset| {
+                        let start = crate::support::to_u32(start + offset);
+                        oxc_span::Span::new(start, start.saturating_add(3))
+                    },
+                );
             self.sink.emit_span(
                 RuleScope::JsOnly,
                 "S3403",
@@ -29,10 +47,7 @@ impl TierCLiteralCollector<'_> {
                 } else {
                     "Remove this \"!==\" check; it will always be true. Did you mean to use \"!=\"?"
                 },
-                oxc_span::Span::new(
-                    expression.left.span().end.saturating_add(1),
-                    expression.right.span().start.saturating_sub(1),
-                ),
+                operator_span,
             );
         }
     }

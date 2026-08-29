@@ -3,7 +3,7 @@ use crate::cst::{
     base_simple_names, collect_kinds, is_error_tainted, issue, modifiers_of, node_text,
     parameters_of, range_of,
 };
-use crate::rules::expressions::first_named_child;
+use crate::rules::expressions::{first_named_child, member_declarations_of_kind};
 use crate::rules::modifiers::has_modifier;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -26,7 +26,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         {
             continue;
         }
-        let has_typed_equals = collect_kinds(class, &["method_declaration"])
+        let has_typed_equals = member_declarations_of_kind(class, "method_declaration")
             .into_iter()
             .filter(|method| {
                 !has_modifier(&modifiers_of(*method, source), "override")
@@ -97,5 +97,13 @@ mod tests {
             "class V\n{\n    public bool Equals(V other) => true;\n\n    public bool Equals(int scalar) => true;\n}\n",
         );
         assert_eq!(with_key(&report, "csharpsquid:S3897").len(), 1);
+    }
+
+    #[test]
+    fn s3897_does_not_borrow_equals_from_nested_types() {
+        let report = analyze_default(
+            "class Outer\n{\n    class Inner\n    {\n        public bool Equals(Outer other) => true;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3897").is_empty());
     }
 }

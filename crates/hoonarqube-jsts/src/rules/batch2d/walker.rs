@@ -167,6 +167,12 @@ mod tests {
     }
 
     #[test]
+    fn ternary_tests_are_not_visited_twice_for_complexity() {
+        let source = "function f(a, b) {\n  (a && b) ? 1 : 2;\n  (a && b) ? 1 : 2;\n  (a && b) ? 1 : 2;\n  (a && b) ? 1 : 2;\n}\n";
+        assert_eq!(count_key(&js_keys(source), "javascript:S1541"), 0);
+    }
+
+    #[test]
     fn same_operator_boolean_chains_count_every_operator_for_cyclomatic() {
         // Ten `&&` links plus the base point: true complexity 11 > 10.
         let chained = js_keys(

@@ -1,8 +1,6 @@
 use super::support::lock_guard_expression;
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
-use crate::rules::declaration_contracts::enclosing_method;
-use crate::rules::structure::body_of;
+use crate::cst::{ancestors_of, collect_kinds, is_error_tainted, issue, node_text, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -21,17 +19,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         }
         let name = node_text(expression, source);
-        let local_lock = enclosing_method(lock_statement)
-            .and_then(|method| body_of(method))
-            .is_some_and(|body| {
-                collect_kinds(body, &["variable_declarator"])
-                    .iter()
-                    .any(|declarator| {
-                        declarator
-                            .child_by_field_name("name")
-                            .is_some_and(|declared| node_text(declared, source) == name)
+        let local_lock = enclosing_callable(lock_statement).is_some_and(|callable| {
+            collect_kinds(callable, &["variable_declarator"])
+                .into_iter()
+                .filter(|declarator| {
+                    enclosing_callable(*declarator) == enclosing_callable(lock_statement)
+                })
+                .filter(|declarator| declarator.start_byte() < lock_statement.start_byte())
+                .filter(|declarator| {
+                    declaration_scope(*declarator).is_some_and(|scope| {
+                        ancestors_of(lock_statement).any(|ancestor| ancestor == scope)
                     })
-            });
+                })
+                .any(|declarator| {
+                    declarator
+                        .child_by_field_name("name")
+                        .is_some_and(|declared| node_text(declared, source) == name)
+                })
+        });
         if local_lock {
             issues.push(issue(
                 language,
@@ -42,6 +47,37 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
     }
     issues
+}
+
+fn declaration_scope(declaration: Node<'_>) -> Option<Node<'_>> {
+    ancestors_of(declaration).find(|ancestor| {
+        matches!(
+            ancestor.kind(),
+            "block"
+                | "for_statement"
+                | "foreach_statement"
+                | "using_statement"
+                | "fixed_statement"
+                | "switch_section"
+        )
+    })
+}
+
+fn enclosing_callable(node: Node<'_>) -> Option<Node<'_>> {
+    ancestors_of(node).find(|ancestor| {
+        matches!(
+            ancestor.kind(),
+            "method_declaration"
+                | "constructor_declaration"
+                | "destructor_declaration"
+                | "accessor_declaration"
+                | "operator_declaration"
+                | "conversion_operator_declaration"
+                | "local_function_statement"
+                | "anonymous_method_expression"
+                | "lambda_expression"
+        )
+    })
 }
 
 #[cfg(test)]
@@ -62,5 +98,31 @@ mod tests {
             "class A\n{\n    void M()\n    {\n        var local = new object();\n        lock (local) { Work(); }\n        lock (local) { Again(); }\n    }\n}\n",
         );
         assert_eq!(with_key(&report, "csharpsquid:S6507").len(), 2);
+    }
+
+    #[test]
+    fn s6507_does_not_leak_declarations_from_nested_callables() {
+        let report = analyze_default(
+            "class A\n{\n    object gate = new object();\n    void M()\n    {\n        void Nested()\n        {\n            var gate = new object();\n            lock (gate) { Work(); }\n        }\n        lock (gate) { Work(); }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S6507");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 9);
+    }
+
+    #[test]
+    fn s6507_requires_a_preceding_declaration_in_an_enclosing_scope() {
+        let report = analyze_default(
+            "class A\n{\n    object first = new object();\n    object second = new object();\n    void M()\n    {\n        { var first = new object(); }\n        lock (first) { Work(); }\n        lock (second) { Work(); }\n        var second = new object();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S6507").is_empty());
+    }
+
+    #[test]
+    fn s6507_checks_constructor_locals() {
+        let report = analyze_default(
+            "class A\n{\n    A()\n    {\n        var gate = new object();\n        lock (gate) { Work(); }\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S6507").len(), 1);
     }
 }

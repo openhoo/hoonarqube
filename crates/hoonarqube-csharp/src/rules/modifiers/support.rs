@@ -1,4 +1,4 @@
-use crate::cst::{attributes_of, collect_kinds, modifiers_of, node_text, to_u32};
+use crate::cst::{attributes_of, collect_kinds, modifiers_of, node_text, simple_name, to_u32};
 use crate::rules::naming::TYPE_DECLARATION_KINDS;
 use tree_sitter::Node;
 
@@ -60,6 +60,31 @@ pub(crate) fn has_any_attribute(node: Node<'_>, source: &str, wanted: &[&str]) -
         .any(|name| has_attribute(&attributes_of(node, source), name))
 }
 
+/// Direct attribute node with a matching simple name. Qualification and the
+/// optional `Attribute` suffix are normalized the same way as `attributes_of`.
+pub(crate) fn attribute_named<'a>(node: Node<'a>, source: &str, wanted: &str) -> Option<Node<'a>> {
+    let mut node_cursor = node.walk();
+    for list in node
+        .children(&mut node_cursor)
+        .filter(|child| child.kind() == "attribute_list")
+    {
+        let mut list_cursor = list.walk();
+        for attribute in list
+            .children(&mut list_cursor)
+            .filter(|child| child.kind() == "attribute")
+        {
+            let Some(name) = attribute.child_by_field_name("name") else {
+                continue;
+            };
+            let simple = simple_name(node_text(name, source));
+            if simple.strip_suffix("Attribute").unwrap_or(simple) == wanted {
+                return Some(attribute);
+            }
+        }
+    }
+    None
+}
+
 pub(crate) fn subtree_contains_kind(root: Node<'_>, kind: &str) -> bool {
     !collect_kinds(root, &[kind]).is_empty()
 }
@@ -95,4 +120,31 @@ pub(crate) fn type_parameter_list_of(declaration: Node<'_>) -> Option<(Node<'_>,
             .count(),
     );
     Some((list, count))
+}
+
+/// Direct declarators of a field/event declaration. Descendant collection is
+/// deliberately avoided because an initializer can contain a lambda with its
+/// own local variable declarations.
+pub(crate) fn field_declarators(declaration: Node<'_>) -> Vec<Node<'_>> {
+    let mut declaration_cursor = declaration.walk();
+    let Some(variables) = declaration
+        .children(&mut declaration_cursor)
+        .find(|child| child.kind() == "variable_declaration")
+    else {
+        return Vec::new();
+    };
+    let mut variable_cursor = variables.walk();
+    variables
+        .children(&mut variable_cursor)
+        .filter(|child| child.kind() == "variable_declarator")
+        .collect()
+}
+
+/// Direct type node of a field/event declaration.
+pub(crate) fn field_type(declaration: Node<'_>) -> Option<Node<'_>> {
+    let mut cursor = declaration.walk();
+    declaration
+        .children(&mut cursor)
+        .find(|child| child.kind() == "variable_declaration")
+        .and_then(|variables| variables.child_by_field_name("type"))
 }

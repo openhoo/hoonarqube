@@ -10,13 +10,14 @@ pub(crate) fn for_each_return_in_scope(
     suite: &[Stmt],
     visit: &mut impl FnMut(&ruff_python_ast::StmtReturn),
 ) {
-    for stmt in suite {
+    let mut pending: Vec<&Stmt> = suite.iter().rev().collect();
+    while let Some(stmt) = pending.pop() {
         match stmt {
             Stmt::Return(returned) => visit(returned),
             Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
             other => {
-                for body in child_bodies(other) {
-                    for_each_return_in_scope(body, visit);
+                for body in child_bodies(other).into_iter().rev() {
+                    pending.extend(body.iter().rev());
                 }
             }
         }
@@ -45,17 +46,16 @@ pub(crate) fn for_each_stmt_with_class<'a>(
     class: Option<&'a str>,
     visit: &mut impl FnMut(&'a Stmt, Option<&'a str>),
 ) {
-    for stmt in stmts {
+    let mut pending: Vec<(&Stmt, Option<&str>)> =
+        stmts.iter().rev().map(|stmt| (stmt, class)).collect();
+    while let Some((stmt, class)) = pending.pop() {
         visit(stmt, class);
-        match stmt {
-            Stmt::ClassDef(nested) => {
-                for_each_stmt_with_class(&nested.body, Some(nested.name.as_str()), visit);
-            }
-            other => {
-                for body in child_bodies(other) {
-                    for_each_stmt_with_class(body, class, visit);
-                }
-            }
+        let nested_class = match stmt {
+            Stmt::ClassDef(nested) => Some(nested.name.as_str()),
+            _ => class,
+        };
+        for body in child_bodies(stmt).into_iter().rev() {
+            pending.extend(body.iter().rev().map(|child| (child, nested_class)));
         }
     }
 }

@@ -29,9 +29,9 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 }
 
 /// Types acceptable for indexer parameters.
-const INDEXER_PARAMETER_TYPES: [&str; 12] = [
+const INDEXER_PARAMETER_TYPES: [&str; 15] = [
     "string", "String", "int", "uint", "long", "ulong", "short", "ushort", "byte", "sbyte", "char",
-    "nint",
+    "nint", "nuint", "Index", "Range",
 ];
 
 /// Parameters behind either bracketed or parenthesized lists.
@@ -57,5 +57,13 @@ mod tests {
             "class Grid\n{\n    public int this[double ratio, System.DateTime when] => 0;\n}\n",
         );
         assert_eq!(with_key(&report, "csharpsquid:S3876").len(), 1);
+    }
+
+    #[test]
+    fn s3876_accepts_native_integers_index_and_range() {
+        let report = analyze_default(
+            "class Grid\n{\n    public int this[nint offset] => 0;\n    public int this[nuint offset] => 1;\n    public int this[System.Index index] => 2;\n    public int this[System.Range range] => 3;\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3876").is_empty());
     }
 }

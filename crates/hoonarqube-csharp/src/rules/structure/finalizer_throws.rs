@@ -1,7 +1,6 @@
-use super::support::body_of;
+use super::support::{body_of, collect_kinds_in_callable};
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
-use crate::rules::modifiers::subtree_contains_kind;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -15,9 +14,9 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some(body) = body_of(destructor) else {
             continue;
         };
-        if subtree_contains_kind(body, "throw_statement")
-            && let Some(throw_statement) =
-                collect_kinds(body, &["throw_statement"]).into_iter().next()
+        if let Some(throw_statement) = collect_kinds_in_callable(body, &["throw_statement"])
+            .into_iter()
+            .next()
         {
             issues.push(issue(
                 language,
@@ -28,4 +27,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
     }
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1048_ignores_throws_inside_lambda_created_by_finalizer() {
+        let report = analyze_default(
+            "class C\n{\n    ~C()\n    {\n        System.Action callback = () => { throw new System.Exception(); };\n        callback();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1048").is_empty());
+    }
 }

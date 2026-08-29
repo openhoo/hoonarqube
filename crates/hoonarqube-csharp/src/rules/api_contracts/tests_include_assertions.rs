@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, node_text, range_of};
+use crate::cst::{ancestors_of, collect_kinds, issue, node_text, range_of};
 use crate::rules::expressions::{callee_name, invocation_function, is_test_attributed};
 use crate::rules::structure::body_of;
 use hoonarqube_ir::Issue;
@@ -17,7 +17,9 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         };
         let asserts = collect_kinds(body, &["invocation_expression"])
             .iter()
-            .any(|invocation| looks_like_assertion(*invocation, source));
+            .any(|invocation| {
+                belongs_to_test_body(*invocation, body) && looks_like_assertion(*invocation, source)
+            });
         if !asserts {
             let name = method.child_by_field_name("name").unwrap_or(method);
             issues.push(issue(
@@ -29,6 +31,23 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
     }
     issues
+}
+
+/// Nested callables are only declared by the test. Their assertions do not
+/// verify anything unless the test invokes them.
+fn belongs_to_test_body(invocation: Node<'_>, body: Node<'_>) -> bool {
+    for ancestor in ancestors_of(invocation) {
+        if ancestor.id() == body.id() {
+            return true;
+        }
+        if matches!(
+            ancestor.kind(),
+            "lambda_expression" | "anonymous_method_expression" | "local_function_statement"
+        ) {
+            return false;
+        }
+    }
+    false
 }
 
 /// Whether the invocation reads like an assertion call.
@@ -66,5 +85,15 @@ mod tests {
         assert_eq!(flagged.len(), 2);
         assert_eq!(flagged[0].range.start.line, 4);
         assert_eq!(flagged[1].range.start.line, 11);
+    }
+
+    #[test]
+    fn s2699_does_not_borrow_assertions_from_deferred_callables() {
+        let report = analyze_default(
+            "class T\n{\n    [Fact]\n    public void DeferredOnly()\n    {\n        Action later = () => Assert.True(true);\n        void VerifyLater()\n        {\n            Assert.True(true);\n        }\n    }\n\n    [Fact]\n    public void Direct()\n    {\n        Assert.True(true);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2699");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 4);
     }
 }

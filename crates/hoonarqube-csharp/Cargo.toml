@@ -5,16 +5,17 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+publish.workspace = true
 
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
-hoonarqube-ir = { version = "0.1.0", path = "../hoonarqube-ir" }
+hoonarqube-ir = { version = "0.2.0", path = "../hoonarqube-ir" }
 tree-sitter = "0.25"
 tree-sitter-c-sharp = "0.23.5"
 
 [dev-dependencies]
-hoonarqube-core = { version = "0.1.0", path = "../hoonarqube-core" }
+hoonarqube-core = { version = "0.2.0", path = "../hoonarqube-core" }
 [lints]
 workspace = true

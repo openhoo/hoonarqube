@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         for call in logging_calls(body, source) {
             let passes = invocation_arguments(call)
                 .iter()
-                .any(|argument| node_text(*argument, source).contains(caught));
+                .any(|argument| argument_references(*argument, caught, source));
             if !passes {
                 issues.push(issue(
                     language,
@@ -36,6 +36,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     issues
 }
 
+/// Whether an argument contains a reference to the caught variable. Textual
+/// substring matching makes `ex` look present in unrelated names like
+/// `messageText`; identifiers preserve the language boundary.
+fn argument_references(argument: Node<'_>, caught: &str, source: &str) -> bool {
+    collect_kinds(argument, &["identifier"])
+        .into_iter()
+        .any(|identifier| node_text(identifier, source) == caught)
+}
+
 /// The declared variable name of a catch clause (`catch (Exception ex)`).
 fn caught_exception_name<'a>(clause: Node<'_>, source: &'a str) -> Option<&'a str> {
     let mut cursor = clause.walk();
@@ -44,4 +53,19 @@ fn caught_exception_name<'a>(clause: Node<'_>, source: &'a str) -> Option<&'a st
         .find(|child| child.kind() == "catch_declaration")
         .and_then(|declaration| declaration.child_by_field_name("name"))
         .map(|name| node_text(name, source))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s6667_requires_an_identifier_reference_not_a_name_substring() {
+        let report = analyze_default(
+            "class C\n{\n    void M()\n    {\n        try { Run(); } catch (Exception ex) { logger.LogError(\"Failed\", messageText); }\n        try { Run(); } catch (Exception ex) { logger.LogError(\"Failed\", Wrap(ex)); }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S6667");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+    }
 }

@@ -1,4 +1,6 @@
-use super::support::attribute_applications;
+use super::support::{
+    attribute_applications, has_attribute_explanation, nonempty_attribute_argument,
+};
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, issue, node_text, range_of};
 use hoonarqube_ir::Issue;
@@ -13,7 +15,9 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .into_iter()
         .filter_map(|(name, arguments, node)| {
             let silenced = match final_segment(name) {
-                "Ignore" | "IgnoreAttribute" => arguments.is_none(),
+                "Ignore" | "IgnoreAttribute" => {
+                    !has_attribute_explanation(arguments, source)
+                }
                 "Fact" | "Theory" => carries_skip(arguments, source),
                 _ => false,
             };
@@ -51,6 +55,7 @@ fn carries_skip(arguments: Option<Node<'_>>, source: &str) -> bool {
                             assignment
                                 .child_by_field_name("left")
                                 .is_some_and(|left| node_text(left, source) == "Skip")
+                                && nonempty_attribute_argument(assignment, source)
                         })
             })
     })
@@ -60,6 +65,7 @@ fn named_skip(argument: &Node<'_>, source: &str) -> bool {
     argument
         .child_by_field_name("name")
         .is_some_and(|name| node_text(name, source) == "Skip")
+        && nonempty_attribute_argument(*argument, source)
 }
 #[cfg(test)]
 mod tests {
@@ -94,5 +100,18 @@ mod tests {
         assert_eq!(flagged[0].range.start.line, 3);
         assert_eq!(flagged[1].range.start.line, 6);
         assert_eq!(flagged[2].range.start.line, 12);
+    }
+
+    #[test]
+    fn s1607_validates_ignore_and_skip_reason_values() {
+        let ignored = analyze_default(
+            "class Suite\n{\n    [Ignore()] void A() { }\n    [Ignore(\"\")] void B() { }\n    [Ignore(null)] void C() { }\n}\n",
+        );
+        assert_eq!(with_key(&ignored, "csharpsquid:S1607").len(), 3);
+
+        let active = analyze_default(
+            "class Suite\n{\n    [Fact(Skip = null)] void A() { }\n    [Fact(Skip = \"\")] void B() { }\n    [Fact(Skip = \"later\")] void C() { }\n}\n",
+        );
+        assert_eq!(with_key(&active, "csharpsquid:S1607").len(), 1);
     }
 }

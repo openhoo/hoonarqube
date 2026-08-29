@@ -192,6 +192,12 @@ mod tests {
 
         let literal_form = js_keys("const re = /ab+c/;\n");
         assert_eq!(count_key(&literal_form, "javascript:S6325"), 0);
+
+        let dynamic_flags = js_keys("const re = new RegExp('ab+c', flags);\n");
+        assert_eq!(count_key(&dynamic_flags, "javascript:S6325"), 0);
+
+        let invalid_flags = js_keys("const re = new RegExp('ab+c', 'gg');\n");
+        assert_eq!(count_key(&invalid_flags, "javascript:S5856"), 1);
     }
 
     #[test]

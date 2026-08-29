@@ -1,6 +1,6 @@
-use super::support::identifier_write;
+use super::support::{identifier_write, walk_owned};
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of, walk_all};
+use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -33,7 +33,9 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             issues.push(issue(
                 language,
                 "S127",
-                format!("Do not update the loop counter '{name}' within the loop body."),
+                format!(
+                    "Do not update the stop condition variable '{name}' in the body of the for loop."
+                ),
                 range_of(write, source),
             ));
         }
@@ -45,7 +47,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 /// increment operands, and declared names alike.
 fn written_identifiers(node: Node<'_>) -> Vec<Node<'_>> {
     let mut identifiers = Vec::new();
-    walk_all(node, &mut |current| {
+    walk_owned(node, &mut |current| {
         if current.kind() == "identifier" && identifier_write(current).is_some() {
             identifiers.push(current);
         }
@@ -103,6 +105,14 @@ mod tests {
     fn s127_unrelated_body_writes_stay_clean() {
         let report = analyze_default(
             "class C {\n    void M(int top) {\n        for (int i = 0; i < top; i++) {\n            int local;\n            local = Compute();\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
+    }
+
+    #[test]
+    fn s127_nested_local_function_write_does_not_mutate_loop_body() {
+        let report = analyze_default(
+            "class C {\n    void M(int top) {\n        for (int i = 0; i < top; i++) {\n            void Local() { top = Read(); }\n            Tick(i);\n        }\n    }\n}\n",
         );
         assert!(with_key(&report, KEY).is_empty());
     }

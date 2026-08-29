@@ -1,7 +1,7 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, issue, node_text, range_of, walk_all};
 use crate::rules::dataflow::{WriteKind, callable_blocks, identifier_write};
-use crate::rules::expressions::{callee_name, invocation_receiver};
+use crate::rules::expressions::{callee_name, invocation_arguments, invocation_receiver};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -12,18 +12,21 @@ use tree_sitter::Node;
 /// receiver shapes and cross-method flow stay uncovered.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
-    let mut visited: std::collections::HashSet<usize> = std::collections::HashSet::new();
     for body in callable_blocks(root) {
+        let trackable = trackable_local_names(body, source);
         let mut populated: std::collections::HashSet<String> = std::collections::HashSet::new();
         walk_all(body, &mut |node| {
-            process_node(
-                node,
-                source,
-                language,
-                &mut visited,
-                &mut populated,
-                &mut issues,
-            );
+            if belongs_to_body(node, body) {
+                process_node(
+                    node,
+                    body,
+                    source,
+                    language,
+                    &trackable,
+                    &mut populated,
+                    &mut issues,
+                );
+            }
         });
     }
     issues
@@ -31,18 +34,18 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 
 fn process_node(
     node: Node<'_>,
+    body: Node<'_>,
     source: &str,
     language: CsLanguage,
-    visited: &mut std::collections::HashSet<usize>,
+    trackable: &std::collections::HashSet<String>,
     populated: &mut std::collections::HashSet<String>,
     issues: &mut Vec<Issue>,
 ) {
-    if !visited.insert(node.id()) {
-        return;
-    }
     match node.kind() {
-        "invocation_expression" => process_invocation(node, source, language, populated, issues),
-        "variable_declaration" => credit_initializers(node, source, populated),
+        "invocation_expression" => {
+            process_invocation(node, body, source, language, trackable, populated, issues);
+        }
+        "variable_declaration" => credit_initializers(node, body, source, trackable, populated),
         "identifier"
             if identifier_write(node) == Some(WriteKind::Store)
                 && !credited_by_initializer(node) =>
@@ -55,8 +58,10 @@ fn process_node(
 
 fn process_invocation(
     call: Node<'_>,
+    body: Node<'_>,
     source: &str,
     language: CsLanguage,
+    trackable: &std::collections::HashSet<String>,
     populated: &mut std::collections::HashSet<String>,
     issues: &mut Vec<Issue>,
 ) {
@@ -66,8 +71,16 @@ fn process_invocation(
         return;
     };
     let name = node_text(receiver, source);
+    if !trackable.contains(name) {
+        return;
+    }
     match callee_name(call, source) {
-        Some("Add" | "AddRange" | "Insert") => {
+        Some("Add" | "Insert") if is_definitely_executed(call, body) => {
+            populated.insert(name.to_owned());
+        }
+        Some("AddRange")
+            if is_definitely_executed(call, body) && add_range_is_definitely_non_empty(call) =>
+        {
             populated.insert(name.to_owned());
         }
         Some("Clear") => {
@@ -87,12 +100,18 @@ fn process_invocation(
 
 fn credit_initializers(
     declaration: Node<'_>,
+    body: Node<'_>,
     source: &str,
+    trackable: &std::collections::HashSet<String>,
     populated: &mut std::collections::HashSet<String>,
 ) {
+    if !is_definitely_executed(declaration, body) {
+        return;
+    }
     for declarator in collect_kinds(declaration, &["variable_declarator"]) {
         if has_non_empty_initializer(declarator)
             && let Some(name) = declarator.child_by_field_name("name")
+            && trackable.contains(node_text(name, source))
         {
             populated.insert(node_text(name, source).to_owned());
         }
@@ -110,11 +129,103 @@ fn has_non_empty_initializer(declarator: Node<'_>) -> bool {
     collect_kinds(declarator, &["initializer_expression"])
         .into_iter()
         .next()
-        .is_some_and(|initializer| {
-            initializer
-                .children(&mut initializer.walk())
-                .any(|child| child.is_named())
+        .is_some_and(initializer_has_definite_element)
+}
+
+fn initializer_has_definite_element(initializer: Node<'_>) -> bool {
+    initializer
+        .children(&mut initializer.walk())
+        .any(|child| child.is_named() && child.kind() != "assignment_expression")
+}
+
+fn add_range_is_definitely_non_empty(call: Node<'_>) -> bool {
+    invocation_arguments(call)
+        .first()
+        .and_then(|argument| {
+            collect_kinds(*argument, &["initializer_expression"])
+                .into_iter()
+                .next()
         })
+        .is_some_and(initializer_has_definite_element)
+}
+
+/// Locals with one declaration in this callable. Ambiguous same-name locals
+/// are skipped because a flat name set cannot model nested lexical shadowing.
+fn trackable_local_names(body: Node<'_>, source: &str) -> std::collections::HashSet<String> {
+    let mut counts = std::collections::HashMap::<String, usize>::new();
+    for declarator in collect_kinds(body, &["variable_declarator"])
+        .into_iter()
+        .filter(|declarator| belongs_to_body(*declarator, body))
+    {
+        if let Some(name) = declarator.child_by_field_name("name") {
+            *counts
+                .entry(node_text(name, source).to_owned())
+                .or_default() += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .filter_map(|(name, count)| (count == 1).then_some(name))
+        .collect()
+}
+
+/// Excludes nested local functions, closures, and types from the enclosing
+/// callable's state. Their bodies execute independently, if at all.
+fn belongs_to_body(node: Node<'_>, body: Node<'_>) -> bool {
+    const BOUNDARIES: [&str; 12] = [
+        "lambda_expression",
+        "anonymous_method_expression",
+        "local_function_statement",
+        "method_declaration",
+        "constructor_declaration",
+        "destructor_declaration",
+        "operator_declaration",
+        "accessor_declaration",
+        "class_declaration",
+        "struct_declaration",
+        "record_declaration",
+        "interface_declaration",
+    ];
+    let mut current = Some(node);
+    while let Some(candidate) = current {
+        if candidate.id() == body.id() {
+            return true;
+        }
+        if candidate.id() != node.id() && BOUNDARIES.contains(&candidate.kind()) {
+            return false;
+        }
+        current = candidate.parent();
+    }
+    false
+}
+
+/// Population inside a branch or loop is not proof that execution reaches
+/// the later query with an element present.
+fn is_definitely_executed(node: Node<'_>, body: Node<'_>) -> bool {
+    const CONDITIONAL_ANCESTORS: [&str; 11] = [
+        "if_statement",
+        "switch_statement",
+        "switch_expression",
+        "for_statement",
+        "foreach_statement",
+        "while_statement",
+        "do_statement",
+        "try_statement",
+        "catch_clause",
+        "finally_clause",
+        "conditional_expression",
+    ];
+    let mut current = node.parent();
+    while let Some(ancestor) = current {
+        if ancestor.id() == body.id() {
+            return true;
+        }
+        if CONDITIONAL_ANCESTORS.contains(&ancestor.kind()) {
+            return false;
+        }
+        current = ancestor.parent();
+    }
+    false
 }
 
 #[cfg(test)]
@@ -158,6 +269,30 @@ mod tests {
         assert_eq!(flagged.len(), 2);
         assert_eq!(flagged[0].range.start.line, 5);
         assert_eq!(flagged[1].range.start.line, 11);
+    }
+
+    #[test]
+    fn s7130_conditional_and_deferred_mutations_are_not_proof() {
+        let report = analyze_default(
+            "void A(bool add)\n{\n    var ids = new List<int>();\n    if (add) ids.Add(1);\n    var first = ids.FirstOrDefault();\n}\nvoid B()\n{\n    var ids = new List<int>();\n    Action fill = () => ids.Add(1);\n    var first = ids.FirstOrDefault();\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S7130").is_empty());
+    }
+
+    #[test]
+    fn s7130_unknown_or_empty_add_range_is_not_proof() {
+        let report = analyze_default(
+            "void A(IEnumerable<int> values)\n{\n    var ids = new List<int>();\n    ids.AddRange(values);\n    var first = ids.FirstOrDefault();\n}\nvoid B()\n{\n    var ids = new List<int>();\n    ids.AddRange(new int[] { });\n    var first = ids.FirstOrDefault();\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S7130").is_empty());
+    }
+
+    #[test]
+    fn s7130_nested_shadowing_does_not_leak_population() {
+        let report = analyze_default(
+            "void A()\n{\n    {\n        var ids = new List<int> { 1 };\n    }\n    {\n        var ids = new List<int>();\n        var first = ids.FirstOrDefault();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S7130").is_empty());
     }
 
     #[test]

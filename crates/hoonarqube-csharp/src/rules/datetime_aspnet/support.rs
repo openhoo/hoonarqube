@@ -2,7 +2,6 @@ use crate::cst::{collect_kinds, is_error_tainted, modifiers_of, node_text};
 use crate::rules::expressions::member_declarations_of_kind;
 use crate::rules::literals::{argument_expression, string_literals};
 use crate::rules::modifiers::{has_any_attribute, has_modifier};
-use crate::rules::naming::TYPE_DECLARATION_KINDS;
 use crate::rules::security::call_argument_nodes;
 use tree_sitter::Node;
 
@@ -21,18 +20,6 @@ pub(crate) fn azure_function_methods<'t>(root: Node<'t>, source: &str) -> Vec<No
         .into_iter()
         .filter(|method| !is_error_tainted(*method))
         .filter(|method| has_any_attribute(*method, source, &["Function", "FunctionName"]))
-        .collect()
-}
-
-/// Types hosting at least one Azure Function method.
-pub(crate) fn azure_function_classes<'t>(root: Node<'t>, source: &str) -> Vec<Node<'t>> {
-    collect_kinds(root, &TYPE_DECLARATION_KINDS)
-        .into_iter()
-        .filter(|type_node| {
-            member_declarations_of_kind(*type_node, "method_declaration")
-                .iter()
-                .any(|method| has_any_attribute(*method, source, &["Function", "FunctionName"]))
-        })
         .collect()
 }
 

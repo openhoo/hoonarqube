@@ -1,16 +1,18 @@
-use super::support::azure_function_classes;
+use super::support::azure_function_methods;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
 use crate::rules::expressions::{callee_name, expression_name};
+use crate::rules::structure::body_of;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S6422 — blocking on async work inside a Function deadlocks
 /// the single-invocation host.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    azure_function_classes(root, source)
+    azure_function_methods(root, source)
         .into_iter()
-        .flat_map(|class_node| blocking_calls_in_scope(class_node, source))
+        .filter_map(body_of)
+        .flat_map(|body| blocking_calls_in_scope(body, source))
         .map(|call| {
             let member = expression_name(call, source).unwrap_or("Result");
             issue(
@@ -40,4 +42,17 @@ fn blocking_calls_in_scope<'t>(scope: Node<'t>, source: &str) -> Vec<Node<'t>> {
         .into_iter()
         .filter(|invocation| callee_name(*invocation, source) == Some("GetResult"));
     accesses.chain(get_results).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s6422_ignores_non_function_helpers_in_function_classes() {
+        let report = analyze_default(
+            "class Fn\n{\n    [FunctionName(\"Run\")]\n    public async Task Run() { await Work(); }\n\n    public int Helper()\n    {\n        var task = Task.Run(() => 1);\n        return task.Result;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S6422").is_empty());
+    }
 }

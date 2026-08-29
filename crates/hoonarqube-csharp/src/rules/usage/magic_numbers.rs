@@ -1,5 +1,5 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, modifiers_of, node_text, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, modifiers_of, node_text, range_of};
 use crate::rules::expressions::integer_literal_value;
 use crate::rules::modifiers::has_modifier;
 use hoonarqube_ir::Issue;
@@ -8,6 +8,12 @@ use tree_sitter::Node;
 fn canonical_number_text(text: &str) -> String {
     let unsuffixed = text.trim_end_matches(['f', 'F', 'd', 'D', 'm', 'M', 'u', 'U', 'l', 'L']);
     let normalized = unsuffixed.replace('_', "");
+    let radix_prefixed = ["0x", "0X", "0b", "0B"]
+        .iter()
+        .any(|prefix| normalized.starts_with(prefix));
+    if !radix_prefixed && let Some(value) = integer_literal_value(text) {
+        return value.to_string();
+    }
     normalized
         .parse::<f64>()
         .map_or(normalized.clone(), |value| value.to_string())
@@ -17,6 +23,7 @@ fn canonical_number_text(text: &str) -> String {
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     collect_kinds(root, &["integer_literal", "real_literal"])
         .into_iter()
+        .filter(|literal| !is_error_tainted(*literal))
         .filter(|literal| {
             !magic_number_exempt(*literal, source)
                 && !is_small_allowed_number(node_text(*literal, source))
@@ -147,5 +154,13 @@ mod tests {
         let flagged = with_key(&report, "csharpsquid:S109");
         assert_eq!(flagged.len(), 1);
         assert_eq!(flagged[0].range.start.line, 7);
+    }
+
+    #[test]
+    fn s109_preserves_large_integer_precision_in_messages() {
+        let report = analyze_default("class C { ulong Value() => 9_007_199_254_740_993UL; }");
+        let flagged = with_key(&report, "csharpsquid:S109");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'9007199254740993'"));
     }
 }

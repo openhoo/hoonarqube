@@ -1,6 +1,7 @@
 use super::support::binary_operands;
 use super::support::integer_literal_value;
 use super::support::operator_of;
+use super::support::resolved_identifier_type;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use hoonarqube_ir::Issue;
@@ -25,15 +26,9 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some(amount) = integer_literal_value(node_text(right, source)) else {
             continue;
         };
-        let left_is_32bit = (left.kind() == "integer_literal"
-            && !node_text(left, source)
-                .chars()
-                .any(|character| matches!(character, 'l' | 'L' | 'u' | 'U')))
-            || (left.kind() == "identifier"
-                && identifier_has_32_bit_type(root, node_text(left, source), source));
         let out_of_range = match amount {
             0..=31 => false,
-            32..=63 => left_is_32bit,
+            32..=63 => operand_is_32_bit(left, source),
             64.. => true,
         };
         if out_of_range {
@@ -54,23 +49,24 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     issues
 }
 
-fn identifier_has_32_bit_type(root: Node<'_>, wanted: &str, source: &str) -> bool {
-    collect_kinds(root, &["parameter", "variable_declaration"])
-        .into_iter()
-        .any(|declaration| {
-            let Some(type_node) = declaration.child_by_field_name("type") else {
-                return false;
-            };
-            if !matches!(
-                node_text(type_node, source),
-                "int" | "uint" | "short" | "ushort" | "byte" | "sbyte"
-            ) {
-                return false;
-            }
-            collect_kinds(declaration, &["identifier"])
-                .into_iter()
-                .any(|identifier| node_text(identifier, source) == wanted)
-        })
+fn operand_is_32_bit(operand: Node<'_>, source: &str) -> bool {
+    (operand.kind() == "integer_literal" && literal_is_32_bit(node_text(operand, source)))
+        || (operand.kind() == "identifier"
+            && resolved_identifier_type(operand, source).is_some_and(is_32_bit_type))
+}
+
+fn is_32_bit_type(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "int" | "uint" | "short" | "ushort" | "byte" | "sbyte"
+    )
+}
+
+fn literal_is_32_bit(literal: &str) -> bool {
+    !literal
+        .chars()
+        .any(|character| matches!(character, 'l' | 'L'))
+        && integer_literal_value(literal).is_some_and(|value| u32::try_from(value).is_ok())
 }
 
 #[cfg(test)]
@@ -97,10 +93,22 @@ mod tests {
     }
 
     #[test]
-    fn s2183_suffixed_literal_left_operand_stays_unknown() {
+    fn s2183_wide_suffixed_literal_left_operand_stays_clean() {
         let report = analyze_default(
             "class C\n{\n    long M()\n    {\n        return 1L << 40;\n    }\n}\n",
         );
+        assert!(with_key(&report, "csharpsquid:S2183").is_empty());
+    }
+
+    #[test]
+    fn s2183_uint_literal_left_operand_is_32_bit() {
+        let report = analyze_default("class C { uint M() => 1U << 32; }");
+        assert_eq!(with_key(&report, "csharpsquid:S2183").len(), 1);
+    }
+
+    #[test]
+    fn s2183_large_unsuffixed_literal_uses_wide_type() {
+        let report = analyze_default("class C { long M() => 4294967296 << 32; }");
         assert!(with_key(&report, "csharpsquid:S2183").is_empty());
     }
 
@@ -121,5 +129,31 @@ mod tests {
         let flagged = with_key(&report, "csharpsquid:S2183");
         assert_eq!(flagged.len(), 1);
         assert_eq!(flagged[0].range.start.line, 5);
+    }
+
+    #[test]
+    fn s2183_does_not_leak_parameter_types_between_methods() {
+        let report = analyze_default(
+            "class C\n{\n    long Wide(long value) => value << 32;\n    int Narrow(int value) => value << 32;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2183");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 4);
+    }
+
+    #[test]
+    fn s2183_uses_declarator_names_not_initializer_references() {
+        let report = analyze_default(
+            "class C { long M(long value) { int other = (int)value; return value << 32; } }",
+        );
+        assert!(with_key(&report, "csharpsquid:S2183").is_empty());
+    }
+
+    #[test]
+    fn s2183_local_binding_wins_over_same_named_field() {
+        let report = analyze_default(
+            "class C { int value; long M() { long value = 1; return value << 32; } }",
+        );
+        assert!(with_key(&report, "csharpsquid:S2183").is_empty());
     }
 }

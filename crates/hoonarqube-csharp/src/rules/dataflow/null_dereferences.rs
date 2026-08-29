@@ -1,10 +1,11 @@
 use super::support::WriteKind;
 use super::support::callable_blocks;
+use super::support::collect_owned_kinds;
+use super::support::guarded_names;
 use super::support::identifier_write;
-use super::support::name_is_guarded;
 use super::support::walk_except_blocks;
 use crate::CsLanguage;
-use crate::cst::{ancestors_of, collect_kinds, issue, node_text, range_of};
+use crate::cst::{ancestors_of, issue, node_text, range_of};
 use crate::rules::expressions::block_statements;
 use crate::rules::literals::declarator_initializer;
 use hoonarqube_ir::Issue;
@@ -19,8 +20,8 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for body in callable_blocks(root) {
-        let body_text = node_text(body, source);
-        for block in collect_kinds(body, &["block"]) {
+        let guarded = guarded_names(body, source);
+        for block in collect_owned_kinds(body, &["block"]) {
             let mut known_null: std::collections::HashSet<String> =
                 std::collections::HashSet::new();
             for statement in block_statements(block) {
@@ -29,7 +30,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 flag_known_null_dereferences(
                     statement,
                     &known_null,
-                    body_text,
+                    &guarded,
                     source,
                     language,
                     &mut issues,
@@ -44,7 +45,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 fn flag_known_null_dereferences(
     statement: Node<'_>,
     known_null: &std::collections::HashSet<String>,
-    body_text: &str,
+    guarded: &std::collections::HashSet<String>,
     source: &str,
     language: CsLanguage,
     issues: &mut Vec<Issue>,
@@ -56,7 +57,7 @@ fn flag_known_null_dereferences(
         let name = node_text(base, source);
         if known_null.contains(name)
             && !node_text(node, source).contains('?')
-            && !name_is_guarded(body_text, name)
+            && !guarded.contains(name)
         {
             issues.push(issue(
                 language,
@@ -84,7 +85,7 @@ fn update_known_nulls(
     known_null: &mut std::collections::HashSet<String>,
     source: &str,
 ) {
-    for identifier in collect_kinds(statement, &["identifier"]) {
+    for identifier in collect_owned_kinds(statement, &["identifier"]) {
         let name = node_text(identifier, source);
         if passed_by_reference(identifier, source) {
             known_null.remove(name);
@@ -216,5 +217,15 @@ mod tests {
             "class C {\n    void M() {\n        int[] cells = null;\n        var head = cells[0];\n    }\n}\n",
         );
         assert_eq!(with_key(&report, KEY).len(), 1);
+    }
+
+    #[test]
+    fn s2259_local_function_dereference_is_reported_once() {
+        let report = analyze_default(
+            "class C {\n    void M() {\n        void Local() {\n            string name = null;\n            Use(name.Length);\n        }\n        Local();\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 5);
     }
 }

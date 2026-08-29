@@ -1,3 +1,4 @@
+use super::support::{member_uses, member_writes};
 use crate::CsLanguage;
 use crate::cst::{ancestors_of, issue, modifiers_of, range_of};
 use crate::rules::naming::has_explicit_interface_specifier;
@@ -23,16 +24,19 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
         {
             continue;
         }
-        let writes = symbols.writes_of(member.name);
+        let writes = member_writes(symbols, member, source);
         if !member.has_initializer && writes.is_empty() {
             continue;
         }
-        if symbols.uses_of(member.name).into_iter().any(|usage| {
-            !writes.iter().any(|write| {
-                write.id() == usage.id()
-                    || ancestors_of(usage).any(|ancestor| ancestor.id() == write.id())
+        if member_uses(symbols, member, source)
+            .into_iter()
+            .any(|usage| {
+                !writes.iter().any(|write| {
+                    write.id() == usage.id()
+                        || ancestors_of(usage).any(|ancestor| ancestor.id() == write.id())
+                })
             })
-        }) {
+        {
             continue;
         }
         issues.push(issue(
@@ -99,5 +103,15 @@ mod tests {
             "class A\n{\n    private int Compute() => 1;\n    public int Run() { return Compute(); }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S4487").is_empty());
+    }
+
+    #[test]
+    fn s4487_does_not_borrow_reads_from_unrelated_types() {
+        let report = analyze_default(
+            "class A\n{\n    private int stale = 1;\n}\n\nclass B\n{\n    private int stale;\n    public int Read() => stale;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4487");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
     }
 }

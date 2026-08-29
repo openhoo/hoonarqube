@@ -1,4 +1,4 @@
-use super::support::attribute_applications;
+use super::support::{attribute_applications, has_attribute_explanation};
 use crate::CsLanguage;
 use crate::cst::{issue, range_of};
 use hoonarqube_ir::Issue;
@@ -9,7 +9,9 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for (name, args, node) in attribute_applications(root, source) {
-        if matches!(name, "Obsolete" | "ObsoleteAttribute") && args.is_none() {
+        if matches!(name, "Obsolete" | "ObsoleteAttribute")
+            && !has_attribute_explanation(args, source)
+        {
             issues.push(issue(
                 language,
                 "S1123",
@@ -41,5 +43,17 @@ mod tests {
             "class Old\n{\n    [Obsolete(\"use C\")]\n    void A() { }\n\n    [Obsolete(\"use D\")]\n    int B() => 1;\n}\n",
         );
         assert!(with_key(&explained, "csharpsquid:S1123").is_empty());
+    }
+
+    #[test]
+    fn s1123_rejects_empty_and_null_explanations() {
+        for source in [
+            "[Obsolete()]\nclass Old { }\n",
+            "[Obsolete(\"\")]\nclass Old { }\n",
+            "[Obsolete(null)]\nclass Old { }\n",
+        ] {
+            let report = analyze_default(source);
+            assert_eq!(with_key(&report, "csharpsquid:S1123").len(), 1);
+        }
     }
 }

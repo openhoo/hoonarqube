@@ -1,8 +1,7 @@
-use super::support::has_attribute;
 use super::support::has_modifier;
+use super::support::{attribute_named, has_attribute};
 use crate::CsLanguage;
-use crate::cst::{attributes_of, collect_kinds, issue, modifiers_of, node_text, range_of};
-use crate::rules::expressions::first_named_child;
+use crate::cst::{attributes_of, collect_kinds, issue, modifiers_of, range_of};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -22,10 +21,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             } else {
                 "ref"
             };
-            let optional = collect_kinds(parameter, &["attribute"])
-                .into_iter()
-                .find(|attribute| node_text(*attribute, source).starts_with("Optional"))
-                .and_then(first_named_child)
+            let optional = attribute_named(parameter, source, "Optional")
+                .and_then(|attribute| attribute.child_by_field_name("name"))
                 .unwrap_or(parameter);
             issues.push(issue(
                 language,

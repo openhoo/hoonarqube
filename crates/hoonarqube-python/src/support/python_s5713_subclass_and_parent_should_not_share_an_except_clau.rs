@@ -38,16 +38,23 @@ pub(crate) fn for_each_function_def<'a>(
     in_class_body: bool,
     visit: &mut impl FnMut(&'a ruff_python_ast::StmtFunctionDef, bool),
 ) {
-    for stmt in stmts {
+    let mut pending: Vec<(&Stmt, bool)> = stmts
+        .iter()
+        .rev()
+        .map(|stmt| (stmt, in_class_body))
+        .collect();
+    while let Some((stmt, in_class_body)) = pending.pop() {
         match stmt {
             Stmt::FunctionDef(function) => {
                 visit(function, in_class_body);
-                for_each_function_def(&function.body, false, visit);
+                pending.extend(function.body.iter().rev().map(|stmt| (stmt, false)));
             }
-            Stmt::ClassDef(class) => for_each_function_def(&class.body, true, visit),
+            Stmt::ClassDef(class) => {
+                pending.extend(class.body.iter().rev().map(|stmt| (stmt, true)));
+            }
             _ => {
-                for body in child_bodies(stmt) {
-                    for_each_function_def(body, in_class_body, visit);
+                for body in child_bodies(stmt).into_iter().rev() {
+                    pending.extend(body.iter().rev().map(|stmt| (stmt, in_class_body)));
                 }
             }
         }

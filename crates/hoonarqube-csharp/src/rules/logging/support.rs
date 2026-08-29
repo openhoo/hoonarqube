@@ -1,6 +1,6 @@
 use crate::cst::{collect_kinds, is_error_tainted, node_text};
 use crate::rules::expressions::{callee_name, invocation_arguments, invocation_receiver};
-use crate::rules::literals::{argument_expression, literal_inner_text};
+use crate::rules::literals::{argument_expression, is_string_literal, literal_inner_text};
 use tree_sitter::Node;
 
 /// `Microsoft.Extensions.Logging`-style structured-logging entry points
@@ -40,7 +40,7 @@ pub(crate) fn logging_calls<'t>(scope: Node<'t>, source: &str) -> Vec<Node<'t>> 
         .collect()
 }
 
-/// A call's first plain string-literal argument, paired with the unquoted
+/// A call's first static string-literal argument, paired with the unquoted
 /// inner text. Interpolated templates yield nothing here.
 pub(crate) fn template_argument<'a>(
     call: Node<'a>,
@@ -48,13 +48,21 @@ pub(crate) fn template_argument<'a>(
 ) -> Option<(Node<'a>, &'a str)> {
     let first = invocation_arguments(call).into_iter().next()?;
     let expression = argument_expression(first);
-    let literal = (expression.kind() == "string_literal").then_some(expression)?;
+    let literal = is_string_literal(expression).then_some(expression)?;
     Some((literal, literal_inner_text(literal, source)))
 }
 
 /// Placeholder names inside a message template, in textual order.
 pub(crate) fn template_placeholders(template: &str) -> Vec<&str> {
-    let mut names = Vec::new();
+    template_placeholder_spans(template)
+        .into_iter()
+        .map(|placeholder| placeholder.name)
+        .collect()
+}
+
+/// Placeholder names and their byte offsets inside a message template.
+pub(crate) fn template_placeholder_spans(template: &str) -> Vec<TemplatePlaceholder<'_>> {
+    let mut placeholders = Vec::new();
     let bytes = template.as_bytes();
     let mut index = 0;
     while let Some(offset) = bytes[index..].iter().position(|byte| *byte == b'{') {
@@ -68,13 +76,34 @@ pub(crate) fn template_placeholders(template: &str) -> Vec<&str> {
         }
         match bytes[open..].iter().position(|byte| *byte == b'}') {
             Some(close) if close > 0 && !bytes[open..open + close].contains(&b'{') => {
-                names.push(&template[open..open + close]);
+                let raw = &template[open..open + close];
+                let property = raw.split([',', ':']).next().unwrap_or(raw);
+                let leading_space = property.len() - property.trim_start().len();
+                let mut name = property.trim();
+                let destructuring_prefix =
+                    usize::from(name.starts_with('@') || name.starts_with('$'));
+                name = name
+                    .strip_prefix('@')
+                    .or_else(|| name.strip_prefix('$'))
+                    .unwrap_or(name);
+                if !name.is_empty() {
+                    placeholders.push(TemplatePlaceholder {
+                        name,
+                        start: open + leading_space + destructuring_prefix,
+                    });
+                }
                 index = open + close + 1;
             }
             _ => break,
         }
     }
-    names
+    placeholders
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct TemplatePlaceholder<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) start: usize,
 }
 
 /// Declarator names of a field or event declaration.
@@ -88,12 +117,23 @@ pub(crate) fn field_declarator_names<'a>(field: Node<'_>, source: &'a str) -> Ve
 
 #[cfg(test)]
 mod tests {
-    use super::template_placeholders;
+    use super::{template_placeholder_spans, template_placeholders};
 
     #[test]
     fn template_placeholders_survives_escaped_braces_before_real_placeholder() {
         assert_eq!(template_placeholders("{A} and {B}"), vec!["A", "B"]);
         assert_eq!(template_placeholders("{{Name}} {OrderId}"), vec!["OrderId"]);
+        assert_eq!(
+            template_placeholders("{@User} {$OrderId} {Amount,10:C}"),
+            vec!["User", "OrderId", "Amount"]
+        );
         assert!(template_placeholders("{Unclosed {{x}}").is_empty());
+        assert_eq!(
+            template_placeholder_spans("{A} then {A}")
+                .iter()
+                .map(|placeholder| placeholder.start)
+                .collect::<Vec<_>>(),
+            vec![1, 10]
+        );
     }
 }

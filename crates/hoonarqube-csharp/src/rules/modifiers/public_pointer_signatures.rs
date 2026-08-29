@@ -1,4 +1,4 @@
-use super::support::has_modifier;
+use super::support::{field_declarators, field_type, has_modifier};
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, issue, modifiers_of, node_text, range_of, simple_name};
 use hoonarqube_ir::Issue;
@@ -15,10 +15,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         {
             continue;
         }
-        let Some(field_type) = collect_kinds(field, &["variable_declaration"])
-            .into_iter()
-            .find_map(|declaration| declaration.child_by_field_name("type"))
-        else {
+        let Some(field_type) = field_type(field) else {
             continue;
         };
         if field_type.kind() != "pointer_type"
@@ -29,7 +26,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         {
             continue;
         }
-        for declarator in collect_kinds(field, &["variable_declarator"]) {
+        for declarator in field_declarators(field) {
             let Some(name) = declarator.child_by_field_name("name") else {
                 continue;
             };

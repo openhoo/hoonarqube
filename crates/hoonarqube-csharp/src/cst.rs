@@ -7,18 +7,21 @@ use tree_sitter::Node;
 
 pub(crate) use hoonarqube_ir::u32_saturating as to_u32;
 
-/// Pre-order walk over every named and anonymous child node. Explicit
-/// work-stack instead of recursion: tree-sitter mirrors arbitrary input
-/// nesting in its tree, and children are pushed in reverse so visitation
-/// stays in exact document order.
+/// Pre-order walk over every named and anonymous child node. A tree cursor
+/// avoids both recursion on arbitrarily nested input and a child allocation at
+/// every node while preserving exact document order.
 pub(crate) fn walk_all<'t>(node: Node<'t>, visit: &mut impl FnMut(Node<'t>)) {
-    let mut pending = vec![node];
-    while let Some(current) = pending.pop() {
-        visit(current);
-        let mut cursor = current.walk();
-        let mut children: Vec<Node<'t>> = current.children(&mut cursor).collect();
-        children.reverse();
-        pending.extend(children);
+    let mut cursor = node.walk();
+    loop {
+        visit(cursor.node());
+        if cursor.goto_first_child() {
+            continue;
+        }
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                return;
+            }
+        }
     }
 }
 
@@ -37,6 +40,12 @@ pub(crate) fn node_text<'a>(node: Node<'_>, source: &'a str) -> &'a str {
     node.utf8_text(source.as_bytes()).unwrap_or("")
 }
 
+/// C#'s verbatim identifier prefix changes token spelling, not symbol
+/// identity (`@value` and `value` bind the same declaration).
+pub(crate) fn canonical_identifier(text: &str) -> &str {
+    text.strip_prefix('@').unwrap_or(text)
+}
+
 /// Maps a tree-sitter point into an IR position. `column` counts characters
 /// from the row start, matching this crate's text-scan emitters and the
 /// character-based SonarQube/Roslyn text-range convention;
@@ -50,7 +59,7 @@ pub(crate) fn pos_of(
 ) -> hoonarqube_ir::Pos {
     let row_start = byte_offset - point.column;
     hoonarqube_ir::Pos {
-        line: to_u32(point.row) + 1,
+        line: to_u32(point.row).saturating_add(1),
         column: to_u32(source[row_start..byte_offset].chars().count()),
     }
 }
@@ -72,22 +81,34 @@ pub(crate) fn range_from_byte_offsets(
     end: usize,
     source: &str,
 ) -> hoonarqube_ir::Range {
-    fn pos_at(offset: usize, source: &str) -> hoonarqube_ir::Pos {
-        let prefix = &source[..offset];
-        hoonarqube_ir::Pos {
-            line: to_u32(prefix.bytes().filter(|byte| *byte == b'\n').count()) + 1,
-            column: to_u32(
-                prefix
-                    .rsplit('\n')
-                    .next()
-                    .map_or(0, |line| line.chars().count()),
-            ),
+    fn advance_position(line: &mut usize, column: &mut usize, text: &str) {
+        for character in text.chars() {
+            if character == '\n' {
+                *line += 1;
+                *column = 0;
+            } else {
+                *column += 1;
+            }
         }
     }
-    hoonarqube_ir::Range {
-        start: pos_at(start, source),
-        end: pos_at(end, source),
-    }
+
+    assert!(start <= end, "range start must not exceed its end");
+    let before = &source[..start];
+    let covered = &source[start..end];
+    let mut line = 1;
+    let mut column = 0;
+    advance_position(&mut line, &mut column, before);
+    let start = hoonarqube_ir::Pos {
+        line: to_u32(line),
+        column: to_u32(column),
+    };
+    advance_position(&mut line, &mut column, covered);
+    let end = hoonarqube_ir::Pos {
+        line: to_u32(line),
+        column: to_u32(column),
+    };
+
+    hoonarqube_ir::Range { start, end }
 }
 
 pub(crate) fn issue(
@@ -117,7 +138,8 @@ pub(crate) fn is_pascal_case(name: &str) -> bool {
 /// yielding the bare identifier (`System.Exception` / `ILogger<T>` → tail).
 pub(crate) fn simple_name(type_text: &str) -> &str {
     let base = type_text.split(['<', '(']).next().unwrap_or(type_text);
-    base.rsplit('.').next().unwrap_or(base)
+    let name = base.rsplit('.').next().unwrap_or(base);
+    canonical_identifier(name)
 }
 
 /// Evaluates an `csharpsquid:S2342` naming format. Both catalog defaults are
@@ -179,7 +201,20 @@ pub(crate) fn base_simple_names<'a>(type_node: Node<'_>, source: &'a str) -> Vec
 /// Simple attribute names applied directly to `node`
 /// (`[OptionalAttribute]` → `Optional`).
 pub(crate) fn attributes_of<'a>(node: Node<'_>, source: &'a str) -> Vec<&'a str> {
-    let mut names = Vec::new();
+    direct_attributes(node)
+        .into_iter()
+        .filter_map(|attribute| attribute.child_by_field_name("name"))
+        .map(|name| {
+            let text = simple_name(node_text(name, source));
+            text.strip_suffix("Attribute").unwrap_or(text)
+        })
+        .collect()
+}
+
+/// Attribute nodes applied directly to `node`, excluding attributes on nested
+/// declarations.
+pub(crate) fn direct_attributes(node: Node<'_>) -> Vec<Node<'_>> {
+    let mut attributes = Vec::new();
     let mut cursor = node.walk();
     for list in node
         .children(&mut cursor)
@@ -190,13 +225,10 @@ pub(crate) fn attributes_of<'a>(node: Node<'_>, source: &'a str) -> Vec<&'a str>
             .children(&mut list_cursor)
             .filter(|child| child.kind() == "attribute")
         {
-            if let Some(name) = attribute.child_by_field_name("name") {
-                let text = simple_name(node_text(name, source));
-                names.push(text.strip_suffix("Attribute").unwrap_or(text));
-            }
+            attributes.push(attribute);
         }
     }
-    names
+    attributes
 }
 
 /// Parameters of a callable's `parameter_list`.
@@ -224,8 +256,146 @@ pub(crate) fn ancestors_of(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
     std::iter::successors(node.parent(), tree_sitter::Node::parent)
 }
 
+/// Canonical dotted namespace containing `node`; empty for the global
+/// namespace. Nested and file-scoped namespace declarations are supported.
+pub(crate) fn containing_namespace(node: Node<'_>, source: &str) -> String {
+    let mut parts: Vec<&str> = ancestors_of(node)
+        .filter(|ancestor| {
+            matches!(
+                ancestor.kind(),
+                "namespace_declaration" | "file_scoped_namespace_declaration"
+            )
+        })
+        .filter_map(|namespace| namespace.child_by_field_name("name"))
+        .map(|name| node_text(name, source))
+        .collect();
+    parts.reverse();
+    parts.join(".").replace('@', "")
+}
+
 /// True when `node` sits under an `ERROR`/missing region of a recovered
 /// tree; such regions carry unreliable structure, so checks skip them.
 pub(crate) fn is_error_tainted(node: Node<'_>) -> bool {
     node.is_error() || node.is_missing() || ancestors_of(node).any(|ancestor| ancestor.is_error())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        canonical_identifier, collect_kinds, node_text, pos_of, range_from_byte_offsets, range_of,
+        simple_name, walk_all,
+    };
+    use hoonarqube_ir::{Pos, Range};
+    use std::collections::HashSet;
+
+    #[test]
+    fn walk_all_is_preorder_without_duplicates() {
+        fn recursive_preorder<'tree>(
+            node: tree_sitter::Node<'tree>,
+            out: &mut Vec<tree_sitter::Node<'tree>>,
+        ) {
+            out.push(node);
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                recursive_preorder(child, out);
+            }
+        }
+
+        let source = "class C { int M(int x) => x + 1; }";
+        let tree = crate::parse(source);
+        let root = tree.root_node();
+        let mut actual = Vec::new();
+        walk_all(root, &mut |node| actual.push(node));
+
+        let mut expected = Vec::new();
+        recursive_preorder(root, &mut expected);
+        assert_eq!(actual, expected);
+        assert_eq!(
+            actual
+                .iter()
+                .map(tree_sitter::Node::id)
+                .collect::<HashSet<_>>()
+                .len(),
+            actual.len()
+        );
+    }
+
+    #[test]
+    fn walk_all_handles_deep_trees_iteratively() {
+        let source = format!(
+            "class C {{ bool M(bool x) => {}x; }}",
+            "x && ".repeat(2_000)
+        );
+        let tree = crate::parse(&source);
+        let mut visited = 0;
+        walk_all(tree.root_node(), &mut |_| visited += 1);
+        assert!(visited > 2_000);
+    }
+
+    #[test]
+    fn escaped_identifiers_share_their_canonical_symbol_name() {
+        assert_eq!(canonical_identifier("@value"), "value");
+        assert_eq!(canonical_identifier("value"), "value");
+        assert_eq!(simple_name("System.@Exception"), "Exception");
+    }
+
+    #[test]
+    fn byte_ranges_count_unicode_scalars_and_crlf_lines() {
+        let source = "class C {\r\n    string s = \"😀\";\n    int café;\n}\n";
+        let emoji_start = source.find('😀').expect("emoji offset");
+        assert_eq!(
+            range_from_byte_offsets(emoji_start, emoji_start + '😀'.len_utf8(), source),
+            Range {
+                start: Pos {
+                    line: 2,
+                    column: 16,
+                },
+                end: Pos {
+                    line: 2,
+                    column: 17,
+                },
+            }
+        );
+        let identifier_end = source.find("café").expect("identifier offset") + "café".len();
+        assert_eq!(
+            range_from_byte_offsets(emoji_start, identifier_end, source),
+            Range {
+                start: Pos {
+                    line: 2,
+                    column: 16,
+                },
+                end: Pos {
+                    line: 3,
+                    column: 12,
+                },
+            }
+        );
+
+        let tree = crate::parse(source);
+        let identifier = collect_kinds(tree.root_node(), &["identifier"])
+            .into_iter()
+            .find(|node| node_text(*node, source) == "café")
+            .expect("unicode identifier");
+        assert_eq!(
+            range_of(identifier, source),
+            Range {
+                start: Pos { line: 3, column: 8 },
+                end: Pos {
+                    line: 3,
+                    column: 12,
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn position_line_conversion_saturates() {
+        assert_eq!(
+            pos_of(tree_sitter::Point::new(usize::MAX, 0), 0, ""),
+            Pos {
+                line: u32::MAX,
+                column: 0,
+            }
+        );
+    }
 }

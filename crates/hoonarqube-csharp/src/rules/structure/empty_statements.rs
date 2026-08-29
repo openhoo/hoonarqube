@@ -8,6 +8,14 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     collect_kinds(root, &["empty_statement"])
         .into_iter()
         .filter(|statement| !is_error_tainted(*statement))
+        .filter(|statement| {
+            statement.parent().is_none_or(|parent| {
+                !matches!(
+                    parent.kind(),
+                    "for_statement" | "foreach_statement" | "while_statement" | "do_statement"
+                ) || parent.child_by_field_name("body") != Some(*statement)
+            })
+        })
         .map(|statement| {
             issue(
                 language,
@@ -17,4 +25,18 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             )
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1116_keeps_deliberate_empty_loop_bodies() {
+        let report = analyze_default(
+            "class C { void M() { ; for (var i = 0; i < 3; i++) ; while (Ready()) ; } }",
+        );
+        let issues = with_key(&report, "csharpsquid:S1116");
+        assert_eq!(issues.len(), 1);
+    }
 }

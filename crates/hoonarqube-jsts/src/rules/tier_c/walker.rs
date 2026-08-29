@@ -30,6 +30,7 @@ fn check_tier_c_rules(
     census.visit_program(program);
     let mut collector = TierCLiteralCollector {
         sink: tier_c_sink(index, language),
+        source: program.source_text,
     };
     collector.visit_program(program);
     let await_issues = await_collector_issues(program, index, language, &census);
@@ -211,6 +212,7 @@ impl<'a> Visit<'a> for TierCAwaitCollector<'_, '_> {
 /// Tier-C collector for operator/literal findings.
 pub(crate) struct TierCLiteralCollector<'index> {
     pub(crate) sink: IssueSink<'index>,
+    pub(crate) source: &'index str,
 }
 
 impl<'a> Visit<'a> for TierCLiteralCollector<'_> {
@@ -322,6 +324,20 @@ mod tests {
 
         // TypeScript's catalog has no S3403; the JsOnly scope suppresses it.
         assert_eq!(count_key(&ts_keys(violating), "typescript:S3403"), 0);
+
+        let unicode = "const same = 1\u{00a0}===\u{00a0}'1';\n";
+        let report = js(unicode);
+        let finding = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key.ends_with(":S3403"))
+            .expect("strict equality finding");
+        let operator = unicode.find("===").expect("operator");
+        assert_eq!(
+            finding.range.start.column,
+            u32::try_from(unicode[..operator].chars().count()).expect("column")
+        );
+        assert_eq!(finding.range.end.column, finding.range.start.column + 3);
     }
 
     #[test]
@@ -425,6 +441,15 @@ mod tests {
         );
 
         assert_eq!(count_key(&js_keys(CLEAN_UNKNOWN), "javascript:S4123"), 0);
+    }
+
+    #[test]
+    fn nonliteral_valued_returns_are_not_classified_as_void() {
+        let source = "function compute() { return makeValue(); }\nconst value = compute();\n";
+        assert_eq!(count_key(&js_keys(source), "javascript:S3699"), 0);
+
+        let arrow = "const compute = () => makeValue();\nconst value = compute();\n";
+        assert_eq!(count_key(&js_keys(arrow), "javascript:S3699"), 0);
     }
 
     #[test]

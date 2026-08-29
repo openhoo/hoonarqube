@@ -10,6 +10,7 @@ use crate::support::stmt_exprs;
 use crate::support::stmt_store_names;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
+use ruff_python_ast::Pattern;
 use ruff_python_ast::Stmt;
 use ruff_source_file::LineIndex;
 use std::collections::HashMap;
@@ -38,14 +39,8 @@ pub(crate) enum HintKind {
 
 pub(crate) fn concrete_hint(annotation: &Expr) -> Option<HintKind> {
     let root = match annotation {
-        Expr::Name(name) => name.id.as_str(),
-        Expr::Attribute(attribute) => attribute.attr.as_str(),
-        Expr::Subscript(subscript) => match subscript.value.as_ref() {
-            Expr::Name(name) => name.id.as_str(),
-            Expr::Attribute(attribute) => attribute.attr.as_str(),
-            _ => return None,
-        },
-        _ => return None,
+        Expr::Subscript(subscript) => annotation_root_name(&subscript.value)?,
+        other => annotation_root_name(other)?,
     };
     Some(match root {
         "int" => HintKind::Int,
@@ -61,6 +56,48 @@ pub(crate) fn concrete_hint(annotation: &Expr) -> Option<HintKind> {
         "frozenset" | "FrozenSet" => HintKind::FrozenSet,
         _ => return None,
     })
+}
+
+fn annotation_root_name(annotation: &Expr) -> Option<&str> {
+    match annotation {
+        Expr::Name(name) => Some(name.id.as_str()),
+        Expr::Attribute(attribute) => {
+            let Expr::Name(owner) = attribute.value.as_ref() else {
+                return None;
+            };
+            let attribute_name = attribute.attr.as_str();
+            match owner.id.as_str() {
+                "builtins"
+                    if matches!(
+                        attribute_name,
+                        "int"
+                            | "float"
+                            | "complex"
+                            | "str"
+                            | "bytes"
+                            | "bool"
+                            | "list"
+                            | "set"
+                            | "dict"
+                            | "tuple"
+                            | "frozenset"
+                    ) =>
+                {
+                    Some(attribute_name)
+                }
+                "typing"
+                    if matches!(
+                        attribute_name,
+                        "List" | "Set" | "Dict" | "Tuple" | "FrozenSet"
+                    ) =>
+                {
+                    Some(attribute_name)
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 /// Whether a value of literal kind `kind` can populate a `hint` slot.
@@ -132,36 +169,101 @@ impl<'a> LocalSignatures<'a> {
         }
     }
 
-    /// Nearest declaration of `method` walking the file-local base chain of
-    /// `class_name`; cycles are cut by the visited set.
-    fn nearest_method(&self, class_name: &str, method: &str) -> Option<ResolvedCallee<'a>> {
-        let mut pending = vec![class_name.to_string()];
-        let mut visited = HashSet::new();
-        while let Some(class_name) = pending.pop() {
-            if !visited.insert(class_name.clone()) {
-                continue;
+    /// Nearest declaration of `method` in the file-local Python C3 order.
+    /// Cycles, inconsistent hierarchies, and unknown bases fail closed.
+    fn nearest_method(
+        &self,
+        class_name: &str,
+        method: &str,
+    ) -> Option<&'a ruff_python_ast::StmtFunctionDef> {
+        let class = self.classes.get(class_name)?;
+        if let Some(function) = declared_method(class, method) {
+            return Some(function);
+        }
+        for inherited_name in self
+            .method_resolution_order(class_name)?
+            .into_iter()
+            .skip(1)
+        {
+            let class = self.classes.get(inherited_name.as_str())?;
+            if let Some(function) = declared_method(class, method) {
+                return Some(function);
             }
-            let Some(class) = self.classes.get(class_name.as_str()) else {
-                continue;
-            };
-            for stmt in &class.body {
-                if let Stmt::FunctionDef(function) = stmt
-                    && function.name.as_str() == method
-                {
-                    return Some(ResolvedCallee::Bound(
-                        function,
-                        has_decorator(function, "staticmethod"),
-                    ));
-                }
-            }
-            pending.extend(
-                direct_base_names(class)
-                    .into_iter()
-                    .rev()
-                    .map(str::to_owned),
-            );
         }
         None
+    }
+
+    /// File-local Python C3 method-resolution order. Straight inheritance
+    /// chains use a linear fast path; only actual branching builds merge
+    /// tables. Unknown/dynamic bases fail closed instead of guessing an order.
+    fn method_resolution_order(&self, class_name: &str) -> Option<Vec<String>> {
+        let mut chain = Vec::new();
+        let mut visited = HashSet::new();
+        let mut current = class_name.to_string();
+        loop {
+            if !visited.insert(current.clone()) {
+                return None;
+            }
+            chain.push(current.clone());
+            let class = self.classes.get(current.as_str())?;
+            let bases = self.local_base_names(class)?;
+            match bases.as_slice() {
+                [] => return Some(chain),
+                [base] => current.clone_from(base),
+                _ => return self.c3_method_resolution_order(class_name),
+            }
+        }
+    }
+
+    fn local_base_names(&self, class: &ruff_python_ast::StmtClassDef) -> Option<Vec<String>> {
+        let Some(arguments) = class.arguments.as_deref() else {
+            return Some(Vec::new());
+        };
+        let bases = direct_base_names(class);
+        if bases.len() != arguments.args.len()
+            || bases.iter().any(|base| !self.classes.contains_key(*base))
+        {
+            return None;
+        }
+        Some(bases.into_iter().map(str::to_string).collect())
+    }
+
+    fn c3_method_resolution_order(&self, root: &str) -> Option<Vec<String>> {
+        let mut state: HashMap<String, bool> = HashMap::new();
+        let mut pending = vec![(root.to_string(), false)];
+        let mut postorder = Vec::new();
+        while let Some((name, expanded)) = pending.pop() {
+            if expanded {
+                state.insert(name.clone(), true);
+                postorder.push(name);
+                continue;
+            }
+            match state.get(&name) {
+                Some(true) => continue,
+                Some(false) => return None,
+                None => {}
+            }
+            state.insert(name.clone(), false);
+            let bases = self.local_base_names(self.classes.get(name.as_str())?)?;
+            pending.push((name, true));
+            for base in bases.into_iter().rev() {
+                pending.push((base, false));
+            }
+        }
+
+        let mut mros: HashMap<String, Vec<String>> = HashMap::new();
+        for name in postorder {
+            let bases = self.local_base_names(self.classes.get(name.as_str())?)?;
+            let mut sequences: Vec<Vec<String>> = bases
+                .iter()
+                .map(|base| mros.get(base).cloned())
+                .collect::<Option<_>>()?;
+            sequences.push(bases);
+            let mut mro = vec![name.clone()];
+            mro.extend(c3_merge(&sequences)?);
+            mros.insert(name, mro);
+        }
+        mros.remove(root)
     }
 
     /// Resolves a call's callee expression against the tables.
@@ -171,36 +273,104 @@ impl<'a> LocalSignatures<'a> {
         class_context: Option<&str>,
     ) -> Option<ResolvedCallee<'a>> {
         match func {
-            Expr::Name(callee) => {
-                if let Some(function) = self.functions.get(callee.id.as_str()) {
-                    return Some(ResolvedCallee::Function(function));
-                }
-                if self.classes.contains_key(callee.id.as_str()) {
-                    return self.nearest_method(callee.id.as_str(), "__init__");
-                }
-                None
-            }
-            Expr::Attribute(attribute) => {
-                let Expr::Name(owner) = attribute.value.as_ref() else {
-                    return None;
-                };
-                let method = attribute.attr.as_str();
-                match owner.id.as_str() {
-                    "self" | "cls" => self.nearest_method(class_context?, method),
-                    name => {
-                        if let Some(class_name) = self.instances.get(name) {
-                            return self.nearest_method(class_name, method);
-                        }
-                        if self.classes.contains_key(name) {
-                            return self.nearest_method(name, method);
-                        }
-                        None
-                    }
-                }
-            }
+            Expr::Name(callee) => self.resolve_name_callee(callee.id.as_str()),
+            Expr::Attribute(attribute) => self.resolve_attribute_callee(attribute, class_context),
             _ => None,
         }
     }
+
+    fn resolve_name_callee(&self, name: &str) -> Option<ResolvedCallee<'a>> {
+        if let Some(function) = self.functions.get(name) {
+            return Some(ResolvedCallee::Function(function));
+        }
+        self.classes
+            .contains_key(name)
+            .then(|| self.resolve_bound_method(name, "__init__"))?
+    }
+
+    fn resolve_attribute_callee(
+        &self,
+        attribute: &ruff_python_ast::ExprAttribute,
+        class_context: Option<&str>,
+    ) -> Option<ResolvedCallee<'a>> {
+        let Expr::Name(owner) = attribute.value.as_ref() else {
+            return None;
+        };
+        let owner = owner.id.as_str();
+        let method = attribute.attr.as_str();
+        if matches!(owner, "self" | "cls") {
+            return self.resolve_bound_method(class_context?, method);
+        }
+        if let Some(class_name) = self.instances.get(owner) {
+            return self.resolve_bound_method(class_name, method);
+        }
+        self.classes
+            .contains_key(owner)
+            .then(|| self.resolve_class_method(owner, method))?
+    }
+
+    fn resolve_bound_method(&self, class_name: &str, method: &str) -> Option<ResolvedCallee<'a>> {
+        let function = self.nearest_method(class_name, method)?;
+        Some(ResolvedCallee::Bound(
+            function,
+            has_decorator(function, "staticmethod"),
+        ))
+    }
+
+    fn resolve_class_method(&self, class_name: &str, method: &str) -> Option<ResolvedCallee<'a>> {
+        let function = self.nearest_method(class_name, method)?;
+        // Ordinary methods accessed through the class are unbound: callers
+        // must supply `self`. Only a classmethod supplies the receiver.
+        Some(if has_decorator(function, "classmethod") {
+            ResolvedCallee::Bound(function, false)
+        } else {
+            ResolvedCallee::Function(function)
+        })
+    }
+}
+
+fn declared_method<'a>(
+    class: &'a ruff_python_ast::StmtClassDef,
+    method: &str,
+) -> Option<&'a ruff_python_ast::StmtFunctionDef> {
+    class.body.iter().find_map(|stmt| {
+        if let Stmt::FunctionDef(function) = stmt
+            && function.name.as_str() == method
+        {
+            Some(function)
+        } else {
+            None
+        }
+    })
+}
+
+fn c3_merge(sequences: &[Vec<String>]) -> Option<Vec<String>> {
+    let mut positions = vec![0usize; sequences.len()];
+    let mut merged = Vec::new();
+    while positions
+        .iter()
+        .enumerate()
+        .any(|(index, position)| *position < sequences[index].len())
+    {
+        let candidate = sequences
+            .iter()
+            .enumerate()
+            .filter_map(|(index, sequence)| sequence.get(positions[index]))
+            .find(|candidate| {
+                sequences.iter().enumerate().all(|(index, sequence)| {
+                    let tail_start = positions[index].saturating_add(1).min(sequence.len());
+                    !sequence[tail_start..].contains(candidate)
+                })
+            })?
+            .clone();
+        merged.push(candidate.clone());
+        for (index, sequence) in sequences.iter().enumerate() {
+            if sequence.get(positions[index]) == Some(&candidate) {
+                positions[index] += 1;
+            }
+        }
+    }
+    Some(merged)
 }
 
 fn collect_local_definitions<'a>(
@@ -251,7 +421,43 @@ fn module_scope_write_counts(module: &[Stmt]) -> HashMap<String, usize> {
 }
 
 fn count_statement_writes(stmt: &Stmt, writes: &mut HashMap<String, usize>) {
-    add_writes(writes, stmt_store_names(stmt));
+    count_direct_statement_writes(stmt, writes);
+    count_except_handler_writes(stmt, writes);
+    count_match_capture_writes(stmt, writes);
+    count_statement_expression_writes(stmt, writes);
+}
+
+fn count_direct_statement_writes(stmt: &Stmt, writes: &mut HashMap<String, usize>) {
+    // `global`/`nonlocal` declarations redirect later stores; they are not
+    // writes by themselves. Counting them used to discard otherwise unique
+    // module signatures.
+    if !matches!(stmt, Stmt::Global(_) | Stmt::Nonlocal(_)) {
+        add_writes(writes, stmt_store_names(stmt));
+    }
+}
+
+fn count_except_handler_writes(stmt: &Stmt, writes: &mut HashMap<String, usize>) {
+    if let Stmt::Try(try_stmt) = stmt {
+        for handler in &try_stmt.handlers {
+            let ruff_python_ast::ExceptHandler::ExceptHandler(handler) = handler;
+            if let Some(name) = &handler.name {
+                add_writes(writes, vec![name.as_str().to_string()]);
+            }
+        }
+    }
+}
+
+fn count_match_capture_writes(stmt: &Stmt, writes: &mut HashMap<String, usize>) {
+    if let Stmt::Match(match_stmt) = stmt {
+        let mut captures = HashSet::new();
+        for case in &match_stmt.cases {
+            collect_pattern_capture_names(&case.pattern, &mut captures);
+        }
+        add_writes(writes, captures.into_iter().collect());
+    }
+}
+
+fn count_statement_expression_writes(stmt: &Stmt, writes: &mut HashMap<String, usize>) {
     let mut expressions = stmt_exprs(stmt);
     while let Some(expr) = expressions.pop() {
         if let Expr::Named(named) = expr {
@@ -259,7 +465,53 @@ fn count_statement_writes(stmt: &Stmt, writes: &mut HashMap<String, usize>) {
             collect_target_names(&named.target, &mut names);
             add_writes(writes, names);
         }
-        expressions.extend(child_exprs(expr));
+        if let Expr::Lambda(lambda) = expr {
+            // Lambda defaults execute in module scope, but its body owns a
+            // fresh function scope and must not invalidate module bindings.
+            if let Some(parameters) = &lambda.parameters {
+                crate::support::push_parameter_exprs(parameters, &mut expressions);
+            }
+        } else {
+            expressions.extend(child_exprs(expr));
+        }
+    }
+}
+
+fn collect_pattern_capture_names(pattern: &Pattern, names: &mut HashSet<String>) {
+    let mut pending = vec![pattern];
+    while let Some(pattern) = pending.pop() {
+        match pattern {
+            Pattern::MatchSequence(sequence) => pending.extend(&sequence.patterns),
+            Pattern::MatchMapping(mapping) => {
+                pending.extend(&mapping.patterns);
+                if let Some(rest) = &mapping.rest {
+                    names.insert(rest.as_str().to_string());
+                }
+            }
+            Pattern::MatchClass(class) => {
+                pending.extend(&class.arguments.patterns);
+                pending.extend(
+                    class
+                        .arguments
+                        .keywords
+                        .iter()
+                        .map(|keyword| &keyword.pattern),
+                );
+            }
+            Pattern::MatchStar(star) => {
+                if let Some(name) = &star.name {
+                    names.insert(name.as_str().to_string());
+                }
+            }
+            Pattern::MatchAs(as_pattern) => {
+                pending.extend(as_pattern.pattern.as_deref());
+                if let Some(name) = &as_pattern.name {
+                    names.insert(name.as_str().to_string());
+                }
+            }
+            Pattern::MatchOr(or_pattern) => pending.extend(&or_pattern.patterns),
+            Pattern::MatchValue(_) | Pattern::MatchSingleton(_) => {}
+        }
     }
 }
 
@@ -299,6 +551,8 @@ pub(crate) enum S930ArityProblem {
     TooMany { extra: usize, expected: usize },
     Missing { missing: usize, expected: usize },
     MissingKeywordOnly,
+    UnexpectedKeyword,
+    DuplicateArgument,
 }
 
 pub(crate) fn s930_arity_problem(
@@ -318,55 +572,122 @@ pub(crate) fn s930_arity_problem(
     }
     let parameters = &resolved.function().parameters;
     let entries = parameter_entries(parameters, resolved.skips_receiver());
-    let required = entries
-        .iter()
-        .filter(|entry| entry.default.is_none())
-        .count();
     let positional_count = arguments.args.len();
-    let keyword_names: Vec<Option<&str>> = arguments
-        .keywords
-        .iter()
-        .map(|keyword| {
-            keyword
-                .arg
-                .as_ref()
-                .map(ruff_python_ast::Identifier::as_str)
-        })
-        .collect();
     if parameters.vararg.is_none() && positional_count > entries.len() {
         return Some(S930ArityProblem::TooMany {
             extra: positional_count - entries.len(),
             expected: entries.len(),
         });
     }
-    let mut missing = required.saturating_sub(positional_count);
-    for name in keyword_names.iter().flatten() {
-        if entries
-            .iter()
-            .take(required)
-            .any(|entry| entry.parameter.name.as_str() == *name)
-        {
-            missing = missing.saturating_sub(1);
-        }
-    }
+
+    let posonly_names: HashSet<&str> = parameters
+        .posonlyargs
+        .iter()
+        .map(|entry| entry.parameter.name.as_str())
+        .collect();
+    let keyword_names = match s930_keyword_names(
+        parameters,
+        &entries,
+        arguments,
+        &posonly_names,
+        positional_count,
+    ) {
+        Ok(names) => names,
+        Err(problem) => return problem,
+    };
+
+    let missing =
+        count_missing_positional(&entries, &posonly_names, &keyword_names, positional_count);
     if missing > 0 {
         return Some(S930ArityProblem::Missing {
             missing,
             expected: entries.len(),
         });
     }
-    if parameters.kwarg.is_none()
-        && parameters.kwonlyargs.iter().any(|entry| {
-            entry.default.is_none() && !keyword_names.contains(&Some(entry.parameter.name.as_str()))
-        })
-    {
+    if parameters.kwonlyargs.iter().any(|entry| {
+        entry.default.is_none() && !keyword_names.contains(entry.parameter.name.as_str())
+    }) {
         return Some(S930ArityProblem::MissingKeywordOnly);
     }
     None
 }
 
-/// Checks one resolved call's positional and keyword arguments against the
-/// callee's parameter annotations; variadic signatures disable the check.
+fn s930_keyword_names(
+    parameters: &ruff_python_ast::Parameters,
+    entries: &[&ruff_python_ast::ParameterWithDefault],
+    arguments: &ruff_python_ast::Arguments,
+    posonly_names: &HashSet<&str>,
+    positional_count: usize,
+) -> Result<HashSet<String>, Option<S930ArityProblem>> {
+    let mut keyword_names = HashSet::new();
+    for keyword in &arguments.keywords {
+        let Some(name) = keyword.arg.as_deref() else {
+            // Guarded above, but keep this helper fail-closed if the AST API
+            // ever exposes an unpacking through another representation.
+            return Err(None);
+        };
+        if !keyword_names.insert(name.to_string()) {
+            return Err(Some(S930ArityProblem::DuplicateArgument));
+        }
+        if let Some(problem) =
+            s930_keyword_problem(parameters, entries, posonly_names, positional_count, name)
+        {
+            return Err(Some(problem));
+        }
+    }
+    Ok(keyword_names)
+}
+
+fn s930_keyword_problem(
+    parameters: &ruff_python_ast::Parameters,
+    entries: &[&ruff_python_ast::ParameterWithDefault],
+    posonly_names: &HashSet<&str>,
+    positional_count: usize,
+    name: &str,
+) -> Option<S930ArityProblem> {
+    if let Some(index) = entries
+        .iter()
+        .position(|entry| entry.parameter.name.as_str() == name)
+    {
+        if posonly_names.contains(name) && parameters.kwarg.is_none() {
+            return Some(S930ArityProblem::UnexpectedKeyword);
+        }
+        if !posonly_names.contains(name) && index < positional_count {
+            return Some(S930ArityProblem::DuplicateArgument);
+        }
+        return None;
+    }
+    if parameters.kwarg.is_none()
+        && !parameters
+            .kwonlyargs
+            .iter()
+            .any(|entry| entry.parameter.name.as_str() == name)
+    {
+        return Some(S930ArityProblem::UnexpectedKeyword);
+    }
+    None
+}
+
+fn count_missing_positional(
+    entries: &[&ruff_python_ast::ParameterWithDefault],
+    posonly_names: &HashSet<&str>,
+    keyword_names: &HashSet<String>,
+    positional_count: usize,
+) -> usize {
+    entries
+        .iter()
+        .enumerate()
+        .filter(|(index, entry)| {
+            entry.default.is_none()
+                && *index >= positional_count
+                && (posonly_names.contains(entry.parameter.name.as_str())
+                    || !keyword_names.contains(entry.parameter.name.as_str()))
+        })
+        .count()
+}
+
+/// Checks every argument whose fixed slot remains provable against the
+/// callee's parameter annotation. Unpacking only hides affected later slots.
 pub(crate) fn s5655_check_call(
     resolved: &ResolvedCallee,
     call: &ruff_python_ast::ExprCall,
@@ -374,21 +695,15 @@ pub(crate) fn s5655_check_call(
     index: &LineIndex,
     source: &str,
 ) {
-    if call
-        .arguments
-        .args
-        .iter()
-        .any(|argument| matches!(argument, Expr::Starred(_)))
-    {
-        return;
-    }
     let parameters = &resolved.function().parameters;
     let function_name = resolved.function().name.as_str();
-    if parameters.vararg.is_some() || parameters.kwarg.is_some() {
-        return;
-    }
     let entries = parameter_entries(parameters, resolved.skips_receiver());
     for (position, argument) in call.arguments.args.iter().enumerate() {
+        if matches!(argument, Expr::Starred(_)) {
+            // The unpacked length makes every following positional slot
+            // unknowable, but fixed arguments before it remain checkable.
+            break;
+        }
         match entries.get(position) {
             Some(entry) => {
                 s5655_check_argument(function_name, entry, argument, issues, index, source);
@@ -403,6 +718,12 @@ pub(crate) fn s5655_check_call(
         let matched = entries
             .iter()
             .copied()
+            .filter(|entry| {
+                !parameters
+                    .posonlyargs
+                    .iter()
+                    .any(|posonly| posonly.parameter.name == entry.parameter.name)
+            })
             .chain(parameters.kwonlyargs.iter())
             .find(|entry| entry.parameter.name.as_str() == name);
         if let Some(entry) = matched {

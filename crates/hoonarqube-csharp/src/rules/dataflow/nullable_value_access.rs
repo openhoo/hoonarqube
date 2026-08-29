@@ -1,4 +1,5 @@
-use super::support::name_is_guarded;
+use super::support::collect_owned_kinds;
+use super::support::guarded_names;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, issue, node_text, parameters_of, range_of};
 use crate::rules::structure::body_of;
@@ -38,7 +39,7 @@ fn nullable_names(
             names.insert(node_text(name, source).to_owned());
         }
     }
-    for variable in collect_kinds(body, &["variable_declaration"]) {
+    for variable in collect_owned_kinds(body, &["variable_declaration"]) {
         collect_nullable_declarators(variable, source, &mut names);
     }
     names
@@ -69,12 +70,12 @@ fn flag_unguarded_accesses(
     language: CsLanguage,
     issues: &mut Vec<Issue>,
 ) {
-    let body_text = node_text(body, source);
-    for access in collect_kinds(body, &["member_access_expression"]) {
+    let guarded = guarded_names(body, source);
+    for access in collect_owned_kinds(body, &["member_access_expression"]) {
         let Some(name) = nullable_value_name(access, source) else {
             continue;
         };
-        if nullable_names.contains(name) && !name_is_guarded(body_text, name) {
+        if nullable_names.contains(name) && !guarded.contains(name) {
             issues.push(issue(
                 language,
                 "S3655",
@@ -179,5 +180,15 @@ mod tests {
         let found = with_key(&report, KEY);
         assert_eq!(found.len(), 2);
         assert_ne!(found[0].range.start.column, found[1].range.start.column);
+    }
+
+    #[test]
+    fn s3655_nested_guard_does_not_suppress_outer_access() {
+        let report = analyze_default(
+            "class C {\n    int M(int? count) {\n        void Local(int? count) {\n            if (count.HasValue) { Use(count.Value); }\n        }\n        Local(count);\n        return count.Value;\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 7);
     }
 }

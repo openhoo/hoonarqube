@@ -27,9 +27,8 @@ pub enum ControlFlowSpec<T> {
     },
     /// Tested-loop shape covering `while` and `for`.
     ///
-    /// A `None` condition models `for (;;)`; the loop-back then targets the
-    /// body entries and the `step` is ignored because it would be unreachable,
-    /// matching the source language.
+    /// A `None` condition models `for (;;)`; the loop-back targets the body
+    /// entry and still runs `step` after each completed iteration.
     For {
         /// Run once before the loop header, if present.
         init: Option<Box<Self>>,
@@ -54,17 +53,21 @@ pub enum ControlFlowSpec<T> {
     Continue,
     /// Exception-handling approximation.
     ///
-    /// Normal completion of `body` flows onward; edges are added from the try
-    /// region's entry points to the catch handler (or the finally block when
-    /// no handler exists) to approximate a throw anywhere in the body. This is
-    /// conservative for may-analyses and weakens must-analyses, which is the
-    /// intended trade-off of the approximation.
+    /// Normal completion of `body` flows onward; edges are added from every
+    /// emitted block in the try region to the catch handler (or the finally
+    /// block when no handler exists) to approximate a throw anywhere in the
+    /// body. This is conservative for may-analyses and weakens must-analyses,
+    /// which is the intended trade-off of the approximation. Handler blocks
+    /// likewise receive exceptional edges to `finally` or the function exit.
+    /// A shared cleanup block cannot retain path-specific `break`/`continue`
+    /// destinations, so adapters needing exact abrupt-jump/finally semantics
+    /// must lower those constructs directly with [`CfgBuilder`].
     Try {
         /// Protected region.
         body: Box<Self>,
         /// Handler executed on the exceptional edge, if any.
         catch: Option<Box<Self>>,
-        /// Executed after body/catch on every path, if any.
+        /// Executed after normal and modelled exceptional completion, if any.
         finally: Option<Box<Self>>,
     },
 }
@@ -101,222 +104,439 @@ fn emit_spec<T>(
     builder: &mut CfgBuilder<T>,
     loops: &mut Vec<LoopContext>,
 ) {
+    let mut actions = vec![EmitAction::Spec(spec)];
+    while let Some(action) = actions.pop() {
+        run_action(action, builder, loops, &mut actions);
+    }
+}
+
+enum EmitAction<T> {
+    Spec(ControlFlowSpec<T>),
+    StartFor {
+        condition: Option<T>,
+        body: ControlFlowSpec<T>,
+        step: Option<ControlFlowSpec<T>>,
+    },
+    FinishIfThen {
+        condition: BlockId,
+        else_arm: Option<ControlFlowSpec<T>>,
+    },
+    FinishIfElse {
+        then_sources: Vec<BlockId>,
+    },
+    FinishTestedBody {
+        header: BlockId,
+        step: Option<ControlFlowSpec<T>>,
+    },
+    FinishTestedStep {
+        header: BlockId,
+        step_hint: BlockId,
+        body_continues: Vec<BlockId>,
+    },
+    FinishEndlessBody {
+        body_hint: BlockId,
+        step: Option<ControlFlowSpec<T>>,
+    },
+    FinishEndlessStep {
+        body_entry: Option<BlockId>,
+        step_hint: BlockId,
+        body_continues: Vec<BlockId>,
+    },
+    FinishDoWhile {
+        body_hint: BlockId,
+        condition: T,
+    },
+    FinishTryBody {
+        body_start: BlockId,
+        catch: Option<ControlFlowSpec<T>>,
+        finally: Option<ControlFlowSpec<T>>,
+    },
+    FinishTryCatch {
+        body_sources: Vec<BlockId>,
+        handler_start: BlockId,
+        finally: Option<ControlFlowSpec<T>>,
+    },
+}
+
+fn run_action<T>(
+    action: EmitAction<T>,
+    builder: &mut CfgBuilder<T>,
+    loops: &mut Vec<LoopContext>,
+    actions: &mut Vec<EmitAction<T>>,
+) {
+    match action {
+        EmitAction::Spec(spec) => schedule_spec(spec, builder, loops, actions),
+        EmitAction::StartFor {
+            condition,
+            body,
+            step,
+        } => start_for(condition, body, step, builder, loops, actions),
+        EmitAction::FinishIfThen {
+            condition,
+            else_arm,
+        } => finish_if_then(condition, else_arm, builder, actions),
+        EmitAction::FinishIfElse { then_sources } => {
+            let mut join_sources = then_sources;
+            join_sources.extend(builder.take_frontier());
+            builder.set_valid_frontier(join_sources);
+        }
+        EmitAction::FinishTestedBody { header, step } => {
+            finish_tested_body(header, step, builder, loops, actions);
+        }
+        EmitAction::FinishTestedStep {
+            header,
+            step_hint,
+            body_continues,
+        } => finish_tested_step(header, step_hint, body_continues, builder, loops),
+        EmitAction::FinishEndlessBody { body_hint, step } => {
+            finish_endless_body(body_hint, step, builder, loops, actions);
+        }
+        EmitAction::FinishEndlessStep {
+            body_entry,
+            step_hint,
+            body_continues,
+        } => finish_endless_step(body_entry, step_hint, body_continues, builder, loops),
+        EmitAction::FinishDoWhile {
+            body_hint,
+            condition,
+        } => finish_do_while(body_hint, condition, builder, loops),
+        EmitAction::FinishTryBody {
+            body_start,
+            catch,
+            finally,
+        } => finish_try_body(body_start, catch, finally, builder, actions),
+        EmitAction::FinishTryCatch {
+            body_sources,
+            handler_start,
+            finally,
+        } => finish_try_catch(body_sources, handler_start, finally, builder, actions),
+    }
+}
+
+fn schedule_spec<T>(
+    spec: ControlFlowSpec<T>,
+    builder: &mut CfgBuilder<T>,
+    loops: &mut Vec<LoopContext>,
+    actions: &mut Vec<EmitAction<T>>,
+) {
     match spec {
         ControlFlowSpec::Stmt(payload) => {
             builder.push_block(payload);
         }
         ControlFlowSpec::Seq(items) => {
-            for item in items {
-                emit_spec(item, builder, loops);
-            }
+            actions.extend(items.into_iter().rev().map(EmitAction::Spec));
         }
         ControlFlowSpec::If {
             condition,
             then_arm,
             else_arm,
-        } => emit_if(
-            condition,
-            *then_arm,
-            else_arm.map(|boxed| *boxed),
-            builder,
-            loops,
-        ),
+        } => {
+            let condition = builder.push_block(condition);
+            builder.set_valid_frontier([condition]);
+            actions.push(EmitAction::FinishIfThen {
+                condition,
+                else_arm: else_arm.map(|arm| *arm),
+            });
+            actions.push(EmitAction::Spec(*then_arm));
+        }
         ControlFlowSpec::For {
             init,
             condition,
             body,
             step,
         } => {
-            if let Some(pre) = init {
-                emit_spec(*pre, builder, loops);
-            }
-            match condition {
-                Some(cond) => {
-                    emit_tested_loop(cond, *body, step.map(|boxed| *boxed), builder, loops);
-                }
-                None => emit_endless_loop(*body, builder, loops),
+            actions.push(EmitAction::StartFor {
+                condition,
+                body: *body,
+                step: step.map(|post| *post),
+            });
+            if let Some(init) = init {
+                actions.push(EmitAction::Spec(*init));
             }
         }
         ControlFlowSpec::DoWhile { body, condition } => {
-            emit_do_while(*body, condition, builder, loops);
+            let body_hint = builder.next_block_id();
+            loops.push(LoopContext::new());
+            actions.push(EmitAction::FinishDoWhile {
+                body_hint,
+                condition,
+            });
+            actions.push(EmitAction::Spec(*body));
         }
-        ControlFlowSpec::Break => {
-            if let Some(context) = loops.last_mut() {
-                context.break_sources.extend(builder.take_frontier());
-            }
-        }
-        ControlFlowSpec::Continue => {
-            if let Some(context) = loops.last_mut() {
-                context.continue_sources.extend(builder.take_frontier());
-            }
-        }
+        ControlFlowSpec::Break => record_loop_jump(builder, loops, true),
+        ControlFlowSpec::Continue => record_loop_jump(builder, loops, false),
         ControlFlowSpec::Try {
             body,
             catch,
             finally,
-        } => emit_try(
-            *body,
-            catch.map(|boxed| *boxed),
-            finally.map(|boxed| *boxed),
-            builder,
-            loops,
-        ),
+        } => {
+            actions.push(EmitAction::FinishTryBody {
+                body_start: builder.next_block_id(),
+                catch: catch.map(|handler| *handler),
+                finally: finally.map(|cleanup| *cleanup),
+            });
+            actions.push(EmitAction::Spec(*body));
+        }
     }
 }
 
-fn emit_if<T>(
-    condition: T,
-    then_arm: ControlFlowSpec<T>,
+fn record_loop_jump<T>(builder: &mut CfgBuilder<T>, loops: &mut [LoopContext], is_break: bool) {
+    let sources = builder.take_frontier();
+    let Some(context) = loops.last_mut() else {
+        builder.set_valid_frontier(sources);
+        return;
+    };
+    if is_break {
+        context.break_sources.extend(sources);
+    } else {
+        context.continue_sources.extend(sources);
+    }
+}
+
+fn finish_if_then<T>(
+    condition: BlockId,
     else_arm: Option<ControlFlowSpec<T>>,
     builder: &mut CfgBuilder<T>,
-    loops: &mut Vec<LoopContext>,
+    actions: &mut Vec<EmitAction<T>>,
 ) {
-    let cond_id = builder.push_block(condition);
-    builder.set_frontier([cond_id]);
-    emit_spec(then_arm, builder, loops);
-    let mut join_sources = builder.take_frontier();
-    match else_arm {
-        Some(arm) => {
-            builder.set_frontier([cond_id]);
-            emit_spec(arm, builder, loops);
-            join_sources.extend(builder.take_frontier());
-        }
-        None => join_sources.push(cond_id),
+    let mut then_sources = builder.take_frontier();
+    if let Some(else_arm) = else_arm {
+        builder.set_valid_frontier([condition]);
+        actions.push(EmitAction::FinishIfElse { then_sources });
+        actions.push(EmitAction::Spec(else_arm));
+    } else {
+        then_sources.push(condition);
+        builder.set_valid_frontier(then_sources);
     }
-    builder.set_frontier(join_sources);
 }
 
-fn emit_tested_loop<T>(
-    condition: T,
+fn start_for<T>(
+    condition: Option<T>,
     body: ControlFlowSpec<T>,
     step: Option<ControlFlowSpec<T>>,
     builder: &mut CfgBuilder<T>,
     loops: &mut Vec<LoopContext>,
+    actions: &mut Vec<EmitAction<T>>,
 ) {
-    let header = builder.push_block(condition);
-    loops.push(LoopContext::new());
-    builder.set_frontier([header]);
-    emit_spec(body, builder, loops);
-    let mut tail_sources = builder.take_frontier();
-    // Capture the step's entry block before emitting it, so `continue` can be
-    // routed through the step (C-family semantics: the step runs after each
-    // iteration, including one ended by `continue`).
-    let step_hint = step.as_ref().map(|_| builder.next_block_id());
-    if let Some(post) = step {
-        builder.set_frontier(tail_sources);
-        emit_spec(post, builder, loops);
-        tail_sources = builder.take_frontier();
+    if let Some(condition) = condition {
+        let header = builder.push_block(condition);
+        loops.push(LoopContext::new());
+        builder.set_valid_frontier([header]);
+        actions.push(EmitAction::FinishTestedBody { header, step });
+    } else {
+        let body_hint = builder.next_block_id();
+        loops.push(LoopContext::new());
+        actions.push(EmitAction::FinishEndlessBody { body_hint, step });
     }
-    let context = loops.pop().expect("loop context pushed above");
+    actions.push(EmitAction::Spec(body));
+}
+
+fn finish_tested_body<T>(
+    header: BlockId,
+    step: Option<ControlFlowSpec<T>>,
+    builder: &mut CfgBuilder<T>,
+    loops: &mut Vec<LoopContext>,
+    actions: &mut Vec<EmitAction<T>>,
+) {
+    let mut tail_sources = builder.take_frontier();
+    let body_continues = take_continue_sources(loops);
+    if let Some(post) = step {
+        let step_hint = builder.next_block_id();
+        builder.set_valid_frontier(tail_sources);
+        actions.push(EmitAction::FinishTestedStep {
+            header,
+            step_hint,
+            body_continues,
+        });
+        actions.push(EmitAction::Spec(post));
+        return;
+    }
+    tail_sources.extend(body_continues);
     for end in tail_sources {
         builder.add_edge(end, header);
     }
-    // A step that emitted no blocks (e.g. an empty `Seq`) falls back to the
-    // header, preserving the plain `while`-shape lowering.
-    let continue_target = match step_hint {
-        Some(entry) if builder.next_block_id() != entry => entry,
-        _ => header,
-    };
-    for source in context.continue_sources {
-        builder.add_edge(source, continue_target);
-    }
-    let mut after = context.break_sources;
-    after.push(header);
-    builder.set_frontier(after);
+    finish_tested_loop(header, builder, loops);
 }
 
-fn emit_endless_loop<T>(
-    body: ControlFlowSpec<T>,
+fn finish_tested_step<T>(
+    header: BlockId,
+    step_hint: BlockId,
+    body_continues: Vec<BlockId>,
     builder: &mut CfgBuilder<T>,
     loops: &mut Vec<LoopContext>,
 ) {
-    let entries: Vec<BlockId> = builder.frontier().to_vec();
-    loops.push(LoopContext::new());
-    emit_spec(body, builder, loops);
-    let ends = builder.take_frontier();
-    let context = loops.pop().expect("loop context pushed above");
-    for end in ends {
-        for &entry in &entries {
-            builder.add_edge(end, entry);
-        }
+    let step_entry = (builder.next_block_id() != step_hint).then_some(step_hint);
+    for source in builder.take_frontier() {
+        builder.add_edge(source, header);
     }
-    for source in context.continue_sources {
-        for &entry in &entries {
-            builder.add_edge(source, entry);
-        }
+    for source in body_continues {
+        builder.add_edge(source, step_entry.unwrap_or(header));
     }
-    builder.set_frontier(context.break_sources);
+    for source in take_continue_sources(loops) {
+        builder.add_edge(source, header);
+    }
+    finish_tested_loop(header, builder, loops);
 }
 
-fn emit_do_while<T>(
-    body: ControlFlowSpec<T>,
+fn finish_tested_loop<T>(
+    header: BlockId,
+    builder: &mut CfgBuilder<T>,
+    loops: &mut Vec<LoopContext>,
+) {
+    let context = loops.pop().expect("loop context pushed above");
+    let mut after = context.break_sources;
+    after.push(header);
+    builder.set_valid_frontier(after);
+}
+
+fn finish_endless_body<T>(
+    body_hint: BlockId,
+    step: Option<ControlFlowSpec<T>>,
+    builder: &mut CfgBuilder<T>,
+    loops: &mut Vec<LoopContext>,
+    actions: &mut Vec<EmitAction<T>>,
+) {
+    let body_entry = (builder.next_block_id() != body_hint).then_some(body_hint);
+    let tail_sources = builder.take_frontier();
+    let body_continues = take_continue_sources(loops);
+    if let Some(step) = step {
+        let step_hint = builder.next_block_id();
+        builder.set_valid_frontier(tail_sources);
+        actions.push(EmitAction::FinishEndlessStep {
+            body_entry,
+            step_hint,
+            body_continues,
+        });
+        actions.push(EmitAction::Spec(step));
+        return;
+    }
+    wire_loop_sources(builder, tail_sources, body_entry);
+    wire_loop_sources(builder, body_continues, body_entry);
+    finish_endless_loop(builder, loops);
+}
+
+fn finish_endless_step<T>(
+    body_entry: Option<BlockId>,
+    step_hint: BlockId,
+    body_continues: Vec<BlockId>,
+    builder: &mut CfgBuilder<T>,
+    loops: &mut Vec<LoopContext>,
+) {
+    let step_entry = (builder.next_block_id() != step_hint).then_some(step_hint);
+    let loop_target = body_entry.or(step_entry);
+    let step_tails = builder.take_frontier();
+    wire_loop_sources(builder, step_tails, loop_target);
+    wire_loop_sources(builder, body_continues, step_entry.or(body_entry));
+    let step_continues = take_continue_sources(loops);
+    wire_loop_sources(builder, step_continues, loop_target);
+    finish_endless_loop(builder, loops);
+}
+
+fn wire_loop_sources<T>(
+    builder: &mut CfgBuilder<T>,
+    sources: Vec<BlockId>,
+    target: Option<BlockId>,
+) {
+    for source in sources {
+        builder.add_edge(source, target.unwrap_or(source));
+    }
+}
+
+fn finish_endless_loop<T>(builder: &mut CfgBuilder<T>, loops: &mut Vec<LoopContext>) {
+    let context = loops.pop().expect("loop context pushed above");
+    builder.set_valid_frontier(context.break_sources);
+}
+
+fn finish_do_while<T>(
+    body_hint: BlockId,
     condition: T,
     builder: &mut CfgBuilder<T>,
     loops: &mut Vec<LoopContext>,
 ) {
-    // The body's first created block is its single entry point; remember it
-    // so the header's true edge can re-enter the body.
-    let body_hint = builder.next_block_id();
-    loops.push(LoopContext::new());
-    emit_spec(body, builder, loops);
     let created_body = builder.next_block_id() != body_hint;
     let header = builder.push_block(condition);
     let context = loops.pop().expect("loop context pushed above");
     for source in context.continue_sources {
         builder.add_edge(source, header);
     }
-    // Degenerate input: when `body` lowers to zero blocks (e.g. an empty
-    // `Seq`), no back edge is created, so `do {} while (c)` yields an
-    // acyclic graph even though the source loop repeats while `c` holds.
-    // `emit_tested_loop` preserves the cycle for the same degenerate input
-    // via its step fallback. Adding a matching `header -> header` self-edge
-    // here is a semantic decision left to the orchestrator: no existing
-    // test or doctest pins empty-body do-while cycle behavior.
-    if created_body {
-        builder.add_edge(header, body_hint);
-    }
+    builder.add_edge(header, if created_body { body_hint } else { header });
     let mut after = context.break_sources;
     after.push(header);
-    builder.set_frontier(after);
+    builder.set_valid_frontier(after);
 }
 
-fn emit_try<T>(
-    body: ControlFlowSpec<T>,
+fn finish_try_body<T>(
+    body_start: BlockId,
     catch: Option<ControlFlowSpec<T>>,
     finally: Option<ControlFlowSpec<T>>,
     builder: &mut CfgBuilder<T>,
-    loops: &mut Vec<LoopContext>,
+    actions: &mut Vec<EmitAction<T>>,
 ) {
-    let exceptional_entries: Vec<BlockId> = builder.frontier().to_vec();
-    emit_spec(body, builder, loops);
     let mut join_sources = builder.take_frontier();
-    match catch {
-        Some(handler) => {
-            builder.set_frontier(exceptional_entries);
-            emit_spec(handler, builder, loops);
-            join_sources.extend(builder.take_frontier());
-        }
-        None => {
-            if finally.is_some() {
-                join_sources.extend(exceptional_entries);
-            } else {
-                // An unhandled exception escapes the function altogether.
-                let exit = builder.exit();
-                for source in exceptional_entries {
-                    builder.add_edge(source, exit);
-                }
+    let exceptional_sources = (body_start.index()..builder.next_block_id().index())
+        .map(|index| BlockId::new(u32::try_from(index).expect("block index fits u32")))
+        .collect::<Vec<_>>();
+    if let Some(handler) = catch {
+        builder.set_valid_frontier(exceptional_sources);
+        actions.push(EmitAction::FinishTryCatch {
+            body_sources: join_sources,
+            handler_start: builder.next_block_id(),
+            finally,
+        });
+        actions.push(EmitAction::Spec(handler));
+    } else {
+        if finally.is_some() {
+            join_sources.extend(exceptional_sources);
+        } else {
+            let exit = builder.exit();
+            for source in exceptional_sources {
+                builder.add_edge(source, exit);
             }
         }
+        builder.set_valid_frontier(join_sources);
+        if let Some(cleanup) = finally {
+            actions.push(EmitAction::Spec(cleanup));
+        }
     }
-    builder.set_frontier(join_sources);
+}
+
+fn finish_try_catch<T>(
+    mut body_sources: Vec<BlockId>,
+    handler_start: BlockId,
+    finally: Option<ControlFlowSpec<T>>,
+    builder: &mut CfgBuilder<T>,
+    actions: &mut Vec<EmitAction<T>>,
+) {
+    body_sources.extend(builder.take_frontier());
+    let exceptional_handler_sources = (handler_start.index()..builder.next_block_id().index())
+        .map(|index| BlockId::new(u32::try_from(index).expect("block index fits u32")));
+    builder.set_valid_frontier(body_sources);
     if let Some(cleanup) = finally {
-        emit_spec(cleanup, builder, loops);
+        let mut cleanup_sources = builder.take_frontier();
+        cleanup_sources.extend(exceptional_handler_sources);
+        builder.set_valid_frontier(cleanup_sources);
+        actions.push(EmitAction::Spec(cleanup));
+    } else {
+        let exit = builder.exit();
+        for source in exceptional_handler_sources {
+            builder.add_edge(source, exit);
+        }
     }
+}
+
+fn take_continue_sources(loops: &mut [LoopContext]) -> Vec<BlockId> {
+    std::mem::take(
+        &mut loops
+            .last_mut()
+            .expect("loop context pushed above")
+            .continue_sources,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
 
     use crate::test_support::{Def, Nop, Use, block_by_payload, stmts};
 
@@ -437,14 +657,89 @@ mod tests {
         let init_block = block_by_payload(&cfg, &Def("i", 0));
         let body_use = block_by_payload(&cfg, &Use("i"));
         let guard = block_by_payload(&cfg, &Use("done"));
+        let step = cfg
+            .blocks()
+            .find(|&block| {
+                block != cfg.entry() && block != cfg.exit() && cfg.payload(block) == &Nop
+            })
+            .expect("step block present");
         assert!(cfg.has_edge(cfg.entry(), init_block));
         assert!(cfg.has_edge(init_block, body_use));
         assert!(
-            cfg.has_edge(guard, init_block),
-            "body end loops back to the body entry"
+            cfg.has_edge(guard, step),
+            "normal body completion runs the step"
+        );
+        assert!(
+            cfg.has_edge(step, body_use),
+            "the step loops to the body entry"
+        );
+        assert!(
+            !cfg.has_edge(step, init_block),
+            "the initializer must run exactly once"
         );
         assert!(cfg.has_edge(guard, cfg.exit()), "break escapes the loop");
         assert!(cfg.contains_cycle());
+    }
+
+    #[test]
+    fn spec_endless_for_continue_runs_step() {
+        let cfg = build_from_blocks(
+            ControlFlowSpec::For {
+                init: None,
+                condition: None,
+                body: Box::new(ControlFlowSpec::If {
+                    condition: Use("skip"),
+                    then_arm: Box::new(ControlFlowSpec::Continue),
+                    else_arm: Some(Box::new(ControlFlowSpec::Stmt(Use("work")))),
+                }),
+                step: Some(Box::new(ControlFlowSpec::Stmt(Def("i", 1)))),
+            },
+            Nop,
+            Nop,
+        );
+        let guard = block_by_payload(&cfg, &Use("skip"));
+        let work = block_by_payload(&cfg, &Use("work"));
+        let step = block_by_payload(&cfg, &Def("i", 1));
+        assert!(cfg.has_edge(guard, step), "continue enters the step");
+        assert!(
+            cfg.has_edge(work, step),
+            "normal completion enters the step"
+        );
+        assert!(cfg.has_edge(step, guard), "step starts the next iteration");
+        assert!(!cfg.reachable_from_entry().contains(&cfg.exit()));
+    }
+
+    #[test]
+    fn spec_empty_do_while_retains_repeat_edge() {
+        let cfg = build_from_blocks(
+            ControlFlowSpec::DoWhile {
+                body: Box::new(ControlFlowSpec::Seq(Vec::new())),
+                condition: Use("c"),
+            },
+            Nop,
+            Nop,
+        );
+        let condition = block_by_payload(&cfg, &Use("c"));
+        assert!(cfg.has_edge(cfg.entry(), condition));
+        assert!(cfg.has_edge(condition, condition));
+        assert!(cfg.has_edge(condition, cfg.exit()));
+        assert_eq!(cfg.blocks_on_cycles(), BTreeSet::from([condition]));
+    }
+
+    #[test]
+    fn deeply_nested_specs_lower_without_using_call_stack() {
+        const DEPTH: usize = 20_000;
+        let mut spec = ControlFlowSpec::Stmt(Nop);
+        for _ in 0..DEPTH {
+            spec = ControlFlowSpec::If {
+                condition: Nop,
+                then_arm: Box::new(spec),
+                else_arm: None,
+            };
+        }
+        let cfg = build_from_blocks(spec, Nop, Nop);
+        assert_eq!(cfg.node_count(), DEPTH + 3);
+        assert_eq!(cfg.reachable_from_entry().len(), cfg.node_count());
     }
 
     #[test]
@@ -579,9 +874,10 @@ mod tests {
         let handler = block_by_payload(&cfg, &Use("log"));
         let cleanup = block_by_payload(&cfg, &Use("cleanup"));
         assert!(
-            cfg.has_edge(cfg.entry(), handler),
-            "throw approximation enters the handler"
+            cfg.has_edge(body, handler),
+            "a throw from the protected block enters the handler"
         );
+        assert!(!cfg.has_edge(cfg.entry(), handler));
         assert!(cfg.has_edge(body, cleanup), "normal path reaches finally");
         assert!(
             cfg.has_edge(handler, cleanup),
@@ -594,7 +890,7 @@ mod tests {
     fn spec_try_without_catch_routes_exception_to_finally() {
         let cfg = build_from_blocks(
             ControlFlowSpec::Try {
-                body: Box::new(ControlFlowSpec::Stmt(Def("r", 0))),
+                body: Box::new(stmts(&[Def("r", 0), Use("r")])),
                 catch: None,
                 finally: Some(Box::new(ControlFlowSpec::Stmt(Use("cleanup")))),
             },
@@ -602,8 +898,12 @@ mod tests {
             Nop,
         );
         let cleanup = block_by_payload(&cfg, &Use("cleanup"));
-        assert!(cfg.has_edge(cfg.entry(), cleanup), "exceptional edge");
         assert!(cfg.has_edge(block_by_payload(&cfg, &Def("r", 0)), cleanup));
+        assert!(cfg.has_edge(block_by_payload(&cfg, &Use("r")), cleanup));
+        assert!(
+            !cfg.has_edge(cfg.entry(), cleanup),
+            "only protected blocks may throw"
+        );
 
         let bare = build_from_blocks(
             ControlFlowSpec::Try {
@@ -616,8 +916,28 @@ mod tests {
         );
         assert_eq!(
             bare.edge_count(),
-            3,
-            "body falls to exit and the unhandled exception escapes via exit"
+            2,
+            "normal and exceptional completion share the same exit edge"
         );
+    }
+
+    #[test]
+    fn spec_try_models_exceptions_from_each_catch_block() {
+        let cfg = build_from_blocks(
+            ControlFlowSpec::Try {
+                body: Box::new(ControlFlowSpec::Stmt(Def("r", 0))),
+                catch: Some(Box::new(stmts(&[Use("log"), Use("recover")]))),
+                finally: None,
+            },
+            Nop,
+            Nop,
+        );
+        let body = block_by_payload(&cfg, &Def("r", 0));
+        let log = block_by_payload(&cfg, &Use("log"));
+        let recover = block_by_payload(&cfg, &Use("recover"));
+        assert!(cfg.has_edge(body, log));
+        assert!(cfg.has_edge(log, recover));
+        assert!(cfg.has_edge(log, cfg.exit()), "catch may throw early");
+        assert!(cfg.has_edge(recover, cfg.exit()));
     }
 }

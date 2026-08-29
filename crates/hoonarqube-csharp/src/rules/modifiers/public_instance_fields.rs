@@ -1,4 +1,4 @@
-use super::support::has_modifier;
+use super::support::{field_declarators, has_modifier};
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, issue, modifiers_of, range_of};
 use crate::rules::expressions::enclosing_type;
@@ -18,7 +18,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             && enclosing_type(field)
                 .is_some_and(|type_node| type_declared_rank(type_node, source) == 6)
         {
-            for declarator in collect_kinds(field, &["variable_declarator"]) {
+            for declarator in field_declarators(field) {
                 let name = declarator.child_by_field_name("name").unwrap_or(declarator);
                 let range = if declarator.named_child_count().gt(&1) {
                     range_of(declarator, source)
@@ -35,4 +35,19 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
     }
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s1104_does_not_report_locals_inside_field_initializer_lambdas() {
+        let report = analyze_default(
+            "public class C\n{\n    public System.Func<int> Factory = () =>\n    {\n        int local = 1;\n        return local;\n    };\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1104");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+    }
 }

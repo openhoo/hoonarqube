@@ -10,11 +10,15 @@ diagnostics into one report for the scanner.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
+
+from parity import read_jsonl, write_text_atomic
 
 
 NATIVE_RULES = frozenset({"rust:S2260", "rust:S3776"})
@@ -113,20 +117,90 @@ RUN_LINTS = {
     "rust:S3807": "invalid_null_arguments",
 }
 
+# Boundaries where the analyzer plugin and the current Rust toolchain cannot
+# exchange a native rust:S diagnostic. Keep the reason text exact so an oracle
+# row cannot silently acquire or retain an unverified exemption.
+UPSTREAM_BOUNDARIES = {
+    "rust:S1858": {
+        "plugin_lint": "clippy::string_to_string",
+        "runtime_lint": "clippy::implicit_clone",
+        "failure": "lint-id-mismatch",
+        "reason": "SonarQube requests removed Clippy lint string_to_string",
+    },
+    "rust:S3723": {
+        "plugin_lint": "clippy::possible_missing_comma",
+        "runtime_lint": "clippy::possible_missing_comma",
+        "failure": "zero-width-primary-span",
+        "reason": "SonarQube rejects Clippy possible_missing_comma zero-width span",
+    },
+    "rust:S3807": {
+        "plugin_lint": "clippy::invalid_null_ptr_usage",
+        "runtime_lint": "invalid_null_arguments",
+        "failure": "lint-id-mismatch",
+        "reason": "SonarQube requests renamed Clippy lint invalid_null_ptr_usage",
+    },
+    "rust:S4275": {
+        "plugin_lint": "clippy::misnamed_getter",
+        "runtime_lint": "clippy::misnamed_getters",
+        "failure": "lint-id-mismatch",
+        "reason": "SonarQube requests nonexistent singular Clippy lint misnamed_getter",
+    },
+    "rust:S7450": {
+        "plugin_lint": "clippy::let_underscore_lock",
+        "runtime_lint": "let_underscore_lock",
+        "failure": "lint-id-mismatch",
+        "reason": "SonarQube requests Clippy namespace for rustc lint let_underscore_lock",
+    },
+}
+FIXTURE_TIMEOUT_SECONDS = 300
+
 
 def expectations(project_dir: Path) -> list[dict[str, object]]:
     path = project_dir / "expected.jsonl"
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    rows = read_jsonl(path)
+    seen = set()
+    for index, item in enumerate(rows):
+        if not isinstance(item, dict):
+            raise RuntimeError(f"Rust expectation {index} must be an object")
+        key = item.get("key")
+        if not isinstance(key, str) or not key:
+            raise RuntimeError(f"Rust expectation {index} key must be a string")
+        if key in seen:
+            raise RuntimeError(f"duplicate Rust expectation key: {key}")
+        seen.add(key)
+        bad = item.get("bad")
+        good = item.get("good") or (
+            bad.replace("_bad", "_good") if isinstance(bad, str) else None
+        )
+        if not isinstance(bad, str) or not bad:
+            raise RuntimeError(f"{key}: missing bad fixture")
+        if not isinstance(good, str) or not good or good == bad:
+            raise RuntimeError(f"{key}: missing good fixture")
+    return rows
 
 
 def validate_mapping(project_dir: Path) -> None:
-    keys = {str(item["key"]) for item in expectations(project_dir)}
+    items = expectations(project_dir)
+    keys = {str(item["key"]) for item in items}
     mapped = set(CLIPPY_LINTS) | set(NATIVE_RULES)
     if keys != mapped:
         missing = sorted(keys - mapped)
         extra = sorted(mapped - keys)
         raise RuntimeError(
             f"Rust Clippy mapping mismatch: missing={missing}, extra={extra}"
+        )
+    reasons = {
+        str(item["key"]): item["upstream_unverified"]
+        for item in items
+        if "upstream_unverified" in item
+    }
+    expected_reasons = {
+        key: boundary["reason"] for key, boundary in UPSTREAM_BOUNDARIES.items()
+    }
+    if reasons != expected_reasons:
+        raise RuntimeError(
+            "Rust upstream boundary mismatch: "
+            f"expected={expected_reasons}, actual={reasons}"
         )
 
 
@@ -141,6 +215,157 @@ def diagnostic_code(record: dict[str, object]) -> str | None:
         return None
     value = code.get("code")
     return value if isinstance(value, str) else None
+
+
+def plugin_rule_lints(plugin_jar: Path) -> dict[str, str]:
+    """Read native Rust rule-to-Clippy mappings from a Sonar plugin JAR."""
+    resource = "org/sonar/l10n/rust/rules/clippy/rules.json"
+    try:
+        with zipfile.ZipFile(plugin_jar) as archive:
+            payload = json.loads(archive.read(resource))
+    except (OSError, KeyError, zipfile.BadZipFile, json.JSONDecodeError) as error:
+        raise RuntimeError(
+            f"cannot read {resource} from {plugin_jar}: {error}"
+        ) from error
+    if not isinstance(payload, list):
+        raise RuntimeError(f"{plugin_jar}: Clippy rules payload must be an array")
+    mappings: dict[str, str] = {}
+    for index, item in enumerate(payload):
+        if not isinstance(item, dict):
+            raise RuntimeError(f"{plugin_jar}: Clippy rule {index} must be an object")
+        rule = item.get("ruleKey")
+        lint = item.get("lintId")
+        if rule is None:
+            continue
+        if not isinstance(rule, str) or not isinstance(lint, str):
+            raise RuntimeError(f"{plugin_jar}: Clippy rule {index} has invalid IDs")
+        key = f"rust:{rule}"
+        if key in mappings:
+            raise RuntimeError(f"{plugin_jar}: duplicate Clippy mapping for {key}")
+        mappings[key] = lint
+    return mappings
+
+
+def primary_span(record: dict[str, object]) -> dict[str, object] | None:
+    message = record.get("message")
+    if not isinstance(message, dict):
+        return None
+    spans = message.get("spans")
+    if not isinstance(spans, list):
+        return None
+    return next(
+        (
+            span
+            for span in spans
+            if isinstance(span, dict) and span.get("is_primary") is True
+        ),
+        None,
+    )
+
+
+def _tool_version(command: list[str]) -> str:
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError(f"cannot query {' '.join(command)}: {error}") from error
+    return result.stdout.strip()
+
+
+def verify_upstream_boundaries(
+    project_dir: Path, plugin_jar: Path
+) -> dict[str, object]:
+    """Prove every upstream exemption against plugin metadata and live Clippy."""
+    validate_mapping(project_dir)
+    plugin_lints = plugin_rule_lints(plugin_jar)
+    evidence = []
+    with tempfile.TemporaryDirectory(prefix="rust-upstream-oracle-") as directory:
+        temp = Path(directory)
+        manifest = temp / "Cargo.toml"
+        target = temp / "target"
+        for item in expectations(project_dir):
+            key = str(item["key"])
+            boundary = UPSTREAM_BOUNDARIES.get(key)
+            if boundary is None:
+                continue
+            plugin_lint = plugin_lints.get(key)
+            if plugin_lint != boundary["plugin_lint"]:
+                raise RuntimeError(
+                    f"{key}: plugin lint drifted: expected {boundary['plugin_lint']}, "
+                    f"got {plugin_lint}"
+                )
+            runtime_lint = str(boundary["runtime_lint"])
+            bad_name, good_name = (pair[0] for pair in _fixture_pairs(item))
+            bad_records = run_fixture(
+                project_dir / "src" / bad_name, runtime_lint, manifest, target
+            )
+            good_records = run_fixture(
+                project_dir / "src" / good_name, runtime_lint, manifest, target
+            )
+            bad_matches = [
+                record
+                for record in bad_records
+                if diagnostic_code(record) == runtime_lint
+            ]
+            good_matches = [
+                record
+                for record in good_records
+                if diagnostic_code(record) == runtime_lint
+            ]
+            if len(bad_matches) != 1 or good_matches:
+                raise RuntimeError(
+                    f"{key}: expected one bad and zero good {runtime_lint} diagnostics, "
+                    f"got {len(bad_matches)} and {len(good_matches)}"
+                )
+            span = primary_span(bad_matches[0])
+            if span is None:
+                raise RuntimeError(f"{key}: runtime diagnostic lacks a primary span")
+            failure = boundary["failure"]
+            if failure == "lint-id-mismatch":
+                if plugin_lint == runtime_lint:
+                    raise RuntimeError(f"{key}: lint IDs now agree; remove exemption")
+            elif failure == "zero-width-primary-span":
+                start = (span.get("line_start"), span.get("column_start"))
+                end = (span.get("line_end"), span.get("column_end"))
+                if plugin_lint != runtime_lint or start != end:
+                    raise RuntimeError(
+                        f"{key}: zero-width boundary no longer holds: "
+                        f"plugin={plugin_lint}, runtime={runtime_lint}, span={start}..{end}"
+                    )
+            else:
+                raise RuntimeError(f"{key}: unknown boundary type {failure}")
+            evidence.append(
+                {
+                    "key": key,
+                    "failure": failure,
+                    "plugin_lint": plugin_lint,
+                    "runtime_lint": runtime_lint,
+                    "primary_span": {
+                        name: span.get(name)
+                        for name in (
+                            "file_name",
+                            "line_start",
+                            "column_start",
+                            "line_end",
+                            "column_end",
+                        )
+                    },
+                    "reason": boundary["reason"],
+                }
+            )
+    return {
+        "schema_version": 1,
+        "plugin": str(plugin_jar),
+        "plugin_sha256": hashlib.sha256(plugin_jar.read_bytes()).hexdigest(),
+        "rustc": _tool_version(["rustc", "--version"]),
+        "clippy": _tool_version(["cargo", "clippy", "--version"]),
+        "boundaries": evidence,
+    }
 
 
 def rewrite_span_paths(value: object, fixture_name: str) -> None:
@@ -181,32 +406,41 @@ def run_fixture(
     )
     env = dict(os.environ)
     env["CARGO_TARGET_DIR"] = str(cargo_target_dir)
-    result = subprocess.run(
-        [
-            "cargo",
-            "clippy",
-            "--quiet",
-            "--message-format=json",
-            "--manifest-path",
-            str(manifest),
-            "--",
-            "-W",
-            lint,
-            "--cap-lints",
-            "warn",
-        ],
-        capture_output=True,
-        text=True,
-        env=env,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "cargo",
+                "clippy",
+                "--quiet",
+                "--message-format=json",
+                "--manifest-path",
+                str(manifest),
+                "--",
+                "-W",
+                lint,
+                "--cap-lints",
+                "warn",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=FIXTURE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(f"{fixture.name} Clippy run timed out") from error
     records = []
-    for line in result.stdout.splitlines():
+    for line_number, line in enumerate(result.stdout.splitlines(), 1):
         try:
             record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(record, dict):
-            records.append(record)
+        except json.JSONDecodeError as error:
+            raise RuntimeError(
+                f"{fixture.name} emitted malformed Cargo JSON at line {line_number}"
+            ) from error
+        if not isinstance(record, dict):
+            raise RuntimeError(
+                f"{fixture.name} emitted non-object Cargo JSON at line {line_number}"
+            )
+        records.append(record)
     errors = [
         record
         for record in records
@@ -256,14 +490,16 @@ def _fixture_pairs(item: dict[str, object]) -> tuple[tuple[str, bool], ...]:
 
 def generate_report(project_dir: Path, output_path: Path) -> int:
     """Validate all pairs and write bad-fixture target diagnostics as JSONL."""
+    items = expectations(project_dir)
     validate_mapping(project_dir)
     combined: list[dict[str, object]] = []
     with tempfile.TemporaryDirectory(prefix="rust-clippy-oracle-") as directory:
         temp = Path(directory)
         manifest = temp / "Cargo.toml"
         target = temp / "target"
-        for item in expectations(project_dir):
-            key = str(item["key"])
+        for item in items:
+            key = item["key"]
+            assert isinstance(key, str)
             if key in NATIVE_RULES:
                 continue
             lint = CLIPPY_LINTS[key]
@@ -281,8 +517,9 @@ def generate_report(project_dir: Path, output_path: Path) -> int:
                         target,
                     )
                 )
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text("".join(json.dumps(record) + "\n" for record in combined))
+    write_text_atomic(
+        output_path, "".join(json.dumps(record) + "\n" for record in combined)
+    )
     return len(combined)
 
 

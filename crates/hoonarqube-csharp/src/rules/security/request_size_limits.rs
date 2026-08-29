@@ -1,6 +1,8 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
-use crate::rules::expressions::{binary_operands, integer_literal_value, operator_of};
+use crate::rules::expressions::{
+    binary_operands, expression_name, integer_literal_value, operator_of,
+};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -21,9 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .filter(|assignment| operator_of(*assignment) == Some("="))
         .filter(|assignment| {
             binary_operands(*assignment).is_some_and(|(target, value)| {
-                LIMIT_TARGETS
-                    .iter()
-                    .any(|limit| node_text(target, source).ends_with(limit))
+                expression_name(target, source).is_some_and(|name| LIMIT_TARGETS.contains(&name))
                     && value.kind() == "integer_literal"
                     && integer_literal_value(node_text(value, source))
                         .is_some_and(|bytes| bytes > REQUEST_BODY_LIMIT_BYTES)
@@ -38,4 +38,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             )
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s5693_requires_an_exact_limit_member_name() {
+        let report = analyze_default(
+            "class Options { long BackupMaxRequestBodySize; void Set() { BackupMaxRequestBodySize = 9000000; } }",
+        );
+        assert!(with_key(&report, "csharpsquid:S5693").is_empty());
+    }
 }

@@ -34,12 +34,12 @@
 {"key": "typescript:S6759", "bad": "s6759_bad.ts", "expect_lines_min": 1}
 {"key": "typescript:S7059", "bad": "s7059_bad.ts", "expect_lines_min": 1}
 {"key": "typescript:S4798", "bad": "s4798_bad.ts", "expect_lines_min": 1}
-{"key":"typescript:S1438","infra":"upstream analysis infrastructure required"}
-{"key":"typescript:S1874","infra":"upstream analysis infrastructure required"}
-{"key":"typescript:S4325","infra":"upstream analysis infrastructure required"}
-{"key":"typescript:S4328","infra":"upstream analysis infrastructure required"}
-{"key":"typescript:S6606","infra":"upstream analysis infrastructure required"}
-{"key":"typescript:S6627","infra":"upstream analysis infrastructure required"}
+{"key":"typescript:S1438","infra":"exact semicolon detection requires token-preserving automatic-semicolon-insertion boundaries"}
+{"key":"typescript:S1874","infra":"deprecated API detection requires semantic symbol resolution and dependency declaration metadata"}
+{"key":"typescript:S4325","infra":"unnecessary type assertion detection requires TypeScript checker type semantics"}
+{"key":"typescript:S4328","infra":"unresolvable import detection requires cross-file module resolution"}
+{"key":"typescript:S6606","infra":"type alias simplification requires TypeScript checker type semantics"}
+{"key":"typescript:S6627","infra":"internal API import detection requires cross-file module resolution"}
 {"key":"typescript:S1128","bad":"s1128_bad.ts","expect_lines_min":1}
 {"key":"typescript:S1526","bad":"s1526_bad.ts","expect_lines_min":1}
 {"key":"typescript:S1607","bad":"s1607_bad.test.ts","expect_lines_min":1}

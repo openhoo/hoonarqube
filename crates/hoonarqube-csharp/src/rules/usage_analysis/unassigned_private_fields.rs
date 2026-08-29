@@ -1,3 +1,4 @@
+use super::support::{member_uses, member_writes};
 use crate::CsLanguage;
 use crate::cst::{issue, modifiers_of, range_of};
 use crate::rules::modifiers::has_modifier;
@@ -15,8 +16,8 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
             || is_attributed(member.declaration, source)
             || owner_is_partial(member.owner, source)
             || member.has_initializer
-            || !symbols.writes_of(member.name).is_empty()
-            || symbols.uses_of(member.name).is_empty()
+            || !member_writes(symbols, member, source).is_empty()
+            || member_uses(symbols, member, source).is_empty()
         {
             continue;
         }
@@ -95,5 +96,15 @@ mod tests {
         assert_eq!(flagged.len(), 2);
         assert_eq!(flagged[0].range.start.line, 3);
         assert_eq!(flagged[1].range.start.line, 4);
+    }
+
+    #[test]
+    fn s3459_does_not_borrow_writes_from_unrelated_types() {
+        let report = analyze_default(
+            "class A\n{\n    private int value;\n    public int Read() => value;\n}\n\nclass B\n{\n    private int value;\n    public void Set() { value = 1; }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3459");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
     }
 }

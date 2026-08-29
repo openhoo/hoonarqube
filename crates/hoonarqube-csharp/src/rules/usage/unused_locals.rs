@@ -1,6 +1,6 @@
-use super::support::count_word_occurrences;
+use super::support::{direct_variable_declarators, local_is_referenced};
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, issue, modifiers_of, node_text, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, modifiers_of, node_text, range_of};
 use crate::rules::modifiers::has_modifier;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -10,14 +10,15 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     collect_kinds(root, &["local_declaration_statement"])
         .into_iter()
+        .filter(|statement| !is_error_tainted(*statement))
         .filter(|statement| !has_modifier(&modifiers_of(*statement, source), "const"))
-        .flat_map(|statement| collect_kinds(statement, &["variable_declarator"]))
+        .flat_map(direct_variable_declarators)
         .filter_map(|declarator| {
             let name = declarator.child_by_field_name("name")?;
             let text = node_text(name, source);
             (text != "_").then_some((name, text))
         })
-        .filter(|(_, text)| count_word_occurrences(source, text) <= 1)
+        .filter(|(name, text)| !local_is_referenced(*name, text, source))
         .map(|(name_node, name)| {
             issue(
                 language,
@@ -41,11 +42,11 @@ mod tests {
     }
 
     #[test]
-    fn s1481_treats_comment_mentions_as_reads() {
+    fn s1481_ignores_comment_mentions() {
         let report = analyze_default(
             "class C\n{\n    int M()\n    {\n        // stale stays until the retry hook lands\n        int stale = Build();\n        return 0;\n    }\n}\n",
         );
-        assert!(with_key(&report, "csharpsquid:S1481").is_empty());
+        assert_eq!(with_key(&report, "csharpsquid:S1481").len(), 1);
     }
 
     #[test]
@@ -57,15 +58,35 @@ mod tests {
     }
 
     #[test]
-    fn s1481_judges_whole_file_word_counts_not_scopes() {
+    fn s1481_keeps_usage_inside_each_lexical_scope() {
         let shared = analyze_default(
             "class C\n{\n    int A()\n    {\n        int tmp = Build();\n        return 0;\n    }\n\n    int B()\n    {\n        int tmp = Build();\n        return tmp;\n    }\n}",
         );
-        assert!(with_key(&shared, "csharpsquid:S1481").is_empty());
+        let flagged = with_key(&shared, "csharpsquid:S1481");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
 
         let nested = analyze_default(
             "class C\n{\n    int M(bool gate)\n    {\n        if (gate)\n        {\n            int deep = Dig();\n        }\n        return 0;\n    }\n}\n",
         );
         assert_eq!(with_key(&nested, "csharpsquid:S1481").len(), 1);
+    }
+
+    #[test]
+    fn s1481_does_not_collect_nested_initializer_declarations_twice() {
+        let report = analyze_default(
+            "class C\n{\n    void M()\n    {\n        System.Action outer = () =>\n        {\n            int inner = Build();\n        };\n        outer();\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1481");
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].message.contains("'inner'"));
+    }
+
+    #[test]
+    fn s1481_does_not_treat_member_access_names_as_local_reads() {
+        let report = analyze_default(
+            "class C\n{\n    int value;\n    void M()\n    {\n        int value = Build();\n        this.value = 1;\n    }\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S1481").len(), 1);
     }
 }

@@ -2,7 +2,7 @@ use super::support::{has_any_attribute, has_modifier};
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, issue, modifiers_of, node_text, range_of};
 use crate::rules::expressions::callee_name;
-use crate::rules::structure::{body_of, name_anchor};
+use crate::rules::structure::{body_of, collect_kinds_in_callable, name_anchor};
 use hoonarqube_ir::Issue;
 use std::collections::HashSet;
 use tree_sitter::Node;
@@ -31,10 +31,12 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some(body) = body_of(method) else {
             continue;
         };
-        if !collect_kinds(body, &["if_statement", "switch_statement", "try_statement"]).is_empty() {
+        if !collect_kinds_in_callable(body, &["if_statement", "switch_statement", "try_statement"])
+            .is_empty()
+        {
             continue;
         }
-        let Some(native_name) = collect_kinds(body, &["invocation_expression"])
+        let Some(native_name) = collect_kinds_in_callable(body, &["invocation_expression"])
             .into_iter()
             .filter_map(|invocation| callee_name(invocation, source))
             .find(|name| native_names.contains(name))
@@ -73,6 +75,14 @@ mod tests {
     fn s4200_accepts_wrapper_with_validation() {
         let report = analyze_default(
             "class Audio\n{\n    [DllImport(\"native\")]\n    private static extern int Play(string name);\n\n    public static int Chime(string name)\n    {\n        if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException();\n        return Play(name);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S4200").is_empty());
+    }
+
+    #[test]
+    fn s4200_ignores_native_call_inside_nested_local_function() {
+        let report = analyze_default(
+            "class Audio\n{\n    [DllImport(\"native\")]\n    private static extern int Play(string name);\n\n    public static int Chime(string name)\n    {\n        int Nested() => Play(name);\n        return Nested();\n    }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S4200").is_empty());
     }

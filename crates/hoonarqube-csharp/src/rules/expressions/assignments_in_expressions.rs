@@ -1,3 +1,4 @@
+use super::support::enclosing_callable;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use hoonarqube_ir::Issue;
@@ -37,12 +38,14 @@ fn inside_if_condition(assignment: Node<'_>) -> bool {
     let mut ancestor = assignment.parent();
     while let Some(node) = ancestor {
         if node.kind() == "if_statement" {
-            return node
-                .child_by_field_name("condition")
-                .is_some_and(|condition| {
-                    assignment.start_byte() >= condition.start_byte()
-                        && assignment.end_byte() <= condition.end_byte()
-                });
+            return enclosing_callable(assignment).map(|owner| owner.id())
+                == enclosing_callable(node).map(|owner| owner.id())
+                && node
+                    .child_by_field_name("condition")
+                    .is_some_and(|condition| {
+                        assignment.start_byte() >= condition.start_byte()
+                            && assignment.end_byte() <= condition.end_byte()
+                    });
         }
         ancestor = node.parent();
     }
@@ -60,5 +63,13 @@ mod tests {
 
         let good = analyze_default("class C { void M() { int value; value = 1; } }");
         assert!(with_key(&good, "csharpsquid:S1121").is_empty());
+    }
+
+    #[test]
+    fn s1121_if_condition_exception_does_not_cross_lambda_scope() {
+        let report = analyze_default(
+            "class C { bool M(int[] items) { int value; if (items.Any(_ => (value = 1) > 0)) return true; return false; } }",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S1121").len(), 1);
     }
 }

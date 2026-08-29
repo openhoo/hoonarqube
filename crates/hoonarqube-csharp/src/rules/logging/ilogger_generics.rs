@@ -10,7 +10,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     for generic in collect_kinds(root, &["generic_name"])
         .into_iter()
         .filter(|generic| !is_error_tainted(*generic))
-        .filter(|generic| node_text(*generic, source).starts_with("ILogger<"))
+        .filter(|generic| simple_name(node_text(*generic, source)) == "ILogger")
     {
         let Some(owner) = enclosing_type(generic) else {
             continue;
@@ -37,4 +37,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
     }
     issues
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s6672_supports_namespace_qualified_ilogger_types() {
+        let report = analyze_default(
+            "class Order\n{\n    Microsoft.Extensions.Logging.ILogger<Customer> logger;\n}\n",
+        );
+        assert_eq!(with_key(&report, "csharpsquid:S6672").len(), 1);
+    }
 }

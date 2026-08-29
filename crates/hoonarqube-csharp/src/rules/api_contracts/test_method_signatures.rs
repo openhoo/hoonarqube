@@ -1,6 +1,5 @@
 use crate::CsLanguage;
 use crate::cst::{attributes_of, collect_kinds, issue, modifiers_of, range_of};
-use crate::rules::expressions::is_test_attributed;
 use crate::rules::modifiers::has_modifier;
 use crate::rules::security::return_type_text;
 use hoonarqube_ir::Issue;
@@ -11,10 +10,13 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for method in collect_kinds(root, &["method_declaration"]) {
-        if !is_test_attributed(method, source) {
+        let attributes = attributes_of(method, source);
+        if !attributes
+            .iter()
+            .any(|attribute| TEST_METHOD_ATTRIBUTE_NAMES.contains(attribute))
+        {
             continue;
         }
-        let attributes = attributes_of(method, source);
         let xunit = attributes
             .iter()
             .any(|attribute| matches!(*attribute, "Fact" | "Theory"));
@@ -47,6 +49,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     issues
 }
 
+const TEST_METHOD_ATTRIBUTE_NAMES: [&str; 7] = [
+    "Test",
+    "Fact",
+    "Theory",
+    "TestCase",
+    "TestCaseSource",
+    "TestMethod",
+    "DataTestMethod",
+];
+
 #[cfg(test)]
 mod tests {
     use crate::tests::{analyze_default, with_key};
@@ -68,5 +80,24 @@ mod tests {
             "class T\n{\n    [Fact]\n    public Task<int> Fetch()\n    {\n        return Task.FromResult(1);\n    }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S3433").is_empty());
+    }
+
+    #[test]
+    fn s3433_ignores_non_public_lifecycle_hooks() {
+        let report = analyze_default(
+            "class T\n{\n    [SetUp]\n    internal void Prepare() { }\n\n    [TestCleanup]\n    private void Clean() { }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S3433").is_empty());
+    }
+
+    #[test]
+    fn s3433_checks_data_driven_test_methods() {
+        let report = analyze_default(
+            "class T\n{\n    [TestCaseSource(nameof(Cases))]\n    internal void NUnitCase(int value) { }\n\n    [DataTestMethod]\n    internal void MsTestCase(int value) { }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3433");
+        assert_eq!(flagged.len(), 2);
+        assert_eq!(flagged[0].range.start.line, 4);
+        assert_eq!(flagged[1].range.start.line, 7);
     }
 }

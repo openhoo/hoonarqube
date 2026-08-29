@@ -77,4 +77,35 @@ mod tests {
         assert!(parse_regex_pattern(&shallow, false).is_ok());
         assert!(regex_search(&shallow, "x"));
     }
+
+    #[test]
+    fn nested_node_spans_end_at_their_own_delimiters() {
+        let parsed = parse_regex_pattern("x(a|b)y[cd]z", false).expect("valid regex");
+        let mut spans = Vec::new();
+        for alternative in &parsed.alternatives {
+            walk_pattern_nodes(alternative, &mut |node| match node {
+                PatternNode::Group { start, end, .. } => spans.push(("group", *start, *end)),
+                PatternNode::Class { start, end, .. } => spans.push(("class", *start, *end)),
+                _ => {}
+            });
+        }
+        assert_eq!(spans, vec![("group", 1, 6), ("class", 7, 11)]);
+    }
+
+    #[test]
+    fn catalog_matcher_handles_long_repetitions_and_documented_escapes() {
+        assert!(regex_search(r"^\w$", "_"));
+        assert!(regex_prefix_match(r"^\t$", "\t"));
+        assert!(regex_prefix_match(r"^\n$", "\n"));
+        assert!(regex_search("^a*$", &"a".repeat(100_000)));
+        assert!(!regex_search(&"a".repeat(10_000), "short"));
+    }
+
+    #[test]
+    fn catalog_matcher_rejects_reversed_ranges_and_keeps_shorthand_dashes_literal() {
+        assert!(parse_regex("[z-a]").is_none());
+        assert!(regex_search(r"[\d-a]", "-"));
+        assert!(regex_search(r"[\d-a]", "8"));
+        assert!(regex_search(r"[\d-a]", "a"));
+    }
 }

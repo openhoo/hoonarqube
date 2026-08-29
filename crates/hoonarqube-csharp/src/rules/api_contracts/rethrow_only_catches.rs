@@ -1,6 +1,5 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
-use crate::rules::expressions::block_statements;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -11,10 +10,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .filter(|clause| !is_error_tainted(*clause))
         .filter(|clause| {
             clause.child_by_field_name("body").is_some_and(|body| {
-                let statements = block_statements(body);
-                statements.len() == 1
-                    && statements[0].kind() == "throw_statement"
-                    && statements[0].named_child_count() == 0
+                let mut cursor = body.walk();
+                let mut children = body.named_children(&mut cursor);
+                children.next().is_some_and(|statement| {
+                    statement.kind() == "throw_statement"
+                        && statement.named_child_count() == 0
+                        && children.next().is_none()
+                })
             })
         })
         .map(|clause| {
@@ -47,6 +49,14 @@ mod tests {
     fn s2737_allows_logging_or_conditionals_before_rethrowing() {
         let report = analyze_default(
             "class A\n{\n    void M()\n    {\n        try { } catch (Exception ex) { Log(ex); throw; }\n        try { } catch (Exception ex) { if (ex.InnerException == null) throw; }\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S2737").is_empty());
+    }
+
+    #[test]
+    fn s2737_does_not_ignore_conditional_compilation_in_catch_body() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        try { Run(); }\n        catch (Exception ex)\n        {\n#if DEBUG\n            Log(ex);\n#endif\n            throw;\n        }\n    }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S2737").is_empty());
     }

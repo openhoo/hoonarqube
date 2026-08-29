@@ -2,6 +2,7 @@ use super::support::logging_calls;
 use super::support::template_argument;
 use crate::CsLanguage;
 use crate::cst::{issue, range_from_byte_offsets, range_of};
+use crate::rules::literals::literal_inner_offset;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -20,7 +21,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 range_of(literal, source),
             )),
             Some(TemplateError::EmptyPlaceholder(offset)) => {
-                let start = literal.start_byte() + 1 + offset;
+                let start = literal.start_byte() + literal_inner_offset(literal, source) + offset;
                 issues.push(issue(
                     language,
                     "S6674",
@@ -47,6 +48,10 @@ fn template_error(template: &str) -> Option<TemplateError> {
     while index < bytes.len() {
         match bytes[index] {
             b'{' => {
+                if bytes.get(index + 1) == Some(&b'{') {
+                    index += 2;
+                    continue;
+                }
                 let Some(close) = bytes[index + 1..]
                     .iter()
                     .position(|byte| *byte == b'}')
@@ -66,4 +71,17 @@ fn template_error(template: &str) -> Option<TemplateError> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn s6674_accepts_escaped_opening_braces() {
+        let report = analyze_default(
+            "class C { void M() { logger.LogInformation(\"{{literal}} {Value}\", value); } }\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S6674").is_empty());
+    }
 }
