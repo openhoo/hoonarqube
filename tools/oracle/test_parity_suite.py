@@ -200,12 +200,14 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
                 mock.patch.object(parity_suite, "RESULTS", results),
                 mock.patch.object(parity_suite, "ensure_container"),
                 mock.patch.object(parity_suite, "scan_project", return_value=False),
+                mock.patch.object(parity_suite, "ce_rule_availability") as availability,
                 mock.patch.object(sys, "argv", argv),
                 self.assertRaises(SystemExit) as raised,
             ):
                 parity_suite.main()
 
             self.assertEqual(raised.exception.code, 1)
+            availability.assert_not_called()
             report = json.loads(
                 (results / "parity_divergences.oracle-py.json").read_text()
             )

@@ -951,6 +951,8 @@ def ce_rule_availability(quick):
 
 
 def classify_missing_rules(all_rows, quick):
+    if not all_rows:
+        return {}, {}
     rule_in_ce = ce_rule_availability(quick)
     beyond_ce = {}
     unverified = {}
