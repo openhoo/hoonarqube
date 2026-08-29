@@ -1,12 +1,12 @@
 //! Compile-time frozen `SonarQube` rule catalog with evidence-first integrity verification.
 //!
 //! The crate embeds `catalog/snapshot.toml` plus the six per-language rule files at
-//! compile time. [`Catalog::embedded`] replays the exact audit semantics of
+//! compile time. [`embedded`] replays the exact audit semantics of
 //! `xtask catalog audit` once per process; every accessor afterwards relies on the
 //! established invariants (verified hashes, verified counts, strictly key-sorted rules).
 //!
 //! Because the embedded bytes are frozen at compile time, a verification failure can
-//! only mean corrupted build artifacts. [`Catalog::embedded`] therefore panics with a
+//! only mean corrupted build artifacts. [`embedded`] therefore panics with a
 //! precise message instead of ever exposing unverified catalog data.
 
 use std::collections::BTreeMap;

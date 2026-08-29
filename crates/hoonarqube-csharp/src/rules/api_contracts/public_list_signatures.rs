@@ -10,8 +10,21 @@ use tree_sitter::Node;
 /// csharpsquid:S3956 — concrete `List<T>` leaks implementation details from
 /// public signatures.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    const LIST_MARKER: &str = "List<";
     let mut issues = Vec::new();
+    check_public_methods(root, source, language, &mut issues);
+    check_public_members(root, source, language, &mut issues);
+    issues
+}
+
+const LIST_MARKER: &str = "List<";
+const MESSAGE: &str = "use a generic collection designed for inheritance";
+
+fn check_public_methods(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    issues: &mut Vec<Issue>,
+) {
     for method in collect_kinds(root, &["method_declaration"]) {
         if is_error_tainted(method) || !has_modifier(&modifiers_of(method, source), "public") {
             continue;
@@ -21,68 +34,63 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             .or_else(|| method.child_by_field_name("type"))
             .filter(|type_node| node_text(*type_node, source).contains(LIST_MARKER))
         {
-            issues.push(issue(
-                language,
-                "S3956",
-                "Refactor this method to use a generic collection designed for inheritance.",
-                range_of(return_type, source),
-            ));
+            push_issue(return_type, "method", source, language, issues);
         }
         for parameter_type in parameters_of(method)
             .iter()
             .filter_map(|parameter| parameter.child_by_field_name("type"))
             .filter(|type_node| node_text(*type_node, source).contains(LIST_MARKER))
         {
-            issues.push(issue(
-                language,
-                "S3956",
-                "Refactor this method to use a generic collection designed for inheritance.",
-                range_of(parameter_type, source),
-            ));
+            push_issue(parameter_type, "method", source, language, issues);
         }
     }
+}
+
+fn check_public_members(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    issues: &mut Vec<Issue>,
+) {
     for member_kind in ["property_declaration", "field_declaration"] {
         for member in collect_kinds(root, &[member_kind]) {
             if is_error_tainted(member) || !has_modifier(&modifiers_of(member, source), "public") {
                 continue;
             }
-            let typed_list = match member.kind() {
-                "property_declaration" => member
-                    .child_by_field_name("type")
-                    .is_some_and(|type_node| node_text(type_node, source).contains(LIST_MARKER)),
-                _ => collect_kinds(member, &["variable_declaration"])
-                    .iter()
-                    .any(|declaration| {
-                        first_named_child(*declaration).is_some_and(|type_node| {
-                            node_text(type_node, source).contains(LIST_MARKER)
-                        })
-                    }),
-            };
-            if typed_list {
-                let type_node = match member.kind() {
-                    "property_declaration" => member.child_by_field_name("type"),
-                    _ => collect_kinds(member, &["variable_declaration"])
-                        .first()
-                        .and_then(|declaration| first_named_child(*declaration)),
-                }
-                .unwrap_or(member);
-                let surface = if member.kind() == "property_declaration" {
-                    "property"
-                } else {
-                    "field"
+            if let Some(type_node) = exposed_list_type(member, source) {
+                let surface = match member.kind() {
+                    "property_declaration" => "property",
+                    _ => "field",
                 };
-                issues.push(issue(
-                    language,
-                    "S3956",
-                    format!(
-                        "Refactor this {surface} to use a generic collection designed for inheritance."
-                    ),
-                    range_of(type_node, source),
-                ));
+                push_issue(type_node, surface, source, language, issues);
             }
         }
     }
-    issues
+}
+
+fn exposed_list_type<'tree>(member: Node<'tree>, source: &str) -> Option<Node<'tree>> {
+    match member.kind() {
+        "property_declaration" => member.child_by_field_name("type"),
+        _ => collect_kinds(member, &["variable_declaration"])
+            .into_iter()
+            .find_map(first_named_child),
+    }
+    .filter(|type_node| node_text(*type_node, source).contains(LIST_MARKER))
+}
+
+fn push_issue(
+    type_node: Node<'_>,
+    surface: &str,
+    source: &str,
+    language: CsLanguage,
+    issues: &mut Vec<Issue>,
+) {
+    issues.push(issue(
+        language,
+        "S3956",
+        format!("Refactor this {surface} to {MESSAGE}."),
+        range_of(type_node, source),
+    ));
 }
 
 #[cfg(test)]

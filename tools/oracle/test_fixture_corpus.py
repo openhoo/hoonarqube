@@ -21,7 +21,9 @@ class FixtureCorpusTests(unittest.TestCase):
                 project_dir = REPO / ".oracle/sonar/projects" / project
                 rows = [
                     json.loads(line)
-                    for line in (project_dir / "expected.jsonl").read_text().splitlines()
+                    for line in (project_dir / "expected.jsonl")
+                    .read_text()
+                    .splitlines()
                     if line.strip()
                 ]
                 keys = [row.get("key") for row in rows]
@@ -31,10 +33,14 @@ class FixtureCorpusTests(unittest.TestCase):
                     (REPO / "catalog/rules" / f"{language}.json").read_text()
                 )
                 catalog_keys = {rule["external_key"] for rule in catalog["rules"]}
-                self.assertTrue(set(keys) <= catalog_keys, "non-catalog expectation key")
+                self.assertTrue(
+                    set(keys) <= catalog_keys, "non-catalog expectation key"
+                )
 
                 source_dir = project_dir / source_relative
-                available = {path.name for path in source_dir.iterdir() if path.is_file()}
+                available = {
+                    path.name for path in source_dir.iterdir() if path.is_file()
+                }
                 for row in rows:
                     if row.get("skip") or row.get("infra"):
                         continue

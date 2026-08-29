@@ -32,7 +32,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             (false, false) => "Add deserialization event handlers.",
             (false, true) => "Add the missing 'OnDeserializingAttribute' event handler.",
             (true, false) => "Add the missing 'OnDeserializedAttribute' event handler.",
-            (true, true) => unreachable!(),
+            (true, true) => continue,
         };
         issues.push(issue(
             language,

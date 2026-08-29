@@ -20,20 +20,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             .iter()
             .any(|operator| matches!(*operator, "+" | "-" | "*" | "/" | "%"));
         if equality_present || arithmetic_present {
-            let overridden = overridden_names(type_node, source);
-            let mut missing = Vec::new();
-            if !operators.contains(&"==") {
-                missing.push("operator==");
-            }
-            if !operators.contains(&"!=") {
-                missing.push("operator!=");
-            }
-            if !overridden.contains("Equals") {
-                missing.push("Object.Equals");
-            }
-            if !overridden.contains("GetHashCode") {
-                missing.push("Object.GetHashCode");
-            }
+            let missing = missing_contract_members(type_node, source, &operators);
             if missing.is_empty() {
                 continue;
             }
@@ -48,17 +35,38 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     issues
 }
 
+fn missing_contract_members(
+    type_node: Node<'_>,
+    source: &str,
+    operators: &[&str],
+) -> Vec<&'static str> {
+    let overridden = overridden_names(type_node, source);
+    let mut missing = Vec::new();
+    if !operators.contains(&"==") {
+        missing.push("operator==");
+    }
+    if !operators.contains(&"!=") {
+        missing.push("operator!=");
+    }
+    if !overridden.contains("Equals") {
+        missing.push("Object.Equals");
+    }
+    if !overridden.contains("GetHashCode") {
+        missing.push("Object.GetHashCode");
+    }
+    missing
+}
+
 fn quoted_list(items: &[&str]) -> String {
     let quoted: Vec<String> = items.iter().map(|item| format!("'{item}'")).collect();
     match quoted.as_slice() {
         [] => String::new(),
         [only] => only.clone(),
         [first, second] => format!("{first} and {second}"),
-        _ => format!(
-            "{} and {}",
-            quoted[..quoted.len() - 1].join(", "),
-            quoted.last().expect("non-empty list")
-        ),
+        _ => match quoted.split_last() {
+            Some((last, leading)) => format!("{} and {last}", leading.join(", ")),
+            None => String::new(),
+        },
     }
 }
 

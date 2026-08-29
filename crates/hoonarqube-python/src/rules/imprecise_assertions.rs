@@ -35,47 +35,58 @@ fn preferred_assertion(call: &ruff_python_ast::ExprCall) -> Option<&'static str>
     let args = &call.arguments.args;
     match called_name(&call.func) {
         Some("assertEqual" | "assertNotEqual") if args.len() == 2 => {
-            let negated = called_name(&call.func) == Some("assertNotEqual");
-            for pair in [(0, 1), (1, 0)] {
-                let other = &args[pair.1];
-                if is_true_literal(other) {
-                    return Some(if negated { "assertFalse" } else { "assertTrue" });
-                }
-                if is_false_literal(other) {
-                    return Some(if negated { "assertTrue" } else { "assertFalse" });
-                }
-                if is_none_literal(other) {
-                    return Some(if negated {
-                        "assertIsNotNone"
-                    } else {
-                        "assertIsNone"
-                    });
-                }
-            }
-            None
+            preferred_equality_assertion(args, called_name(&call.func) == Some("assertNotEqual"))
         }
-        Some("assertTrue") if args.len() == 1 => match &args[0] {
-            Expr::Compare(compare) if compare.ops.len() == 1 => match compare.ops[0] {
-                ruff_python_ast::CmpOp::Eq => Some("assertEqual"),
-                ruff_python_ast::CmpOp::NotEq => Some("assertNotEqual"),
-                ruff_python_ast::CmpOp::Is => Some("assertIs"),
-                ruff_python_ast::CmpOp::IsNot => Some("assertIsNot"),
-                ruff_python_ast::CmpOp::In => Some("assertIn"),
-                ruff_python_ast::CmpOp::NotIn => Some("assertNotIn"),
-                _ => None,
-            },
-            _ => None,
-        },
-        Some("assertFalse") if args.len() == 1 => match &args[0] {
-            Expr::Compare(compare)
-                if compare.ops.len() == 1 && compare.ops[0] == ruff_python_ast::CmpOp::In =>
-            {
-                Some("assertNotIn")
-            }
-            _ => None,
-        },
+        Some("assertTrue") if args.len() == 1 => preferred_true_assertion(&args[0]),
+        Some("assertFalse") if args.len() == 1 => preferred_false_assertion(&args[0]),
         _ => None,
     }
+}
+
+fn preferred_equality_assertion(args: &[Expr], negated: bool) -> Option<&'static str> {
+    [&args[1], &args[0]]
+        .into_iter()
+        .find_map(|other| literal_assertion(other, negated))
+}
+
+fn literal_assertion(other: &Expr, negated: bool) -> Option<&'static str> {
+    match (
+        negated,
+        is_true_literal(other),
+        is_false_literal(other),
+        is_none_literal(other),
+    ) {
+        (false, true, _, _) | (true, _, true, _) => Some("assertTrue"),
+        (true, true, _, _) | (false, _, true, _) => Some("assertFalse"),
+        (false, _, _, true) => Some("assertIsNone"),
+        (true, _, _, true) => Some("assertIsNotNone"),
+        _ => None,
+    }
+}
+
+fn preferred_true_assertion(expression: &Expr) -> Option<&'static str> {
+    let Expr::Compare(compare) = expression else {
+        return None;
+    };
+    let [operator] = compare.ops.as_ref() else {
+        return None;
+    };
+    match operator {
+        ruff_python_ast::CmpOp::Eq => Some("assertEqual"),
+        ruff_python_ast::CmpOp::NotEq => Some("assertNotEqual"),
+        ruff_python_ast::CmpOp::Is => Some("assertIs"),
+        ruff_python_ast::CmpOp::IsNot => Some("assertIsNot"),
+        ruff_python_ast::CmpOp::In => Some("assertIn"),
+        ruff_python_ast::CmpOp::NotIn => Some("assertNotIn"),
+        _ => None,
+    }
+}
+
+fn preferred_false_assertion(expression: &Expr) -> Option<&'static str> {
+    let Expr::Compare(compare) = expression else {
+        return None;
+    };
+    matches!(compare.ops.as_ref(), [ruff_python_ast::CmpOp::In]).then_some("assertNotIn")
 }
 
 #[cfg(test)]

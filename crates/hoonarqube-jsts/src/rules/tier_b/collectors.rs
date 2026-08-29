@@ -133,8 +133,9 @@ impl<'a> Visit<'a> for ClassRuleCollector<'a, '_> {
             ..ClassFrame::default()
         });
         oxc_ast_visit::walk::walk_class(self, class);
-        let frame = self.frames.pop().expect("class frame pushed above");
-        self.finished_frames.push(frame);
+        if let Some(frame) = self.frames.pop() {
+            self.finished_frames.push(frame);
+        }
     }
 
     fn visit_method_definition(&mut self, method: &MethodDefinition<'a>) {

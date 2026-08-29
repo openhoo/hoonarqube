@@ -125,7 +125,9 @@ def validate_mapping(project_dir: Path) -> None:
     if keys != mapped:
         missing = sorted(keys - mapped)
         extra = sorted(mapped - keys)
-        raise RuntimeError(f"Rust Clippy mapping mismatch: missing={missing}, extra={extra}")
+        raise RuntimeError(
+            f"Rust Clippy mapping mismatch: missing={missing}, extra={extra}"
+        )
 
 
 def diagnostic_code(record: dict[str, object]) -> str | None:
@@ -222,6 +224,36 @@ def run_fixture(
     return records
 
 
+def _validated_fixture_records(
+    fixture: Path,
+    key: str,
+    lint: str,
+    run_lint: str,
+    should_fire: bool,
+    manifest: Path,
+    target: Path,
+) -> list[dict[str, object]]:
+    records = run_fixture(fixture, run_lint, manifest, target)
+    matching = [record for record in records if diagnostic_code(record) == run_lint]
+    if should_fire and not matching:
+        raise RuntimeError(f"{key}: {fixture.name} did not emit {run_lint}")
+    if not should_fire and matching:
+        raise RuntimeError(f"{key}: {fixture.name} unexpectedly emitted {run_lint}")
+    if not should_fire:
+        return []
+    for record in matching:
+        if run_lint != lint:
+            record["message"]["code"]["code"] = lint
+        rewrite_span_paths(record, fixture.name)
+    return matching
+
+
+def _fixture_pairs(item: dict[str, object]) -> tuple[tuple[str, bool], ...]:
+    bad_name = str(item["bad"])
+    good_name = str(item.get("good") or bad_name.replace("_bad", "_good"))
+    return ((bad_name, True), (good_name, False))
+
+
 def generate_report(project_dir: Path, output_path: Path) -> int:
     """Validate all pairs and write bad-fixture target diagnostics as JSONL."""
     validate_mapping(project_dir)
@@ -236,26 +268,19 @@ def generate_report(project_dir: Path, output_path: Path) -> int:
                 continue
             lint = CLIPPY_LINTS[key]
             run_lint = RUN_LINTS.get(key, lint)
-            bad_name = str(item["bad"])
-            good_name = str(item.get("good") or bad_name.replace("_bad", "_good"))
-            for fixture_name, should_fire in ((bad_name, True), (good_name, False)):
+            for fixture_name, should_fire in _fixture_pairs(item):
                 fixture = project_dir / "src" / fixture_name
-                records = run_fixture(fixture, run_lint, manifest, target)
-                matching = [
-                    record for record in records if diagnostic_code(record) == run_lint
-                ]
-                if should_fire and not matching:
-                    raise RuntimeError(f"{key}: {fixture_name} did not emit {run_lint}")
-                if not should_fire and matching:
-                    raise RuntimeError(
-                        f"{key}: {fixture_name} unexpectedly emitted {run_lint}"
+                combined.extend(
+                    _validated_fixture_records(
+                        fixture,
+                        key,
+                        lint,
+                        run_lint,
+                        should_fire,
+                        manifest,
+                        target,
                     )
-                if should_fire:
-                    for record in matching:
-                        if run_lint != lint:
-                            record["message"]["code"]["code"] = lint
-                        rewrite_span_paths(record, fixture_name)
-                        combined.append(record)
+                )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("".join(json.dumps(record) + "\n" for record in combined))
     return len(combined)

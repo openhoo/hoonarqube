@@ -28,7 +28,9 @@ pub(crate) fn check_s5795_identity_cached_types(
                         "is not"
                     };
                     let between = &source[TextRange::new(lhs.end(), rhs.start())];
-                    let relative = between.find(operator).expect("identity operator text");
+                    let Some(relative) = between.find(operator) else {
+                        continue;
+                    };
                     let operator_start = lhs.end() + TextSize::from(to_u32(relative));
                     issues.push(issue_at(
                         "python:S5795",

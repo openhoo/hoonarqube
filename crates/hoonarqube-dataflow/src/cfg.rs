@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 /// Dense identifier of one basic block inside a [`Cfg`].
 ///
-/// Ids are assigned densely from `0` by [`CfgBuilder`] and remain stable for
+/// Ids are assigned densely from `0` by [`crate::CfgBuilder`] and remain stable for
 /// the lifetime of a graph; only [`Cfg::into_reachable_subgraph`] renumbers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BlockId(u32);
@@ -51,7 +51,7 @@ impl<T> Cfg<T> {
 
     /// Creates an entry/exit pair with no edge between them.
     ///
-    /// This is the raw form used by [`CfgBuilder`]; prefer [`Cfg::new`] or the
+    /// This is the raw form used by [`crate::CfgBuilder`]; prefer [`Cfg::new`] or the
     /// builder for real graphs.
     #[must_use]
     pub fn disconnected(entry_payload: T, exit_payload: T) -> Self {
@@ -304,44 +304,12 @@ impl<T> Cfg<T> {
         for (pos, block) in reverse_post_order.iter().enumerate() {
             rpo_pos[block.index()] = Some(pos);
         }
-        // Raw idoms: `None` marks unprocessed blocks; the entry starts as its
-        // own idominator so the finger intersection terminates.
-        let mut idoms: Vec<Option<BlockId>> = vec![None; len];
-        if let Some(&root) = reverse_post_order.first() {
-            idoms[root.index()] = Some(root);
-        }
-        let mut changed = true;
-        while changed {
-            changed = false;
-            for &block in &reverse_post_order[1..] {
-                let mut candidate: Option<BlockId> = None;
-                for &pred in &self.preds[block.index()] {
-                    if idoms[pred.index()].is_none() {
-                        continue;
-                    }
-                    candidate = Some(match candidate {
-                        None => pred,
-                        Some(current) => Self::intersect(current, pred, &idoms, &rpo_pos),
-                    });
-                }
-                if candidate != idoms[block.index()] {
-                    idoms[block.index()] = candidate;
-                    changed = true;
-                }
-            }
-        }
+        let idoms = self.compute_idoms(&reverse_post_order, &rpo_pos);
+        let children = self.dominator_children(&idoms);
         let entry = self.entry;
-        let mut children: Vec<Vec<BlockId>> = vec![Vec::new(); len];
-        for block in self.blocks() {
-            if block != entry
-                && let Some(dom) = idoms[block.index()]
-            {
-                children[dom.index()].push(block);
-            }
-        }
         // Strip only the entry self-reference: genuine idominators pointing at
         // the entry must stay visible to callers.
-        let public_idoms: Vec<Option<BlockId>> = idoms
+        let public_idoms = idoms
             .iter()
             .enumerate()
             .map(|(idx, dom)| if idx == entry.index() { None } else { *dom })
@@ -353,6 +321,61 @@ impl<T> Cfg<T> {
             reachable,
             children,
         }
+    }
+
+    fn compute_idoms(
+        &self,
+        reverse_post_order: &[BlockId],
+        rpo_pos: &[Option<usize>],
+    ) -> Vec<Option<BlockId>> {
+        // Raw idoms: `None` marks unprocessed blocks; the entry starts as its
+        // own idominator so the finger intersection terminates.
+        let mut idoms = vec![None; self.payloads.len()];
+        if let Some(&root) = reverse_post_order.first() {
+            idoms[root.index()] = Some(root);
+        }
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for &block in &reverse_post_order[1..] {
+                let candidate = self.dominator_candidate(block, &idoms, rpo_pos);
+                if candidate != idoms[block.index()] {
+                    idoms[block.index()] = candidate;
+                    changed = true;
+                }
+            }
+        }
+        idoms
+    }
+
+    fn dominator_candidate(
+        &self,
+        block: BlockId,
+        idoms: &[Option<BlockId>],
+        rpo_pos: &[Option<usize>],
+    ) -> Option<BlockId> {
+        let mut candidate = None;
+        for &predecessor in &self.preds[block.index()] {
+            if idoms[predecessor.index()].is_some() {
+                candidate = Some(match candidate {
+                    None => predecessor,
+                    Some(current) => Self::intersect(current, predecessor, idoms, rpo_pos),
+                });
+            }
+        }
+        candidate
+    }
+
+    fn dominator_children(&self, idoms: &[Option<BlockId>]) -> Vec<Vec<BlockId>> {
+        let mut children = vec![Vec::new(); self.payloads.len()];
+        for block in self.blocks() {
+            if block != self.entry
+                && let Some(dom) = idoms[block.index()]
+            {
+                children[dom.index()].push(block);
+            }
+        }
+        children
     }
 
     fn intersect(
@@ -386,8 +409,7 @@ impl<T> Cfg<T> {
                     visited[next.index()] = true;
                     stack.push((next, 0));
                 }
-            } else {
-                let (block, _) = stack.pop().expect("frame checked above");
+            } else if let Some((block, _)) = stack.pop() {
                 order.push(block);
             }
         }
@@ -396,49 +418,63 @@ impl<T> Cfg<T> {
     }
 
     fn scc_labels(&self) -> (Vec<usize>, usize) {
-        let len = self.payloads.len();
-        let mut visited = vec![false; len];
-        let mut finish_order: Vec<BlockId> = Vec::with_capacity(len);
-        for start in self.blocks() {
-            if visited[start.index()] {
-                continue;
-            }
-            visited[start.index()] = true;
-            let mut stack = vec![(start, 0usize)];
-            while let Some(frame) = stack.last_mut() {
-                let succs = &self.succs[frame.0.index()];
-                if frame.1 < succs.len() {
-                    let next = succs[frame.1];
-                    frame.1 += 1;
-                    if !visited[next.index()] {
-                        visited[next.index()] = true;
-                        stack.push((next, 0));
-                    }
-                } else {
-                    let (block, _) = stack.pop().expect("frame checked above");
-                    finish_order.push(block);
-                }
-            }
-        }
-        let mut labels: Vec<usize> = vec![usize::MAX; len];
-        let mut label = 0usize;
+        let finish_order = self.scc_finish_order();
+        let mut labels = vec![usize::MAX; self.payloads.len()];
+        let mut label = 0;
         for &block in finish_order.iter().rev() {
-            if labels[block.index()] != usize::MAX {
-                continue;
+            if labels[block.index()] == usize::MAX {
+                self.label_reverse_component(block, label, &mut labels);
+                label += 1;
             }
-            labels[block.index()] = label;
-            let mut stack = vec![block];
-            while let Some(node) = stack.pop() {
-                for &pred in &self.preds[node.index()] {
-                    if labels[pred.index()] == usize::MAX {
-                        labels[pred.index()] = label;
-                        stack.push(pred);
-                    }
-                }
-            }
-            label += 1;
         }
         (labels, label)
+    }
+
+    fn scc_finish_order(&self) -> Vec<BlockId> {
+        let mut visited = vec![false; self.payloads.len()];
+        let mut finish_order = Vec::with_capacity(self.payloads.len());
+        for start in self.blocks() {
+            if !visited[start.index()] {
+                self.append_finish_order(start, &mut visited, &mut finish_order);
+            }
+        }
+        finish_order
+    }
+
+    fn append_finish_order(
+        &self,
+        start: BlockId,
+        visited: &mut [bool],
+        finish_order: &mut Vec<BlockId>,
+    ) {
+        visited[start.index()] = true;
+        let mut stack = vec![(start, 0usize)];
+        while let Some(frame) = stack.last_mut() {
+            let successors = &self.succs[frame.0.index()];
+            if frame.1 < successors.len() {
+                let next = successors[frame.1];
+                frame.1 += 1;
+                if !visited[next.index()] {
+                    visited[next.index()] = true;
+                    stack.push((next, 0));
+                }
+            } else if let Some((block, _)) = stack.pop() {
+                finish_order.push(block);
+            }
+        }
+    }
+
+    fn label_reverse_component(&self, block: BlockId, label: usize, labels: &mut [usize]) {
+        labels[block.index()] = label;
+        let mut stack = vec![block];
+        while let Some(node) = stack.pop() {
+            for &predecessor in &self.preds[node.index()] {
+                if labels[predecessor.index()] == usize::MAX {
+                    labels[predecessor.index()] = label;
+                    stack.push(predecessor);
+                }
+            }
+        }
     }
 }
 

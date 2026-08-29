@@ -18,44 +18,69 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     let mut issues = Vec::new();
     let mut visited: std::collections::HashSet<usize> = std::collections::HashSet::new();
     for body in callable_blocks(root) {
-        let disposed = disposed_names(body, source);
-        let enclosed = using_resource_names(body, source);
-        let escaped = returned_names(body, source);
-        for declaration in collect_kinds(body, &["variable_declaration"]) {
-            if !visited.insert(declaration.id()) {
-                continue;
-            }
-            if is_error_tainted(declaration)
-                || declaration
-                    .parent()
-                    .is_none_or(|parent| parent.kind() != "local_declaration_statement")
-            {
-                continue;
-            }
-            let Some(type_node) = declaration.child_by_field_name("type") else {
-                continue;
-            };
-            if !DISPOSABLE_TYPES.contains(&simple_name(node_text(type_node, source))) {
-                continue;
-            }
-            for declarator in collect_kinds(declaration, &["variable_declarator"]) {
-                let Some(name_node) = declarator.child_by_field_name("name") else {
-                    continue;
-                };
-                let name = node_text(name_node, source);
-                if disposed.contains(name) || enclosed.contains(name) || escaped.contains(name) {
-                    continue;
-                }
-                issues.push(issue(
-                    language,
-                    "S2930",
-                    format!("Dispose '{name}' when it is no longer needed."),
-                    range_of(declarator, source),
-                ));
+        issues.extend(undisposed_in_body(body, source, language, &mut visited));
+    }
+    issues
+}
+
+fn undisposed_in_body(
+    body: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    visited: &mut std::collections::HashSet<usize>,
+) -> Vec<Issue> {
+    let disposed = disposed_names(body, source);
+    let enclosed = using_resource_names(body, source);
+    let escaped = returned_names(body, source);
+    let mut issues = Vec::new();
+    for declaration in collect_kinds(body, &["variable_declaration"]) {
+        if !visited.insert(declaration.id()) || !is_disposable_local(declaration, source) {
+            continue;
+        }
+        for declarator in collect_kinds(declaration, &["variable_declarator"]) {
+            if let Some(issue) = undisposed_declarator_issue(
+                declarator, source, language, &disposed, &enclosed, &escaped,
+            ) {
+                issues.push(issue);
             }
         }
     }
     issues
+}
+
+fn is_disposable_local(declaration: Node<'_>, source: &str) -> bool {
+    if is_error_tainted(declaration)
+        || declaration
+            .parent()
+            .is_none_or(|parent| parent.kind() != "local_declaration_statement")
+    {
+        return false;
+    }
+    declaration
+        .child_by_field_name("type")
+        .is_some_and(|type_node| {
+            DISPOSABLE_TYPES.contains(&simple_name(node_text(type_node, source)))
+        })
+}
+
+fn undisposed_declarator_issue(
+    declarator: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    disposed: &std::collections::HashSet<String>,
+    enclosed: &std::collections::HashSet<String>,
+    escaped: &std::collections::HashSet<String>,
+) -> Option<Issue> {
+    let name = node_text(declarator.child_by_field_name("name")?, source);
+    if disposed.contains(name) || enclosed.contains(name) || escaped.contains(name) {
+        return None;
+    }
+    Some(issue(
+        language,
+        "S2930",
+        format!("Dispose '{name}' when it is no longer needed."),
+        range_of(declarator, source),
+    ))
 }
 
 /// Names whose `.Dispose()` is invoked inside the block.

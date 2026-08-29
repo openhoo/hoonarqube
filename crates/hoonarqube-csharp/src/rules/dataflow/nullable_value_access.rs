@@ -16,56 +16,84 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some(body) = body_of(declaration) else {
             continue;
         };
-        let mut nullable_names = std::collections::HashSet::new();
-        for parameter in parameters_of(declaration) {
-            if parameter_ends_nullable(parameter, source)
-                && let Some(name) = parameter.child_by_field_name("name")
-            {
-                nullable_names.insert(node_text(name, source).to_owned());
-            }
-        }
-        for variable in collect_kinds(body, &["variable_declaration"]) {
-            let nullable = variable
-                .child_by_field_name("type")
-                .is_some_and(|type_node| node_text(type_node, source).ends_with('?'));
-            if !nullable {
-                continue;
-            }
-            for declarator in collect_kinds(variable, &["variable_declarator"]) {
-                if let Some(name) = declarator.child_by_field_name("name") {
-                    nullable_names.insert(node_text(name, source).to_owned());
-                }
-            }
-        }
+        let nullable_names = nullable_names(declaration, body, source);
         if nullable_names.is_empty() {
             continue;
         }
-        let body_text = node_text(body, source);
-        for access in collect_kinds(body, &["member_access_expression"]) {
-            let Some(member) = access.child_by_field_name("name") else {
-                continue;
-            };
-            if node_text(member, source) != "Value" {
-                continue;
-            }
-            let Some(base) = access.child_by_field_name("expression") else {
-                continue;
-            };
-            if base.kind() != "identifier" {
-                continue;
-            }
-            let name = node_text(base, source);
-            if nullable_names.contains(name) && !name_is_guarded(body_text, name) {
-                issues.push(issue(
-                    language,
-                    "S3655",
-                    format!("Check 'HasValue' before accessing '{name}.Value'."),
-                    range_of(access, source),
-                ));
-            }
-        }
+        flag_unguarded_accesses(body, &nullable_names, source, language, &mut issues);
     }
     issues
+}
+
+fn nullable_names(
+    declaration: Node<'_>,
+    body: Node<'_>,
+    source: &str,
+) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    for parameter in parameters_of(declaration) {
+        if parameter_ends_nullable(parameter, source)
+            && let Some(name) = parameter.child_by_field_name("name")
+        {
+            names.insert(node_text(name, source).to_owned());
+        }
+    }
+    for variable in collect_kinds(body, &["variable_declaration"]) {
+        collect_nullable_declarators(variable, source, &mut names);
+    }
+    names
+}
+
+fn collect_nullable_declarators(
+    variable: Node<'_>,
+    source: &str,
+    names: &mut std::collections::HashSet<String>,
+) {
+    let nullable = variable
+        .child_by_field_name("type")
+        .is_some_and(|type_node| node_text(type_node, source).ends_with('?'));
+    if !nullable {
+        return;
+    }
+    for declarator in collect_kinds(variable, &["variable_declarator"]) {
+        if let Some(name) = declarator.child_by_field_name("name") {
+            names.insert(node_text(name, source).to_owned());
+        }
+    }
+}
+
+fn flag_unguarded_accesses(
+    body: Node<'_>,
+    nullable_names: &std::collections::HashSet<String>,
+    source: &str,
+    language: CsLanguage,
+    issues: &mut Vec<Issue>,
+) {
+    let body_text = node_text(body, source);
+    for access in collect_kinds(body, &["member_access_expression"]) {
+        let Some(name) = nullable_value_name(access, source) else {
+            continue;
+        };
+        if nullable_names.contains(name) && !name_is_guarded(body_text, name) {
+            issues.push(issue(
+                language,
+                "S3655",
+                format!("Check 'HasValue' before accessing '{name}.Value'."),
+                range_of(access, source),
+            ));
+        }
+    }
+}
+
+fn nullable_value_name<'source>(access: Node<'_>, source: &'source str) -> Option<&'source str> {
+    let member = access.child_by_field_name("name")?;
+    if node_text(member, source) != "Value" {
+        return None;
+    }
+    let base = access
+        .child_by_field_name("expression")
+        .filter(|base| base.kind() == "identifier")?;
+    Some(node_text(base, source))
 }
 
 /// Callables whose parameters and locals the nullable checks consider.

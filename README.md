@@ -110,17 +110,25 @@ cargo run -p xtask -- catalog coverage                         # parity audit
 
 ### Automatic fixes
 
-`fix` combines quick fixes attached to catalog findings with safe mechanical
-repairs for trailing whitespace, missing final newlines, and leading tabs. It
-never writes by default. Use `--diff` to inspect the projected rewrite and
-`--apply` to write it. `--rule <prefix>` limits finding-backed fixes (repeatable
-or comma-separated); mechanical repairs remain enabled.
+`fix` combines quick fixes attached to catalog findings with a safe mechanical
+repair for missing final newlines. It never writes by default. Use `--diff` to
+inspect the projected rewrite and `--apply` to write it. `--rule <prefix>`
+limits finding-backed fixes (repeatable or comma-separated); the final-newline
+repair remains enabled. Generic trailing-space and leading-tab rewrites are
+intentionally excluded because that whitespace can be data inside multiline or
+raw string literals.
 
 Each multi-edit rule fix is atomic. If fixes overlap, deterministic earlier
 fixes win and complete later fixes are skipped and reported. Apply mode rejects
-a file changed since planning, then re-analyzes written content: targeted rule
-counts must decrease by the number of applied fixes and no rule count may
-increase. Failed verification returns a nonzero exit status.
+a file changed since planning, then analyzes projected content before writing:
+every rule fix must work independently, targeted rule counts must decrease by
+the number of applied fixes, and no rule count may increase, including after a
+mechanical-only rewrite. Failed verification returns a nonzero exit status and
+leaves the file untouched. File content is checked again immediately before
+the write.
+Apply mode also rejects symlinked files and directories and rechecks each path
+before writing. Analysis remains read-only and may inspect symlinked source
+files, but never follows symlinked directories.
 
 Global `--json` keeps stdout as one JSON document, including requested diffs as
 per-file `diff` fields instead of mixing human text into machine output. Current
@@ -130,7 +138,7 @@ parentheses remedy. See [QUICKFIX.md](QUICKFIX.md) for the parity inventory.
 ## Development
 
 ```bash
-cargo test --workspace            # full suite
+cargo test --workspace --all-targets  # full suite, including benches/examples
 cargo run -q -p xtask -- catalog coverage --strict --allow-infra
 python3 -m unittest discover -s tools/oracle -p 'test_*.py' -v
 cargo clippy --workspace --all-targets   # zero-warning policy (pedantic)

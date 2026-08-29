@@ -16,6 +16,10 @@ use ruff_python_ast::ExprLambda;
 use ruff_python_ast::ExprNamed;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Pattern;
+use ruff_python_ast::PatternMatchAs;
+use ruff_python_ast::PatternMatchClass;
+use ruff_python_ast::PatternMatchMapping;
+use ruff_python_ast::PatternMatchStar;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtGlobal;
 use ruff_python_ast::StmtIf;
@@ -332,61 +336,97 @@ fn record_pattern_bindings(
             }
         }
         Pattern::MatchMapping(mapping) => {
-            for key in &mapping.keys {
-                record_expr_loads(table, current, key, false, loop_depth);
-            }
-            for subpattern in &mapping.patterns {
-                record_pattern_bindings(table, current, subpattern, loop_depth);
-            }
-            if let Some(rest) = &mapping.rest {
-                bind_symbol(
-                    &mut table.scopes[current],
-                    rest.as_str(),
-                    rest.range(),
-                    BindingKind::Assignment,
-                    loop_depth,
-                );
-            }
+            record_mapping_pattern(table, current, mapping, loop_depth);
         }
         Pattern::MatchClass(class) => {
-            record_expr_loads(table, current, &class.cls, false, loop_depth);
-            for argument in &class.arguments.patterns {
-                record_pattern_bindings(table, current, argument, loop_depth);
-            }
-            for keyword in &class.arguments.keywords {
-                record_pattern_bindings(table, current, &keyword.pattern, loop_depth);
-            }
+            record_class_pattern(table, current, class, loop_depth);
         }
         Pattern::MatchStar(star) => {
-            if let Some(name) = &star.name {
-                bind_symbol(
-                    &mut table.scopes[current],
-                    name.as_str(),
-                    name.range(),
-                    BindingKind::Assignment,
-                    loop_depth,
-                );
-            }
+            record_star_pattern(table, current, star, loop_depth);
         }
         Pattern::MatchAs(as_pattern) => {
-            if let Some(subpattern) = as_pattern.pattern.as_deref() {
-                record_pattern_bindings(table, current, subpattern, loop_depth);
-            }
-            if let Some(name) = &as_pattern.name {
-                bind_symbol(
-                    &mut table.scopes[current],
-                    name.as_str(),
-                    name.range(),
-                    BindingKind::Assignment,
-                    loop_depth,
-                );
-            }
+            record_as_pattern(table, current, as_pattern, loop_depth);
         }
         Pattern::MatchOr(or_pattern) => {
             for alternative in &or_pattern.patterns {
                 record_pattern_bindings(table, current, alternative, loop_depth);
             }
         }
+    }
+}
+
+fn record_mapping_pattern(
+    table: &mut SymbolTable,
+    current: usize,
+    mapping: &PatternMatchMapping,
+    loop_depth: u32,
+) {
+    for key in &mapping.keys {
+        record_expr_loads(table, current, key, false, loop_depth);
+    }
+    for subpattern in &mapping.patterns {
+        record_pattern_bindings(table, current, subpattern, loop_depth);
+    }
+    if let Some(rest) = &mapping.rest {
+        bind_symbol(
+            &mut table.scopes[current],
+            rest.as_str(),
+            rest.range(),
+            BindingKind::Assignment,
+            loop_depth,
+        );
+    }
+}
+
+fn record_class_pattern(
+    table: &mut SymbolTable,
+    current: usize,
+    class: &PatternMatchClass,
+    loop_depth: u32,
+) {
+    record_expr_loads(table, current, &class.cls, false, loop_depth);
+    for argument in &class.arguments.patterns {
+        record_pattern_bindings(table, current, argument, loop_depth);
+    }
+    for keyword in &class.arguments.keywords {
+        record_pattern_bindings(table, current, &keyword.pattern, loop_depth);
+    }
+}
+
+fn record_star_pattern(
+    table: &mut SymbolTable,
+    current: usize,
+    star: &PatternMatchStar,
+    loop_depth: u32,
+) {
+    if let Some(name) = &star.name {
+        bind_symbol(
+            &mut table.scopes[current],
+            name.as_str(),
+            name.range(),
+            BindingKind::Assignment,
+            loop_depth,
+        );
+    }
+}
+
+fn record_as_pattern(
+    table: &mut SymbolTable,
+    current: usize,
+    as_pattern: &PatternMatchAs,
+    loop_depth: u32,
+) {
+    if let Some(subpattern) = as_pattern.pattern.as_deref() {
+        record_pattern_bindings(table, current, subpattern, loop_depth);
+    }
+    if let Some(name) = &as_pattern.name {
+        bind_symbol(
+            &mut table.scopes[current],
+            name.as_str(),
+            name.range(),
+            BindingKind::Assignment,
+            loop_depth,
+        );
     }
 }
 

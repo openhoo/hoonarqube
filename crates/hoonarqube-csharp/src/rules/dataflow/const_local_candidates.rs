@@ -15,63 +15,79 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for body in callable_blocks(root) {
-        let captured = captured_names(body, source);
-        let mut write_counts: std::collections::HashMap<&str, u32> =
-            std::collections::HashMap::new();
-        for identifier in collect_kinds(body, &["identifier"]) {
-            if identifier_write(identifier).is_some() {
-                *write_counts
-                    .entry(node_text(identifier, source))
-                    .or_default() += 1;
-            }
-        }
-        for declaration in collect_kinds(body, &["local_declaration_statement"]) {
-            if has_modifier(&modifiers_of(declaration, source), "const") {
-                continue;
-            }
-            let type_text = declaration
-                .children(&mut declaration.walk())
-                .find(|child| child.kind() == "variable_declaration")
-                .and_then(|variable| variable.child_by_field_name("type"))
-                .map_or("", |type_node| simple_name(node_text(type_node, source)));
-            if !CONST_CANDIDATE_TYPES.contains(&type_text) {
-                continue;
-            }
-            for declarator in collect_kinds(declaration, &["variable_declarator"]) {
-                let Some(name) = declarator.child_by_field_name("name") else {
-                    continue;
-                };
-                let name = node_text(name, source);
-                let literal_initializer = declarator_initializer(
-                    declarator,
-                    declarator.child_by_field_name("name").unwrap_or(declarator),
-                )
-                .is_some_and(|value| {
-                    matches!(
-                        value.kind(),
-                        "integer_literal"
-                            | "real_literal"
-                            | "string_literal"
-                            | "character_literal"
-                            | "boolean_literal"
-                    )
-                });
-                if literal_initializer
-                    && !captured.contains(name)
-                    && write_counts.get(name).copied().unwrap_or(0) <= 1
-                {
-                    let name_node = declarator.child_by_field_name("name").unwrap_or(declarator);
-                    issues.push(issue(
-                        language,
-                        "S3353",
-                        format!("Add the 'const' modifier to '{name}'."),
-                        range_of(name_node, source),
-                    ));
-                }
-            }
-        }
+        issues.extend(body_const_candidates(body, source, language));
     }
     issues
+}
+
+fn body_const_candidates(body: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let captured = captured_names(body, source);
+    let write_counts = identifier_write_counts(body, source);
+    collect_kinds(body, &["local_declaration_statement"])
+        .into_iter()
+        .filter(|declaration| is_const_candidate_declaration(*declaration, source))
+        .flat_map(|declaration| collect_kinds(declaration, &["variable_declarator"]))
+        .filter_map(|declarator| {
+            const_candidate_issue(declarator, source, language, &captured, &write_counts)
+        })
+        .collect()
+}
+
+fn identifier_write_counts<'a>(
+    body: Node<'_>,
+    source: &'a str,
+) -> std::collections::HashMap<&'a str, u32> {
+    let mut counts = std::collections::HashMap::new();
+    for identifier in collect_kinds(body, &["identifier"]) {
+        if identifier_write(identifier).is_some() {
+            *counts.entry(node_text(identifier, source)).or_default() += 1;
+        }
+    }
+    counts
+}
+
+fn is_const_candidate_declaration(declaration: Node<'_>, source: &str) -> bool {
+    if has_modifier(&modifiers_of(declaration, source), "const") {
+        return false;
+    }
+    declaration
+        .children(&mut declaration.walk())
+        .find(|child| child.kind() == "variable_declaration")
+        .and_then(|variable| variable.child_by_field_name("type"))
+        .map(|type_node| simple_name(node_text(type_node, source)))
+        .is_some_and(|type_text| CONST_CANDIDATE_TYPES.contains(&type_text))
+}
+
+fn const_candidate_issue(
+    declarator: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    captured: &std::collections::HashSet<String>,
+    write_counts: &std::collections::HashMap<&str, u32>,
+) -> Option<Issue> {
+    let name_node = declarator.child_by_field_name("name")?;
+    let name = node_text(name_node, source);
+    let literal_initializer = declarator_initializer(declarator, name_node).is_some_and(|value| {
+        matches!(
+            value.kind(),
+            "integer_literal"
+                | "real_literal"
+                | "string_literal"
+                | "character_literal"
+                | "boolean_literal"
+        )
+    });
+    (literal_initializer
+        && !captured.contains(name)
+        && write_counts.get(name).copied().unwrap_or(0) <= 1)
+        .then(|| {
+            issue(
+                language,
+                "S3353",
+                format!("Add the 'const' modifier to '{name}'."),
+                range_of(name_node, source),
+            )
+        })
 }
 
 /// Primitive types a `const` local may declare.

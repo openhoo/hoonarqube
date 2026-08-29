@@ -10,7 +10,7 @@ repository.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
-hoonarqube-ir = { path = "../hoonarqube-ir" }
+hoonarqube-ir = { version = "0.1.0", path = "../hoonarqube-ir" }
 tree-sitter = "0.25.10"
 tree-sitter-go = "0.25.0"
 

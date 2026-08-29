@@ -277,11 +277,14 @@ impl Scanner {
     }
 
     pub(crate) fn step_code(&mut self, i: usize, c: char, next: Option<char>) -> (usize, bool) {
-        if c == '{' && !self.template_stack.is_empty() {
+        if c == '{'
+            && let Some((_, depth)) = self.template_stack.last_mut()
+        {
             // A `{ … }` block opened inside a `${ … }` substitution.
-            self.template_stack.last_mut().unwrap().1 += 1;
-        } else if c == '}' && !self.template_stack.is_empty() {
-            let depth = &mut self.template_stack.last_mut().unwrap().1;
+            *depth += 1;
+        } else if c == '}'
+            && let Some((_, depth)) = self.template_stack.last_mut()
+        {
             if *depth > 0 {
                 // Closes a block inside the substitution; it continues.
                 *depth -= 1;

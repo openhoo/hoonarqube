@@ -50,9 +50,9 @@ pub(crate) fn check_fresh_object_identity_checks(
             } else {
                 "is not"
             };
-            let relative = between
-                .find(operator_text)
-                .expect("comparison operator text");
+            let Some(relative) = between.find(operator_text) else {
+                continue;
+            };
             let operator_start =
                 left_end + ruff_text_size::TextSize::from(crate::support::to_u32(relative));
             issues.push(issue_at(

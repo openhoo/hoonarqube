@@ -16,80 +16,105 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     for body in callable_blocks(root) {
         let mut populated: std::collections::HashSet<String> = std::collections::HashSet::new();
         walk_all(body, &mut |node| {
-            if !visited.insert(node.id()) {
-                return;
-            }
-            match node.kind() {
-                "invocation_expression" => {
-                    let Some(receiver) = invocation_receiver(node) else {
-                        return;
-                    };
-                    if receiver.kind() != "identifier" {
-                        return;
-                    }
-                    let name = node_text(receiver, source);
-                    match callee_name(node, source) {
-                        Some("Add" | "AddRange" | "Insert") => {
-                            populated.insert(name.to_owned());
-                        }
-                        Some("Clear") => {
-                            populated.remove(name);
-                        }
-                        Some("FirstOrDefault" | "SingleOrDefault") if populated.contains(name) => {
-                            issues.push(issue(
-                                    language,
-                                    "S7130",
-                                    "Use 'First' or 'Single' here; this collection is known to be non-empty.",
-                                    range_of(node, source),
-                                ));
-                        }
-                        _ => {}
-                    }
-                }
-                "variable_declaration" => {
-                    for declarator in collect_kinds(node, &["variable_declarator"]) {
-                        let Some(initializer) =
-                            collect_kinds(declarator, &["initializer_expression"])
-                                .into_iter()
-                                .next()
-                        else {
-                            continue;
-                        };
-                        let mut cursor = initializer.walk();
-                        if !initializer
-                            .children(&mut cursor)
-                            .any(|child| child.is_named())
-                        {
-                            continue;
-                        }
-                        if let Some(name) = declarator.child_by_field_name("name") {
-                            populated.insert(node_text(name, source).to_owned());
-                        }
-                    }
-                }
-                "identifier" if identifier_write(node) == Some(WriteKind::Store) => {
-                    // A declarator's own name is not a reassignment when the
-                    // already-credited non-empty initializer populates it.
-                    let credited_by_initializer = node.parent().is_some_and(|parent| {
-                        parent.kind() == "variable_declarator"
-                            && collect_kinds(parent, &["initializer_expression"])
-                                .into_iter()
-                                .next()
-                                .is_some_and(|initializer| {
-                                    initializer
-                                        .children(&mut initializer.walk())
-                                        .any(|child| child.is_named())
-                                })
-                    });
-                    if !credited_by_initializer {
-                        populated.remove(node_text(node, source));
-                    }
-                }
-                _ => {}
-            }
+            process_node(
+                node,
+                source,
+                language,
+                &mut visited,
+                &mut populated,
+                &mut issues,
+            );
         });
     }
     issues
+}
+
+fn process_node(
+    node: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    visited: &mut std::collections::HashSet<usize>,
+    populated: &mut std::collections::HashSet<String>,
+    issues: &mut Vec<Issue>,
+) {
+    if !visited.insert(node.id()) {
+        return;
+    }
+    match node.kind() {
+        "invocation_expression" => process_invocation(node, source, language, populated, issues),
+        "variable_declaration" => credit_initializers(node, source, populated),
+        "identifier"
+            if identifier_write(node) == Some(WriteKind::Store)
+                && !credited_by_initializer(node) =>
+        {
+            populated.remove(node_text(node, source));
+        }
+        _ => {}
+    }
+}
+
+fn process_invocation(
+    call: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    populated: &mut std::collections::HashSet<String>,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(receiver) =
+        invocation_receiver(call).filter(|receiver| receiver.kind() == "identifier")
+    else {
+        return;
+    };
+    let name = node_text(receiver, source);
+    match callee_name(call, source) {
+        Some("Add" | "AddRange" | "Insert") => {
+            populated.insert(name.to_owned());
+        }
+        Some("Clear") => {
+            populated.remove(name);
+        }
+        Some("FirstOrDefault" | "SingleOrDefault") if populated.contains(name) => {
+            issues.push(issue(
+                language,
+                "S7130",
+                "Use 'First' or 'Single' here; this collection is known to be non-empty.",
+                range_of(call, source),
+            ));
+        }
+        _ => {}
+    }
+}
+
+fn credit_initializers(
+    declaration: Node<'_>,
+    source: &str,
+    populated: &mut std::collections::HashSet<String>,
+) {
+    for declarator in collect_kinds(declaration, &["variable_declarator"]) {
+        if has_non_empty_initializer(declarator)
+            && let Some(name) = declarator.child_by_field_name("name")
+        {
+            populated.insert(node_text(name, source).to_owned());
+        }
+    }
+}
+
+fn credited_by_initializer(identifier: Node<'_>) -> bool {
+    identifier
+        .parent()
+        .filter(|parent| parent.kind() == "variable_declarator")
+        .is_some_and(has_non_empty_initializer)
+}
+
+fn has_non_empty_initializer(declarator: Node<'_>) -> bool {
+    collect_kinds(declarator, &["initializer_expression"])
+        .into_iter()
+        .next()
+        .is_some_and(|initializer| {
+            initializer
+                .children(&mut initializer.walk())
+                .any(|child| child.is_named())
+        })
 }
 
 #[cfg(test)]

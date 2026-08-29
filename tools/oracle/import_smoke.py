@@ -21,6 +21,7 @@ REPO = Path(__file__).resolve().parent.parent.parent
 SOURCE = Path("tools/oracle/fixtures/import-smoke/src/sample.py")
 RULE = "external_hoonarqube:python:S112"
 MESSAGE = "Replace this generic exception class with a more specific one."
+HTTP_TIMEOUT_SECONDS = 30
 
 
 def request_json(url: str, token: str, path: str, params=None):
@@ -28,7 +29,8 @@ def request_json(url: str, token: str, path: str, params=None):
     request = urllib.request.Request(url.rstrip("/") + path + query)
     encoded = base64.b64encode(f"{token}:".encode()).decode()
     request.add_header("Authorization", f"Basic {encoded}")
-    return json.load(urllib.request.urlopen(request))
+    with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+        return json.load(response)
 
 
 def verify_imported_issue(payload):
@@ -71,7 +73,9 @@ def main():
     if not args.token:
         parser.error("pass --token or set SONAR_IMPORT_TOKEN")
 
-    subprocess.run(["cargo", "build", "-q", "-p", "hoonarqube-cli"], cwd=REPO, check=True)
+    subprocess.run(
+        ["cargo", "build", "-q", "-p", "hoonarqube-cli"], cwd=REPO, check=True
+    )
     with tempfile.TemporaryDirectory(prefix="hoonarqube-import-smoke-") as temp:
         temp_path = Path(temp)
         report = temp_path / "report.json"
@@ -93,7 +97,9 @@ def main():
         if not isinstance(generated.get("rules"), list) or not isinstance(
             generated.get("issues"), list
         ):
-            raise SystemExit("generated report does not use current rules/issues schema")
+            raise SystemExit(
+                "generated report does not use current rules/issues schema"
+            )
 
         subprocess.run(
             [
@@ -109,14 +115,16 @@ def main():
             cwd=REPO,
             check=True,
         )
-        task_id = parse_report_task((scanner_work / "report-task.txt").read_text())["ceTaskId"]
+        task_id = parse_report_task((scanner_work / "report-task.txt").read_text())[
+            "ceTaskId"
+        ]
         status = wait_for_compute_engine(
             task_id,
-            lambda value: request_json(
-                args.sonar_url, args.token, "/api/ce/task", {"id": value}
-            )
-            .get("task", {})
-            .get("status"),
+            lambda value: (
+                request_json(args.sonar_url, args.token, "/api/ce/task", {"id": value})
+                .get("task", {})
+                .get("status")
+            ),
             lambda: time.sleep(1),
         )
         if status != "SUCCESS":

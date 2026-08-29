@@ -3,13 +3,6 @@
 use crate::cst::to_u32;
 use tree_sitter::Node;
 
-/// Whole-file CST walks stay stack-bounded during `analyze`: legitimate
-/// files nest nowhere near this deep, while runaway machine-generated
-/// nesting stops descending past [`MAX_CST_DEPTH`] instead of exhausting
-/// the stack. Rows of stopped subtrees stay classified because every
-/// descendant span is covered by its already-marked ancestors.
-const MAX_CST_DEPTH: u32 = 256;
-
 pub(crate) fn file_metrics(root: Node<'_>, source: &str) -> hoonarqube_ir::FileMetrics {
     let lines = if source.is_empty() {
         0
@@ -21,12 +14,10 @@ pub(crate) fn file_metrics(root: Node<'_>, source: &str) -> hoonarqube_ir::FileM
     let mut comment_lines = std::collections::BTreeSet::new();
     collect_line_kinds(root, &mut code_lines, &mut comment_lines);
     // A line holding both code and a comment counts as code only.
-    let comment_only: Vec<u32> = comment_lines.difference(&code_lines).copied().collect();
-
     hoonarqube_ir::FileMetrics {
         lines,
         code_lines: to_u32(code_lines.len()),
-        comment_lines: to_u32(comment_only.len()),
+        comment_lines: to_u32(comment_lines.difference(&code_lines).count()),
     }
 }
 
@@ -37,34 +28,21 @@ pub(crate) fn collect_line_kinds(
     code_lines: &mut std::collections::BTreeSet<u32>,
     comment_lines: &mut std::collections::BTreeSet<u32>,
 ) {
-    collect_line_kinds_bounded(node, code_lines, comment_lines, 0);
-}
-
-/// Bounded descent: marking happens before the depth check, so a subtree
-/// cut at [`MAX_CST_DEPTH`] keeps its own rows classified.
-fn collect_line_kinds_bounded(
-    node: Node<'_>,
-    code_lines: &mut std::collections::BTreeSet<u32>,
-    comment_lines: &mut std::collections::BTreeSet<u32>,
-    depth: u32,
-) {
-    if node.kind() == "comment" {
-        for row in node.start_position().row..=node.end_position().row {
-            comment_lines.insert(to_u32(row));
+    let mut pending = vec![node];
+    while let Some(node) = pending.pop() {
+        if node.kind() == "comment" {
+            for row in node.start_position().row..=node.end_position().row {
+                comment_lines.insert(to_u32(row));
+            }
+            continue;
         }
-        return;
-    }
-    if node.child_count() == 0 && node.kind() != "ERROR" {
-        for row in node.start_position().row..=node.end_position().row {
-            code_lines.insert(to_u32(row));
+        if node.child_count() == 0 && node.kind() != "ERROR" {
+            for row in node.start_position().row..=node.end_position().row {
+                code_lines.insert(to_u32(row));
+            }
         }
-    }
-    if depth >= MAX_CST_DEPTH {
-        return;
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_line_kinds_bounded(child, code_lines, comment_lines, depth + 1);
+        let mut cursor = node.walk();
+        pending.extend(node.children(&mut cursor));
     }
 }
 
@@ -82,20 +60,18 @@ mod tests {
     }
 
     #[test]
-    fn deeply_nested_cst_walk_stays_within_the_stack_budget() {
-        // ~10k chained `&&` levels: far past MAX_CST_DEPTH and exactly the
-        // runaway shape that previously recursed once per level unbounded.
+    fn deeply_nested_cst_walk_is_iterative_and_exact() {
+        // Chained `&&` nodes form a CST far deeper than the old descent cap.
+        // Every physical line must still be classified.
         let deep = format!(
-            "class A {{ void M(bool a) {{ var x = {}a; }} }}\n",
-            "a && ".repeat(10_000)
+            "class A {{ void M(bool a) {{ var x =\n{}a;\n}} }}\n",
+            "a &&\n".repeat(2_000)
         );
         let tree = crate::parse(&deep);
         let mut code_lines = std::collections::BTreeSet::new();
         let mut comment_lines = std::collections::BTreeSet::new();
         collect_line_kinds(tree.root_node(), &mut code_lines, &mut comment_lines);
-        // The single physical line stays classified; the walk stops at
-        // MAX_CST_DEPTH instead of recursing once per `&&` level.
-        assert_eq!(code_lines.len(), 1);
+        assert_eq!(code_lines.len(), deep.lines().count());
         assert!(comment_lines.is_empty());
     }
 }

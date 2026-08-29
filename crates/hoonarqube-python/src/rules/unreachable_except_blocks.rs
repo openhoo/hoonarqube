@@ -21,50 +21,61 @@ pub(crate) fn check_unreachable_except_blocks(
     let mut issues = Vec::new();
     for stmt in &file_ctx.stmts {
         let Stmt::Try(try_stmt) = stmt else { continue };
-        let mut seen_bare = false;
-        let mut seen_broad: Option<&'static str> = None;
-        let mut seen_types: Vec<String> = Vec::new();
+        let mut seen = SeenHandlers::default();
         for handler in &try_stmt.handlers {
-            let ExceptHandler::ExceptHandler(inner) = handler;
-            let Some(type_expr) = inner.type_.as_deref() else {
-                if seen_bare || !seen_types.is_empty() || seen_broad.is_some() {
-                    issues.push(issue_at(
-                        "python:S1045",
-                        "This except block cannot catch anything; review the preceding clauses.",
-                        inner.range(),
-                        index,
-                        source,
-                    ));
-                }
-                seen_bare = true;
-                continue;
-            };
-            let normalized = expr_normalized_text(type_expr, source);
-            if seen_bare || seen_broad.is_some() {
-                issues.push(issue_at(
-                    "python:S1045",
-                    "This except block cannot catch anything; an earlier clause catches everything.",
-                    type_expr.range(),
-                    index,
-                    source,
-                ));
-            } else if seen_types.iter().any(|previous| previous == &normalized) {
-                issues.push(issue_at(
-                    "python:S1045",
-                    "Catch this exception only once; it is already handled by a previous except clause.",
-                    type_expr.range(),
-                    index,
-                    source,
-                ));
+            if let Some(issue) = seen.check(handler, index, source) {
+                issues.push(issue);
             }
-            if normalized == "Exception" || normalized == "BaseException" {
-                seen_broad = Some(match normalized.as_str() {
-                    "Exception" => "Exception",
-                    _ => "BaseException",
-                });
-            }
-            seen_types.push(normalized);
         }
     }
     issues
+}
+
+#[derive(Default)]
+struct SeenHandlers {
+    bare: bool,
+    broad: bool,
+    types: Vec<String>,
+}
+
+impl SeenHandlers {
+    fn check(&mut self, handler: &ExceptHandler, index: &LineIndex, source: &str) -> Option<Issue> {
+        let ExceptHandler::ExceptHandler(inner) = handler;
+        let Some(type_expr) = inner.type_.as_deref() else {
+            let unreachable = self.bare || self.broad || !self.types.is_empty();
+            self.bare = true;
+            return unreachable.then(|| {
+                issue_at(
+                    "python:S1045",
+                    "This except block cannot catch anything; review the preceding clauses.",
+                    inner.range(),
+                    index,
+                    source,
+                )
+            });
+        };
+        let normalized = expr_normalized_text(type_expr, source);
+        let issue = if self.bare || self.broad {
+            Some(issue_at(
+                "python:S1045",
+                "This except block cannot catch anything; an earlier clause catches everything.",
+                type_expr.range(),
+                index,
+                source,
+            ))
+        } else if self.types.contains(&normalized) {
+            Some(issue_at(
+                "python:S1045",
+                "Catch this exception only once; it is already handled by a previous except clause.",
+                type_expr.range(),
+                index,
+                source,
+            ))
+        } else {
+            None
+        };
+        self.broad |= matches!(normalized.as_str(), "Exception" | "BaseException");
+        self.types.push(normalized);
+        issue
+    }
 }

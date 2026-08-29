@@ -19,33 +19,36 @@ pub(crate) fn check_class_field_names(
         let Stmt::ClassDef(class) = stmt else {
             continue;
         };
-        for member in &class.body {
-            let targets: Vec<&Expr> = match member {
-                Stmt::Assign(assign) => assign.targets.iter().collect(),
-                Stmt::AnnAssign(assignment) => vec![&*assignment.target],
-                _ => continue,
+        for target_name in class.body.iter().flat_map(class_field_names) {
+            let Expr::Name(name) = target_name else {
+                continue;
             };
-            for target in targets {
-                for target_name in binding_target_names(target) {
-                    let Expr::Name(name) = target_name else {
-                        continue;
-                    };
-                    if !matches_field_name(name.id.as_str()) {
-                        issues.push(issue_at(
-                            "python:S116",
-                            &format!(
-                                "Rename this field \"{}\" to match the regular expression \
-                                 ^[_a-z][_a-z0-9]*$.",
-                                name.id
-                            ),
-                            target_name.range(),
-                            index,
-                            source,
-                        ));
-                    }
-                }
+            if !matches_field_name(name.id.as_str()) {
+                issues.push(issue_at(
+                    "python:S116",
+                    &format!(
+                        "Rename this field \"{}\" to match the regular expression \
+                         ^[_a-z][_a-z0-9]*$.",
+                        name.id
+                    ),
+                    target_name.range(),
+                    index,
+                    source,
+                ));
             }
         }
     }
     issues
+}
+
+fn class_field_names(member: &Stmt) -> Vec<&Expr> {
+    match member {
+        Stmt::Assign(assign) => assign
+            .targets
+            .iter()
+            .flat_map(binding_target_names)
+            .collect(),
+        Stmt::AnnAssign(assignment) => binding_target_names(&assignment.target),
+        _ => Vec::new(),
+    }
 }

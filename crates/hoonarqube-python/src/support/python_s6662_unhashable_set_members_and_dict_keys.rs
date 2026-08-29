@@ -36,51 +36,35 @@ pub(crate) fn typed_literal_kind(expr: &Expr) -> Option<&'static str> {
 pub(crate) fn stmt_store_names(stmt: &Stmt) -> Vec<String> {
     let mut names = Vec::new();
     match stmt {
-        Stmt::Assign(assign) => {
-            for target in &assign.targets {
-                collect_target_names(target, &mut names);
-            }
-        }
+        Stmt::Assign(assign) => collect_targets(&assign.targets, &mut names),
         Stmt::AnnAssign(assign) => collect_target_names(&assign.target, &mut names),
         Stmt::AugAssign(assign) => collect_target_names(&assign.target, &mut names),
-        Stmt::Delete(delete) => {
-            for target in &delete.targets {
-                collect_target_names(target, &mut names);
-            }
-        }
+        Stmt::Delete(delete) => collect_targets(&delete.targets, &mut names),
         Stmt::For(loop_stmt) => collect_target_names(&loop_stmt.target, &mut names),
-        Stmt::With(with_stmt) => {
-            for item in &with_stmt.items {
-                if let Some(vars) = item.optional_vars.as_deref() {
-                    collect_target_names(vars, &mut names);
-                }
-            }
-        }
-        Stmt::Import(import) => {
-            for alias in &import.names {
-                names.extend(import_binding_name(alias));
-            }
-        }
+        Stmt::With(with_stmt) => with_stmt
+            .items
+            .iter()
+            .filter_map(|item| item.optional_vars.as_deref())
+            .for_each(|target| collect_target_names(target, &mut names)),
+        Stmt::Import(import) => names.extend(import.names.iter().filter_map(import_binding_name)),
         Stmt::ImportFrom(import_from) => {
-            for alias in &import_from.names {
-                names.extend(import_binding_name(alias));
-            }
+            names.extend(import_from.names.iter().filter_map(import_binding_name));
         }
         Stmt::FunctionDef(function) => names.push(function.name.as_str().to_string()),
         Stmt::ClassDef(class) => names.push(class.name.as_str().to_string()),
-        Stmt::Global(global) => {
-            for name in &global.names {
-                names.push(name.as_str().to_string());
-            }
-        }
+        Stmt::Global(global) => names.extend(global.names.iter().map(ToString::to_string)),
         Stmt::Nonlocal(nonlocal_stmt) => {
-            for name in &nonlocal_stmt.names {
-                names.push(name.as_str().to_string());
-            }
+            names.extend(nonlocal_stmt.names.iter().map(ToString::to_string));
         }
         _ => {}
     }
     names
+}
+
+fn collect_targets(targets: &[Expr], names: &mut Vec<String>) {
+    for target in targets {
+        collect_target_names(target, names);
+    }
 }
 
 /// Module names provably holding a non-callable literal: assigned a literal

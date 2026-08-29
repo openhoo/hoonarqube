@@ -11,6 +11,19 @@ use tree_sitter::Node;
 /// csharpsquid:S6419 — Azure Function invocations must not mutate static
 /// state shared by concurrent executions.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let static_fields = mutable_static_fields(root, source);
+    let mut issues = Vec::new();
+    for method in azure_function_methods(root, source) {
+        flag_assignments(method, &static_fields, source, language, &mut issues);
+        flag_unary_updates(method, &static_fields, source, language, &mut issues);
+    }
+    issues
+}
+
+fn mutable_static_fields<'source>(
+    root: Node<'_>,
+    source: &'source str,
+) -> std::collections::HashSet<&'source str> {
     let mut static_fields = std::collections::HashSet::new();
     for type_node in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
         for field in member_declarations_of_kind(type_node, "field_declaration") {
@@ -28,30 +41,45 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             }
         }
     }
-    let mut issues = Vec::new();
-    for method in azure_function_methods(root, source) {
-        for assignment in collect_kinds(method, &["assignment_expression"]) {
-            if let Some(target) = assignment.child_by_field_name("left")
-                && expression_name(target, source).is_some_and(|name| static_fields.contains(name))
-            {
-                issues.push(static_state_issue(target, source, language));
-            }
-        }
-        for unary in collect_kinds(
-            method,
-            &["prefix_unary_expression", "postfix_unary_expression"],
-        ) {
-            if is_error_tainted(unary) {
-                continue;
-            }
-            if let Some(target) = first_named_child(unary)
-                && expression_name(target, source).is_some_and(|name| static_fields.contains(name))
-            {
-                issues.push(static_state_issue(target, source, language));
-            }
+    static_fields
+}
+
+fn flag_assignments(
+    method: Node<'_>,
+    static_fields: &std::collections::HashSet<&str>,
+    source: &str,
+    language: CsLanguage,
+    issues: &mut Vec<Issue>,
+) {
+    for assignment in collect_kinds(method, &["assignment_expression"]) {
+        if let Some(target) = assignment.child_by_field_name("left")
+            && expression_name(target, source).is_some_and(|name| static_fields.contains(name))
+        {
+            issues.push(static_state_issue(target, source, language));
         }
     }
-    issues
+}
+
+fn flag_unary_updates(
+    method: Node<'_>,
+    static_fields: &std::collections::HashSet<&str>,
+    source: &str,
+    language: CsLanguage,
+    issues: &mut Vec<Issue>,
+) {
+    for unary in collect_kinds(
+        method,
+        &["prefix_unary_expression", "postfix_unary_expression"],
+    ) {
+        if is_error_tainted(unary) {
+            continue;
+        }
+        if let Some(target) = first_named_child(unary)
+            && expression_name(target, source).is_some_and(|name| static_fields.contains(name))
+        {
+            issues.push(static_state_issue(target, source, language));
+        }
+    }
 }
 
 fn static_state_issue(target: Node<'_>, source: &str, language: CsLanguage) -> Issue {

@@ -920,6 +920,15 @@ fn s1226_flags_parameters_overwritten_before_read() {
         "def render(mode):\n    prefix = mode or \"fast\"\n    return prefix\n\n\nrender(\"slow\")\n",
     );
     assert!(findings(&respected, "python:S1226").is_empty());
+
+    let unrelated_load = scan(
+        "def render(mode):\n    print('starting')\n    mode = 'fast'\n    return mode\n\n\nrender('slow')\n",
+    );
+    assert_eq!(
+        findings(&unrelated_load, "python:S1226").len(),
+        1,
+        "an unrelated load before the assignment must not count as reading the parameter"
+    );
 }
 
 #[test]
@@ -2067,6 +2076,41 @@ fn s930_checks_methods_and_constructors_file_locally() {
         "c.purr(3)\n"
     );
     assert!(findings_of(clean, "python:S930").is_empty());
+}
+
+#[test]
+fn local_call_resolution_drops_redefined_and_rebound_names() {
+    let source = concat!(
+        "def target(value):\n    return value\n",
+        "class target:\n    def __init__(self):\n        pass\n",
+        "target(1, 2)\n",
+        "def convert(value: str):\n    return value\n",
+        "if replace:\n    convert = external\n",
+        "convert(1)\n",
+        "class Service:\n    def run(self, value):\n        return value\n",
+        "service = Service()\n",
+        "if replace:\n    service = external\n",
+        "service.run()\n",
+    );
+    assert!(findings_of(source, "python:S930").is_empty());
+    assert!(findings_of(source, "python:S5655").is_empty());
+}
+
+#[test]
+fn s930_walks_deep_local_inheritance_iteratively() {
+    use std::fmt::Write as _;
+
+    let mut source =
+        String::from("class Root:\n    def ping(self, value):\n        return value\n");
+    let mut base = String::from("Root");
+    for index in 0..2_000 {
+        let name = format!("Level{index}");
+        let _ = writeln!(source, "class {name}({base}):\n    pass");
+        base = name;
+    }
+    let _ = writeln!(source, "instance = {base}()");
+    source.push_str("instance.ping()\n");
+    assert_eq!(findings_of(&source, "python:S930").len(), 1);
 }
 
 #[test]

@@ -1,4 +1,4 @@
-use super::support::unary_operator;
+use super::support::{constant_integer_value, unary_operator};
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::expressions::{binary_operands, first_named_child, operator_of};
@@ -71,54 +71,82 @@ fn update_direction(update: Node<'_>, counter: &str, source: &str) -> Option<Cou
             "assignment_expression",
         ],
     ) {
-        match node.kind() {
+        let direction = match node.kind() {
             "prefix_unary_expression" | "postfix_unary_expression" => {
-                let touches_counter = first_named_child(node)
-                    .is_some_and(|operand| node_text(operand, source) == counter);
-                if touches_counter {
-                    return match unary_operator(node) {
-                        Some("++") => Some(CounterDirection::Increasing),
-                        Some("--") => Some(CounterDirection::Decreasing),
-                        _ => None,
-                    };
-                }
+                unary_update_direction(node, counter, source)
             }
-            "assignment_expression" => {
-                let Some(left) = node.child_by_field_name("left") else {
-                    continue;
-                };
-                if node_text(left, source) != counter {
-                    continue;
-                }
-                match operator_of(node) {
-                    Some("+=") => return Some(CounterDirection::Increasing),
-                    Some("-=") => return Some(CounterDirection::Decreasing),
-                    Some("=") => {
-                        let Some(right) = node.child_by_field_name("right") else {
-                            continue;
-                        };
-                        if right.kind() == "binary_expression" {
-                            let step = match binary_operator(right, source) {
-                                "+" => CounterDirection::Increasing,
-                                "-" => CounterDirection::Decreasing,
-                                _ => continue,
-                            };
-                            let (lhs, rhs) = binary_operands(right)?;
-                            let counter_side = [lhs, rhs]
-                                .into_iter()
-                                .any(|operand| node_text(operand, source) == counter);
-                            if counter_side {
-                                return Some(step);
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            _ => {}
+            "assignment_expression" => assignment_update_direction(node, counter, source),
+            _ => None,
+        };
+        if direction.is_some() {
+            return direction;
         }
     }
     None
+}
+
+fn unary_update_direction(
+    update: Node<'_>,
+    counter: &str,
+    source: &str,
+) -> Option<CounterDirection> {
+    let operand = first_named_child(update)?;
+    if node_text(operand, source) != counter {
+        return None;
+    }
+    match unary_operator(update) {
+        Some("++") => Some(CounterDirection::Increasing),
+        Some("--") => Some(CounterDirection::Decreasing),
+        _ => None,
+    }
+}
+
+fn assignment_update_direction(
+    update: Node<'_>,
+    counter: &str,
+    source: &str,
+) -> Option<CounterDirection> {
+    let left = update.child_by_field_name("left")?;
+    if node_text(left, source) != counter {
+        return None;
+    }
+    let right = update.child_by_field_name("right")?;
+    match operator_of(update) {
+        Some("+=") => direction_from_delta(constant_integer_value(right, source)?),
+        Some("-=") => direction_from_delta(-constant_integer_value(right, source)?),
+        Some("=") if right.kind() == "binary_expression" => {
+            binary_assignment_direction(right, counter, source)
+        }
+        _ => None,
+    }
+}
+
+fn binary_assignment_direction(
+    expression: Node<'_>,
+    counter: &str,
+    source: &str,
+) -> Option<CounterDirection> {
+    let (left, right) = binary_operands(expression)?;
+    match binary_operator(expression, source) {
+        "+" if node_text(left, source) == counter => {
+            direction_from_delta(constant_integer_value(right, source)?)
+        }
+        "+" if node_text(right, source) == counter => {
+            direction_from_delta(constant_integer_value(left, source)?)
+        }
+        "-" if node_text(left, source) == counter => {
+            direction_from_delta(-constant_integer_value(right, source)?)
+        }
+        _ => None,
+    }
+}
+
+fn direction_from_delta(delta: i128) -> Option<CounterDirection> {
+    match delta.cmp(&0) {
+        std::cmp::Ordering::Greater => Some(CounterDirection::Increasing),
+        std::cmp::Ordering::Less => Some(CounterDirection::Decreasing),
+        std::cmp::Ordering::Equal => None,
+    }
 }
 
 #[cfg(test)]
@@ -159,6 +187,14 @@ mod tests {
         let found = with_key(&report, KEY);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s2251_signed_and_dynamic_steps_are_classified_conservatively() {
+        let report = analyze_default(
+            "class C {\n    void M(int step) {\n        for (int i = 9; i > 0; i += -2) {\n            Tick(i);\n        }\n        for (int j = 0; j < 9; j -= -2) {\n            Tock(j);\n        }\n        for (int k = 0; k < 9; k += step) {\n            Tock(k);\n        }\n        for (int n = 0; n < 9; n = 10 - n) {\n            Tock(n);\n        }\n    }\n}\n",
+        );
+        assert!(with_key(&report, KEY).is_empty());
     }
 
     #[test]

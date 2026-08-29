@@ -9,6 +9,15 @@ import parity_suite
 
 
 class ParitySuiteFailClosedTests(unittest.TestCase):
+    def test_empty_oracle_token_fails_closed(self):
+        with (
+            mock.patch.dict(
+                parity_suite.os.environ, {"SONAR_ORACLE_TOKEN": ""}, clear=True
+            ),
+            self.assertRaisesRegex(RuntimeError, "must not be empty"),
+        ):
+            parity_suite.oracle_token()
+
     def test_missing_generic_scanner_fails_closed(self):
         with (
             mock.patch.dict(parity_suite.os.environ, {}, clear=True),
@@ -28,9 +37,9 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
         self.assertIn("/d:sonar.host.url=http://sonar.test", command)
 
     def test_csharp_failed_native_build_fails_closed_after_scanner_end(self):
-        completed = lambda code, output="": mock.Mock(
-            returncode=code, stdout=output, stderr=""
-        )
+        def completed(code, output=""):
+            return mock.Mock(returncode=code, stdout=output, stderr="")
+
         with (
             mock.patch.dict(
                 parity_suite.os.environ,
@@ -40,7 +49,9 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
             mock.patch.object(parity_suite.Path, "is_file", return_value=True),
             mock.patch.object(parity_suite.shutil, "which", return_value="/dotnet"),
             mock.patch.object(parity_suite, "oracle_token", return_value="token"),
-            mock.patch.object(parity_suite, "sq_api", return_value={"version": "9.9.8"}),
+            mock.patch.object(
+                parity_suite, "sq_api", return_value={"version": "9.9.8"}
+            ),
             mock.patch.object(
                 parity_suite,
                 "generate_solution",
@@ -49,7 +60,11 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
             mock.patch.object(
                 parity_suite.subprocess,
                 "run",
-                side_effect=[completed(0), completed(1, "compiler error"), completed(0)],
+                side_effect=[
+                    completed(0),
+                    completed(1, "compiler error"),
+                    completed(0),
+                ],
             ) as run,
         ):
             self.assertFalse(parity_suite.scan_csharp_project("oracle-cs"))
@@ -67,6 +82,56 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
                 parity_suite.result_path("oracle-py", "sq").name,
                 "oracle-py.frozen-2025_4.sq.json",
             )
+
+    def test_result_filename_does_not_mutate_filtered_projects(self):
+        projects = ["oracle-py"]
+        with mock.patch.object(parity_suite, "RESULT_TAG", "frozen-2025_4"):
+            result_name = parity_suite.result_filename(projects)
+            report = parity_suite.build_report(projects, {}, {}, set(), {}, {})
+
+        self.assertEqual(result_name, "parity_divergences.oracle-py.frozen-2025_4.json")
+        self.assertEqual(projects, ["oracle-py"])
+        self.assertEqual(report["projects"], ["oracle-py"])
+
+    def test_standard_issue_fetch_validates_and_reads_every_page(self):
+        pages = [
+            {
+                "issues": [{"rule": "python:S1", "component": "p:one.py"}],
+                "paging": {"pageIndex": 1, "pageSize": 1, "total": 2},
+            },
+            {
+                "issues": [{"rule": "python:S2", "component": "p:two.py"}],
+                "paging": {"pageIndex": 2, "pageSize": 1, "total": 2},
+            },
+        ]
+        with mock.patch.object(parity_suite, "_issue_page", side_effect=pages) as page:
+            issues = parity_suite._fetch_standard_issues("oracle-py")
+
+        self.assertEqual(
+            [issue["rule"] for issue in issues], ["python:S1", "python:S2"]
+        )
+        self.assertEqual([call.args[1] for call in page.call_args_list], [1, 2])
+
+    def test_hotspot_fetch_rejects_missing_items_list(self):
+        malformed = {"paging": {"pageIndex": 1, "pageSize": 500, "total": 0}}
+        with (
+            mock.patch.object(parity_suite, "_hotspot_page", return_value=malformed),
+            self.assertRaisesRegex(ValueError, "must contain a hotspots list"),
+        ):
+            parity_suite._fetch_hotspots("oracle-py")
+
+    def test_invalid_remote_page_becomes_an_invalid_project_artifact(self):
+        with (
+            mock.patch.object(parity_suite, "scan_project", return_value=True),
+            mock.patch.object(
+                parity_suite, "fetch_issues", side_effect=ValueError("truncated page")
+            ),
+        ):
+            rows, issues, error = parity_suite.project_rows("oracle-py", quick=False)
+
+        self.assertIsNone(rows)
+        self.assertIsNone(issues)
+        self.assertEqual(error, "truncated page")
 
     def test_failed_oracle_scan_fails_gate_without_using_stale_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:

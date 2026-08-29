@@ -279,11 +279,8 @@ pub(crate) fn parameter_units<'a>(declaration: Node<'a>, source: &str) -> Vec<Pa
     for child in &children {
         if child.kind() == "," {
             groups.push(Vec::new());
-        } else {
-            groups
-                .last_mut()
-                .expect("a group always exists for the next child")
-                .push(*child);
+        } else if let Some(group) = groups.last_mut() {
+            group.push(*child);
         }
     }
     groups

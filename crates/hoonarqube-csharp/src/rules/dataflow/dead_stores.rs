@@ -20,58 +20,81 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = wasted_increment_issues(root, source, language);
     for body in callable_blocks(root) {
-        let captured = captured_names(body, source);
-        for block in collect_kinds(body, &["block"]) {
-            let declared = block_declared_local_names(block, source);
-            if declared.is_empty() {
-                continue;
-            }
-            let tracked: std::collections::HashSet<String> = declared
-                .iter()
-                .filter(|name| !captured.contains(*name))
-                .filter(|name| {
-                    collect_kinds(body, &["identifier"])
-                        .iter()
-                        .filter(|identifier| node_text(**identifier, source) == name.as_str())
-                        .count()
-                        > 1
-                })
-                .cloned()
-                .collect();
-            let mut pending: Vec<(String, WriteKind, Node<'_>)> = Vec::new();
-            for statement in block_statements(block) {
-                consume_reads(statement, source, &tracked, &mut pending);
-                match statement.kind() {
-                    "local_declaration_statement" => {
-                        register_declaration_stores(
-                            statement,
-                            source,
-                            &tracked,
-                            &mut pending,
-                            &mut issues,
-                            language,
-                        );
-                    }
-                    "expression_statement" => {
-                        register_expression_stores(
-                            statement,
-                            source,
-                            &tracked,
-                            &mut pending,
-                            &mut issues,
-                            language,
-                        );
-                    }
-                    _ => {}
-                }
-            }
-            // Block scope ends: unread final values stay dead.
-            for (name, kind, anchor) in pending {
-                push_dead_store(&mut issues, language, &name, kind, anchor, source);
-            }
-        }
+        check_callable_blocks(body, source, language, &mut issues);
     }
     issues
+}
+
+fn check_callable_blocks(
+    body: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    issues: &mut Vec<Issue>,
+) {
+    let captured = captured_names(body, source);
+    for block in collect_kinds(body, &["block"]) {
+        check_block(block, body, source, language, &captured, issues);
+    }
+}
+
+fn check_block(
+    block: Node<'_>,
+    body: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    captured: &std::collections::HashSet<String>,
+    issues: &mut Vec<Issue>,
+) {
+    let tracked = tracked_local_names(block, body, source, captured);
+    if tracked.is_empty() {
+        return;
+    }
+    let mut pending: Vec<(String, WriteKind, Node<'_>)> = Vec::new();
+    for statement in block_statements(block) {
+        consume_reads(statement, source, &tracked, &mut pending);
+        match statement.kind() {
+            "local_declaration_statement" => register_declaration_stores(
+                statement,
+                source,
+                &tracked,
+                &mut pending,
+                issues,
+                language,
+            ),
+            "expression_statement" => register_expression_stores(
+                statement,
+                source,
+                &tracked,
+                &mut pending,
+                issues,
+                language,
+            ),
+            _ => {}
+        }
+    }
+    // Block scope ends: unread final values stay dead.
+    for (name, kind, anchor) in pending {
+        push_dead_store(issues, language, &name, kind, anchor, source);
+    }
+}
+
+fn tracked_local_names(
+    block: Node<'_>,
+    body: Node<'_>,
+    source: &str,
+    captured: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
+    block_declared_local_names(block, source)
+        .into_iter()
+        .filter(|name| !captured.contains(name))
+        .filter(|name| {
+            collect_kinds(body, &["identifier"])
+                .iter()
+                .filter(|identifier| node_text(**identifier, source) == name)
+                .count()
+                > 1
+        })
+        .collect()
 }
 
 /// Locals declared by this block's direct statements (initializers and

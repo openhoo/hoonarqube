@@ -64,37 +64,14 @@ fn private_member_candidates<'t>(root: Node<'t>, source: &str) -> Vec<PrivateMem
         for member in type_members(type_node) {
             match member.kind() {
                 "method_declaration" | "property_declaration" => {
-                    let Some(name_node) = member.child_by_field_name("name") else {
-                        continue;
-                    };
-                    if accessibility_rank(&modifiers_of(member, source)) != 1
-                        || !attributes_of(member, source).is_empty()
-                        || node_text(name_node, source) == "Main"
-                    {
-                        continue;
-                    }
-                    candidates.push(PrivateMember {
-                        anchor: name_node,
-                        name: node_text(name_node, source).to_string(),
-                        kind_word: if member.kind() == "method_declaration" {
-                            "method"
-                        } else {
-                            "property"
-                        },
-                    });
-                }
-                "field_declaration" => {
-                    if accessibility_rank(&modifiers_of(member, source)) == 1
-                        && !has_modifier(&modifiers_of(member, source), "const")
-                        && attributes_of(member, source).is_empty()
-                    {
-                        candidates.extend(private_declarators(member, source, "field"));
+                    if let Some(candidate) = private_named_member(member, source) {
+                        candidates.push(candidate);
                     }
                 }
-                "event_field_declaration"
-                    if accessibility_rank(&modifiers_of(member, source)) == 1
-                        && attributes_of(member, source).is_empty() =>
-                {
+                "field_declaration" if is_private_field_like(member, source, true) => {
+                    candidates.extend(private_declarators(member, source, "field"));
+                }
+                "event_field_declaration" if is_private_field_like(member, source, false) => {
                     candidates.extend(private_declarators(member, source, "event"));
                 }
                 _ => {}
@@ -102,6 +79,31 @@ fn private_member_candidates<'t>(root: Node<'t>, source: &str) -> Vec<PrivateMem
         }
     }
     candidates
+}
+
+fn private_named_member<'t>(member: Node<'t>, source: &str) -> Option<PrivateMember<'t>> {
+    let name_node = member.child_by_field_name("name")?;
+    if accessibility_rank(&modifiers_of(member, source)) != 1
+        || !attributes_of(member, source).is_empty()
+        || node_text(name_node, source) == "Main"
+    {
+        return None;
+    }
+    Some(PrivateMember {
+        anchor: name_node,
+        name: node_text(name_node, source).to_string(),
+        kind_word: if member.kind() == "method_declaration" {
+            "method"
+        } else {
+            "property"
+        },
+    })
+}
+
+fn is_private_field_like(member: Node<'_>, source: &str, exclude_constants: bool) -> bool {
+    accessibility_rank(&modifiers_of(member, source)) == 1
+        && attributes_of(member, source).is_empty()
+        && (!exclude_constants || !has_modifier(&modifiers_of(member, source), "const"))
 }
 
 /// Declarator candidates of a field-like declaration.

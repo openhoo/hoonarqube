@@ -1,8 +1,12 @@
+use crate::support::child_bodies;
+use crate::support::child_exprs;
+use crate::support::collect_target_names;
 use crate::support::direct_base_names;
 use crate::support::expr_normalized_text;
 use crate::support::has_decorator;
 use crate::support::parameter_entries;
 use crate::support::s5655_check_argument;
+use crate::support::stmt_exprs;
 use crate::support::stmt_store_names;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
@@ -118,57 +122,9 @@ impl<'a> LocalSignatures<'a> {
     /// ambiguous, and instance bindings must come from a single unconflicted
     /// constructor assignment.
     pub(crate) fn new(module: &'a [Stmt]) -> Self {
-        let mut functions: HashMap<String, &'a ruff_python_ast::StmtFunctionDef> = HashMap::new();
-        let mut classes: HashMap<String, &'a ruff_python_ast::StmtClassDef> = HashMap::new();
-        let mut ambiguous: HashSet<String> = HashSet::new();
-        for stmt in module {
-            match stmt {
-                Stmt::FunctionDef(function) => {
-                    let name = function.name.as_str();
-                    if functions.remove(name).is_some() || !ambiguous.insert(name.to_string()) {
-                        continue;
-                    }
-                    functions.insert(name.to_string(), function);
-                }
-                Stmt::ClassDef(class) => {
-                    let name = class.name.as_str();
-                    if classes.remove(name).is_some() || !ambiguous.insert(name.to_string()) {
-                        continue;
-                    }
-                    classes.insert(name.to_string(), class);
-                }
-                _ => {}
-            }
-        }
-        let mut instances: HashMap<String, String> = HashMap::new();
-        let mut conflicted: HashSet<String> = HashSet::new();
-        let mut writes: HashMap<String, usize> = HashMap::new();
-        for stmt in module {
-            for name in stmt_store_names(stmt) {
-                *writes.entry(name).or_insert(0) += 1;
-            }
-            if let Stmt::Assign(assign) = stmt
-                && let [target] = assign.targets.as_slice()
-                && let Expr::Name(name) = target
-                && let Expr::Call(call) = assign.value.as_ref()
-                && let Expr::Name(callee) = call.func.as_ref()
-                && classes.contains_key(callee.id.as_str())
-            {
-                let key = name.id.as_str();
-                match instances.get(key) {
-                    Some(_) => {
-                        conflicted.insert(key.to_string());
-                    }
-                    None => {
-                        instances.insert(key.to_string(), callee.id.as_str().to_string());
-                    }
-                }
-            }
-        }
-        instances.retain(|name, _| writes.get(name).copied() == Some(1));
-        for name in conflicted {
-            instances.remove(&name);
-        }
+        let writes = module_scope_write_counts(module);
+        let (functions, classes) = collect_local_definitions(module, &writes);
+        let instances = collect_instance_bindings(module, &classes, &writes);
         Self {
             functions,
             classes,
@@ -178,37 +134,32 @@ impl<'a> LocalSignatures<'a> {
 
     /// Nearest declaration of `method` walking the file-local base chain of
     /// `class_name`; cycles are cut by the visited set.
-    fn nearest_method<'n>(&self, class_name: &'n str, method: &str) -> Option<ResolvedCallee<'a>> {
-        self.nearest_method_in(class_name, method, &mut HashSet::new())
-    }
-
-    fn nearest_method_in<'n>(
-        &self,
-        class_name: &'n str,
-        method: &str,
-        visited: &mut HashSet<&'n str>,
-    ) -> Option<ResolvedCallee<'a>>
-    where
-        'a: 'n,
-    {
-        if !visited.insert(class_name) {
-            return None;
-        }
-        let class = self.classes.get(class_name)?;
-        for stmt in &class.body {
-            if let Stmt::FunctionDef(function) = stmt
-                && function.name.as_str() == method
-            {
-                return Some(ResolvedCallee::Bound(
-                    function,
-                    has_decorator(function, "staticmethod"),
-                ));
+    fn nearest_method(&self, class_name: &str, method: &str) -> Option<ResolvedCallee<'a>> {
+        let mut pending = vec![class_name.to_string()];
+        let mut visited = HashSet::new();
+        while let Some(class_name) = pending.pop() {
+            if !visited.insert(class_name.clone()) {
+                continue;
             }
-        }
-        for base in direct_base_names(class) {
-            if let Some(found) = self.nearest_method_in(base, method, visited) {
-                return Some(found);
+            let Some(class) = self.classes.get(class_name.as_str()) else {
+                continue;
+            };
+            for stmt in &class.body {
+                if let Stmt::FunctionDef(function) = stmt
+                    && function.name.as_str() == method
+                {
+                    return Some(ResolvedCallee::Bound(
+                        function,
+                        has_decorator(function, "staticmethod"),
+                    ));
+                }
             }
+            pending.extend(
+                direct_base_names(class)
+                    .into_iter()
+                    .rev()
+                    .map(str::to_owned),
+            );
         }
         None
     }
@@ -250,6 +201,96 @@ impl<'a> LocalSignatures<'a> {
             _ => None,
         }
     }
+}
+
+fn collect_local_definitions<'a>(
+    module: &'a [Stmt],
+    writes: &HashMap<String, usize>,
+) -> (
+    HashMap<String, &'a ruff_python_ast::StmtFunctionDef>,
+    HashMap<String, &'a ruff_python_ast::StmtClassDef>,
+) {
+    let mut functions: HashMap<String, &'a ruff_python_ast::StmtFunctionDef> = HashMap::new();
+    let mut classes: HashMap<String, &'a ruff_python_ast::StmtClassDef> = HashMap::new();
+    for stmt in module {
+        match stmt {
+            Stmt::FunctionDef(function) => {
+                let name = function.name.as_str();
+                if writes.get(name).copied() == Some(1) {
+                    functions.insert(name.to_string(), function);
+                }
+            }
+            Stmt::ClassDef(class) => {
+                let name = class.name.as_str();
+                if writes.get(name).copied() == Some(1) {
+                    classes.insert(name.to_string(), class);
+                }
+            }
+            _ => {}
+        }
+    }
+    (functions, classes)
+}
+
+/// Counts every write performed in module scope without descending into
+/// function or class bodies. This includes module-level control-flow bodies
+/// and assignment expressions in statement headers.
+fn module_scope_write_counts(module: &[Stmt]) -> HashMap<String, usize> {
+    let mut writes = HashMap::new();
+    let mut pending: Vec<&Stmt> = module.iter().rev().collect();
+    while let Some(stmt) = pending.pop() {
+        count_statement_writes(stmt, &mut writes);
+        if matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
+            continue;
+        }
+        for body in child_bodies(stmt).into_iter().rev() {
+            pending.extend(body.iter().rev());
+        }
+    }
+    writes
+}
+
+fn count_statement_writes(stmt: &Stmt, writes: &mut HashMap<String, usize>) {
+    add_writes(writes, stmt_store_names(stmt));
+    let mut expressions = stmt_exprs(stmt);
+    while let Some(expr) = expressions.pop() {
+        if let Expr::Named(named) = expr {
+            let mut names = Vec::new();
+            collect_target_names(&named.target, &mut names);
+            add_writes(writes, names);
+        }
+        expressions.extend(child_exprs(expr));
+    }
+}
+
+fn add_writes(writes: &mut HashMap<String, usize>, names: Vec<String>) {
+    for name in names {
+        *writes.entry(name).or_insert(0) += 1;
+    }
+}
+
+fn collect_instance_bindings(
+    module: &[Stmt],
+    classes: &HashMap<String, &ruff_python_ast::StmtClassDef>,
+    writes: &HashMap<String, usize>,
+) -> HashMap<String, String> {
+    let mut instances: HashMap<String, String> = HashMap::new();
+    for stmt in module {
+        if let Stmt::Assign(assign) = stmt
+            && let [target] = assign.targets.as_slice()
+            && let Expr::Name(name) = target
+            && let Expr::Call(call) = assign.value.as_ref()
+            && let Expr::Name(callee) = call.func.as_ref()
+            && classes.contains_key(callee.id.as_str())
+        {
+            let key = name.id.as_str();
+            instances
+                .entry(key.to_string())
+                .or_insert_with(|| callee.id.as_str().to_string());
+        }
+    }
+    instances.retain(|name, _| writes.get(name).copied() == Some(1));
+    instances
 }
 
 /// Arity verdict for a resolved call, `None` when the argument list matches
@@ -434,11 +475,9 @@ pub(crate) fn s2638_contract_change(
     base: &MethodShape,
     derived: &MethodShape,
 ) -> Option<&'static str> {
-    if base.has_vararg && !derived.has_vararg {
-        return Some("it removes '*args'");
-    }
-    if base.has_keyword_vararg && !derived.has_keyword_vararg {
-        return Some("it removes '**kwargs'");
+    let variadic_change = variadic_contract_change(base, derived);
+    if variadic_change.is_some() {
+        return variadic_change;
     }
     if base.has_vararg
         || base.has_keyword_vararg
@@ -447,6 +486,20 @@ pub(crate) fn s2638_contract_change(
     {
         return None;
     }
+    positional_contract_change(base, derived).or_else(|| keyword_contract_change(base, derived))
+}
+
+fn variadic_contract_change(base: &MethodShape, derived: &MethodShape) -> Option<&'static str> {
+    if base.has_vararg && !derived.has_vararg {
+        Some("it removes '*args'")
+    } else if base.has_keyword_vararg && !derived.has_keyword_vararg {
+        Some("it removes '**kwargs'")
+    } else {
+        None
+    }
+}
+
+fn positional_contract_change(base: &MethodShape, derived: &MethodShape) -> Option<&'static str> {
     let shared = base
         .positional_names
         .len()
@@ -479,6 +532,10 @@ pub(crate) fn s2638_contract_change(
     {
         return Some("it drops a required parameter");
     }
+    None
+}
+
+fn keyword_contract_change(base: &MethodShape, derived: &MethodShape) -> Option<&'static str> {
     for (name, base_default) in &base.keyword_only {
         match derived
             .keyword_only

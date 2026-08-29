@@ -70,7 +70,7 @@ pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileRe
 
     check_lines(path.as_path(), source, options, &mut issues);
     check_header(source, options, &mut issues);
-    check_textual(source, &mut issues);
+    check_textual(source, root, &mut issues);
     walk(root, &mut |node| {
         check_node(node, source, options, &mut issues);
     });
@@ -144,9 +144,22 @@ fn check_header(source: &str, options: &AnalyzerOptions, issues: &mut Vec<Issue>
     }
 }
 
-fn check_textual(source: &str, issues: &mut Vec<Issue>) {
-    let bytes = source.as_bytes();
-    for (line_index, line) in source.lines().enumerate() {
+fn check_textual(source: &str, root: Node<'_>, issues: &mut Vec<Issue>) {
+    check_comment_tags(root, source, issues);
+    let code = code_only_source(source, root);
+    for (line_index, (line, original)) in code.lines().zip(source.lines()).enumerate() {
+        check_mistyped_assignments(line_index, line, original, issues);
+        check_statement_separator(line_index, line, original, issues);
+    }
+    check_empty_block_comments(root, source, issues);
+}
+
+fn check_comment_tags(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    walk(root, &mut |node| {
+        if node.kind() != "comment" {
+            return;
+        }
+        let comment = text(node, source);
         for (tag, key, message) in [
             (
                 "FIXME",
@@ -159,68 +172,104 @@ fn check_textual(source: &str, issues: &mut Vec<Issue>) {
                 "Complete the task associated to this TODO comment.",
             ),
         ] {
-            if let Some(column) = line.find(tag) {
-                issues.push(line_issue(
+            issues.extend(comment.match_indices(tag).map(|(relative, _)| {
+                offset_issue(
                     key,
                     message,
-                    line_index,
-                    column,
-                    column + tag.len(),
-                ));
-            }
+                    source,
+                    node.start_byte() + relative,
+                    node.start_byte() + relative + tag.len(),
+                )
+            }));
         }
-        for token in ["=+", "=-"] {
-            let mut start = 0;
-            while let Some(relative) = line[start..].find(token) {
-                let column = start + relative;
-                issues.push(line_issue(
-                    "go:S2757",
-                    if token == "=+" {
-                        "Was \"+=\" meant instead?"
-                    } else {
-                        "Was \"-=\" meant instead?"
-                    },
-                    line_index,
-                    column,
-                    column + 2,
-                ));
-                start = column + 2;
-            }
-        }
-        if let Some(column) = statement_separator(line) {
-            let (start, end) = statement_after(line, column);
+    });
+}
+
+fn check_mistyped_assignments(
+    line_index: usize,
+    line: &str,
+    original: &str,
+    issues: &mut Vec<Issue>,
+) {
+    for token in ["=+", "=-"] {
+        let mut start = 0;
+        while let Some(relative) = line[start..].find(token) {
+            let column = start + relative;
+            let message = if token == "=+" {
+                "Was \"+=\" meant instead?"
+            } else {
+                "Was \"-=\" meant instead?"
+            };
+            let (start_column, end_column) = character_columns(original, column, column + 2);
             issues.push(line_issue(
-                "go:S122",
-                "Reformat the code to have only one statement per line.",
+                "go:S2757",
+                message,
                 line_index,
-                start,
-                end,
+                start_column,
+                end_column,
             ));
+            start = column + 2;
         }
     }
+}
 
-    let mut offset = 0_usize;
-    while let Some(relative) = source[offset..].find("/*") {
-        let start = offset + relative;
-        let Some(end_relative) = source[start + 2..].find("*/") else {
-            break;
-        };
-        let end = start + 2 + end_relative + 2;
-        if source[start + 2..end - 2].trim().is_empty() {
+fn check_statement_separator(
+    line_index: usize,
+    line: &str,
+    original: &str,
+    issues: &mut Vec<Issue>,
+) {
+    if let Some(column) = statement_separator(line) {
+        let (start, end) = statement_after(line, column);
+        let (start_column, end_column) = character_columns(original, start, end);
+        issues.push(line_issue(
+            "go:S122",
+            "Reformat the code to have only one statement per line.",
+            line_index,
+            start_column,
+            end_column,
+        ));
+    }
+}
+
+fn check_empty_block_comments(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    walk(root, &mut |node| {
+        let comment = text(node, source);
+        if node.kind() == "comment"
+            && comment.starts_with("/*")
+            && comment.ends_with("*/")
+            && comment[2..comment.len() - 2].trim().is_empty()
+        {
             issues.push(offset_issue(
                 "go:S4663",
                 "Remove this comment, it is empty.",
                 source,
-                start,
-                end,
+                node.start_byte(),
+                node.end_byte(),
             ));
         }
-        offset = end;
-    }
+    });
+}
 
-    // Keep the byte slice used: source can contain arbitrary UTF-8 but all
-    // textual searches above are on valid char boundaries.
-    let _ = bytes;
+fn code_only_source(source: &str, root: Node<'_>) -> String {
+    let mut code = source.as_bytes().to_vec();
+    walk(root, &mut |node| {
+        if matches!(
+            node.kind(),
+            "comment" | "interpreted_string_literal" | "raw_string_literal" | "rune_literal"
+        ) {
+            for byte in &mut code[node.byte_range()] {
+                if !matches!(*byte, b'\n' | b'\r') {
+                    *byte = b' ';
+                }
+            }
+        }
+    });
+    String::from_utf8(code).expect("masked Go source remains valid UTF-8")
+}
+
+fn character_columns(line: &str, start: usize, end: usize) -> (usize, usize) {
+    (line[..start].chars().count(), line[..end].chars().count())
 }
 
 fn check_node(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues: &mut Vec<Issue>) {
@@ -229,6 +278,7 @@ fn check_node(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues: &
             "go:S2260",
             "A parsing error occurred in this file.",
             node,
+            source,
         ));
         return;
     }
@@ -237,7 +287,7 @@ fn check_node(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues: &
             check_function(node, source, options, issues);
         }
         "block" => check_block(node, source, issues),
-        "statement_list" => check_statements(node, issues),
+        "statement_list" => check_statements(node, source, issues),
         "parenthesized_expression" => {
             if first_named(node).is_some_and(|child| child.kind() == "parenthesized_expression") {
                 issues.push(keyword_issue(
@@ -246,6 +296,7 @@ fn check_node(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues: &
                     node,
                     1,
                     1,
+                    source,
                 ));
             }
         }
@@ -255,7 +306,12 @@ fn check_node(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues: &
         "expression_switch_statement" | "type_switch_statement" => {
             check_switch(node, source, options, issues);
         }
-        "assignment_statement" | "short_var_declaration" => check_assignment(node, source, issues),
+        "assignment_statement" => check_assignment(node, source, issues),
+        "short_var_declaration" => {
+            check_assignment(node, source, issues);
+            check_variable_declaration(node, source, issues);
+        }
+        "var_spec" => check_variable_declaration(node, source, issues),
         "int_literal" => {
             let value = text(node, source);
             if value.len() > 1
@@ -266,6 +322,7 @@ fn check_node(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues: &
                     "go:S1314",
                     "Use decimal values instead of octal ones.",
                     node,
+                    source,
                 ));
             }
         }
@@ -287,6 +344,7 @@ fn check_node(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues: &
                 node,
                 0,
                 if node.kind() == "for_statement" { 3 } else { 2 },
+                source,
             ));
         }
     }
@@ -305,6 +363,7 @@ fn check_node(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues: &
             node,
             0,
             6,
+            source,
         ));
     }
 }
@@ -324,6 +383,7 @@ fn check_function(
                     "Rename function \"{value}\" to match the regular expression ^(_|[a-zA-Z0-9]+)$"
                 ),
                 name,
+                source,
             ));
         }
     }
@@ -337,6 +397,7 @@ fn check_function(
                     options.maximum_function_parameters
                 ),
                 node.child_by_field_name("name").unwrap_or(parameters),
+                source,
             ));
         }
         walk(parameters, &mut |child| {
@@ -358,7 +419,7 @@ fn check_function(
         !matches!(child.kind(), "statement_list" | "block")
             && (child.kind() != "comment" || child.start_position().row > body.start_position().row)
     }) {
-        issues.push(node_issue("go:S1186", "Add a nested comment explaining why this function is empty or complete the implementation.", body));
+        issues.push(node_issue("go:S1186", "Add a nested comment explaining why this function is empty or complete the implementation.", body, source));
     }
     let lines = body
         .end_position()
@@ -370,6 +431,7 @@ fn check_function(
             "go:S138",
             format!("This function has {lines} lines of code, which is greater than the {0} authorized. Split it into smaller functions.", options.maximum_function_lines),
             node.child_by_field_name("name").unwrap_or(node),
+            source,
         ));
     }
     let cognitive = cognitive_complexity(body) + usize::from(text(body, source).contains("&&"));
@@ -378,6 +440,7 @@ fn check_function(
             "go:S3776",
             format!("Refactor this method to reduce its Cognitive Complexity from {cognitive} to the {0} allowed.", options.maximum_cognitive_complexity),
             node.child_by_field_name("name").unwrap_or(node),
+            source,
         ));
     }
 }
@@ -395,18 +458,29 @@ fn check_block(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
             "go:S108",
             "Either remove or fill this block of code.",
             node,
+            source,
         ));
     }
-    walk(node, &mut |child| {
-        if matches!(child.kind(), "short_var_declaration" | "var_spec")
-            && let Some(name) = first_identifier(child)
+}
+
+fn check_variable_declaration(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    if node.kind() == "var_spec" {
+        let mut cursor = node.walk();
+        for name in node.children_by_field_name("name", &mut cursor) {
+            check_local_name(name, source, issues);
+        }
+    } else if let Some(left) = node.child_by_field_name("left") {
+        let mut cursor = left.walk();
+        for name in left
+            .named_children(&mut cursor)
+            .filter(|child| child.kind() == "identifier")
         {
             check_local_name(name, source, issues);
         }
-    });
+    }
 }
 
-fn check_statements(node: Node<'_>, issues: &mut Vec<Issue>) {
+fn check_statements(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
     let mut terminal: Option<Node<'_>> = None;
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
@@ -421,6 +495,7 @@ fn check_statements(node: Node<'_>, issues: &mut Vec<Issue>) {
                     statement.kind().trim_end_matches("_statement")
                 ),
                 statement,
+                source,
             ));
             break;
         }
@@ -436,29 +511,28 @@ fn check_statements(node: Node<'_>, issues: &mut Vec<Issue>) {
 fn check_unary(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
     let value = text(node, source).trim();
     if value.starts_with('!')
-        && ["==", "!=", "<", ">", "<=", ">="]
-            .iter()
-            .any(|operator| value.contains(operator))
+        && let Some(opposite) = opposite_comparison(value)
     {
-        let opposite = if value.contains("==") {
-            "!="
-        } else if value.contains("!=") {
-            "=="
-        } else if value.contains("<=") {
-            ">"
-        } else if value.contains(">=") {
-            "<"
-        } else if value.contains('<') {
-            ">="
-        } else {
-            "<="
-        };
         issues.push(node_issue(
             "go:S1940",
             format!("Use the opposite operator (\"{opposite}\") instead."),
             node,
+            source,
         ));
     }
+}
+
+fn opposite_comparison(value: &str) -> Option<&'static str> {
+    [
+        ("==", "!="),
+        ("!=", "=="),
+        ("<=", ">"),
+        (">=", "<"),
+        ("<", ">="),
+        (">", "<="),
+    ]
+    .into_iter()
+    .find_map(|(operator, opposite)| value.contains(operator).then_some(opposite))
 }
 
 fn check_local_name(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
@@ -468,6 +542,7 @@ fn check_local_name(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
             "go:S117",
             "Rename this local variable to match the regular expression \"^(_|[a-zA-Z0-9]+)$\".",
             node,
+            source,
         ));
     }
 }
@@ -479,6 +554,7 @@ fn check_parameter_name(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
             "go:S117",
             "Rename this parameter to match the regular expression \"^(_|[a-zA-Z0-9]+)$\".",
             node,
+            source,
         ));
     }
 }
@@ -491,16 +567,38 @@ fn check_binary(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues:
         return;
     };
     let operator = operator_text(node, left, right, source);
+    check_identical_operands(left, right, source, issues);
+    check_boolean_literal(left, right, &operator, source, issues);
+    check_logical_complexity(node, &operator, source, options, issues);
+    check_opposite_boolean_operator(node, right, &operator, source, issues);
+}
+
+fn check_identical_operands(
+    left: Node<'_>,
+    right: Node<'_>,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
     if normalized(text(left, source)) == normalized(text(right, source)) {
         issues.push(node_issue(
             "go:S1764",
             "Correct one of the identical sub-expressions on both sides of this operator.",
             right,
+            source,
         ));
     }
+}
+
+fn check_boolean_literal(
+    left: Node<'_>,
+    right: Node<'_>,
+    operator: &str,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
     if (matches!(text(right, source), "true" | "false")
         || matches!(text(left, source), "true" | "false"))
-        && matches!(operator.as_str(), "&&" | "||" | "==" | "!=")
+        && matches!(operator, "&&" | "||" | "==" | "!=")
     {
         let literal = if matches!(text(right, source), "true" | "false") {
             right
@@ -511,25 +609,45 @@ fn check_binary(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues:
             "go:S1125",
             "Remove the unnecessary Boolean literal.",
             literal,
+            source,
         ));
     }
-    if matches!(operator.as_str(), "&&" | "||")
-        && logical_operator_count(node, source) > options.maximum_expression_complexity
-    {
+}
+
+fn check_logical_complexity(
+    node: Node<'_>,
+    operator: &str,
+    source: &str,
+    options: &AnalyzerOptions,
+    issues: &mut Vec<Issue>,
+) {
+    let count = logical_operator_count(node, source);
+    if matches!(operator, "&&" | "||") && count > options.maximum_expression_complexity {
         issues.push(node_issue(
             "go:S1067",
-            format!("Reduce the number of conditional operators ({}) used in the expression (maximum allowed {}).", logical_operator_count(node, source), options.maximum_expression_complexity),
+            format!("Reduce the number of conditional operators ({count}) used in the expression (maximum allowed {}).", options.maximum_expression_complexity),
             node,
+            source,
         ));
     }
+}
+
+fn check_opposite_boolean_operator(
+    node: Node<'_>,
+    right: Node<'_>,
+    operator: &str,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
     if matches!(
-        (operator.as_str(), text(right, source)),
+        (operator, text(right, source)),
         ("==", "false") | ("!=", "true")
     ) {
         issues.push(node_issue(
             "go:S1940",
             "Use the opposite operator instead.",
             node,
+            source,
         ));
     }
 }
@@ -542,73 +660,107 @@ fn check_if(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
             "go:S1145",
             "Remove this useless \"if\" statement.",
             condition,
+            source,
         ));
     }
     if node
         .parent()
-        .is_none_or(|parent| parent.kind() != "if_statement")
+        .is_some_and(|parent| parent.kind() == "if_statement")
     {
-        let mut conditions: Vec<(String, u32)> = Vec::new();
-        let mut branches = Vec::new();
-        let mut current = Some(node);
-        let mut last_if = node;
-        let mut ends_with_else = false;
-        while let Some(item) = current {
-            last_if = item;
-            if let Some(condition) = item.child_by_field_name("condition") {
-                let value = normalized(text(condition, source));
-                if let Some((_, line)) = conditions.iter().find(|(previous, _)| previous == &value)
-                {
-                    issues.push(node_issue(
-                        "go:S1862",
-                        format!("This condition duplicates the one on line {line}."),
-                        condition,
-                    ));
-                }
-                conditions.push((value, u32_saturating(condition.start_position().row + 1)));
+        return;
+    }
+    let (condition_count, branches, last_if, ends_with_else) =
+        collect_if_chain(node, source, issues);
+    report_if_chain_smells(
+        node,
+        condition_count,
+        &branches,
+        last_if,
+        ends_with_else,
+        source,
+        issues,
+    );
+}
+
+fn collect_if_chain<'tree>(
+    node: Node<'tree>,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) -> (usize, Vec<(String, Node<'tree>)>, Node<'tree>, bool) {
+    let mut conditions: Vec<(String, u32)> = Vec::new();
+    let mut branches = Vec::new();
+    let mut current = Some(node);
+    let mut last_if = node;
+    let mut ends_with_else = false;
+    while let Some(item) = current {
+        last_if = item;
+        if let Some(condition) = item.child_by_field_name("condition") {
+            let value = normalized(text(condition, source));
+            if let Some((_, line)) = conditions.iter().find(|(previous, _)| previous == &value) {
+                issues.push(node_issue(
+                    "go:S1862",
+                    format!("This condition duplicates the one on line {line}."),
+                    condition,
+                    source,
+                ));
             }
-            if let Some(consequence) = item.child_by_field_name("consequence") {
-                branches.push((normalized_code(text(consequence, source)), consequence));
+            conditions.push((value, u32_saturating(condition.start_position().row + 1)));
+        }
+        if let Some(consequence) = item.child_by_field_name("consequence") {
+            branches.push((normalized_code(text(consequence, source)), consequence));
+        }
+        match item.child_by_field_name("alternative") {
+            Some(alternative) if alternative.kind() == "if_statement" => {
+                current = Some(alternative);
             }
-            match item.child_by_field_name("alternative") {
-                Some(alternative) if alternative.kind() == "if_statement" => {
-                    current = Some(alternative);
-                }
-                Some(alternative) => {
-                    branches.push((normalized_code(text(alternative, source)), alternative));
-                    ends_with_else = true;
-                    current = None;
-                }
-                None => current = None,
+            Some(alternative) => {
+                branches.push((normalized_code(text(alternative, source)), alternative));
+                ends_with_else = true;
+                current = None;
             }
+            None => current = None,
         }
-        if conditions.len() > 1 && !ends_with_else {
-            let start = last_if.start_position();
-            let offset = start.column.saturating_sub(5);
-            issues.push(line_issue(
-                "go:S126",
-                "Add the missing \"else\" clause.",
-                start.row,
-                offset,
-                offset + 7,
-            ));
-        }
-        if let Some((original, duplicate)) = duplicate_branch(&branches) {
-            issues.push(node_issue(
-                "go:S1871",
-                format!(
-                    "This branch's code block is the same as the block for the branch on line {}.",
-                    original.start_position().row + 1
-                ),
-                duplicate,
-            ));
-        }
-        if ends_with_else
-            && branches.len() > 1
-            && branches.iter().all(|branch| branch.0 == branches[0].0)
-        {
-            issues.push(node_issue("go:S3923", "Remove this conditional structure or edit its code blocks so that they're not all the same.", node));
-        }
+    }
+    (conditions.len(), branches, last_if, ends_with_else)
+}
+
+fn report_if_chain_smells(
+    node: Node<'_>,
+    condition_count: usize,
+    branches: &[(String, Node<'_>)],
+    last_if: Node<'_>,
+    ends_with_else: bool,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    if condition_count > 1 && !ends_with_else {
+        let start = last_if.start_position();
+        let start_column = point_column(start, last_if.start_byte(), source);
+        let offset = start_column.saturating_sub(5);
+        issues.push(line_issue(
+            "go:S126",
+            "Add the missing \"else\" clause.",
+            start.row,
+            offset,
+            offset + 7,
+        ));
+    }
+    if let Some((original, duplicate)) = duplicate_branch(branches) {
+        issues.push(node_issue(
+            "go:S1871",
+            format!(
+                "This branch's code block is the same as the block for the branch on line {}.",
+                original.start_position().row + 1
+            ),
+            duplicate,
+            source,
+        ));
+    }
+    if ends_with_else
+        && branches.len() > 1
+        && branches.iter().all(|branch| branch.0 == branches[0].0)
+    {
+        issues.push(node_issue("go:S3923", "Remove this conditional structure or edit its code blocks so that they're not all the same.", node, source));
     }
 }
 
@@ -642,6 +794,7 @@ fn check_switch(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues:
             node,
             0,
             6,
+            source,
         ));
     }
     let branch_count = cases.len() + usize::from(has_default);
@@ -655,6 +808,7 @@ fn check_switch(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues:
             node,
             0,
             6,
+            source,
         ));
     }
 }
@@ -673,6 +827,7 @@ fn check_assignment(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
             "go:S1656",
             "Remove or correct this useless self-assignment.",
             node,
+            source,
         ));
     }
 }
@@ -708,6 +863,7 @@ fn check_duplicate_strings(
                 nodes.len()
             ),
             node,
+            source,
         ));
     }
 }
@@ -733,6 +889,7 @@ fn check_duplicate_functions(root: Node<'_>, source: &str, issues: &mut Vec<Issu
                         original.start_position().row + 1
                     ),
                     duplicate_name,
+                    source,
                 ));
             }
         }
@@ -834,24 +991,24 @@ fn parameter_count(node: Node<'_>) -> usize {
 }
 
 fn cognitive_complexity(node: Node<'_>) -> usize {
-    fn visit(node: Node<'_>, nesting: usize) -> usize {
+    let mut total = 0;
+    let mut pending = vec![(node, 0_usize)];
+    while let Some((current, nesting)) = pending.pop() {
         let control = matches!(
-            node.kind(),
+            current.kind(),
             "if_statement"
                 | "for_statement"
                 | "expression_switch_statement"
                 | "type_switch_statement"
         );
-        let here = usize::from(control) * (nesting + 1);
+        total += usize::from(control) * (nesting + 1);
         let next = nesting + usize::from(control);
-        let mut total = here;
-        let mut cursor = node.walk();
-        for child in node.named_children(&mut cursor) {
-            total += visit(child, next);
-        }
-        total
+        let mut cursor = current.walk();
+        let mut children: Vec<_> = current.named_children(&mut cursor).collect();
+        children.reverse();
+        pending.extend(children.into_iter().map(|child| (child, next)));
     }
-    visit(node, 0)
+    total
 }
 
 fn control_depth(node: Node<'_>) -> usize {
@@ -940,28 +1097,32 @@ fn first_named(node: Node<'_>) -> Option<Node<'_>> {
     node.named_child(0)
 }
 
-fn first_identifier(node: Node<'_>) -> Option<Node<'_>> {
-    descendants(node).find(|child| child.kind() == "identifier")
-}
-
 fn text<'a>(node: Node<'_>, source: &'a str) -> &'a str {
     source.get(node.byte_range()).unwrap_or_default()
 }
 
 fn walk<'tree>(node: Node<'tree>, callback: &mut impl FnMut(Node<'tree>)) {
-    callback(node);
-    let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        walk(child, callback);
+    let mut pending = vec![node];
+    while let Some(current) = pending.pop() {
+        callback(current);
+        let mut cursor = current.walk();
+        let mut children: Vec<_> = current.named_children(&mut cursor).collect();
+        children.reverse();
+        pending.extend(children);
     }
 }
 
 fn descendants(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
     let mut nodes = Vec::new();
     let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        nodes.push(child);
-        nodes.extend(descendants(child));
+    let mut pending: Vec<_> = node.named_children(&mut cursor).collect();
+    pending.reverse();
+    while let Some(current) = pending.pop() {
+        nodes.push(current);
+        let mut cursor = current.walk();
+        let mut children: Vec<_> = current.named_children(&mut cursor).collect();
+        children.reverse();
+        pending.extend(children);
     }
     nodes.into_iter()
 }
@@ -970,12 +1131,8 @@ fn ancestors(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
     std::iter::successors(node.parent(), tree_sitter::Node::parent)
 }
 
-fn node_issue(key: &str, message: impl Into<String>, node: Node<'_>) -> Issue {
-    Issue::new(
-        key,
-        message,
-        point_range(node.start_position(), node.end_position()),
-    )
+fn node_issue(key: &str, message: impl Into<String>, node: Node<'_>, source: &str) -> Issue {
+    Issue::new(key, message, node_range(node, source))
 }
 
 fn keyword_issue(
@@ -984,35 +1141,47 @@ fn keyword_issue(
     node: Node<'_>,
     offset: usize,
     length: usize,
+    source: &str,
 ) -> Issue {
-    let start = node.start_position();
+    let point = node.start_position();
+    let start_column = point_column(point, node.start_byte(), source);
     line_issue(
         key,
         message,
-        start.row,
-        start.column + offset,
-        start.column + offset + length,
+        point.row,
+        start_column + offset,
+        start_column + offset + length,
     )
 }
 
 fn header_issue(key: &str, message: impl Into<String>, node: Node<'_>, source: &str) -> Issue {
-    let start = node.start_position();
+    let point = node.start_position();
+    let start_column = point_column(point, node.start_byte(), source);
     let first_line = text(node, source).lines().next().unwrap_or_default();
-    let length = first_line.find(':').map_or(4, |column| column + 1);
-    line_issue(key, message, start.row, start.column, start.column + length)
+    let length = first_line
+        .find(':')
+        .map_or(4, |column| first_line[..=column].chars().count());
+    line_issue(key, message, point.row, start_column, start_column + length)
 }
 
-fn point_range(start: Point, end: Point) -> Range {
+fn node_range(node: Node<'_>, source: &str) -> Range {
     Range {
-        start: Pos {
-            line: u32_saturating(start.row + 1),
-            column: u32_saturating(start.column),
-        },
-        end: Pos {
-            line: u32_saturating(end.row + 1),
-            column: u32_saturating(end.column),
-        },
+        start: point_pos(node.start_position(), node.start_byte(), source),
+        end: point_pos(node.end_position(), node.end_byte(), source),
     }
+}
+
+fn point_pos(point: Point, byte_offset: usize, source: &str) -> Pos {
+    let column = point_column(point, byte_offset, source);
+    Pos {
+        line: u32_saturating(point.row + 1),
+        column: u32_saturating(column),
+    }
+}
+
+fn point_column(point: Point, byte_offset: usize, source: &str) -> usize {
+    let row_start = byte_offset - point.column;
+    source[row_start..byte_offset].chars().count()
 }
 
 fn line_issue(
@@ -1050,7 +1219,7 @@ fn offset_issue(
         let line = before.bytes().filter(|byte| *byte == b'\n').count() + 1;
         let column = before
             .rsplit_once('\n')
-            .map_or(before.len(), |(_, tail)| tail.len());
+            .map_or_else(|| before.chars().count(), |(_, tail)| tail.chars().count());
         Pos {
             line: u32_saturating(line),
             column: u32_saturating(column),
@@ -1108,6 +1277,69 @@ mod tests {
             assert!(found.iter().any(|actual| actual == key), "{key}: {found:?}");
         }
         assert!(keys("package p\nfunc good(value bool) bool { return !value }\n").is_empty());
+    }
+
+    #[test]
+    fn textual_rules_distinguish_code_comments_and_literals() {
+        let source = concat!(
+            "package p\n",
+            "const example = `TODO =+ ; /* */`\n",
+            "func f() { value := 1; value =+ 2 }\n",
+            "// FIXME real task\n",
+            "/**/\n",
+        );
+        let found = keys(source);
+        let count = |key: &str| found.iter().filter(|actual| actual.as_str() == key).count();
+        assert_eq!(count("go:S1135"), 0, "TODO inside a string: {found:?}");
+        assert_eq!(count("go:S1134"), 1, "real comment tag: {found:?}");
+        assert_eq!(count("go:S2757"), 1, "real mistyped assignment: {found:?}");
+        assert_eq!(count("go:S122"), 1, "real statement separator: {found:?}");
+        assert_eq!(count("go:S4663"), 1, "real empty block comment: {found:?}");
+    }
+
+    #[test]
+    fn reported_columns_count_unicode_characters_not_bytes() {
+        let source = "package p\nfunc f() { café := 1; café = café } // café TODO\n";
+        let report = analyze(
+            PathBuf::from("fixture.go"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        for (key, anchor) in [("go:S1656", "café = café"), ("go:S1135", "TODO")] {
+            let issue = report
+                .issues
+                .iter()
+                .find(|issue| issue.rule_key == key)
+                .unwrap_or_else(|| panic!("missing {key} finding: {:?}", report.issues));
+            let line = source.lines().nth(1).expect("second line");
+            let expected = line
+                .split(anchor)
+                .next()
+                .expect("anchor prefix")
+                .chars()
+                .count();
+            assert_eq!(issue.range.start.column, u32_saturating(expected), "{key}");
+        }
+    }
+
+    #[test]
+    fn nested_blocks_report_each_local_name_once() {
+        let found = keys(concat!(
+            "package p\n",
+            "func f() {\n",
+            " {\n",
+            "  {\n",
+            "   bad_name, other_bad := 1, 2\n",
+            "   _, _ = bad_name, other_bad\n",
+            "  }\n",
+            " }\n",
+            "}\n",
+        ));
+        assert_eq!(
+            found.iter().filter(|key| key.as_str() == "go:S117").count(),
+            2,
+            "each declared name must fire once despite ancestor blocks: {found:?}"
+        );
     }
 
     #[test]

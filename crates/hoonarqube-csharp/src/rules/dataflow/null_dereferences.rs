@@ -24,72 +24,102 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             let mut known_null: std::collections::HashSet<String> =
                 std::collections::HashSet::new();
             for statement in block_statements(block) {
-                // Dereferences first: statements are processed in order.
-                walk_except_blocks(statement, &mut |node| {
-                    if !matches!(
-                        node.kind(),
-                        "member_access_expression" | "element_access_expression"
-                    ) {
-                        return;
-                    }
-                    let Some(base) = node.child_by_field_name("expression") else {
-                        return;
-                    };
-                    if base.kind() != "identifier" {
-                        return;
-                    }
-                    let name = node_text(base, source);
-                    if !known_null.contains(name)
-                        || node_text(node, source).contains('?')
-                        || name_is_guarded(body_text, name)
-                    {
-                        return;
-                    }
-                    issues.push(issue(
-                        language,
-                        "S2259",
-                        format!("'{name}' is null here; this dereference will throw."),
-                        range_of(base, source),
-                    ));
-                });
-                // Then state updates from this statement's writes.
-                for identifier in collect_kinds(statement, &["identifier"]) {
-                    let passes_by_reference = identifier.parent().is_some_and(|parent| {
-                        parent.kind() == "argument"
-                            && parent.children(&mut parent.walk()).any(|child| {
-                                !child.is_named()
-                                    && matches!(node_text(child, source), "out" | "ref")
-                            })
-                    });
-                    if passes_by_reference {
-                        known_null.remove(node_text(identifier, source));
-                        continue;
-                    }
-                    match identifier_write(identifier) {
-                        Some(WriteKind::Store) => {
-                            let stores_null = identifier.parent().is_some_and(|parent| {
-                                parent
-                                    .child_by_field_name("right")
-                                    .is_some_and(|right| right.kind() == "null_literal")
-                                    || declarator_initializer(parent, identifier)
-                                        .is_some_and(|value| value.kind() == "null_literal")
-                            });
-                            if stores_null && !conditional_context(identifier) {
-                                known_null.insert(node_text(identifier, source).to_owned());
-                            } else {
-                                known_null.remove(node_text(identifier, source));
-                            }
-                        }
-                        Some(WriteKind::Increment) => {
-                            known_null.remove(node_text(identifier, source));
-                        }
-                        None => {}
-                    }
-                }
+                // Dereferences first, then state updates: statements are
+                // processed in source order.
+                flag_known_null_dereferences(
+                    statement,
+                    &known_null,
+                    body_text,
+                    source,
+                    language,
+                    &mut issues,
+                );
+                update_known_nulls(statement, &mut known_null, source);
             }
         }
     }
     issues
+}
+
+fn flag_known_null_dereferences(
+    statement: Node<'_>,
+    known_null: &std::collections::HashSet<String>,
+    body_text: &str,
+    source: &str,
+    language: CsLanguage,
+    issues: &mut Vec<Issue>,
+) {
+    walk_except_blocks(statement, &mut |node| {
+        let Some(base) = dereferenced_identifier(node) else {
+            return;
+        };
+        let name = node_text(base, source);
+        if known_null.contains(name)
+            && !node_text(node, source).contains('?')
+            && !name_is_guarded(body_text, name)
+        {
+            issues.push(issue(
+                language,
+                "S2259",
+                format!("'{name}' is null here; this dereference will throw."),
+                range_of(base, source),
+            ));
+        }
+    });
+}
+
+fn dereferenced_identifier(node: Node<'_>) -> Option<Node<'_>> {
+    if !matches!(
+        node.kind(),
+        "member_access_expression" | "element_access_expression"
+    ) {
+        return None;
+    }
+    node.child_by_field_name("expression")
+        .filter(|base| base.kind() == "identifier")
+}
+
+fn update_known_nulls(
+    statement: Node<'_>,
+    known_null: &mut std::collections::HashSet<String>,
+    source: &str,
+) {
+    for identifier in collect_kinds(statement, &["identifier"]) {
+        let name = node_text(identifier, source);
+        if passed_by_reference(identifier, source) {
+            known_null.remove(name);
+            continue;
+        }
+        match identifier_write(identifier) {
+            Some(WriteKind::Store) if stores_unconditional_null(identifier) => {
+                known_null.insert(name.to_owned());
+            }
+            Some(WriteKind::Store | WriteKind::Increment) => {
+                known_null.remove(name);
+            }
+            None => {}
+        }
+    }
+}
+
+fn passed_by_reference(identifier: Node<'_>, source: &str) -> bool {
+    identifier.parent().is_some_and(|parent| {
+        parent.kind() == "argument"
+            && parent
+                .children(&mut parent.walk())
+                .any(|child| !child.is_named() && matches!(node_text(child, source), "out" | "ref"))
+    })
+}
+
+fn stores_unconditional_null(identifier: Node<'_>) -> bool {
+    let stores_null = identifier.parent().is_some_and(|parent| {
+        parent
+            .child_by_field_name("right")
+            .is_some_and(|right| right.kind() == "null_literal")
+            || declarator_initializer(parent, identifier)
+                .is_some_and(|value| value.kind() == "null_literal")
+    });
+    stores_null && !conditional_context(identifier)
 }
 
 /// Ancestors between `node` and its nearest block-like boundary that run

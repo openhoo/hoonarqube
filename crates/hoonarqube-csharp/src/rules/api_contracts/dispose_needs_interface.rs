@@ -11,20 +11,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     collect_kinds(root, &TYPE_DECLARATION_KINDS)
         .into_iter()
         .filter(|type_node| !is_error_tainted(*type_node))
-        .filter(|type_node| !dispose_methods(*type_node, source).is_empty())
         .filter(|type_node| !base_simple_names(*type_node, source).contains(&"IDisposable"))
-        .map(|type_node| {
-            let dispose = dispose_methods(type_node, source)
-                .into_iter()
-                .next()
-                .expect("checked Dispose method");
+        .filter_map(|type_node| {
+            let dispose = dispose_methods(type_node, source).into_iter().next()?;
             let name = dispose.child_by_field_name("name").unwrap_or(dispose);
-            issue(
+            Some(issue(
                 language,
                 "S2953",
                 "Either implement 'IDisposable.Dispose', or totally rename this method to prevent confusion.",
                 range_of(name, source),
-            )
+            ))
         })
         .collect()
 }

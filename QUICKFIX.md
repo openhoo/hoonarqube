@@ -3,8 +3,8 @@
 Audit of machine-applicable quick-fix capability per rule, dated 2026-08-26. Status values:
 `fix shipped` (implemented in hoonarqube), `planned`, or `gap` (with reason). Fix
 infrastructure now ships: findings can carry atomic multi-edit remedies and the CLI supports
-dry-run planning, unified diffs, explicit `--apply`, conflict reporting, and post-write
-re-analysis. The captured upstream-parity rows below remain planned; `python:S1721` is the
+dry-run planning, unified diffs, explicit `--apply`, conflict reporting, and pre-write
+verification of projected content. The captured upstream-parity rows below remain planned; `python:S1721` is the
 first shipped local seed fixer.
 
 ## What SonarQube actually provides
@@ -110,5 +110,7 @@ Keys later demoted from `planned` to `gap` get one line here with reason, e.g.:
 2. Available fixes: run `hoonarqube fix <path>` or inspect finding JSON.
 3. Preview: run `hoonarqube fix --diff <path>`; no file is written.
 4. Apply: run `hoonarqube fix --apply <path>` (optionally with repeatable `--rule` prefixes).
-5. Verify: apply mode re-runs analysis, requires targeted rule-count reduction, rejects any
-   increased rule count, and exits nonzero for conflicts, warnings, or unverified fixes.
+5. Verify: apply mode tests every rule fix independently, re-runs the combined analysis,
+   requires targeted rule-count reduction, rejects any increased rule count (including from
+   mechanical-only rewrites), rejects symlinked or late-modified inputs, and exits nonzero for
+   conflicts, warnings, or unverified fixes.

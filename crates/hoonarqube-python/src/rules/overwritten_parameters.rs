@@ -37,8 +37,12 @@ pub(crate) fn check_overwritten_parameters(
                 .filter(|binding| binding.kind == BindingKind::Assignment)
                 .map(|binding| binding.range)
                 .collect();
-            let loads: Vec<TextRange> =
-                table.resolved_loads.iter().map(|load| load.range).collect();
+            let loads: Vec<TextRange> = table
+                .resolved_loads
+                .iter()
+                .filter(|load| load.target == Some(site.own_scope) && load.name == *param_name)
+                .map(|load| load.range)
+                .collect();
             let Some(&first_overwrite) = overwrites.iter().reduce(|left, right| {
                 if right.start() < left.start() {
                     right
@@ -56,17 +60,19 @@ pub(crate) fn check_overwritten_parameters(
                 .iter()
                 .any(|range| range.start() < first_overwrite.start())
                 || facts.token_names.iter().any(|(token_name, range)| {
-                    token_name == param_name
-                        && range.start() >= param_range.end()
-                        && range.end() <= first_overwrite.start()
+                    let belongs_to_parameter = token_name == param_name;
+                    let follows_parameter = range.start() >= param_range.end();
+                    let precedes_overwrite = range.end() <= first_overwrite.start();
+                    belongs_to_parameter && follows_parameter && precedes_overwrite
                 });
             let read_after_overwrite = loads
                 .iter()
                 .any(|range| range.end() > first_overwrite.end())
                 || facts.token_names.iter().any(|(token_name, range)| {
-                    token_name == param_name
-                        && range.start() >= first_overwrite.end()
-                        && !overwrites.contains(range)
+                    let belongs_to_parameter = token_name == param_name;
+                    let follows_overwrite = range.start() >= first_overwrite.end();
+                    let is_not_an_overwrite = !overwrites.contains(range);
+                    belongs_to_parameter && follows_overwrite && is_not_an_overwrite
                 });
             if !read_before_overwrite && read_after_overwrite {
                 issues.push(issue_at(

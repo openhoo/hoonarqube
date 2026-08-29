@@ -15,7 +15,22 @@ pub(crate) fn check_s5122_cors_wildcard(
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    let wildcard = |expr: &Expr| string_literal_text(expr).as_deref() == Some("*");
+    flag_wildcard_dicts(index, source, file_ctx, &mut issues);
+    flag_wildcard_calls(index, source, file_ctx, &mut issues);
+    flag_wildcard_assignments(index, source, file_ctx, &mut issues);
+    issues
+}
+
+fn is_wildcard(expr: &Expr) -> bool {
+    string_literal_text(expr).as_deref() == Some("*")
+}
+
+fn flag_wildcard_dicts(
+    index: &LineIndex,
+    source: &str,
+    file_ctx: &FileContext,
+    issues: &mut Vec<Issue>,
+) {
     for expr in &file_ctx.exprs {
         if let Expr::Dict(dict) = expr {
             for item in &dict.items {
@@ -23,54 +38,66 @@ pub(crate) fn check_s5122_cors_wildcard(
                     continue;
                 };
                 if string_literal_text(key).as_deref() == Some(CORS_WILDCARD_HEADER)
-                    && wildcard(&item.value)
+                    && is_wildcard(&item.value)
                 {
-                    issues.push(issue_at(
-                        "python:S5122",
-                        "Restrict the CORS \"Access-Control-Allow-Origin\" value to trusted origins.",
-                        dict.range(),
-                        index,
-                        source,
-                    ));
+                    push_issue(dict.range(), index, source, issues);
                 }
             }
         }
     }
+}
+
+fn flag_wildcard_calls(
+    index: &LineIndex,
+    source: &str,
+    file_ctx: &FileContext,
+    issues: &mut Vec<Issue>,
+) {
     for call in &file_ctx.calls {
         if is_call_method(call, "CORS")
-            && keyword_value(&call.arguments, "origins").is_some_and(&wildcard)
+            && keyword_value(&call.arguments, "origins").is_some_and(is_wildcard)
         {
-            issues.push(issue_at(
-                "python:S5122",
-                "Restrict the CORS \"Access-Control-Allow-Origin\" value to trusted origins.",
-                call.range(),
-                index,
-                source,
-            ));
+            push_issue(call.range(), index, source, issues);
         }
     }
+}
+
+fn flag_wildcard_assignments(
+    index: &LineIndex,
+    source: &str,
+    file_ctx: &FileContext,
+    issues: &mut Vec<Issue>,
+) {
     for stmt in &file_ctx.stmts {
         if let Stmt::Assign(assign) = stmt {
-            let sets_wildcard = wildcard(&assign.value);
+            let sets_wildcard = is_wildcard(&assign.value);
             for target in &assign.targets {
                 if let Expr::Subscript(subscript) = target {
                     let header = subscript.slice.as_ref();
                     if sets_wildcard
                         && string_literal_text(header).as_deref() == Some(CORS_WILDCARD_HEADER)
                     {
-                        issues.push(issue_at(
-                            "python:S5122",
-                            "Restrict the CORS \"Access-Control-Allow-Origin\" value to trusted origins.",
-                            assign.range(),
-                            index,
-                            source,
-                        ));
+                        push_issue(assign.range(), index, source, issues);
                     }
                 }
             }
         }
     }
-    issues
+}
+
+fn push_issue(
+    range: ruff_text_size::TextRange,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    issues.push(issue_at(
+        "python:S5122",
+        "Restrict the CORS \"Access-Control-Allow-Origin\" value to trusted origins.",
+        range,
+        index,
+        source,
+    ));
 }
 
 // --- python:S5122 — CORS policy restricted to trusted origins -----------------

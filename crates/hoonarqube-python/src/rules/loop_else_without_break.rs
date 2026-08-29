@@ -21,11 +21,14 @@ pub(crate) fn check_loop_else_without_break(
             Stmt::While(loop_stmt) => (&loop_stmt.body, &loop_stmt.orelse),
             _ => continue,
         };
-        if orelse.is_empty() || suite_can_break(body) {
+        if suite_can_break(body) {
             continue;
         }
-        let search_start = body.last().expect("non-empty loop body").end();
-        let search_end = orelse.first().expect("non-empty else body").start();
+        let (Some(last_body), Some(first_else)) = (body.last(), orelse.first()) else {
+            continue;
+        };
+        let search_start = last_body.end();
+        let search_end = first_else.start();
         let between = &source[TextRange::new(search_start, search_end)];
         let Some(relative) = between.rfind("else") else {
             continue;

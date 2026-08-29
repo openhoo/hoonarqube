@@ -13,6 +13,56 @@ pub enum Direction {
     Backward,
 }
 
+impl Direction {
+    fn root<T>(self, cfg: &Cfg<T>) -> BlockId {
+        match self {
+            Self::Forward => cfg.entry(),
+            Self::Backward => cfg.exit(),
+        }
+    }
+
+    fn readers<T>(self, cfg: &Cfg<T>, block: BlockId) -> &[BlockId] {
+        match self {
+            Self::Forward => cfg.predecessors(block),
+            Self::Backward => cfg.successors(block),
+        }
+    }
+
+    fn spread<T>(self, cfg: &Cfg<T>, block: BlockId) -> &[BlockId] {
+        match self {
+            Self::Forward => cfg.successors(block),
+            Self::Backward => cfg.predecessors(block),
+        }
+    }
+
+    fn prior<F: Clone>(self, result: &DataflowResult<F>, block: BlockId) -> F {
+        match self {
+            Self::Forward => result.out_facts[block.index()].clone(),
+            Self::Backward => result.in_facts[block.index()].clone(),
+        }
+    }
+
+    fn retained_side<F: Clone>(self, result: &DataflowResult<F>, block: BlockId) -> F {
+        match self {
+            Self::Forward => result.in_facts[block.index()].clone(),
+            Self::Backward => result.out_facts[block.index()].clone(),
+        }
+    }
+
+    fn store<F>(self, result: &mut DataflowResult<F>, block: BlockId, side: F, computed: F) {
+        match self {
+            Self::Forward => {
+                result.in_facts[block.index()] = side;
+                result.out_facts[block.index()] = computed;
+            }
+            Self::Backward => {
+                result.out_facts[block.index()] = side;
+                result.in_facts[block.index()] = computed;
+            }
+        }
+    }
+}
+
 /// Per-block input and output facts of a solved dataflow problem, indexed by
 /// [`BlockId::index`].
 #[derive(Debug, Clone)]
@@ -81,63 +131,46 @@ where
     };
     let mut visited = vec![false; len];
     let mut queued = vec![false; len];
-    let root = match direction {
-        Direction::Forward => cfg.entry(),
-        Direction::Backward => cfg.exit(),
-    };
+    let root = direction.root(cfg);
     let mut worklist: VecDeque<BlockId> = VecDeque::new();
     worklist.push_back(root);
     queued[root.index()] = true;
     while let Some(block) = worklist.pop_front() {
         queued[block.index()] = false;
-        let readers = match direction {
-            Direction::Forward => cfg.predecessors(block),
-            Direction::Backward => cfg.successors(block),
-        };
         let side = if block == root {
             F::clone(boundary)
         } else {
-            meet_neighbours(readers, direction, &result, &visited, &meet).unwrap_or_else(|| {
-                match direction {
-                    Direction::Forward => result.in_facts[block.index()].clone(),
-                    Direction::Backward => result.out_facts[block.index()].clone(),
-                }
-            })
+            meet_neighbours(
+                direction.readers(cfg, block),
+                direction,
+                &result,
+                &visited,
+                &meet,
+            )
+            .unwrap_or_else(|| direction.retained_side(&result, block))
         };
         let transferred = stmt_transfer(&side, cfg.payload(block));
         let computed = block_effect(block, &transferred);
         let idx = block.index();
-        let prior = match direction {
-            Direction::Forward => result.out_facts[idx].clone(),
-            Direction::Backward => result.in_facts[idx].clone(),
-        };
+        let prior = direction.prior(&result, block);
         let changed = computed != prior;
-        match direction {
-            Direction::Forward => {
-                result.in_facts[idx] = side;
-                result.out_facts[idx] = computed;
-            }
-            Direction::Backward => {
-                result.out_facts[idx] = side;
-                result.in_facts[idx] = computed;
-            }
-        }
+        direction.store(&mut result, block, side, computed);
         let first_visit = !visited[idx];
         visited[idx] = true;
         if changed || first_visit {
-            let spread = match direction {
-                Direction::Forward => cfg.successors(block),
-                Direction::Backward => cfg.predecessors(block),
-            };
-            for &next in spread {
-                if !queued[next.index()] {
-                    queued[next.index()] = true;
-                    worklist.push_back(next);
-                }
-            }
+            enqueue_unqueued(direction.spread(cfg, block), &mut queued, &mut worklist);
         }
     }
     result
+}
+
+fn enqueue_unqueued(spread: &[BlockId], queued: &mut [bool], worklist: &mut VecDeque<BlockId>) {
+    for &next in spread {
+        if !queued[next.index()] {
+            queued[next.index()] = true;
+            worklist.push_back(next);
+        }
+    }
 }
 
 fn meet_neighbours<F, M>(

@@ -78,29 +78,41 @@ fn collect_function_scoped(
     out: &mut Vec<(Option<u32>, String, TextRange)>,
 ) {
     for (position, stmt) in suite.iter().enumerate() {
-        if !(position == 0 && is_standalone_string_stmt(stmt)) {
-            for expr in stmt_exprs(stmt) {
-                for_each_expr(expr, &mut |expr| {
-                    if let Expr::StringLiteral(literal) = expr {
-                        out.push((scope, string_value_text(&literal.value), literal.range()));
-                    }
-                });
-            }
+        if position != 0 || !is_standalone_string_stmt(stmt) {
+            collect_stmt_literals(stmt, scope, out);
         }
-        match stmt {
-            Stmt::FunctionDef(_) => {
-                *next_scope += 1;
-                let inner = Some(*next_scope);
-                for body in child_bodies(stmt) {
-                    collect_function_scoped(body, inner, next_scope, out);
-                }
+        collect_child_literals(stmt, scope, next_scope, out);
+    }
+}
+
+fn collect_stmt_literals(
+    stmt: &Stmt,
+    scope: Option<u32>,
+    out: &mut Vec<(Option<u32>, String, TextRange)>,
+) {
+    for expr in stmt_exprs(stmt) {
+        for_each_expr(expr, &mut |expr| {
+            if let Expr::StringLiteral(literal) = expr {
+                out.push((scope, string_value_text(&literal.value), literal.range()));
             }
-            _ => {
-                for body in child_bodies(stmt) {
-                    collect_function_scoped(body, scope, next_scope, out);
-                }
-            }
-        }
+        });
+    }
+}
+
+fn collect_child_literals(
+    stmt: &Stmt,
+    scope: Option<u32>,
+    next_scope: &mut u32,
+    out: &mut Vec<(Option<u32>, String, TextRange)>,
+) {
+    let child_scope = if matches!(stmt, Stmt::FunctionDef(_)) {
+        *next_scope += 1;
+        Some(*next_scope)
+    } else {
+        scope
+    };
+    for body in child_bodies(stmt) {
+        collect_function_scoped(body, child_scope, next_scope, out);
     }
 }
 

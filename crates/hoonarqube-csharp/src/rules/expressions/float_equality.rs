@@ -10,14 +10,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     let mut issues = Vec::new();
     for (expression, left, right) in comparisons(root) {
         let float_side = left.kind() == "real_literal" || right.kind() == "real_literal";
-        let operator = operator_of(expression);
-        if matches!(operator, Some("==" | "!=")) && float_side {
-            let operator_node =
-                collect_operator(expression, operator.expect("checked")).unwrap_or(expression);
+        let Some(operator @ ("==" | "!=")) = operator_of(expression) else {
+            continue;
+        };
+        if float_side {
+            let operator_node = collect_operator(expression, operator).unwrap_or(expression);
             issues.push(issue(
                 language,
                 "S1244",
-                if operator == Some("==") {
+                if operator == "==" {
                     "Do not check floating point equality with exact values, use a range instead."
                 } else {
                     "Do not check floating point inequality with exact values, use a range instead."

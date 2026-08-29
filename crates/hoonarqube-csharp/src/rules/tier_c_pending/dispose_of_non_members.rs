@@ -16,51 +16,64 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(class) {
             continue;
         }
-        let fields: std::collections::HashSet<&str> = type_members(class)
-            .into_iter()
-            .filter(|member| member.kind() == "field_declaration")
-            .flat_map(|field| field_declarator_names(field, source))
-            .collect();
-        for method in member_declarations_of_kind(class, "method_declaration") {
-            if method
-                .child_by_field_name("name")
-                .is_some_and(|name| node_text(name, source) == "Dispose")
-            {
-                continue;
-            }
-            for call in collect_kinds(method, &["invocation_expression"]) {
-                if is_error_tainted(call) || callee_name(call, source) != Some("Dispose") {
-                    continue;
-                }
-                let Some(receiver) = invocation_receiver(call) else {
-                    continue;
-                };
-                let receiver_name = match receiver.kind() {
-                    "identifier" => Some(node_text(receiver, source)),
-                    "member_access_expression" => collect_kinds(receiver, &["identifier"])
-                        .into_iter()
-                        .last()
-                        .map(|name| node_text(name, source)),
-                    _ => None,
-                };
-                if receiver_name.is_none_or(|name| !fields.contains(name)) {
-                    continue;
-                }
-                let anchor = invocation_function(call)
-                    .and_then(|function| {
-                        collect_kinds(function, &["identifier"]).into_iter().last()
-                    })
-                    .unwrap_or(call);
-                issues.push(issue(
-                    language,
-                    "S2952",
-                    "Move this 'Dispose' call into this class' own 'Dispose' method.",
-                    range_of(anchor, source),
-                ));
-            }
-        }
+        check_class(class, source, language, &mut issues);
     }
     issues
+}
+
+fn check_class(class: Node<'_>, source: &str, language: CsLanguage, issues: &mut Vec<Issue>) {
+    let fields: std::collections::HashSet<&str> = type_members(class)
+        .into_iter()
+        .filter(|member| member.kind() == "field_declaration")
+        .flat_map(|field| field_declarator_names(field, source))
+        .collect();
+    for method in member_declarations_of_kind(class, "method_declaration") {
+        if method
+            .child_by_field_name("name")
+            .is_some_and(|name| node_text(name, source) == "Dispose")
+        {
+            continue;
+        }
+        check_method(method, source, language, &fields, issues);
+    }
+}
+
+fn check_method(
+    method: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    fields: &std::collections::HashSet<&str>,
+    issues: &mut Vec<Issue>,
+) {
+    for call in collect_kinds(method, &["invocation_expression"]) {
+        if is_error_tainted(call) || callee_name(call, source) != Some("Dispose") {
+            continue;
+        }
+        let Some(receiver_name) =
+            invocation_receiver(call).and_then(|receiver| match receiver.kind() {
+                "identifier" => Some(node_text(receiver, source)),
+                "member_access_expression" => collect_kinds(receiver, &["identifier"])
+                    .into_iter()
+                    .last()
+                    .map(|name| node_text(name, source)),
+                _ => None,
+            })
+        else {
+            continue;
+        };
+        if !fields.contains(receiver_name) {
+            continue;
+        }
+        let anchor = invocation_function(call)
+            .and_then(|function| collect_kinds(function, &["identifier"]).into_iter().last())
+            .unwrap_or(call);
+        issues.push(issue(
+            language,
+            "S2952",
+            "Move this 'Dispose' call into this class' own 'Dispose' method.",
+            range_of(anchor, source),
+        ));
+    }
 }
 
 #[cfg(test)]

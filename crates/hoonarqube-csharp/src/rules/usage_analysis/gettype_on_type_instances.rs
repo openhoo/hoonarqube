@@ -11,13 +11,10 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(outer) || callee_name(outer, source) != Some("GetType") {
             continue;
         }
-        let receiver = invocation_receiver(outer);
-        let redundant = receiver.is_some_and(|receiver| {
+        if let Some(receiver) = invocation_receiver(outer).filter(|receiver| {
             receiver.kind() == "invocation_expression"
-                && callee_name(receiver, source) == Some("GetType")
-        });
-        if redundant {
-            let receiver = receiver.expect("checked receiver");
+                && callee_name(*receiver, source) == Some("GetType")
+        }) {
             issues.push(issue(
                 language,
                 "S3443",

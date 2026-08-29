@@ -11,6 +11,7 @@ Usage:
 Exit code 0 when every rule is an exact PASS or an explicit unverified class
 whose local bad/good contract passes.
 """
+
 import base64
 import argparse
 import hashlib
@@ -37,6 +38,7 @@ from parity import (
     failure_count,
     parse_report_task,
     validate_oracle_report,
+    validate_search_page,
     wait_for_compute_engine,
 )
 
@@ -62,14 +64,21 @@ CATALOG_LANGUAGE = {
     "rs": "rust",
     "rust": "rust",
 }
-SONAR_LANGUAGE = {"py": "py", "js": "js", "ts": "ts", "cs": "cs", "go": "go", "rs": "rust"}
+SONAR_LANGUAGE = {
+    "py": "py",
+    "js": "js",
+    "ts": "ts",
+    "cs": "cs",
+    "go": "go",
+    "rs": "rust",
+}
 RESULT_TAG = os.environ.get("SONAR_ORACLE_RESULT_TAG", "")
 RUST_SCANNER_IMAGE = "localhost/hoonarqube-sonar-rust-scanner:latest"
+HTTP_TIMEOUT_SECONDS = 30
 if RESULT_TAG and not re.fullmatch(r"[a-zA-Z0-9_-]+", RESULT_TAG):
-    raise RuntimeError("SONAR_ORACLE_RESULT_TAG may contain only letters, digits, '_' and '-'")
-
-def sh(cmd, **kw):
-    return subprocess.run(cmd, shell=True, capture_output=True, text=True, **kw)
+    raise RuntimeError(
+        "SONAR_ORACLE_RESULT_TAG may contain only letters, digits, '_' and '-'"
+    )
 
 
 def ensure_rust_scanner_image():
@@ -95,7 +104,9 @@ def ensure_rust_scanner_image():
         text=True,
     )
     if built.returncode != 0:
-        print(f"  Rust scanner image build failed: {(built.stdout + built.stderr)[-1000:]}")
+        print(
+            f"  Rust scanner image build failed: {(built.stdout + built.stderr)[-1000:]}"
+        )
         return False
     return True
 
@@ -105,25 +116,41 @@ def result_path(project, kind):
     return RESULTS / f"{project}{tag}.{kind}.json"
 
 
+def read_json(path):
+    return json.loads(Path(path).read_text())
+
+
+def write_json(path, value, *, indent=None):
+    Path(path).write_text(json.dumps(value, indent=indent) + "\n")
+
+
+def request_json(request):
+    with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+        return json.load(response)
+
+
 def auth_header():
     return "Basic " + base64.b64encode(f"{oracle_token()}:".encode()).decode()
 
 
 def oracle_token():
     token = os.environ.get("SONAR_ORACLE_TOKEN")
-    if token is not None:
-        return token
-    token_path = ORACLE / "token"
-    if not token_path.exists():
-        raise RuntimeError("set SONAR_ORACLE_TOKEN or create .oracle/sonar/token")
-    return token_path.read_text().strip()
+    if token is None:
+        token_path = ORACLE / "token"
+        if not token_path.exists():
+            raise RuntimeError("set SONAR_ORACLE_TOKEN or create .oracle/sonar/token")
+        token = token_path.read_text().strip()
+    if not token:
+        raise RuntimeError("SONAR_ORACLE_TOKEN must not be empty")
+    return token
 
 
 def sq_api(path, params=None):
     q = ("?" + urllib.parse.urlencode(params)) if params else ""
     req = urllib.request.Request(f"{SONAR_URL}{path}{q}")
     req.add_header("Authorization", auth_header())
-    raw = urllib.request.urlopen(req).read()
+    with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_SECONDS) as response:
+        raw = response.read()
     return json.loads(raw) if raw else {}
 
 
@@ -132,7 +159,8 @@ def sq_post(path, params):
     req = urllib.request.Request(f"{SONAR_URL}{path}", data=body, method="POST")
     req.add_header("Authorization", auth_header())
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
-    raw = urllib.request.urlopen(req).read()
+    with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_SECONDS) as response:
+        raw = response.read()
     return json.loads(raw) if raw else {}
 
 
@@ -140,12 +168,18 @@ def ensure_project_and_profile(proj):
     """Provision an isolated all-rules profile before the first scan."""
     language = SONAR_LANGUAGE[EXT[proj]]
     search = sq_api("/api/projects/search", {"projects": proj})
-    if not any(component.get("key") == proj for component in search.get("components", [])):
+    if not any(
+        component.get("key") == proj for component in search.get("components", [])
+    ):
         sq_post("/api/projects/create", {"project": proj, "name": proj})
 
     profile_name = f"Hoonarqube Oracle All {language}"
-    profiles = sq_api("/api/qualityprofiles/search", {"language": language}).get("profiles", [])
-    profile = next((item for item in profiles if item.get("name") == profile_name), None)
+    profiles = sq_api("/api/qualityprofiles/search", {"language": language}).get(
+        "profiles", []
+    )
+    profile = next(
+        (item for item in profiles if item.get("name") == profile_name), None
+    )
     if profile is None:
         profile = sq_post(
             "/api/qualityprofiles/create",
@@ -175,8 +209,11 @@ def ensure_project_and_profile(proj):
 
 def ensure_container():
     if SONAR_URL == "http://127.0.0.1:9000":
-        st = subprocess.run(["podman", "inspect", "-f", "{{.State.Running}}", "sonarqube"],
-                            capture_output=True, text=True).stdout.strip()
+        st = subprocess.run(
+            ["podman", "inspect", "-f", "{{.State.Running}}", "sonarqube"],
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
         if st != "true":
             print("starting sonarqube container...")
             subprocess.run(["podman", "start", "sonarqube"], check=True)
@@ -189,6 +226,129 @@ def ensure_container():
             pass
         time.sleep(5)
     raise SystemExit("sonarqube did not reach UP state")
+
+
+def local_scanner_command(scanner_path, proj, token, working):
+    command = [
+        scanner_path,
+        f"-Dsonar.projectKey={proj}",
+        f"-Dsonar.login={token}",
+        f"-Dsonar.host.url={SONAR_URL}",
+        f"-Dsonar.working.directory={working}",
+    ]
+    if proj == "oracle-rust":
+        command.append("-Dsonar.rust.clippy.enabled=true")
+    return command
+
+
+def podman_scanner_command(podman_path, proj, source, token, working):
+    scanner_image = "docker.io/sonarsource/sonar-scanner-cli:latest"
+    command = [
+        podman_path,
+        "run",
+        "--rm",
+        "--network",
+        "host",
+        "-e",
+        f"SONAR_HOST_URL={SONAR_URL}",
+        "-e",
+        f"SONAR_TOKEN={token}",
+        "-v",
+        f"{source}:/usr/src:Z",
+        "-v",
+        f"{working}:/tmp/scannerwork:Z",
+    ]
+    if proj == "oracle-rust":
+        cargo_home = Path.home() / ".cargo"
+        rustup_home = Path.home() / ".rustup"
+        if not cargo_home.is_dir() or not rustup_home.is_dir():
+            print("  scan oracle-rust: FAILED (Rustup Cargo toolchain not found)")
+            return None
+        if not ensure_rust_scanner_image():
+            return None
+        scanner_image = RUST_SCANNER_IMAGE
+        command.extend(
+            [
+                "-v",
+                f"{cargo_home}:/opt/cargo:ro",
+                "-v",
+                f"{rustup_home}:/opt/rustup:ro",
+                "-e",
+                "CARGO_HOME=/opt/cargo",
+                "-e",
+                "RUSTUP_HOME=/opt/rustup",
+                "-e",
+                "CARGO_TARGET_DIR=/tmp/cargo-target",
+                "-e",
+                "PATH=/opt/cargo/bin:/opt/sonar-scanner/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            ]
+        )
+    command.extend(
+        [
+            "-w",
+            "/usr/src",
+            scanner_image,
+            f"-Dsonar.projectKey={proj}",
+            "-Dsonar.working.directory=/tmp/scannerwork",
+        ]
+    )
+    if proj == "oracle-rust":
+        command.append("-Dsonar.rust.clippy.enabled=true")
+    return command
+
+
+def run_generic_scanner(proj, source, working, token, scanner_path, podman_path):
+    if scanner_path and Path(scanner_path).is_file():
+        command = local_scanner_command(scanner_path, proj, token, working)
+        return subprocess.run(command, cwd=source, capture_output=True, text=True)
+    command = podman_scanner_command(podman_path, proj, source, token, working)
+    if command is None:
+        return None
+    return subprocess.run(command, capture_output=True, text=True)
+
+
+def generate_clippy_oracle(proj, source, reports):
+    if proj != "oracle-rust":
+        return True
+    try:
+        count = generate_rust_clippy_report(source, Path(reports) / "clippy.json")
+    except RuntimeError as error:
+        print(f"  scan {proj}: FAILED (Clippy oracle: {error})")
+        return False
+    print(f"  Clippy fixtures: {count} validated diagnostic(s)")
+    return True
+
+
+def submitted_task_id(proj, result, working):
+    if result is None:
+        return None
+    if "EXECUTION SUCCESS" not in result.stdout:
+        print(f"  scan {proj}: FAILED\n{(result.stdout + result.stderr)[-1000:]}")
+        return None
+    task_file = Path(working) / "report-task.txt"
+    if not task_file.exists():
+        print(f"  scan {proj}: FAILED (missing report-task.txt)")
+        return None
+    try:
+        return parse_report_task(task_file.read_text())["ceTaskId"]
+    except ValueError as error:
+        print(f"  scan {proj}: FAILED ({error})")
+        return None
+
+
+def wait_for_scan(proj, task_id, engine_label="compute engine"):
+    status = wait_for_compute_engine(
+        task_id,
+        lambda value: (
+            sq_api("/api/ce/task", {"id": value}).get("task", {}).get("status")
+        ),
+        lambda: time.sleep(1),
+    )
+    if status == "SUCCESS":
+        print(f"  scan {proj}: SUCCESS ({engine_label} complete)")
+        return True
+    print(f"  scan {proj}: FAILED ({engine_label} {status})")
+    return False
 
 
 def scan_project(proj):
@@ -209,90 +369,13 @@ def scan_project(proj):
     ):
         os.chmod(working, 0o777)
         os.chmod(reports, 0o755)
-        clippy_report = None
-        if proj == "oracle-rust":
-            clippy_report = Path(reports) / "clippy.json"
-            try:
-                count = generate_rust_clippy_report(d, clippy_report)
-            except RuntimeError as error:
-                print(f"  scan {proj}: FAILED (Clippy oracle: {error})")
-                return False
-            print(f"  Clippy fixtures: {count} validated diagnostic(s)")
-        if scanner_path and Path(scanner_path).is_file():
-            command = [
-                scanner_path,
-                f"-Dsonar.projectKey={proj}",
-                f"-Dsonar.login={token}",
-                f"-Dsonar.host.url={SONAR_URL}",
-                f"-Dsonar.working.directory={working}",
-            ]
-            if proj == "oracle-rust":
-                command.append("-Dsonar.rust.clippy.enabled=true")
-            r = subprocess.run(command, cwd=d, capture_output=True, text=True)
-        elif podman_path:
-            scanner_image = "docker.io/sonarsource/sonar-scanner-cli:latest"
-            command = [
-                "podman", "run", "--rm", "--network", "host",
-                "-e", f"SONAR_HOST_URL={SONAR_URL}",
-                "-e", f"SONAR_TOKEN={token}",
-                "-v", f"{d}:/usr/src:Z",
-                "-v", f"{working}:/tmp/scannerwork:Z",
-            ]
-            if proj == "oracle-rust":
-                cargo_home = Path.home() / ".cargo"
-                rustup_home = Path.home() / ".rustup"
-                if not cargo_home.is_dir() or not rustup_home.is_dir():
-                    print("  scan oracle-rust: FAILED (Rustup Cargo toolchain not found)")
-                    return False
-                if not ensure_rust_scanner_image():
-                    return False
-                scanner_image = RUST_SCANNER_IMAGE
-                command.extend(
-                    [
-                        "-v", f"{cargo_home}:/opt/cargo:ro",
-                        "-v", f"{rustup_home}:/opt/rustup:ro",
-                        "-e", "CARGO_HOME=/opt/cargo",
-                        "-e", "RUSTUP_HOME=/opt/rustup",
-                        "-e", "CARGO_TARGET_DIR=/tmp/cargo-target",
-                        "-e",
-                        "PATH=/opt/cargo/bin:/opt/sonar-scanner/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-                    ]
-                )
-            command.extend(
-                [
-                    "-w", "/usr/src",
-                    scanner_image,
-                    f"-Dsonar.projectKey={proj}",
-                    "-Dsonar.working.directory=/tmp/scannerwork",
-                ]
-            )
-            if proj == "oracle-rust":
-                command.append("-Dsonar.rust.clippy.enabled=true")
-            r = subprocess.run(command, capture_output=True, text=True)
-        if "EXECUTION SUCCESS" not in r.stdout:
-            print(f"  scan {proj}: FAILED\n{(r.stdout + r.stderr)[-1000:]}")
+        if not generate_clippy_oracle(proj, d, reports):
             return False
-        task_file = Path(working) / "report-task.txt"
-        if not task_file.exists():
-            print(f"  scan {proj}: FAILED (missing report-task.txt)")
+        result = run_generic_scanner(proj, d, working, token, scanner_path, podman_path)
+        task_id = submitted_task_id(proj, result, working)
+        if task_id is None:
             return False
-        try:
-            task_id = parse_report_task(task_file.read_text())["ceTaskId"]
-        except ValueError as error:
-            print(f"  scan {proj}: FAILED ({error})")
-            return False
-    status = wait_for_compute_engine(
-        task_id,
-        lambda value: sq_api("/api/ce/task", {"id": value})
-        .get("task", {})
-        .get("status"),
-        lambda: time.sleep(1),
-    )
-    if status == "SUCCESS":
-        print(f"  scan {proj}: SUCCESS (compute engine complete)")
-        return True
-    print(f"  scan {proj}: FAILED (compute engine {status})")
-    return False
+    return wait_for_scan(proj, task_id)
 
 
 def csharp_begin_command(scanner_path, proj, output_dir, auth_arg):
@@ -307,14 +390,80 @@ def csharp_begin_command(scanner_path, proj, output_dir, auth_arg):
     ]
 
 
-def scan_csharp_project(proj):
+def csharp_scanner_path():
     scanner = os.environ.get("SONAR_DOTNET_SCANNER", "dotnet-sonarscanner")
     scanner_path = shutil.which(scanner) if os.path.sep not in scanner else scanner
     if not scanner_path or not Path(scanner_path).is_file():
         print("  scan oracle-cs: FAILED (set SONAR_DOTNET_SCANNER)")
-        return False
+        return None
     if not shutil.which("dotnet"):
         print("  scan oracle-cs: FAILED (dotnet SDK missing)")
+        return None
+    return scanner_path
+
+
+def csharp_fixture_limit():
+    value = os.environ.get("SONAR_CSHARP_FIXTURE_LIMIT")
+    return int(value) if value else None
+
+
+def native_csharp_task_id(
+    proj, scanner_path, output_dir, solution, fixture_count, auth_arg
+):
+    begin = subprocess.run(
+        csharp_begin_command(scanner_path, proj, output_dir, auth_arg),
+        cwd=output_dir,
+        capture_output=True,
+        text=True,
+    )
+    if begin.returncode != 0:
+        print(f"  scan {proj}: FAILED (native begin)\n{begin.stdout[-500:]}")
+        return None
+    build = subprocess.run(
+        [
+            "dotnet",
+            "build",
+            str(solution),
+            "--no-incremental",
+            "--disable-build-servers",
+        ],
+        cwd=output_dir,
+        capture_output=True,
+        text=True,
+    )
+    print(
+        f"  native build: {fixture_count} isolated fixture project(s), "
+        f"exit {build.returncode}"
+    )
+    # Once begin succeeds, end must always run so the scanner can finalize or
+    # reject the analysis even when compilation failed.
+    end = subprocess.run(
+        [scanner_path, "end", auth_arg],
+        cwd=output_dir,
+        capture_output=True,
+        text=True,
+    )
+    if end.returncode != 0:
+        print(f"  scan {proj}: FAILED (native end)\n{end.stdout[-2000:]}")
+        return None
+    if build.returncode != 0:
+        output = (build.stdout + "\n" + build.stderr).strip()
+        print(f"  scan {proj}: FAILED (native build)\n{output[-2000:]}")
+        return None
+    task_file = output_dir / ".sonarqube/out/.sonar/report-task.txt"
+    if not task_file.exists():
+        print(f"  scan {proj}: FAILED (missing native report-task.txt)")
+        return None
+    try:
+        return parse_report_task(task_file.read_text())["ceTaskId"]
+    except ValueError as error:
+        print(f"  scan {proj}: FAILED ({error})")
+        return None
+
+
+def scan_csharp_project(proj):
+    scanner_path = csharp_scanner_path()
+    if scanner_path is None:
         return False
 
     project_dir = (ORACLE / "projects" / proj).resolve()
@@ -322,127 +471,102 @@ def scan_csharp_project(proj):
     version = str(sq_api("/api/system/status").get("version", ""))
     auth_name = "sonar.login" if version.startswith("9.") else "sonar.token"
     auth_arg = f"/d:{auth_name}={token}"
-    fixture_limit_value = os.environ.get("SONAR_CSHARP_FIXTURE_LIMIT")
     try:
-        fixture_limit = int(fixture_limit_value) if fixture_limit_value else None
+        fixture_limit = csharp_fixture_limit()
     except ValueError:
-        print("  scan oracle-cs: FAILED (SONAR_CSHARP_FIXTURE_LIMIT must be an integer)")
+        print(
+            "  scan oracle-cs: FAILED (SONAR_CSHARP_FIXTURE_LIMIT must be an integer)"
+        )
         return False
-    with tempfile.TemporaryDirectory(prefix="native-csharp-", dir=REPO / "tools/oracle") as directory:
+    with tempfile.TemporaryDirectory(
+        prefix="native-csharp-", dir=REPO / "tools/oracle"
+    ) as directory:
         output_dir = Path(directory)
         solution, fixture_count = generate_solution(
             project_dir, output_dir, limit=fixture_limit
         )
-        begin = subprocess.run(
-            csharp_begin_command(scanner_path, proj, output_dir, auth_arg),
-            cwd=output_dir,
-            capture_output=True,
-            text=True,
+        task_id = native_csharp_task_id(
+            proj,
+            scanner_path,
+            output_dir,
+            solution,
+            fixture_count,
+            auth_arg,
         )
-        if begin.returncode != 0:
-            print(f"  scan {proj}: FAILED (native begin)\n{begin.stdout[-500:]}")
+        if task_id is None:
             return False
-        build = subprocess.run(
-            [
-                "dotnet",
-                "build",
-                str(solution),
-                "--no-incremental",
-                "--disable-build-servers",
-            ],
-            cwd=output_dir,
-            capture_output=True,
-            text=True,
+    return wait_for_scan(proj, task_id, "native compute engine")
+
+
+def _issue_page(proj, page, attempt=0):
+    q = urllib.parse.urlencode(
+        {"componentKeys": proj, "resolved": "false", "ps": 500, "p": page}
+    )
+    req = urllib.request.Request(f"{SONAR_URL}/api/issues/search?{q}")
+    req.add_header("Authorization", auth_header())
+    try:
+        return request_json(req)
+    except urllib.error.HTTPError as error:
+        body = error.read().decode()[:200]
+        if error.code != 400 or attempt >= 4:
+            print(f"  issues API {error.code}: {body}")
+            raise
+        time.sleep(min(30, 5 * (attempt + 1)))  # compute engine still flushing
+        return _issue_page(proj, page, attempt + 1)
+
+
+def _fetch_standard_issues(proj):
+    return _fetch_paginated(
+        lambda page: _issue_page(proj, page), "issues", hotspot=False
+    )
+
+
+def _hotspot_page(proj, page):
+    q = urllib.parse.urlencode({"projectKey": proj, "ps": 500, "p": page})
+    req = urllib.request.Request(f"{SONAR_URL}/api/hotspots/search?{q}")
+    req.add_header("Authorization", auth_header())
+    return request_json(req)
+
+
+def _fetch_paginated(page_loader, item_key, *, hotspot):
+    issues, page = [], 1
+    expected_total = expected_page_size = None
+    while True:
+        payload = page_loader(page)
+        items, total, page_size, done = validate_search_page(
+            payload,
+            item_key,
+            page,
+            expected_total=expected_total,
+            expected_page_size=expected_page_size,
         )
-        print(
-            f"  native build: {fixture_count} isolated fixture project(s), "
-            f"exit {build.returncode}"
-        )
-        end = subprocess.run(
-            [scanner_path, "end", auth_arg],
-            cwd=output_dir,
-            capture_output=True,
-            text=True,
-        )
-        if end.returncode != 0:
-            print(f"  scan {proj}: FAILED (native end)\n{end.stdout[-2000:]}")
-            return False
-        if build.returncode != 0:
-            output = (build.stdout + "\n" + build.stderr).strip()
-            print(f"  scan {proj}: FAILED (native build)\n{output[-2000:]}")
-            return False
-        task_file = output_dir / ".sonarqube/out/.sonar/report-task.txt"
-        if not task_file.exists():
-            print(f"  scan {proj}: FAILED (missing native report-task.txt)")
-            return False
-        try:
-            task_id = parse_report_task(task_file.read_text())["ceTaskId"]
-        except ValueError as error:
-            print(f"  scan {proj}: FAILED ({error})")
-            return False
-        status = wait_for_compute_engine(
-            task_id,
-            lambda value: sq_api("/api/ce/task", {"id": value})
-            .get("task", {})
-            .get("status"),
-            lambda: time.sleep(1),
-        )
-    if status == "SUCCESS":
-        print(f"  scan {proj}: SUCCESS (native compute engine complete)")
-        return True
-    print(f"  scan {proj}: FAILED (native compute engine {status})")
-    return False
+        if expected_total is None:
+            expected_total, expected_page_size = total, page_size
+        issues.extend(canonical_sonar_issue(issue, hotspot=hotspot) for issue in items)
+        if done:
+            return issues
+        page += 1
+
+
+def _fetch_hotspots(proj):
+    return _fetch_paginated(
+        lambda page: _hotspot_page(proj, page), "hotspots", hotspot=True
+    )
 
 
 def fetch_issues(proj):
-    issues, page = [], 1
-    while True:
-        q = urllib.parse.urlencode({"componentKeys": proj, "resolved": "false",
-                                    "ps": 500, "p": page})
-        req = urllib.request.Request(f"{SONAR_URL}/api/issues/search?{q}")
-        req.add_header("Authorization", auth_header())
-        for attempt in range(12):
-            try:
-                d = json.load(urllib.request.urlopen(req))
-                break
-            except urllib.error.HTTPError as e:
-                body = e.read().decode()[:200]
-                if e.code == 400 and attempt < 4:
-                    time.sleep(min(30, 5 * (attempt + 1)))  # compute engine still flushing
-                    req = urllib.request.Request(f"{SONAR_URL}/api/issues/search?{q}")
-                    req.add_header("Authorization", auth_header())
-                    continue
-                print(f"  issues API {e.code}: {body}")
-                raise
-        for i in d["issues"]:
-            issues.append(canonical_sonar_issue(i, hotspot=False))
-        total, ps = d["paging"]["total"], d["paging"]["pageSize"]
-        if page * ps >= total or not d["issues"]:
-            break
-        page += 1
-    # security hotspots live outside /api/issues
-    hp, page = [], 1
-    while True:
-        q = urllib.parse.urlencode({"projectKey": proj, "ps": 500, "p": page})
-        req = urllib.request.Request(f"{SONAR_URL}/api/hotspots/search?{q}")
-        req.add_header("Authorization", auth_header())
-        d = json.load(urllib.request.urlopen(req))
-        for h in d.get("hotspots", []):
-            issues.append(canonical_sonar_issue(h, hotspot=True))
-        total, ps = d["paging"]["total"], d["paging"]["pageSize"]
-        if page * ps >= total or not d.get("hotspots"):
-            break
-        page += 1
+    issues = _fetch_standard_issues(proj)
+    issues.extend(_fetch_hotspots(proj))
     RESULTS.mkdir(parents=True, exist_ok=True)
     out = result_path(proj, "sq")
-    json.dump(
+    write_json(
+        out,
         {
             "schema_version": 2,
             "project": proj,
             "server": sq_api("/api/system/status"),
             "issues": issues,
         },
-        open(out, "w"),
         indent=1,
     )
     return len(issues)
@@ -450,7 +574,9 @@ def fetch_issues(proj):
 
 def canonical_sonar_issue(issue, hotspot):
     component = issue.get("component", "")
-    path = component.get("path", component) if isinstance(component, dict) else component
+    path = (
+        component.get("path", component) if isinstance(component, dict) else component
+    )
     text_range = issue.get("textRange") or {}
     start_line = text_range.get("startLine", issue.get("line"))
     start_column = text_range.get("startOffset")
@@ -472,27 +598,38 @@ def run_ours(proj):
     # oracle-cs keeps sources at the project root; others under src/
     src = ORACLE / "projects" / proj / ("." if proj == "oracle-cs" else "src")
     out = result_path(proj, "ours")
-    command = ["cargo", "run", "-q", "-p", "hoonarqube-cli", "--", "analyze",
-               "--format", "json"]
+    command = [
+        "cargo",
+        "run",
+        "-q",
+        "-p",
+        "hoonarqube-cli",
+        "--",
+        "analyze",
+        "--format",
+        "json",
+    ]
     if proj == "oracle-go":
         command.extend(["--go-header-format", "// Licensed"])
     command.append(str(src))
-    r = subprocess.run(command, capture_output=True, text=True,
-                       cwd=REPO)
+    r = subprocess.run(command, capture_output=True, text=True, cwd=REPO)
     if r.returncode != 0:
         print(f"  ours {proj}: FAILED\n{r.stderr[-500:]}")
         return None
     data = json.loads(r.stdout)
-    json.dump(data, open(out, "w"))
+    write_json(out, data)
     return out
 
 
 def diff(proj, lang, sq_json, ours_json):
     project_dir = ORACLE / "projects" / proj
     exp_path = project_dir / "expected.jsonl"
-    expected = [json.loads(l) for l in open(exp_path) if l.strip()]
-    sq = json.load(open(sq_json))
-    ours = json.load(open(ours_json))
+    expected = [
+        json.loads(line) for line in exp_path.read_text().splitlines() if line.strip()
+    ]
+    sq = read_json(sq_json)
+    ours = read_json(ours_json)
+    validate_oracle_report(sq, expected_project=proj)
     language = CATALOG_LANGUAGE[lang]
     catalog = json.loads((REPO / "catalog/rules" / f"{language}.json").read_text())
     catalog_keys = [rule["external_key"] for rule in catalog["rules"]]
@@ -515,59 +652,73 @@ def diff(proj, lang, sq_json, ours_json):
     return counts(rows), rows
 
 
-def main():
+def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--quick", action="store_true", help="reuse cached scan artifacts")
+    parser.add_argument(
+        "--quick", action="store_true", help="reuse cached scan artifacts"
+    )
     parser.add_argument(
         "--project",
         action="append",
         choices=LANGS,
         help="run only this oracle project (repeatable)",
     )
-    args = parser.parse_args()
-    quick = args.quick
-    projects = args.project or LANGS
+    return parser.parse_args()
+
+
+def project_rows(proj, quick):
+    lang = proj.replace("oracle-", "")
+    print(f"[{proj}]")
     if not quick:
-        ensure_container()
-    all_counts = {}
+        if not scan_project(proj):
+            return None, None, "oracle scan failed"
+        try:
+            issue_count = fetch_issues(proj)
+        except (ValueError, json.JSONDecodeError) as error:
+            print(f"  invalid oracle response: {error}")
+            return None, None, str(error)
+        print(f"  oracle issues: {issue_count}")
+        if run_ours(proj) is None:
+            return None, None, "hoonarqube analysis failed"
+    sq_json = result_path(proj, "sq")
+    ours_json = result_path(proj, "ours")
+    if not sq_json.exists() or not ours_json.exists():
+        print("  missing artifacts; run without --quick")
+        return None, None, "missing artifacts"
+    try:
+        project_counts, rows = diff(proj, lang, sq_json, ours_json)
+        oracle_issues = validate_oracle_report(
+            read_json(sq_json), expected_project=proj
+        )
+    except (ValueError, json.JSONDecodeError) as error:
+        print(f"  invalid artifact: {error}")
+        return None, None, str(error)
+    print(" ", project_counts)
+    return rows, oracle_issues, None
+
+
+def collect_project_rows(projects, quick):
     all_rows = {}
     invalid_artifacts = {}
     blocked_projects = set()
     for proj in projects:
-        lang = proj.replace("oracle-", "")
-        print(f"[{proj}]")
-        if not quick:
-            if not scan_project(proj):
-                invalid_artifacts[proj] = "oracle scan failed"
-                continue
-            n = fetch_issues(proj)
-            print(f"  oracle issues: {n}")
-            r = run_ours(proj)
-            if r is None:
-                invalid_artifacts[proj] = "hoonarqube analysis failed"
-                continue
-        sqj = result_path(proj, "sq")
-        ourj = result_path(proj, "ours")
-        if not sqj.exists() or not ourj.exists():
-            print("  missing artifacts; run without --quick")
-            invalid_artifacts[proj] = "missing artifacts"
+        rows, oracle_issues, error = project_rows(proj, quick)
+        if error is not None:
+            invalid_artifacts[proj] = error
             continue
-        try:
-            project_counts, rows = diff(proj, lang, sqj, ourj)
-            oracle_issues = validate_oracle_report(json.load(open(sqj)))
-        except (ValueError, json.JSONDecodeError) as error:
-            print(f"  invalid artifact: {error}")
-            invalid_artifacts[proj] = str(error)
-            continue
-        all_counts[proj] = project_counts
+        assert rows is not None and oracle_issues is not None
         all_rows[proj] = rows
         if proj == "oracle-cs" and not oracle_issues:
             blocked_projects.add(proj)
-        print(" ", project_counts)
-    # Classify SQ-MISS: does the rule exist in this CE instance at all?
+    return all_rows, invalid_artifacts, blocked_projects
+
+
+def ce_rule_availability(quick):
+    """Build a cached rule-availability lookup for SQ miss classification."""
     server_cache_key = hashlib.sha256(SONAR_URL.encode()).hexdigest()[:12]
     ce_cache_path = RESULTS / f"ce_rule_cache.{server_cache_key}.json"
-    ce = json.load(open(ce_cache_path)) if ce_cache_path.exists() else {}
+    ce = read_json(ce_cache_path) if ce_cache_path.exists() else {}
+
     def rule_in_ce(key):
         if key not in ce:
             if quick:
@@ -582,9 +733,15 @@ def main():
                     ce[key] = e.code  # transient; retried on next run
             except Exception:
                 ce[key] = "ERR"
-            open(ce_cache_path, "w").write(json.dumps(ce))
+            write_json(ce_cache_path, ce)
         value = ce.get(key)
         return value if isinstance(value, bool) else None
+
+    return rule_in_ce
+
+
+def classify_missing_rules(all_rows, quick):
+    rule_in_ce = ce_rule_availability(quick)
     beyond_ce = {}
     unverified = {}
     for proj, rows in all_rows.items():
@@ -593,6 +750,28 @@ def main():
             beyond_ce[proj] = beyond
         if unknown:
             unverified[proj] = unknown
+    return beyond_ce, unverified
+
+
+def status_keys(all_rows, status):
+    return {
+        proj: [row["key"] for row in rows if row["status"] == status]
+        for proj, rows in all_rows.items()
+        if any(row["status"] == status for row in rows)
+    }
+
+
+def result_filename(projects):
+    result_parts = [] if projects == LANGS else list(projects)
+    if RESULT_TAG:
+        result_parts.append(RESULT_TAG)
+    suffix = "." + ".".join(result_parts) if result_parts else ""
+    return f"parity_divergences{suffix}.json"
+
+
+def build_report(
+    projects, all_rows, invalid_artifacts, blocked_projects, beyond_ce, unverified
+):
     divergences = {
         proj: [row for row in rows if row["status"] != "PASS"]
         for proj, rows in all_rows.items()
@@ -600,14 +779,7 @@ def main():
     final_counts = {proj: counts(rows) for proj, rows in all_rows.items()}
     n_failures = sum(failure_count(rows) for rows in all_rows.values())
     n_failures += len(invalid_artifacts) + len(blocked_projects)
-    result_parts = [] if projects == LANGS else projects
-    if RESULT_TAG:
-        result_parts.append(RESULT_TAG)
-    result_name = "parity_divergences"
-    if result_parts:
-        result_name += "." + ".".join(result_parts)
-    result_name += ".json"
-    report = {
+    return {
         "schema_version": 2,
         "result_tag": RESULT_TAG or None,
         "projects": projects,
@@ -615,52 +787,73 @@ def main():
         "failure_count": n_failures,
         "beyond_ce": beyond_ce,
         "oracle_unverified": unverified,
-        "enterprise_unverified": {
-            proj: [row["key"] for row in rows if row["status"] == "ENTERPRISE_UNVERIFIED"]
-            for proj, rows in all_rows.items()
-            if any(row["status"] == "ENTERPRISE_UNVERIFIED" for row in rows)
-        },
-        "upstream_unverified": {
-            proj: [row["key"] for row in rows if row["status"] == "UPSTREAM_UNVERIFIED"]
-            for proj, rows in all_rows.items()
-            if any(row["status"] == "UPSTREAM_UNVERIFIED" for row in rows)
-        },
+        "enterprise_unverified": status_keys(all_rows, "ENTERPRISE_UNVERIFIED"),
+        "upstream_unverified": status_keys(all_rows, "UPSTREAM_UNVERIFIED"),
         "invalid_artifacts": invalid_artifacts,
         "blocked_projects": sorted(blocked_projects),
         "divergences": divergences,
     }
-    (RESULTS / result_name).write_text(json.dumps(report, indent=1) + "\n")
+
+
+def print_summary(report, result_name):
+    all_rows = {proj: rows for proj, rows in report["divergences"].items()}
+    beyond_ce = report["beyond_ce"]
+    invalid_artifacts = report["invalid_artifacts"]
+    blocked_projects = report["blocked_projects"]
     # A native scanner run producing no C# findings is invalid evidence.
     cs_blocked = "oracle-cs" in blocked_projects
-    n_beyond = sum(len(v) for v in beyond_ce.values())
+    n_beyond = sum(len(keys) for keys in beyond_ce.values())
     n_enterprise_unverified = sum(
-        1
-        for rows in all_rows.values()
-        for row in rows
-        if row["status"] == "ENTERPRISE_UNVERIFIED"
+        len(keys) for keys in report["enterprise_unverified"].values()
     )
     n_upstream_unverified = sum(
-        1
-        for rows in all_rows.values()
-        for row in rows
-        if row["status"] == "UPSTREAM_UNVERIFIED"
+        len(keys) for keys in report["upstream_unverified"].values()
     )
     print(f"BEYOND-CE (rule absent from SonarQube Community): {n_beyond}")
     for proj, keys in beyond_ce.items():
-        if keys: print(f"  {proj}: {len(keys)}")
-    print(f"ENTERPRISE-UNVERIFIED (Community cannot certify): {n_enterprise_unverified}")
-    print(f"UPSTREAM-UNVERIFIED (current analyzer cannot certify): {n_upstream_unverified}")
+        if keys:
+            print(f"  {proj}: {len(keys)}")
+    print(
+        f"ENTERPRISE-UNVERIFIED (Community cannot certify): {n_enterprise_unverified}"
+    )
+    print(
+        f"UPSTREAM-UNVERIFIED (current analyzer cannot certify): {n_upstream_unverified}"
+    )
     if cs_blocked:
         print("C# ORACLE-BLOCKED: zero Sonar findings; parity is unverified")
-    print("PARITY FAILURES:", n_failures)
-    for proj, rows in divergences.items():
+    print("PARITY FAILURES:", report["failure_count"])
+    for proj, rows in all_rows.items():
         for r in rows[:20]:
             print(f"  {proj} {r['key']} [{r['status']}]")
         if len(rows) > 20:
             print(f"  {proj}: {len(rows) - 20} more divergence(s); see {result_name}")
     for proj, reason in invalid_artifacts.items():
         print(f"  {proj} [INVALID_ARTIFACT] {reason}")
-    sys.exit(0 if n_failures == 0 else 1)
+
+
+def main():
+    args = parse_args()
+    quick = args.quick
+    projects = args.project or LANGS
+    if not quick:
+        ensure_container()
+    all_rows, invalid_artifacts, blocked_projects = collect_project_rows(
+        projects, quick
+    )
+    beyond_ce, unverified = classify_missing_rules(all_rows, quick)
+    report = build_report(
+        projects,
+        all_rows,
+        invalid_artifacts,
+        blocked_projects,
+        beyond_ce,
+        unverified,
+    )
+    result_name = result_filename(projects)
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    write_json(RESULTS / result_name, report, indent=1)
+    print_summary(report, result_name)
+    sys.exit(0 if report["failure_count"] == 0 else 1)
 
 
 if __name__ == "__main__":

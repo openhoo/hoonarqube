@@ -31,8 +31,9 @@ pub(crate) fn check_rx_style_shapes(
     }
     // python:S5857 — reluctant quantifiers on the wildcard.
     for_each_rx_item(&parsed.root, &mut |item| {
-        if matches!(item.atom, RxAtom::Dot) && item.quant.as_ref().is_some_and(|quant| quant.lazy) {
-            let quant = item.quant.as_ref().expect("checked");
+        if matches!(item.atom, RxAtom::Dot)
+            && let Some(quant) = item.quant.as_ref().filter(|quant| quant.lazy)
+        {
             let next = source[usize::from(item.span.end())..]
                 .chars()
                 .next()

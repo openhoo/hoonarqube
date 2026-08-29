@@ -30,54 +30,71 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some(unconstrained) = unconstrained_generic_parameters(declaration, source) else {
             continue;
         };
-        let readonly_fields: std::collections::HashSet<&str> = type_members(declaration)
-            .into_iter()
-            .filter(|member| {
-                member.kind() == "field_declaration"
-                    && has_modifier(&modifiers_of(*member, source), "readonly")
-            })
-            .filter(|member| {
-                member_declared_type(*member)
-                    .is_some_and(|type_node| unconstrained.contains(node_text(type_node, source)))
-            })
-            .flat_map(|member| field_declarator_names(member, source))
-            .collect();
+        let readonly_fields = readonly_generic_fields(declaration, source, &unconstrained);
         if readonly_fields.is_empty() {
             continue;
         }
         for assignment in collect_kinds(declaration, &["assignment_expression"]) {
-            if is_error_tainted(assignment) {
-                continue;
-            }
-            let Some(left) = first_named_child(assignment) else {
-                continue;
-            };
-            if left.kind() != "member_access_expression" {
-                continue;
-            }
-            let Some(object) = first_named_child(left) else {
-                continue;
-            };
-            let written = match object.kind() {
-                "identifier" => Some(node_text(object, source)),
-                "member_access_expression" => expression_name(object, source),
-                _ => None,
-            };
-            if written.is_some_and(|name| readonly_fields.contains(name)) {
-                let field_name = written.unwrap_or("field");
-                let property_name = expression_name(left, source).unwrap_or("property");
-                issues.push(issue(
-                    language,
-                    "S2934",
-                    format!(
-                        "Restrict '{field_name}' to be a reference type or remove this assignment of '{property_name}'; it is useless if '{field_name}' is a value type."
-                    ),
-                    range_of(left, source),
-                ));
+            if let Some(issue) =
+                readonly_property_write_issue(assignment, source, language, &readonly_fields)
+            {
+                issues.push(issue);
             }
         }
     }
     issues
+}
+
+fn readonly_generic_fields<'a>(
+    declaration: Node<'_>,
+    source: &'a str,
+    unconstrained: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<&'a str> {
+    type_members(declaration)
+        .into_iter()
+        .filter(|member| {
+            member.kind() == "field_declaration"
+                && has_modifier(&modifiers_of(*member, source), "readonly")
+        })
+        .filter(|member| {
+            member_declared_type(*member)
+                .is_some_and(|type_node| unconstrained.contains(node_text(type_node, source)))
+        })
+        .flat_map(|member| field_declarator_names(member, source))
+        .collect()
+}
+
+fn readonly_property_write_issue(
+    assignment: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    readonly_fields: &std::collections::HashSet<&str>,
+) -> Option<Issue> {
+    if is_error_tainted(assignment) {
+        return None;
+    }
+    let left = first_named_child(assignment)?;
+    if left.kind() != "member_access_expression" {
+        return None;
+    }
+    let object = first_named_child(left)?;
+    let field_name = match object.kind() {
+        "identifier" => Some(node_text(object, source)),
+        "member_access_expression" => expression_name(object, source),
+        _ => None,
+    }?;
+    if !readonly_fields.contains(field_name) {
+        return None;
+    }
+    let property_name = expression_name(left, source).unwrap_or("property");
+    Some(issue(
+        language,
+        "S2934",
+        format!(
+            "Restrict '{field_name}' to be a reference type or remove this assignment of '{property_name}'; it is useless if '{field_name}' is a value type."
+        ),
+        range_of(left, source),
+    ))
 }
 
 #[cfg(test)]

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import unquote, urlparse
 
-from csharp_oracle import generate_solution
+from csharp_oracle import generate_solution, is_sonar_rule_id
 
 
 REPO = Path(__file__).resolve().parent.parent.parent
@@ -43,12 +43,12 @@ def catalog_rule_ids(path: Path) -> list[str]:
     )
 
 
-def _message_text(value: Any) -> str:
+def _message_text(value: Any) -> str | None:
     if isinstance(value, str):
         return value
     if isinstance(value, dict) and isinstance(value.get("text"), str):
         return value["text"]
-    return ""
+    return None
 
 
 def _location(result: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
@@ -83,53 +83,85 @@ def _file_name(uri: str) -> str:
     return Path(unquote(path.replace("\\", "/"))).name
 
 
+def _sarif_issue(result: dict[str, Any]) -> dict[str, Any] | None:
+    rule = result.get("ruleId")
+    if not is_sonar_rule_id(rule):
+        return None
+    assert isinstance(rule, str)
+    located = _location(result)
+    if located is None:
+        raise ValueError(f"SARIF result {rule} must contain a primary location")
+    uri, region = located
+    file_name = _file_name(uri)
+    if file_name == "OracleStubs.g.cs":
+        return None
+    if not file_name:
+        raise ValueError(f"SARIF result {rule} location must name a file")
+    message = _message_text(result.get("message"))
+    if message is None:
+        raise ValueError(f"SARIF result {rule} message must contain text")
+    start_line = region.get("startLine")
+    start_column = region.get("startColumn")
+    end_line = region.get("endLine", start_line)
+    end_column = region.get("endColumn")
+    if not all(
+        isinstance(value, int) and not isinstance(value, bool)
+        for value in (start_line, start_column, end_line, end_column)
+    ):
+        raise ValueError(f"SARIF result {rule} range must contain integer coordinates")
+    if min(start_line, start_column, end_line, end_column) < 1:
+        raise ValueError(f"SARIF result {rule} coordinates must be positive")
+    if (start_line, start_column) > (end_line, end_column):
+        raise ValueError(f"SARIF result {rule} range ends before it starts")
+    return {
+        "rule": f"csharpsquid:{rule}",
+        "file": file_name,
+        "message": message,
+        "range": {
+            "start": {
+                "line": start_line,
+                "column": max(0, start_column - 1),
+            },
+            "end": {
+                "line": end_line,
+                "column": max(0, end_column - 1),
+            },
+        },
+        "hotspot": False,
+    }
+
+
+def _sarif_results(report: Any) -> Iterable[dict[str, Any]]:
+    if not isinstance(report, dict):
+        raise ValueError("SARIF report must be an object")
+    runs = report.get("runs")
+    if not isinstance(runs, list) or not runs:
+        raise ValueError("SARIF report must contain a non-empty runs list")
+    for run_index, run in enumerate(runs):
+        if not isinstance(run, dict):
+            raise ValueError(f"SARIF run {run_index} must be an object")
+        results = run.get("results")
+        if not isinstance(results, list):
+            raise ValueError(f"SARIF run {run_index} must contain a results list")
+        for result_index, result in enumerate(results):
+            if not isinstance(result, dict):
+                raise ValueError(
+                    f"SARIF run {run_index} result {result_index} must be an object"
+                )
+            yield result
+
+
 def sarif_issues(paths: Iterable[Path]) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     for path in sorted(paths):
         report = json.loads(path.read_text())
-        for run in report.get("runs", []):
-            if not isinstance(run, dict):
-                continue
-            for result in run.get("results", []):
-                if not isinstance(result, dict):
-                    continue
-                rule = result.get("ruleId")
-                if not isinstance(rule, str) or not rule.startswith("S"):
-                    continue
-                located = _location(result)
-                if located is None:
-                    continue
-                uri, region = located
-                file_name = _file_name(uri)
-                if file_name == "OracleStubs.g.cs":
-                    continue
-                start_line = region.get("startLine")
-                start_column = region.get("startColumn")
-                end_line = region.get("endLine", start_line)
-                end_column = region.get("endColumn")
-                if not all(
-                    isinstance(value, int)
-                    for value in (start_line, start_column, end_line, end_column)
-                ):
-                    continue
-                issues.append(
-                    {
-                        "rule": f"csharpsquid:{rule}",
-                        "file": file_name,
-                        "message": _message_text(result.get("message")),
-                        "range": {
-                            "start": {
-                                "line": start_line,
-                                "column": max(0, start_column - 1),
-                            },
-                            "end": {
-                                "line": end_line,
-                                "column": max(0, end_column - 1),
-                            },
-                        },
-                        "hotspot": False,
-                    }
-                )
+        try:
+            for result in _sarif_results(report):
+                issue = _sarif_issue(result)
+                if issue is not None:
+                    issues.append(issue)
+        except ValueError as error:
+            raise ValueError(f"invalid SARIF report {path}: {error}") from error
     return sorted(
         issues,
         key=lambda issue: (
@@ -172,7 +204,9 @@ def run(
         capture_output=True,
         text=True,
     )
-    print(f"native target build: {fixture_count} isolated fixture project(s), exit {build.returncode}")
+    print(
+        f"native target build: {fixture_count} isolated fixture project(s), exit {build.returncode}"
+    )
     if build.returncode != 0:
         output = (build.stdout + "\n" + build.stderr).strip()
         raise RuntimeError(f"native target build failed\n{output[-4000:]}")

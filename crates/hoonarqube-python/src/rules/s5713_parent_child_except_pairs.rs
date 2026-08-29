@@ -27,53 +27,63 @@ pub(crate) fn check_s5713_parent_child_except_pairs(
             return;
         };
         for handler in &try_stmt.handlers {
-            let ExceptHandler::ExceptHandler(inner) = handler;
-            let Some(Expr::Tuple(tuple)) = inner.type_.as_deref() else {
-                continue;
-            };
-            let names: Vec<&str> = tuple
-                .elts
-                .iter()
-                .filter_map(|element| match element {
-                    Expr::Name(name) => Some(name.id.as_str()),
-                    _ => None,
-                })
-                .collect();
-            let mut pair_found: Option<(&str, &str)> = None;
-            for child in &names {
-                for parent in &names {
-                    if child == parent
-                        || !classes.contains_key(child)
-                        || !classes.contains_key(parent)
-                    {
-                        continue;
-                    }
-                    let mut visited = HashSet::new();
-                    if has_file_local_ancestor(child, parent, &classes, &mut visited) {
-                        pair_found = Some((child, parent));
-                    }
-                }
-            }
-            if let Some((child, _parent)) = pair_found {
-                let child_range = tuple
-                    .elts
-                    .iter()
-                    .find_map(|element| match element {
-                        Expr::Name(name) if name.id.as_str() == child => Some(name.range()),
-                        _ => None,
-                    })
-                    .expect("child exception expression");
-                issues.push(issue_at(
-                    "python:S5713",
-                    "Remove this redundant Exception class; it derives from another which is already caught.",
-                    child_range,
-                    index,
-                    source,
-                ));
+            if let Some(issue) = redundant_except_issue(handler, &classes, index, source) {
+                issues.push(issue);
             }
         }
     });
     issues
+}
+
+fn redundant_except_issue(
+    handler: &ExceptHandler,
+    classes: &HashMap<&str, &ruff_python_ast::StmtClassDef>,
+    index: &LineIndex,
+    source: &str,
+) -> Option<Issue> {
+    let ExceptHandler::ExceptHandler(inner) = handler;
+    let Expr::Tuple(tuple) = inner.type_.as_deref()? else {
+        return None;
+    };
+    let names: Vec<&str> = tuple
+        .elts
+        .iter()
+        .filter_map(|element| match element {
+            Expr::Name(name) => Some(name.id.as_str()),
+            _ => None,
+        })
+        .collect();
+    let (child, _) = redundant_exception_pair(&names, classes)?;
+    let child_range = tuple.elts.iter().find_map(|element| match element {
+        Expr::Name(name) if name.id.as_str() == child => Some(name.range()),
+        _ => None,
+    })?;
+    Some(issue_at(
+        "python:S5713",
+        "Remove this redundant Exception class; it derives from another which is already caught.",
+        child_range,
+        index,
+        source,
+    ))
+}
+
+fn redundant_exception_pair<'a>(
+    names: &[&'a str],
+    classes: &HashMap<&str, &ruff_python_ast::StmtClassDef>,
+) -> Option<(&'a str, &'a str)> {
+    let mut pair_found = None;
+    for child in names {
+        for parent in names {
+            if child == parent || !classes.contains_key(child) || !classes.contains_key(parent) {
+                continue;
+            }
+            let mut visited = HashSet::new();
+            if has_file_local_ancestor(child, parent, classes, &mut visited) {
+                pair_found = Some((*child, *parent));
+            }
+        }
+    }
+    pair_found
 }
 
 // --- python:S5713 — subclass and parent should not share an except clause -----

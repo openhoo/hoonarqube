@@ -11,10 +11,11 @@ pub(crate) fn check_tb_in_place_captures(
     let mut collector = InPlaceCaptureCollector::default();
     collector.visit_program(program);
     for (base_name, method, call_span) in &collector.captures {
-        let original_reused_later = collector
-            .references
-            .iter()
-            .any(|(name, span)| *name == *base_name && span.start > call_span.end);
+        let original_reused_later = collector.references.iter().any(|(name, span)| {
+            let same_name = *name == *base_name;
+            let follows_call = span.start > call_span.end;
+            same_name && follows_call
+        });
         if original_reused_later {
             sink.emit_span(
                 RuleScope::Both,

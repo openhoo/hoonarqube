@@ -15,16 +15,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     collect_kinds(root, &["invocation_expression"])
         .into_iter()
         .filter(|call| !is_error_tainted(*call))
-        .filter(|call| {
-            let Some(candidates) = callee_name(*call, source).and_then(|name| methods.get(name))
-            else {
-                return false;
-            };
-            let argument_count = invocation_arguments(*call).len();
+        .filter_map(|call| {
+            let candidates = callee_name(call, source).and_then(|name| methods.get(name))?;
+            let argument_count = invocation_arguments(call).len();
             let has_params = candidates.iter().any(|method| {
                 let units = parameter_units(*method, source);
                 units.iter().any(|unit| unit.has_params) && argument_count > units.len()
             });
+            if !has_params {
+                return None;
+            }
             let plain_candidate = candidates.iter().find(|method| {
                 let parameters = parameters_of(**method);
                 parameters.len() == argument_count
@@ -32,28 +32,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                         .iter()
                         .any(|unit| unit.has_params)
             });
-            has_params && plain_candidate.is_some()
+            plain_candidate.map(|plain| (call, *plain))
         })
-        .map(|call| {
-            let candidates = callee_name(call, source)
-                .and_then(|name| methods.get(name))
-                .expect("filtered calls retain candidates");
-            let argument_count = invocation_arguments(call).len();
-            let plain = candidates
-                .iter()
-                .find(|method| {
-                    parameters_of(**method).len() == argument_count
-                        && !parameter_units(**method, source)
-                            .iter()
-                            .any(|unit| unit.has_params)
-                })
-                .expect("filtered calls retain a plain candidate");
+        .map(|(call, plain)| {
             issue(
                 language,
                 "S3220",
                 format!(
                     "Review this call, which partially matches an overload without 'params'. The partial match is '{}'.",
-                    method_signature(*plain, source)
+                    method_signature(plain, source)
                 ),
                 range_of(call, source),
             )

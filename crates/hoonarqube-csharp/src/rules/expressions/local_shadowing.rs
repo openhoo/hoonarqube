@@ -18,39 +18,54 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if member_names.is_empty() {
             continue;
         }
-        for local in collect_kinds(type_declaration, &["local_declaration_statement"]) {
-            for declarator in collect_kinds(local, &["variable_declarator"]) {
-                let Some(identifier) = first_named_child(declarator) else {
-                    continue;
-                };
-                if identifier.kind() != "identifier" {
-                    continue;
-                }
-                let name = node_text(identifier, source);
-                if member_names.contains(name) {
-                    let shadows_property =
-                        collect_kinds(type_declaration, &["property_declaration"])
-                            .into_iter()
-                            .filter_map(|property| property.child_by_field_name("name"))
-                            .any(|property_name| node_text(property_name, source) == name);
-                    let member_kind = if shadows_property {
-                        "property"
-                    } else {
-                        "field"
-                    };
-                    issues.push(issue(
-                        language,
-                        "S1117",
-                        format!(
-                            "Rename '{name}' which hides the {member_kind} with the same name."
-                        ),
-                        range_of(identifier, source),
-                    ));
-                }
-            }
-        }
+        let property_names: std::collections::HashSet<String> =
+            collect_kinds(type_declaration, &["property_declaration"])
+                .into_iter()
+                .filter_map(|property| property.child_by_field_name("name"))
+                .map(|name| node_text(name, source).to_owned())
+                .collect();
+        issues.extend(shadowing_local_issues(
+            type_declaration,
+            source,
+            language,
+            &member_names,
+            &property_names,
+        ));
     }
     issues
+}
+
+fn shadowing_local_issues(
+    type_declaration: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    member_names: &std::collections::HashSet<String>,
+    property_names: &std::collections::HashSet<String>,
+) -> Vec<Issue> {
+    collect_kinds(type_declaration, &["local_declaration_statement"])
+        .into_iter()
+        .flat_map(|local| collect_kinds(local, &["variable_declarator"]))
+        .filter_map(|declarator| {
+            let identifier = first_named_child(declarator)?;
+            (identifier.kind() == "identifier").then_some(identifier)
+        })
+        .filter_map(|identifier| {
+            let name = node_text(identifier, source);
+            member_names.contains(name).then(|| {
+                let member_kind = if property_names.contains(name) {
+                    "property"
+                } else {
+                    "field"
+                };
+                issue(
+                    language,
+                    "S1117",
+                    format!("Rename '{name}' which hides the {member_kind} with the same name."),
+                    range_of(identifier, source),
+                )
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

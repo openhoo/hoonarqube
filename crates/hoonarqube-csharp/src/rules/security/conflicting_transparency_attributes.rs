@@ -15,31 +15,48 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         {
             continue;
         }
-        for member in type_members(type_node) {
-            let mut member_cursor = member.walk();
-            for list in member
-                .children(&mut member_cursor)
-                .filter(|child| child.kind() == "attribute_list")
-            {
-                for attribute in collect_kinds(list, &["attribute"]) {
-                    let Some(name) = attribute.child_by_field_name("name") else {
-                        continue;
-                    };
-                    let spelling = node_text(name, source);
-                    if matches!(
-                        spelling,
-                        "SecuritySafeCritical" | "SecuritySafeCriticalAttribute"
-                    ) {
-                        issues.push(issue(
-                            language,
-                            "S4211",
-                            "Change or remove this attribute to be consistent with its container.",
-                            range_of(name, source),
-                        ));
-                    }
-                }
-            }
-        }
+        check_type_members(type_node, source, language, &mut issues);
     }
     issues
+}
+
+fn check_type_members(
+    type_node: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    issues: &mut Vec<Issue>,
+) {
+    for member in type_members(type_node) {
+        let mut member_cursor = member.walk();
+        for list in member
+            .children(&mut member_cursor)
+            .filter(|child| child.kind() == "attribute_list")
+        {
+            check_attribute_list(list, source, language, issues);
+        }
+    }
+}
+
+fn check_attribute_list(
+    list: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    issues: &mut Vec<Issue>,
+) {
+    for attribute in collect_kinds(list, &["attribute"]) {
+        let Some(name) = attribute.child_by_field_name("name") else {
+            continue;
+        };
+        if matches!(
+            node_text(name, source),
+            "SecuritySafeCritical" | "SecuritySafeCriticalAttribute"
+        ) {
+            issues.push(issue(
+                language,
+                "S4211",
+                "Change or remove this attribute to be consistent with its container.",
+                range_of(name, source),
+            ));
+        }
+    }
 }

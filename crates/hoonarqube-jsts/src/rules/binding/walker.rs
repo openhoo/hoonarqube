@@ -264,9 +264,12 @@ impl BindingCollector<'_, '_> {
 
     /// `S2138` and `S6645`: explicit `undefined` initializers.
     fn check_declarator_init(&mut self, it: &VariableDeclarator<'_>) {
-        let initializes_to_undefined = match &it.init {
-            Some(Expression::Identifier(identifier)) => identifier.name == "undefined",
-            Some(Expression::UnaryExpression(unary)) => unary.operator == UnaryOperator::Void,
+        let Some(initializer) = &it.init else {
+            return;
+        };
+        let initializes_to_undefined = match initializer {
+            Expression::Identifier(identifier) => identifier.name == "undefined",
+            Expression::UnaryExpression(unary) => unary.operator == UnaryOperator::Void,
             _ => false,
         };
         if initializes_to_undefined {
@@ -274,16 +277,16 @@ impl BindingCollector<'_, '_> {
                 RuleScope::Both,
                 "S2138",
                 "Initialize with a meaningful value instead of \"undefined\".",
-                it.init.as_ref().expect("checked above").span(),
+                initializer.span(),
             );
         }
-        if matches!(&it.init, Some(Expression::Identifier(identifier)) if identifier.name == "undefined")
+        if matches!(initializer, Expression::Identifier(identifier) if identifier.name == "undefined")
         {
             self.sink.emit_span(
                 RuleScope::JsOnly,
                 "S6645",
                 "Remove this explicit \"undefined\" initializer.",
-                it.init.as_ref().expect("checked above").span(),
+                initializer.span(),
             );
         }
     }

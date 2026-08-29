@@ -13,57 +13,64 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for method in collect_kinds(root, &["method_declaration"]) {
-        if is_error_tainted(method)
-            || has_modifier(&modifiers_of(method, source), "override")
-            || !method
-                .child_by_field_name("returns")
-                .is_some_and(|returns| is_collection_return(returns, source))
-            || enclosing_type(method)
-                .is_some_and(|owner| !base_simple_names(owner, source).is_empty())
-        {
+        if !is_eligible_method(method, source) {
             continue;
         }
-        let body = body_of(method);
-        let mut flagged = false;
-        if let Some(body) = body {
-            for return_statement in collect_kinds(body, &["return_statement"]) {
-                if is_error_tainted(return_statement)
-                    || first_named_child(return_statement)
-                        .is_none_or(|expression| expression.kind() != "null_literal")
-                {
-                    continue;
-                }
-                issues.push(issue(
-                    language,
-                    "S1168",
-                    "Return an empty collection instead of null.",
-                    range_of(
-                        first_named_child(return_statement).expect("checked null expression"),
-                        source,
-                    ),
-                ));
-                flagged = true;
-            }
-        }
-        if body.is_some() || flagged {
+        if let Some(body) = body_of(method) {
+            flag_block_returns(body, source, language, &mut issues);
             continue;
         }
-        for arrow in collect_kinds(method, &["arrow_expression_clause"]) {
-            if !is_error_tainted(arrow)
-                && first_named_child(arrow)
-                    .is_some_and(|expression| expression.kind() == "null_literal")
-            {
-                let expression = first_named_child(arrow).expect("checked null expression");
-                issues.push(issue(
-                    language,
-                    "S1168",
-                    "Return an empty collection instead of null.",
-                    range_of(expression, source),
-                ));
-            }
-        }
+        flag_arrow_returns(method, source, language, &mut issues);
     }
     issues
+}
+
+fn is_eligible_method(method: Node<'_>, source: &str) -> bool {
+    !is_error_tainted(method)
+        && !has_modifier(&modifiers_of(method, source), "override")
+        && method
+            .child_by_field_name("returns")
+            .is_some_and(|returns| is_collection_return(returns, source))
+        && enclosing_type(method).is_none_or(|owner| base_simple_names(owner, source).is_empty())
+}
+
+fn flag_block_returns(body: Node<'_>, source: &str, language: CsLanguage, issues: &mut Vec<Issue>) {
+    for return_statement in collect_kinds(body, &["return_statement"]) {
+        if is_error_tainted(return_statement) {
+            continue;
+        }
+        if let Some(expression) = null_expression(return_statement) {
+            push_issue(expression, source, language, issues);
+        }
+    }
+}
+
+fn flag_arrow_returns(
+    method: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    issues: &mut Vec<Issue>,
+) {
+    for arrow in collect_kinds(method, &["arrow_expression_clause"]) {
+        if !is_error_tainted(arrow)
+            && let Some(expression) = null_expression(arrow)
+        {
+            push_issue(expression, source, language, issues);
+        }
+    }
+}
+
+fn null_expression(node: Node<'_>) -> Option<Node<'_>> {
+    first_named_child(node).filter(|expression| expression.kind() == "null_literal")
+}
+
+fn push_issue(expression: Node<'_>, source: &str, language: CsLanguage, issues: &mut Vec<Issue>) {
+    issues.push(issue(
+        language,
+        "S1168",
+        "Return an empty collection instead of null.",
+        range_of(expression, source),
+    ));
 }
 
 /// Collection type heads whose members should yield empty values, not `null`.

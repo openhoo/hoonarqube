@@ -27,7 +27,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 })
             });
             let candidate = match (zero_member, members.first()) {
-                (Some((_, _)), _) => Some(zero_member.unwrap().0),
+                (Some((member, _)), _) => Some(*member),
                 (None, Some((first, None))) if members.len() > 1 => Some(*first),
                 _ => None,
             };

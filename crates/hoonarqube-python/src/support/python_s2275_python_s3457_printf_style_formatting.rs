@@ -11,44 +11,44 @@ pub(crate) fn percent_conversions(format_text: &str) -> Option<Vec<u8>> {
     let bytes = format_text.as_bytes();
     let mut conversions = Vec::new();
     let mut position = 0;
-    while position < bytes.len() {
-        if bytes[position] != b'%' {
-            position += 1;
-            continue;
-        }
-        position += 1;
-        if position >= bytes.len() {
-            return None;
-        }
-        if bytes[position] == b'%' {
-            position += 1;
-            continue;
-        }
-        while position < bytes.len() && matches!(bytes[position], b'-' | b'+' | b' ' | b'#' | b'0')
-        {
-            position += 1;
-        }
-        while position < bytes.len() && bytes[position].is_ascii_digit() {
-            position += 1;
-        }
-        if position < bytes.len() && bytes[position] == b'.' {
-            position += 1;
-            while position < bytes.len() && bytes[position].is_ascii_digit() {
-                position += 1;
-            }
-        }
-        while position < bytes.len() && matches!(bytes[position], b'h' | b'l' | b'L') {
-            position += 1;
-        }
-        let conversion = *bytes.get(position)?;
-        if b"diouxXeEfFgGcrsa".contains(&conversion) {
+    while let Some(relative) = bytes[position..].iter().position(|byte| *byte == b'%') {
+        position += relative + 1;
+        let (conversion, next) = parse_percent_conversion(bytes, position)?;
+        if let Some(conversion) = conversion {
             conversions.push(conversion);
-        } else {
-            return None;
         }
-        position += 1;
+        position = next;
     }
     Some(conversions)
+}
+
+/// Parses one conversion after its leading `%`. Escaped `%%` returns no
+/// conversion character; malformed and truncated specifications fail closed.
+fn parse_percent_conversion(bytes: &[u8], mut position: usize) -> Option<(Option<u8>, usize)> {
+    if *bytes.get(position)? == b'%' {
+        return Some((None, position + 1));
+    }
+    skip_bytes(bytes, &mut position, |byte| {
+        matches!(byte, b'-' | b'+' | b' ' | b'#' | b'0')
+    });
+    skip_bytes(bytes, &mut position, |byte| byte.is_ascii_digit());
+    if bytes.get(position) == Some(&b'.') {
+        position += 1;
+        skip_bytes(bytes, &mut position, |byte| byte.is_ascii_digit());
+    }
+    skip_bytes(bytes, &mut position, |byte| {
+        matches!(byte, b'h' | b'l' | b'L')
+    });
+    let conversion = *bytes.get(position)?;
+    b"diouxXeEfFgGcrsa"
+        .contains(&conversion)
+        .then_some((Some(conversion), position + 1))
+}
+
+fn skip_bytes(bytes: &[u8], position: &mut usize, predicate: impl Fn(u8) -> bool) {
+    while bytes.get(*position).copied().is_some_and(&predicate) {
+        *position += 1;
+    }
 }
 
 /// `(format text, arguments, right operand, span)` of a `%`-formatted string
@@ -73,4 +73,23 @@ pub(crate) fn percent_format_parts(expr: &Expr) -> Option<(String, Vec<&Expr>, &
         bin_op.right.as_ref(),
         bin_op.range(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::percent_conversions;
+
+    #[test]
+    fn percent_parser_handles_escapes_flags_width_precision_and_lengths() {
+        assert_eq!(
+            percent_conversions("%% %-05d %12.3f %lld %s"),
+            Some(vec![b'd', b'f', b'd', b's'])
+        );
+    }
+
+    #[test]
+    fn percent_parser_rejects_truncated_and_unknown_specifiers() {
+        assert_eq!(percent_conversions("value %"), None);
+        assert_eq!(percent_conversions("value %q"), None);
+    }
 }

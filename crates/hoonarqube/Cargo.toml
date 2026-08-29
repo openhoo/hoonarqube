@@ -10,9 +10,9 @@ repository.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
-hoonarqube-catalog = { path = "../hoonarqube-catalog" }
-hoonarqube-core = { path = "../hoonarqube-core" }
-hoonarqube-ir = { path = "../hoonarqube-ir" }
+hoonarqube-catalog = { version = "0.1.0", path = "../hoonarqube-catalog" }
+hoonarqube-core = { version = "0.1.0", path = "../hoonarqube-core" }
+hoonarqube-ir = { version = "0.1.0", path = "../hoonarqube-ir" }
 
 [lints]
 workspace = true

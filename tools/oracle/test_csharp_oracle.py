@@ -115,7 +115,9 @@ class CSharpOracleProjectTests(unittest.TestCase):
             )
             self.assertNotIn("ProjectReference", product_project)
             marker = root / "native/projects/test-framework/TestFramework.csproj"
-            self.assertIn("<AssemblyName>nunit.framework</AssemblyName>", marker.read_text())
+            self.assertIn(
+                "<AssemblyName>nunit.framework</AssemblyName>", marker.read_text()
+            )
 
     def test_s2970_fixtures_reference_nfluent(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -143,23 +145,35 @@ class CSharpOracleProjectTests(unittest.TestCase):
 
             generate_solution(sources, root / "native")
 
-            first = (root / "native/projects/fixture-0000/fixture-0000.csproj").read_text()
-            second = (root / "native/projects/fixture-0001/fixture-0001.csproj").read_text()
+            first = (
+                root / "native/projects/fixture-0000/fixture-0000.csproj"
+            ).read_text()
+            second = (
+                root / "native/projects/fixture-0001/fixture-0001.csproj"
+            ).read_text()
             self.assertIn("../azure-functions-framework/AzureFunctions.csproj", first)
             self.assertIn("../durable-task-framework/DurableTask.csproj", second)
-            azure = root / "native/projects/azure-functions-framework/AzureFunctions.csproj"
+            azure = (
+                root / "native/projects/azure-functions-framework/AzureFunctions.csproj"
+            )
             durable = root / "native/projects/durable-task-framework/DurableTask.csproj"
             self.assertIn("Microsoft.Azure.WebJobs.Host", azure.read_text())
-            self.assertIn("Microsoft.Azure.WebJobs.Extensions.DurableTask", durable.read_text())
+            self.assertIn(
+                "Microsoft.Azure.WebJobs.Extensions.DurableTask", durable.read_text()
+            )
 
     def test_rejects_invalid_direct_analyzer_configuration(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "sample.cs").write_text("class Sample {}\n")
             with self.assertRaisesRegex(ValueError, "does not exist"):
-                generate_solution(root, root / "missing", analyzers=[root / "missing.dll"])
+                generate_solution(
+                    root, root / "missing", analyzers=[root / "missing.dll"]
+                )
             with self.assertRaisesRegex(ValueError, "rule ID"):
                 generate_solution(root, root / "rule", enabled_rules=["CA1000"])
+            with self.assertRaisesRegex(ValueError, "rule ID"):
+                generate_solution(root, root / "syslib", enabled_rules=["SYSLIB0014"])
             with self.assertRaisesRegex(ValueError, "file name"):
                 generate_solution(root, root / "log", error_log="nested/target.sarif")
 

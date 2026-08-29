@@ -34,6 +34,11 @@ class CSharpDirectOracleTests(unittest.TestCase):
                             "message": "compiler warning",
                             "locations": [],
                         },
+                        {
+                            "ruleId": "SYSLIB0014",
+                            "message": "runtime compatibility warning",
+                            "locations": [],
+                        },
                     ]
                 }
             ]
@@ -124,6 +129,61 @@ class CSharpDirectOracleTests(unittest.TestCase):
                 )
             )
             self.assertEqual(catalog_rule_ids(path), ["S100", "S200"])
+
+    def test_rejects_malformed_sonar_results_instead_of_dropping_them(self):
+        valid = {
+            "ruleId": "S1905",
+            "message": "Remove this cast.",
+            "locations": [
+                {
+                    "resultFile": {
+                        "uri": "fixture.cs",
+                        "region": {
+                            "startLine": 1,
+                            "startColumn": 1,
+                            "endLine": 1,
+                            "endColumn": 2,
+                        },
+                    }
+                }
+            ],
+        }
+        malformed = {
+            "missing location": {**valid, "locations": []},
+            "missing message": {**valid, "message": {}},
+            "boolean coordinate": {
+                **valid,
+                "locations": [
+                    {
+                        "resultFile": {
+                            "uri": "fixture.cs",
+                            "region": {
+                                "startLine": True,
+                                "startColumn": 1,
+                                "endLine": 1,
+                                "endColumn": 2,
+                            },
+                        }
+                    }
+                ],
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "target.sarif"
+            for label, result in malformed.items():
+                with self.subTest(label=label):
+                    path.write_text(json.dumps({"runs": [{"results": [result]}]}))
+                    with self.assertRaisesRegex(ValueError, "S1905"):
+                        sarif_issues([path])
+
+    def test_rejects_incomplete_sarif_envelopes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "target.sarif"
+            for report in ({}, {"runs": []}, {"runs": [{}]}):
+                with self.subTest(report=report):
+                    path.write_text(json.dumps(report))
+                    with self.assertRaisesRegex(ValueError, "SARIF"):
+                        sarif_issues([path])
 
 
 if __name__ == "__main__":

@@ -58,54 +58,63 @@ fn cognitive_complexity(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         let kind = child.kind();
-        // An `else if` link continues the enclosing nesting level instead
-        // of opening a deeper one; genuinely nested ifs still escalate.
-        let else_if_link = kind == "if_statement" && is_else_alternative(child);
-        if matches!(
-            kind,
-            "if_statement"
-                | "for_statement"
-                | "foreach_statement"
-                | "while_statement"
-                | "do_statement"
-                | "switch_statement"
-                | "catch_clause"
-                | "conditional_expression"
-        ) {
-            score += if else_if_link { 1 } else { 1 + nesting };
-            score += cognitive_complexity(
-                child,
-                if else_if_link { nesting } else { nesting + 1 },
-                source,
-                None,
-            );
+        if is_structural_kind(kind) {
+            let else_if_link = kind == "if_statement" && is_else_alternative(child);
+            score += structural_score(child, nesting, source, else_if_link);
         } else {
-            // Boolean operators charge once per consecutive sequence of the
-            // same operator: `a && b && c` is one sequence, switching to
-            // `||` starts another. The context stays inside the current
-            // expression and resets before sibling statements and nested
-            // callable bodies.
-            let mut next_chain = logic_chain;
-            match kind {
-                "case" | "goto_statement" | "break_statement" | "continue_statement" => {
-                    score += 1;
-                }
-                "binary_expression" => {
-                    let operator = binary_operator(child, source);
-                    if matches!(operator, "&&" | "||") && logic_chain != Some(operator) {
-                        score += 1;
-                        next_chain = Some(operator);
-                    }
-                }
-                _ => {}
-            }
-            if matches!(kind, "lambda_expression" | "anonymous_method_expression") {
-                next_chain = None;
-            }
-            score += cognitive_complexity(child, nesting, source, next_chain);
+            score += non_structural_score(child, nesting, source, logic_chain);
         }
     }
     score
+}
+
+fn is_structural_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "if_statement"
+            | "for_statement"
+            | "foreach_statement"
+            | "while_statement"
+            | "do_statement"
+            | "switch_statement"
+            | "catch_clause"
+            | "conditional_expression"
+    )
+}
+
+/// An `else if` link continues the enclosing nesting level instead of
+/// opening a deeper one; genuinely nested branches still escalate.
+fn structural_score(child: Node<'_>, nesting: u32, source: &str, else_if_link: bool) -> u32 {
+    let increment = if else_if_link { 1 } else { 1 + nesting };
+    let child_nesting = if else_if_link { nesting } else { nesting + 1 };
+    increment + cognitive_complexity(child, child_nesting, source, None)
+}
+
+/// Boolean operators charge once per consecutive identical sequence. Nested
+/// callable bodies reset that chain before their contents are traversed.
+fn non_structural_score<'a>(
+    child: Node<'_>,
+    nesting: u32,
+    source: &'a str,
+    logic_chain: Option<&'a str>,
+) -> u32 {
+    let kind = child.kind();
+    let mut increment = u32::from(matches!(
+        kind,
+        "case" | "goto_statement" | "break_statement" | "continue_statement"
+    ));
+    let mut next_chain = logic_chain;
+    if kind == "binary_expression" {
+        let operator = binary_operator(child, source);
+        if matches!(operator, "&&" | "||") && logic_chain != Some(operator) {
+            increment += 1;
+            next_chain = Some(operator);
+        }
+    }
+    if matches!(kind, "lambda_expression" | "anonymous_method_expression") {
+        next_chain = None;
+    }
+    increment + cognitive_complexity(child, nesting, source, next_chain)
 }
 
 #[cfg(test)]

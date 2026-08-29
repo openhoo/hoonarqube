@@ -555,7 +555,7 @@ pub(crate) fn check_regex_battery(
                 source,
             )),
             Ok(ast) => {
-                run_structural_regex_rules(&ast, site, options, &mut issues, index, source);
+                run_structural_regex_rules(&ast, units, site, options, &mut issues, index, source);
             }
         }
     }

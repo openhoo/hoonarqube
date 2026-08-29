@@ -28,18 +28,13 @@ pub(crate) fn check_rx_alternation_shapes(
     {
         let leading_start = branches.first().and_then(rx_leading_anchor_span);
         let trailing_end = branches.last().and_then(rx_trailing_anchor_span);
-        if leading_start.is_some() || trailing_end.is_some() {
+        if (leading_start.is_some() || trailing_end.is_some())
+            && let (Some(first), Some(last)) = (branches.first(), branches.last())
+        {
             push(
                 "python:S5850",
                 "Group parts of the regex together to make the intended operator precedence explicit.",
-                TextRange::new(
-                    branches
-                        .first()
-                        .expect("at least two branches")
-                        .span
-                        .start(),
-                    branches.last().expect("at least two branches").span.end(),
-                ),
+                TextRange::new(first.span.start(), last.span.end()),
             );
         }
     }
@@ -61,6 +56,11 @@ pub(crate) fn check_rx_alternation_shapes(
 
 /// python:S6002 — lookarounds that contradict the rest of their sequence.
 fn check_contradictory_lookaheads(items: &[RxItem], push: &mut dyn FnMut(&str, &str, TextRange)) {
+    check_adjacent_lookaheads(items, push);
+    check_lookaheads_against_consumers(items, push);
+}
+
+fn check_adjacent_lookaheads(items: &[RxItem], push: &mut dyn FnMut(&str, &str, TextRange)) {
     for pair in items.windows(2) {
         if let (Some(a), Some(b)) = (
             rx_lookahead_body(&pair[0].atom),
@@ -74,25 +74,40 @@ fn check_contradictory_lookaheads(items: &[RxItem], push: &mut dyn FnMut(&str, &
             );
         }
     }
+}
+
+fn check_lookaheads_against_consumers(
+    items: &[RxItem],
+    push: &mut dyn FnMut(&str, &str, TextRange),
+) {
     let mut lookahead_sets: Vec<(&RxItem, Option<RxSet>)> = Vec::new();
     for item in items {
         if let Some(body) = rx_positive_lookahead_body(&item.atom) {
             lookahead_sets.push((item, rx_node_first_set(body)));
         } else if rx_item_consuming(item) {
             if let Some(set) = rx_atom_first_set(&item.atom) {
-                for (lookahead, ahead_set) in &lookahead_sets {
-                    if let Some(ahead) = ahead_set
-                        && !rx_sets_intersect(ahead, &set)
-                    {
-                        push(
-                            "python:S6002",
-                            "Remove or fix this lookahead assertion that can never be true.",
-                            lookahead.span,
-                        );
-                    }
-                }
+                push_disjoint_lookaheads(&lookahead_sets, &set, push);
             }
             lookahead_sets.clear();
+        }
+    }
+}
+
+fn push_disjoint_lookaheads(
+    lookahead_sets: &[(&RxItem, Option<RxSet>)],
+    consuming_set: &RxSet,
+    push: &mut dyn FnMut(&str, &str, TextRange),
+) {
+    for (lookahead, ahead_set) in lookahead_sets {
+        if ahead_set
+            .as_ref()
+            .is_some_and(|ahead| !rx_sets_intersect(ahead, consuming_set))
+        {
+            push(
+                "python:S6002",
+                "Remove or fix this lookahead assertion that can never be true.",
+                lookahead.span,
+            );
         }
     }
 }

@@ -51,7 +51,7 @@ impl<'a> TbBuilder<'a, '_> {
             // always live at module top level.
             TbKind::Var => self.nearest_function_scope(),
             TbKind::Import => 0,
-            _ => *self.stack.last().expect("scope stack is never empty"),
+            _ => self.stack.last().copied().unwrap_or(0),
         };
         let home_block = match kind {
             TbKind::Var => self.home_block(),

@@ -13,30 +13,23 @@ pub(crate) fn check_s5443_public_temp_files(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        let public_temp = called_name(&call.func) == Some("open")
-            && call
-                .arguments
-                .args
-                .first()
-                .and_then(string_literal_text)
-                .is_some_and(|path| {
+        let Some(path_argument) = call.arguments.args.first().filter(|argument| {
+            called_name(&call.func) == Some("open")
+                && string_literal_text(argument).is_some_and(|path| {
                     PUBLIC_TEMP_PREFIXES
                         .iter()
                         .any(|prefix| path.starts_with(prefix))
-                });
-        if public_temp {
-            issues.push(issue_at(
-                "python:S5443",
-                "Make sure publicly writable directories are used safely here.",
-                call.arguments
-                    .args
-                    .first()
-                    .expect("checked path argument")
-                    .range(),
-                index,
-                source,
-            ));
-        }
+                })
+        }) else {
+            continue;
+        };
+        issues.push(issue_at(
+            "python:S5443",
+            "Make sure publicly writable directories are used safely here.",
+            path_argument.range(),
+            index,
+            source,
+        ));
     }
     issues
 }

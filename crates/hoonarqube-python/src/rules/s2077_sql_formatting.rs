@@ -6,7 +6,7 @@ use crate::support::string_value_text;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
 use ruff_source_file::LineIndex;
-use ruff_text_size::Ranged;
+use ruff_text_size::{Ranged, TextRange};
 
 // --- python:S2077 — SQL queries built through string formatting ----------------
 
@@ -18,71 +18,58 @@ pub(crate) fn check_s2077_sql_formatting(
     // CE stays silent unless the formatted SQL actually reaches an execution
     // sink; formatting alone never raises.
     const EXECUTE_SINKS: [&str; 3] = ["execute", "executemany", "executescript"];
-    let mut has_sink = false;
-    for call in &file_ctx.calls {
-        has_sink |= EXECUTE_SINKS.contains(&called_name(&call.func).unwrap_or_default());
-    }
-    if !has_sink {
+    if !file_ctx
+        .calls
+        .iter()
+        .any(|call| EXECUTE_SINKS.contains(&called_name(&call.func).unwrap_or_default()))
+    {
         return Vec::new();
     }
     let mut issues = Vec::new();
-    let sql_shape = |text: &str| sql_statement_shape(&text.to_lowercase());
     for expr in &file_ctx.exprs {
-        match expr {
-            Expr::BinOp(binop) => {
-                let sql_left = match binop.left.as_ref() {
-                    Expr::StringLiteral(literal) => sql_shape(&string_value_text(&literal.value)),
-                    _ => false,
-                };
-                if matches!(binop.op, ruff_python_ast::Operator::Mod) && sql_left {
-                    issues.push(issue_at(
-                        "python:S2077",
-                        "Use parameterized queries instead of formatting SQL strings.",
-                        expr.range(),
-                        index,
-                        source,
-                    ));
-                }
-            }
-            Expr::Call(call) => {
-                let format_receiver = match call.func.as_ref() {
-                    Expr::Attribute(attribute) => match attribute.value.as_ref() {
-                        Expr::StringLiteral(literal) => Some(string_value_text(&literal.value)),
-                        _ => None,
-                    },
-                    _ => None,
-                };
-                if !call.arguments.args.is_empty()
-                    && format_receiver.is_some_and(|text| sql_shape(&text))
-                {
-                    issues.push(issue_at(
-                        "python:S2077",
-                        "Use parameterized queries instead of formatting SQL strings.",
-                        call.range(),
-                        index,
-                        source,
-                    ));
-                }
-            }
-            Expr::FString(_) => {
-                let range = expr.range();
-                let raw = source
-                    .get(range.start().to_usize()..range.end().to_usize())
-                    .unwrap_or_default();
-                if raw.contains('{') && raw.contains('}') && sql_shape(&raw.to_lowercase()) {
-                    issues.push(issue_at(
-                        "python:S2077",
-                        "Use parameterized queries instead of formatting SQL strings.",
-                        range,
-                        index,
-                        source,
-                    ));
-                }
-            }
-            _ => {}
+        if let Some(range) = formatted_sql_range(expr, source) {
+            issues.push(issue_at(
+                "python:S2077",
+                "Use parameterized queries instead of formatting SQL strings.",
+                range,
+                index,
+                source,
+            ));
         }
     }
     issues
+}
+
+fn formatted_sql_range(expr: &Expr, source: &str) -> Option<TextRange> {
+    match expr {
+        Expr::BinOp(binop) if matches!(binop.op, ruff_python_ast::Operator::Mod) => {
+            let Expr::StringLiteral(literal) = binop.left.as_ref() else {
+                return None;
+            };
+            is_sql_shape(&string_value_text(&literal.value)).then(|| expr.range())
+        }
+        Expr::Call(call) if !call.arguments.args.is_empty() => {
+            let Expr::Attribute(attribute) = call.func.as_ref() else {
+                return None;
+            };
+            let Expr::StringLiteral(literal) = attribute.value.as_ref() else {
+                return None;
+            };
+            is_sql_shape(&string_value_text(&literal.value)).then(|| expr.range())
+        }
+        Expr::FString(_) => {
+            let range = expr.range();
+            let raw = source
+                .get(range.start().to_usize()..range.end().to_usize())
+                .unwrap_or_default();
+            (raw.contains('{') && raw.contains('}') && is_sql_shape(raw)).then_some(range)
+        }
+        _ => None,
+    }
+}
+
+fn is_sql_shape(text: &str) -> bool {
+    sql_statement_shape(&text.to_lowercase())
 }
 
 #[cfg(test)]

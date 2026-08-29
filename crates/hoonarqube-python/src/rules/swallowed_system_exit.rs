@@ -20,7 +20,10 @@ pub(crate) fn check_swallowed_system_exit(
         let Stmt::Try(try_stmt) = stmt else { continue };
         for handler in &try_stmt.handlers {
             let ExceptHandler::ExceptHandler(inner) = handler;
-            let caught = exception_type_names(inner.type_.as_deref());
+            let Some(caught_type) = inner.type_.as_deref() else {
+                continue;
+            };
+            let caught = exception_type_names(Some(caught_type));
             if !caught.iter().any(|name| name == "SystemExit") {
                 continue;
             }
@@ -32,7 +35,7 @@ pub(crate) fn check_swallowed_system_exit(
                 issues.push(issue_at(
                     "python:S5754",
                     "Reraise this exception to stop the application as the user expects",
-                    inner.type_.as_ref().expect("caught exception type").range(),
+                    caught_type.range(),
                     index,
                     source,
                 ));

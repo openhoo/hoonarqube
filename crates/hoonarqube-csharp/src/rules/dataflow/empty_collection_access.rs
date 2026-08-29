@@ -21,67 +21,56 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(creation) || !is_empty_collection_creation(creation, source) {
             continue;
         }
-        let issue_count_before = issues.len();
-        let mut current = Some(creation);
-        while let Some(node) = current {
-            current = node.parent();
-            match node.parent().map(|parent| parent.kind()) {
-                Some("parenthesized_expression") => {}
-                Some("element_access_expression" | "foreach_statement") => {
-                    issues.push(issue(
-                        language,
-                        "S4158",
-                        "This collection is created empty; accessing its elements will fail at runtime.",
-                        range_of(creation, source),
-                    ));
-                    break;
-                }
-                Some("invocation_expression") => {
-                    if node
-                        .parent()
-                        .is_some_and(|parent| callee_name(parent, source) == Some("MoveNext"))
-                    {
-                        issues.push(issue(
-                            language,
-                            "S4158",
-                            "This collection is created empty; accessing its elements will fail at runtime.",
-                            range_of(creation, source),
-                        ));
-                        break;
-                    }
-                    break;
-                }
-                _ => break,
-            }
-        }
-        if issues.len() > issue_count_before {
-            continue;
-        }
-        let Some(declarator) = creation
-            .parent()
-            .filter(|parent| parent.kind() == "variable_declarator")
-        else {
-            continue;
-        };
-        let Some(name) = declarator.child_by_field_name("name") else {
-            continue;
-        };
-        let name_text = node_text(name, source);
-        if collect_kinds(root, &["element_access_expression"])
-            .into_iter()
-            .filter(|access| access.start_byte() > declarator.end_byte())
-            .filter_map(first_named_child)
-            .any(|receiver| node_text(receiver, source) == name_text)
-        {
-            issues.push(issue(
-                language,
-                "S4158",
-                "This collection is created empty; accessing its elements will fail at runtime.",
-                range_of(creation, source),
-            ));
+        if directly_accessed(creation, source) || stored_array_accessed(root, creation, source) {
+            push_issue(&mut issues, creation, source, language);
         }
     }
     issues
+}
+
+fn directly_accessed(creation: Node<'_>, source: &str) -> bool {
+    let mut current = Some(creation);
+    while let Some(node) = current {
+        current = node.parent();
+        match node.parent().map(|parent| parent.kind()) {
+            Some("parenthesized_expression") => {}
+            Some("element_access_expression" | "foreach_statement") => return true,
+            Some("invocation_expression") => {
+                return node
+                    .parent()
+                    .is_some_and(|parent| callee_name(parent, source) == Some("MoveNext"));
+            }
+            _ => return false,
+        }
+    }
+    false
+}
+
+fn stored_array_accessed(root: Node<'_>, creation: Node<'_>, source: &str) -> bool {
+    let Some(declarator) = creation
+        .parent()
+        .filter(|parent| parent.kind() == "variable_declarator")
+    else {
+        return false;
+    };
+    let Some(name) = declarator.child_by_field_name("name") else {
+        return false;
+    };
+    let name_text = node_text(name, source);
+    collect_kinds(root, &["element_access_expression"])
+        .into_iter()
+        .filter(|access| access.start_byte() > declarator.end_byte())
+        .filter_map(first_named_child)
+        .any(|receiver| node_text(receiver, source) == name_text)
+}
+
+fn push_issue(issues: &mut Vec<Issue>, creation: Node<'_>, source: &str, language: CsLanguage) {
+    issues.push(issue(
+        language,
+        "S4158",
+        "This collection is created empty; accessing its elements will fail at runtime.",
+        range_of(creation, source),
+    ));
 }
 
 /// Collection types a zero-argument construction yields empty.

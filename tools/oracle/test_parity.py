@@ -12,6 +12,7 @@ from parity import (
     failure_count,
     parse_report_task,
     validate_oracle_report,
+    validate_search_page,
     wait_for_compute_engine,
 )
 
@@ -143,11 +144,11 @@ class StrictParityTests(unittest.TestCase):
         self.assertEqual(ours_missing[0]["status"], "OURS_MISS")
         self.assertEqual(sonar_missing[0]["status"], "SQ_MISS")
         self.assertEqual(both_missing[0]["status"], "BOTH_MISS")
-        self.assertEqual(
-            failure_count(ours_missing + sonar_missing + both_missing), 3
-        )
+        self.assertEqual(failure_count(ours_missing + sonar_missing + both_missing), 3)
 
-    def test_enterprise_rules_require_local_evidence_but_never_pass_community_oracle(self):
+    def test_enterprise_rules_require_local_evidence_but_never_pass_community_oracle(
+        self,
+    ):
         rows = compare_reports(
             [expectation()],
             oracle_report(),
@@ -205,11 +206,14 @@ class StrictParityTests(unittest.TestCase):
             ours_report(ours_issue()),
         )
         self.assertEqual(rows[0]["status"], "PASS")
-        self.assertEqual([row["status"] for row in rows[1:]], [
-            "INVALID_EXPECTATION",
-            "INVALID_EXPECTATION",
-            "INVALID_EXPECTATION",
-        ])
+        self.assertEqual(
+            [row["status"] for row in rows[1:]],
+            [
+                "INVALID_EXPECTATION",
+                "INVALID_EXPECTATION",
+                "INVALID_EXPECTATION",
+            ],
+        )
 
     def test_catalog_and_fixture_contract_fails_closed(self):
         rows = compare_reports(
@@ -240,6 +244,112 @@ class StrictParityTests(unittest.TestCase):
     def test_legacy_line_only_artifacts_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "schema 2 required"):
             validate_oracle_report([{"rule": RULE, "file": BAD, "line": 1}])
+
+    def test_oracle_project_identity_is_checked_when_expected(self):
+        report = {"schema_version": 2, "project": "oracle-py", "issues": []}
+        self.assertEqual(
+            validate_oracle_report(report, expected_project="oracle-py"), []
+        )
+        with self.assertRaisesRegex(ValueError, "project must be 'oracle-js'"):
+            validate_oracle_report(report, expected_project="oracle-js")
+
+    def test_search_page_validation_rejects_truncated_or_unstable_evidence(self):
+        first = {
+            "issues": [{"key": "one"}],
+            "paging": {"pageIndex": 1, "pageSize": 1, "total": 2},
+        }
+        self.assertEqual(
+            validate_search_page(first, "issues", 1),
+            (first["issues"], 2, 1, False),
+        )
+        with self.assertRaisesRegex(ValueError, "returned 0 items, expected 1"):
+            validate_search_page(
+                {
+                    "issues": [],
+                    "paging": {"pageIndex": 2, "pageSize": 1, "total": 2},
+                },
+                "issues",
+                2,
+                expected_total=2,
+                expected_page_size=1,
+            )
+        with self.assertRaisesRegex(ValueError, "pageSize must be positive"):
+            validate_search_page(
+                {
+                    "issues": [],
+                    "paging": {"pageIndex": 1, "pageSize": 0, "total": 0},
+                },
+                "issues",
+                1,
+            )
+        with self.assertRaisesRegex(ValueError, "item 0 must be an object"):
+            validate_search_page(
+                {
+                    "issues": ["not-an-object"],
+                    "paging": {"pageIndex": 1, "pageSize": 1, "total": 1},
+                },
+                "issues",
+                1,
+            )
+        with self.assertRaisesRegex(ValueError, "total changed"):
+            validate_search_page(
+                {
+                    "issues": [{"key": "two"}],
+                    "paging": {"pageIndex": 2, "pageSize": 1, "total": 3},
+                },
+                "issues",
+                2,
+                expected_total=2,
+                expected_page_size=1,
+            )
+        for page in (0, -1, True):
+            with (
+                self.subTest(page=page),
+                self.assertRaisesRegex(ValueError, "positive integer"),
+            ):
+                validate_search_page({}, "issues", page)
+
+    def test_malformed_findings_and_ranges_fail_closed(self):
+        with self.assertRaisesRegex(ValueError, "oracle issue 0 must be an object"):
+            compare_reports(
+                [expectation()], oracle_report("not-an-issue"), ours_report()
+            )
+        malformed_range = oracle_issue()
+        malformed_range["range"] = {"start": {"line": 1, "column": "10"}}
+        with self.assertRaisesRegex(ValueError, "start and end objects"):
+            compare_reports(
+                [expectation()], oracle_report(malformed_range), ours_report()
+            )
+        malformed_local = ours_issue()
+        malformed_local["rule_key"] = None
+        with self.assertRaisesRegex(ValueError, "rule_key must be a string"):
+            compare_reports(
+                [expectation()], oracle_report(), ours_report(malformed_local)
+            )
+        partial_range = oracle_issue()
+        partial_range["range"]["end"]["column"] = None
+        with self.assertRaisesRegex(ValueError, "complete or file-level"):
+            compare_reports(
+                [expectation()], oracle_report(partial_range), ours_report()
+            )
+        inverted_range = oracle_issue(line=2)
+        inverted_range["range"]["end"]["line"] = 1
+        with self.assertRaisesRegex(ValueError, "ends before it starts"):
+            compare_reports(
+                [expectation()], oracle_report(inverted_range), ours_report()
+            )
+
+    def test_duplicate_fixture_names_and_non_object_expectations_fail_closed(self):
+        with self.assertRaisesRegex(ValueError, "duplicate available fixture"):
+            compare_reports(
+                [expectation()],
+                oracle_report(),
+                ours_report(),
+                available_files=[BAD, BAD],
+            )
+        rows = compare_reports(["not-an-expectation"], oracle_report(), ours_report())
+        self.assertEqual(rows[0]["status"], "INVALID_EXPECTATION")
+        self.assertEqual(rows[0]["reason"], "expectation must be an object")
 
     def test_file_level_zero_sentinel_matches_absent_sonar_range(self):
         sonar = oracle_report(
@@ -310,7 +420,10 @@ class StrictParityTests(unittest.TestCase):
         statuses = iter(["PENDING", "IN_PROGRESS", "SUCCESS"])
         pauses = []
         status = wait_for_compute_engine(
-            "task-123", lambda _task: next(statuses), lambda: pauses.append(True), attempts=3
+            "task-123",
+            lambda _task: next(statuses),
+            lambda: pauses.append(True),
+            attempts=3,
         )
         self.assertEqual(status, "SUCCESS")
         self.assertEqual(len(pauses), 2)

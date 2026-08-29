@@ -12,12 +12,12 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(invocation) {
             continue;
         }
-        let base_member = base_call_name(invocation, source);
-        let relevant = matches!(base_member, Some("Equals" | "GetHashCode"));
+        let Some(member @ ("Equals" | "GetHashCode")) = base_call_name(invocation, source) else {
+            continue;
+        };
         let object_derived =
             enclosing_type(invocation).is_some_and(|type_node| !has_base_list(type_node));
-        if relevant && object_derived {
-            let member = base_member.expect("checked relevant base member");
+        if object_derived {
             issues.push(issue(
                 language,
                 "S3249",

@@ -9,6 +9,7 @@ finding is a divergence.
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 
 
@@ -18,11 +19,22 @@ NON_FAILURE_STATUSES = frozenset(
 )
 
 
-def validate_oracle_report(report: Any) -> list[dict[str, Any]]:
+def validate_oracle_report(
+    report: Any, *, expected_project: str | None = None
+) -> list[dict[str, Any]]:
     """Return issues from a complete v2 oracle artifact or reject weak evidence."""
-    if not isinstance(report, dict) or report.get("schema_version") != ORACLE_REPORT_SCHEMA:
+    if (
+        not isinstance(report, dict)
+        or report.get("schema_version") != ORACLE_REPORT_SCHEMA
+    ):
         raise ValueError(
-            f"oracle report schema {ORACLE_REPORT_SCHEMA} required; rerun the SonarQube scan"
+            f"oracle report schema {ORACLE_REPORT_SCHEMA} required; "
+            "rerun the SonarQube scan"
+        )
+    if expected_project is not None and report.get("project") != expected_project:
+        raise ValueError(
+            f"oracle report project must be {expected_project!r}; "
+            f"got {report.get('project')!r}"
         )
     issues = report.get("issues")
     if not isinstance(issues, list):
@@ -30,13 +42,101 @@ def validate_oracle_report(report: Any) -> list[dict[str, Any]]:
     return issues
 
 
-def _canonical_range(value: Any) -> tuple[int | None, int | None, int | None, int | None]:
-    if not isinstance(value, dict):
+def validate_search_page(
+    payload: Any,
+    item_key: str,
+    requested_page: int,
+    *,
+    expected_total: int | None = None,
+    expected_page_size: int | None = None,
+) -> tuple[list[Any], int, int, bool]:
+    """Validate one Sonar search page and return items plus paging state."""
+    if (
+        not isinstance(requested_page, int)
+        or isinstance(requested_page, bool)
+        or requested_page < 1
+    ):
+        raise ValueError("requested page must be a positive integer")
+    context = f"{item_key} page {requested_page}"
+    if not isinstance(payload, dict):
+        raise ValueError(f"{context} response must be an object")
+    items = payload.get(item_key)
+    if not isinstance(items, list):
+        raise ValueError(f"{context} must contain a {item_key} list")
+    malformed_index = next(
+        (index for index, item in enumerate(items) if not isinstance(item, dict)),
+        None,
+    )
+    if malformed_index is not None:
+        raise ValueError(f"{context} item {malformed_index} must be an object")
+    paging = payload.get("paging")
+    if not isinstance(paging, dict):
+        raise ValueError(f"{context} must contain a paging object")
+
+    page_index, page_size, total = _validate_search_paging(
+        paging,
+        requested_page,
+        expected_total,
+        expected_page_size,
+        context,
+    )
+    offset = (page_index - 1) * page_size
+    if offset > total:
+        raise ValueError(f"{context} starts beyond advertised total {total}")
+    expected_count = min(page_size, total - offset)
+    if len(items) != expected_count:
+        raise ValueError(
+            f"{context} returned {len(items)} items, expected {expected_count} "
+            f"from advertised total {total}"
+        )
+    return items, total, page_size, offset + len(items) == total
+
+
+def _validate_search_paging(
+    paging: dict[str, Any],
+    requested_page: int,
+    expected_total: int | None,
+    expected_page_size: int | None,
+    context: str,
+) -> tuple[int, int, int]:
+    page_index = _required_paging_int(paging, "pageIndex", context)
+    page_size = _required_paging_int(paging, "pageSize", context)
+    total = _required_paging_int(paging, "total", context)
+    if page_index != requested_page:
+        raise ValueError(
+            f"{context} returned pageIndex {page_index}, expected {requested_page}"
+        )
+    if page_size <= 0:
+        raise ValueError(f"{context} pageSize must be positive")
+    if total < 0:
+        raise ValueError(f"{context} total must be non-negative")
+    if expected_total is not None and total != expected_total:
+        raise ValueError(f"{context} total changed from {expected_total} to {total}")
+    if expected_page_size is not None and page_size != expected_page_size:
+        raise ValueError(
+            f"{context} pageSize changed from {expected_page_size} to {page_size}"
+        )
+    return page_index, page_size, total
+
+
+def _required_paging_int(paging: dict[str, Any], key: str, context: str) -> int:
+    value = paging.get(key)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{context} paging {key} must be an integer")
+    return value
+
+
+def _canonical_range(
+    value: Any, *, context: str, allow_absent: bool
+) -> tuple[int | None, int | None, int | None, int | None]:
+    if value is None and allow_absent:
         return (None, None, None, None)
+    if not isinstance(value, dict):
+        raise ValueError(f"{context} range must be an object")
     start = value.get("start")
     end = value.get("end")
     if not isinstance(start, dict) or not isinstance(end, dict):
-        return (None, None, None, None)
+        raise ValueError(f"{context} range must contain start and end objects")
     canonical = (
         start.get("line"),
         start.get("column"),
@@ -45,17 +145,47 @@ def _canonical_range(value: Any) -> tuple[int | None, int | None, int | None, in
     )
     if canonical == (0, 0, 0, 0):
         return (None, None, None, None)
+    if canonical == (None, None, None, None):
+        return canonical
+    _validate_text_range(canonical, context)
     return canonical
 
 
+def _validate_text_range(canonical: tuple[Any, ...], context: str) -> None:
+    if any(coordinate is None for coordinate in canonical):
+        raise ValueError(f"{context} range must be complete or file-level")
+    for coordinate in canonical:
+        if (
+            not isinstance(coordinate, int)
+            or isinstance(coordinate, bool)
+            or coordinate < 0
+        ):
+            raise ValueError(
+                f"{context} range coordinates must be non-negative integers or null"
+            )
+    start_line, start_column, end_line, end_column = canonical
+    if start_line == 0 or end_line == 0:
+        raise ValueError(f"{context} text range lines must be positive")
+    if (start_line, start_column) > (end_line, end_column):
+        raise ValueError(f"{context} range ends before it starts")
+
+
 def _finding(
-    *, rule: Any, file: Any, message: Any, range_value: Any
+    *,
+    rule: str,
+    file: str,
+    message: str,
+    range_value: Any,
+    context: str,
+    allow_absent_range: bool,
 ) -> tuple[str, str, str, int | None, int | None, int | None, int | None]:
-    start_line, start_column, end_line, end_column = _canonical_range(range_value)
+    start_line, start_column, end_line, end_column = _canonical_range(
+        range_value, context=context, allow_absent=allow_absent_range
+    )
     return (
-        str(rule or ""),
-        str(file or ""),
-        str(message or ""),
+        rule,
+        file,
+        message,
         start_line,
         start_column,
         end_line,
@@ -63,40 +193,57 @@ def _finding(
     )
 
 
+def _required_string(value: dict[str, Any], key: str, context: str) -> str:
+    field = value.get(key)
+    if not isinstance(field, str) or (key != "message" and not field):
+        raise ValueError(f"{context} {key} must be a string")
+    return field
+
+
 def sonar_findings(report: Any) -> list[tuple[Any, ...]]:
-    return [
-        _finding(
-            rule=issue.get("rule"),
-            file=issue.get("file"),
-            message=issue.get("message"),
-            range_value=issue.get("range"),
+    findings = []
+    for index, issue in enumerate(validate_oracle_report(report)):
+        context = f"oracle issue {index}"
+        if not isinstance(issue, dict):
+            raise ValueError(f"{context} must be an object")
+        findings.append(
+            _finding(
+                rule=_required_string(issue, "rule", context),
+                file=_required_string(issue, "file", context),
+                message=_required_string(issue, "message", context),
+                range_value=issue.get("range"),
+                context=context,
+                allow_absent_range=True,
+            )
         )
-        for issue in validate_oracle_report(report)
-        if isinstance(issue, dict)
-    ]
+    return findings
 
 
 def hoonarqube_findings(report: Any) -> list[tuple[Any, ...]]:
     if not isinstance(report, dict) or not isinstance(report.get("files"), list):
         raise ValueError("hoonarqube report must contain a files list")
     findings: list[tuple[Any, ...]] = []
-    for file_report in report["files"]:
+    for file_index, file_report in enumerate(report["files"]):
+        file_context = f"hoonarqube file report {file_index}"
         if not isinstance(file_report, dict):
-            raise ValueError("hoonarqube file report must be an object")
-        path = str(file_report.get("path", ""))
+            raise ValueError(f"{file_context} must be an object")
+        path = _required_string(file_report, "path", file_context)
         file_name = path.replace("\\", "/").rsplit("/", 1)[-1]
         issues = file_report.get("issues")
         if not isinstance(issues, list):
-            raise ValueError("hoonarqube file issues must be a list")
-        for issue in issues:
+            raise ValueError(f"{file_context} issues must be a list")
+        for issue_index, issue in enumerate(issues):
+            context = f"{file_context} issue {issue_index}"
             if not isinstance(issue, dict):
-                raise ValueError("hoonarqube issue must be an object")
+                raise ValueError(f"{context} must be an object")
             findings.append(
                 _finding(
-                    rule=issue.get("rule_key"),
+                    rule=_required_string(issue, "rule_key", context),
                     file=file_name,
-                    message=issue.get("message"),
+                    message=_required_string(issue, "message", context),
                     range_value=issue.get("range"),
+                    context=context,
+                    allow_absent_range=False,
                 )
             )
     return findings
@@ -105,7 +252,11 @@ def hoonarqube_findings(report: Any) -> list[tuple[Any, ...]]:
 def _for_file_rule(
     findings: Iterable[tuple[Any, ...]], file_name: str, rule: str
 ) -> Counter[tuple[Any, ...]]:
-    return Counter(finding for finding in findings if finding[0] == rule and finding[1] == file_name)
+    return Counter(
+        finding
+        for finding in findings
+        if finding[0] == rule and finding[1] == file_name
+    )
 
 
 def _serializable(counter: Counter[tuple[Any, ...]]) -> list[dict[str, Any]]:
@@ -125,6 +276,192 @@ def _serializable(counter: Counter[tuple[Any, ...]]) -> list[dict[str, Any]]:
     return rows
 
 
+@dataclass(frozen=True)
+class _ComparisonContext:
+    sonar: list[tuple[Any, ...]]
+    ours: list[tuple[Any, ...]]
+    infra: set[str]
+    catalog: set[str] | None
+    files: set[str] | None
+    enterprise_unverified: set[str]
+
+
+@dataclass(frozen=True)
+class _Expectation:
+    key: str
+    bad: str
+    good: str
+    minimum: int
+    upstream_unverified: str | None
+
+
+@dataclass(frozen=True)
+class _FindingCounters:
+    sonar_bad: Counter[tuple[Any, ...]]
+    ours_bad: Counter[tuple[Any, ...]]
+    sonar_good: Counter[tuple[Any, ...]]
+    ours_good: Counter[tuple[Any, ...]]
+
+
+def _terminal_row(key: Any, status: str, reason: Any) -> dict[str, Any]:
+    return {"key": key, "status": status, "reason": str(reason)}
+
+
+def _validate_key(
+    raw: dict[str, Any], seen: set[str], context: _ComparisonContext
+) -> tuple[str | None, dict[str, Any] | None]:
+    key = raw.get("key")
+    if not isinstance(key, str) or not key:
+        return None, _terminal_row(key, "INVALID_EXPECTATION", "missing key")
+    if key in seen:
+        return None, _terminal_row(key, "INVALID_EXPECTATION", "duplicate key")
+    seen.add(key)
+    if context.catalog is not None and key not in context.catalog:
+        return None, _terminal_row(
+            key,
+            "INVALID_EXPECTATION",
+            "expectation key is absent from frozen catalog",
+        )
+    if key in context.infra or raw.get("infra"):
+        reason = raw.get("infra", "upstream analysis infrastructure required")
+        return None, _terminal_row(key, "INFRA", reason)
+    if raw.get("skip"):
+        return None, _terminal_row(key, "SKIPPED", raw["skip"])
+    return key, None
+
+
+def _validate_fixtures(
+    raw: dict[str, Any], key: str, available: set[str] | None
+) -> tuple[tuple[str, str] | None, dict[str, Any] | None]:
+    bad = raw.get("bad")
+    if not isinstance(bad, str) or not bad:
+        return None, _terminal_row(key, "INVALID_EXPECTATION", "missing bad file")
+    good = raw.get("good")
+    if good is None:
+        good = bad.replace("_bad", "_good")
+    if not isinstance(good, str) or not good or good == bad:
+        return None, _terminal_row(key, "INVALID_EXPECTATION", "missing good file")
+    if available is not None and bad not in available:
+        return None, _terminal_row(
+            key, "INVALID_EXPECTATION", f"bad fixture does not exist: {bad}"
+        )
+    if available is not None and good not in available:
+        return None, _terminal_row(
+            key, "INVALID_EXPECTATION", f"good fixture does not exist: {good}"
+        )
+    return (bad, good), None
+
+
+def _validate_minimum(
+    raw: dict[str, Any], key: str
+) -> tuple[int | None, dict[str, Any] | None]:
+    minimum = raw.get("expect_lines_min", 1)
+    if not isinstance(minimum, int) or isinstance(minimum, bool) or minimum < 1:
+        return None, _terminal_row(key, "INVALID_EXPECTATION", "invalid minimum")
+    return minimum, None
+
+
+def _validate_upstream_reason(
+    raw: dict[str, Any], key: str
+) -> tuple[str | None, dict[str, Any] | None]:
+    reason = raw.get("upstream_unverified")
+    if reason is not None and (not isinstance(reason, str) or not reason.strip()):
+        return None, _terminal_row(
+            key, "INVALID_EXPECTATION", "invalid upstream-unverified reason"
+        )
+    return reason, None
+
+
+def _validate_expectation(
+    raw: dict[str, Any], seen: set[str], context: _ComparisonContext
+) -> tuple[_Expectation | None, dict[str, Any] | None]:
+    key, terminal = _validate_key(raw, seen, context)
+    if terminal is not None:
+        return None, terminal
+    assert key is not None
+    fixtures, terminal = _validate_fixtures(raw, key, context.files)
+    if terminal is not None:
+        return None, terminal
+    minimum, terminal = _validate_minimum(raw, key)
+    if terminal is not None:
+        return None, terminal
+    upstream_reason, terminal = _validate_upstream_reason(raw, key)
+    if terminal is not None:
+        return None, terminal
+    assert fixtures is not None and minimum is not None
+    bad, good = fixtures
+    return _Expectation(key, bad, good, minimum, upstream_reason), None
+
+
+def _finding_counters(
+    expectation: _Expectation, context: _ComparisonContext
+) -> _FindingCounters:
+    return _FindingCounters(
+        sonar_bad=_for_file_rule(context.sonar, expectation.bad, expectation.key),
+        ours_bad=_for_file_rule(context.ours, expectation.bad, expectation.key),
+        sonar_good=_for_file_rule(context.sonar, expectation.good, expectation.key),
+        ours_good=_for_file_rule(context.ours, expectation.good, expectation.key),
+    )
+
+
+def _unverified_status(counters: _FindingCounters, minimum: int, success: str) -> str:
+    if counters.ours_good:
+        return "GOOD_FIRE"
+    if sum(counters.ours_bad.values()) < minimum:
+        return "OURS_MISS"
+    return success
+
+
+def _standard_status(counters: _FindingCounters, minimum: int) -> str:
+    sonar_missed = sum(counters.sonar_bad.values()) < minimum
+    ours_missed = sum(counters.ours_bad.values()) < minimum
+    if counters.sonar_good or counters.ours_good:
+        return "GOOD_FIRE"
+    if sonar_missed and ours_missed:
+        return "BOTH_MISS"
+    if sonar_missed:
+        return "SQ_MISS"
+    if ours_missed:
+        return "OURS_MISS"
+    if counters.sonar_bad != counters.ours_bad:
+        return "BAD_MISMATCH"
+    return "PASS"
+
+
+def _comparison_status(
+    expectation: _Expectation,
+    counters: _FindingCounters,
+    context: _ComparisonContext,
+) -> str:
+    if expectation.upstream_unverified:
+        return _unverified_status(counters, expectation.minimum, "UPSTREAM_UNVERIFIED")
+    if expectation.key in context.enterprise_unverified:
+        return _unverified_status(
+            counters, expectation.minimum, "ENTERPRISE_UNVERIFIED"
+        )
+    return _standard_status(counters, expectation.minimum)
+
+
+def _comparison_row(
+    expectation: _Expectation,
+    counters: _FindingCounters,
+    context: _ComparisonContext,
+) -> dict[str, Any]:
+    row = {
+        "key": expectation.key,
+        "status": _comparison_status(expectation, counters, context),
+        "bad": expectation.bad,
+        "good": expectation.good,
+        "sonar_bad": _serializable(counters.sonar_bad),
+        "ours_bad": _serializable(counters.ours_bad),
+        "sonar_good": _serializable(counters.sonar_good),
+        "ours_good": _serializable(counters.ours_good),
+    }
+    if expectation.upstream_unverified:
+        row["reason"] = expectation.upstream_unverified
+    return row
+
+
 def compare_reports(
     expected: list[dict[str, Any]],
     sonar_report: Any,
@@ -135,170 +472,64 @@ def compare_reports(
     enterprise_unverified: Iterable[str] = (),
 ) -> list[dict[str, Any]]:
     """Compare the complete catalog contract with exact finding equality."""
-    sonar = sonar_findings(sonar_report)
-    ours = hoonarqube_findings(hoonarqube_report)
-    infra = set(infra)
-    catalog = set(catalog_keys) if catalog_keys is not None else None
-    files = set(available_files) if available_files is not None else None
-    enterprise_unverified = set(enterprise_unverified)
+    if not isinstance(expected, list):
+        raise ValueError("oracle expectations must be a list")
+    catalog = _unique_set(catalog_keys, "catalog key")
+    files = _unique_set(available_files, "available fixture")
+    context = _ComparisonContext(
+        sonar=sonar_findings(sonar_report),
+        ours=hoonarqube_findings(hoonarqube_report),
+        infra=set(infra),
+        catalog=catalog,
+        files=files,
+        enterprise_unverified=set(enterprise_unverified),
+    )
     seen: set[str] = set()
     rows: list[dict[str, Any]] = []
 
-    for expectation in expected:
-        key = expectation.get("key")
-        if not isinstance(key, str) or not key:
-            rows.append({"key": key, "status": "INVALID_EXPECTATION", "reason": "missing key"})
-            continue
-        if key in seen:
+    for raw in expected:
+        if not isinstance(raw, dict):
             rows.append(
-                {"key": key, "status": "INVALID_EXPECTATION", "reason": "duplicate key"}
+                _terminal_row(
+                    None, "INVALID_EXPECTATION", "expectation must be an object"
+                )
             )
             continue
-        seen.add(key)
-        if catalog is not None and key not in catalog:
-            rows.append(
-                {
-                    "key": key,
-                    "status": "INVALID_EXPECTATION",
-                    "reason": "expectation key is absent from frozen catalog",
-                }
-            )
+        expectation, terminal = _validate_expectation(raw, seen, context)
+        if terminal is not None:
+            rows.append(terminal)
             continue
-        if key in infra or expectation.get("infra"):
-            rows.append(
-                {
-                    "key": key,
-                    "status": "INFRA",
-                    "reason": str(
-                        expectation.get(
-                            "infra", "upstream analysis infrastructure required"
-                        )
-                    ),
-                }
+        assert expectation is not None
+        counters = _finding_counters(expectation, context)
+        rows.append(_comparison_row(expectation, counters, context))
+    if context.catalog is not None:
+        rows.extend(
+            _terminal_row(
+                key,
+                "INVALID_EXPECTATION",
+                "catalog key has no oracle expectation",
             )
-            continue
-        if expectation.get("skip"):
-            rows.append(
-                {"key": key, "status": "SKIPPED", "reason": str(expectation["skip"])}
-            )
-            continue
-
-        bad = expectation.get("bad")
-        if not isinstance(bad, str) or not bad:
-            rows.append(
-                {"key": key, "status": "INVALID_EXPECTATION", "reason": "missing bad file"}
-            )
-            continue
-        good = expectation.get("good")
-        if good is None:
-            good = bad.replace("_bad", "_good")
-        if not isinstance(good, str) or not good or good == bad:
-            rows.append(
-                {"key": key, "status": "INVALID_EXPECTATION", "reason": "missing good file"}
-            )
-            continue
-        if files is not None and bad not in files:
-            rows.append(
-                {
-                    "key": key,
-                    "status": "INVALID_EXPECTATION",
-                    "reason": f"bad fixture does not exist: {bad}",
-                }
-            )
-            continue
-        if files is not None and good not in files:
-            rows.append(
-                {
-                    "key": key,
-                    "status": "INVALID_EXPECTATION",
-                    "reason": f"good fixture does not exist: {good}",
-                }
-            )
-            continue
-
-        minimum = expectation.get("expect_lines_min", 1)
-        if not isinstance(minimum, int) or isinstance(minimum, bool) or minimum < 1:
-            rows.append(
-                {"key": key, "status": "INVALID_EXPECTATION", "reason": "invalid minimum"}
-            )
-            continue
-
-        upstream_unverified = expectation.get("upstream_unverified")
-        if upstream_unverified is not None and (
-            not isinstance(upstream_unverified, str) or not upstream_unverified.strip()
-        ):
-            rows.append(
-                {
-                    "key": key,
-                    "status": "INVALID_EXPECTATION",
-                    "reason": "invalid upstream-unverified reason",
-                }
-            )
-            continue
-
-        sonar_bad = _for_file_rule(sonar, bad, key)
-        ours_bad = _for_file_rule(ours, bad, key)
-        sonar_good = _for_file_rule(sonar, good, key)
-        ours_good = _for_file_rule(ours, good, key)
-
-        if upstream_unverified:
-            if ours_good:
-                status = "GOOD_FIRE"
-            elif sum(ours_bad.values()) < minimum:
-                status = "OURS_MISS"
-            else:
-                status = "UPSTREAM_UNVERIFIED"
-        elif key in enterprise_unverified:
-            if ours_good:
-                status = "GOOD_FIRE"
-            elif sum(ours_bad.values()) < minimum:
-                status = "OURS_MISS"
-            else:
-                status = "ENTERPRISE_UNVERIFIED"
-        elif sonar_good or ours_good:
-            status = "GOOD_FIRE"
-        elif sum(sonar_bad.values()) < minimum and sum(ours_bad.values()) < minimum:
-            status = "BOTH_MISS"
-        elif sum(sonar_bad.values()) < minimum:
-            status = "SQ_MISS"
-        elif sum(ours_bad.values()) < minimum:
-            status = "OURS_MISS"
-        elif sonar_bad != ours_bad:
-            status = "BAD_MISMATCH"
-        else:
-            status = "PASS"
-
-        rows.append(
-            {
-                "key": key,
-                "status": status,
-                "bad": bad,
-                "good": good,
-                "sonar_bad": _serializable(sonar_bad),
-                "ours_bad": _serializable(ours_bad),
-                "sonar_good": _serializable(sonar_good),
-                "ours_good": _serializable(ours_good),
-                **(
-                    {"reason": str(upstream_unverified)}
-                    if upstream_unverified
-                    else {}
-                ),
-            }
+            for key in sorted(context.catalog - seen)
         )
-    if catalog is not None:
-        for key in sorted(catalog - seen):
-            rows.append(
-                {
-                    "key": key,
-                    "status": "INVALID_EXPECTATION",
-                    "reason": "catalog key has no oracle expectation",
-                }
-            )
     return rows
 
 
+def _unique_set(values: Iterable[str] | None, label: str) -> set[str] | None:
+    if values is None:
+        return None
+    entries = list(values)
+    if any(not isinstance(entry, str) or not entry for entry in entries):
+        raise ValueError(f"{label} must be a non-empty string")
+    unique = set(entries)
+    if len(unique) != len(entries):
+        raise ValueError(f"duplicate {label}")
+    return unique
+
+
 def counts(rows: Iterable[dict[str, Any]]) -> dict[str, int]:
-    return dict(sorted(Counter(str(row.get("status", "UNKNOWN")) for row in rows).items()))
+    return dict(
+        sorted(Counter(str(row.get("status", "UNKNOWN")) for row in rows).items())
+    )
 
 
 def failure_count(rows: Iterable[dict[str, Any]]) -> int:

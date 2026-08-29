@@ -56,75 +56,108 @@ fn regex_error_message(pattern: &str) -> String {
 /// sane character-class ranges — no regex engine required.
 fn is_valid_regex(pattern: &str) -> bool {
     let chars: Vec<char> = pattern.chars().collect();
-    let mut i = 0;
-    let mut depth: usize = 0;
-    let mut atom = false;
-    while i < chars.len() {
-        match chars[i] {
-            '\\' => {
-                if i + 1 >= chars.len() {
-                    return false;
-                }
-                i += 2;
-                atom = true;
-            }
-            '[' => {
-                if !scan_regex_class(&chars, i, &mut i) {
-                    return false;
-                }
-                atom = true;
-            }
-            '(' => {
-                depth += 1;
-                if chars.get(i + 1) == Some(&'?') {
-                    let Some(end) = group_header_end(&chars, i) else {
-                        return false;
-                    };
-                    if chars[end] == ')' {
-                        // A header ending on `)` (such as `(?)`) closed its group.
-                        depth -= 1;
-                    }
-                    i = end + 1;
-                } else {
-                    i += 1;
-                }
-                atom = false;
-            }
-            ')' => {
-                if depth == 0 {
-                    return false;
-                }
-                depth -= 1;
-                i += 1;
-                atom = true;
-            }
-            '|' => {
-                i += 1;
-                atom = false;
-            }
-            '*' | '+' | '?' => {
-                if !atom {
-                    return false;
-                }
-                while i < chars.len() && matches!(chars[i], '*' | '+' | '?') {
-                    i += 1;
-                }
-            }
-            '{' => {
-                if let Some(end) = bounded_repeat_end(&chars, i).filter(|_| atom) {
-                    i = end + 1;
-                } else {
-                    i += 1;
-                }
-                atom = true;
-            }
-            _ => {
-                i += 1;
-                atom = true;
-            }
+    let mut state = RegexScanState::default();
+    while state.index < chars.len() {
+        if !scan_regex_token(&chars, &mut state) {
+            return false;
         }
     }
-    depth == 0
+    state.depth == 0
+}
+
+#[derive(Default)]
+struct RegexScanState {
+    index: usize,
+    depth: usize,
+    atom: bool,
+}
+
+fn scan_regex_token(chars: &[char], state: &mut RegexScanState) -> bool {
+    match chars[state.index] {
+        '\\' => scan_escape(chars, state),
+        '[' => scan_character_class(chars, state),
+        '(' => scan_group_open(chars, state),
+        ')' => scan_group_close(state),
+        '|' => {
+            state.index += 1;
+            state.atom = false;
+            true
+        }
+        '*' | '+' | '?' => scan_simple_quantifier(chars, state),
+        '{' => {
+            scan_bounded_quantifier(chars, state);
+            true
+        }
+        _ => {
+            state.index += 1;
+            state.atom = true;
+            true
+        }
+    }
+}
+
+fn scan_escape(chars: &[char], state: &mut RegexScanState) -> bool {
+    if state.index + 1 >= chars.len() {
+        return false;
+    }
+    state.index += 2;
+    state.atom = true;
+    true
+}
+
+fn scan_character_class(chars: &[char], state: &mut RegexScanState) -> bool {
+    let valid = scan_regex_class(chars, state.index, &mut state.index);
+    if valid {
+        state.atom = true;
+    }
+    valid
+}
+
+fn scan_group_open(chars: &[char], state: &mut RegexScanState) -> bool {
+    state.depth += 1;
+    if chars.get(state.index + 1) == Some(&'?') {
+        let Some(end) = group_header_end(chars, state.index) else {
+            return false;
+        };
+        if chars[end] == ')' {
+            // A header ending on `)` (such as `(?)`) closed its group.
+            state.depth -= 1;
+        }
+        state.index = end + 1;
+    } else {
+        state.index += 1;
+    }
+    state.atom = false;
+    true
+}
+
+fn scan_group_close(state: &mut RegexScanState) -> bool {
+    if state.depth == 0 {
+        return false;
+    }
+    state.depth -= 1;
+    state.index += 1;
+    state.atom = true;
+    true
+}
+
+fn scan_simple_quantifier(chars: &[char], state: &mut RegexScanState) -> bool {
+    if !state.atom {
+        return false;
+    }
+    while state.index < chars.len() && matches!(chars[state.index], '*' | '+' | '?') {
+        state.index += 1;
+    }
+    true
+}
+
+fn scan_bounded_quantifier(chars: &[char], state: &mut RegexScanState) {
+    if let Some(end) = bounded_repeat_end(chars, state.index).filter(|_| state.atom) {
+        state.index = end + 1;
+    } else {
+        state.index += 1;
+    }
+    state.atom = true;
 }
 
 /// End index of the terminator of a `(?` group header such as `(?:`,

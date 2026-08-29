@@ -9,12 +9,12 @@ repository.workspace = true
 [lib]
 path = "src/lib.rs"
 [dependencies]
-hoonarqube-csharp = { path = "../hoonarqube-csharp" }
-hoonarqube-go = { path = "../hoonarqube-go" }
-hoonarqube-ir = { path = "../hoonarqube-ir" }
-hoonarqube-jsts = { path = "../hoonarqube-jsts" }
-hoonarqube-python = { path = "../hoonarqube-python" }
-hoonarqube-rust = { path = "../hoonarqube-rust" }
+hoonarqube-csharp = { version = "0.1.0", path = "../hoonarqube-csharp" }
+hoonarqube-go = { version = "0.1.0", path = "../hoonarqube-go" }
+hoonarqube-ir = { version = "0.1.0", path = "../hoonarqube-ir" }
+hoonarqube-jsts = { version = "0.1.0", path = "../hoonarqube-jsts" }
+hoonarqube-python = { version = "0.1.0", path = "../hoonarqube-python" }
+hoonarqube-rust = { version = "0.1.0", path = "../hoonarqube-rust" }
 
 [lints]
 workspace = true

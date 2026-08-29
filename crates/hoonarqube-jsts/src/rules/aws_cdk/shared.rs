@@ -388,23 +388,25 @@ impl<'p> CdkFile<'p> {
                 }
                 Expression::NewExpression(new) => current = unparenthesized(&new.callee),
                 Expression::Identifier(identifier) => {
-                    let name = identifier.name.as_str();
-                    if let Some(binding) = self.imports.iter().find(|binding| binding.local == name)
-                    {
-                        let mut parts: Vec<&str> = binding.module.split('/').collect();
-                        if let Some(imported) = binding.imported {
-                            parts.push(imported);
-                        }
-                        parts.extend(qualifiers.iter().rev().copied());
-                        return Some(parts.join("."));
-                    }
-                    return match self.write_fact(name) {
-                        Some(fact) if qualifiers.is_empty() => fact.fqn(),
-                        _ => None,
-                    };
+                    return self.identifier_fqn(identifier.name.as_str(), &qualifiers);
                 }
                 _ => return None,
             }
+        }
+    }
+
+    fn identifier_fqn(&self, name: &str, qualifiers: &[&str]) -> Option<String> {
+        if let Some(binding) = self.imports.iter().find(|binding| binding.local == name) {
+            let mut parts: Vec<&str> = binding.module.split('/').collect();
+            if let Some(imported) = binding.imported {
+                parts.push(imported);
+            }
+            parts.extend(qualifiers.iter().rev().copied());
+            return Some(parts.join("."));
+        }
+        match self.write_fact(name) {
+            Some(fact) if qualifiers.is_empty() => fact.fqn(),
+            _ => None,
         }
     }
 }

@@ -12,6 +12,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  dependency-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Dependency advisories, licenses, bans, and sources
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          rust-version: "1.96.0"
+
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -32,8 +43,18 @@ jobs:
       - name: Rust lint
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: Rust documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --no-deps
+
       - name: Rust tests
-        run: cargo test --workspace
+        run: cargo test --workspace --all-targets
+
+      - name: Self-analysis complexity
+        run: |
+          cargo run -q -p hoonarqube-cli -- --json analyze crates xtask |
+            jq -e '[.files[].issues[] | select(.rule_key == "rust:S3776")] | length == 0'
 
       - name: Frozen catalog integrity
         run: cargo run -q -p xtask -- catalog audit --require-pages-complete
@@ -43,3 +64,12 @@ jobs:
 
       - name: Oracle harness tests
         run: python3 -m unittest discover -s tools/oracle -p 'test_*.py' -v
+
+      - name: Oracle harness syntax
+        run: python3 -m compileall -q -x 'tools/oracle/fixtures/' tools/oracle
+
+      - name: Oracle harness lint
+        run: |
+          python3 -m pip install --disable-pip-version-check ruff==0.15.20
+          ruff check tools/oracle --exclude tools/oracle/fixtures \
+            --extend-select C90,PLR0911,PLR0912,PLR0915,PERF,SIM,B

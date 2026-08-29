@@ -23,18 +23,25 @@ pub(crate) fn check_tb_map_round_trips(
             .iter()
             .rev()
             .find(|(var, get_map, key, call)| {
-                var == variable
-                    && get_map == map_name
-                    && call.end <= set_span.start
-                    && source_slice(source, *key) == source_slice(source, *key_span)
+                let same_variable = var == variable;
+                let same_map = get_map == map_name;
+                let precedes_set = call.end <= set_span.start;
+                let same_key = source_slice(source, *key) == source_slice(source, *key_span);
+                same_variable && same_map && precedes_set && same_key
             });
         let Some((_, _, _, get_call)) = matching_get else {
             continue;
         };
         let interrupted = mutations.iter().any(|(name, span)| {
-            *name == *map_name && span.start > get_call.end && span.end < set_span.start
+            let same_map = *name == *map_name;
+            let starts_after_get = span.start > get_call.end;
+            let ends_before_set = span.end < set_span.start;
+            same_map && starts_after_get && ends_before_set
         }) || collector.variable_writes.iter().any(|(name, span)| {
-            *name == *variable && span.start > get_call.end && span.end < set_span.start
+            let same_variable = *name == *variable;
+            let starts_after_get = span.start > get_call.end;
+            let ends_before_set = span.end < set_span.start;
+            same_variable && starts_after_get && ends_before_set
         });
         if !interrupted {
             sink.emit_span(

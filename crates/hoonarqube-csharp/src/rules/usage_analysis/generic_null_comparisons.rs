@@ -13,18 +13,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     let values = unconstrained_generic_value_names(root, source);
     let mut issues = Vec::new();
     for (expression, left, right) in comparisons(root) {
-        if !matches!(operator_of(expression), Some("==" | "!=")) {
+        if !matches!(operator_of(expression), Some("==" | "!="))
+            || ![left, right]
+                .iter()
+                .any(|side| side.kind() == "null_literal")
+        {
             continue;
         }
-        for operand in [left, right] {
-            if operand.kind() != "identifier"
-                || !values.contains(node_text(operand, source))
-                || [left, right]
-                    .iter()
-                    .all(|side| (*side).kind() != "null_literal")
-            {
-                continue;
-            }
+        if [left, right].iter().any(|operand| {
+            operand.kind() == "identifier" && values.contains(node_text(*operand, source))
+        }) {
             issues.push(issue(
                 language,
                 "S2955",
@@ -55,35 +53,52 @@ fn unconstrained_generic_value_names(
         let Some(generic_names) = unconstrained_generic_parameters(declaration, source) else {
             continue;
         };
-        for region in signature_regions(declaration) {
-            for parameter in collect_kinds(region, &["parameter"]) {
-                let Some(type_node) = parameter.child_by_field_name("type") else {
-                    continue;
-                };
-                if !generic_names.contains(simple_name(node_text(type_node, source))) {
-                    continue;
-                }
-                let Some(name) = parameter.child_by_field_name("name") else {
-                    continue;
-                };
+        collect_generic_parameters(declaration, source, &generic_names, &mut values);
+        collect_generic_locals(declaration, source, &generic_names, &mut values);
+    }
+    values
+}
+
+fn collect_generic_parameters(
+    declaration: Node<'_>,
+    source: &str,
+    generic_names: &std::collections::HashSet<String>,
+    values: &mut std::collections::HashSet<String>,
+) {
+    for region in signature_regions(declaration) {
+        for parameter in collect_kinds(region, &["parameter"]) {
+            let Some((type_node, name)) = parameter
+                .child_by_field_name("type")
+                .zip(parameter.child_by_field_name("name"))
+            else {
+                continue;
+            };
+            if generic_names.contains(simple_name(node_text(type_node, source))) {
                 values.insert(node_text(name, source).to_string());
             }
         }
-        for variable_declaration in collect_kinds(declaration, &["variable_declaration"]) {
-            let Some(type_node) = variable_declaration.child_by_field_name("type") else {
-                continue;
-            };
-            if !generic_names.contains(simple_name(node_text(type_node, source))) {
-                continue;
-            }
-            for declarator in collect_kinds(variable_declaration, &["variable_declarator"]) {
-                if let Some(name) = declarator.child_by_field_name("name") {
-                    values.insert(node_text(name, source).to_string());
-                }
+    }
+}
+
+fn collect_generic_locals(
+    declaration: Node<'_>,
+    source: &str,
+    generic_names: &std::collections::HashSet<String>,
+    values: &mut std::collections::HashSet<String>,
+) {
+    for variable_declaration in collect_kinds(declaration, &["variable_declaration"]) {
+        let Some(type_node) = variable_declaration.child_by_field_name("type") else {
+            continue;
+        };
+        if !generic_names.contains(simple_name(node_text(type_node, source))) {
+            continue;
+        }
+        for declarator in collect_kinds(variable_declaration, &["variable_declarator"]) {
+            if let Some(name) = declarator.child_by_field_name("name") {
+                values.insert(node_text(name, source).to_string());
             }
         }
     }
-    values
 }
 
 #[cfg(test)]

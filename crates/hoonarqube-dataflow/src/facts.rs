@@ -82,13 +82,13 @@ impl<D: Ord + Clone> ReachingFacts<D> {
         }
     }
 
-    /// [`ReachingFacts::union`] shaped for [`solve_dataflow`]'s meet slot.
+    /// [`ReachingFacts::union`] shaped for [`crate::solve_dataflow`]'s meet slot.
     #[must_use]
     pub fn meet_union(left: &Self, right: &Self) -> Self {
         left.union(right)
     }
 
-    /// [`ReachingFacts::intersection`] shaped for [`solve_dataflow`]'s meet
+    /// [`ReachingFacts::intersection`] shaped for [`crate::solve_dataflow`]'s meet
     /// slot.
     #[must_use]
     pub fn meet_intersection(left: &Self, right: &Self) -> Self {
@@ -182,13 +182,13 @@ impl<V: Ord + Clone> LivenessFacts<V> {
         }
     }
 
-    /// [`LivenessFacts::union`] shaped for [`solve_dataflow`]'s meet slot.
+    /// [`LivenessFacts::union`] shaped for [`crate::solve_dataflow`]'s meet slot.
     #[must_use]
     pub fn meet_union(left: &Self, right: &Self) -> Self {
         left.union(right)
     }
 
-    /// [`LivenessFacts::intersection`] shaped for [`solve_dataflow`]'s meet
+    /// [`LivenessFacts::intersection`] shaped for [`crate::solve_dataflow`]'s meet
     /// slot.
     #[must_use]
     pub fn meet_intersection(left: &Self, right: &Self) -> Self {

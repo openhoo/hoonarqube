@@ -53,9 +53,9 @@ enum Command {
     },
     /// Detect and optionally apply automatic fixes.
     ///
-    /// Two categories: catalog-rule quick fixes attached to findings and
-    /// safe mechanical whitespace repairs (trailing spaces, missing final
-    /// newline, leading tabs). The command runs as a dry run unless
+    /// Two categories: catalog-rule quick fixes attached to findings and a
+    /// safe mechanical repair for a missing final newline. The command runs
+    /// as a dry run unless
     /// `--apply` is passed; applying re-verifies every targeted finding by
     /// re-analysis. See the README's quick-fix section for the workflow.
     Fix {
@@ -146,50 +146,28 @@ fn main() -> ExitCode {
     }
 }
 
-/// Applies safe mechanical whitespace repairs to one source string: strips
-/// trailing spaces and tabs, adds a missing final newline, and expands
-/// leading tabs. Line terminators (LF or CRLF) are preserved verbatim.
-/// Returns the repaired text and the number of repairs, or `None` when the
-/// source is already clean.
+/// Adds a missing final newline without touching source-content whitespace.
+///
+/// Leading tabs and trailing spaces can be data inside multiline/raw string
+/// literals, so a language-agnostic fixer cannot safely rewrite them. The
+/// existing final line-ending style is retained when one can be observed.
+/// Returns the repaired text and one repair, or `None` when no repair applies.
 fn mechanical_fixed(source: &str) -> Option<(String, usize)> {
-    let mut fixed = source.to_string();
-    let mut applied = 0_usize;
-
-    // Split on '\n' only so a '\r' stays attached to its line: CRLF
-    // terminators survive the round trip. The '\r' is terminator, not
-    // content, so it is peeled off before trimming spaces/tabs and
-    // re-attached afterwards; LF files keep the plain fast path shape.
-    let trimmed: String = fixed
-        .split('\n')
-        .map(|line| {
-            let (content, terminator) = match line.strip_suffix('\r') {
-                Some(content) => (content, "\r"),
-                None => (line, ""),
-            };
-            format!("{}{terminator}", content.trim_end_matches([' ', '\t']))
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    if trimmed != fixed {
-        applied += 1;
-        fixed = trimmed;
+    if source.is_empty() || source.ends_with('\n') {
+        return None;
     }
-    if !fixed.is_empty() && !fixed.ends_with('\n') {
-        applied += 1;
-        fixed.push('\n');
+    let uses_crlf = source
+        .as_bytes()
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .is_some_and(|newline| newline > 0 && source.as_bytes()[newline - 1] == b'\r');
+    let mut fixed = String::with_capacity(source.len() + usize::from(uses_crlf) + 1);
+    fixed.push_str(source);
+    if uses_crlf {
+        fixed.push('\r');
     }
-    if fixed.split('\n').any(|line| line.starts_with('\t')) {
-        applied += 1;
-        fixed = fixed
-            .split('\n')
-            .map(|line| {
-                let tabs = line.len() - line.trim_start_matches('\t').len();
-                format!("{}{}", " ".repeat(tabs * 4), line.trim_start_matches('\t'))
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-    }
-    (applied > 0).then_some((fixed, applied))
+    fixed.push('\n');
+    Some((fixed, 1))
 }
 
 /// One catalog-rule quick fix selected for a single file.
@@ -282,7 +260,7 @@ fn resolve_fix_conflicts(fixes: &[PlannedFix]) -> (Vec<usize>, usize) {
 }
 
 /// Projects a plan's would-be fixed content: surviving rule edits first
-/// (dropped losers excluded), then the mechanical whitespace repair on top.
+/// (dropped losers excluded), then the final-newline repair on top.
 ///
 /// # Errors
 /// Returns the IR engine's error when an edit cannot be applied to the
@@ -350,14 +328,119 @@ fn verify_analysis(
     (verified, unverified, regressions)
 }
 
-/// Applies one plan under `--apply`: writes the projected content when it
-/// differs from the source, then re-analyzes and verifies every targeted
-/// finding; unverified targets become warnings.
+/// Verifies one rule fix in isolation against the original analysis. Batch
+/// count reductions alone can hide a broken fix when another same-rule fix
+/// removes more findings than intended, so every remedy must also reduce its
+/// own rule count without introducing any other finding.
+fn fix_verifies_independently(
+    plan: &FileFixPlan,
+    fix: &PlannedFix,
+    before: &[hoonarqube_ir::Issue],
+    options: &analyze::AnalyzerOptionsBundle,
+) -> bool {
+    let edits: Vec<&TextEdit> = fix.edits.iter().collect();
+    let Ok(content) = apply_fixes(&plan.source, &edits) else {
+        return false;
+    };
+    let Some(report) = hoonarqube_core::analyze(&plan.path, &content, options) else {
+        return false;
+    };
+    let (_, unverified, regressions) = verify_analysis(&[fix], before, &report.issues);
+    unverified == 0 && regressions.is_empty()
+}
+
+fn verify_projected_rewrite(
+    plan: &FileFixPlan,
+    targeted: &[&PlannedFix],
+    options: &analyze::AnalyzerOptionsBundle,
+    outcome: &mut ApplyOutcome,
+    warnings: &mut Vec<String>,
+) -> bool {
+    let Some(before) = hoonarqube_core::analyze(&plan.path, &plan.source, options) else {
+        if targeted.is_empty() {
+            return true;
+        }
+        outcome.unverified = targeted.len();
+        warnings.push(format!(
+            "cannot verify fixes for {}: source is not analyzable",
+            plan.path.display()
+        ));
+        return false;
+    };
+    let independently_verified = targeted
+        .iter()
+        .filter(|fix| fix_verifies_independently(plan, fix, &before.issues, options))
+        .count();
+    if independently_verified != targeted.len() {
+        outcome.verified = independently_verified;
+        outcome.unverified = targeted.len() - independently_verified;
+        warnings.push(format!(
+            "{}: {} of {} projected rule fix(es) do not independently remove their findings",
+            plan.path.display(),
+            outcome.unverified,
+            targeted.len()
+        ));
+        return false;
+    }
+    let Some(after) = hoonarqube_core::analyze(&plan.path, &outcome.content, options) else {
+        outcome.unverified = targeted.len();
+        warnings.push(format!(
+            "cannot verify rewrite for {}: projected source is not analyzable",
+            plan.path.display()
+        ));
+        return false;
+    };
+    let (verified, unverified, regressions) =
+        verify_analysis(targeted, &before.issues, &after.issues);
+    outcome.verified = verified;
+    outcome.unverified = unverified;
+    outcome.regressions = regressions.iter().map(|(_, count)| count).sum();
+    if unverified > 0 {
+        warnings.push(format!(
+            "{}: {unverified} of {} projected rule fix(es) did not remove their findings",
+            plan.path.display(),
+            targeted.len()
+        ));
+    }
+    for (rule_key, count) in regressions {
+        warnings.push(format!(
+            "{}: projected source has {count} new {rule_key} finding(s)",
+            plan.path.display()
+        ));
+    }
+    outcome.unverified == 0 && outcome.regressions == 0
+}
+
+fn source_matches_plan(plan: &FileFixPlan, warnings: &mut Vec<String>) -> bool {
+    let current = match std::fs::read_to_string(&plan.path) {
+        Ok(current) => current,
+        Err(error) => {
+            warnings.push(format!("cannot re-read {}: {error}", plan.path.display()));
+            return false;
+        }
+    };
+    if current == plan.source {
+        return true;
+    }
+    warnings.push(format!(
+        "cannot fix {}: file changed after analysis",
+        plan.path.display()
+    ));
+    false
+}
+
+/// Applies one plan under `--apply`: verifies the projected content in memory,
+/// then writes it only when every targeted finding disappears without a
+/// regression. Broken rule fixes therefore fail closed and leave the file
+/// untouched.
 fn apply_plan(
     plan: &FileFixPlan,
     options: &analyze::AnalyzerOptionsBundle,
     warnings: &mut Vec<String>,
 ) -> Option<ApplyOutcome> {
+    if !apply_path_is_regular_file(&plan.path, warnings) {
+        return None;
+    }
     let projection = match project_fixes(plan) {
         Ok(projected) => projected,
         Err(error) => {
@@ -384,18 +467,7 @@ fn apply_plan(
         ));
     }
 
-    let current = match std::fs::read_to_string(&plan.path) {
-        Ok(current) => current,
-        Err(error) => {
-            warnings.push(format!("cannot re-read {}: {error}", plan.path.display()));
-            return None;
-        }
-    };
-    if current != plan.source {
-        warnings.push(format!(
-            "cannot fix {}: file changed after analysis",
-            plan.path.display()
-        ));
+    if !source_matches_plan(plan, warnings) {
         return None;
     }
 
@@ -404,56 +476,63 @@ fn apply_plan(
         .iter()
         .map(|&index| &plan.fixes[index])
         .collect();
-    let before = if targeted.is_empty() {
-        Vec::new()
-    } else {
-        let Some(report) = hoonarqube_core::analyze(&plan.path, &plan.source, options) else {
-            warnings.push(format!(
-                "cannot verify fixes for {}: source is not analyzable",
-                plan.path.display()
-            ));
-            return None;
-        };
-        report.issues
-    };
-
-    if outcome.content != plan.source {
-        if let Err(error) = std::fs::write(&plan.path, &outcome.content) {
-            warnings.push(format!("cannot write {}: {error}", plan.path.display()));
-            return None;
-        }
-        outcome.written = true;
-    }
-
-    if targeted.is_empty() {
+    if !verify_projected_rewrite(plan, &targeted, options, &mut outcome, warnings) {
         return Some(outcome);
     }
-    let Some(report) = hoonarqube_core::analyze(&plan.path, &outcome.content, options) else {
-        outcome.unverified = targeted.len();
-        warnings.push(format!(
-            "cannot verify fixes for {}: rewritten source is not analyzable",
-            plan.path.display()
-        ));
-        return Some(outcome);
-    };
-    let (verified, unverified, regressions) = verify_analysis(&targeted, &before, &report.issues);
-    outcome.verified = verified;
-    outcome.unverified = unverified;
-    outcome.regressions = regressions.iter().map(|(_, count)| count).sum();
-    if unverified > 0 {
-        warnings.push(format!(
-            "{}: {unverified} of {} applied rule fix(es) did not remove their findings",
-            plan.path.display(),
-            targeted.len()
-        ));
-    }
-    for (rule_key, count) in regressions {
-        warnings.push(format!(
-            "{}: re-analysis found {count} new {rule_key} finding(s)",
-            plan.path.display()
-        ));
+
+    if !write_applied_content(plan, &mut outcome, warnings) {
+        return None;
     }
     Some(outcome)
+}
+
+fn write_applied_content(
+    plan: &FileFixPlan,
+    outcome: &mut ApplyOutcome,
+    warnings: &mut Vec<String>,
+) -> bool {
+    if outcome.content == plan.source {
+        return true;
+    }
+    if !apply_path_is_regular_file(&plan.path, warnings) {
+        return false;
+    }
+    if !source_matches_plan(plan, warnings) {
+        return false;
+    }
+    if let Err(error) = std::fs::write(&plan.path, &outcome.content) {
+        warnings.push(format!("cannot write {}: {error}", plan.path.display()));
+        return false;
+    }
+    outcome.written = true;
+    true
+}
+
+/// Rejects path replacement between planning and writing. Collection already
+/// excludes symlinks in fix mode; this second check closes the ordinary
+/// plan/apply gap and prevents writes through a path replaced with a symlink.
+fn apply_path_is_regular_file(path: &std::path::Path, warnings: &mut Vec<String>) -> bool {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            warnings.push(format!(
+                "cannot fix {}: path is a symbolic link",
+                path.display()
+            ));
+            false
+        }
+        Ok(metadata) if metadata.is_file() => true,
+        Ok(_) => {
+            warnings.push(format!(
+                "cannot fix {}: path is not a regular file",
+                path.display()
+            ));
+            false
+        }
+        Err(error) => {
+            warnings.push(format!("cannot inspect {}: {error}", path.display()));
+            false
+        }
+    }
 }
 
 /// Serializes one plan's stable identity for JSON output.
@@ -573,23 +652,14 @@ fn unified_diff(path: &std::path::Path, old: &str, new: &str) -> String {
 /// Plans fixes for every explicitly passed file plus, for directories,
 /// every supported source file found by the same recursive walk the
 /// `analyze` command uses. Unreadable paths become warnings; non-source
-/// files stay eligible for mechanical repairs only.
+/// files stay eligible for the final-newline repair only.
 fn fix_plans(
     paths: &[std::path::PathBuf],
     rules: &[String],
     options: &analyze::AnalyzerOptionsBundle,
     warnings: &mut Vec<String>,
 ) -> Vec<FileFixPlan> {
-    let mut files: Vec<std::path::PathBuf> = Vec::new();
-    for path in paths {
-        if path.is_dir() {
-            analyze::collect_files(path, &mut files, warnings);
-        } else {
-            files.push(path.clone());
-        }
-    }
-    files.sort();
-    files.dedup();
+    let files = analyze::collect_input_files(paths, analyze::InputMode::Fix, warnings);
 
     let mut plans = Vec::new();
     for path in &files {
@@ -666,7 +736,122 @@ fn exit_with_warnings(warnings: &[String]) -> ExitCode {
     }
 }
 
-/// Dry-run reporting: lists planned rule fixes and mechanical repairs and
+#[derive(Default)]
+struct DryRunTotals {
+    applicable: usize,
+    skipped: usize,
+    mechanical: usize,
+}
+
+struct DryRunPlanResult {
+    row: serde_json::Value,
+    applicable: usize,
+    skipped: usize,
+    mechanical: usize,
+}
+
+impl DryRunTotals {
+    fn record(&mut self, result: &DryRunPlanResult) {
+        self.applicable += result.applicable;
+        self.skipped += result.skipped;
+        self.mechanical += result.mechanical;
+    }
+}
+
+fn dry_run_plan(
+    plan: &FileFixPlan,
+    diff: bool,
+    json: bool,
+    warnings: &mut Vec<String>,
+) -> DryRunPlanResult {
+    match project_fixes(plan) {
+        Ok(projection) => projected_dry_run_plan(plan, &projection, diff, json, warnings),
+        Err(error) => {
+            warnings.push(format!("cannot fix {}: {error}", plan.path.display()));
+            let mut row = file_plan_json(plan);
+            insert_json_field(&mut row, "applicable", 0);
+            insert_json_field(&mut row, "skipped", plan.fixes.len());
+            DryRunPlanResult {
+                row,
+                applicable: 0,
+                skipped: plan.fixes.len(),
+                mechanical: 0,
+            }
+        }
+    }
+}
+
+fn projected_dry_run_plan(
+    plan: &FileFixPlan,
+    projection: &FixProjection,
+    diff: bool,
+    json: bool,
+    warnings: &mut Vec<String>,
+) -> DryRunPlanResult {
+    let applicable = projection.applied_fix_indices.len();
+    if projection.skipped > 0 {
+        warnings.push(format!(
+            "{}: would skip {} conflicting rule fix(es)",
+            plan.path.display(),
+            projection.skipped
+        ));
+    }
+    let rendered_diff = diff.then(|| unified_diff(&plan.path, &plan.source, &projection.content));
+    if !json {
+        print_dry_run_plan(plan, projection, rendered_diff.as_deref());
+    }
+    let mut row = file_plan_json(plan);
+    insert_json_field(&mut row, "applicable", applicable);
+    insert_json_field(&mut row, "skipped", projection.skipped);
+    insert_json_field(&mut row, "mechanical", projection.mechanical);
+    if let Some(rendered_diff) = rendered_diff {
+        insert_json_string(&mut row, "diff", rendered_diff);
+    }
+    DryRunPlanResult {
+        row,
+        applicable,
+        skipped: projection.skipped,
+        mechanical: projection.mechanical,
+    }
+}
+
+fn print_dry_run_plan(plan: &FileFixPlan, projection: &FixProjection, diff: Option<&str>) {
+    println!(
+        "{}: {} applicable rule fix(es), {} mechanical fix(es), {} skipped",
+        plan.path.display(),
+        projection.applied_fix_indices.len(),
+        projection.mechanical,
+        projection.skipped
+    );
+    for fix in &plan.fixes {
+        println!(
+            "  {} at {}:{}-{}:{}: {}",
+            fix.rule_key,
+            fix.range.start.line,
+            fix.range.start.column,
+            fix.range.end.line,
+            fix.range.end.column,
+            fix.message
+        );
+    }
+    if let Some(diff) = diff {
+        print!("{diff}");
+    }
+}
+
+fn insert_json_field(row: &mut serde_json::Value, key: &str, value: usize) {
+    if let Some(object) = row.as_object_mut() {
+        object.insert(key.to_string(), serde_json::Value::from(value));
+    }
+}
+
+fn insert_json_string(row: &mut serde_json::Value, key: &str, value: String) {
+    if let Some(object) = row.as_object_mut() {
+        object.insert(key.to_string(), serde_json::Value::String(value));
+    }
+}
+
+/// Dry-run reporting: lists planned rule fixes and final-newline repairs and
 /// writes nothing.
 fn run_fix_dry_run(
     plans: &[FileFixPlan],
@@ -675,85 +860,20 @@ fn run_fix_dry_run(
     warnings: &mut Vec<String>,
 ) -> ExitCode {
     let mut rows = Vec::with_capacity(plans.len());
-    let mut applicable_total = 0_usize;
-    let mut skipped_total = 0_usize;
-    let mut mechanical_total = 0_usize;
+    let mut totals = DryRunTotals::default();
     for plan in plans {
-        let mut row = file_plan_json(plan);
-        match project_fixes(plan) {
-            Ok(projection) => {
-                let applicable = projection.applied_fix_indices.len();
-                applicable_total += applicable;
-                skipped_total += projection.skipped;
-                mechanical_total += projection.mechanical;
-                if projection.skipped > 0 {
-                    warnings.push(format!(
-                        "{}: would skip {} conflicting rule fix(es)",
-                        plan.path.display(),
-                        projection.skipped
-                    ));
-                }
-                let rendered_diff =
-                    diff.then(|| unified_diff(&plan.path, &plan.source, &projection.content));
-
-                if !json {
-                    println!(
-                        "{}: {} applicable rule fix(es), {} mechanical fix(es), {} skipped",
-                        plan.path.display(),
-                        applicable,
-                        projection.mechanical,
-                        projection.skipped
-                    );
-                    for fix in &plan.fixes {
-                        println!(
-                            "  {} at {}:{}-{}:{}: {}",
-                            fix.rule_key,
-                            fix.range.start.line,
-                            fix.range.start.column,
-                            fix.range.end.line,
-                            fix.range.end.column,
-                            fix.message
-                        );
-                    }
-                    if let Some(rendered_diff) = &rendered_diff {
-                        print!("{rendered_diff}");
-                    }
-                }
-
-                if let Some(object) = row.as_object_mut() {
-                    object.insert("applicable".into(), serde_json::Value::from(applicable));
-                    object.insert(
-                        "skipped".into(),
-                        serde_json::Value::from(projection.skipped),
-                    );
-                    object.insert(
-                        "mechanical".into(),
-                        serde_json::Value::from(projection.mechanical),
-                    );
-                    if let Some(rendered_diff) = rendered_diff {
-                        object.insert("diff".into(), serde_json::Value::String(rendered_diff));
-                    }
-                }
-            }
-            Err(error) => {
-                warnings.push(format!("cannot fix {}: {error}", plan.path.display()));
-                skipped_total += plan.fixes.len();
-                if let Some(object) = row.as_object_mut() {
-                    object.insert("applicable".into(), serde_json::Value::from(0));
-                    object.insert("skipped".into(), serde_json::Value::from(plan.fixes.len()));
-                }
-            }
-        }
-        rows.push(row);
+        let result = dry_run_plan(plan, diff, json, warnings);
+        totals.record(&result);
+        rows.push(result.row);
     }
 
     if json {
         print_json(&serde_json::json!({
             "files": rows,
             "planned": plans.iter().map(|plan| plan.fixes.len()).sum::<usize>(),
-            "applicable": applicable_total,
-            "skipped": skipped_total,
-            "mechanical": mechanical_total,
+            "applicable": totals.applicable,
+            "skipped": totals.skipped,
+            "mechanical": totals.mechanical,
             "applied": 0,
             "verified": 0,
             "unverified": 0,
@@ -761,18 +881,133 @@ fn run_fix_dry_run(
         }));
     } else {
         println!(
-            "would apply {applicable_total} rule fix(es) across {} file(s), \
-             {mechanical_total} mechanical fix(es), skip {skipped_total}; dry run, \
+            "would apply {} rule fix(es) across {} file(s), \
+             {} mechanical fix(es), skip {}; dry run, \
              pass --apply to write",
-            plans.len()
+            totals.applicable,
+            plans.len(),
+            totals.mechanical,
+            totals.skipped
         );
     }
     exit_with_warnings(warnings)
 }
 
-/// Apply mode: writes each projected rewrite once, re-analyzes the written
-/// file, and verifies every targeted finding disappeared without increasing
-/// any rule's finding count. Warnings fail the run.
+#[derive(Default)]
+struct ApplyTotals {
+    applied: usize,
+    skipped: usize,
+    verified: usize,
+    unverified: usize,
+    regressions: usize,
+    mechanical: usize,
+    written_files: usize,
+}
+
+struct ApplyPlanResult {
+    row: serde_json::Value,
+    outcome: Option<ApplyOutcome>,
+    rejected: usize,
+}
+
+impl ApplyTotals {
+    fn record(&mut self, result: &ApplyPlanResult) {
+        self.skipped += result.rejected;
+        let Some(outcome) = &result.outcome else {
+            return;
+        };
+        self.skipped += outcome.skipped;
+        self.verified += outcome.verified;
+        self.unverified += outcome.unverified;
+        self.regressions += outcome.regressions;
+        if outcome.written {
+            self.written_files += 1;
+            self.applied += outcome.applied;
+            self.mechanical += outcome.mechanical;
+        }
+    }
+}
+
+fn apply_one_plan(
+    plan: &FileFixPlan,
+    options: &analyze::AnalyzerOptionsBundle,
+    diff: bool,
+    json: bool,
+    warnings: &mut Vec<String>,
+) -> ApplyPlanResult {
+    let Some(outcome) = apply_plan(plan, options, warnings) else {
+        let mut row = file_plan_json(plan);
+        insert_apply_fields(&mut row, None);
+        insert_json_field(&mut row, "skipped", plan.fixes.len());
+        return ApplyPlanResult {
+            row,
+            outcome: None,
+            rejected: plan.fixes.len(),
+        };
+    };
+    let rendered_diff =
+        (diff && outcome.written).then(|| unified_diff(&plan.path, &plan.source, &outcome.content));
+    if !json && outcome.written {
+        print_apply_outcome(plan, &outcome, rendered_diff.as_deref());
+    }
+    let mut row = file_plan_json(plan);
+    insert_apply_fields(&mut row, Some(&outcome));
+    if let Some(rendered_diff) = rendered_diff {
+        insert_json_string(&mut row, "diff", rendered_diff);
+    }
+    ApplyPlanResult {
+        row,
+        outcome: Some(outcome),
+        rejected: 0,
+    }
+}
+
+fn insert_apply_fields(row: &mut serde_json::Value, outcome: Option<&ApplyOutcome>) {
+    let written = outcome.is_some_and(|outcome| outcome.written);
+    let value = |field: fn(&ApplyOutcome) -> usize| {
+        outcome.filter(|outcome| outcome.written).map_or(0, field)
+    };
+    if let Some(object) = row.as_object_mut() {
+        object.insert("written".into(), serde_json::Value::Bool(written));
+    }
+    insert_json_field(row, "applied", value(|outcome| outcome.applied));
+    insert_json_field(row, "skipped", outcome.map_or(0, |outcome| outcome.skipped));
+    insert_json_field(
+        row,
+        "verified",
+        outcome.map_or(0, |outcome| outcome.verified),
+    );
+    insert_json_field(
+        row,
+        "unverified",
+        outcome.map_or(0, |outcome| outcome.unverified),
+    );
+    insert_json_field(
+        row,
+        "regressions",
+        outcome.map_or(0, |outcome| outcome.regressions),
+    );
+    insert_json_field(row, "mechanical", value(|outcome| outcome.mechanical));
+}
+
+fn print_apply_outcome(plan: &FileFixPlan, outcome: &ApplyOutcome, diff: Option<&str>) {
+    println!(
+        "{}: wrote {} rule fix(es), {} mechanical fix(es), verified {}, unverified {}, skipped {}",
+        plan.path.display(),
+        outcome.applied,
+        outcome.mechanical,
+        outcome.verified,
+        outcome.unverified,
+        outcome.skipped
+    );
+    if let Some(diff) = diff {
+        print!("{diff}");
+    }
+}
+
+/// Apply mode: verifies each projected rewrite in memory before writing it.
+/// Every targeted finding must disappear without increasing any rule's
+/// finding count. Warnings fail the run.
 fn run_fix_apply(
     plans: &[FileFixPlan],
     options: &analyze::AnalyzerOptionsBundle,
@@ -780,77 +1015,12 @@ fn run_fix_apply(
     json: bool,
     warnings: &mut Vec<String>,
 ) -> ExitCode {
-    let mut applied_total = 0_usize;
-    let mut skipped_total = 0_usize;
-    let mut verified_total = 0_usize;
-    let mut unverified_total = 0_usize;
-    let mut regression_total = 0_usize;
-    let mut mechanical_total = 0_usize;
-    let mut written_files = 0_usize;
+    let mut totals = ApplyTotals::default();
     let mut rows = Vec::with_capacity(plans.len());
     for plan in plans {
-        let mut row = file_plan_json(plan);
-        let Some(outcome) = apply_plan(plan, options, warnings) else {
-            if let Some(object) = row.as_object_mut() {
-                object.insert("written".into(), serde_json::Value::Bool(false));
-                object.insert("applied".into(), serde_json::Value::from(0));
-                object.insert("skipped".into(), serde_json::Value::from(0));
-                object.insert("verified".into(), serde_json::Value::from(0));
-                object.insert("unverified".into(), serde_json::Value::from(0));
-                object.insert("regressions".into(), serde_json::Value::from(0));
-                object.insert("mechanical".into(), serde_json::Value::from(0));
-            }
-            rows.push(row);
-            continue;
-        };
-        skipped_total += outcome.skipped;
-        verified_total += outcome.verified;
-        unverified_total += outcome.unverified;
-        regression_total += outcome.regressions;
-        if outcome.written {
-            written_files += 1;
-            applied_total += outcome.applied;
-            mechanical_total += outcome.mechanical;
-        }
-        let rendered_diff = (diff && outcome.written)
-            .then(|| unified_diff(&plan.path, &plan.source, &outcome.content));
-        if !json && outcome.written {
-            println!(
-                "{}: wrote {} rule fix(es), {} mechanical fix(es), verified {}, unverified {}, skipped {}",
-                plan.path.display(),
-                outcome.applied,
-                outcome.mechanical,
-                outcome.verified,
-                outcome.unverified,
-                outcome.skipped
-            );
-            if let Some(rendered_diff) = &rendered_diff {
-                print!("{rendered_diff}");
-            }
-        }
-        if let Some(object) = row.as_object_mut() {
-            let applied = if outcome.written { outcome.applied } else { 0 };
-            object.insert("written".into(), serde_json::Value::Bool(outcome.written));
-            object.insert("applied".into(), serde_json::Value::from(applied));
-            object.insert("skipped".into(), serde_json::Value::from(outcome.skipped));
-            object.insert("verified".into(), serde_json::Value::from(outcome.verified));
-            object.insert(
-                "unverified".into(),
-                serde_json::Value::from(outcome.unverified),
-            );
-            object.insert(
-                "regressions".into(),
-                serde_json::Value::from(outcome.regressions),
-            );
-            object.insert(
-                "mechanical".into(),
-                serde_json::Value::from(outcome.mechanical),
-            );
-            if let Some(rendered_diff) = rendered_diff {
-                object.insert("diff".into(), serde_json::Value::String(rendered_diff));
-            }
-        }
-        rows.push(row);
+        let result = apply_one_plan(plan, options, diff, json, warnings);
+        totals.record(&result);
+        rows.push(result.row);
     }
     for warning in &*warnings {
         eprintln!("{warning}");
@@ -858,23 +1028,29 @@ fn run_fix_apply(
     if json {
         print_json(&serde_json::json!({
             "files": rows,
-            "applied": applied_total,
-            "skipped": skipped_total,
-            "mechanical": mechanical_total,
-            "verified": verified_total,
-            "unverified": unverified_total,
-            "regressions": regression_total,
+            "applied": totals.applied,
+            "skipped": totals.skipped,
+            "mechanical": totals.mechanical,
+            "verified": totals.verified,
+            "unverified": totals.unverified,
+            "regressions": totals.regressions,
             "warnings": warnings,
         }));
     } else {
         println!(
-            "applied {applied_total} rule fix(es) across {written_files} file(s), \
-             {mechanical_total} mechanical fix(es), verified {verified_total}, \
-             unverified {unverified_total}, skipped {skipped_total}, \
-             regressions {regression_total}"
+            "applied {} rule fix(es) across {} file(s), \
+             {} mechanical fix(es), verified {}, unverified {}, skipped {}, \
+             regressions {}",
+            totals.applied,
+            totals.written_files,
+            totals.mechanical,
+            totals.verified,
+            totals.unverified,
+            totals.skipped,
+            totals.regressions
         );
     }
-    if warnings.is_empty() && unverified_total == 0 && regression_total == 0 {
+    if warnings.is_empty() && totals.unverified == 0 && totals.regressions == 0 {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
@@ -883,54 +1059,60 @@ fn run_fix_apply(
 
 fn run_rules(catalog: &Catalog, cmd: &RulesCommand, json: bool) -> ExitCode {
     match cmd {
-        RulesCommand::List { lang } => match select_language(catalog, lang.as_deref()) {
-            Some(languages) => {
-                let rules: Vec<&RuleRecord> = languages.collect();
-                if json {
-                    print_json(&rules);
-                } else {
-                    for rule in rules {
-                        print_rule_row(rule);
-                    }
-                }
-                ExitCode::SUCCESS
-            }
-            None => unknown_language(lang.as_deref().unwrap_or_default()),
-        },
+        RulesCommand::List { lang } => run_rules_list(catalog, lang.as_deref(), json),
         RulesCommand::Search { lang, query } => {
-            let Some(languages) = select_language(catalog, lang.as_deref()) else {
-                return unknown_language(lang.as_deref().unwrap_or_default());
-            };
-            let query_lower = query.to_lowercase();
-            let matched: Vec<&RuleRecord> = languages
-                .into_iter()
-                .filter(|rule| rule_matches(rule, &query_lower))
-                .collect();
-            if json {
-                print_json(&matched);
-            } else if matched.is_empty() {
-                println!("no matching rules");
-            } else {
-                for rule in &matched {
-                    print_rule_row(rule);
-                }
-            }
-            ExitCode::SUCCESS
+            run_rules_search(catalog, lang.as_deref(), query, json)
         }
-        RulesCommand::Info { external_key } => {
-            if let Some(rule) = catalog.rule(external_key) {
-                if json {
-                    print_json(rule);
-                } else {
-                    print_rule_info(rule);
-                }
-                ExitCode::SUCCESS
-            } else {
-                eprintln!("unknown rule: {external_key}");
-                ExitCode::from(1)
-            }
+        RulesCommand::Info { external_key } => run_rules_info(catalog, external_key, json),
+    }
+}
+
+fn run_rules_list(catalog: &Catalog, lang: Option<&str>, json: bool) -> ExitCode {
+    let Some(languages) = select_language(catalog, lang) else {
+        return unknown_language(lang.unwrap_or_default());
+    };
+    let rules: Vec<&RuleRecord> = languages.collect();
+    if json {
+        print_json(&rules);
+    } else {
+        for rule in rules {
+            print_rule_row(rule);
         }
     }
+    ExitCode::SUCCESS
+}
+
+fn run_rules_search(catalog: &Catalog, lang: Option<&str>, query: &str, json: bool) -> ExitCode {
+    let Some(languages) = select_language(catalog, lang) else {
+        return unknown_language(lang.unwrap_or_default());
+    };
+    let query_lower = query.to_lowercase();
+    let matched: Vec<&RuleRecord> = languages
+        .filter(|rule| rule_matches(rule, &query_lower))
+        .collect();
+    if json {
+        print_json(&matched);
+    } else if matched.is_empty() {
+        println!("no matching rules");
+    } else {
+        for rule in &matched {
+            print_rule_row(rule);
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+fn run_rules_info(catalog: &Catalog, external_key: &str, json: bool) -> ExitCode {
+    let Some(rule) = catalog.rule(external_key) else {
+        eprintln!("unknown rule: {external_key}");
+        return ExitCode::from(1);
+    };
+    if json {
+        print_json(rule);
+    } else {
+        print_rule_info(rule);
+    }
+    ExitCode::SUCCESS
 }
 
 /// Resolves an optional `--lang` value into the selected rules.
@@ -1370,11 +1552,11 @@ mod tests {
     }
 
     #[test]
-    fn mechanical_fixing_preserves_crlf_and_strips_trailing_whitespace() {
-        let (fixed, applied) = mechanical_fixed("alpha \r\nbeta\t\r\ngamma  ").expect("repairs");
+    fn mechanical_fixing_preserves_crlf_for_the_final_newline() {
+        let (fixed, applied) = mechanical_fixed("alpha \r\nbeta\t\r\ngamma  ").expect("repair");
 
-        assert_eq!(applied, 2);
-        assert_eq!(fixed, "alpha\r\nbeta\r\ngamma\n");
+        assert_eq!(applied, 1);
+        assert_eq!(fixed, "alpha \r\nbeta\t\r\ngamma  \r\n");
     }
 
     #[test]
@@ -1383,14 +1565,24 @@ mod tests {
     }
 
     #[test]
-    fn fix_plans_report_unreadable_paths_as_warnings() {
+    fn mechanical_fixing_never_changes_literal_whitespace() {
+        let source = "TEXT = \"\"\"value  \n\tindented\n\"\"\"";
+        let (fixed, applied) = mechanical_fixed(source).expect("final newline repair");
+
+        assert_eq!(applied, 1);
+        assert_eq!(fixed, format!("{source}\n"));
+        assert!(mechanical_fixed("TEXT = \"\"\"value  \n\tindented\n\"\"\"\n").is_none());
+    }
+
+    #[test]
+    fn fix_plans_report_missing_paths_as_warnings() {
         let missing = temp_fix_path("missing").join("nope.py");
         let options = analyze::analyzer_options_bundle(embedded());
         let mut warnings = Vec::new();
 
         assert!(fix_plans(std::slice::from_ref(&missing), &[], &options, &mut warnings).is_empty());
         assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].starts_with("cannot read "));
+        assert!(warnings[0].starts_with("path does not exist: "));
     }
 
     /// Creates a temporary directory holding one Python file with `source`;
@@ -1512,8 +1704,64 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[cfg(unix)]
     #[test]
-    fn apply_flags_a_fix_that_does_not_resolve_its_finding() {
+    fn apply_rejects_file_replaced_with_symlink_after_planning() {
+        let (dir, file) = temp_python_fixture("symlink-swap", S1721_SOURCE);
+        let outside = temp_fix_path("symlink-target");
+        std::fs::write(&outside, S1721_SOURCE).expect("write outside target");
+        let options = analyze::analyzer_options_bundle(embedded());
+        let mut warnings = Vec::new();
+        let plans = fix_plans(std::slice::from_ref(&file), &[], &options, &mut warnings);
+        assert!(warnings.is_empty());
+
+        std::fs::remove_file(&file).expect("remove planned file");
+        std::os::unix::fs::symlink(&outside, &file).expect("replace with symlink");
+        let outcome = apply_plan(&plans[0], &options, &mut warnings);
+
+        assert!(outcome.is_none());
+        assert_eq!(
+            std::fs::read_to_string(&outside).expect("read target"),
+            S1721_SOURCE
+        );
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].ends_with("path is a symbolic link"));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&outside);
+    }
+
+    #[test]
+    fn write_rechecks_content_after_verification() {
+        let (dir, file) = temp_python_fixture("late-content-change", S1721_SOURCE);
+        let foreign = "def foreign():\n    return 99\n";
+        let plan = FileFixPlan {
+            path: file.clone(),
+            source: S1721_SOURCE.to_string(),
+            fixes: Vec::new(),
+            mechanical: 0,
+        };
+        let mut outcome = ApplyOutcome {
+            written: false,
+            applied: 0,
+            skipped: 0,
+            mechanical: 0,
+            verified: 0,
+            unverified: 0,
+            regressions: 0,
+            content: "def f():\n    return 1\n".to_string(),
+        };
+        std::fs::write(&file, foreign).expect("external edit");
+        let mut warnings = Vec::new();
+
+        assert!(!write_applied_content(&plan, &mut outcome, &mut warnings));
+        assert!(!outcome.written);
+        assert!(warnings[0].ends_with("file changed after analysis"));
+        assert_eq!(std::fs::read_to_string(&file).expect("read back"), foreign);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn apply_rejects_a_fix_that_does_not_resolve_its_finding() {
         let (dir, file) = temp_python_fixture("stuck", S1721_SOURCE);
         let options = analyze::analyzer_options_bundle(embedded());
 
@@ -1539,11 +1787,92 @@ mod tests {
         let mut warnings = Vec::new();
         let outcome = apply_plan(&plan, &options, &mut warnings).expect("applies");
 
-        assert!(outcome.written);
+        assert!(!outcome.written);
         assert_eq!(outcome.applied, 1);
         assert_eq!(outcome.verified, 0);
         assert_eq!(outcome.unverified, 1);
         assert_eq!(warnings.len(), 1);
+        assert_eq!(
+            std::fs::read_to_string(&file).expect("read back"),
+            S1721_SOURCE,
+            "failed verification must leave the source untouched"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn apply_rejects_broken_fix_masked_by_an_overeffective_same_rule_fix() {
+        const SOURCE: &str = "def f():\n    return(1)\ndef g():\n    return(2)\n";
+        let (dir, file) = temp_python_fixture("masked-broken-fix", SOURCE);
+        let options = analyze::analyzer_options_bundle(embedded());
+        let plan = FileFixPlan {
+            path: file.clone(),
+            source: SOURCE.to_string(),
+            fixes: vec![
+                PlannedFix {
+                    rule_key: "python:S1721".to_string(),
+                    message: "broken no-op".to_string(),
+                    range: Range {
+                        start: Pos { line: 2, column: 4 },
+                        end: Pos {
+                            line: 2,
+                            column: 13,
+                        },
+                    },
+                    edits: vec![cli_edit((5, 0), (5, 0), " ")],
+                },
+                PlannedFix {
+                    rule_key: "python:S1721".to_string(),
+                    message: "overeffective".to_string(),
+                    range: Range {
+                        start: Pos { line: 4, column: 4 },
+                        end: Pos {
+                            line: 4,
+                            column: 13,
+                        },
+                    },
+                    edits: vec![
+                        cli_edit((2, 10), (2, 11), " "),
+                        cli_edit((2, 12), (2, 13), ""),
+                        cli_edit((4, 10), (4, 11), " "),
+                        cli_edit((4, 12), (4, 13), ""),
+                    ],
+                },
+            ],
+            mechanical: 0,
+        };
+        let mut warnings = Vec::new();
+
+        let outcome = apply_plan(&plan, &options, &mut warnings).expect("evaluated");
+
+        assert!(!outcome.written);
+        assert_eq!(outcome.verified, 1);
+        assert_eq!(outcome.unverified, 1);
+        assert!(warnings[0].contains("do not independently remove"));
+        assert_eq!(std::fs::read_to_string(&file).expect("read back"), SOURCE);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn apply_only_adds_the_final_newline_to_literal_heavy_source() {
+        let source = "TEXT = \"\"\"value  \n\tindented\n\"\"\"";
+        let expected = format!("{source}\n");
+        let (dir, file) = temp_python_fixture("mechanical-literal", source);
+        let options = analyze::analyzer_options_bundle(embedded());
+        let mut warnings = Vec::new();
+        let plans = fix_plans(std::slice::from_ref(&file), &[], &options, &mut warnings);
+        assert!(warnings.is_empty());
+        assert_eq!(plans.len(), 1);
+        assert!(plans[0].fixes.is_empty());
+        assert_eq!(plans[0].mechanical, 1);
+
+        let outcome = apply_plan(&plans[0], &options, &mut warnings).expect("evaluated");
+
+        assert!(outcome.written);
+        assert_eq!(outcome.mechanical, 1);
+        assert_eq!(outcome.regressions, 0);
+        assert!(warnings.is_empty());
+        assert_eq!(std::fs::read_to_string(&file).expect("read back"), expected);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

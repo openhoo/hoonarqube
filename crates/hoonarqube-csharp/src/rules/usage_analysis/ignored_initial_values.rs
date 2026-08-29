@@ -11,49 +11,66 @@ use tree_sitter::Node;
 /// value only until something reads them.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
-    let flag = |issues: &mut Vec<Issue>, assignment: Node<'_>, name: &str| {
-        let left = binary_operands(assignment).map_or(assignment, |(left, _)| left);
-        issues.push(issue(
-            language,
-            "S1226",
-            format!("Introduce a new variable instead of reusing the parameter '{name}'."),
-            range_of(left, source),
-        ));
-    };
     for callable in collect_kinds(root, &CALLABLE_BODY_OWNER_KINDS) {
-        if is_error_tainted(callable) {
-            continue;
-        }
-        let Some(body) = body_of(callable) else {
-            continue;
-        };
-        for parameter in parameters_of(callable) {
-            if is_error_tainted(parameter)
-                || modifiers_of(parameter, source)
-                    .iter()
-                    .any(|modifier| matches!(*modifier, "ref" | "out" | "in"))
-            {
-                continue;
-            }
-            let Some(name_node) = parameter.child_by_field_name("name") else {
-                continue;
-            };
-            if let Some(assignment) =
-                ignored_initial_value(body, node_text(name_node, source), source)
-            {
-                flag(&mut issues, assignment, node_text(name_node, source));
-            }
-        }
+        check_callable(callable, source, language, &mut issues);
     }
     for catch_clause in collect_kinds(root, &["catch_clause"]) {
-        if is_error_tainted(catch_clause) {
-            continue;
-        }
         if let Some((assignment, name)) = catch_offender(catch_clause, source) {
-            flag(&mut issues, assignment, name);
+            push_issue(&mut issues, assignment, name, source, language);
         }
     }
     issues
+}
+
+fn check_callable(callable: Node<'_>, source: &str, language: CsLanguage, issues: &mut Vec<Issue>) {
+    if is_error_tainted(callable) {
+        return;
+    }
+    let Some(body) = body_of(callable) else {
+        return;
+    };
+    for parameter in parameters_of(callable) {
+        check_parameter(parameter, body, source, language, issues);
+    }
+}
+
+fn check_parameter(
+    parameter: Node<'_>,
+    body: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    issues: &mut Vec<Issue>,
+) {
+    if is_error_tainted(parameter)
+        || modifiers_of(parameter, source)
+            .iter()
+            .any(|modifier| matches!(*modifier, "ref" | "out" | "in"))
+    {
+        return;
+    }
+    let Some(name_node) = parameter.child_by_field_name("name") else {
+        return;
+    };
+    let name = node_text(name_node, source);
+    if let Some(assignment) = ignored_initial_value(body, name, source) {
+        push_issue(issues, assignment, name, source, language);
+    }
+}
+
+fn push_issue(
+    issues: &mut Vec<Issue>,
+    assignment: Node<'_>,
+    name: &str,
+    source: &str,
+    language: CsLanguage,
+) {
+    let left = binary_operands(assignment).map_or(assignment, |(left, _)| left);
+    issues.push(issue(
+        language,
+        "S1226",
+        format!("Introduce a new variable instead of reusing the parameter '{name}'."),
+        range_of(left, source),
+    ));
 }
 
 /// The assignment overwriting `variable` before any read within `scope`.

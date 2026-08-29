@@ -10,7 +10,7 @@ REPO = ORACLE_DIR.parent.parent
 FIXTURES = ORACLE_DIR / "fixtures" / "python2"
 sys.path.insert(0, str(ORACLE_DIR))
 
-from parity import compare_reports, failure_count
+from parity import compare_reports, failure_count  # noqa: E402
 
 
 class Python2OracleTests(unittest.TestCase):

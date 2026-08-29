@@ -20,36 +20,45 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if !comparable {
             continue;
         }
-        let has_equals = overridden_names(type_node, source).contains("Equals");
-        let operators = overloaded_operators(type_node);
-        let mut missing = Vec::new();
-        if !has_equals {
-            missing.push("Equals");
-        }
-        for operator in ["==", "!=", "<", "<=", ">", ">="] {
-            if !operators.contains(&operator) {
-                missing.push(operator);
-            }
-        }
+        let missing = missing_contract_members(type_node, source);
         if !missing.is_empty() {
-            let missing = match missing.as_slice() {
-                [only] => (*only).to_string(),
-                [first, second] => format!("{first} and {second}"),
-                many => format!(
-                    "{}, and {}",
-                    many[..many.len() - 1].join(", "),
-                    many[many.len() - 1]
-                ),
-            };
             issues.push(issue(
                 language,
                 "S1210",
-                format!("When implementing IComparable<T>, you should also override {missing}."),
+                format!(
+                    "When implementing IComparable<T>, you should also override {}.",
+                    formatted_list(&missing)
+                ),
                 range_of(name_anchor(type_node), source),
             ));
         }
     }
     issues
+}
+
+fn missing_contract_members(type_node: Node<'_>, source: &str) -> Vec<&'static str> {
+    let mut missing = Vec::new();
+    if !overridden_names(type_node, source).contains("Equals") {
+        missing.push("Equals");
+    }
+    let operators = overloaded_operators(type_node);
+    missing.extend(
+        ["==", "!=", "<", "<=", ">", ">="]
+            .into_iter()
+            .filter(|operator| !operators.contains(operator)),
+    );
+    missing
+}
+
+fn formatted_list(items: &[&str]) -> String {
+    match items {
+        [only] => (*only).to_string(),
+        [first, second] => format!("{first} and {second}"),
+        many => match many.split_last() {
+            Some((last, leading)) => format!("{}, and {last}", leading.join(", ")),
+            None => String::new(),
+        },
+    }
 }
 
 #[cfg(test)]

@@ -29,58 +29,61 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some((_, type_map)) = cached_scope.as_ref() else {
             continue;
         };
-        let Some(receiver) = invocation_receiver(call) else {
-            continue;
-        };
-        let Some(receiver_type) = mapped_receiver_type(receiver, source, type_map) else {
-            continue;
-        };
-        let callee = callee_name(call, source).unwrap_or("");
-        let arguments = invocation_arguments(call);
-        let rule = if LIST_LIKE_TYPES.contains(&receiver_type.as_str()) {
-            match (callee, arguments.len()) {
-                ("FirstOrDefault", 1..=2) => Some("S6602"),
-                ("All", 1) => Some("S6603"),
-                ("Any", 1) => Some("S6605"),
-                ("ElementAt", 1) | ("First" | "Last", 0) => Some("S6608"),
-                _ => None,
-            }
-        } else {
-            match (callee, arguments.len()) {
-                ("Min", 0)
-                    if matches!(receiver_type.as_str(), "SortedSet" | "ImmutableSortedSet") =>
-                {
-                    Some("S6609")
-                }
-                ("Max", 0)
-                    if matches!(receiver_type.as_str(), "SortedSet" | "ImmutableSortedSet") =>
-                {
-                    Some("S6609")
-                }
-                ("First" | "Last", 0) if receiver_type == "LinkedList" => Some("S6613"),
-                _ => None,
-            }
-        };
-        if let Some(rule) = rule {
-            let message = match rule {
-                "S6602" => "\"Find\" method should be used instead of the \"FirstOrDefault\" extension method.".to_owned(),
-                "S6603" => "The collection-specific \"TrueForAll\" method should be used instead of the \"All\" extension".to_owned(),
-                "S6605" => "Collection-specific \"Exists\" method should be used instead of the \"Any\" extension.".to_owned(),
-                "S6608" => match callee {
-                    "First" => "Indexing at 0 should be used instead of the \"Enumerable\" extension method \"First\"".to_owned(),
-                    "Last" => "Indexing at Count-1 should be used instead of the \"Enumerable\" extension method \"Last\"".to_owned(),
-                    _ => "Indexing should be used instead of the \"Enumerable\" extension method \"ElementAt\"".to_owned(),
-                },
-                "S6609" => format!("\"{callee}\" property of Set type should be used instead of the \"{callee}()\" extension method."),
-                _ => format!("'{callee}' property of 'LinkedList' should be used instead of the '{callee}()' extension method."),
-            };
-            let anchor = invocation_function(call)
-                .and_then(|function| function.child_by_field_name("name"))
-                .unwrap_or(call);
-            issues.push(issue(language, rule, message, range_of(anchor, source)));
+        if let Some(issue) = linq_receiver_issue(call, source, language, type_map) {
+            issues.push(issue);
         }
     }
     issues
+}
+
+fn linq_receiver_issue(
+    call: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    type_map: &std::collections::HashMap<String, String>,
+) -> Option<Issue> {
+    let receiver_type = mapped_receiver_type(invocation_receiver(call)?, source, type_map)?;
+    let callee = callee_name(call, source).unwrap_or("");
+    let rule = linq_receiver_rule(&receiver_type, callee, invocation_arguments(call).len())?;
+    let anchor = invocation_function(call)
+        .and_then(|function| function.child_by_field_name("name"))
+        .unwrap_or(call);
+    Some(issue(
+        language,
+        rule,
+        linq_receiver_message(rule, callee),
+        range_of(anchor, source),
+    ))
+}
+
+fn linq_receiver_rule(receiver_type: &str, callee: &str, arguments: usize) -> Option<&'static str> {
+    if LIST_LIKE_TYPES.contains(&receiver_type) {
+        return match (callee, arguments) {
+            ("FirstOrDefault", 1..=2) => Some("S6602"),
+            ("All", 1) => Some("S6603"),
+            ("Any", 1) => Some("S6605"),
+            ("ElementAt", 1) | ("First" | "Last", 0) => Some("S6608"),
+            _ => None,
+        };
+    }
+    match (callee, arguments, receiver_type) {
+        ("Min" | "Max", 0, "SortedSet" | "ImmutableSortedSet") => Some("S6609"),
+        ("First" | "Last", 0, "LinkedList") => Some("S6613"),
+        _ => None,
+    }
+}
+
+fn linq_receiver_message(rule: &str, callee: &str) -> String {
+    match (rule, callee) {
+        ("S6602", _) => "\"Find\" method should be used instead of the \"FirstOrDefault\" extension method.".to_owned(),
+        ("S6603", _) => "The collection-specific \"TrueForAll\" method should be used instead of the \"All\" extension".to_owned(),
+        ("S6605", _) => "Collection-specific \"Exists\" method should be used instead of the \"Any\" extension.".to_owned(),
+        ("S6608", "First") => "Indexing at 0 should be used instead of the \"Enumerable\" extension method \"First\"".to_owned(),
+        ("S6608", "Last") => "Indexing at Count-1 should be used instead of the \"Enumerable\" extension method \"Last\"".to_owned(),
+        ("S6608", _) => "Indexing should be used instead of the \"Enumerable\" extension method \"ElementAt\"".to_owned(),
+        ("S6609", _) => format!("\"{callee}\" property of Set type should be used instead of the \"{callee}()\" extension method."),
+        _ => format!("'{callee}' property of 'LinkedList' should be used instead of the '{callee}()' extension method."),
+    }
 }
 
 /// Collection types with instance members that beat their LINQ

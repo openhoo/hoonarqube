@@ -24,62 +24,15 @@ pub(crate) fn check_insecure_temp_files(
     let mut module_aliases: HashMap<&str, &str> = HashMap::new();
     for stmt in &file_ctx.stmts {
         match stmt {
-            Stmt::ImportFrom(import_from) => {
-                let Some(module) = import_from.module.as_ref() else {
-                    continue;
-                };
-                let targets: &[&str] = match module.as_str() {
-                    "tempfile" => &["mktemp"],
-                    "os" => &["tempnam", "tmpnam"],
-                    _ => continue,
-                };
-                for alias in &import_from.names {
-                    if targets.contains(&alias.name.as_str()) {
-                        let local = alias
-                            .asname
-                            .as_deref()
-                            .map_or(alias.name.as_str(), |asname| asname);
-                        bare_names.insert(local);
-                    }
-                }
-            }
-            Stmt::Import(import) => {
-                for alias in &import.names {
-                    let name = alias.name.as_str();
-                    if name == "tempfile" || name == "os" {
-                        let local = alias.asname.as_deref().map_or(name, |asname| asname);
-                        module_aliases.insert(local, name);
-                    }
-                }
-            }
+            Stmt::ImportFrom(import_from) => collect_bare_names(import_from, &mut bare_names),
+            Stmt::Import(import) => collect_module_aliases(import, &mut module_aliases),
             _ => {}
         }
     }
-    let flags_call = |call: &ruff_python_ast::ExprCall| {
-        if dotted_name_in(&call.func, &insecure) {
-            return true;
-        }
-        match call.func.as_ref() {
-            Expr::Name(name) => bare_names.contains(name.id.as_str()),
-            Expr::Attribute(attr) => {
-                let Expr::Name(base) = attr.value.as_ref() else {
-                    return false;
-                };
-                let Some(module) = module_aliases.get(base.id.as_str()) else {
-                    return false;
-                };
-                matches!(
-                    (*module, attr.attr.as_str()),
-                    ("tempfile", "mktemp") | ("os", "tempnam" | "tmpnam")
-                )
-            }
-            _ => false,
-        }
-    };
 
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if flags_call(call) {
+        if flags_call(call, &insecure, &bare_names, &module_aliases) {
             issues.push(issue_at(
                 "python:S5445",
                 "Remove this usage of the deprecated insecure temporary file API.",
@@ -90,6 +43,75 @@ pub(crate) fn check_insecure_temp_files(
         }
     }
     issues
+}
+
+fn collect_bare_names<'a>(
+    import_from: &'a ruff_python_ast::StmtImportFrom,
+    bare_names: &mut HashSet<&'a str>,
+) {
+    let Some(module) = import_from.module.as_ref() else {
+        return;
+    };
+    let targets: &[&str] = match module.as_str() {
+        "tempfile" => &["mktemp"],
+        "os" => &["tempnam", "tmpnam"],
+        _ => return,
+    };
+    for alias in &import_from.names {
+        if targets.contains(&alias.name.as_str()) {
+            bare_names.insert(
+                alias
+                    .asname
+                    .as_deref()
+                    .map_or(alias.name.as_str(), |asname| asname),
+            );
+        }
+    }
+}
+
+fn collect_module_aliases<'a>(
+    import: &'a ruff_python_ast::StmtImport,
+    module_aliases: &mut HashMap<&'a str, &'a str>,
+) {
+    for alias in &import.names {
+        let name = alias.name.as_str();
+        if name == "tempfile" || name == "os" {
+            let local = alias.asname.as_deref().map_or(name, |asname| asname);
+            module_aliases.insert(local, name);
+        }
+    }
+}
+
+fn flags_call(
+    call: &ruff_python_ast::ExprCall,
+    insecure: &[&str],
+    bare_names: &HashSet<&str>,
+    module_aliases: &HashMap<&str, &str>,
+) -> bool {
+    if dotted_name_in(&call.func, insecure) {
+        return true;
+    }
+    match call.func.as_ref() {
+        Expr::Name(name) => bare_names.contains(name.id.as_str()),
+        Expr::Attribute(attr) => aliased_attribute_is_insecure(attr, module_aliases),
+        _ => false,
+    }
+}
+
+fn aliased_attribute_is_insecure(
+    attr: &ruff_python_ast::ExprAttribute,
+    module_aliases: &HashMap<&str, &str>,
+) -> bool {
+    let Expr::Name(base) = attr.value.as_ref() else {
+        return false;
+    };
+    let Some(module) = module_aliases.get(base.id.as_str()) else {
+        return false;
+    };
+    matches!(
+        (*module, attr.attr.as_str()),
+        ("tempfile", "mktemp") | ("os", "tempnam" | "tmpnam")
+    )
 }
 
 #[cfg(test)]

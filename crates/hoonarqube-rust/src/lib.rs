@@ -423,7 +423,7 @@ pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileRe
     let root = tree.root_node();
     let mut issues = Vec::new();
 
-    check_patterns(source, &mut issues);
+    check_patterns(source, root, &mut issues);
     check_whole_file(source, root, &mut issues);
     walk(root, &mut |node| {
         check_node(node, source, options, &mut issues);
@@ -493,28 +493,56 @@ fn anchor_line(source: &str, anchor: &str, occurrence: usize) -> Option<usize> {
         .map(|(index, _)| index + 1)
 }
 
-fn check_patterns(source: &str, issues: &mut Vec<Issue>) {
+fn check_patterns(source: &str, root: Node<'_>, issues: &mut Vec<Issue>) {
+    let code = code_only_source(source, root);
     for rule in PATTERN_RULES {
-        for (line_index, line) in source.lines().enumerate() {
-            let code = line.split("//").next().unwrap_or(line);
+        for (line_index, (line, original)) in code.lines().zip(source.lines()).enumerate() {
             let match_value = rule
                 .any
                 .iter()
-                .filter_map(|needle| code.find(needle).map(|start| (start, *needle)))
+                .filter_map(|needle| line.find(needle).map(|start| (start, *needle)))
                 .min_by_key(|(start, _)| *start);
             if let Some((start, needle)) = match_value
-                && pattern_guard(rule.key, source, code)
+                && pattern_guard(rule.key, &code, line)
             {
+                let start_column = original[..start].chars().count();
+                let end_column = start_column + needle.chars().count();
                 issues.push(line_issue(
                     rule.key,
                     rule.message,
                     line_index,
-                    start,
-                    start + needle.len(),
+                    start_column,
+                    end_column,
                 ));
             }
         }
     }
+}
+
+/// Replaces comments and string/character literals with spaces while retaining
+/// byte length and line endings. Textual rules can then search actual Rust code
+/// without matching examples, diagnostics, URLs, or commented-out snippets.
+fn code_only_source(source: &str, root: Node<'_>) -> String {
+    let mut code = source.as_bytes().to_vec();
+    walk(root, &mut |node| {
+        if matches!(
+            node.kind(),
+            "line_comment"
+                | "block_comment"
+                | "string_literal"
+                | "raw_string_literal"
+                | "char_literal"
+        ) {
+            for byte in &mut code[node.byte_range()] {
+                if !matches!(*byte, b'\n' | b'\r') {
+                    *byte = b' ';
+                }
+            }
+        }
+    });
+    // Replacing every non-line-ending byte in syntax-tree ranges with ASCII
+    // spaces cannot create invalid UTF-8 outside those fully replaced ranges.
+    String::from_utf8(code).expect("masked Rust source remains valid UTF-8")
 }
 
 fn pattern_guard(key: &str, source: &str, line: &str) -> bool {
@@ -612,7 +640,12 @@ fn check_whole_file(source: &str, root: Node<'_>, issues: &mut Vec<Issue>) {
 
 fn check_node(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues: &mut Vec<Issue>) {
     if node.is_error() || node.is_missing() {
-        issues.push(node_issue("rust:S2260", "Fix this syntax error.", node));
+        issues.push(node_issue(
+            "rust:S2260",
+            "Fix this syntax error.",
+            node,
+            source,
+        ));
         if node
             .parent()
             .is_some_and(|parent| matches!(parent.kind(), "array_expression" | "tuple_expression"))
@@ -621,30 +654,37 @@ fn check_node(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues: &
                 "rust:S3723",
                 "Separate these elements with a comma.",
                 node,
+                source,
             ));
         }
         return;
     }
     match node.kind() {
-        "function_item" => check_function(node, options, issues),
+        "function_item" => check_function(node, source, options, issues),
         "empty_statement" => issues.push(node_issue(
             "rust:S1116",
             "Remove this empty statement.",
             node,
+            source,
         )),
         "assignment_expression" => check_assignment(node, source, issues),
         "binary_expression" => check_binary(node, source, issues),
         "if_expression" => check_if(node, source, issues),
         "loop_expression" => check_single_iteration_loop(node, source, issues),
         "struct_expression" => check_struct_shorthand(node, source, issues),
-        "expression_statement" => check_no_effect(node, issues),
+        "expression_statement" => check_no_effect(node, source, issues),
         "match_expression" => check_boolean_match(node, source, issues),
         "integer_literal" => check_large_number(node, source, issues),
         _ => {}
     }
 }
 
-fn check_function(node: Node<'_>, options: &AnalyzerOptions, issues: &mut Vec<Issue>) {
+fn check_function(
+    node: Node<'_>,
+    source: &str,
+    options: &AnalyzerOptions,
+    issues: &mut Vec<Issue>,
+) {
     if let Some(parameters) = node.child_by_field_name("parameters") {
         let count = parameters.named_child_count();
         if count > options.maximum_function_parameters {
@@ -655,6 +695,7 @@ fn check_function(node: Node<'_>, options: &AnalyzerOptions, issues: &mut Vec<Is
                     options.maximum_function_parameters
                 ),
                 parameters,
+                source,
             ));
         }
     }
@@ -668,6 +709,7 @@ fn check_function(node: Node<'_>, options: &AnalyzerOptions, issues: &mut Vec<Is
                     options.maximum_cognitive_complexity
                 ),
                 node.child_by_field_name("name").unwrap_or(node),
+                source,
             ));
         }
     }
@@ -687,6 +729,7 @@ fn check_assignment(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
             "rust:S1656",
             "Remove or correct this useless self-assignment.",
             node,
+            source,
         ));
     }
 }
@@ -703,6 +746,7 @@ fn check_binary(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
             "rust:S1764",
             "Correct one of the identical sub-expressions on both sides of this operator.",
             node,
+            source,
         ));
     }
     let full = text(node, source);
@@ -711,6 +755,7 @@ fn check_binary(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
             "rust:S2198",
             "Remove this unnecessary comparison of an unsigned value.",
             node,
+            source,
         ));
     }
     if redundant_comparison(full) {
@@ -718,6 +763,7 @@ fn check_binary(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
             "rust:S7436",
             "Remove this redundant comparison.",
             node,
+            source,
         ));
     }
     if boolean_operand_redundant(full) {
@@ -725,6 +771,7 @@ fn check_binary(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
             "rust:S2589",
             "Remove this redundant Boolean operand.",
             node,
+            source,
         ));
     }
 }
@@ -748,6 +795,7 @@ fn check_if(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
                     "rust:S1862",
                     "This condition duplicates a previous condition in this sequence.",
                     condition,
+                    source,
                 ));
             }
             conditions.push(condition_text);
@@ -772,6 +820,7 @@ fn check_if(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
             "rust:S126",
             "Add the missing else clause.",
             node,
+            source,
         ));
     }
     if branches.len() > 1 && has_duplicate(&branches) {
@@ -779,6 +828,7 @@ fn check_if(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
             "rust:S7411",
             "Extract the code shared by all branches.",
             node,
+            source,
         ));
     }
 }
@@ -801,6 +851,7 @@ fn check_single_iteration_loop(node: Node<'_>, source: &str, issues: &mut Vec<Is
             "rust:S1751",
             "Refactor this loop because it can execute at most once.",
             node,
+            source,
         ));
     }
 }
@@ -812,13 +863,18 @@ fn check_struct_shorthand(node: Node<'_>, source: &str, issues: &mut Vec<Issue>)
             if let Some((left, right)) = value.split_once(':')
                 && left.trim() == right.trim()
             {
-                issues.push(node_issue("rust:S3498", "Use field init shorthand.", child));
+                issues.push(node_issue(
+                    "rust:S3498",
+                    "Use field init shorthand.",
+                    child,
+                    source,
+                ));
             }
         }
     });
 }
 
-fn check_no_effect(node: Node<'_>, issues: &mut Vec<Issue>) {
+fn check_no_effect(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
     let Some(expression) = node.named_child(0) else {
         return;
     };
@@ -831,6 +887,7 @@ fn check_no_effect(node: Node<'_>, issues: &mut Vec<Issue>) {
             "rust:S905",
             "Remove this statement because it has no effect.",
             expression,
+            source,
         ));
     }
 }
@@ -850,6 +907,7 @@ fn check_boolean_match(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
                 "rust:S920",
                 "Replace this match on a Boolean value with an if expression.",
                 value,
+                source,
             ));
         }
     }
@@ -867,6 +925,7 @@ fn check_large_number(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
             "rust:S2148",
             "Add underscores to make this large number readable.",
             node,
+            source,
         ));
     }
 }
@@ -953,6 +1012,7 @@ fn check_getters(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
                 "rust:S4275",
                 "Return the field corresponding to this getter's name.",
                 name,
+                source,
             ));
         }
     });
@@ -973,6 +1033,7 @@ fn check_returned_locals(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) 
                 "rust:S1488",
                 "Return this expression directly instead of assigning it to a local variable.",
                 node,
+                source,
             ));
         }
     });
@@ -1001,6 +1062,7 @@ fn check_immutable_while_conditions(root: Node<'_>, source: &str, issues: &mut V
                 "rust:S7415",
                 "Update this immutable condition inside the loop or replace the loop.",
                 condition,
+                source,
             ));
         }
     });
@@ -1617,6 +1679,7 @@ fn check_complex_while_condition(root: Node<'_>, source: &str, issues: &mut Vec<
                 "rust:S7415",
                 "Update this immutable condition inside the loop or replace the loop.",
                 condition,
+                source,
             ));
         }
     });
@@ -1689,24 +1752,25 @@ fn metrics(source: &str) -> FileMetrics {
 }
 
 fn cognitive_complexity(node: Node<'_>) -> usize {
-    fn visit(node: Node<'_>, nesting: usize) -> usize {
+    let mut total = 0;
+    let mut pending = vec![(node, 0_usize)];
+    while let Some((current, nesting)) = pending.pop() {
         let control = matches!(
-            node.kind(),
+            current.kind(),
             "if_expression"
                 | "for_expression"
                 | "while_expression"
                 | "loop_expression"
                 | "match_expression"
         );
-        let mut total = usize::from(control) * (nesting + 1);
+        total += usize::from(control) * (nesting + 1);
         let next = nesting + usize::from(control);
-        let mut cursor = node.walk();
-        for child in node.named_children(&mut cursor) {
-            total += visit(child, next);
-        }
-        total
+        let mut cursor = current.walk();
+        let mut children: Vec<_> = current.named_children(&mut cursor).collect();
+        children.reverse();
+        pending.extend(children.into_iter().map(|child| (child, next)));
     }
-    visit(node, 0)
+    total
 }
 
 fn deduplicate(issues: &mut Vec<Issue>) {
@@ -1769,31 +1833,32 @@ fn text<'a>(node: Node<'_>, source: &'a str) -> &'a str {
 }
 
 fn walk<'tree>(node: Node<'tree>, callback: &mut impl FnMut(Node<'tree>)) {
-    callback(node);
-    let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        walk(child, callback);
+    let mut pending = vec![node];
+    while let Some(current) = pending.pop() {
+        callback(current);
+        let mut cursor = current.walk();
+        let mut children: Vec<_> = current.named_children(&mut cursor).collect();
+        children.reverse();
+        pending.extend(children);
     }
 }
 
-fn node_issue(key: &str, message: impl Into<String>, node: Node<'_>) -> Issue {
-    Issue::new(
-        key,
-        message,
-        point_range(node.start_position(), node.end_position()),
-    )
+fn node_issue(key: &str, message: impl Into<String>, node: Node<'_>, source: &str) -> Issue {
+    Issue::new(key, message, node_range(node, source))
 }
 
-fn point_range(start: Point, end: Point) -> Range {
+fn node_range(node: Node<'_>, source: &str) -> Range {
     Range {
-        start: Pos {
-            line: u32_saturating(start.row + 1),
-            column: u32_saturating(start.column),
-        },
-        end: Pos {
-            line: u32_saturating(end.row + 1),
-            column: u32_saturating(end.column),
-        },
+        start: point_pos(node.start_position(), node.start_byte(), source),
+        end: point_pos(node.end_position(), node.end_byte(), source),
+    }
+}
+
+fn point_pos(point: Point, byte_offset: usize, source: &str) -> Pos {
+    let row_start = byte_offset - point.column;
+    Pos {
+        line: u32_saturating(point.row + 1),
+        column: u32_saturating(source[row_start..byte_offset].chars().count()),
     }
 }
 
@@ -1832,7 +1897,7 @@ fn offset_issue(
         let line = before.bytes().filter(|byte| *byte == b'\n').count() + 1;
         let column = before
             .rsplit_once('\n')
-            .map_or(before.chars().count(), |(_, tail)| tail.chars().count());
+            .map_or_else(|| before.chars().count(), |(_, tail)| tail.chars().count());
         Pos {
             line: u32_saturating(line),
             column: u32_saturating(column),
@@ -2104,6 +2169,73 @@ mod tests {
     #[test]
     fn clean_control_has_no_findings() {
         assert!(keys("fn add(left: i32, right: i32) -> i32 { left + right }\n").is_empty());
+    }
+
+    #[test]
+    fn textual_rules_ignore_literals_and_comments_without_hiding_later_code() {
+        let source = concat!(
+            "const EXAMPLE: &str = r#\"println!(\\\"hidden\\\"); use hidden::*;\"#;\n",
+            "// dbg!(\"hidden\");\n",
+            "/* eprintln!(\"hidden\"); */\n",
+            "fn main() { let url = \"https://example.test\"; println!(\"visible\"); }\n",
+        );
+        let found = keys(source);
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "rust:S106")
+                .count(),
+            1,
+            "only the executable println should fire: {found:?}"
+        );
+        assert!(
+            found.iter().all(|key| key != "rust:S2208"),
+            "wildcard import text inside a literal must stay ignored: {found:?}"
+        );
+    }
+
+    #[test]
+    fn textual_rule_columns_count_unicode_characters_not_bytes() {
+        let source = "fn main() { let text = \"café\"; println!(\"visible\"); }\n";
+        let report = analyze(
+            PathBuf::from("fixture.rs"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        let issue = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "rust:S106")
+            .expect("println finding");
+        let expected_column = source
+            .split("println!")
+            .next()
+            .expect("prefix")
+            .chars()
+            .count();
+        assert_eq!(issue.range.start.column, u32_saturating(expected_column));
+    }
+
+    #[test]
+    fn structural_rule_columns_count_unicode_characters_not_bytes() {
+        let source = "fn main() { let café = 1; café = café; }\n";
+        let report = analyze(
+            PathBuf::from("fixture.rs"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        let issue = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "rust:S1656")
+            .expect("self-assignment finding");
+        let expected_column = source
+            .split("café = café")
+            .next()
+            .expect("prefix")
+            .chars()
+            .count();
+        assert_eq!(issue.range.start.column, u32_saturating(expected_column));
     }
 
     #[test]

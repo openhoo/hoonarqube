@@ -28,7 +28,9 @@ pub(crate) fn check_self_assignment(
                         .map_or(assign.start(), ruff_text_size::Ranged::end);
                     let between = &source
                         [ruff_text_size::TextRange::new(operator_start, assign.value.start())];
-                    let relative = between.find('=').expect("assignment operator");
+                    let Some(relative) = between.find('=') else {
+                        continue;
+                    };
                     let equals = operator_start
                         + ruff_text_size::TextSize::from(crate::support::to_u32(relative));
                     issues.push(issue_at(

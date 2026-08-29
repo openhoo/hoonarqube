@@ -22,40 +22,61 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         for (method_index, method) in methods.iter().enumerate() {
             let parameters = parameters_of(*method);
             for (parameter_index, parameter) in parameters.iter().enumerate() {
-                let Some(name) = parameter.child_by_field_name("name") else {
-                    continue;
-                };
-                if shapes[method_index]
-                    .get(parameter_index)
-                    .is_none_or(|parameter_type| parameter_type != "string")
-                    || !looks_like_uri_name(node_text(name, source))
-                {
-                    continue;
-                }
-                let has_uri_overload = shapes.iter().enumerate().any(|(other_index, shape)| {
-                    other_index != method_index
-                        && shape.len() == shapes[method_index].len()
-                        && shape.iter().enumerate().all(|(index, parameter_type)| {
-                            if index == parameter_index {
-                                parameter_type == "Uri"
-                            } else {
-                                shapes[method_index].get(index) == Some(parameter_type)
-                            }
-                        })
-                });
-                if !has_uri_overload {
-                    let anchor = parameter.child_by_field_name("type").unwrap_or(name);
-                    issues.push(issue(
-                        language,
-                        "S3994",
-                        "Either change this parameter type to 'System.Uri' or provide an overload which takes a 'System.Uri' parameter.",
-                        range_of(anchor, source),
-                    ));
+                if let Some(issue) = missing_uri_overload_issue(
+                    *parameter,
+                    method_index,
+                    parameter_index,
+                    &shapes,
+                    source,
+                    language,
+                ) {
+                    issues.push(issue);
                 }
             }
         }
     }
     issues
+}
+
+fn missing_uri_overload_issue(
+    parameter: Node<'_>,
+    method_index: usize,
+    parameter_index: usize,
+    shapes: &[Vec<String>],
+    source: &str,
+    language: CsLanguage,
+) -> Option<Issue> {
+    let name = parameter.child_by_field_name("name")?;
+    let is_uri_string = shapes[method_index]
+        .get(parameter_index)
+        .is_some_and(|parameter_type| {
+            parameter_type == "string" && looks_like_uri_name(node_text(name, source))
+        });
+    if !is_uri_string || has_uri_overload(shapes, method_index, parameter_index) {
+        return None;
+    }
+    let anchor = parameter.child_by_field_name("type").unwrap_or(name);
+    Some(issue(
+        language,
+        "S3994",
+        "Either change this parameter type to 'System.Uri' or provide an overload which takes a 'System.Uri' parameter.",
+        range_of(anchor, source),
+    ))
+}
+
+fn has_uri_overload(shapes: &[Vec<String>], method_index: usize, parameter_index: usize) -> bool {
+    let original = &shapes[method_index];
+    shapes.iter().enumerate().any(|(other_index, shape)| {
+        other_index != method_index
+            && shape.len() == original.len()
+            && shape.iter().enumerate().all(|(index, parameter_type)| {
+                if index == parameter_index {
+                    parameter_type == "Uri"
+                } else {
+                    original.get(index) == Some(parameter_type)
+                }
+            })
+    })
 }
 
 fn looks_like_uri_name(name: &str) -> bool {

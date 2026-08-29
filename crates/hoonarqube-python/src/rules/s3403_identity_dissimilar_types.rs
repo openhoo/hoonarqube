@@ -20,38 +20,42 @@ pub(crate) fn check_s3403_identity_dissimilar_types(
     for expr in &file_ctx.exprs {
         if let Expr::Compare(compare) = expr {
             for (op, lhs, rhs) in comparison_pairs(compare) {
-                let mismatch = match (literal_kind(lhs), literal_kind(rhs)) {
-                    (Some(left), Some(right)) => left != right,
-                    _ => false,
-                };
-                let none_check =
-                    matches!(lhs, Expr::NoneLiteral(_)) || matches!(rhs, Expr::NoneLiteral(_));
-                if is_identity_op(op) && mismatch && !none_check {
-                    let operator = if op == ruff_python_ast::CmpOp::Is {
-                        "is"
-                    } else {
-                        "is not"
-                    };
-                    let between = &source[TextRange::new(lhs.end(), rhs.start())];
-                    let relative = between.find(operator).expect("identity operator text");
-                    let start = lhs.end() + TextSize::from(to_u32(relative));
-                    issues.push(issue_at(
-                        "python:S3403",
-                        &format!(
-                            "Remove this \"{operator}\" check; it will always be {}.",
-                            if op == ruff_python_ast::CmpOp::Is {
-                                "False"
-                            } else {
-                                "True"
-                            }
-                        ),
-                        TextRange::at(start, TextSize::from(to_u32(operator.len()))),
-                        index,
-                        source,
-                    ));
+                if let Some(issue) = dissimilar_identity_issue(op, lhs, rhs, index, source) {
+                    issues.push(issue);
                 }
             }
         }
     }
     issues
+}
+
+fn dissimilar_identity_issue(
+    op: ruff_python_ast::CmpOp,
+    lhs: &Expr,
+    rhs: &Expr,
+    index: &LineIndex,
+    source: &str,
+) -> Option<Issue> {
+    let mismatch = literal_kind(lhs)
+        .zip(literal_kind(rhs))
+        .is_some_and(|(left, right)| left != right);
+    let compares_none = matches!(lhs, Expr::NoneLiteral(_)) || matches!(rhs, Expr::NoneLiteral(_));
+    if !is_identity_op(op) || !mismatch || compares_none {
+        return None;
+    }
+    let (operator, result) = if op == ruff_python_ast::CmpOp::Is {
+        ("is", "False")
+    } else {
+        ("is not", "True")
+    };
+    let between = &source[TextRange::new(lhs.end(), rhs.start())];
+    let relative = between.find(operator)?;
+    let start = lhs.end() + TextSize::from(to_u32(relative));
+    Some(issue_at(
+        "python:S3403",
+        &format!("Remove this \"{operator}\" check; it will always be {result}."),
+        TextRange::at(start, TextSize::from(to_u32(operator.len()))),
+        index,
+        source,
+    ))
 }

@@ -32,39 +32,106 @@ pub(crate) fn is_self_attribute(target: &Expr, tail_predicate: impl Fn(&str) -> 
 /// Einops pattern grammar subset: one `->`, balanced parentheses per side,
 /// identifier/ellipsis/`1` tokens only, identical multisets on both sides.
 pub(crate) fn einops_pattern_error(pattern: &str) -> Option<&'static str> {
-    let sides: Vec<&str> = pattern.splitn(2, "->").collect();
-    if sides.len() != 2 {
+    let Some((left, right)) = pattern.split_once("->") else {
+        return Some("expected exactly one '->'");
+    };
+    if right.contains("->") {
         return Some("expected exactly one '->'");
     }
-    let mut token_lists: Vec<Vec<&str>> = Vec::new();
-    for side in sides {
-        let mut depth: i64 = 0;
-        let mut tokens: Vec<&str> = Vec::new();
-        for token in side.split_whitespace() {
-            let valid = token == "..." || token.chars().all(|c| c.is_alphanumeric() || c == '_');
-            if !valid {
-                return Some("invalid token");
-            }
-            for ch in token.chars() {
-                match ch {
-                    '(' => depth += 1,
-                    ')' => depth -= 1,
-                    _ => {}
-                }
-                if depth < 0 {
-                    return Some("unbalanced parentheses");
-                }
-            }
-            tokens.push(token);
-        }
-        if depth != 0 {
-            return Some("unbalanced parentheses");
-        }
-        tokens.sort_unstable();
-        token_lists.push(tokens);
-    }
-    if token_lists[0] != token_lists[1] {
+    let mut left_axes = match parse_einops_side(left) {
+        Ok(axes) => axes,
+        Err(error) => return Some(error),
+    };
+    let mut right_axes = match parse_einops_side(right) {
+        Ok(axes) => axes,
+        Err(error) => return Some(error),
+    };
+    left_axes.sort_unstable();
+    right_axes.sort_unstable();
+    if left_axes != right_axes {
         return Some("axis names must match on both sides");
     }
     None
+}
+
+fn parse_einops_side(side: &str) -> Result<Vec<&str>, &'static str> {
+    let mut depth = 0_i64;
+    let mut token_start = None;
+    let mut axes = Vec::new();
+    for (position, character) in side.char_indices() {
+        match character {
+            '(' => {
+                push_einops_axis(side, &mut token_start, position, &mut axes)?;
+                depth += 1;
+            }
+            ')' => {
+                push_einops_axis(side, &mut token_start, position, &mut axes)?;
+                depth -= 1;
+                if depth < 0 {
+                    return Err("unbalanced parentheses");
+                }
+            }
+            whitespace if whitespace.is_whitespace() => {
+                push_einops_axis(side, &mut token_start, position, &mut axes)?;
+            }
+            character if character.is_alphanumeric() || matches!(character, '_' | '.') => {
+                token_start.get_or_insert(position);
+            }
+            _ => return Err("invalid token"),
+        }
+    }
+    push_einops_axis(side, &mut token_start, side.len(), &mut axes)?;
+    if depth == 0 {
+        Ok(axes)
+    } else {
+        Err("unbalanced parentheses")
+    }
+}
+
+fn push_einops_axis<'a>(
+    side: &'a str,
+    token_start: &mut Option<usize>,
+    end: usize,
+    axes: &mut Vec<&'a str>,
+) -> Result<(), &'static str> {
+    let Some(start) = token_start.take() else {
+        return Ok(());
+    };
+    let token = &side[start..end];
+    let valid = token == "..." || token.chars().all(|c| c.is_alphanumeric() || c == '_');
+    if !valid {
+        return Err("invalid token");
+    }
+    if token != "1" {
+        axes.push(token);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::einops_pattern_error;
+
+    #[test]
+    fn einops_parser_accepts_grouped_axes_ellipsis_and_unit_dimensions() {
+        assert_eq!(
+            einops_pattern_error("b (h p1) (w p2) c -> b h w (p1 p2 c)"),
+            None
+        );
+        assert_eq!(einops_pattern_error("... c -> c ..."), None);
+        assert_eq!(einops_pattern_error("b c -> b 1 c"), None);
+    }
+
+    #[test]
+    fn einops_parser_rejects_bad_tokens_arrows_and_parentheses() {
+        assert_eq!(einops_pattern_error("b $ -> b"), Some("invalid token"));
+        assert_eq!(
+            einops_pattern_error("b -> b -> b"),
+            Some("expected exactly one '->'")
+        );
+        assert_eq!(
+            einops_pattern_error("b (h w -> b h w"),
+            Some("unbalanced parentheses")
+        );
+    }
 }

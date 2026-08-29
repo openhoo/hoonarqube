@@ -18,34 +18,52 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some(body) = body_of(method) else {
             continue;
         };
-        let mut calls: std::collections::BTreeMap<&str, Vec<Node<'_>>> =
-            std::collections::BTreeMap::new();
-        for call in logging_calls(body, source) {
-            if let Some(level) = callee_name(call, source).and_then(log_level_of) {
-                calls.entry(level).or_default().push(call);
-            }
-        }
-        for (level, calls) in calls {
-            let limit = log_level_limit(level);
-            let count = u32::try_from(calls.len()).unwrap_or(u32::MAX);
-            if count > limit {
-                let display_level = match level {
-                    "debug" => "Debug",
-                    "information" => "Information",
-                    "warning" => "Warning",
-                    "error" => "Error",
-                    _ => level,
-                };
-                issues.push(issue(
-                    language,
-                    "S6664",
-                    format!("Reduce the number of {display_level} logging calls within this code block from {count} to the {limit} allowed."),
-                    range_of(calls[0], source),
-                ));
-            }
-        }
+        check_method(body, source, language, &mut issues);
     }
     issues
+}
+
+fn check_method(body: Node<'_>, source: &str, language: CsLanguage, issues: &mut Vec<Issue>) {
+    let mut calls: std::collections::BTreeMap<&str, Vec<Node<'_>>> =
+        std::collections::BTreeMap::new();
+    for call in logging_calls(body, source) {
+        if let Some(level) = callee_name(call, source).and_then(log_level_of) {
+            calls.entry(level).or_default().push(call);
+        }
+    }
+    for (level, level_calls) in calls {
+        push_excessive_level_issue(level, &level_calls, source, language, issues);
+    }
+}
+
+fn push_excessive_level_issue(
+    level: &str,
+    calls: &[Node<'_>],
+    source: &str,
+    language: CsLanguage,
+    issues: &mut Vec<Issue>,
+) {
+    let limit = log_level_limit(level);
+    let count = u32::try_from(calls.len()).unwrap_or(u32::MAX);
+    let Some(anchor) = calls.first() else {
+        return;
+    };
+    if count <= limit {
+        return;
+    }
+    let display_level = match level {
+        "debug" => "Debug",
+        "information" => "Information",
+        "warning" => "Warning",
+        "error" => "Error",
+        _ => level,
+    };
+    issues.push(issue(
+        language,
+        "S6664",
+        format!("Reduce the number of {display_level} logging calls within this code block from {count} to the {limit} allowed."),
+        range_of(*anchor, source),
+    ));
 }
 
 /// Severity bucket of a logging entry point (`LogDebug` → debug).

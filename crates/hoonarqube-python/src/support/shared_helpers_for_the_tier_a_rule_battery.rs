@@ -5,6 +5,12 @@ use ruff_python_ast::ExceptHandler;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
+use ruff_python_ast::StmtClassDef;
+use ruff_python_ast::StmtFunctionDef;
+use ruff_python_ast::StmtIf;
+use ruff_python_ast::StmtMatch;
+use ruff_python_ast::StmtTypeAlias;
+use ruff_python_ast::StmtWith;
 use ruff_python_ast::TypeParam;
 use ruff_python_ast::token::TokenKind;
 use ruff_python_parser::Parsed;
@@ -193,24 +199,8 @@ pub(crate) fn for_each_stmt_expr_in_scope(stmts: &[Stmt], visit: &mut impl FnMut
 pub(crate) fn stmt_exprs(stmt: &Stmt) -> Vec<&Expr> {
     let mut exprs: Vec<&Expr> = Vec::new();
     match stmt {
-        Stmt::FunctionDef(s) => {
-            for decorator in &s.decorator_list {
-                exprs.push(&decorator.expression);
-            }
-            if let Some(returns) = &s.returns {
-                exprs.push(returns);
-            }
-            push_parameter_exprs(&s.parameters, &mut exprs);
-        }
-        Stmt::ClassDef(s) => {
-            for decorator in &s.decorator_list {
-                exprs.push(&decorator.expression);
-            }
-            if let Some(arguments) = &s.arguments {
-                exprs.extend(&arguments.args);
-                exprs.extend(arguments.keywords.iter().map(|keyword| &keyword.value));
-            }
-        }
+        Stmt::FunctionDef(s) => push_function_exprs(s, &mut exprs),
+        Stmt::ClassDef(s) => push_class_exprs(s, &mut exprs),
         Stmt::Return(s) => exprs.extend(s.value.as_deref()),
         Stmt::Delete(s) => exprs.extend(&s.targets),
         Stmt::Assign(s) => {
@@ -231,58 +221,87 @@ pub(crate) fn stmt_exprs(stmt: &Stmt) -> Vec<&Expr> {
             exprs.push(&s.iter);
         }
         Stmt::While(s) => exprs.push(&s.test),
-        Stmt::If(s) => {
-            exprs.push(&s.test);
-            for clause in &s.elif_else_clauses {
-                if let Some(test) = &clause.test {
-                    exprs.push(test);
-                }
-            }
-        }
-        Stmt::With(s) => {
-            for item in &s.items {
-                exprs.push(&item.context_expr);
-                if let Some(vars) = &item.optional_vars {
-                    exprs.push(vars);
-                }
-            }
-        }
-        Stmt::Match(s) => {
-            exprs.push(&s.subject);
-            for case in &s.cases {
-                if let Some(guard) = &case.guard {
-                    exprs.push(guard);
-                }
-            }
-        }
+        Stmt::If(s) => push_if_exprs(s, &mut exprs),
+        Stmt::With(s) => push_with_exprs(s, &mut exprs),
+        Stmt::Match(s) => push_match_exprs(s, &mut exprs),
         Stmt::Raise(s) => {
             exprs.extend(s.exc.as_deref());
             exprs.extend(s.cause.as_deref());
         }
         Stmt::Assert(s) => exprs.push(&s.test),
         Stmt::Expr(s) => exprs.push(&s.value),
-        Stmt::TypeAlias(type_alias) => {
-            exprs.push(&type_alias.value);
-            if let Some(type_params) = &type_alias.type_params {
-                for type_param in &type_params.type_params {
-                    match type_param {
-                        TypeParam::TypeVar(param) => {
-                            exprs.extend(param.bound.as_deref());
-                            exprs.extend(param.default.as_deref());
-                        }
-                        TypeParam::TypeVarTuple(param) => {
-                            exprs.extend(param.default.as_deref());
-                        }
-                        TypeParam::ParamSpec(param) => {
-                            exprs.extend(param.default.as_deref());
-                        }
-                    }
-                }
-            }
-        }
+        Stmt::TypeAlias(type_alias) => push_type_alias_exprs(type_alias, &mut exprs),
         _ => {}
     }
     exprs
+}
+
+fn push_function_exprs<'a>(function: &'a StmtFunctionDef, exprs: &mut Vec<&'a Expr>) {
+    exprs.extend(
+        function
+            .decorator_list
+            .iter()
+            .map(|decorator| &decorator.expression),
+    );
+    exprs.extend(function.returns.as_deref());
+    push_parameter_exprs(&function.parameters, exprs);
+}
+
+fn push_class_exprs<'a>(class: &'a StmtClassDef, exprs: &mut Vec<&'a Expr>) {
+    exprs.extend(
+        class
+            .decorator_list
+            .iter()
+            .map(|decorator| &decorator.expression),
+    );
+    if let Some(arguments) = &class.arguments {
+        exprs.extend(&arguments.args);
+        exprs.extend(arguments.keywords.iter().map(|keyword| &keyword.value));
+    }
+}
+
+fn push_if_exprs<'a>(if_stmt: &'a StmtIf, exprs: &mut Vec<&'a Expr>) {
+    exprs.push(&if_stmt.test);
+    exprs.extend(
+        if_stmt
+            .elif_else_clauses
+            .iter()
+            .filter_map(|clause| clause.test.as_ref()),
+    );
+}
+
+fn push_with_exprs<'a>(with_stmt: &'a StmtWith, exprs: &mut Vec<&'a Expr>) {
+    for item in &with_stmt.items {
+        exprs.push(&item.context_expr);
+        exprs.extend(item.optional_vars.as_deref());
+    }
+}
+
+fn push_match_exprs<'a>(match_stmt: &'a StmtMatch, exprs: &mut Vec<&'a Expr>) {
+    exprs.push(&match_stmt.subject);
+    exprs.extend(
+        match_stmt
+            .cases
+            .iter()
+            .filter_map(|case| case.guard.as_deref()),
+    );
+}
+
+fn push_type_alias_exprs<'a>(type_alias: &'a StmtTypeAlias, exprs: &mut Vec<&'a Expr>) {
+    exprs.push(&type_alias.value);
+    let Some(type_params) = &type_alias.type_params else {
+        return;
+    };
+    for type_param in &type_params.type_params {
+        match type_param {
+            TypeParam::TypeVar(param) => {
+                exprs.extend(param.bound.as_deref());
+                exprs.extend(param.default.as_deref());
+            }
+            TypeParam::TypeVarTuple(param) => exprs.extend(param.default.as_deref()),
+            TypeParam::ParamSpec(param) => exprs.extend(param.default.as_deref()),
+        }
+    }
 }
 
 /// Default values and annotations of a parameter list.

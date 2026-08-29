@@ -9,6 +9,13 @@ use tree_sitter::Node;
 /// csharpsquid:S2333 — single-part `partial` types and accessors repeating
 /// their property's visibility carry dead modifiers.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = redundant_partial_issues(root, source, language);
+    issues.extend(redundant_unsafe_issues(root, source, language));
+    issues.extend(redundant_accessor_issues(root, source, language));
+    issues
+}
+
+fn redundant_partial_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     use std::collections::BTreeMap;
     let declarations = collect_kinds(root, &TYPE_DECLARATION_KINDS);
     let mut name_counts: BTreeMap<(String, String), u32> = BTreeMap::new();
@@ -46,6 +53,11 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             ));
         }
     }
+    issues
+}
+
+fn redundant_unsafe_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
     for declaration in collect_kinds(
         root,
         &[
@@ -67,6 +79,11 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             ));
         }
     }
+    issues
+}
+
+fn redundant_accessor_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
     for property in collect_kinds(root, &["property_declaration"]) {
         let property_rank = accessibility_rank(&modifiers_of(property, source));
         if property_rank == 0 {

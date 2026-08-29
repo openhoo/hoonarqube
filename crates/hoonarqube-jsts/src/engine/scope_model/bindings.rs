@@ -150,6 +150,14 @@ impl TbModel<'_> {
 /// Distributes recorded events onto bindings once all declarations exist,
 /// then derives shadow chains and same-scope duplicates.
 pub(crate) fn finish_model(mut model: TbModel<'_>) -> TbModel<'_> {
+    resolve_events(&mut model);
+    resolve_callees(&mut model);
+    resolve_delete_sites(&mut model);
+    derive_scope_relationships(&mut model);
+    model
+}
+
+fn resolve_events(model: &mut TbModel<'_>) {
     for event in std::mem::take(&mut model.events) {
         if let Some(id) = model.resolve_chain(&event.chain, event.name) {
             let binding = &mut model.bindings[id];
@@ -163,6 +171,9 @@ pub(crate) fn finish_model(mut model: TbModel<'_>) -> TbModel<'_> {
             model.implicit_globals.push((event.name, event.span));
         }
     }
+}
+
+fn resolve_callees(model: &mut TbModel<'_>) {
     for callee in std::mem::take(&mut model.callees) {
         if let Some(id) = model.resolve_chain(&callee.chain, callee.name) {
             let site = TbCallSite {
@@ -179,6 +190,9 @@ pub(crate) fn finish_model(mut model: TbModel<'_>) -> TbModel<'_> {
             }
         }
     }
+}
+
+fn resolve_delete_sites(model: &mut TbModel<'_>) {
     for site in std::mem::take(&mut model.delete_sites) {
         if let Some(id) = model.resolve_chain(&site.chain, site.name)
             && model.bindings[id].array_like
@@ -186,31 +200,37 @@ pub(crate) fn finish_model(mut model: TbModel<'_>) -> TbModel<'_> {
             model.array_deletes.push((id, site.span));
         }
     }
+}
+
+fn derive_scope_relationships(model: &mut TbModel<'_>) {
     for scope in 0..model.scopes.len() {
         let ids = model.scopes[scope].bindings.clone();
-        for &id in &ids {
-            let mut cursor = model.scopes[scope].parent;
-            let mut shadowed = None;
-            while let Some(ancestor) = cursor {
-                if let Some(outer) = model.shallow(ancestor, model.bindings[id].name) {
-                    shadowed = Some(outer);
-                    break;
-                }
-                cursor = model.scopes[ancestor].parent;
-            }
-            if let Some(outer) = shadowed {
+        record_shadows(model, scope, &ids);
+        record_duplicates(model, &ids);
+    }
+}
+
+fn record_shadows(model: &mut TbModel<'_>, scope: usize, ids: &[usize]) {
+    for &id in ids {
+        let mut cursor = model.scopes[scope].parent;
+        while let Some(ancestor) = cursor {
+            if let Some(outer) = model.shallow(ancestor, model.bindings[id].name) {
                 model.shadows.push((outer, id));
+                break;
             }
+            cursor = model.scopes[ancestor].parent;
         }
-        for (i, &left) in ids.iter().enumerate() {
-            for &right in ids.iter().skip(i + 1) {
-                let (a, b) = (&model.bindings[left], &model.bindings[right]);
-                let duplicate_kinds = |kind| matches!(kind, TbKind::Var | TbKind::Function);
-                if a.name == b.name && duplicate_kinds(a.kind) && duplicate_kinds(b.kind) {
-                    model.duplicates.push((a.decl, b.decl, a.name));
-                }
+    }
+}
+
+fn record_duplicates(model: &mut TbModel<'_>, ids: &[usize]) {
+    let duplicate_kind = |kind| matches!(kind, TbKind::Var | TbKind::Function);
+    for (i, &left) in ids.iter().enumerate() {
+        for &right in ids.iter().skip(i + 1) {
+            let (a, b) = (&model.bindings[left], &model.bindings[right]);
+            if a.name == b.name && duplicate_kind(a.kind) && duplicate_kind(b.kind) {
+                model.duplicates.push((a.decl, b.decl, a.name));
             }
         }
     }
-    model
 }

@@ -3,6 +3,7 @@
 use crate::AnalyzerOptions;
 use crate::engine::rx::RegexSite;
 use crate::engine::rx::RxParsed;
+use crate::engine::rx::RxUnit;
 use crate::rules::rx_repetition_hazards::check_rx_repetition_hazards;
 use crate::rules::rx_style_shapes::check_rx_style_shapes;
 use crate::rules::rx_syntax_shapes::check_rx_syntax_shapes;
@@ -13,13 +14,13 @@ use ruff_text_size::TextRange;
 
 pub(crate) fn run_structural_regex_rules(
     parsed: &RxParsed,
+    units: &[RxUnit],
     site: &RegexSite,
     options: &AnalyzerOptions,
     issues: &mut Vec<Issue>,
     index: &LineIndex,
     source: &str,
 ) {
-    let units = site.pattern.as_ref().expect("parsed regex pattern");
     let mut push = |key: &str, message: &str, span: TextRange| {
         issues.push(issue_at(key, message, span, index, source));
     };

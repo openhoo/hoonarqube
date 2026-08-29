@@ -10,22 +10,33 @@ pub(crate) fn check_rx_redundant_alternatives(
     push: &mut dyn FnMut(&str, &str, TextRange),
 ) {
     if let RxNode::Alternation(branches) = node {
-        for later in 1..branches.len() {
-            if branches[later].items.is_empty() {
-                continue;
-            }
-            for earlier in 0..later {
-                if rx_branch_covered_by(&branches[earlier], &branches[later]) {
-                    push(
-                        "python:S5855",
-                        "Remove or rework this redundant alternative.",
-                        branches[later].span,
-                    );
-                    break;
-                }
-            }
+        check_alternation(branches, push);
+    }
+    check_nested_groups(node, push);
+}
+
+fn check_alternation(
+    branches: &[crate::engine::rx::RxSeq],
+    push: &mut dyn FnMut(&str, &str, TextRange),
+) {
+    for later in 1..branches.len() {
+        if branches[later].items.is_empty() {
+            continue;
+        }
+        if branches[..later]
+            .iter()
+            .any(|earlier| rx_branch_covered_by(earlier, &branches[later]))
+        {
+            push(
+                "python:S5855",
+                "Remove or rework this redundant alternative.",
+                branches[later].span,
+            );
         }
     }
+}
+
+fn check_nested_groups(node: &RxNode, push: &mut dyn FnMut(&str, &str, TextRange)) {
     for_each_rx_seq(node, &mut |seq| {
         for item in &seq.items {
             if let RxAtom::Group(group) = &item.atom {

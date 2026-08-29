@@ -50,10 +50,14 @@ mod tests {
     #[test]
     fn s6984_validates_einops_patterns() {
         let flagged = scan(concat!(
+            "rearrange(img, \"b (h p1) (w p2) c -> b h w (p1 p2 c)\")\n",
             "rearrange(img, \"b h w -> b w h\")\n",
             "rearrange(img, \"b h -> b w h\")\n",
             "rearrange(img, \"b (h h2 w -> b h w\")\n"
         ));
-        assert_eq!(findings(&flagged, "python:S6984").len(), 2);
+        let found = findings(&flagged, "python:S6984");
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].range.start.line, 3);
+        assert_eq!(found[1].range.start.line, 4);
     }
 }
