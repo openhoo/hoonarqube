@@ -100,12 +100,21 @@ jobs:
           paths: |
             crates
             xtask
+          output: ${{ runner.temp }}/hoonarqube.json
           fail-on: none
 
       - name: Enforce Hoolicy policy
         uses: openhoo/hoolicy/actions/check@584ed5abf673dfb9b1d5279dfaa78329a94a9ea5 # v0.2.3
         with:
           version: 0.2.3
+
+      - name: Scan with Hooray
+        uses: openhoo/hooray/actions/scan@d06c0948b4747995e2ef755cb6260d07f75c1b14 # v0.6.2
+        with:
+          version: 0.6.2
+          policy: hooray-policy.yaml
+          format: table
+          output: ""
 
       - name: Frozen catalog integrity
         run: cargo run --locked -q -p xtask -- catalog audit --require-pages-complete
