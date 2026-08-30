@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 env:
-  HOOVERSION_VERSION: 1.0.2
+  HOOVERSION_VERSION: 1.0.3
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -25,7 +25,7 @@ jobs:
           fetch-depth: 0
 
       - name: Lint commits
-        uses: openhoo/hooversion/actions/lint@57471be6e07c7bc1d6db07e3a3364cc25c710414 # v1.0.2
+        uses: openhoo/hooversion/actions/lint@4aa43b4d775c7b03d196b06381013f4601467c57 # v1.0.3
         with:
           version: ${{ env.HOOVERSION_VERSION }}
 
@@ -47,6 +47,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - uses: actions/cache@v5
         with:
@@ -93,6 +95,11 @@ jobs:
             crates
             xtask
           fail-on: none
+
+      - name: Enforce Hoolicy policy
+        uses: openhoo/hoolicy/actions/check@584ed5abf673dfb9b1d5279dfaa78329a94a9ea5 # v0.2.3
+        with:
+          version: 0.2.3
 
       - name: Frozen catalog integrity
         run: cargo run --locked -q -p xtask -- catalog audit --require-pages-complete
