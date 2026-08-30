@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.2 (2026-08-30)
+
+### Bug Fixes
+
+- **release:** upload only release files (86333e4)
+
+### Other Changes
+
+- standardize Hoostack dogfood (1f0a8ae)
+
 ## 0.2.1 (2026-08-30)
 
 ### Bug Fixes
