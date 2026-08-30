@@ -10,12 +10,12 @@ publish.workspace = true
 [lib]
 path = "src/lib.rs"
 [dependencies]
-hoonarqube-csharp = { version = "0.2.2", path = "../hoonarqube-csharp" }
-hoonarqube-go = { version = "0.2.2", path = "../hoonarqube-go" }
-hoonarqube-ir = { version = "0.2.2", path = "../hoonarqube-ir" }
-hoonarqube-jsts = { version = "0.2.2", path = "../hoonarqube-jsts" }
-hoonarqube-python = { version = "0.2.2", path = "../hoonarqube-python" }
-hoonarqube-rust = { version = "0.2.2", path = "../hoonarqube-rust" }
+hoonarqube-csharp = { version = "0.2.3", path = "../hoonarqube-csharp" }
+hoonarqube-go = { version = "0.2.3", path = "../hoonarqube-go" }
+hoonarqube-ir = { version = "0.2.3", path = "../hoonarqube-ir" }
+hoonarqube-jsts = { version = "0.2.3", path = "../hoonarqube-jsts" }
+hoonarqube-python = { version = "0.2.3", path = "../hoonarqube-python" }
+hoonarqube-rust = { version = "0.2.3", path = "../hoonarqube-rust" }
 
 [lints]
 workspace = true

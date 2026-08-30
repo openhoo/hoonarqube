@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.3 (2026-08-30)
+
+### Bug Fixes
+
+- **security:** harden oracle scanner workspace (#3) (c3a90d3)
+
 ## 0.2.2 (2026-08-30)
 
 ### Bug Fixes

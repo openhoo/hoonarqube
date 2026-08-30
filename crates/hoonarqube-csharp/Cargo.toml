@@ -11,11 +11,11 @@ publish.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
-hoonarqube-ir = { version = "0.2.2", path = "../hoonarqube-ir" }
+hoonarqube-ir = { version = "0.2.3", path = "../hoonarqube-ir" }
 tree-sitter = "0.25"
 tree-sitter-c-sharp = "0.23.5"
 
 [dev-dependencies]
-hoonarqube-core = { version = "0.2.2", path = "../hoonarqube-core" }
+hoonarqube-core = { version = "0.2.3", path = "../hoonarqube-core" }
 [lints]
 workspace = true
