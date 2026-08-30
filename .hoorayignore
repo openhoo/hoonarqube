@@ -1,0 +1,2 @@
+# Intentional analyzer-oracle fixtures contain known-vulnerable source patterns.
+.oracle/

@@ -1,4 +1,6 @@
 /target/
+/.hooversion/
+/.release-version
 /.oracle/*
 !/.oracle/sonar/
 /.oracle/sonar/*
@@ -33,3 +35,4 @@
 /tools/oracle/**/bin/
 /tools/oracle/**/obj/
 /tools/oracle/native-csharp-*/
+/scripts/__pycache__/

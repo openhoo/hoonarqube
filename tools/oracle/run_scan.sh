@@ -16,7 +16,7 @@ if [[ ! -d "$DIR" ]]; then
   exit 1
 fi
 TOKEN="${SONAR_ORACLE_TOKEN:-}"
-TOKEN_FILE="$REPO/.oracle/sonar/token"
+TOKEN_FILE="$REPO/.oracle/sonar/token" # hooray:allow-secret
 if [[ -z "$TOKEN" && -e "$TOKEN_FILE" ]]; then
   if [[ ! -f "$TOKEN_FILE" || -L "$TOKEN_FILE" || ! -O "$TOKEN_FILE" ]]; then
     echo "oracle token must be a caller-owned regular non-symlink file" >&2

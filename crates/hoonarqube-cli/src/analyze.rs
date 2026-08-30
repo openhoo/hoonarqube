@@ -266,108 +266,74 @@ pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundl
 /// Iteratively collects analyzable files under `directory` into `files`.
 ///
 /// Shared by the `analyze` and `fix` commands. Preserves the walker's
-/// deterministic order and skip rules: entries are visited sorted by name,
-/// dot-entries are skipped, symlinked directories are never followed, and
-/// symlinked files are accepted. Unreadable directories are reported through
-/// `warnings`.
+/// deterministic order and skip rules: repository ignore files and dot entries
+/// are honored, entries are visited sorted by name, symlinked directories are
+/// never followed, and symlinked files are accepted for read-only analysis.
+/// Walk errors are reported through `warnings`.
 pub(crate) fn collect_files(
     directory: &Path,
     mode: InputMode,
     files: &mut Vec<PathBuf>,
     warnings: &mut Vec<String>,
 ) {
-    let mut directories = vec![directory.to_path_buf()];
-    while let Some(directory) = directories.pop() {
-        let Some(entries) = sorted_directory_entries(&directory, warnings) else {
+    let mut builder = ignore::WalkBuilder::new(directory);
+    builder
+        .follow_links(false)
+        .git_global(false)
+        .hidden(true)
+        .require_git(false)
+        .sort_by_file_name(std::cmp::Ord::cmp);
+    for result in builder.build() {
+        let entry = match result {
+            Ok(entry) => entry,
+            Err(error) => {
+                warnings.push(format!(
+                    "cannot walk directory: {}: {error}",
+                    directory.display()
+                ));
+                continue;
+            }
+        };
+        if entry.depth() == 0 {
+            continue;
+        }
+        let path = entry.into_path();
+        let Some(file_type) = fs::symlink_metadata(&path)
+            .map(|metadata| metadata.file_type())
+            .map_err(|error| {
+                warnings.push(format!("cannot inspect path: {}: {error}", path.display()));
+            })
+            .ok()
+        else {
             continue;
         };
-        for entry in entries {
-            collect_directory_entry(&entry, mode, files, &mut directories, warnings);
-        }
-    }
-}
-
-fn collect_directory_entry(
-    entry: &fs::DirEntry,
-    mode: InputMode,
-    files: &mut Vec<PathBuf>,
-    directories: &mut Vec<PathBuf>,
-    warnings: &mut Vec<String>,
-) {
-    let path = entry.path();
-    if path
-        .file_name()
-        .is_some_and(|name| name.to_string_lossy().starts_with('.'))
-    {
-        return;
-    }
-    let file_type = match entry.file_type() {
-        Ok(file_type) => file_type,
-        Err(error) => {
-            warnings.push(format!("cannot inspect path: {}: {error}", path.display()));
-            return;
-        }
-    };
-    if file_type.is_symlink() {
-        // Analysis may read symlinked source files. Fix mode rejects them so
-        // `--apply` cannot write through a link to a target outside the walk.
-        match fs::metadata(&path) {
-            Ok(metadata)
-                if metadata.is_file()
-                    && mode.accepts_symlinked_files()
-                    && is_analyzable_file(&path) =>
-            {
-                files.push(path);
+        if file_type.is_symlink() {
+            // Analysis may read symlinked source files. Fix mode rejects them
+            // so `--apply` cannot write through a link outside the walk.
+            match fs::metadata(&path) {
+                Ok(metadata)
+                    if metadata.is_file()
+                        && mode.accepts_symlinked_files()
+                        && is_analyzable_file(&path) =>
+                {
+                    files.push(path);
+                }
+                Ok(metadata) if metadata.is_file() && !mode.accepts_symlinked_files() => {
+                    warnings.push(format!("skipping symlinked file: {}", path.display()));
+                }
+                Ok(metadata) if metadata.is_dir() && mode == InputMode::Fix => {
+                    warnings.push(format!("skipping symlinked directory: {}", path.display()));
+                }
+                Err(error) if mode == InputMode::Fix => warnings.push(format!(
+                    "cannot inspect symlink target: {}: {error}",
+                    path.display()
+                )),
+                Ok(_) | Err(_) => {}
             }
-            Ok(metadata) if metadata.is_file() && !mode.accepts_symlinked_files() => {
-                warnings.push(format!("skipping symlinked file: {}", path.display()));
-            }
-            Ok(metadata) if metadata.is_dir() && mode == InputMode::Fix => {
-                warnings.push(format!("skipping symlinked directory: {}", path.display()));
-            }
-            Err(error) if mode == InputMode::Fix => warnings.push(format!(
-                "cannot inspect symlink target: {}: {error}",
-                path.display()
-            )),
-            Ok(_) | Err(_) => {}
-        }
-        return;
-    }
-    if file_type.is_dir() {
-        directories.push(path);
-        return;
-    }
-    if file_type.is_file() && is_analyzable_file(&path) {
-        files.push(path);
-    }
-}
-
-fn sorted_directory_entries(
-    directory: &Path,
-    warnings: &mut Vec<String>,
-) -> Option<Vec<fs::DirEntry>> {
-    let entries = match fs::read_dir(directory) {
-        Ok(entries) => entries,
-        Err(error) => {
-            warnings.push(format!(
-                "cannot read directory: {}: {error}",
-                directory.display()
-            ));
-            return None;
-        }
-    };
-    let mut children = Vec::new();
-    for entry in entries {
-        match entry {
-            Ok(entry) => children.push(entry),
-            Err(error) => warnings.push(format!(
-                "cannot read directory entry: {}: {error}",
-                directory.display()
-            )),
+        } else if file_type.is_file() && is_analyzable_file(&path) {
+            files.push(path);
         }
     }
-    children.sort_by_key(std::fs::DirEntry::file_name);
-    Some(children)
 }
 
 /// One source of truth for extension dispatch, via the core registry:
@@ -463,6 +429,33 @@ mod tests {
             ]
         );
         assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn repository_walk_honors_gitignore_but_explicit_files_remain_analyzable() {
+        let fix = TempDir::new("gitignore");
+        fix.write(".gitignore", "target/\n");
+        fix.write("src/kept.py", "value = 1\n");
+        let ignored = fix.write("target/generated.py", "exec(user_input)\n");
+
+        let mut walk_warnings = Vec::new();
+        let walked = analyze_paths(
+            std::slice::from_ref(&fix.0),
+            &AnalyzerOptionsBundle::default(),
+            &mut walk_warnings,
+        );
+        assert_eq!(walked.len(), 1);
+        assert_eq!(walked[0].path, fix.0.join("src/kept.py"));
+        assert!(walk_warnings.is_empty());
+
+        let mut explicit_warnings = Vec::new();
+        let explicit = analyze_paths(
+            &[ignored],
+            &AnalyzerOptionsBundle::default(),
+            &mut explicit_warnings,
+        );
+        assert_eq!(explicit.len(), 1);
+        assert!(explicit_warnings.is_empty());
     }
 
     #[cfg(unix)]

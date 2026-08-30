@@ -1,0 +1,116 @@
+name: Analyze with Hoonarqube
+description: Install Hoonarqube, analyze source paths, and gate configured severities.
+inputs:
+  version:
+    description: Hoonarqube release version to install.
+    required: false
+    default: "0.2.1"
+  executable:
+    description: Optional Hoonarqube executable path; skips release installation when set.
+    required: false
+    default: ""
+  working-directory:
+    description: Repository directory where Hoonarqube should run.
+    required: false
+    default: "."
+  paths:
+    description: Newline-separated source paths to analyze.
+    required: true
+  output:
+    description: SonarQube Generic Issue Import report path.
+    required: false
+    default: "hoonarqube.json"
+  fail-on:
+    description: "Minimum blocking severity: critical, major, minor, info, or none."
+    required: false
+    default: "none"
+  go-header-format:
+    description: Optional literal Go license header for go:S1451.
+    required: false
+    default: ""
+outputs:
+  report:
+    description: Configured report output path.
+    value: ${{ steps.analyze.outputs.report }}
+  blocking-findings:
+    description: Number of findings at or above the configured threshold.
+    value: ${{ steps.analyze.outputs.blocking-findings }}
+runs:
+  using: composite
+  steps:
+    - name: Set up Hoonarqube
+      if: ${{ inputs.executable == '' }}
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        RUNNER_OS_VALUE: ${{ runner.os }}
+        RUNNER_ARCH_VALUE: ${{ runner.arch }}
+      run: bash "$GITHUB_ACTION_PATH/../setup/install.sh"
+
+    - name: Analyze source
+      id: analyze
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_EXECUTABLE: ${{ inputs.executable }}
+        INPUT_GO_HEADER_FORMAT: ${{ inputs.go-header-format }}
+        INPUT_OUTPUT: ${{ inputs.output }}
+        INPUT_PATHS: ${{ inputs.paths }}
+      run: |
+        set -euo pipefail
+
+        hoonarqube_command=(hoonarqube)
+        if [[ -n "$INPUT_EXECUTABLE" ]]; then
+          hoonarqube_command=("$INPUT_EXECUTABLE")
+        fi
+        threshold="${INPUT_FAIL_ON,,}"
+        case "$threshold" in
+          critical|major|minor|info|none) ;;
+          *)
+            echo "::error::fail-on must be critical, major, minor, info, or none."
+            exit 2
+            ;;
+        esac
+        if [[ -z "$INPUT_OUTPUT" ]]; then
+          echo "::error::output must name a report file."
+          exit 2
+        fi
+
+        mapfile -t paths < <(printf '%s\n' "$INPUT_PATHS" | sed '/^[[:space:]]*$/d')
+        if [[ "${#paths[@]}" -eq 0 ]]; then
+          echo "::error::paths must contain at least one source path."
+          exit 2
+        fi
+        args=(analyze --format sonar)
+        if [[ -n "$INPUT_GO_HEADER_FORMAT" ]]; then
+          args+=(--go-header-format "$INPUT_GO_HEADER_FORMAT")
+        fi
+        "${hoonarqube_command[@]}" "${args[@]}" "${paths[@]}" > "$INPUT_OUTPUT"
+        jq -e '.rules | type == "array"' "$INPUT_OUTPUT" >/dev/null
+        jq -e '.issues | type == "array"' "$INPUT_OUTPUT" >/dev/null
+
+        blocking=0
+        if [[ "$threshold" != none ]]; then
+          blocking="$(jq --arg threshold "${threshold^^}" '
+            def rank:
+              if . == "INFO" then 1
+              elif . == "MINOR" then 2
+              elif . == "MAJOR" then 3
+              elif . == "CRITICAL" then 4
+              elif . == "BLOCKER" then 5
+              else 0 end;
+            ($threshold | rank) as $minimum
+            | [.rules[] | select((.severity | rank) >= $minimum) | .id] as $blocked
+            | [.issues[] | select(.ruleId as $id | $blocked | index($id))]
+            | length
+          ' "$INPUT_OUTPUT")"
+        fi
+        {
+          echo "report=$INPUT_OUTPUT"
+          echo "blocking-findings=$blocking"
+        } >> "$GITHUB_OUTPUT"
+        if [[ "$blocking" -ne 0 ]]; then
+          echo "::error::Hoonarqube found ${blocking} issue(s) at or above ${threshold}."
+          exit 1
+        fi
