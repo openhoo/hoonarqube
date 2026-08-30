@@ -84,7 +84,9 @@ fn check_lookaheads_against_consumers(
     for item in items {
         if let Some(body) = rx_positive_lookahead_body(&item.atom) {
             lookahead_sets.push((item, rx_node_first_set(body)));
-        } else if rx_item_consuming(item) {
+            continue;
+        }
+        if rx_item_consuming(item) {
             if let Some(set) = rx_atom_first_set(&item.atom) {
                 push_disjoint_lookaheads(&lookahead_sets, &set, push);
             }

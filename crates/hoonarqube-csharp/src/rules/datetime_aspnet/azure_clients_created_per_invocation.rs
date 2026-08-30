@@ -22,7 +22,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     ];
     azure_function_methods(root, source)
         .into_iter()
-        .filter_map(|method| body_of(method))
+        .filter_map(body_of)
         .flat_map(|body| collect_kinds(body, &["object_creation_expression"]))
         .filter(|creation| !is_error_tainted(*creation))
         .filter(|creation| {

@@ -60,7 +60,10 @@ pub(crate) fn skip_regex_literal(chars: &[char], mut i: usize) -> usize {
             while i < chars.len() && chars[i] != ']' {
                 i += if chars[i] == '\\' { 2 } else { 1 };
             }
-        } else if chars[i] == '/' || chars[i] == '\n' {
+            i += 1;
+            continue;
+        }
+        if chars[i] == '/' || chars[i] == '\n' {
             break;
         }
         i += 1;

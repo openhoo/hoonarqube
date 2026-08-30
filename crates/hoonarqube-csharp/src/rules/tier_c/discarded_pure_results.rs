@@ -7,7 +7,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     collect_kinds(root, &["expression_statement"])
         .into_iter()
         .filter(|statement| !is_error_tainted(*statement))
-        .filter_map(|statement| first_named_child(statement))
+        .filter_map(first_named_child)
         .filter(|expression| {
             expression.kind() == "invocation_expression"
                 && PURE_METHODS.contains(&callee_name(*expression, source).unwrap_or(""))

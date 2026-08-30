@@ -800,9 +800,8 @@ impl<'p> WriteFactPass<'p> {
             Expression::ArrayExpression(array) => {
                 let mut values = Vec::new();
                 for element in &array.elements {
-                    if let Some(Expression::StringLiteral(literal)) = element
-                        .as_expression()
-                        .map(|element| unparenthesized(element))
+                    if let Some(Expression::StringLiteral(literal)) =
+                        element.as_expression().map(unparenthesized)
                     {
                         values.push(literal.value.as_str().to_owned());
                     } else {

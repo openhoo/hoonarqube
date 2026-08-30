@@ -354,22 +354,15 @@ impl BindingCollector<'_, '_> {
         if text.is_empty() {
             return;
         }
-        if name_contains_any(context_name, &self.rules.password_words) {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S2068",
-                "Review this potentially hardcoded credential.",
-                literal.span,
-            );
-        } else if embeds_credential(text, &self.rules.password_words) {
-            // Value-shape branch shared with the Python family: a string
-            // embedding a `credential=`/`credential:` pair fires even when
-            // the assigned name does not suggest a credential. Gated on the
-            // name check missing so such pairs emit exactly once (Python
-            // currently double-reports them). Known residual divergence:
-            // Python also scans literals outside assignments via
-            // `collect_string_contents`; closing that here would need a
-            // file-wide literal walk.
+        // Value-shape matching shared with the Python family catches embedded
+        // `credential=`/`credential:` pairs even when the assigned name does
+        // not suggest a credential. Combining the name and value checks keeps
+        // one finding when both match (Python currently double-reports it).
+        // Python also scans literals outside assignments; closing that known
+        // residual divergence here would need a file-wide literal walk.
+        if name_contains_any(context_name, &self.rules.password_words)
+            || embeds_credential(text, &self.rules.password_words)
+        {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S2068",

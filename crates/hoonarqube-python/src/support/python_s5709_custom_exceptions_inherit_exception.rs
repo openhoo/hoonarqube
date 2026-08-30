@@ -66,7 +66,9 @@ fn flag_flow_jump(
             index,
             source,
         ));
-    } else if state.loop_depth == 0 {
+        return;
+    }
+    if state.loop_depth == 0 {
         issues.push(issue_at(
             "python:S1716",
             match stmt {

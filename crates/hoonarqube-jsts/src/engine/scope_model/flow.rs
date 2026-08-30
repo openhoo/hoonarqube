@@ -256,10 +256,13 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
         let saved = (std::mem::take(&mut self.env), self.status, self.depth);
         self.depth = 0;
         self.enter_function(&arrow.params);
-        if let ArrowFunctionBody::FunctionBody(body) = &arrow.body {
-            self.process_statements(&body.statements);
-        } else if let Some(expression) = arrow.body.as_expression() {
-            self.visit_expression(expression);
+        match &arrow.body {
+            ArrowFunctionBody::FunctionBody(body) => self.process_statements(&body.statements),
+            body => {
+                if let Some(expression) = body.as_expression() {
+                    self.visit_expression(expression);
+                }
+            }
         }
         self.env = saved.0;
         self.status = saved.1;

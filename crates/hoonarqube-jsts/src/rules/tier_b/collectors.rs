@@ -841,7 +841,8 @@ impl<'p> Visit<'p> for MapRoundTripCollector<'p> {
                     self.sets
                         .push((map_name, key.span(), value_variable, call.span));
                 }
-            } else if matches!(name, "delete" | "clear") {
+            }
+            if matches!(name, "delete" | "clear") {
                 self.mutations.push((map_name, call.span));
             }
         }
@@ -1049,14 +1050,19 @@ impl<'p> Visit<'p> for ShellCommandCollector {
                 .and_then(|argument| argument.as_expression())
                 .and_then(static_command_text)
         {
-            if command.starts_with("curl ")
-                && command
-                    .split_whitespace()
-                    .any(|token| token.starts_with("http://"))
-            {
-                self.sites.push((call.span, "http"));
-            } else if is_unpinned_npm_install(&command) {
-                self.sites.push((call.span, "npm"));
+            let site = match (
+                command.starts_with("curl ")
+                    && command
+                        .split_whitespace()
+                        .any(|token| token.starts_with("http://")),
+                is_unpinned_npm_install(&command),
+            ) {
+                (true, _) => Some("http"),
+                (false, true) => Some("npm"),
+                (false, false) => None,
+            };
+            if let Some(site) = site {
+                self.sites.push((call.span, site));
             }
         }
         walk_call_expression(self, call);

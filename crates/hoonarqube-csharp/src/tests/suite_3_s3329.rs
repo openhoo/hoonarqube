@@ -1,6 +1,6 @@
 //! Test suite part; the full suite spans `tests/*.rs`.
 
-use super::*;
+use super::{analyze_default, with_key};
 
 #[test]
 fn s4143_flags_double_element_writes() {

@@ -35,7 +35,9 @@ pub(crate) fn check_tb_trailing_commas(
                     Span::new(comma_offset, comma_offset + 1),
                 );
             }
-        } else if trailing_comma.is_none() {
+            continue;
+        }
+        if trailing_comma.is_none() {
             sink.emit_span(
                 RuleScope::Both,
                 "S3723",

@@ -78,20 +78,20 @@ impl TestFrameworkCollector<'_, '_> {
         );
         let expect_text = span_text(self.source, expect_argument.span());
         let argument_text = span_text(self.source, argument.span());
-        if expect_text.trim() == argument_text.trim() {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S5863",
-                "This assertion compares the value with itself.",
-                call.span(),
-            );
-        } else if expect_argument_is_literal && argument_is_value {
-            self.sink.emit_span(
-                RuleScope::Both,
+        let finding = match (
+            expect_text.trim() == argument_text.trim(),
+            expect_argument_is_literal && argument_is_value,
+        ) {
+            (true, _) => Some(("S5863", "This assertion compares the value with itself.")),
+            (false, true) => Some((
                 "S3415",
                 "The expected value appears to be the subject of this assertion; swap the arguments.",
-                call.span(),
-            );
+            )),
+            (false, false) => None,
+        };
+        if let Some((rule, message)) = finding {
+            self.sink
+                .emit_span(RuleScope::Both, rule, message, call.span());
         }
     }
 }

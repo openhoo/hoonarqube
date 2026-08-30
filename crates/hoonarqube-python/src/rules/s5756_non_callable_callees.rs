@@ -41,7 +41,9 @@ pub(crate) fn check_s5756_non_callable_callees(
                 index,
                 source,
             ));
-        } else if let Expr::Name(name) = call.func.as_ref()
+            return;
+        }
+        if let Expr::Name(name) = call.func.as_ref()
             && bindings.contains(name.id.as_str())
         {
             issues.push(issue_at(

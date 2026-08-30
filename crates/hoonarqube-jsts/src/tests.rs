@@ -1,4 +1,7 @@
-use crate::test_support::*;
+use crate::test_support::{
+    AnalyzerOptions, JstsLanguage, Language, PathBuf, RuleOptions, analyze, count_key, findings,
+    issue, js, js_keys, js_with_rules, language_for_extension, report_keys, ts,
+};
 #[test]
 fn extensions_map_to_languages() {
     assert_eq!(language_for_extension("js"), Some(Language::JavaScript));

@@ -455,7 +455,9 @@ impl<T> Cfg<T> {
                     visited[next.index()] = true;
                     stack.push((next, 0));
                 }
-            } else if let Some((block, _)) = stack.pop() {
+                continue;
+            }
+            if let Some((block, _)) = stack.pop() {
                 order.push(block);
             }
         }
@@ -504,7 +506,9 @@ impl<T> Cfg<T> {
                     visited[next.index()] = true;
                     stack.push((next, 0));
                 }
-            } else if let Some((block, _)) = stack.pop() {
+                continue;
+            }
+            if let Some((block, _)) = stack.pop() {
                 finish_order.push(block);
             }
         }

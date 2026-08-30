@@ -1,3 +1,5 @@
+#![allow(clippy::print_stderr, clippy::print_stdout)]
+
 //! Analyzer and catalog-query CLI over the frozen embedded rule catalog.
 //!
 //! `snapshot` and `rules` read exclusively from

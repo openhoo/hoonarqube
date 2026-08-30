@@ -55,7 +55,9 @@ impl FunctionContextCollector<'_> {
         for item in &params.items {
             if param_has_default(item) {
                 first_default.get_or_insert(item.span());
-            } else if let Some(span) = first_default.take() {
+                continue;
+            }
+            if let Some(span) = first_default.take() {
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S1788",

@@ -1,3 +1,5 @@
+#![allow(clippy::print_stderr, clippy::print_stdout)]
+
 //! Multi-language throughput benchmark for the hoonarqube analyzers.
 //!
 //! Builds one deterministic synthetic fixture per language in memory,

@@ -1,6 +1,6 @@
 //! Test suite part; the full suite spans `tests/*.rs`.
 
-use super::*;
+use super::{AnalyzerOptions, analyze_default, analyze_options, with_key};
 
 #[test]
 fn s3869_flags_dangerous_handle_reads() {

@@ -1,3 +1,5 @@
+#![allow(clippy::print_stdout)]
+
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write as _;
@@ -1381,7 +1383,9 @@ fn collect_rust_sources(dir: &Path) -> Result<Vec<PathBuf>> {
             let path = entry.path();
             if file_type.is_dir() {
                 pending.push(path);
-            } else if file_type.is_file() && path.extension().is_some_and(|ext| ext == "rs") {
+                continue;
+            }
+            if file_type.is_file() && path.extension().is_some_and(|ext| ext == "rs") {
                 sources.push(path);
             }
         }

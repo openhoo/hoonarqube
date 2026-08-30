@@ -1,6 +1,6 @@
 //! Test suite part; the full suite spans `tests/*.rs`.
 
-use super::*;
+use super::{analyze_default, with_key};
 
 #[test]
 fn s4792_flags_logger_configuration_writes_and_calls() {

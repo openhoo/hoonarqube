@@ -27,7 +27,9 @@ pub(crate) fn check_s4433_ldap_unauthenticated(
                     .take(2)
                     .all(|arg| string_literal_text(arg).is_some_and(|text| text.is_empty()));
             pending.push((empty_credentials, call.range()));
-        } else if LDAP_SEARCH_METHODS.contains(&method) {
+            continue;
+        }
+        if LDAP_SEARCH_METHODS.contains(&method) {
             pending.push((false, call.range()));
         }
     }

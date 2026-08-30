@@ -7,7 +7,8 @@ use oxc_span::GetSpan;
 /// Plain-callee rules: `S1442`, `S2427`, `S3533`, `S2817`, `S6958`, and the
 /// prototype-mutation calls of `S6643`.
 pub(crate) fn check_plain_calls(sink: &mut IssueSink, it: &CallExpression<'_>) {
-    if let Some(name) = callee_name(it) {
+    let plain_name = callee_name(it);
+    if let Some(name) = plain_name {
         if name == "alert" {
             sink.emit_span(RuleScope::JsOnly, "S1442", "Unexpected alert.", it.span());
         }
@@ -35,7 +36,9 @@ pub(crate) fn check_plain_calls(sink: &mut IssueSink, it: &CallExpression<'_>) {
                 it.callee.span(),
             );
         }
-    } else if let Some((property, member)) = call_property(it)
+    }
+    if plain_name.is_none()
+        && let Some((property, member)) = call_property(it)
         && matches!(property, "defineProperty" | "defineProperties")
         && BUILTIN_GLOBALS
             .iter()

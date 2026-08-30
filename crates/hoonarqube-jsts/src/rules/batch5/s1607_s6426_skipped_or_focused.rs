@@ -48,20 +48,12 @@ impl TestFrameworkCollector<'_, '_> {
         if !root_is_test_global {
             return;
         }
-        if property == "skip" {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S1607",
-                "Do not skip this test; remove it or fix it.",
-                call.span(),
-            );
-        } else if property == "only" {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6426",
-                "Remove this exclusive test focus ('only').",
-                call.span(),
-            );
-        }
+        let (rule, message) = match property {
+            "skip" => ("S1607", "Do not skip this test; remove it or fix it."),
+            "only" => ("S6426", "Remove this exclusive test focus ('only')."),
+            _ => return,
+        };
+        self.sink
+            .emit_span(RuleScope::Both, rule, message, call.span());
     }
 }

@@ -575,7 +575,7 @@ pub(crate) fn mutable_field_names<'t>(type_node: Node<'t>, source: &'t str) -> V
             !has_modifier(&modifiers, "readonly") && !has_modifier(&modifiers, "const")
         })
         .flat_map(field_declarators)
-        .filter_map(|declarator| first_named_child(declarator))
+        .filter_map(first_named_child)
         .filter_map(|identifier| expression_name(identifier, source))
         .collect()
 }

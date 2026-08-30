@@ -331,21 +331,20 @@ impl StatementCollector<'_, '_> {
         let Some(property) = static_property_name(member) else {
             return;
         };
-        if PURE_STRING_METHODS.contains(&property) {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S1154",
-                "Remove this useless statement; the result is discarded.",
-                call.span(),
-            );
-        } else if SIDE_EFFECT_FREE_APIS.contains(&property) {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S2201",
-                "Remove this useless statement; the result is discarded.",
-                call.span(),
-            );
-        }
+        let rule = match (
+            PURE_STRING_METHODS.contains(&property),
+            SIDE_EFFECT_FREE_APIS.contains(&property),
+        ) {
+            (true, _) => "S1154",
+            (false, true) => "S2201",
+            (false, false) => return,
+        };
+        self.sink.emit_span(
+            RuleScope::Both,
+            rule,
+            "Remove this useless statement; the result is discarded.",
+            call.span(),
+        );
     }
 
     /// `S2208`: `import * as` namespace specifiers.

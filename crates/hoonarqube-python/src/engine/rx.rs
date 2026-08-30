@@ -544,7 +544,9 @@ impl<'a> RxParser<'a> {
                 // A bare `{,}` is a literal brace in Python.
                 return false;
             }
-        } else if leading == 0 {
+            return self.units.get(i).is_some_and(|u| u.ch == '}');
+        }
+        if leading == 0 {
             return false;
         }
         self.units.get(i).is_some_and(|u| u.ch == '}')

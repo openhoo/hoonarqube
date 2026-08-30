@@ -75,7 +75,9 @@ pub(crate) fn else_alternative(if_statement: Node<'_>) -> Option<Node<'_>> {
     for child in if_statement.children(&mut cursor) {
         if child.kind() == "else" {
             past_else = true;
-        } else if past_else && child.is_named() {
+            continue;
+        }
+        if past_else && child.is_named() {
             return Some(child);
         }
     }
@@ -138,7 +140,9 @@ pub(crate) fn for_clauses(
         }
         if child.kind() == ";" {
             semicolons_seen += 1;
-        } else if child.is_named() && semicolons_seen < clauses.len() {
+            continue;
+        }
+        if child.is_named() && semicolons_seen < clauses.len() {
             clauses[semicolons_seen].get_or_insert(child);
         }
     }

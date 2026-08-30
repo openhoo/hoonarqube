@@ -331,9 +331,13 @@ fn collect_directory_entry(
             )),
             Ok(_) | Err(_) => {}
         }
-    } else if file_type.is_dir() {
+        return;
+    }
+    if file_type.is_dir() {
         directories.push(path);
-    } else if file_type.is_file() && is_analyzable_file(&path) {
+        return;
+    }
+    if file_type.is_file() && is_analyzable_file(&path) {
         files.push(path);
     }
 }

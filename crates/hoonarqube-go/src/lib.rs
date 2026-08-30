@@ -629,7 +629,9 @@ fn check_variable_declaration(node: Node<'_>, source: &str, issues: &mut Vec<Iss
         for name in node.children_by_field_name("name", &mut cursor) {
             check_local_name(name, source, issues);
         }
-    } else if let Some(left) = node.child_by_field_name("left") {
+        return;
+    }
+    if let Some(left) = node.child_by_field_name("left") {
         let mut cursor = left.walk();
         for name in left
             .named_children(&mut cursor)

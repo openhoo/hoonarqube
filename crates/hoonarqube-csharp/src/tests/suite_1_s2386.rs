@@ -1,6 +1,9 @@
 //! Test suite part; the full suite spans `tests/*.rs`.
 
-use super::*;
+use super::{
+    AnalyzerOptions, CsLanguage, Language, PathBuf, analyze, analyze_default, analyze_options,
+    language_for_extension, with_key,
+};
 
 #[test]
 fn extensions_map_to_csharp() {

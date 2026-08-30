@@ -29,7 +29,9 @@ pub(crate) fn check_s6327_sns_encryption(
             TOPIC_OMITTED,
             sink,
         );
-    } else if file.is_cdk(&new_expression.callee, "aws_cdk_lib.aws_sns.CfnTopic") {
+        return;
+    }
+    if file.is_cdk(&new_expression.callee, "aws_cdk_lib.aws_sns.CfnTopic") {
         required_prop(
             file,
             new_expression,

@@ -128,21 +128,25 @@ fn collect_usage_symbols<'t>(root: Node<'t>, source: &'t str, symbols: &mut Usag
             continue;
         }
         let mut child_owner = type_owner;
-        if TYPE_DECLARATION_KINDS.contains(&node.kind()) {
-            symbols.types.push(TypeSymbol {
-                declaration: node,
-                parent: type_owner,
-            });
-            collect_declared_members(node, type_owner.is_some(), source, symbols);
-            child_owner = Some(node);
-        } else if node.kind() == "identifier" {
-            symbols.references.push(Reference {
+        match node.kind() {
+            kind if TYPE_DECLARATION_KINDS.contains(&kind) => {
+                symbols.types.push(TypeSymbol {
+                    declaration: node,
+                    parent: type_owner,
+                });
+                collect_declared_members(node, type_owner.is_some(), source, symbols);
+                child_owner = Some(node);
+            }
+            "identifier" => symbols.references.push(Reference {
                 name: node_text(node, source),
                 node,
                 introduces_binding: introduces_binding(node),
-            });
-        } else if let Some(site) = write_site(node, source) {
-            symbols.writes.push(site);
+            }),
+            _ => {
+                if let Some(site) = write_site(node, source) {
+                    symbols.writes.push(site);
+                }
+            }
         }
         let mut cursor = node.walk();
         let mut children: Vec<Node<'t>> = node.children(&mut cursor).collect();

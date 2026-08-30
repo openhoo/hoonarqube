@@ -154,7 +154,9 @@ fn check_declaration_bodies(
             }
             _ => {}
         }
-    } else if let Some(ModuleDeclaration::ExportDefaultDeclaration(declaration)) =
+        return;
+    }
+    if let Some(ModuleDeclaration::ExportDefaultDeclaration(declaration)) =
         stmt.as_module_declaration()
     {
         match &declaration.declaration {

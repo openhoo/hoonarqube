@@ -245,12 +245,14 @@ impl ComplexityWalker {
         self.nesting += 1;
         self.visit_statement(&it.consequent);
         self.nesting = saved;
-        if let Some(Statement::IfStatement(inner)) = &it.alternate {
-            self.process_if(inner);
-        } else if let Some(alternate) = &it.alternate {
-            self.nesting += 1;
-            self.visit_statement(alternate);
-            self.nesting = saved;
+        match &it.alternate {
+            Some(Statement::IfStatement(inner)) => self.process_if(inner),
+            Some(alternate) => {
+                self.nesting += 1;
+                self.visit_statement(alternate);
+                self.nesting = saved;
+            }
+            None => {}
         }
     }
 

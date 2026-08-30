@@ -88,7 +88,9 @@ fn stored_array_accessed(root: Node<'_>, creation: Node<'_>, source: &str) -> bo
             && identifier_write(node).is_some()
         {
             still_empty = false;
-        } else if still_empty
+            return;
+        }
+        if still_empty
             && node.kind() == "element_access_expression"
             && first_named_child(node)
                 .is_some_and(|receiver| node_text(receiver, source) == name_text)

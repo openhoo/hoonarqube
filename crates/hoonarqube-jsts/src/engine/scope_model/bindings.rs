@@ -168,7 +168,9 @@ fn resolve_events(model: &mut TbModel<'_>) {
             if !event.write || event.compound {
                 binding.reads.push(event.span);
             }
-        } else if event.write {
+            continue;
+        }
+        if event.write {
             model.implicit_globals.push((event.name, event.span));
         }
     }

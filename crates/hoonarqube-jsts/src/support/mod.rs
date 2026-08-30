@@ -305,7 +305,8 @@ impl Scanner {
         {
             // A `{ … }` block opened inside a `${ … }` substitution.
             *depth += 1;
-        } else if c == '}'
+        }
+        if c == '}'
             && let Some((_, depth)) = self.template_stack.last_mut()
         {
             if *depth > 0 {

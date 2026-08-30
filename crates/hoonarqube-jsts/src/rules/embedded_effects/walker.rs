@@ -161,10 +161,9 @@ fn is_pointless_expression(expression: &Expression<'_>) -> bool {
         Expression::LogicalExpression(logical) => {
             is_pointless_expression(&logical.left) && is_pointless_expression(&logical.right)
         }
-        Expression::SequenceExpression(sequence) => sequence
-            .expressions
-            .iter()
-            .all(|expression| is_pointless_expression(expression)),
+        Expression::SequenceExpression(sequence) => {
+            sequence.expressions.iter().all(is_pointless_expression)
+        }
         _ => false,
     }
 }

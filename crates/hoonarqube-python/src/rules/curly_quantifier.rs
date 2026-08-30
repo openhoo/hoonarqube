@@ -18,18 +18,16 @@ pub(crate) fn check_curly_quantifier(
         (min, Some(max)) => min == max && min >= 2 && source[quant.span].contains(','),
         _ => false,
     };
-    if superfluous {
-        push(
-            "python:S6396",
-            "Remove this superfluous quantifier.",
-            quant.span,
-        );
-    } else if concise {
-        push(
+    let finding = match (superfluous, concise) {
+        (true, _) => Some(("python:S6396", "Remove this superfluous quantifier.")),
+        (false, true) => Some((
             "python:S6353",
             "Use the concise equivalent for this quantifier.",
-            quant.span,
-        );
+        )),
+        (false, false) => None,
+    };
+    if let Some((rule, message)) = finding {
+        push(rule, message, quant.span);
     }
 }
 

@@ -1,3 +1,5 @@
+#![allow(clippy::print_stdout)]
+
 mod catalog;
 
 use std::collections::{BTreeMap, BTreeSet};

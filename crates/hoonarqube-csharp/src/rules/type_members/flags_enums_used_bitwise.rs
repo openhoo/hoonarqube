@@ -43,7 +43,9 @@ fn has_invalid_flags_value(enum_node: Node<'_>, source: &str) -> bool {
         }
         if value.is_power_of_two() {
             available_bits |= value;
-        } else if value & !available_bits != 0 {
+            continue;
+        }
+        if value & !available_bits != 0 {
             return true;
         }
     }

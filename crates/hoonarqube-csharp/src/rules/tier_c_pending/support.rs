@@ -104,14 +104,8 @@ pub(crate) const DISPOSABLE_TYPES: [&str; 30] = [
 /// `Guid[]` reduce to their bare type names.
 pub(crate) fn normalized_type_name(type_text: &str) -> &str {
     let mut bare = type_text.trim();
-    loop {
-        if let Some(head) = bare.strip_suffix("[]") {
-            bare = head.trim_end();
-        } else if let Some(head) = bare.strip_suffix('?') {
-            bare = head.trim_end();
-        } else {
-            break;
-        }
+    while let Some(head) = bare.strip_suffix("[]").or_else(|| bare.strip_suffix('?')) {
+        bare = head.trim_end();
     }
     simple_name(bare)
 }
