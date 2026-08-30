@@ -1,0 +1,25 @@
+branches:
+  - main
+packages:
+  - name: hoonarqube
+    path: .
+    type: version-file
+    manifest: VERSION
+    changelog: CHANGELOG.md
+    scopes:
+      - hoonarqube
+      - analyzer
+      - catalog
+      - cli
+      - csharp
+      - go
+      - javascript
+      - python
+      - rust
+      - typescript
+hooks:
+  afterVersion:
+    - python3 scripts/sync_release_version.py
+    - cargo generate-lockfile
+github:
+  releases: true

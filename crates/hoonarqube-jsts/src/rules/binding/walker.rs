@@ -577,7 +577,7 @@ export { Model };
         assert_eq!(count_key(&prose, "javascript:S2068"), 0);
 
         // A name hit wins, so the pair emits exactly once.
-        let both = js_keys("const password = 'password=hunter2';\n");
+        let both = js_keys("const password = 'password=hunter2'; // hooray:allow-secret\n");
         assert_eq!(count_key(&both, "javascript:S2068"), 1);
     }
 

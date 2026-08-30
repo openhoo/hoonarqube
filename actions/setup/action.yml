@@ -1,0 +1,22 @@
+name: Setup Hoonarqube
+description: Download a verified Hoonarqube release binary and add it to PATH.
+inputs:
+  version:
+    description: Hoonarqube release version to install.
+    required: false
+    default: "0.2.1"
+outputs:
+  version:
+    description: Hoonarqube version configured by this action.
+    value: ${{ steps.install.outputs.version }}
+runs:
+  using: composite
+  steps:
+    - name: Download and install Hoonarqube
+      id: install
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        RUNNER_OS_VALUE: ${{ runner.os }}
+        RUNNER_ARCH_VALUE: ${{ runner.arch }}
+      run: bash "$GITHUB_ACTION_PATH/install.sh"
