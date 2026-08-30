@@ -27,6 +27,14 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
         self.assertIn("-Dsonar.rust.clippy.enable=true", command)
         self.assertFalse(any("clippyReport.reportPaths" in arg for arg in command))
 
+    def test_podman_scanner_maps_caller_for_private_working_directory(self):
+        command = parity_suite.podman_scanner_command(
+            "/podman", "oracle-py", Path("/source"), Path("/working")
+        )
+
+        self.assertIn("--userns=keep-id", command)
+        self.assertIn("/working:/tmp/scannerwork:Z", command)
+
     def test_empty_oracle_token_fails_closed(self):
         with (
             mock.patch.dict(

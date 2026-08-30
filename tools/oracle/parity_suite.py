@@ -368,6 +368,7 @@ def podman_scanner_command(podman_path, proj, source, working):
         podman_path,
         "run",
         "--rm",
+        "--userns=keep-id",
         "--network",
         "host",
         "-e",
@@ -514,8 +515,6 @@ def scan_project(proj):
         tempfile.TemporaryDirectory(prefix=f"sqscanner-{proj}-") as working,
         tempfile.TemporaryDirectory(prefix=f"sqreports-{proj}-") as reports,
     ):
-        os.chmod(working, 0o777)
-        os.chmod(reports, 0o755)
         if not generate_clippy_oracle(proj, d, reports):
             return False
         try:
