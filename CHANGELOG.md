@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.1 (2026-08-30)
+
+### Bug Fixes
+
+- harden analyzers and clear code smells (94560de)
+- **cli:** make Hoostack dogfood reliable (b00cbc5)
+
+### Other Changes
+
+- use released Hoostack actions (75fcca7)
+- test pull request head commits (cb93963)
+
 ## 0.2.0 (2026-08-29)
 
 - Harden analyzer behavior, verified quick fixes, parity evidence, and oracle failure handling.
