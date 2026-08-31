@@ -17,6 +17,8 @@ INTERNAL_DEPENDENCY = re.compile(
     r'^(\s*hoonarqube(?:-[a-z0-9-]+)?\s*=\s*\{[^}\n]*\bversion\s*=\s*")[^"]+("[^}\n]*\bpath\s*=\s*"\.\./hoonarqube[^"\n]*"[^}\n]*\}\s*)$',
     re.MULTILINE,
 )
+ACTION_DEFAULT = re.compile(r'(?m)^(    default: ")[0-9]+\.[0-9]+\.[0-9]+("\s*)$')
+ACTION_DOC_VERSION = re.compile(r"(?m)^(    version: )[0-9]+\.[0-9]+\.[0-9]+(\s*)$")
 
 
 def synchronized(path: Path, version: str) -> str:
@@ -25,6 +27,16 @@ def synchronized(path: Path, version: str) -> str:
         updated, count = WORKSPACE_VERSION.subn(rf"\g<1>{version}\g<2>", text, count=1)
         if count != 1:
             raise RuntimeError("Cargo.toml must contain exactly one [workspace.package] version")
+        return updated
+    if path.name == "action.yml":
+        updated, count = ACTION_DEFAULT.subn(rf"\g<1>{version}\g<2>", text, count=1)
+        if count != 1:
+            raise RuntimeError(f"{path}: action version default missing or ambiguous")
+        return updated
+    if path == ROOT / "actions" / "README.md":
+        updated, count = ACTION_DOC_VERSION.subn(rf"\g<1>{version}\g<2>", text, count=1)
+        if count != 1:
+            raise RuntimeError("actions/README.md version example missing or ambiguous")
         return updated
     return INTERNAL_DEPENDENCY.sub(rf"\g<1>{version}\g<2>", text)
 
@@ -38,7 +50,13 @@ def main() -> int:
     if not SEMVER.fullmatch(version):
         raise RuntimeError("VERSION must contain one unprefixed semantic version")
 
-    paths = [ROOT / "Cargo.toml", *sorted((ROOT / "crates").glob("*/Cargo.toml"))]
+    paths = [
+        ROOT / "Cargo.toml",
+        *sorted((ROOT / "crates").glob("*/Cargo.toml")),
+        ROOT / "actions" / "setup" / "action.yml",
+        ROOT / "actions" / "analyze" / "action.yml",
+        ROOT / "actions" / "README.md",
+    ]
     drifted: list[Path] = []
     for path in paths:
         current = path.read_text(encoding="utf-8")

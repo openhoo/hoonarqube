@@ -148,6 +148,12 @@ per-file `diff` fields instead of mixing human text into machine output. Current
 finding-backed coverage starts with the syntax-checked `python:S1721` redundant-
 parentheses remedy. See [QUICKFIX.md](QUICKFIX.md) for the parity inventory.
 
+## Releases
+
+The release workflow publishes the optimized Linux archive, SPDX SBOM, sorted
+SHA-256 checksums, keyless Sigstore bundles, and GitHub artifact attestations
+from the immutable release tag.
+
 ## Development
 
 ```bash

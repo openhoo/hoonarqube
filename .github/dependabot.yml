@@ -1,0 +1,22 @@
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule: &weekly
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    groups:
+      cargo-minor-and-patch:
+        update-types: [minor, patch]
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: *weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 5

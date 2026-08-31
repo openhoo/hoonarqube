@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  HOOVERSION_VERSION: 1.0.3
+  HOOVERSION_VERSION: 1.0.6
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -22,13 +22,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Lint commits
-        uses: openhoo/hooversion/actions/lint@4aa43b4d775c7b03d196b06381013f4601467c57 # v1.0.3
+        uses: openhoo/hooversion/actions/lint@528576f6fbc6136ec5f76ac53bf81d3e04aca4b3 # v1.0.6
         with:
           version: ${{ env.HOOVERSION_VERSION }}
 
@@ -37,12 +37,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Dependency advisories, licenses, bans, and sources
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           rust-version: "1.96.0"
 
@@ -51,12 +51,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - uses: actions/cache@v5
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -104,17 +104,27 @@ jobs:
           fail-on: none
 
       - name: Enforce Hoolicy policy
-        uses: openhoo/hoolicy/actions/check@584ed5abf673dfb9b1d5279dfaa78329a94a9ea5 # v0.2.3
+        uses: openhoo/hoolicy/actions/check@f1b9be32483e3353e38ef3b5703217d2723e735e # v0.2.4
         with:
-          version: 0.2.3
+          version: 0.2.4
 
       - name: Scan with Hooray
-        uses: openhoo/hooray/actions/scan@d06c0948b4747995e2ef755cb6260d07f75c1b14 # v0.6.2
+        uses: openhoo/hooray/actions/scan@5446c51a79d115048601d3f42d6a9127b49fb322 # v0.6.3
         with:
-          version: 0.6.2
+          version: 0.6.3
           policy: hooray-policy.yaml
           format: table
           output: ""
+
+      - name: Set up HooNeedsUpdates
+        uses: openhoo/hooneedsupdates/actions/setup@4a833fd00dafc8fb017d5cabec0c38dddba4bc70 # v0.1.1
+        with:
+          version: 0.1.1
+
+      - name: Audit dependency freshness
+        run: hooneedsupdates scan --fail-on unresolved .
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Frozen catalog integrity
         run: cargo run --locked -q -p xtask -- catalog audit --require-pages-complete

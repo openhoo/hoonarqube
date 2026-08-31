@@ -86,7 +86,7 @@ SONAR_LANGUAGE = {
     "rs": "rust",
 }
 RESULT_TAG = os.environ.get("SONAR_ORACLE_RESULT_TAG", "")
-RUST_SCANNER_IMAGE = "localhost/hoonarqube-sonar-rust-scanner:latest"
+RUST_SCANNER_IMAGE = "localhost/hoonarqube-sonar-rust-scanner:12.1.0.3233_8.0.1"
 HTTP_TIMEOUT_SECONDS = 30
 PROBE_TIMEOUT_SECONDS = 60
 BUILD_TIMEOUT_SECONDS = 900
@@ -363,7 +363,11 @@ def local_scanner_command(scanner_path, proj, working):
 
 
 def podman_scanner_command(podman_path, proj, source, working):
-    scanner_image = "docker.io/sonarsource/sonar-scanner-cli:latest"
+    scanner_image = (
+        "docker.io/sonarsource/sonar-scanner-cli:"
+        "12.1.0.3233_8.0.1@"
+        "sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9"
+    )
     command = [
         podman_path,
         "run",
