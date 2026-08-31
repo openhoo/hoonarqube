@@ -44,6 +44,7 @@ pub(crate) fn check_pre_increment_decrement(
                     source,
                 ),
                 fix: None,
+                flows: Vec::new(),
             });
         }
     }

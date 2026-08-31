@@ -205,6 +205,7 @@ pub(crate) fn issue_at(
         message: message.to_string(),
         range: to_range(range, index, source),
         fix: None,
+        flows: Vec::new(),
     }
 }
 

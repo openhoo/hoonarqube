@@ -45,6 +45,7 @@ pub(crate) fn check_hardcoded_secrets(
                 message: "Review this potentially hard-coded secret.".to_string(),
                 range: to_range(literal.range(), index, source),
                 fix: None,
+                flows: Vec::new(),
             });
         }
         let mixed = text.chars().any(|ch| ch.is_ascii_uppercase())
@@ -58,6 +59,7 @@ pub(crate) fn check_hardcoded_secrets(
                     .to_string(),
                 range: to_range(literal.range(), index, source),
                 fix: None,
+                flows: Vec::new(),
             });
         }
     }

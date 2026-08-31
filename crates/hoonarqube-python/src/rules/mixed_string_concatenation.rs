@@ -28,6 +28,7 @@ pub(crate) fn check_mixed_string_concatenation(
                 message: "Implicitly concatenating str and bytes literals fails at runtime; merge them explicitly.".to_string(),
                 range: to_range(pair[1].range(), index, source),
                 fix: None,
+                flows: Vec::new(),
             });
         }
     }

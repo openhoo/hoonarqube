@@ -96,6 +96,7 @@ pub(crate) fn check_file_complexity(
             ),
             range: hoonarqube_ir::Range::file_level(),
             fix: None,
+            flows: Vec::new(),
         });
     }
     issues

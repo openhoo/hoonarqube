@@ -35,6 +35,7 @@ pub(crate) fn check_lowercase_long_suffix(
                 source,
             ),
             fix: None,
+            flows: Vec::new(),
         })
         .collect()
 }

@@ -7,10 +7,9 @@
 //! lattice type `F`. Nothing here knows about a concrete language, issue
 //! reporting, or the frozen catalog — that is deliberately the callers' job.
 //!
-//! Status: the engine is not yet consumed by any analyzer crate — the
-//! language analyzers still ship their own statement-level approximation
-//! walkers. It is kept as a workspace member and reserved for future
-//! Tier-B adoption.
+//! The Go analyzer consumes the forward taint solver for the native
+//! decompression-flow rule (`hoonarqube-go:G110`). Other adapters may
+//! progressively lower richer structured control flow onto the same engine.
 //!
 //! The engine is allocation-conscious and dependency-free: graphs are flat
 //! `Vec`s keyed by dense [`BlockId`]s, and payloads `T` (one statement bundle
@@ -70,7 +69,7 @@ mod spec;
 
 pub use builder::CfgBuilder;
 pub use cfg::{BlockId, Cfg, Dominators};
-pub use facts::{LivenessFacts, ReachingFacts};
+pub use facts::{LivenessFacts, ReachingFacts, TaintFacts};
 pub use solve::{DataflowResult, Direction, solve_dataflow};
 pub use spec::{ControlFlowSpec, build_from_blocks};
 

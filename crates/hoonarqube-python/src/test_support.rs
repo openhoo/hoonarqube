@@ -34,6 +34,7 @@ pub(crate) fn issue(
             end: pos(end.0, end.1),
         },
         fix: None,
+        flows: Vec::new(),
     }
 }
 

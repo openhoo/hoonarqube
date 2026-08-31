@@ -255,6 +255,7 @@ pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundl
             .unwrap_or(15),
     };
     CoreOptions {
+        profile: hoonarqube_core::RuleProfile::SonarParity,
         python,
         jsts,
         csharp,

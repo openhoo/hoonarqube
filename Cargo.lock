@@ -737,6 +737,7 @@ dependencies = [
 name = "hoonarqube-core"
 version = "0.2.4"
 dependencies = [
+ "hoonarqube-catalog",
  "hoonarqube-csharp",
  "hoonarqube-go",
  "hoonarqube-ir",
@@ -763,6 +764,7 @@ version = "0.2.4"
 name = "hoonarqube-go"
 version = "0.2.4"
 dependencies = [
+ "hoonarqube-dataflow",
  "hoonarqube-ir",
  "tree-sitter",
  "tree-sitter-go",

@@ -8,7 +8,9 @@ use std::collections::{BTreeSet, HashSet};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use hoonarqube_ir::{FileMetrics, FileReport, Issue, Pos, Range, sort_issues, u32_saturating};
+use hoonarqube_ir::{
+    FileMetrics, FileReport, FlowLocation, Issue, Pos, Range, sort_issues, u32_saturating,
+};
 use regex::Regex;
 use tree_sitter::{Node, Parser, Point};
 
@@ -395,6 +397,284 @@ pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileRe
         issues,
         metrics: metrics(root, source),
     }
+}
+
+/// Runs independently implemented non-Sonar Rust rules. The adapter stays
+/// conservative: it requires visible standard-library lock/RefCell type
+/// evidence and a guard binding that remains in lexical scope across `await`.
+#[must_use]
+pub fn analyze_native(source: &str) -> Vec<Issue> {
+    let mut parser = Parser::new();
+    if parser
+        .set_language(&tree_sitter_rust::LANGUAGE.into())
+        .is_err()
+    {
+        return Vec::new();
+    }
+    let Some(tree) = parser.parse(source, None) else {
+        return Vec::new();
+    };
+    let root = tree.root_node();
+    if root.has_error() {
+        return Vec::new();
+    }
+
+    let type_evidence = NativeGuardTypes::collect(root, source);
+
+    let mut issues = Vec::new();
+    walk(root, &mut |declaration| {
+        if declaration.kind() != "let_declaration" {
+            return;
+        }
+        let Some(pattern) = declaration.child_by_field_name("pattern") else {
+            return;
+        };
+        let binding = text(pattern, source).trim_start_matches("mut ");
+        if !binding.bytes().enumerate().all(|(index, byte)| {
+            byte == b'_' || byte.is_ascii_alphanumeric() && (index > 0 || !byte.is_ascii_digit())
+        }) {
+            return;
+        }
+        let Some(value) = declaration.child_by_field_name("value") else {
+            return;
+        };
+        let rule = native_guard_rule(declaration, value, source, &type_evidence);
+        let Some((key, message)) = rule else {
+            return;
+        };
+        let Some(block) = enclosing_block(declaration) else {
+            return;
+        };
+        if let Some(await_) = first_await_before_guard_end(block, declaration, binding, source) {
+            issues.push(node_issue(key, message, await_, source).with_flow(vec![
+                FlowLocation::in_primary_file(
+                    "Guard acquired here.",
+                    node_range(declaration, source),
+                ),
+                FlowLocation::in_primary_file(
+                    "Guard remains live across this await.",
+                    node_range(await_, source),
+                ),
+            ]));
+        }
+    });
+    sort_issues(&mut issues);
+    issues.dedup();
+    issues
+}
+
+#[derive(Default)]
+struct NativeGuardTypes {
+    mutexes: HashSet<String>,
+    rwlocks: HashSet<String>,
+    refcells: HashSet<String>,
+}
+
+impl NativeGuardTypes {
+    fn collect(root: Node<'_>, source: &str) -> Self {
+        let mut types = Self::default();
+        walk(root, &mut |node| {
+            if node.kind() != "use_declaration" {
+                return;
+            }
+            let compact: String = text(node, source)
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .collect();
+            collect_native_use_aliases(&compact, "std::sync", "Mutex", &mut types.mutexes);
+            collect_native_use_aliases(&compact, "std::sync", "RwLock", &mut types.rwlocks);
+            collect_native_use_aliases(&compact, "std::cell", "RefCell", &mut types.refcells);
+        });
+        types
+    }
+}
+
+fn collect_native_use_aliases(
+    declaration: &str,
+    module: &str,
+    original: &str,
+    aliases: &mut HashSet<String>,
+) {
+    let direct = format!("use{module}::{original}");
+    if let Some(tail) = declaration
+        .strip_prefix(&direct)
+        .and_then(|tail| tail.strip_suffix(';'))
+    {
+        if tail.is_empty() {
+            aliases.insert(original.to_string());
+        } else if let Some(alias) = tail.strip_prefix("as")
+            && !alias.is_empty()
+        {
+            aliases.insert(alias.to_string());
+        }
+    }
+    let grouped = format!("use{module}::{{");
+    let Some(items) = declaration
+        .strip_prefix(&grouped)
+        .and_then(|tail| tail.strip_suffix("};"))
+    else {
+        return;
+    };
+    for item in items.split(',') {
+        if item == original {
+            aliases.insert(original.to_string());
+        } else if let Some(alias) = item.strip_prefix(&format!("{original}as"))
+            && !alias.is_empty()
+        {
+            aliases.insert(alias.to_string());
+        }
+    }
+}
+
+fn native_guard_rule(
+    declaration: Node<'_>,
+    value: Node<'_>,
+    source: &str,
+    types: &NativeGuardTypes,
+) -> Option<(&'static str, &'static str)> {
+    let (receiver, method) = native_guard_acquisition(value, source)?;
+    let function = std::iter::successors(declaration.parent(), Node::parent)
+        .find(|ancestor| ancestor.kind() == "function_item")?;
+    let receiver_type = native_parameter_type(function, receiver, source)?;
+    let is_mutex =
+        method == "lock" && native_type_matches(receiver_type, "std::sync::Mutex", &types.mutexes);
+    let is_rwlock = matches!(method, "read" | "write")
+        && native_type_matches(receiver_type, "std::sync::RwLock", &types.rwlocks);
+    if is_mutex || is_rwlock {
+        return Some((
+            "hoonarqube-rust:await-holding-lock",
+            "Drop this lock guard before awaiting.",
+        ));
+    }
+    if matches!(method, "borrow" | "borrow_mut")
+        && native_type_matches(receiver_type, "std::cell::RefCell", &types.refcells)
+    {
+        return Some((
+            "hoonarqube-rust:await-holding-refcell-ref",
+            "Drop this RefCell borrow before awaiting.",
+        ));
+    }
+    None
+}
+
+fn native_guard_acquisition<'a>(value: Node<'_>, source: &'a str) -> Option<(&'a str, &'a str)> {
+    let mut found = None;
+    walk(value, &mut |node| {
+        if found.is_some() || node.kind() != "call_expression" {
+            return;
+        }
+        let Some(function) = node.child_by_field_name("function") else {
+            return;
+        };
+        if function.kind() != "field_expression" {
+            return;
+        }
+        let (Some(receiver), Some(method)) = (
+            function.child_by_field_name("value"),
+            function.child_by_field_name("field"),
+        ) else {
+            return;
+        };
+        if receiver.kind() == "identifier"
+            && matches!(
+                text(method, source),
+                "lock" | "read" | "write" | "borrow" | "borrow_mut"
+            )
+        {
+            found = Some((text(receiver, source), text(method, source)));
+        }
+    });
+    found
+}
+
+fn native_parameter_type<'a>(
+    function: Node<'_>,
+    receiver: &str,
+    source: &'a str,
+) -> Option<&'a str> {
+    let parameters = function.child_by_field_name("parameters")?;
+    let mut cursor = parameters.walk();
+    parameters
+        .named_children(&mut cursor)
+        .find_map(|parameter| {
+            let pattern = parameter.child_by_field_name("pattern")?;
+            (text(pattern, source).trim_start_matches("mut ") == receiver)
+                .then(|| parameter.child_by_field_name("type"))
+                .flatten()
+                .map(|type_node| text(type_node, source))
+        })
+}
+
+fn native_type_matches(type_text: &str, full_name: &str, aliases: &HashSet<String>) -> bool {
+    type_text.contains(full_name)
+        || type_text
+            .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+            .any(|word| aliases.contains(word))
+}
+
+fn first_await_before_guard_end<'tree>(
+    block: Node<'tree>,
+    declaration: Node<'tree>,
+    binding: &str,
+    source: &str,
+) -> Option<Node<'tree>> {
+    let mut events = Vec::new();
+    walk(block, &mut |node| {
+        if node.start_byte() <= declaration.end_byte() {
+            return;
+        }
+        if ancestors_until(node, block).any(|ancestor| {
+            matches!(
+                ancestor.kind(),
+                "closure_expression" | "async_block" | "function_item"
+            )
+        }) {
+            return;
+        }
+        if node.kind() == "await_expression" {
+            events.push((node.start_byte(), false, node));
+        } else if (node.kind() == "call_expression"
+            && is_drop_call(node, binding, source)
+            && guard_end_is_unconditional(node, block))
+            || (node.kind() == "let_declaration"
+                && node.parent() == Some(block)
+                && node.child_by_field_name("pattern").is_some_and(|pattern| {
+                    text(pattern, source).trim_start_matches("mut ") == binding
+                }))
+        {
+            events.push((node.start_byte(), true, node));
+        }
+    });
+    events.sort_by_key(|event| event.0);
+    events
+        .into_iter()
+        .take_while(|(_, guard_ends, _)| !*guard_ends)
+        .find_map(|(_, _, node)| (node.kind() == "await_expression").then_some(node))
+}
+
+fn guard_end_is_unconditional(node: Node<'_>, block: Node<'_>) -> bool {
+    ancestors_until(node, block).all(|ancestor| {
+        matches!(
+            ancestor.kind(),
+            "expression_statement" | "parenthesized_expression"
+        )
+    })
+}
+
+fn is_drop_call(node: Node<'_>, binding: &str, source: &str) -> bool {
+    node.child_by_field_name("function")
+        .is_some_and(|function| matches!(text(function, source), "drop" | "std::mem::drop"))
+        && node
+            .child_by_field_name("arguments")
+            .and_then(|arguments| arguments.named_child(0))
+            .is_some_and(|argument| text(argument, source) == binding)
+}
+
+fn ancestors_until<'tree>(
+    node: Node<'tree>,
+    stop: Node<'tree>,
+) -> impl Iterator<Item = Node<'tree>> {
+    std::iter::successors(node.parent(), Node::parent).take_while(move |ancestor| *ancestor != stop)
 }
 
 fn normalize_sonar_contract(source: &str, issues: &mut Vec<Issue>) {
@@ -3372,5 +3652,79 @@ mod tests {
                 good_report.issues
             );
         }
+    }
+
+    #[test]
+    fn native_async_guard_rules_require_type_evidence_and_live_guard() {
+        let bad = analyze_native(concat!(
+            "use std::sync::Mutex;\n",
+            "use std::cell::RefCell;\n",
+            "async fn run(mutex: &Mutex<i32>, cell: &RefCell<i32>) {\n",
+            "  let lock = mutex.lock().unwrap();\n",
+            "  work().await;\n",
+            "  drop(lock);\n",
+            "  let borrowed = cell.borrow();\n",
+            "  more().await;\n",
+            "  drop(borrowed);\n",
+            "}\n",
+        ));
+        assert!(
+            bad.iter()
+                .any(|issue| issue.rule_key == "hoonarqube-rust:await-holding-lock")
+        );
+        assert!(
+            bad.iter()
+                .any(|issue| { issue.rule_key == "hoonarqube-rust:await-holding-refcell-ref" })
+        );
+
+        let clean = analyze_native(concat!(
+            "use std::sync::Mutex;\n",
+            "use std::cell::RefCell;\n",
+            "async fn run(mutex: &Mutex<i32>, cell: &RefCell<i32>) {\n",
+            "  let lock = mutex.lock().unwrap();\n",
+            "  drop(lock);\n",
+            "  work().await;\n",
+            "  { let borrowed = cell.borrow(); inspect(&borrowed); }\n",
+            "  more().await;\n",
+            "}\n",
+        ));
+        assert!(clean.is_empty(), "unexpected native findings: {clean:?}");
+    }
+
+    #[test]
+    fn native_lock_rule_ignores_async_aware_lock_acquisition() {
+        let clean = analyze_native(concat!(
+            "use tokio::sync::Mutex;\n",
+            "async fn run(mutex: &Mutex<i32>) {\n",
+            "  let lock = mutex.lock().await;\n",
+            "  work().await;\n",
+            "  drop(lock);\n",
+            "}\n",
+        ));
+        assert!(clean.is_empty(), "unexpected native findings: {clean:?}");
+    }
+
+    #[test]
+    fn native_guard_rules_resolve_receiver_types_and_conditional_drops() {
+        let clean = analyze_native(concat!(
+            "use std::sync::Mutex;\n",
+            "struct Gate; impl Gate { fn lock(&self) -> Guard { Guard } }\n",
+            "async fn run(gate: &Gate) { let guard = gate.lock(); work().await; drop(guard); }\n",
+        ));
+        assert!(clean.is_empty(), "custom lock must stay clean: {clean:?}");
+
+        let conditional_drop = analyze_native(concat!(
+            "use std::sync::Mutex as StdMutex;\n",
+            "async fn run(mutex: &StdMutex<i32>, release: bool) {\n",
+            "  let guard = mutex.lock().unwrap();\n",
+            "  if release { drop(guard); }\n",
+            "  work().await;\n",
+            "}\n",
+        ));
+        assert!(
+            conditional_drop
+                .iter()
+                .any(|issue| issue.rule_key == "hoonarqube-rust:await-holding-lock")
+        );
     }
 }

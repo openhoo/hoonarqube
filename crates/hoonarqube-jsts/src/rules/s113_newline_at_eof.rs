@@ -26,6 +26,7 @@ fn check_missing_newline_at_eof(
             end,
         },
         fix: None,
+        flows: Vec::new(),
     }]
 }
 

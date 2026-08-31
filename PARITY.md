@@ -11,6 +11,11 @@ Hoonarqube ships the frozen 1,741-rule catalog:
 - Go: 36.
 - Rust: 85.
 
+The separate 37-rule `hoonarqube-*` native catalog is excluded from every
+Sonar parity count and oracle claim. Native rules carry their own upstream
+provenance and profile membership; enabling them cannot turn local evidence
+into a SonarQube-equivalence claim.
+
 Seventeen C# rules are owned by SonarQube's Enterprise analyzer. Hoonarqube
 keeps their implementations, fixtures, and local tests, but the Community
 oracle cannot certify their upstream behavior. These rules carry the explicit
@@ -101,7 +106,7 @@ Current state is **not full parity**.
   284 `BAD_MISMATCH`, 15 `GOOD_FIRE`, 451 `SQ_MISS`, 31 `BEYOND_CE`,
   31 findings from new upstream rules outside the frozen catalog, 11 legacy or
   configuration skips, and 10 approved infrastructure boundaries.
-- Seventy-six local oracle/import harness tests pass as of 2026-08-29, including
+- Seventy-seven local oracle/import harness tests pass as of 2026-08-31, including
   fail-closed Rust Clippy report generation and upstream-unverified semantics.
 - Seventeen Enterprise C# rules remain implemented and locally tested. Their
   exact keys and analyzer ownership are integrity-checked in

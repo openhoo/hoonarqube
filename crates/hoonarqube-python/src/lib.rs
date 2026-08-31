@@ -61,6 +61,8 @@ use crate::support::sort_issues;
 use ruff_source_file::LineIndex;
 use std::path::PathBuf;
 
+mod native;
+
 /// Knobs for the Python analyzer; defaults mirror the frozen catalog
 /// `ParameterFact` defaults (`maximumLineLength` default `120`,
 /// `maximumLinesOfCode` default `1000`, `maximumFunctionParameters` default
@@ -209,6 +211,13 @@ pub fn analyze(
         issues,
         metrics,
     }
+}
+
+/// Runs independently implemented, non-Sonar Python rules. Profile selection
+/// remains the caller's responsibility.
+#[must_use]
+pub fn analyze_native(source: &str) -> Vec<hoonarqube_ir::Issue> {
+    native::analyze(source)
 }
 
 mod context;

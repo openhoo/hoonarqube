@@ -12,7 +12,9 @@ use std::io::Write as _;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use hoonarqube_catalog::{Catalog, RuleRecord, embedded};
+use hoonarqube_catalog::{
+    Catalog, NativeRuleRecord, RuleProfile, RuleRecord, embedded, native_rule, native_rules,
+};
 use hoonarqube_ir::{Range, TextEdit, apply_fixes};
 
 mod analyze;
@@ -52,6 +54,10 @@ enum Command {
         /// catalog-default disabled behavior.
         #[arg(long, default_value = "")]
         go_header_format: String,
+        /// Native-rule profile: `sonar-parity`, `recommended`, `extended`,
+        /// or `strict`.
+        #[arg(long, default_value = "sonar-parity")]
+        profile: RuleProfile,
     },
     /// Detect and optionally apply automatic fixes.
     ///
@@ -94,6 +100,15 @@ enum RulesCommand {
     },
     /// Show one rule by its full external key (e.g. `python:BackticksUsage`).
     Info { external_key: String },
+    /// List independently implemented native rules and their provenance.
+    Native {
+        /// Language id (`py`, `js`, `ts`, `cs`, `go`, or `rust`).
+        #[arg(long)]
+        lang: Option<String>,
+        /// Limit output to rules enabled by this cumulative profile.
+        #[arg(long)]
+        profile: Option<RuleProfile>,
+    },
 }
 
 /// Output format of the `analyze` subcommand.
@@ -132,11 +147,13 @@ fn main() -> ExitCode {
             paths,
             format,
             go_header_format,
+            profile,
         } => run_analyze(
             catalog,
             paths,
             format.as_deref(),
             go_header_format,
+            *profile,
             cli.json,
         ),
         Command::Fix {
@@ -1254,6 +1271,7 @@ fn run_rules(catalog: &Catalog, cmd: &RulesCommand, json: bool) -> ExitCode {
             run_rules_search(catalog, lang.as_deref(), query, json)
         }
         RulesCommand::Info { external_key } => run_rules_info(catalog, external_key, json),
+        RulesCommand::Native { lang, profile } => run_native_rules(lang.as_deref(), *profile, json),
     }
 }
 
@@ -1297,16 +1315,55 @@ fn run_rules_search(catalog: &Catalog, lang: Option<&str>, query: &str, json: bo
 }
 
 fn run_rules_info(catalog: &Catalog, external_key: &str, json: bool) -> ExitCode {
-    let Some(rule) = catalog.rule(external_key) else {
-        eprintln!("unknown rule: {external_key}");
-        return ExitCode::from(1);
-    };
+    if let Some(rule) = catalog.rule(external_key) {
+        if json {
+            if !print_json(rule) {
+                return ExitCode::FAILURE;
+            }
+        } else {
+            print_rule_info(rule);
+        }
+        return ExitCode::SUCCESS;
+    }
+    if let Some(rule) = native_rule(external_key) {
+        if json {
+            if !print_json(rule) {
+                return ExitCode::FAILURE;
+            }
+        } else {
+            print_native_rule_info(rule);
+        }
+        return ExitCode::SUCCESS;
+    }
+    eprintln!("unknown rule: {external_key}");
+    ExitCode::from(1)
+}
+
+fn run_native_rules(lang: Option<&str>, profile: Option<RuleProfile>, json: bool) -> ExitCode {
+    let valid_language = |value: &str| ["cs", "js", "ts", "py", "go", "rust"].contains(&value);
+    if lang.is_some_and(|value| !valid_language(value)) {
+        return unknown_language(lang.unwrap_or_default());
+    }
+    let rules: Vec<&NativeRuleRecord> = native_rules()
+        .filter(|rule| lang.is_none_or(|language| rule.language == language))
+        .filter(|rule| profile.is_none_or(|selected| selected.includes(rule.minimum_profile)))
+        .collect();
     if json {
-        if !print_json(rule) {
+        if !print_json(&rules) {
             return ExitCode::FAILURE;
         }
     } else {
-        print_rule_info(rule);
+        for rule in rules {
+            println!(
+                "{}  {}  {}  {}  {}:{}",
+                rule.external_key,
+                rule.severity,
+                rule.rule_type,
+                rule.minimum_profile,
+                rule.origin_tool,
+                rule.origin_rule_id
+            );
+        }
     }
     ExitCode::SUCCESS
 }
@@ -1397,6 +1454,20 @@ fn print_rule_info(rule: &RuleRecord) {
     }
 }
 
+fn print_native_rule_info(rule: &NativeRuleRecord) {
+    println!("{}", rule.external_key);
+    println!("  name: {}", rule.name);
+    println!("  language: {}", rule.language);
+    println!("  severity: {}", rule.severity);
+    println!("  rule_type: {}", rule.rule_type);
+    println!("  minimum_profile: {}", rule.minimum_profile);
+    println!("  precision: {:?}", rule.precision);
+    println!("  implementation: {:?}", rule.implementation);
+    println!("  origin: {}:{}", rule.origin_tool, rule.origin_rule_id);
+    println!("  origin_url: {}", rule.origin_url);
+    println!("  origin_license: {}", rule.origin_license);
+}
+
 fn json_line<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, serde_json::Error> {
     let mut serialized = serde_json::to_vec(value)?;
     serialized.push(b'\n');
@@ -1475,69 +1546,108 @@ fn sonar_import_value(
         let file_path = report.path.display().to_string();
         for issue in &report.issues {
             let rule_id = sonar_rule_id(&issue.rule_key);
-            rules.entry(rule_id.to_string()).or_insert_with(|| {
-                let (clean_code_attribute, rule_type, severity, impacts) =
-                    match catalog.rule(&issue.rule_key) {
-                        Some(record) => (
-                            record
-                                .clean_code_attribute
-                                .as_deref()
-                                .unwrap_or("CONVENTIONAL"),
-                            record.rule_type.as_str(),
-                            record.severity.as_str(),
-                            record
-                                .impacts
-                                .iter()
-                                .map(|impact| {
-                                    serde_json::json!({
-                                        "softwareQuality": impact.software_quality,
-                                        "severity": impact.severity,
-                                    })
-                                })
-                                .collect::<Vec<_>>(),
-                        ),
-                        None => (
-                            "CONVENTIONAL",
-                            "CODE_SMELL",
-                            "INFO",
-                            vec![serde_json::json!({
-                                "softwareQuality": "MAINTAINABILITY",
-                                "severity": "MEDIUM",
-                            })],
-                        ),
-                    };
-                serde_json::json!({
-                    "id": rule_id,
-                    "name": issue.rule_key,
-                    "description": format!("Hoonarqube finding for `{}`.", issue.rule_key),
-                    "engineId": "hoonarqube",
-                    "cleanCodeAttribute": clean_code_attribute,
-                    "type": rule_type,
-                    "severity": severity,
-                    "impacts": impacts,
-                })
-            });
-            let mut primary_location = serde_json::json!({
-                "message": &issue.message,
-                "filePath": file_path,
-            });
-            if !issue.range.is_file_level() {
-                primary_location["textRange"] = serde_json::json!({
-                    "startLine": issue.range.start.line,
-                    "startColumn": issue.range.start.column,
-                    "endLine": issue.range.end.line,
-                    "endColumn": issue.range.end.column,
-                });
-            }
-            issues.push(serde_json::json!({
-                "ruleId": rule_id,
-                "primaryLocation": primary_location,
-            }));
+            rules
+                .entry(rule_id.to_string())
+                .or_insert_with(|| sonar_import_rule(catalog, issue));
+            issues.push(sonar_import_issue(&file_path, issue));
         }
     }
     serde_json::json!({
         "rules": rules.into_values().collect::<Vec<_>>(),
         "issues": issues,
+    })
+}
+
+fn sonar_import_rule(catalog: &Catalog, issue: &hoonarqube_ir::Issue) -> serde_json::Value {
+    let rule_id = sonar_rule_id(&issue.rule_key);
+    if let Some(record) = catalog.rule(&issue.rule_key) {
+        return serde_json::json!({
+            "id": rule_id,
+            "name": issue.rule_key,
+            "description": format!("Hoonarqube finding for `{}`.", issue.rule_key),
+            "engineId": "hoonarqube",
+            "cleanCodeAttribute": record.clean_code_attribute.as_deref().unwrap_or("CONVENTIONAL"),
+            "type": record.rule_type,
+            "severity": record.severity,
+            "impacts": record.impacts.iter().map(|impact| serde_json::json!({
+                "softwareQuality": impact.software_quality,
+                "severity": impact.severity,
+            })).collect::<Vec<_>>(),
+        });
+    }
+    if let Some(record) = native_rule(&issue.rule_key) {
+        return serde_json::json!({
+            "id": rule_id,
+            "name": record.name,
+            "description": format!("{} Origin: {} {} ({}).", record.description, record.origin_tool, record.origin_rule_id, record.origin_url),
+            "engineId": "hoonarqube-native",
+            "cleanCodeAttribute": record.clean_code_attribute,
+            "type": record.rule_type,
+            "severity": record.severity,
+            "impacts": record.impacts.iter().map(|impact| serde_json::json!({
+                "softwareQuality": impact.software_quality,
+                "severity": impact.severity,
+            })).collect::<Vec<_>>(),
+        });
+    }
+    serde_json::json!({
+        "id": rule_id,
+        "name": issue.rule_key,
+        "description": format!("Hoonarqube finding for `{}`.", issue.rule_key),
+        "engineId": "hoonarqube",
+        "cleanCodeAttribute": "CONVENTIONAL",
+        "type": "CODE_SMELL",
+        "severity": "INFO",
+        "impacts": [{
+            "softwareQuality": "MAINTAINABILITY",
+            "severity": "MEDIUM",
+        }],
+    })
+}
+
+fn sonar_import_issue(file_path: &str, issue: &hoonarqube_ir::Issue) -> serde_json::Value {
+    let mut primary_location = serde_json::json!({
+        "message": &issue.message,
+        "filePath": file_path,
+    });
+    if !issue.range.is_file_level() {
+        primary_location["textRange"] = sonar_text_range(&issue.range);
+    }
+    let mut imported = serde_json::json!({
+        "ruleId": sonar_rule_id(&issue.rule_key),
+        "primaryLocation": primary_location,
+    });
+    let secondary_locations: Vec<_> = issue
+        .flows
+        .iter()
+        .flat_map(|flow| &flow.locations)
+        .filter(|location| location.path.is_some() || location.range != issue.range)
+        .map(|location| {
+            let mut value = serde_json::json!({
+                "message": location.message,
+                "filePath": location
+                    .path
+                    .as_ref()
+                    .map_or_else(|| file_path.to_string(), |path| path.display().to_string()),
+            });
+            if !location.range.is_file_level() {
+                value["textRange"] = sonar_text_range(&location.range);
+            }
+            value
+        })
+        .collect();
+    if !secondary_locations.is_empty() {
+        imported["secondaryLocations"] = serde_json::Value::Array(secondary_locations);
+    }
+    imported
+}
+
+fn sonar_text_range(range: &hoonarqube_ir::Range) -> serde_json::Value {
+    serde_json::json!({
+        "startLine": range.start.line,
+        "startColumn": range.start.column,
+        "endLine": range.end.line,
+        "endColumn": range.end.column,
     })
 }
 
@@ -1549,6 +1659,7 @@ fn run_analyze(
     paths: &[std::path::PathBuf],
     format: Option<&str>,
     go_header_format: &str,
+    profile: RuleProfile,
     json_flag: bool,
 ) -> ExitCode {
     let format = match analyze_format(format, json_flag) {
@@ -1571,6 +1682,7 @@ fn run_analyze(
     }
 
     let mut options = analyze::analyzer_options_bundle(catalog);
+    options.profile = profile;
     options.go.header_format = go_header_format.to_string();
     let mut warnings = Vec::new();
     let reports = analyze::analyze_paths(paths, &options, &mut warnings);
@@ -1597,7 +1709,7 @@ fn run_analyze(
 mod tests {
     use super::*;
 
-    use hoonarqube_ir::{FileMetrics, FileReport, Issue, Pos, Range};
+    use hoonarqube_ir::{FileMetrics, FileReport, FlowLocation, Issue, Pos, Range};
 
     fn sample_report(path: &str, language: &str, issues: Vec<Issue>) -> FileReport {
         FileReport {
@@ -1626,6 +1738,7 @@ mod tests {
                         end: Pos { line: 1, column: 4 },
                     },
                     fix: None,
+                    flows: Vec::new(),
                 }],
             ),
             sample_report(
@@ -1643,6 +1756,7 @@ mod tests {
                         },
                     },
                     fix: None,
+                    flows: Vec::new(),
                 }],
             ),
         ];
@@ -1691,6 +1805,50 @@ mod tests {
     }
 
     #[test]
+    fn sonar_import_uses_native_metadata_and_flattens_flow_locations() {
+        let source_range = Range {
+            start: Pos { line: 2, column: 4 },
+            end: Pos {
+                line: 2,
+                column: 24,
+            },
+        };
+        let sink_range = Range {
+            start: Pos { line: 5, column: 8 },
+            end: Pos {
+                line: 5,
+                column: 14,
+            },
+        };
+        let issue = Issue::new(
+            "hoonarqube-go:G110",
+            "Wrap this decompression reader with io.LimitReader before copying.",
+            sink_range.clone(),
+        )
+        .with_flow(vec![
+            FlowLocation::in_primary_file("Decompression reader created here.", source_range),
+            FlowLocation::in_primary_file("Unbounded copy occurs here.", sink_range),
+        ]);
+        let value = sonar_import_value(
+            embedded(),
+            &[sample_report("src/archive.go", "go", vec![issue])],
+        );
+        let rule = &value["rules"][0];
+        assert_eq!(rule["engineId"], "hoonarqube-native");
+        assert_eq!(rule["name"], "Limit decompression output");
+        assert_eq!(rule["severity"], "CRITICAL");
+        assert_eq!(rule["type"], "VULNERABILITY");
+        assert!(rule["description"].as_str().unwrap().contains("gosec G110"));
+
+        let secondary = value["issues"][0]["secondaryLocations"]
+            .as_array()
+            .expect("flow source exported as secondary location");
+        assert_eq!(secondary.len(), 1, "primary sink is not duplicated");
+        assert_eq!(secondary[0]["filePath"], "src/archive.go");
+        assert_eq!(secondary[0]["textRange"]["startLine"], 2);
+    }
+
+    #[test]
     fn sonar_import_omits_text_range_for_file_level_issues() {
         let reports = vec![sample_report(
             "src/no-newline.py",
@@ -1700,6 +1858,7 @@ mod tests {
                 message: "Add a new line at the end of this file \"no-newline.py\".".to_string(),
                 range: Range::file_level(),
                 fix: None,
+                flows: Vec::new(),
             }],
         )];
         let value = sonar_import_value(embedded(), &reports);
@@ -1721,6 +1880,7 @@ mod tests {
                     end: Pos { line: 1, column: 1 },
                 },
                 fix: None,
+                flows: Vec::new(),
             }],
         )];
 
@@ -1744,6 +1904,7 @@ mod tests {
                 end: Pos { line: 1, column: 1 },
             },
             fix: None,
+            flows: Vec::new(),
         };
         let reports = vec![
             sample_report("src/a.py", "python", vec![issue("python:S112")]),
@@ -2231,6 +2392,7 @@ mod tests {
                 },
             },
             fix: None,
+            flows: Vec::new(),
         };
         let before = vec![issue("python:S1", 1, 0), issue("python:S2", 2, 0)];
         // S2 moved because of an earlier edit, but its unchanged count still
@@ -2305,6 +2467,7 @@ mod tests {
                     },
                 },
                 fix: None,
+                flows: Vec::new(),
             }],
         )];
 
@@ -2332,6 +2495,7 @@ mod tests {
                         },
                     },
                     fix: None,
+                    flows: Vec::new(),
                 }],
             )],
         };

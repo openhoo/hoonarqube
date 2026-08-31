@@ -1,7 +1,100 @@
 //! Ready-made fact lattices for common dataflow problems:
-//! [`ReachingFacts`] and [`LivenessFacts`].
+//! [`ReachingFacts`], [`LivenessFacts`], and [`TaintFacts`].
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+
+/// Variable-to-origin taint facts for forward may-analysis.
+///
+/// Each variable can retain multiple source origins after control-flow joins.
+/// Language adapters explicitly model sources with [`TaintFacts::taint`],
+/// assignments with [`TaintFacts::propagate`], and sanitizers or overwrites with
+/// [`TaintFacts::clear`]. Ordered maps and sets keep results deterministic.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaintFacts<V: Ord, O: Ord> {
+    variables: BTreeMap<V, BTreeSet<O>>,
+}
+
+impl<V: Ord, O: Ord> TaintFacts<V, O> {
+    /// Creates an empty taint fact set.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            variables: BTreeMap::new(),
+        }
+    }
+
+    /// Returns `true` when no variable is tainted.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.variables.is_empty()
+    }
+
+    /// Returns `true` when `variable` has at least one taint origin.
+    #[must_use]
+    pub fn is_tainted(&self, variable: &V) -> bool {
+        self.variables.contains_key(variable)
+    }
+
+    /// Adds `origin` to `variable`; returns whether the fact was new.
+    pub fn taint(&mut self, variable: V, origin: O) -> bool {
+        self.variables.entry(variable).or_default().insert(origin)
+    }
+
+    /// Removes every origin from `variable`; returns whether it was tainted.
+    pub fn clear(&mut self, variable: &V) -> bool {
+        self.variables.remove(variable).is_some()
+    }
+
+    /// Iterates all known origins for `variable`.
+    pub fn origins(&self, variable: &V) -> impl Iterator<Item = &O> {
+        self.variables.get(variable).into_iter().flatten()
+    }
+}
+
+impl<V: Ord + Clone, O: Ord + Clone> TaintFacts<V, O> {
+    /// Replaces `target` with the origins currently attached to `source`.
+    /// Returns whether `target` changed.
+    pub fn propagate(&mut self, source: &V, target: V) -> bool {
+        let origins = self.variables.get(source).cloned();
+        match origins {
+            Some(origins) => {
+                if self.variables.get(&target) == Some(&origins) {
+                    false
+                } else {
+                    self.variables.insert(target, origins);
+                    true
+                }
+            }
+            None => self.variables.remove(&target).is_some(),
+        }
+    }
+
+    /// Union of both fact sets, preserving every possible origin.
+    #[must_use]
+    pub fn union(&self, other: &Self) -> Self {
+        let mut merged = self.clone();
+        for (variable, origins) in &other.variables {
+            merged
+                .variables
+                .entry(variable.clone())
+                .or_default()
+                .extend(origins.iter().cloned());
+        }
+        merged
+    }
+
+    /// [`TaintFacts::union`] shaped for [`crate::solve_dataflow`]'s meet slot.
+    #[must_use]
+    pub fn meet_union(left: &Self, right: &Self) -> Self {
+        left.union(right)
+    }
+}
+
+impl<V: Ord, O: Ord> Default for TaintFacts<V, O> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Reaching-definitions facts: the set of definition `(variable, site)` pairs
 /// that may reach a program point.
@@ -210,7 +303,7 @@ impl<V: Ord> Default for LivenessFacts<V> {
 mod tests {
 
     use crate::test_support::{Lv, Rd, lv, rd};
-    use crate::{LivenessFacts, ReachingFacts};
+    use crate::{LivenessFacts, ReachingFacts, TaintFacts};
 
     #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
     struct NonClone(u8);
@@ -263,5 +356,29 @@ mod tests {
         let mut liveness = LivenessFacts::<NonClone>::default();
         assert!(liveness.use_var(NonClone(2)));
         assert!(liveness.kill_var(&NonClone(2)));
+    }
+
+    #[test]
+    fn taint_facts_track_propagation_sanitization_and_joins() {
+        let mut left = TaintFacts::new();
+        assert!(left.taint("input", 1));
+        assert!(left.propagate(&"input", "copy"));
+        assert_eq!(left.origins(&"copy").copied().collect::<Vec<_>>(), [1]);
+
+        let mut right = TaintFacts::new();
+        assert!(right.taint("input", 2));
+        let joined = TaintFacts::meet_union(&left, &right);
+        assert_eq!(
+            joined.origins(&"input").copied().collect::<Vec<_>>(),
+            [1, 2]
+        );
+        assert!(joined.is_tainted(&"copy"));
+
+        let mut sanitized = joined;
+        assert!(sanitized.clear(&"input"));
+        assert!(!sanitized.is_tainted(&"input"));
+        assert!(sanitized.propagate(&"input", "copy"));
+        assert!(sanitized.is_empty());
+        assert_eq!(TaintFacts::<&str, usize>::default(), TaintFacts::new());
     }
 }

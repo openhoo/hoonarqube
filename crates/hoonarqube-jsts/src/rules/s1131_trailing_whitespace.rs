@@ -32,6 +32,7 @@ fn check_trailing_whitespace(source: &str, language: JstsLanguage) -> Vec<Issue>
                 },
             },
             fix: None,
+            flows: Vec::new(),
         });
     }
     issues

@@ -122,6 +122,7 @@ pub(crate) fn issue(
         message: message.into(),
         range,
         fix: None,
+        flows: Vec::new(),
     }
 }
 

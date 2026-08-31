@@ -25,6 +25,7 @@ pub(crate) fn check_module_name(
             end: to_pos(TextSize::from(0), index, source),
         },
         fix: None,
+        flows: Vec::new(),
     }]
 }
 

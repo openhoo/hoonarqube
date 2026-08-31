@@ -236,6 +236,103 @@ pub fn analyze(
     }
 }
 
+/// Runs independently implemented non-Sonar C# rules. Rules requiring a
+/// semantic model only emit when the local declaration provides exact type
+/// evidence.
+#[must_use]
+pub fn analyze_native(source: &str) -> Vec<hoonarqube_ir::Issue> {
+    let tree = parse(source);
+    let root = tree.root_node();
+    if root.has_error() {
+        return Vec::new();
+    }
+    let mut issues = Vec::new();
+    for invocation in cst::collect_kinds(root, &["invocation_expression"]) {
+        let Some(access) = invocation.child_by_field_name("function") else {
+            continue;
+        };
+        if access.kind() != "member_access_expression" || !native_result_is_discarded(invocation) {
+            continue;
+        }
+        let (Some(name), Some(receiver)) = (
+            access.child_by_field_name("name"),
+            access.child_by_field_name("expression"),
+        ) else {
+            continue;
+        };
+        if !matches!(cst::node_text(name, source), "Read" | "ReadAsync") {
+            continue;
+        }
+        let is_known_stream = rules::expressions::resolved_identifier_type(receiver, source)
+            .is_some_and(|type_name| {
+                matches!(
+                    cst::simple_name(type_name),
+                    "Stream"
+                        | "FileStream"
+                        | "MemoryStream"
+                        | "BufferedStream"
+                        | "NetworkStream"
+                        | "CryptoStream"
+                )
+            });
+        if is_known_stream {
+            issues.push(hoonarqube_ir::Issue::new(
+                "hoonarqube-csharp:CA2022",
+                "Inspect the returned byte count because a stream read can be partial.",
+                cst::range_of(name, source),
+            ));
+        }
+    }
+    for access in cst::collect_kinds(root, &["member_access_expression"]) {
+        let Some(name) = access.child_by_field_name("name") else {
+            continue;
+        };
+        if cst::node_text(name, source) != "EndOfStream" {
+            continue;
+        }
+        let Some(receiver) = access.child_by_field_name("expression") else {
+            continue;
+        };
+        if rules::expressions::resolved_identifier_type(receiver, source)
+            .is_none_or(|type_name| cst::simple_name(type_name) != "StreamReader")
+        {
+            continue;
+        }
+        let inside_async = rules::expressions::enclosing_callable(access)
+            .is_some_and(|callable| native_callable_is_async(callable, source));
+        if inside_async {
+            issues.push(hoonarqube_ir::Issue::new(
+                "hoonarqube-csharp:CA2024",
+                "Use ReadLineAsync and test its result instead of EndOfStream.",
+                cst::range_of(name, source),
+            ));
+        }
+    }
+    hoonarqube_ir::sort_issues(&mut issues);
+    issues
+}
+
+fn native_callable_is_async(callable: tree_sitter::Node<'_>, source: &str) -> bool {
+    cst::modifiers_of(callable, source).contains(&"async")
+        || matches!(
+            callable.kind(),
+            "lambda_expression" | "anonymous_method_expression"
+        ) && callable
+            .children(&mut callable.walk())
+            .any(|child| cst::node_text(child, source) == "async")
+}
+
+fn native_result_is_discarded(mut expression: tree_sitter::Node<'_>) -> bool {
+    while let Some(parent) = expression.parent() {
+        match parent.kind() {
+            "expression_statement" => return true,
+            "await_expression" | "parenthesized_expression" => expression = parent,
+            _ => return false,
+        }
+    }
+    false
+}
+
 fn parse(source: &str) -> tree_sitter::Tree {
     let mut parser = Parser::new();
     parser
@@ -253,3 +350,84 @@ mod symbol_table;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod native_tests {
+    use super::analyze_native;
+
+    #[test]
+    fn ca2024_requires_async_context_and_exact_stream_reader_type() {
+        let bad = analyze_native(concat!(
+            "using System.IO;\n",
+            "using System.Threading.Tasks;\n",
+            "class C {\n",
+            "  async Task Read(StreamReader reader) {\n",
+            "    while (!reader.EndOfStream) { await reader.ReadLineAsync(); }\n",
+            "  }\n",
+            "}\n",
+        ));
+        assert_eq!(bad.len(), 1);
+        assert_eq!(bad[0].rule_key, "hoonarqube-csharp:CA2024");
+
+        for clean in [
+            "using System.IO; class C { void Read(StreamReader reader) { if (reader.EndOfStream) {} } }",
+            "class Reader { public bool EndOfStream => false; } class C { async void Read(Reader reader) { if (reader.EndOfStream) {} } }",
+            "using System; using System.IO; class C { async void Read(StreamReader reader) { Action inspect = () => Console.Write(reader.EndOfStream); } }",
+        ] {
+            assert!(analyze_native(clean).is_empty(), "{clean}");
+        }
+
+        let async_lambda = analyze_native(concat!(
+            "using System; using System.IO; using System.Threading.Tasks; class C { ",
+            "void Read(StreamReader reader) { Func<Task> inspect = async () => { ",
+            "if (reader.EndOfStream) {} await Task.Yield(); }; } }",
+        ));
+        assert!(
+            async_lambda
+                .iter()
+                .any(|issue| issue.rule_key == "hoonarqube-csharp:CA2024")
+        );
+    }
+
+    #[test]
+    fn ca2022_requires_discarded_result_and_exact_stream_type() {
+        let bad = analyze_native(concat!(
+            "using System.IO; using System.Threading.Tasks; class C {\n",
+            "  void Sync(Stream stream) { stream.Read(buffer, 0, len); }\n",
+            "  async Task Async(FileStream stream) { await stream.ReadAsync(buffer); }\n",
+            "}\n",
+        ));
+        assert_eq!(
+            bad.iter()
+                .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2022")
+                .count(),
+            2
+        );
+
+        for clean in [
+            "using System.IO; class C { int M(Stream stream) { return stream.Read(buffer, 0, len); } }",
+            "using System.IO; class C { void M(Stream stream) { int count = stream.Read(buffer, 0, len); } }",
+            "class Reader { public int Read(byte[] b) => 0; } class C { void M(Reader reader) { reader.Read(buffer); } }",
+        ] {
+            assert!(
+                !analyze_native(clean)
+                    .iter()
+                    .any(|issue| issue.rule_key == "hoonarqube-csharp:CA2022"),
+                "{clean}"
+            );
+        }
+
+        let scoped = analyze_native(concat!(
+            "using System.IO; class Reader { public int Read(byte[] b) => 0; } class C { ",
+            "void StreamUse(Stream value) { value.Read(buffer, 0, len); } ",
+            "void CustomUse(Reader value) { value.Read(buffer); } }",
+        ));
+        assert_eq!(
+            scoped
+                .iter()
+                .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2022")
+                .count(),
+            1
+        );
+    }
+}

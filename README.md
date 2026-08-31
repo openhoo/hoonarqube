@@ -1,8 +1,9 @@
 # Hoonarqube
 
 Rust-native SonarQube-compatible static analyzer for Python, JavaScript/TypeScript,
-C#, Go, and Rust, with a frozen rule catalog and a CLI that emits text, JSON, or
-SonarQube Generic Issue Import JSON.
+C#, Go, and Rust. It combines a frozen Sonar-parity catalog with a separate,
+provenance-rich native catalog and emits text, JSON, or SonarQube Generic Issue
+Import JSON.
 
 ## Workspace
 
@@ -10,14 +11,14 @@ SonarQube Generic Issue Import JSON.
 |---|---|
 | `hoonarqube` | Public facade crate: re-exports `analyze`, `Language`, `AnalyzerOptions`, catalog, IR |
 | `hoonarqube-core` | Language dispatch by extension and end-to-end `analyze()` orchestration |
-| `hoonarqube-catalog` | Frozen, embedded rule catalog (severity/type/parameters) — the single source of truth for rule metadata |
-| `hoonarqube-ir` | Findings and fix IR: `Pos`, `Range`, `Issue`, `Fix`, `TextEdit`, reports and metrics |
+| `hoonarqube-catalog` | Frozen Sonar catalog plus separate native metadata/provenance catalog and cumulative profiles |
+| `hoonarqube-ir` | Findings, execution/data-flow locations, and fix IR: `Issue`, `IssueFlow`, `Fix`, reports and metrics |
 | `hoonarqube-python` | Python analyzer (ruff parser) |
 | `hoonarqube-jsts` | JavaScript/TypeScript/JSX/TSX analyzer (oxc) |
 | `hoonarqube-csharp` | C# analyzer (tree-sitter-c-sharp) |
 | `hoonarqube-go` | Go analyzer (tree-sitter-go) |
 | `hoonarqube-rust` | Rust analyzer (tree-sitter-rust with Clippy-compatible contracts) |
-| `hoonarqube-dataflow` | Generic intra-procedural engine: CFG builder, worklist solvers, dominators (not yet wired into any analyzer; reserved for future Tier-B adoption) |
+| `hoonarqube-dataflow` | Generic intra-procedural engine: CFG builder, worklist solvers, dominators; consumed by Go's native decompression-flow rule |
 | `hoonarqube-cli` | `analyze` (text / JSON / SonarQube generic-issue), `fix`, plus `rules`/`snapshot` catalog queries |
 | `hoonarqube-bench` | Multi-language throughput benchmark over seeded synthetic fixtures |
 | `xtask` | Catalog audit + implemented-rule coverage reporting |
@@ -45,11 +46,14 @@ src/
 
 Invariants:
 
-- Rule keys are `<repository>:<key>` strings that resolve severity/type through the frozen catalog;
-  analyzers never duplicate rule metadata.
+- Sonar rule keys remain `<repository>:<key>` and resolve only through the frozen catalog.
+  Native keys use `hoonarqube-<language>:<key>` and resolve only through the separate native catalog;
+  analyzers never duplicate either metadata source.
 - Parsing is tolerant everywhere: partial syntax trees are analyzed, broken files never abort a run,
   and parse errors emit no findings unless a catalog rule exists for them.
 - Positions follow the SonarQube convention (1-based line, 0-based column); issues are sorted.
+- Flow-aware findings can carry ordered `IssueFlow` locations. Generic Issue Import output
+  exports non-primary flow steps as `secondaryLocations` because that schema has no code-flow group.
 - Metrics (`lines`, `code_lines`, `comment_lines`) are computed per file and preserved through every
   refactor.
 
@@ -109,11 +113,48 @@ rows spanning finding mismatches, misses, good-control fires, catalog drift,
 legacy/configuration skips, and approved infrastructure boundaries. Local
 coverage therefore does not imply analyzer parity.
 
+## Native rules and profiles
+
+Thirty-seven rules are independently implemented from published CodeQL,
+gosec, Staticcheck, .NET analyzer, and Clippy behavior. No third-party rule
+source is embedded. Every native record declares original tool/rule ID, source
+URL, upstream license, expected precision, implementation capability, impacts,
+and minimum profile. This catalog stays structurally separate from captured
+Sonar facts.
+
+| Language | Native rules | Sources |
+|---|---:|---|
+| Go | 27 | gosec G110/G112/G114/G116/G117/G301/G302/G303/G305/G306/G307/G401/G402/G403/G405/G406; Staticcheck SA1012/SA2000/SA2001/SA2003/SA4006/SA4008/SA4010/SA5000/SA5001/SA5003/SA6000 |
+| Python | 2 | CodeQL `py/side-effect-in-assert`, `py/file-not-closed` |
+| JavaScript | 2 | CodeQL skipped splice iteration, unhandled piped-stream errors |
+| TypeScript | 2 | Same CodeQL rules with a distinct TypeScript namespace |
+| C# | 2 | .NET CA2022/CA2024 |
+| Rust | 2 | Clippy `await_holding_lock`, `await_holding_refcell_ref` |
+
+Profiles are cumulative:
+
+- `sonar-parity` — default compatibility contract; disables all native rules.
+- `recommended` — 32 high-value, conservative native rules.
+- `extended` — 36 rules, including broader local-flow checks.
+- `strict` — all 37 rules; additionally enforces explicit `0600` file creation
+  instead of `os.Create`'s umask-dependent `0666` mode.
+
+The shared CFG engine now provides deterministic taint facts; Go G110 is its
+first taint-fact consumer and emits ordered source-to-sink locations. Rules needing
+unavailable type, SSA, or interprocedural proof stay absent instead of being
+approximated with broad text matching. Native results are not claims of
+CodeQL/gosec/Staticcheck/Roslyn/Clippy implementation parity.
+
 ## Usage
 
 ```bash
 cargo run -p hoonarqube-cli -- analyze <paths...>              # text report
+cargo run -p hoonarqube-cli -- analyze --profile recommended <paths>
+cargo run -p hoonarqube-cli -- analyze --profile extended <paths>
 cargo run -p hoonarqube-cli -- analyze --format sonar <paths>  # Generic Issue Import JSON
+cargo run -p hoonarqube-cli -- rules native                    # native provenance catalog
+cargo run -p hoonarqube-cli -- rules native --profile recommended --lang go
+cargo run -p hoonarqube-cli -- rules info hoonarqube-go:G110
 cargo run -p hoonarqube-cli -- fix <paths>                     # dry-run automatic fixes
 cargo run -p hoonarqube-cli -- fix --diff <paths>              # preview unified diff
 cargo run -p hoonarqube-cli -- fix --apply <paths>             # write and verify
