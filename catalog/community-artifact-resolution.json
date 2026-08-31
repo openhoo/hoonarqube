@@ -14,16 +14,16 @@
   "community_build_evidence": [
     {
       "version": "25.4.0.105899",
-      "image": "docker.io/library/sonarqube:25.4.0.105899-community",
+      "image": "docker.io/library/sonarqube:25.4.0.105899-community@sha256:133863e7cb79bf435d75164fa1c032c54ac2d0f0623c20b928814d2b5a78704f",
       "index_digest": "sha256:133863e7cb79bf435d75164fa1c032c54ac2d0f0623c20b928814d2b5a78704f",
       "amd64_digest": "sha256:e84115afa8be166a42586f04670a17fcb71c05b48afc76cbf8f1d0f19e44f578",
       "csharp_rule_count": 450
     },
     {
       "version": "26.8.0.126808",
-      "image": "docker.io/library/sonarqube:26.8.0.126808-community",
-      "index_digest": "sha256:4152a10d90904b97a29e82c964f7eba0c6d587ca118a0320e7dfdaf5d1a99760",
-      "amd64_digest": "sha256:9026624a61cd25542a402a9e7213dd7dbb39724ac9597e331e6b85362558c079",
+      "image": "docker.io/library/sonarqube:26.8.0.126808-community@sha256:9026624a61cd25542a402a9e7213dd7dbb39724ac9597e331e6b85362558c079",
+      "index_digest": "sha256:9026624a61cd25542a402a9e7213dd7dbb39724ac9597e331e6b85362558c079",
+      "amd64_digest": "sha256:4152a10d90904b97a29e82c964f7eba0c6d587ca118a0320e7dfdaf5d1a99760",
       "capture_sha256": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b",
       "go_rule_count": 36,
       "rust_rule_count": 85
