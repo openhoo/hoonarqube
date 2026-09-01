@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 (2026-09-01)
+
+### Features
+
+- **analyzer:** add native quality profiles (#7) (d87bb03)
+
 ## 0.2.4 (2026-08-31)
 
 ### Bug Fixes
