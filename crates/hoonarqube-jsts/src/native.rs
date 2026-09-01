@@ -5,13 +5,16 @@ use std::collections::{HashMap, HashSet};
 use hoonarqube_ir::Issue;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    BinaryOperator, BindingPattern, CallExpression, Expression, ForStatement, ForStatementInit,
-    ImportDeclaration, ImportDeclarationSpecifier, ModuleExportName, UpdateOperator,
-    VariableDeclarator,
+    AssignmentExpression, AssignmentOperator, BinaryOperator, BindingPattern, CallExpression,
+    DoWhileStatement, Expression, ForInStatement, ForOfStatement, ForStatement, ForStatementInit,
+    ImportDeclaration, ImportDeclarationSpecifier, ModuleExportName, ReturnStatement,
+    SwitchStatement, ThrowStatement, UpdateOperator, VariableDeclarator, WhileStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
-    walk_call_expression, walk_for_statement, walk_import_declaration, walk_variable_declarator,
+    walk_assignment_expression, walk_call_expression, walk_do_while_statement,
+    walk_for_in_statement, walk_for_of_statement, walk_for_statement, walk_import_declaration,
+    walk_switch_statement, walk_variable_declarator, walk_while_statement,
 };
 use oxc_parser::Parser;
 use oxc_span::{SourceType, Span};
@@ -21,8 +24,8 @@ use crate::JstsLanguage;
 use crate::engine::scope_model::{TbModel, build_tb_model};
 use crate::rules::shared::{argument_expression, call_property};
 use crate::support::{
-    LineIndex, binding_identifier_name, identifier_name, member_object, sort_issues,
-    static_property_name, unparenthesized, update_target_name,
+    LineIndex, assignment_target_name, binding_identifier_name, identifier_name, member_object,
+    sort_issues, static_property_name, unparenthesized, update_target_name,
 };
 
 pub(crate) fn analyze(source: &str, language: JstsLanguage) -> Vec<Issue> {
@@ -276,10 +279,15 @@ impl NativeCollector<'_> {
         }
         let mut body = ShiftingBody::new(&array, &counter);
         body.visit_statement(&loop_.body);
-        if body.adjusts_counter || body.breaks {
-            return;
-        }
         for span in body.splice_calls {
+            if body
+                .counter_adjustments
+                .iter()
+                .chain(&body.iteration_exits)
+                .any(|offset| *offset > span.end)
+            {
+                continue;
+            }
             self.emit(
                 "loop-iteration-skipped-due-to-shifting",
                 "Adjust the loop counter after splice or stop iterating after this removal.",
@@ -305,8 +313,9 @@ struct ShiftingBody<'a> {
     array: &'a str,
     counter: &'a str,
     splice_calls: Vec<Span>,
-    adjusts_counter: bool,
-    breaks: bool,
+    counter_adjustments: Vec<u32>,
+    iteration_exits: Vec<u32>,
+    nested_break_depth: usize,
 }
 
 impl<'a> ShiftingBody<'a> {
@@ -315,8 +324,9 @@ impl<'a> ShiftingBody<'a> {
             array,
             counter,
             splice_calls: Vec::new(),
-            adjusts_counter: false,
-            breaks: false,
+            counter_adjustments: Vec::new(),
+            iteration_exits: Vec::new(),
+            nested_break_depth: 0,
         }
     }
 }
@@ -341,12 +351,76 @@ impl<'a> Visit<'a> for ShiftingBody<'_> {
         if update_target_name(update) == Some(self.counter)
             && update.operator == UpdateOperator::Decrement
         {
-            self.adjusts_counter = true;
+            self.counter_adjustments.push(update.span.start);
         }
     }
 
-    fn visit_break_statement(&mut self, _statement: &oxc_ast::ast::BreakStatement) {
-        self.breaks = true;
+    fn visit_assignment_expression(&mut self, assignment: &AssignmentExpression<'a>) {
+        let target_is_counter = assignment_target_name(&assignment.left) == Some(self.counter);
+        let subtracts_one = assignment.operator == AssignmentOperator::Subtraction
+            && expression_is_numeric_one(&assignment.right);
+        let assigns_decrement = assignment.operator == AssignmentOperator::Assign
+            && matches!(
+                unparenthesized(&assignment.right),
+                Expression::BinaryExpression(binary)
+                    if binary.operator == BinaryOperator::Subtraction
+                        && identifier_name(&binary.left) == Some(self.counter)
+                        && expression_is_numeric_one(&binary.right)
+            );
+        if target_is_counter && (subtracts_one || assigns_decrement) {
+            self.counter_adjustments.push(assignment.span.start);
+        }
+        walk_assignment_expression(self, assignment);
+    }
+
+    fn visit_break_statement(&mut self, statement: &oxc_ast::ast::BreakStatement) {
+        if self.nested_break_depth == 0 || statement.label.is_some() {
+            self.iteration_exits.push(statement.span.start);
+        }
+    }
+
+    fn visit_return_statement(&mut self, statement: &ReturnStatement<'a>) {
+        self.iteration_exits.push(statement.span.start);
+    }
+
+    fn visit_throw_statement(&mut self, statement: &ThrowStatement<'a>) {
+        self.iteration_exits.push(statement.span.start);
+    }
+
+    fn visit_for_statement(&mut self, loop_: &ForStatement<'a>) {
+        self.nested_break_depth += 1;
+        walk_for_statement(self, loop_);
+        self.nested_break_depth -= 1;
+    }
+
+    fn visit_for_in_statement(&mut self, loop_: &ForInStatement<'a>) {
+        self.nested_break_depth += 1;
+        walk_for_in_statement(self, loop_);
+        self.nested_break_depth -= 1;
+    }
+
+    fn visit_for_of_statement(&mut self, loop_: &ForOfStatement<'a>) {
+        self.nested_break_depth += 1;
+        walk_for_of_statement(self, loop_);
+        self.nested_break_depth -= 1;
+    }
+
+    fn visit_while_statement(&mut self, loop_: &WhileStatement<'a>) {
+        self.nested_break_depth += 1;
+        walk_while_statement(self, loop_);
+        self.nested_break_depth -= 1;
+    }
+
+    fn visit_do_while_statement(&mut self, loop_: &DoWhileStatement<'a>) {
+        self.nested_break_depth += 1;
+        walk_do_while_statement(self, loop_);
+        self.nested_break_depth -= 1;
+    }
+
+    fn visit_switch_statement(&mut self, switch: &SwitchStatement<'a>) {
+        self.nested_break_depth += 1;
+        walk_switch_statement(self, switch);
+        self.nested_break_depth -= 1;
     }
 
     fn visit_function(&mut self, _function: &oxc_ast::ast::Function<'a>, _flags: ScopeFlags) {
@@ -359,6 +433,14 @@ impl<'a> Visit<'a> for ShiftingBody<'_> {
     ) {
         // Nested functions do not execute as part of the current iteration.
     }
+}
+
+fn expression_is_numeric_one(expression: &Expression<'_>) -> bool {
+    matches!(
+        unparenthesized(expression),
+        Expression::NumericLiteral(literal)
+            if literal.value.to_bits() == 1.0_f64.to_bits()
+    )
 }
 
 fn create_read_stream_factory_site(expression: &Expression<'_>) -> Option<StreamFactorySite> {
@@ -477,7 +559,11 @@ mod tests {
 
         for clean in [
             "for (let i = 0; i < parts.length; ++i) { parts.splice(i, 1); --i; }",
+            "for (let i = 0; i < parts.length; ++i) { parts.splice(i, 1); i -= 1; }",
+            "for (let i = 0; i < parts.length; ++i) { parts.splice(i, 1); i = i - 1; }",
             "for (let i = 0; i < parts.length; ++i) { parts.splice(i, 1); break; }",
+            "function trim(parts) { for (let i = 0; i < parts.length; ++i) { parts.splice(i, 1); return; } }",
+            "outer: for (let i = 0; i < parts.length; ++i) { while (ready) { parts.splice(i, 1); break outer; } }",
             "for (let i = 0; i < parts.length; ++i) { other.splice(i, 1); }",
         ] {
             assert!(keys(clean).is_empty(), "{clean}");
@@ -568,5 +654,22 @@ mod tests {
         ] {
             assert!(keys(clean).is_empty(), "{clean}");
         }
+    }
+
+    #[test]
+    fn shifting_loop_ignores_breaks_owned_by_nested_control_flow() {
+        let found = keys(concat!(
+            "for (let i = 0; i < parts.length; ++i) {\n",
+            "  while (ready) { break; }\n",
+            "  switch (kind) { case 1: break; }\n",
+            "  parts.splice(i, 1);\n",
+            "}\n",
+        ));
+        assert!(
+            found
+                .iter()
+                .any(|key| key.ends_with("loop-iteration-skipped-due-to-shifting")),
+            "nested breaks must not suppress the outer-loop finding: {found:?}",
+        );
     }
 }

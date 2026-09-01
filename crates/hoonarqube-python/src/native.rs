@@ -6,11 +6,11 @@ use hoonarqube_ir::Issue;
 use ruff_python_ast::{Expr, ModModule, Stmt, StmtFunctionDef};
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
-use ruff_text_size::{Ranged, TextRange};
+use ruff_text_size::{Ranged, TextRange, TextSize};
 
 use crate::support::{
-    called_name, child_bodies, for_each_expr, for_each_stmt, for_each_stmt_expr_in_scope,
-    for_each_stmt_in_scope, issue_at, parse,
+    called_name, child_bodies, collect_target_names, for_each_expr, for_each_stmt,
+    for_each_stmt_expr_in_scope, for_each_stmt_in_scope, issue_at, parse, stmt_store_names,
 };
 
 /// Runs the native Python rules. Syntax-invalid source stays silent because
@@ -107,7 +107,7 @@ fn expression_has_required_side_effect(expr: &Expr) -> bool {
     })
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct FileOpenNames {
     direct: HashSet<String>,
     modules: HashSet<String>,
@@ -117,14 +117,56 @@ impl FileOpenNames {
     fn collect(parsed: &Parsed<ModModule>) -> Self {
         let mut names = Self::default();
         names.direct.insert("open".to_string());
-        for stmt in &parsed.syntax().body {
+        names.with_scope(parsed.syntax().body.as_slice(), std::iter::empty())
+    }
+
+    fn for_function(&self, function: &StmtFunctionDef) -> Self {
+        self.clone().with_scope(
+            &function.body,
+            function
+                .parameters
+                .iter()
+                .map(|parameter| parameter.name().to_string()),
+        )
+    }
+
+    fn with_scope(
+        mut self,
+        suite: &[Stmt],
+        initial_shadows: impl IntoIterator<Item = String>,
+    ) -> Self {
+        let mut shadowed: HashSet<String> = initial_shadows.into_iter().collect();
+        for_each_stmt_in_scope(suite, &mut |stmt| {
+            let mut recognized = Self::default();
             match stmt {
-                Stmt::Import(import) => names.record_import(import),
-                Stmt::ImportFrom(import) => names.record_import_from(import),
+                Stmt::Import(import) => recognized.record_import(import),
+                Stmt::ImportFrom(import) => recognized.record_import_from(import),
                 _ => {}
             }
+            self.direct.extend(recognized.direct.iter().cloned());
+            self.modules.extend(recognized.modules.iter().cloned());
+            shadowed.extend(
+                stmt_store_names(stmt)
+                    .into_iter()
+                    .filter(|name| !recognized.contains(name)),
+            );
+        });
+        for_each_stmt_expr_in_scope(suite, &mut |expr| {
+            if let Expr::Named(named) = expr {
+                let mut targets = Vec::new();
+                collect_target_names(&named.target, &mut targets);
+                shadowed.extend(targets);
+            }
+        });
+        for name in shadowed {
+            self.direct.remove(&name);
+            self.modules.remove(&name);
         }
-        names
+        self
+    }
+
+    fn contains(&self, name: &str) -> bool {
+        self.direct.contains(name) || self.modules.contains(name)
     }
 
     fn record_import(&mut self, import: &ruff_python_ast::StmtImport) {
@@ -208,8 +250,9 @@ fn check_function_files(
     open_names: &FileOpenNames,
     issues: &mut Vec<Issue>,
 ) {
-    for binding in collect_open_bindings(function, open_names) {
-        if !binding_is_closed_or_escaped(function, &binding.name) {
+    let open_names = open_names.for_function(function);
+    for binding in collect_open_bindings(function, &open_names) {
+        if !binding_is_closed_or_escaped(function, &binding) {
             issues.push(issue_at(
                 "hoonarqube-python:file-not-closed",
                 "Close this file or open it with a with statement.",
@@ -253,23 +296,59 @@ fn collect_open_bindings(
     bindings
 }
 
-fn binding_is_closed_or_escaped(function: &StmtFunctionDef, binding: &str) -> bool {
+fn binding_is_closed_or_escaped(function: &StmtFunctionDef, binding: &OpenBinding) -> bool {
+    let lifetime_end = next_binding_write_end(function, binding);
+    let within_lifetime = |range: TextRange| {
+        range.start() > binding.range.start() && lifetime_end.is_none_or(|end| range.start() < end)
+    };
     let mut escaped = false;
     for_each_stmt_in_scope(&function.body, &mut |stmt| {
-        if statement_transfers_binding(stmt, binding) {
+        if within_lifetime(stmt.range()) && statement_transfers_binding(stmt, &binding.name) {
             escaped = true;
         }
     });
     let mut closed = false;
     for_each_stmt_expr_in_scope(&function.body, &mut |expr| {
-        if is_close_call(expr, binding) {
+        if !within_lifetime(expr.range()) {
+            return;
+        }
+        if is_close_call(expr, &binding.name) {
             closed = true;
         }
-        if call_transfers_binding(expr, binding) {
+        if call_transfers_binding(expr, &binding.name) {
             escaped = true;
         }
     });
-    closed || escaped || nested_scope_references(&function.body, binding)
+    closed || escaped || nested_scope_references(&function.body, &binding.name)
+}
+
+fn next_binding_write_end(function: &StmtFunctionDef, binding: &OpenBinding) -> Option<TextSize> {
+    let mut next = None;
+    for_each_stmt_in_scope(&function.body, &mut |stmt| {
+        if stmt.range().start() > binding.range.start()
+            && stmt_store_names(stmt)
+                .iter()
+                .any(|name| name == &binding.name)
+        {
+            next = Some(next.map_or(stmt.range().end(), |current: TextSize| {
+                current.min(stmt.range().end())
+            }));
+        }
+    });
+    for_each_stmt_expr_in_scope(&function.body, &mut |expr| {
+        if let Expr::Named(named) = expr
+            && expr.range().start() > binding.range.start()
+        {
+            let mut targets = Vec::new();
+            collect_target_names(&named.target, &mut targets);
+            if targets.iter().any(|name| name == &binding.name) {
+                next = Some(next.map_or(expr.range().end(), |current: TextSize| {
+                    current.min(expr.range().end())
+                }));
+            }
+        }
+    });
+    next
 }
 
 fn is_file_open(expr: &Expr, names: &FileOpenNames) -> bool {
@@ -449,6 +528,43 @@ mod tests {
                 .count(),
             2,
             "custom .open methods must stay clean: {precise:?}",
+        );
+
+        let edge_cases = keys(concat!(
+            "def custom(open):\n",
+            "    handle = open('not-a-file')\n",
+            "def order(handle):\n",
+            "    handle.close()\n",
+            "    handle = open('data')\n",
+            "def reopened():\n",
+            "    handle = open('first')\n",
+            "    handle.close()\n",
+            "    handle = open('second')\n",
+            "def local_import():\n",
+            "    from gzip import open as gzip_open\n",
+            "    handle = gzip_open('archive.gz')\n",
+        ));
+        assert_eq!(
+            edge_cases
+                .iter()
+                .filter(|key| key.as_str() == "hoonarqube-python:file-not-closed")
+                .count(),
+            3,
+            "shadowed opens and lifetime ordering must be distinguished: {edge_cases:?}",
+        );
+    }
+
+    #[test]
+    fn file_rule_ignores_module_level_open_shadowing() {
+        let found = keys(concat!(
+            "def open(path):\n",
+            "    return Resource(path)\n",
+            "def custom():\n",
+            "    handle = open('not-a-file')\n",
+        ));
+        assert!(
+            found.is_empty(),
+            "shadowed builtin must stay clean: {found:?}"
         );
     }
 }

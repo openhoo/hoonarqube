@@ -51,6 +51,8 @@ pub enum ControlFlowSpec<T> {
     /// Jumps to the re-evaluation point of the innermost enclosing loop; a
     /// no-op outside any loop.
     Continue,
+    /// Terminates the current control-flow path, as with a function return.
+    Return,
     /// Exception-handling approximation.
     ///
     /// Normal completion of `body` flows onward; edges are added from every
@@ -112,6 +114,7 @@ fn emit_spec<T>(
 
 enum EmitAction<T> {
     Spec(ControlFlowSpec<T>),
+    ReachableSpec(ControlFlowSpec<T>),
     StartFor {
         condition: Option<T>,
         body: ControlFlowSpec<T>,
@@ -166,6 +169,11 @@ fn run_action<T>(
 ) {
     match action {
         EmitAction::Spec(spec) => schedule_spec(spec, builder, loops, actions),
+        EmitAction::ReachableSpec(spec) => {
+            if !builder.frontier().is_empty() {
+                schedule_spec(spec, builder, loops, actions);
+            }
+        }
         EmitAction::StartFor {
             condition,
             body,
@@ -224,7 +232,7 @@ fn schedule_spec<T>(
             builder.push_block(payload);
         }
         ControlFlowSpec::Seq(items) => {
-            actions.extend(items.into_iter().rev().map(EmitAction::Spec));
+            actions.extend(items.into_iter().rev().map(EmitAction::ReachableSpec));
         }
         ControlFlowSpec::If {
             condition,
@@ -265,6 +273,7 @@ fn schedule_spec<T>(
         }
         ControlFlowSpec::Break => record_loop_jump(builder, loops, true),
         ControlFlowSpec::Continue => record_loop_jump(builder, loops, false),
+        ControlFlowSpec::Return => record_return(builder),
         ControlFlowSpec::Try {
             body,
             catch,
@@ -277,6 +286,13 @@ fn schedule_spec<T>(
             });
             actions.push(EmitAction::Spec(*body));
         }
+    }
+}
+
+fn record_return<T>(builder: &mut CfgBuilder<T>) {
+    let exit = builder.exit();
+    for source in builder.take_frontier() {
+        builder.add_edge(source, exit);
     }
 }
 
@@ -552,6 +568,25 @@ mod tests {
             assert_eq!(cfg.payload(cursor), &payload);
         }
         assert!(cfg.has_edge(cursor, cfg.exit()));
+    }
+
+    #[test]
+    fn spec_return_terminates_only_the_current_path() {
+        let cfg = build_from_blocks(
+            ControlFlowSpec::Seq(vec![
+                ControlFlowSpec::Stmt(Def("x", 0)),
+                ControlFlowSpec::Return,
+                ControlFlowSpec::Stmt(Use("x")),
+            ]),
+            Nop,
+            Nop,
+        );
+        let definition = block_by_payload(&cfg, &Def("x", 0));
+        assert!(cfg.has_edge(definition, cfg.exit()));
+        assert!(
+            !cfg.blocks().any(|block| cfg.payload(block) == &Use("x")),
+            "statements after an unconditional return are not emitted",
+        );
     }
 
     #[test]

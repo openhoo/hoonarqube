@@ -24,6 +24,7 @@
 //!   containing `RenderTreeBuilder` plus semantic invocation binding, which a
 //!   single-pass tree-sitter syntax tree cannot provide.
 
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use tree_sitter::Parser;
@@ -251,7 +252,9 @@ pub fn analyze_native(source: &str) -> Vec<hoonarqube_ir::Issue> {
         let Some(access) = invocation.child_by_field_name("function") else {
             continue;
         };
-        if access.kind() != "member_access_expression" || !native_result_is_discarded(invocation) {
+        if access.kind() != "member_access_expression"
+            || !native_result_is_discarded(invocation, source)
+        {
             continue;
         }
         let (Some(name), Some(receiver)) = (
@@ -263,18 +266,9 @@ pub fn analyze_native(source: &str) -> Vec<hoonarqube_ir::Issue> {
         if !matches!(cst::node_text(name, source), "Read" | "ReadAsync") {
             continue;
         }
+        let type_evidence = NativeTypeEvidence::collect_for(root, receiver, source);
         let is_known_stream = rules::expressions::resolved_identifier_type(receiver, source)
-            .is_some_and(|type_name| {
-                matches!(
-                    cst::simple_name(type_name),
-                    "Stream"
-                        | "FileStream"
-                        | "MemoryStream"
-                        | "BufferedStream"
-                        | "NetworkStream"
-                        | "CryptoStream"
-                )
-            });
+            .is_some_and(|type_name| type_evidence.is_stream(type_name));
         if is_known_stream {
             issues.push(hoonarqube_ir::Issue::new(
                 "hoonarqube-csharp:CA2022",
@@ -293,8 +287,9 @@ pub fn analyze_native(source: &str) -> Vec<hoonarqube_ir::Issue> {
         let Some(receiver) = access.child_by_field_name("expression") else {
             continue;
         };
+        let type_evidence = NativeTypeEvidence::collect_for(root, receiver, source);
         if rules::expressions::resolved_identifier_type(receiver, source)
-            .is_none_or(|type_name| cst::simple_name(type_name) != "StreamReader")
+            .is_none_or(|type_name| !type_evidence.matches(type_name, &["System.IO.StreamReader"]))
         {
             continue;
         }
@@ -312,6 +307,127 @@ pub fn analyze_native(source: &str) -> Vec<hoonarqube_ir::Issue> {
     issues
 }
 
+#[derive(Default)]
+struct NativeTypeEvidence {
+    imported_namespaces: HashSet<String>,
+    aliases: HashMap<String, String>,
+    declared_types: HashSet<String>,
+}
+
+impl NativeTypeEvidence {
+    fn collect_for(root: tree_sitter::Node<'_>, at: tree_sitter::Node<'_>, source: &str) -> Self {
+        let mut evidence = Self::default();
+        for declaration in cst::collect_kinds(
+            root,
+            &[
+                "class_declaration",
+                "interface_declaration",
+                "record_declaration",
+                "struct_declaration",
+            ],
+        ) {
+            if let Some(name) = declaration.child_by_field_name("name") {
+                evidence
+                    .declared_types
+                    .insert(cst::node_text(name, source).to_string());
+            }
+        }
+        for using in cst::collect_kinds(root, &["using_directive"]) {
+            if !native_using_applies(using, at) {
+                continue;
+            }
+            let compact: String = cst::node_text(using, source)
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .collect();
+            let Some(body) = compact
+                .strip_prefix("globalusing")
+                .or_else(|| compact.strip_prefix("using"))
+                .and_then(|body| body.strip_suffix(';'))
+            else {
+                continue;
+            };
+            if body.starts_with("static") {
+                continue;
+            }
+            if let Some((alias, target)) = body.split_once('=') {
+                evidence.aliases.insert(
+                    alias.to_string(),
+                    target.trim_start_matches("global::").to_string(),
+                );
+            } else {
+                evidence
+                    .imported_namespaces
+                    .insert(body.trim_start_matches("global::").to_string());
+            }
+        }
+        evidence
+    }
+
+    fn is_stream(&self, type_name: &str) -> bool {
+        self.matches(
+            type_name,
+            &[
+                "System.IO.Stream",
+                "System.IO.FileStream",
+                "System.IO.MemoryStream",
+                "System.IO.BufferedStream",
+                "System.Net.Sockets.NetworkStream",
+                "System.Security.Cryptography.CryptoStream",
+            ],
+        )
+    }
+
+    fn matches(&self, type_name: &str, full_names: &[&str]) -> bool {
+        let compact: String = type_name
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect();
+        let normalized = compact.trim_end_matches('?').trim_start_matches("global::");
+        full_names.iter().any(|full_name| {
+            if normalized == *full_name {
+                return true;
+            }
+            if self
+                .aliases
+                .get(normalized)
+                .is_some_and(|target| target == full_name)
+            {
+                return true;
+            }
+            let Some((namespace, simple)) = full_name.rsplit_once('.') else {
+                return false;
+            };
+            if let Some((prefix, type_simple)) = normalized.rsplit_once('.') {
+                return type_simple == simple
+                    && self
+                        .aliases
+                        .get(prefix)
+                        .is_some_and(|target| target == namespace);
+            }
+            normalized == simple
+                && self.imported_namespaces.contains(namespace)
+                && !self.declared_types.contains(simple)
+                && !self.aliases.contains_key(simple)
+        })
+    }
+}
+
+fn native_using_applies(using: tree_sitter::Node<'_>, at: tree_sitter::Node<'_>) -> bool {
+    let owner = std::iter::successors(using.parent(), tree_sitter::Node::parent).find(|ancestor| {
+        matches!(
+            ancestor.kind(),
+            "compilation_unit" | "namespace_declaration" | "file_scoped_namespace_declaration"
+        )
+    });
+    let Some(owner) = owner else {
+        return false;
+    };
+    owner.kind() == "compilation_unit"
+        || std::iter::successors(at.parent(), tree_sitter::Node::parent)
+            .any(|ancestor| ancestor == owner)
+}
+
 fn native_callable_is_async(callable: tree_sitter::Node<'_>, source: &str) -> bool {
     cst::modifiers_of(callable, source).contains(&"async")
         || matches!(
@@ -322,11 +438,21 @@ fn native_callable_is_async(callable: tree_sitter::Node<'_>, source: &str) -> bo
             .any(|child| cst::node_text(child, source) == "async")
 }
 
-fn native_result_is_discarded(mut expression: tree_sitter::Node<'_>) -> bool {
+fn native_result_is_discarded(mut expression: tree_sitter::Node<'_>, source: &str) -> bool {
     while let Some(parent) = expression.parent() {
         match parent.kind() {
             "expression_statement" => return true,
             "await_expression" | "parenthesized_expression" => expression = parent,
+            "assignment_expression"
+                if parent.child_by_field_name("left").is_some_and(|left| {
+                    cst::node_text(left, source) == "_"
+                        && parent
+                            .child_by_field_name("operator")
+                            .is_some_and(|operator| cst::node_text(operator, source) == "=")
+                }) =>
+            {
+                return true;
+            }
             _ => return false,
         }
     }
@@ -395,19 +521,22 @@ mod native_tests {
             "using System.IO; using System.Threading.Tasks; class C {\n",
             "  void Sync(Stream stream) { stream.Read(buffer, 0, len); }\n",
             "  async Task Async(FileStream stream) { await stream.ReadAsync(buffer); }\n",
+            "  void ExplicitDiscard(Stream stream) { _ = stream.Read(buffer, 0, len); }\n",
             "}\n",
         ));
         assert_eq!(
             bad.iter()
                 .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2022")
                 .count(),
-            2
+            3
         );
 
         for clean in [
             "using System.IO; class C { int M(Stream stream) { return stream.Read(buffer, 0, len); } }",
             "using System.IO; class C { void M(Stream stream) { int count = stream.Read(buffer, 0, len); } }",
             "class Reader { public int Read(byte[] b) => 0; } class C { void M(Reader reader) { reader.Read(buffer); } }",
+            "class Stream { public int Read(byte[] b) => 0; } class C { void M(Stream stream) { stream.Read(buffer); } }",
+            "using System.IO; class Stream { public int Read(byte[] b) => 0; } class C { void M(Stream stream) { stream.Read(buffer); } }",
         ] {
             assert!(
                 !analyze_native(clean)
@@ -428,6 +557,33 @@ mod native_tests {
                 .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2022")
                 .count(),
             1
+        );
+
+        let alias = analyze_native(concat!(
+            "using IOStream = System.IO.Stream; class C { ",
+            "void Read(IOStream stream) { stream.Read(buffer, 0, len); } }",
+        ));
+        assert_eq!(
+            alias
+                .iter()
+                .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2022")
+                .count(),
+            1,
+        );
+
+        let namespace_scope = analyze_native(concat!(
+            "namespace Standard { using System.IO; class C { ",
+            "void Read(Stream stream) { stream.Read(buffer, 0, len); } } } ",
+            "namespace Custom { class C { ",
+            "void Read(Stream stream) { stream.Read(buffer, 0, len); } } }",
+        ));
+        assert_eq!(
+            namespace_scope
+                .iter()
+                .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2022")
+                .count(),
+            1,
+            "namespace-local imports must not leak type evidence",
         );
     }
 }

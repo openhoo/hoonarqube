@@ -419,8 +419,6 @@ pub fn analyze_native(source: &str) -> Vec<Issue> {
         return Vec::new();
     }
 
-    let type_evidence = NativeGuardTypes::collect(root, source);
-
     let mut issues = Vec::new();
     walk(root, &mut |declaration| {
         if declaration.kind() != "let_declaration" {
@@ -438,7 +436,7 @@ pub fn analyze_native(source: &str) -> Vec<Issue> {
         let Some(value) = declaration.child_by_field_name("value") else {
             return;
         };
-        let rule = native_guard_rule(declaration, value, source, &type_evidence);
+        let rule = native_guard_rule(declaration, value, source);
         let Some((key, message)) = rule else {
             return;
         };
@@ -471,22 +469,121 @@ struct NativeGuardTypes {
 }
 
 impl NativeGuardTypes {
-    fn collect(root: Node<'_>, source: &str) -> Self {
+    fn collect_for(at: Node<'_>, source: &str) -> Self {
         let mut types = Self::default();
-        walk(root, &mut |node| {
-            if node.kind() != "use_declaration" {
-                return;
+        let mut shadowed = HashSet::new();
+        for scope in std::iter::successors(at.parent(), Node::parent) {
+            collect_native_type_parameter_bindings(scope, source, &mut shadowed);
+            if !matches!(scope.kind(), "block" | "declaration_list" | "source_file") {
+                continue;
             }
-            let compact: String = text(node, source)
-                .chars()
-                .filter(|character| !character.is_whitespace())
-                .collect();
-            collect_native_use_aliases(&compact, "std::sync", "Mutex", &mut types.mutexes);
-            collect_native_use_aliases(&compact, "std::sync", "RwLock", &mut types.rwlocks);
-            collect_native_use_aliases(&compact, "std::cell", "RefCell", &mut types.refcells);
-        });
+            let mut scope_types = Self::default();
+            let mut scope_bindings = HashSet::new();
+            let mut cursor = scope.walk();
+            for node in scope
+                .named_children(&mut cursor)
+                .filter(|child| child.kind() == "use_declaration")
+            {
+                let compact: String = text(node, source)
+                    .chars()
+                    .filter(|character| !character.is_whitespace())
+                    .collect();
+                collect_native_use_aliases(
+                    &compact,
+                    "std::sync",
+                    "Mutex",
+                    &mut scope_types.mutexes,
+                );
+                collect_native_use_aliases(
+                    &compact,
+                    "std::sync",
+                    "RwLock",
+                    &mut scope_types.rwlocks,
+                );
+                collect_native_use_aliases(
+                    &compact,
+                    "std::cell",
+                    "RefCell",
+                    &mut scope_types.refcells,
+                );
+                collect_native_use_bindings(node, source, &mut scope_bindings);
+            }
+            types
+                .mutexes
+                .extend(scope_types.mutexes.difference(&shadowed).cloned());
+            types
+                .rwlocks
+                .extend(scope_types.rwlocks.difference(&shadowed).cloned());
+            types
+                .refcells
+                .extend(scope_types.refcells.difference(&shadowed).cloned());
+            shadowed.extend(scope_bindings);
+            if scope.kind() == "source_file"
+                || (scope.kind() == "declaration_list"
+                    && scope
+                        .parent()
+                        .is_some_and(|parent| parent.kind() == "mod_item"))
+            {
+                // A Rust child module does not inherit unqualified imports from
+                // its parent module. Stop after the nearest module scope while
+                // still accepting imports from enclosing blocks and impls.
+                break;
+            }
+        }
         types
     }
+}
+
+fn collect_native_type_parameter_bindings(
+    item: Node<'_>,
+    source: &str,
+    bindings: &mut HashSet<String>,
+) {
+    let Some(parameters) = item.child_by_field_name("type_parameters") else {
+        return;
+    };
+    let mut cursor = parameters.walk();
+    for parameter in parameters
+        .named_children(&mut cursor)
+        .filter(|parameter| parameter.kind() == "type_parameter")
+    {
+        if let Some(name) = parameter.child_by_field_name("name") {
+            bindings.insert(text(name, source).to_string());
+        }
+    }
+}
+
+fn collect_native_use_bindings(
+    declaration: Node<'_>,
+    source: &str,
+    bindings: &mut HashSet<String>,
+) {
+    let Some(argument) = declaration.child_by_field_name("argument") else {
+        return;
+    };
+    walk(argument, &mut |node| {
+        if node.kind() == "use_as_clause" {
+            if let Some(alias) = node.child_by_field_name("alias") {
+                bindings.insert(text(alias, source).to_string());
+            }
+            return;
+        }
+        let is_top_level_argument = node == argument;
+        let is_list_item = node
+            .parent()
+            .is_some_and(|parent| parent.kind() == "use_list");
+        if !(is_top_level_argument || is_list_item) {
+            return;
+        }
+        let name = match node.kind() {
+            "identifier" => Some(node),
+            "scoped_identifier" => node.child_by_field_name("name"),
+            _ => None,
+        };
+        if let Some(name) = name {
+            bindings.insert(text(name, source).to_string());
+        }
+    });
 }
 
 fn collect_native_use_aliases(
@@ -530,11 +627,11 @@ fn native_guard_rule(
     declaration: Node<'_>,
     value: Node<'_>,
     source: &str,
-    types: &NativeGuardTypes,
 ) -> Option<(&'static str, &'static str)> {
     let (receiver, method) = native_guard_acquisition(value, source)?;
     let function = std::iter::successors(declaration.parent(), Node::parent)
         .find(|ancestor| ancestor.kind() == "function_item")?;
+    let types = NativeGuardTypes::collect_for(declaration, source);
     let receiver_type = native_parameter_type(function, receiver, source)?;
     let is_mutex =
         method == "lock" && native_type_matches(receiver_type, "std::sync::Mutex", &types.mutexes);
@@ -3725,6 +3822,62 @@ mod tests {
             conditional_drop
                 .iter()
                 .any(|issue| issue.rule_key == "hoonarqube-rust:await-holding-lock")
+        );
+
+        let scoped_alias = analyze_native(concat!(
+            "use std::sync::Mutex;\n",
+            "mod custom {\n",
+            "  use crate::Gate as Mutex;\n",
+            "  impl Mutex { fn lock(&self) -> Guard { Guard } }\n",
+            "  async fn run(mutex: &Mutex) {\n",
+            "    let guard = mutex.lock(); work().await; drop(guard);\n",
+            "  }\n",
+            "}\n",
+            "struct Gate; struct Guard;\n",
+        ));
+        assert!(
+            scoped_alias.is_empty(),
+            "imports from sibling modules must not provide type evidence: {scoped_alias:?}",
+        );
+
+        let parent_import = analyze_native(concat!(
+            "use std::sync::Mutex;\n",
+            "mod custom {\n",
+            "  struct Mutex; struct Guard;\n",
+            "  impl Mutex { fn lock(&self) -> Guard { Guard } }\n",
+            "  async fn run(mutex: &Mutex) {\n",
+            "    let guard = mutex.lock(); work().await; drop(guard);\n",
+            "  }\n",
+            "}\n",
+        ));
+        assert!(
+            parent_import.is_empty(),
+            "parent-module imports must not leak into child modules: {parent_import:?}",
+        );
+
+        let local_import = analyze_native(concat!(
+            "struct C;\n",
+            "async fn run(mutex: &C) {\n",
+            "  use std::sync::Mutex as C;\n",
+            "  let guard = mutex.lock(); work().await; drop(guard);\n",
+            "}\n",
+        ));
+        assert!(
+            local_import
+                .iter()
+                .any(|issue| issue.rule_key == "hoonarqube-rust:await-holding-lock"),
+            "function-local imports must provide type evidence: {local_import:?}",
+        );
+
+        let generic_shadow = analyze_native(concat!(
+            "use std::sync::Mutex;\n",
+            "async fn run<Mutex>(mutex: &Mutex) {\n",
+            "  let guard = mutex.lock(); work().await; drop(guard);\n",
+            "}\n",
+        ));
+        assert!(
+            generic_shadow.is_empty(),
+            "generic parameters must shadow imported guard names: {generic_shadow:?}",
         );
     }
 }
