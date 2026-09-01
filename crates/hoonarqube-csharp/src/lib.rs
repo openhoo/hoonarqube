@@ -277,6 +277,17 @@ pub fn analyze_native(source: &str) -> Vec<hoonarqube_ir::Issue> {
             ));
         }
     }
+    issues.extend(native_end_of_stream_issues(root, source));
+    issues.extend(native_json_element_parse_issues(root, source));
+    hoonarqube_ir::sort_issues(&mut issues);
+    issues
+}
+
+fn native_end_of_stream_issues(
+    root: tree_sitter::Node<'_>,
+    source: &str,
+) -> Vec<hoonarqube_ir::Issue> {
+    let mut issues = Vec::new();
     for access in cst::collect_kinds(root, &["member_access_expression"]) {
         let Some(name) = access.child_by_field_name("name") else {
             continue;
@@ -303,7 +314,55 @@ pub fn analyze_native(source: &str) -> Vec<hoonarqube_ir::Issue> {
             ));
         }
     }
-    hoonarqube_ir::sort_issues(&mut issues);
+    issues
+}
+
+fn native_json_element_parse_issues(
+    root: tree_sitter::Node<'_>,
+    source: &str,
+) -> Vec<hoonarqube_ir::Issue> {
+    let mut issues = Vec::new();
+    for access in cst::collect_kinds(root, &["member_access_expression"]) {
+        let (Some(name), Some(invocation)) = (
+            access.child_by_field_name("name"),
+            access.child_by_field_name("expression"),
+        ) else {
+            continue;
+        };
+        if cst::node_text(name, source) != "RootElement"
+            || invocation.kind() != "invocation_expression"
+        {
+            continue;
+        }
+        let Some(parse_access) = invocation.child_by_field_name("function") else {
+            continue;
+        };
+        if parse_access.kind() != "member_access_expression" {
+            continue;
+        }
+        let (Some(parse_name), Some(json_document)) = (
+            parse_access.child_by_field_name("name"),
+            parse_access.child_by_field_name("expression"),
+        ) else {
+            continue;
+        };
+        if cst::node_text(parse_name, source) != "Parse"
+            || rules::expressions::resolved_identifier_type(json_document, source).is_some()
+        {
+            continue;
+        }
+        let type_evidence = NativeTypeEvidence::collect_for(root, json_document, source);
+        if type_evidence.matches(
+            cst::node_text(json_document, source),
+            &["System.Text.Json.JsonDocument"],
+        ) {
+            issues.push(hoonarqube_ir::Issue::new(
+                "hoonarqube-csharp:CA2026",
+                "Use JsonElement.Parse instead of retaining RootElement from a temporary JsonDocument.",
+                cst::range_of(name, source),
+            ));
+        }
+    }
     issues
 }
 
@@ -585,5 +644,48 @@ mod native_tests {
             1,
             "namespace-local imports must not leak type evidence",
         );
+    }
+
+    #[test]
+    fn ca2026_requires_exact_json_document_parse_root_element_chain() {
+        let found = analyze_native(concat!(
+            "using System.Text.Json; class C { JsonElement Parse(string json) { ",
+            "return JsonDocument.Parse(json).RootElement; } }",
+        ));
+        assert_eq!(
+            found
+                .iter()
+                .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2026")
+                .count(),
+            1,
+        );
+
+        let aliases = analyze_native(concat!(
+            "using Doc = System.Text.Json.JsonDocument; ",
+            "using Json = System.Text.Json; class C { object Parse(string value) { ",
+            "var first = Doc.Parse(value).RootElement; ",
+            "return Json.JsonDocument.Parse(value).RootElement; } }",
+        ));
+        assert_eq!(
+            aliases
+                .iter()
+                .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2026")
+                .count(),
+            2,
+        );
+
+        for clean in [
+            "class JsonDocument { public static JsonDocument Parse(string value) => new(); public object RootElement => null; } class C { object M(string value) => JsonDocument.Parse(value).RootElement; }",
+            "using System.Text.Json; class C { object M(dynamic JsonDocument, string value) => JsonDocument.Parse(value).RootElement; }",
+            "using System.Text.Json; class C { object M(JsonDocument document) => document.RootElement; }",
+            "using System.Text.Json; class C { JsonDocument M(string value) => JsonDocument.Parse(value); }",
+        ] {
+            assert!(
+                !analyze_native(clean)
+                    .iter()
+                    .any(|issue| issue.rule_key == "hoonarqube-csharp:CA2026"),
+                "{clean}",
+            );
+        }
     }
 }

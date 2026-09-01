@@ -7,17 +7,18 @@ use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     AssignmentExpression, AssignmentOperator, BinaryOperator, BindingPattern, CallExpression,
     DoWhileStatement, Expression, ForInStatement, ForOfStatement, ForStatement, ForStatementInit,
-    ImportDeclaration, ImportDeclarationSpecifier, ModuleExportName, ReturnStatement,
-    SwitchStatement, ThrowStatement, UpdateOperator, VariableDeclarator, WhileStatement,
+    FunctionBody, ImportDeclaration, ImportDeclarationSpecifier, ModuleExportName, NewExpression,
+    ReturnStatement, SwitchStatement, ThrowStatement, UpdateOperator, VariableDeclarator,
+    WhileStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_assignment_expression, walk_call_expression, walk_do_while_statement,
     walk_for_in_statement, walk_for_of_statement, walk_for_statement, walk_import_declaration,
-    walk_switch_statement, walk_variable_declarator, walk_while_statement,
+    walk_new_expression, walk_switch_statement, walk_variable_declarator, walk_while_statement,
 };
 use oxc_parser::Parser;
-use oxc_span::{SourceType, Span};
+use oxc_span::{GetSpan, SourceType, Span};
 use oxc_syntax::scope::ScopeFlags;
 
 use crate::JstsLanguage;
@@ -295,6 +296,65 @@ impl NativeCollector<'_> {
             );
         }
     }
+
+    fn check_promise_executor(&mut self, expression: &NewExpression<'_>) {
+        let Expression::Identifier(promise) = unparenthesized(&expression.callee) else {
+            return;
+        };
+        if promise.name.as_str() != "Promise"
+            || self.binding_by_read.contains_key(&span_key(promise.span))
+        {
+            return;
+        }
+        let Some(executor) = expression.arguments.first().and_then(argument_expression) else {
+            return;
+        };
+        match unparenthesized(executor) {
+            Expression::ArrowFunctionExpression(function) => {
+                if function.r#async {
+                    self.emit(
+                        "no-async-promise-executor",
+                        "Remove async from this Promise executor and handle asynchronous work explicitly.",
+                        function.span,
+                    );
+                }
+                if let Some(body) = function.body.as_expression() {
+                    self.emit(
+                        "no-promise-executor-return",
+                        "Do not return a value from this Promise executor.",
+                        body.span(),
+                    );
+                } else if let oxc_ast::ast::ArrowFunctionBody::FunctionBody(body) = &function.body {
+                    self.report_executor_returns(body);
+                }
+            }
+            Expression::FunctionExpression(function) => {
+                if function.r#async {
+                    self.emit(
+                        "no-async-promise-executor",
+                        "Remove async from this Promise executor and handle asynchronous work explicitly.",
+                        function.span,
+                    );
+                }
+                if let Some(body) = function.body.as_deref() {
+                    self.report_executor_returns(body);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn report_executor_returns(&mut self, body: &FunctionBody<'_>) {
+        let mut returns = ExecutorReturns::default();
+        returns.visit_function_body(body);
+        for span in returns.valued {
+            self.emit(
+                "no-promise-executor-return",
+                "Do not return a value from this Promise executor.",
+                span,
+            );
+        }
+    }
 }
 
 impl<'a> Visit<'a> for NativeCollector<'_> {
@@ -306,6 +366,35 @@ impl<'a> Visit<'a> for NativeCollector<'_> {
     fn visit_for_statement(&mut self, loop_: &ForStatement<'a>) {
         self.check_shifting_loop(loop_);
         walk_for_statement(self, loop_);
+    }
+
+    fn visit_new_expression(&mut self, expression: &NewExpression<'a>) {
+        self.check_promise_executor(expression);
+        walk_new_expression(self, expression);
+    }
+}
+
+#[derive(Default)]
+struct ExecutorReturns {
+    valued: Vec<Span>,
+}
+
+impl<'a> Visit<'a> for ExecutorReturns {
+    fn visit_return_statement(&mut self, statement: &ReturnStatement<'a>) {
+        if statement.argument.is_some() {
+            self.valued.push(statement.span);
+        }
+    }
+
+    fn visit_function(&mut self, _function: &oxc_ast::ast::Function<'a>, _flags: ScopeFlags) {
+        // A nested function owns its returns.
+    }
+
+    fn visit_arrow_function_expression(
+        &mut self,
+        _function: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+    ) {
+        // A nested arrow owns its returns.
     }
 }
 
@@ -643,6 +732,50 @@ mod tests {
             analyze(source, JstsLanguage::TypeScript)[0]
                 .rule_key
                 .starts_with("hoonarqube-typescript:")
+        );
+    }
+
+    #[test]
+    fn promise_rules_require_global_promise_and_own_executor_returns() {
+        let found = keys(concat!(
+            "new Promise(async (resolve) => { await work(); resolve(); });\n",
+            "new Promise((resolve) => resolve(run()));\n",
+            "new Promise(function (resolve) { if (ready) return resolve(); });\n",
+        ));
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.ends_with("no-async-promise-executor"))
+                .count(),
+            1,
+        );
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.ends_with("no-promise-executor-return"))
+                .count(),
+            2,
+        );
+
+        for clean in [
+            "new Promise((resolve) => { resolve(); return; });",
+            "new Promise((resolve) => { function nested() { return value; } resolve(); });",
+            "function custom(Promise) { new Promise(async () => value); }",
+            "const Promise = Factory; new Promise(async () => value);",
+            "new CustomPromise(async () => value);",
+        ] {
+            assert!(keys(clean).is_empty(), "{clean}");
+        }
+
+        let typescript = analyze(
+            "new Promise(async (resolve: (value: number) => void) => resolve(await load()));",
+            JstsLanguage::TypeScript,
+        );
+        assert_eq!(typescript.len(), 2);
+        assert!(
+            typescript
+                .iter()
+                .all(|issue| issue.rule_key.starts_with("hoonarqube-typescript:"))
         );
     }
 

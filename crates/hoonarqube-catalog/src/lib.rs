@@ -152,10 +152,21 @@ const DOTNET_CA2022_URL: &str =
     "https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2022";
 const DOTNET_CA2024_URL: &str =
     "https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2024";
+const DOTNET_CA2026_URL: &str =
+    "https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2026";
+const ESLINT_ASYNC_EXECUTOR_URL: &str =
+    "https://eslint.org/docs/latest/rules/no-async-promise-executor";
+const ESLINT_EXECUTOR_RETURN_URL: &str =
+    "https://eslint.org/docs/latest/rules/no-promise-executor-return";
+const RUFF_REQUEST_TIMEOUT_URL: &str = "https://docs.astral.sh/ruff/rules/request-without-timeout/";
 const CLIPPY_LOCK_URL: &str =
     "https://rust-lang.github.io/rust-clippy/master/index.html#await_holding_lock";
 const CLIPPY_REFCELL_URL: &str =
     "https://rust-lang.github.io/rust-clippy/master/index.html#await_holding_refcell_ref";
+const CLIPPY_PERMISSIONS_URL: &str =
+    "https://rust-lang.github.io/rust-clippy/master/index.html#permissions_set_readonly_false";
+const CLIPPY_OPEN_OPTIONS_URL: &str =
+    "https://rust-lang.github.io/rust-clippy/master/index.html#suspicious_open_options";
 const INDEPENDENT_DERIVATION: &str =
     "Independent implementation from published rule behavior; no third-party source embedded.";
 
@@ -219,6 +230,23 @@ const NATIVE_RULES: &[NativeRuleRecord] = &[
         ".NET analyzers",
         "CA2024",
         DOTNET_CA2024_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-csharp:CA2026",
+        "cs",
+        "Prefer JsonElement.Parse",
+        "Parsing a temporary JsonDocument only to retain RootElement keeps disposable backing data alive unnecessarily.",
+        "MAJOR",
+        "BUG",
+        "EFFICIENT",
+        RELIABILITY_MEDIUM,
+        Extended,
+        High,
+        SemanticAdapter,
+        ".NET analyzers",
+        "CA2026",
+        DOTNET_CA2026_URL,
         "MIT"
     ),
     native_rule!(
@@ -303,6 +331,23 @@ const NATIVE_RULES: &[NativeRuleRecord] = &[
         Syntax,
         "gosec",
         "G117",
+        GOSEC_URL,
+        "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:G124",
+        "go",
+        "Harden HTTP cookie attributes",
+        "HTTP cookies should enable Secure and HttpOnly and use an explicit SameSite mode.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        SemanticAdapter,
+        "gosec",
+        "G124",
         GOSEC_URL,
         "Apache-2.0"
     ),
@@ -492,6 +537,23 @@ const NATIVE_RULES: &[NativeRuleRecord] = &[
         "G406",
         GOSEC_URL,
         "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:SA1004",
+        "go",
+        "Use an explicit time unit for short sleeps",
+        "Small untyped integer durations passed to time.Sleep are usually mistaken for a larger time unit.",
+        "MAJOR",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Extended,
+        High,
+        SemanticAdapter,
+        "Staticcheck",
+        "SA1004",
+        STATICCHECK_URL,
+        "MIT"
     ),
     native_rule!(
         "hoonarqube-go:SA1012",
@@ -698,6 +760,40 @@ const NATIVE_RULES: &[NativeRuleRecord] = &[
         "MIT"
     ),
     native_rule!(
+        "hoonarqube-javascript:no-async-promise-executor",
+        "js",
+        "Do not use async Promise executors",
+        "Exceptions thrown by an async Promise executor do not reject the Promise being constructed.",
+        "CRITICAL",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        SemanticAdapter,
+        "ESLint",
+        "no-async-promise-executor",
+        ESLINT_ASYNC_EXECUTOR_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-javascript:no-promise-executor-return",
+        "js",
+        "Do not return values from Promise executors",
+        "A Promise constructor ignores the executor's return value, so valued returns are misleading.",
+        "MAJOR",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Extended,
+        High,
+        ControlFlow,
+        "ESLint",
+        "no-promise-executor-return",
+        ESLINT_EXECUTOR_RETURN_URL,
+        "MIT"
+    ),
+    native_rule!(
         "hoonarqube-javascript:unhandled-error-in-stream-pipeline",
         "js",
         "Handle errors on piped streams",
@@ -729,6 +825,23 @@ const NATIVE_RULES: &[NativeRuleRecord] = &[
         "CodeQL",
         "py/file-not-closed",
         CODEQL_PY_FILE_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-python:request-without-timeout",
+        "py",
+        "Set timeouts on requests calls",
+        "The requests library has no default timeout, so an unresponsive peer can block indefinitely.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        SemanticAdapter,
+        "Ruff",
+        "S113",
+        RUFF_REQUEST_TIMEOUT_URL,
         "MIT"
     ),
     native_rule!(
@@ -783,6 +896,40 @@ const NATIVE_RULES: &[NativeRuleRecord] = &[
         "Apache-2.0 OR MIT"
     ),
     native_rule!(
+        "hoonarqube-rust:permissions-set-readonly-false",
+        "rust",
+        "Do not clear readonly with set_readonly(false)",
+        "On Unix, clearing readonly this way can make a file world-writable.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Extended,
+        Medium,
+        SemanticAdapter,
+        "Clippy",
+        "permissions_set_readonly_false",
+        CLIPPY_PERMISSIONS_URL,
+        "Apache-2.0 OR MIT"
+    ),
+    native_rule!(
+        "hoonarqube-rust:suspicious-open-options",
+        "rust",
+        "Declare truncation behavior for created files",
+        "OpenOptions with create(true) should explicitly select truncation or exclusive creation semantics.",
+        "CRITICAL",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        SemanticAdapter,
+        "Clippy",
+        "suspicious_open_options",
+        CLIPPY_OPEN_OPTIONS_URL,
+        "Apache-2.0 OR MIT"
+    ),
+    native_rule!(
         "hoonarqube-typescript:loop-iteration-skipped-due-to-shifting",
         "ts",
         "Do not splice at an incrementing loop index",
@@ -797,6 +944,40 @@ const NATIVE_RULES: &[NativeRuleRecord] = &[
         "CodeQL",
         "js/loop-iteration-skipped-due-to-shifting",
         CODEQL_JS_LOOP_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-typescript:no-async-promise-executor",
+        "ts",
+        "Do not use async Promise executors",
+        "Exceptions thrown by an async Promise executor do not reject the Promise being constructed.",
+        "CRITICAL",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        SemanticAdapter,
+        "ESLint",
+        "no-async-promise-executor",
+        ESLINT_ASYNC_EXECUTOR_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-typescript:no-promise-executor-return",
+        "ts",
+        "Do not return values from Promise executors",
+        "A Promise constructor ignores the executor's return value, so valued returns are misleading.",
+        "MAJOR",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Extended,
+        High,
+        ControlFlow,
+        "ESLint",
+        "no-promise-executor-return",
+        ESLINT_EXECUTOR_RETURN_URL,
         "MIT"
     ),
     native_rule!(
@@ -1567,7 +1748,7 @@ mod tests {
     #[test]
     fn native_catalog_is_separate_sorted_and_complete() {
         let rules: Vec<_> = super::native_rules().collect();
-        assert_eq!(rules.len(), 37);
+        assert_eq!(rules.len(), 47);
         assert!(
             rules
                 .windows(2)
@@ -1649,9 +1830,9 @@ mod tests {
                 .count()
         };
         assert_eq!(enabled(SonarParity), 0);
-        assert_eq!(enabled(Recommended), 32);
-        assert_eq!(enabled(Extended), 36);
-        assert_eq!(enabled(Strict), 37);
+        assert_eq!(enabled(Recommended), 37);
+        assert_eq!(enabled(Extended), 46);
+        assert_eq!(enabled(Strict), 47);
     }
 
     /// Flips the first hex digit of the 64-character hash following `marker`.

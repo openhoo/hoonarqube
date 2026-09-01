@@ -22,6 +22,12 @@ pub(crate) fn analyze(source: &str) -> Vec<Issue> {
     }
     let index = LineIndex::from_source_text(source);
     let mut issues = side_effects_in_asserts(&parsed, &index, source);
+    issues.extend(requests_without_timeout(
+        &parsed,
+        &index,
+        source,
+        &RequestNames::collect(&parsed),
+    ));
     issues.extend(files_not_closed(
         &parsed,
         &index,
@@ -29,6 +35,186 @@ pub(crate) fn analyze(source: &str) -> Vec<Issue> {
         &FileOpenNames::collect(&parsed),
     ));
     issues
+}
+
+const REQUEST_METHODS: &[&str] = &[
+    "delete", "get", "head", "options", "patch", "post", "put", "request",
+];
+
+#[derive(Clone, Default)]
+struct RequestNames {
+    direct: HashSet<String>,
+    modules: HashSet<String>,
+}
+
+impl RequestNames {
+    fn collect(parsed: &Parsed<ModModule>) -> Self {
+        Self::default().with_scope(parsed.syntax().body.as_slice(), std::iter::empty())
+    }
+
+    fn for_function(&self, function: &StmtFunctionDef) -> Self {
+        self.clone().with_scope(
+            &function.body,
+            function
+                .parameters
+                .iter()
+                .map(|parameter| parameter.name().to_string()),
+        )
+    }
+
+    fn with_scope(
+        mut self,
+        suite: &[Stmt],
+        initial_shadows: impl IntoIterator<Item = String>,
+    ) -> Self {
+        let mut shadowed: HashSet<String> = initial_shadows.into_iter().collect();
+        for_each_stmt_in_scope(suite, &mut |stmt| {
+            let mut recognized = Self::default();
+            match stmt {
+                Stmt::Import(import) => recognized.record_import(import),
+                Stmt::ImportFrom(import) => recognized.record_import_from(import),
+                _ => {}
+            }
+            self.direct.extend(recognized.direct.iter().cloned());
+            self.modules.extend(recognized.modules.iter().cloned());
+            shadowed.extend(
+                stmt_store_names(stmt)
+                    .into_iter()
+                    .filter(|name| !recognized.contains(name)),
+            );
+        });
+        for_each_stmt_expr_in_scope(suite, &mut |expr| {
+            if let Expr::Named(named) = expr {
+                let mut targets = Vec::new();
+                collect_target_names(&named.target, &mut targets);
+                shadowed.extend(targets);
+            }
+        });
+        for name in shadowed {
+            self.direct.remove(&name);
+            self.modules.remove(&name);
+        }
+        self
+    }
+
+    fn contains(&self, name: &str) -> bool {
+        self.direct.contains(name) || self.modules.contains(name)
+    }
+
+    fn record_import(&mut self, import: &ruff_python_ast::StmtImport) {
+        self.modules.extend(
+            import
+                .names
+                .iter()
+                .filter(|alias| alias.name.as_str() == "requests")
+                .map(|alias| {
+                    alias
+                        .asname
+                        .as_deref()
+                        .map_or(alias.name.as_str(), |asname| asname)
+                        .to_string()
+                }),
+        );
+    }
+
+    fn record_import_from(&mut self, import: &ruff_python_ast::StmtImportFrom) {
+        if import
+            .module
+            .as_ref()
+            .is_none_or(|module| module.as_str() != "requests")
+        {
+            return;
+        }
+        self.direct.extend(
+            import
+                .names
+                .iter()
+                .filter(|alias| REQUEST_METHODS.contains(&alias.name.as_str()))
+                .map(|alias| {
+                    alias
+                        .asname
+                        .as_deref()
+                        .map_or(alias.name.as_str(), |asname| asname)
+                        .to_string()
+                }),
+        );
+    }
+}
+
+fn requests_without_timeout(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    module_names: &RequestNames,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    check_request_calls_in_scope(
+        parsed.syntax().body.as_slice(),
+        module_names,
+        index,
+        source,
+        &mut issues,
+    );
+    visit_functions(parsed.syntax().body.as_slice(), &mut |function| {
+        check_request_calls_in_scope(
+            &function.body,
+            &module_names.for_function(function),
+            index,
+            source,
+            &mut issues,
+        );
+    });
+    issues
+}
+
+fn check_request_calls_in_scope(
+    suite: &[Stmt],
+    names: &RequestNames,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    for_each_stmt_expr_in_scope(suite, &mut |expr| {
+        let Expr::Call(call) = expr else {
+            return;
+        };
+        let recognized = match call.func.as_ref() {
+            Expr::Name(name) => names.direct.contains(name.id.as_str()),
+            Expr::Attribute(attribute) => {
+                REQUEST_METHODS.contains(&attribute.attr.as_str())
+                    && matches!(
+                        attribute.value.as_ref(),
+                        Expr::Name(module) if names.modules.contains(module.id.as_str())
+                    )
+            }
+            _ => false,
+        };
+        if !recognized
+            || call
+                .arguments
+                .keywords
+                .iter()
+                .any(|keyword| keyword.arg.is_none())
+        {
+            return;
+        }
+        let timeout = call.arguments.keywords.iter().find(|keyword| {
+            keyword
+                .arg
+                .as_ref()
+                .is_some_and(|arg| arg.as_str() == "timeout")
+        });
+        if timeout.is_some_and(|keyword| !matches!(keyword.value, Expr::NoneLiteral(_))) {
+            return;
+        }
+        issues.push(issue_at(
+            "hoonarqube-python:request-without-timeout",
+            "Set an explicit finite timeout on this requests call.",
+            call.func.range(),
+            index,
+            source,
+        ));
+    });
 }
 
 fn side_effects_in_asserts(
@@ -566,5 +752,38 @@ mod tests {
             found.is_empty(),
             "shadowed builtin must stay clean: {found:?}"
         );
+    }
+
+    #[test]
+    fn requests_rule_requires_resolved_requests_api_and_known_timeout() {
+        let found = keys(concat!(
+            "import requests as http\n",
+            "from requests import post as submit\n",
+            "http.get('https://example.test')\n",
+            "submit('https://example.test', timeout=None)\n",
+        ));
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "hoonarqube-python:request-without-timeout")
+                .count(),
+            2,
+        );
+
+        for clean in [
+            "import requests\nrequests.get('https://example.test', timeout=5)",
+            "import requests\nrequests.get('https://example.test', **options)",
+            "def custom(requests):\n    requests.get('local')",
+            "class Client:\n    def get(self, url): return url\nClient().get('local')",
+            "import httpx\nhttpx.get('https://example.test')",
+            "from requests import Session\nSession().get('https://example.test')",
+        ] {
+            assert!(
+                !keys(clean)
+                    .iter()
+                    .any(|key| key == "hoonarqube-python:request-without-timeout"),
+                "{clean}",
+            );
+        }
     }
 }

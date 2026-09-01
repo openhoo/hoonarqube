@@ -115,8 +115,8 @@ coverage therefore does not imply analyzer parity.
 
 ## Native rules and profiles
 
-Thirty-seven rules are independently implemented from published CodeQL,
-gosec, Staticcheck, .NET analyzer, and Clippy behavior. No third-party rule
+Forty-seven rules are independently implemented from published CodeQL,
+gosec, Staticcheck, ESLint, Ruff, .NET analyzer, and Clippy behavior. No third-party rule
 source is embedded. Every native record declares original tool/rule ID, source
 URL, upstream license, expected precision, implementation capability, impacts,
 and minimum profile. This catalog stays structurally separate from captured
@@ -124,26 +124,28 @@ Sonar facts.
 
 | Language | Native rules | Sources |
 |---|---:|---|
-| Go | 27 | gosec G110/G112/G114/G116/G117/G301/G302/G303/G305/G306/G307/G401/G402/G403/G405/G406; Staticcheck SA1012/SA2000/SA2001/SA2003/SA4006/SA4008/SA4010/SA5000/SA5001/SA5003/SA6000 |
-| Python | 2 | CodeQL `py/side-effect-in-assert`, `py/file-not-closed` |
-| JavaScript | 2 | CodeQL skipped splice iteration, unhandled piped-stream errors |
-| TypeScript | 2 | Same CodeQL rules with a distinct TypeScript namespace |
-| C# | 2 | .NET CA2022/CA2024 |
-| Rust | 2 | Clippy `await_holding_lock`, `await_holding_refcell_ref` |
+| Go | 29 | gosec G110/G112/G114/G116/G117/G124/G301/G302/G303/G305/G306/G307/G401/G402/G403/G405/G406; Staticcheck SA1004/SA1012/SA2000/SA2001/SA2003/SA4006/SA4008/SA4010/SA5000/SA5001/SA5003/SA6000 |
+| Python | 3 | CodeQL `py/side-effect-in-assert`, `py/file-not-closed`; Ruff S113 |
+| JavaScript | 4 | CodeQL skipped splice iteration and piped-stream errors; ESLint Promise executor rules |
+| TypeScript | 4 | Same CodeQL and ESLint behaviors with a distinct TypeScript namespace |
+| C# | 3 | .NET CA2022/CA2024/CA2026 |
+| Rust | 4 | Clippy async-guard, readonly-permission, and open-option rules |
 
 Profiles are cumulative:
 
 - `sonar-parity` — default compatibility contract; disables all native rules.
-- `recommended` — 32 high-value, conservative native rules.
-- `extended` — 36 rules, including broader local-flow checks.
-- `strict` — all 37 rules; additionally enforces explicit `0600` file creation
+- `recommended` — 37 high-value, conservative native rules.
+- `extended` — 46 rules, including broader local-flow checks.
+- `strict` — all 47 rules; additionally enforces explicit `0600` file creation
   instead of `os.Create`'s umask-dependent `0666` mode.
 
 The shared CFG engine now provides deterministic taint facts; Go G110 is its
 first taint-fact consumer and emits ordered source-to-sink locations. Rules needing
 unavailable type, SSA, or interprocedural proof stay absent instead of being
 approximated with broad text matching. Native results are not claims of
-CodeQL/gosec/Staticcheck/Roslyn/Clippy implementation parity.
+CodeQL/gosec/Staticcheck/ESLint/Ruff/Roslyn/Clippy implementation parity.
+The source-by-source adoption and deferral record is maintained in
+[RULE_RESEARCH.md](RULE_RESEARCH.md).
 
 ## Usage
 

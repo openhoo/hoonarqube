@@ -456,6 +456,34 @@ pub fn analyze_native(source: &str) -> Vec<Issue> {
             ]));
         }
     });
+    walk(root, &mut |call| {
+        if call.kind() != "call_expression" {
+            return;
+        }
+        let Some((_, method)) = native_method_call(call, source) else {
+            return;
+        };
+        if !matches!(method, "open" | "set_readonly") {
+            return;
+        }
+        let standard = NativeGuardTypes::collect_for(call, source);
+        if let Some(target) = native_suspicious_open_options(call, source, &standard) {
+            issues.push(node_issue(
+                "hoonarqube-rust:suspicious-open-options",
+                "Specify whether this newly created file should be truncated.",
+                target,
+                source,
+            ));
+        }
+        if let Some(target) = native_permissions_set_readonly_false(call, source, &standard) {
+            issues.push(node_issue(
+                "hoonarqube-rust:permissions-set-readonly-false",
+                "Set explicit Unix permissions instead of making this file world-writable.",
+                target,
+                source,
+            ));
+        }
+    });
     sort_issues(&mut issues);
     issues.dedup();
     issues
@@ -466,6 +494,9 @@ struct NativeGuardTypes {
     mutexes: HashSet<String>,
     rwlocks: HashSet<String>,
     refcells: HashSet<String>,
+    open_options: HashSet<String>,
+    fs_modules: HashSet<String>,
+    metadata_functions: HashSet<String>,
 }
 
 impl NativeGuardTypes {
@@ -506,6 +537,25 @@ impl NativeGuardTypes {
                     "RefCell",
                     &mut scope_types.refcells,
                 );
+                collect_native_use_aliases(
+                    &compact,
+                    "std::fs",
+                    "OpenOptions",
+                    &mut scope_types.open_options,
+                );
+                collect_native_use_aliases(&compact, "std", "fs", &mut scope_types.fs_modules);
+                collect_native_group_self_aliases(
+                    &compact,
+                    "std::fs",
+                    "fs",
+                    &mut scope_types.fs_modules,
+                );
+                collect_native_use_aliases(
+                    &compact,
+                    "std::fs",
+                    "metadata",
+                    &mut scope_types.metadata_functions,
+                );
                 collect_native_use_bindings(node, source, &mut scope_bindings);
             }
             types
@@ -517,6 +567,18 @@ impl NativeGuardTypes {
             types
                 .refcells
                 .extend(scope_types.refcells.difference(&shadowed).cloned());
+            types
+                .open_options
+                .extend(scope_types.open_options.difference(&shadowed).cloned());
+            types
+                .fs_modules
+                .extend(scope_types.fs_modules.difference(&shadowed).cloned());
+            types.metadata_functions.extend(
+                scope_types
+                    .metadata_functions
+                    .difference(&shadowed)
+                    .cloned(),
+            );
             shadowed.extend(scope_bindings);
             if scope.kind() == "source_file"
                 || (scope.kind() == "declaration_list"
@@ -532,6 +594,166 @@ impl NativeGuardTypes {
         }
         types
     }
+}
+
+fn native_suspicious_open_options<'tree>(
+    call: Node<'tree>,
+    source: &str,
+    standard: &NativeGuardTypes,
+) -> Option<Node<'tree>> {
+    let (mut receiver, method) = native_method_call(call, source)?;
+    if method != "open" {
+        return None;
+    }
+    let target = call
+        .child_by_field_name("function")?
+        .child_by_field_name("field")
+        .unwrap_or(call);
+    let mut creates = None;
+    let mut declares_truncation = false;
+    let mut creates_new = None;
+    loop {
+        let current = unwrap_native_expression(receiver);
+        if native_open_options_constructor(current, source, standard) {
+            break;
+        }
+        let (next, option) = native_method_call(current, source)?;
+        match option {
+            "create" if creates.is_none() => {
+                creates = native_first_boolean_argument(current, source);
+            }
+            "truncate" => declares_truncation = true,
+            "create_new" if creates_new.is_none() => {
+                creates_new = native_first_boolean_argument(current, source);
+            }
+            _ => {}
+        }
+        receiver = next;
+    }
+    (creates == Some(true) && !declares_truncation && creates_new != Some(true)).then_some(target)
+}
+
+fn native_open_options_constructor(
+    call: Node<'_>,
+    source: &str,
+    standard: &NativeGuardTypes,
+) -> bool {
+    if call.kind() != "call_expression" {
+        return false;
+    }
+    let Some(function) = call.child_by_field_name("function") else {
+        return false;
+    };
+    let function = compact_text(function, source);
+    function == "std::fs::OpenOptions::new"
+        || standard
+            .open_options
+            .iter()
+            .any(|alias| function == format!("{alias}::new"))
+}
+
+fn native_permissions_set_readonly_false<'tree>(
+    call: Node<'tree>,
+    source: &str,
+    standard: &NativeGuardTypes,
+) -> Option<Node<'tree>> {
+    let (permissions, method) = native_method_call(call, source)?;
+    if method != "set_readonly" || !native_first_argument_is(call, "false", source) {
+        return None;
+    }
+    let (metadata, method) = native_method_call(unwrap_native_expression(permissions), source)?;
+    if method != "permissions" || !native_call_has_no_arguments(permissions) {
+        return None;
+    }
+    native_metadata_origin(unwrap_native_expression(metadata), source, standard).then(|| {
+        call.child_by_field_name("function")
+            .and_then(|function| function.child_by_field_name("field"))
+            .unwrap_or(call)
+    })
+}
+
+fn native_metadata_origin(node: Node<'_>, source: &str, standard: &NativeGuardTypes) -> bool {
+    let node = unwrap_native_expression(node);
+    if node.kind() != "call_expression" {
+        return false;
+    }
+    let Some(function) = node.child_by_field_name("function") else {
+        return false;
+    };
+    let function_text = compact_text(function, source);
+    if function_text == "std::fs::metadata"
+        || standard
+            .metadata_functions
+            .iter()
+            .any(|alias| function_text == *alias)
+        || standard
+            .fs_modules
+            .iter()
+            .any(|alias| function_text == format!("{alias}::metadata"))
+    {
+        return true;
+    }
+    native_method_call(node, source).is_some_and(|(receiver, method)| {
+        matches!(method, "unwrap" | "expect") && native_metadata_origin(receiver, source, standard)
+    })
+}
+
+fn native_method_call<'tree, 'source>(
+    call: Node<'tree>,
+    source: &'source str,
+) -> Option<(Node<'tree>, &'source str)> {
+    if call.kind() != "call_expression" {
+        return None;
+    }
+    let function = call.child_by_field_name("function")?;
+    if function.kind() != "field_expression" {
+        return None;
+    }
+    Some((
+        function.child_by_field_name("value")?,
+        text(function.child_by_field_name("field")?, source),
+    ))
+}
+
+fn native_first_argument_is(call: Node<'_>, expected: &str, source: &str) -> bool {
+    call.child_by_field_name("arguments")
+        .and_then(|arguments| arguments.named_child(0))
+        .is_some_and(|argument| compact_text(argument, source) == expected)
+}
+
+fn native_first_boolean_argument(call: Node<'_>, source: &str) -> Option<bool> {
+    call.child_by_field_name("arguments")
+        .and_then(|arguments| arguments.named_child(0))
+        .and_then(|argument| match compact_text(argument, source).as_str() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        })
+}
+
+fn native_call_has_no_arguments(call: Node<'_>) -> bool {
+    call.child_by_field_name("arguments")
+        .is_some_and(|arguments| arguments.named_child_count() == 0)
+}
+
+fn unwrap_native_expression(mut node: Node<'_>) -> Node<'_> {
+    while matches!(
+        node.kind(),
+        "parenthesized_expression" | "try_expression" | "reference_expression"
+    ) {
+        let Some(inner) = node.named_child(0) else {
+            break;
+        };
+        node = inner;
+    }
+    node
+}
+
+fn compact_text(node: Node<'_>, source: &str) -> String {
+    text(node, source)
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
 }
 
 fn collect_native_type_parameter_bindings(
@@ -616,6 +838,30 @@ fn collect_native_use_aliases(
         if item == original {
             aliases.insert(original.to_string());
         } else if let Some(alias) = item.strip_prefix(&format!("{original}as"))
+            && !alias.is_empty()
+        {
+            aliases.insert(alias.to_string());
+        }
+    }
+}
+
+fn collect_native_group_self_aliases(
+    declaration: &str,
+    module: &str,
+    default_name: &str,
+    aliases: &mut HashSet<String>,
+) {
+    let grouped = format!("use{module}::{{");
+    let Some(items) = declaration
+        .strip_prefix(&grouped)
+        .and_then(|tail| tail.strip_suffix("};"))
+    else {
+        return;
+    };
+    for item in items.split(',') {
+        if item == "self" {
+            aliases.insert(default_name.to_string());
+        } else if let Some(alias) = item.strip_prefix("selfas")
             && !alias.is_empty()
         {
             aliases.insert(alias.to_string());
@@ -3879,5 +4125,42 @@ mod tests {
             generic_shadow.is_empty(),
             "generic parameters must shadow imported guard names: {generic_shadow:?}",
         );
+    }
+
+    #[test]
+    fn native_file_rules_require_resolved_standard_library_chains() {
+        let found = analyze_native(concat!(
+            "use std::fs::{self as filesystem, OpenOptions as Options};\n",
+            "fn write(path: &str) {\n",
+            "  Options::new().write(true).create(true).open(path).unwrap();\n",
+            "  filesystem::metadata(path).unwrap().permissions().set_readonly(false);\n",
+            "}\n",
+        ));
+        assert!(
+            found
+                .iter()
+                .any(|issue| issue.rule_key == "hoonarqube-rust:suspicious-open-options"),
+            "missing OpenOptions finding: {found:?}",
+        );
+        assert!(
+            found.iter().any(|issue| {
+                issue.rule_key == "hoonarqube-rust:permissions-set-readonly-false"
+            }),
+            "missing permissions finding: {found:?}",
+        );
+
+        for clean in [
+            "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create(true).truncate(true).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create(true).truncate(false).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create_new(true).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create(true).create(false).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create(true).create_new(true).create_new(false).create_new(true).open(path); }",
+            "struct OpenOptions; impl OpenOptions { fn new() -> Builder { Builder } } fn f(path: &str) { OpenOptions::new().create(true).open(path); }",
+            "fn f(metadata: Metadata) { metadata.permissions().set_readonly(false); }",
+            "fn f(path: &str) { custom::metadata(path).permissions().set_readonly(false); }",
+            "fn f(path: &str) { std::fs::metadata(path).unwrap().permissions().set_readonly(true); }",
+        ] {
+            assert!(analyze_native(clean).is_empty(), "{clean}");
+        }
     }
 }

@@ -287,6 +287,20 @@ fn check_native_call(node: Node<'_>, source: &str, imports: &GoImports, issues: 
         .child_by_field_name("arguments")
         .map(named_children)
         .unwrap_or_default();
+    if imports
+        .qualified("time", "Sleep")
+        .is_some_and(|sleep| function_name == sleep)
+        && let [duration] = arguments.as_slice()
+        && duration.kind() == "int_literal"
+        && parse_go_integer(text(*duration, source)).is_some_and(|value| (1..=120).contains(&value))
+    {
+        issues.push(node_issue(
+            "hoonarqube-go:SA1004",
+            "Multiply this small Sleep duration by an explicit time unit.",
+            *duration,
+            source,
+        ));
+    }
     check_native_os_call(function, function_name, &arguments, source, imports, issues);
     check_native_ioutil_call(function_name, &arguments, source, imports, issues);
     check_native_rsa_call(function_name, &arguments, source, imports, issues);
@@ -772,6 +786,50 @@ fn check_native_composite(
             source,
         ));
     }
+    if imports
+        .qualified("net/http", "Cookie")
+        .is_some_and(|name| text(type_node, source) == name)
+        && cookie_literal_is_keyed_or_empty(body)
+        && cookie_literal_is_provably_insecure(body, source, imports)
+    {
+        issues.push(node_issue(
+            "hoonarqube-go:G124",
+            "Set Secure, HttpOnly, and an explicit SameSite mode on this HTTP cookie.",
+            type_node,
+            source,
+        ));
+    }
+}
+
+fn cookie_literal_is_keyed_or_empty(body: Node<'_>) -> bool {
+    let elements = named_children(body);
+    elements.is_empty()
+        || elements
+            .iter()
+            .any(|element| element.kind() == "keyed_element")
+}
+
+fn cookie_literal_is_provably_insecure(body: Node<'_>, source: &str, imports: &GoImports) -> bool {
+    if cookie_boolean_is_insecure(body, "Secure", source)
+        || cookie_boolean_is_insecure(body, "HttpOnly", source)
+    {
+        return true;
+    }
+    let Some(http) = imports.alias("net/http") else {
+        return true;
+    };
+    let Some(same_site) = literal_key_value(body, "SameSite", source) else {
+        return true;
+    };
+    let compact: String = same_site
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect();
+    matches!(compact.as_str(), "0") || compact == format!("{http}.SameSiteDefaultMode")
+}
+
+fn cookie_boolean_is_insecure(body: Node<'_>, key: &str, source: &str) -> bool {
+    matches!(literal_key_value(body, key, source), None | Some("false"))
 }
 
 fn check_native_serialized_secret(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
@@ -3962,6 +4020,54 @@ mod tests {
             "func f() { os.MkdirAll(\"x\", 0750); os.Chmod(\"x\", 0600); os.WriteFile(\"x\", nil, 0600); rsa.GenerateKey(nil, 2048) }\n",
         ));
         assert!(clean.is_empty(), "unexpected native findings: {clean:?}");
+    }
+
+    #[test]
+    fn native_cookie_and_sleep_rules_require_exact_standard_apis() {
+        let found = native_keys(concat!(
+            "package p\n",
+            "import (h \"net/http\"; clock \"time\")\n",
+            "var missing = h.Cookie{Name: \"session\"}\n",
+            "var weak = h.Cookie{Secure: true, HttpOnly: true, SameSite: h.SameSiteDefaultMode}\n",
+            "func pause() { clock.Sleep(100) }\n",
+        ));
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "hoonarqube-go:G124")
+                .count(),
+            2,
+        );
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "hoonarqube-go:SA1004")
+                .count(),
+            1,
+        );
+
+        let clean = native_keys(concat!(
+            "package p\n",
+            "import (h \"net/http\"; clock \"time\")\n",
+            "var cookie = h.Cookie{Secure: true, HttpOnly: true, SameSite: h.SameSiteStrictMode}\n",
+            "var crossSite = h.Cookie{Secure: true, HttpOnly: true, SameSite: h.SameSiteNoneMode}\n",
+            "var configured = h.Cookie{Secure: secure, HttpOnly: httpOnly, SameSite: sameSite}\n",
+            "var positional = h.Cookie{\"name\", \"value\"}\n",
+            "const delay = 10\n",
+            "func pause() { clock.Sleep(0); clock.Sleep(121); clock.Sleep(delay); clock.Sleep(2 * clock.Nanosecond) }\n",
+        ));
+        assert!(clean.is_empty(), "unexpected native findings: {clean:?}");
+
+        let custom = native_keys(concat!(
+            "package p\n",
+            "type Cookie struct { Secure bool }\n",
+            "type clockType struct{}\n",
+            "func (clockType) Sleep(int) {}\n",
+            "var clock clockType\n",
+            "var _ = Cookie{}\n",
+            "func pause() { clock.Sleep(10) }\n",
+        ));
+        assert!(custom.is_empty(), "custom APIs must stay clean: {custom:?}");
     }
 
     #[test]
