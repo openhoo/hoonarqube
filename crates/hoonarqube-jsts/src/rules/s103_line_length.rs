@@ -35,6 +35,7 @@ fn check_line_length(
                     },
                 },
                 fix: None,
+                flows: Vec::new(),
             });
         }
     }

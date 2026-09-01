@@ -11,6 +11,7 @@ publish.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+hoonarqube-dataflow = { version = "0.2.4", path = "../hoonarqube-dataflow" }
 hoonarqube-ir = { version = "0.2.4", path = "../hoonarqube-ir" }
 tree-sitter = "0.25.10"
 tree-sitter-go = "0.25.0"

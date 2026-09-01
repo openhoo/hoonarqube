@@ -15,6 +15,1005 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
+/// Analyzer profile controlling whether Hoonarqube-native rules run in
+/// addition to the frozen Sonar-parity catalog.
+///
+/// Profiles are cumulative: `extended` includes `recommended`, while
+/// `strict` includes every native rule. `sonar-parity` is the compatibility
+/// profile and never enables native rules.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuleProfile {
+    #[default]
+    SonarParity,
+    Recommended,
+    Extended,
+    Strict,
+}
+
+impl RuleProfile {
+    /// Whether this selected profile includes a rule introduced at
+    /// `minimum_profile`.
+    #[must_use]
+    pub const fn includes(self, minimum_profile: Self) -> bool {
+        match self {
+            Self::SonarParity => false,
+            Self::Recommended => matches!(minimum_profile, Self::Recommended),
+            Self::Extended => matches!(minimum_profile, Self::Recommended | Self::Extended),
+            Self::Strict => !matches!(minimum_profile, Self::SonarParity),
+        }
+    }
+}
+
+impl std::str::FromStr for RuleProfile {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "sonar-parity" => Ok(Self::SonarParity),
+            "recommended" => Ok(Self::Recommended),
+            "extended" => Ok(Self::Extended),
+            "strict" => Ok(Self::Strict),
+            _ => Err(format!(
+                "unknown profile {value:?}; expected sonar-parity, recommended, extended, or strict"
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for RuleProfile {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::SonarParity => "sonar-parity",
+            Self::Recommended => "recommended",
+            Self::Extended => "extended",
+            Self::Strict => "strict",
+        })
+    }
+}
+
+/// Expected precision of an independently implemented native rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NativePrecision {
+    High,
+    Medium,
+}
+
+/// Analysis capability used by a native rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NativeImplementation {
+    Syntax,
+    ControlFlow,
+    SemanticAdapter,
+}
+
+/// One software-quality impact declared by a native rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct NativeImpact {
+    pub software_quality: &'static str,
+    pub severity: &'static str,
+}
+
+/// Metadata for one Hoonarqube-native rule.
+///
+/// This catalog is intentionally separate from [`RuleRecord`]: native rules
+/// must never be mistaken for facts captured from a `SonarQube` server. Rule
+/// behavior is independently implemented from public documentation; no
+/// third-party rule source is embedded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct NativeRuleRecord {
+    pub external_key: &'static str,
+    pub language: &'static str,
+    pub name: &'static str,
+    pub description: &'static str,
+    pub severity: &'static str,
+    pub rule_type: &'static str,
+    pub clean_code_attribute: &'static str,
+    pub impacts: &'static [NativeImpact],
+    pub minimum_profile: RuleProfile,
+    pub precision: NativePrecision,
+    pub implementation: NativeImplementation,
+    pub origin_tool: &'static str,
+    pub origin_rule_id: &'static str,
+    pub origin_url: &'static str,
+    pub origin_license: &'static str,
+    pub derivation: &'static str,
+}
+
+const SECURITY_HIGH: &[NativeImpact] = &[NativeImpact {
+    software_quality: "SECURITY",
+    severity: "HIGH",
+}];
+const RELIABILITY_HIGH: &[NativeImpact] = &[NativeImpact {
+    software_quality: "RELIABILITY",
+    severity: "HIGH",
+}];
+const RELIABILITY_MEDIUM: &[NativeImpact] = &[NativeImpact {
+    software_quality: "RELIABILITY",
+    severity: "MEDIUM",
+}];
+const MAINTAINABILITY_MEDIUM: &[NativeImpact] = &[NativeImpact {
+    software_quality: "MAINTAINABILITY",
+    severity: "MEDIUM",
+}];
+
+const GOSEC_URL: &str = "https://github.com/securego/gosec/blob/master/RULES.md";
+const STATICCHECK_URL: &str = "https://staticcheck.dev/docs/checks/";
+const CODEQL_PY_FILE_URL: &str =
+    "https://codeql.github.com/codeql-query-help/python/py-file-not-closed/";
+const CODEQL_PY_ASSERT_URL: &str =
+    "https://codeql.github.com/codeql-query-help/python/py-side-effect-in-assert/";
+const CODEQL_JS_LOOP_URL: &str = "https://codeql.github.com/codeql-query-help/javascript/js-loop-iteration-skipped-due-to-shifting/";
+const CODEQL_JS_STREAM_URL: &str =
+    "https://codeql.github.com/codeql-query-help/javascript/js-unhandled-error-in-stream-pipeline/";
+const DOTNET_CA2022_URL: &str =
+    "https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2022";
+const DOTNET_CA2024_URL: &str =
+    "https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2024";
+const DOTNET_CA2026_URL: &str =
+    "https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2026";
+const ESLINT_ASYNC_EXECUTOR_URL: &str =
+    "https://eslint.org/docs/latest/rules/no-async-promise-executor";
+const ESLINT_EXECUTOR_RETURN_URL: &str =
+    "https://eslint.org/docs/latest/rules/no-promise-executor-return";
+const RUFF_REQUEST_TIMEOUT_URL: &str = "https://docs.astral.sh/ruff/rules/request-without-timeout/";
+const CLIPPY_LOCK_URL: &str =
+    "https://rust-lang.github.io/rust-clippy/master/index.html#await_holding_lock";
+const CLIPPY_REFCELL_URL: &str =
+    "https://rust-lang.github.io/rust-clippy/master/index.html#await_holding_refcell_ref";
+const CLIPPY_PERMISSIONS_URL: &str =
+    "https://rust-lang.github.io/rust-clippy/master/index.html#permissions_set_readonly_false";
+const CLIPPY_OPEN_OPTIONS_URL: &str =
+    "https://rust-lang.github.io/rust-clippy/master/index.html#suspicious_open_options";
+const INDEPENDENT_DERIVATION: &str =
+    "Independent implementation from published rule behavior; no third-party source embedded.";
+
+macro_rules! native_rule {
+    ($key:literal, $language:literal, $name:literal, $description:literal,
+     $severity:literal, $rule_type:literal, $attribute:literal, $impacts:ident,
+     $profile:ident, $precision:ident, $implementation:ident,
+     $tool:literal, $origin:literal, $url:expr, $license:literal) => {
+        NativeRuleRecord {
+            external_key: $key,
+            language: $language,
+            name: $name,
+            description: $description,
+            severity: $severity,
+            rule_type: $rule_type,
+            clean_code_attribute: $attribute,
+            impacts: $impacts,
+            minimum_profile: RuleProfile::$profile,
+            precision: NativePrecision::$precision,
+            implementation: NativeImplementation::$implementation,
+            origin_tool: $tool,
+            origin_rule_id: $origin,
+            origin_url: $url,
+            origin_license: $license,
+            derivation: INDEPENDENT_DERIVATION,
+        }
+    };
+}
+
+/// Independently implemented native rules, sorted by `external_key`.
+const NATIVE_RULES: &[NativeRuleRecord] = &[
+    native_rule!(
+        "hoonarqube-csharp:CA2022",
+        "cs",
+        "Avoid inexact Stream.Read calls",
+        "Stream.Read and ReadAsync can return fewer bytes than requested, so callers must inspect the returned count.",
+        "MAJOR",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        SemanticAdapter,
+        ".NET analyzers",
+        "CA2022",
+        DOTNET_CA2022_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-csharp:CA2024",
+        "cs",
+        "Do not use StreamReader.EndOfStream in async methods",
+        "Synchronous end-of-stream checks can block an asynchronous method.",
+        "MAJOR",
+        "BUG",
+        "EFFICIENT",
+        RELIABILITY_MEDIUM,
+        Recommended,
+        High,
+        Syntax,
+        ".NET analyzers",
+        "CA2024",
+        DOTNET_CA2024_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-csharp:CA2026",
+        "cs",
+        "Prefer JsonElement.Parse",
+        "Parsing a temporary JsonDocument only to retain RootElement keeps disposable backing data alive unnecessarily.",
+        "MAJOR",
+        "BUG",
+        "EFFICIENT",
+        RELIABILITY_MEDIUM,
+        Extended,
+        High,
+        SemanticAdapter,
+        ".NET analyzers",
+        "CA2026",
+        DOTNET_CA2026_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-go:G110",
+        "go",
+        "Limit decompression output",
+        "Copying decompressed data without an explicit limit can exhaust disk or memory.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        ControlFlow,
+        "gosec",
+        "G110",
+        GOSEC_URL,
+        "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:G112",
+        "go",
+        "Configure an HTTP ReadHeaderTimeout",
+        "HTTP servers should bound the time spent reading request headers.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        Syntax,
+        "gosec",
+        "G112",
+        GOSEC_URL,
+        "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:G114",
+        "go",
+        "Avoid unconfigured net/http serving helpers",
+        "Package-level HTTP serving helpers omit server timeout configuration.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        Syntax,
+        "gosec",
+        "G114",
+        GOSEC_URL,
+        "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:G116",
+        "go",
+        "Remove bidirectional Unicode controls",
+        "Bidirectional control characters can make reviewed source differ from compiled source.",
+        "BLOCKER",
+        "VULNERABILITY",
+        "IDENTIFIABLE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        Syntax,
+        "gosec",
+        "G116",
+        GOSEC_URL,
+        "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:G117",
+        "go",
+        "Do not serialize exported secret fields",
+        "Exported secret-bearing fields should not be exposed through serialization tags.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        Syntax,
+        "gosec",
+        "G117",
+        GOSEC_URL,
+        "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:G124",
+        "go",
+        "Harden HTTP cookie attributes",
+        "HTTP cookies should enable Secure and HttpOnly and use SameSite Lax or Strict.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        SemanticAdapter,
+        "gosec",
+        "G124",
+        GOSEC_URL,
+        "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:G301",
+        "go",
+        "Restrict directory permissions",
+        "Created directories should not grant permissions broader than 0750.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        Syntax,
+        "gosec",
+        "G301",
+        GOSEC_URL,
+        "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:G302",
+        "go",
+        "Restrict chmod permissions",
+        "Files changed with chmod should not grant permissions broader than 0600.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        Syntax,
+        "gosec",
+        "G302",
+        GOSEC_URL,
+        "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:G303",
+        "go",
+        "Avoid predictable temporary paths",
+        "Writing directly to a shared temporary directory allows predictable-name attacks.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        SemanticAdapter,
+        "gosec",
+        "G303",
+        GOSEC_URL,
+        "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:G305",
+        "go",
+        "Validate archive entry paths",
+        "Joining zip or tar entry names directly to an extraction root can escape the target directory.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        ControlFlow,
+        "gosec",
+        "G305",
+        GOSEC_URL,
+        "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:G306",
+        "go",
+        "Restrict written-file permissions",
+        "Files written in one operation should not grant permissions broader than 0600.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        Syntax,
+        "gosec",
+        "G306",
+        GOSEC_URL,
+        "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:G307",
+        "go",
+        "Avoid os.Create under strict file-permission policy",
+        "os.Create uses mode 0666 before the process umask; strict policy requires an explicit 0600 mode.",
+        "MAJOR",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Strict,
+        High,
+        SemanticAdapter,
+        "gosec",
+        "G307",
+        GOSEC_URL,
+        "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:G401",
+        "go",
+        "Do not use MD5 or SHA-1",
+        "MD5 and SHA-1 are unsuitable for security-sensitive hashing.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        SemanticAdapter,
+        "gosec",
+        "G401",
+        GOSEC_URL,
+        "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:G402",
+        "go",
+        "Verify TLS certificates",
+        "TLS clients must not disable certificate verification.",
+        "BLOCKER",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        Syntax,
+        "gosec",
+        "G402",
+        GOSEC_URL,
+        "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:G403",
+        "go",
+        "Use sufficiently large cryptographic keys",
+        "RSA keys shorter than 2048 bits are not sufficiently strong.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        Syntax,
+        "gosec",
+        "G403",
+        GOSEC_URL,
+        "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:G405",
+        "go",
+        "Do not use DES or RC4",
+        "DES and RC4 are obsolete encryption algorithms.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        SemanticAdapter,
+        "gosec",
+        "G405",
+        GOSEC_URL,
+        "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:G406",
+        "go",
+        "Do not use MD4 or RIPEMD-160",
+        "MD4 and RIPEMD-160 are deprecated cryptographic hashes.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        SemanticAdapter,
+        "gosec",
+        "G406",
+        GOSEC_URL,
+        "Apache-2.0"
+    ),
+    native_rule!(
+        "hoonarqube-go:SA1004",
+        "go",
+        "Use an explicit time unit for short sleeps",
+        "Small untyped integer durations passed to time.Sleep are usually mistaken for a larger time unit.",
+        "MAJOR",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Extended,
+        High,
+        SemanticAdapter,
+        "Staticcheck",
+        "SA1004",
+        STATICCHECK_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-go:SA1012",
+        "go",
+        "Do not pass nil contexts",
+        "A context.Context argument must not be nil; use context.TODO or context.Background when no parent exists.",
+        "CRITICAL",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        SemanticAdapter,
+        "Staticcheck",
+        "SA1012",
+        STATICCHECK_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-go:SA2000",
+        "go",
+        "Call WaitGroup.Add before starting a goroutine",
+        "Calling Add inside the goroutine races with Wait.",
+        "CRITICAL",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        Syntax,
+        "Staticcheck",
+        "SA2000",
+        STATICCHECK_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-go:SA2001",
+        "go",
+        "Remove empty critical sections",
+        "Locking and immediately unlocking performs no protected work.",
+        "MAJOR",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_MEDIUM,
+        Extended,
+        Medium,
+        ControlFlow,
+        "Staticcheck",
+        "SA2001",
+        STATICCHECK_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-go:SA2003",
+        "go",
+        "Do not defer Lock after locking",
+        "A deferred Lock usually means Unlock was intended and can deadlock.",
+        "CRITICAL",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Recommended,
+        Medium,
+        ControlFlow,
+        "Staticcheck",
+        "SA2003",
+        STATICCHECK_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-go:SA4006",
+        "go",
+        "Use assigned values before overwriting them",
+        "A value overwritten before any read is dead and often represents a forgotten error check.",
+        "MAJOR",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Extended,
+        Medium,
+        ControlFlow,
+        "Staticcheck",
+        "SA4006",
+        STATICCHECK_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-go:SA4008",
+        "go",
+        "Update the variable used by the loop condition",
+        "A loop condition variable that never changes can make the loop infinite or ineffective.",
+        "CRITICAL",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        ControlFlow,
+        "Staticcheck",
+        "SA4008",
+        STATICCHECK_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-go:SA4010",
+        "go",
+        "Use append results",
+        "Discarding append's returned slice leaves the intended update unused.",
+        "MAJOR",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Recommended,
+        Medium,
+        Syntax,
+        "Staticcheck",
+        "SA4010",
+        STATICCHECK_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-go:SA5000",
+        "go",
+        "Initialize maps before assignment",
+        "Assigning an entry through a nil map panics.",
+        "CRITICAL",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        ControlFlow,
+        "Staticcheck",
+        "SA5000",
+        STATICCHECK_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-go:SA5001",
+        "go",
+        "Check errors before deferring Close",
+        "Deferring Close before checking a resource-opening error can dereference a nil resource.",
+        "CRITICAL",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        ControlFlow,
+        "Staticcheck",
+        "SA5001",
+        STATICCHECK_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-go:SA5003",
+        "go",
+        "Do not defer inside endless loops",
+        "Deferred calls in a loop that never returns cannot run and accumulate resources.",
+        "CRITICAL",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        ControlFlow,
+        "Staticcheck",
+        "SA5003",
+        STATICCHECK_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-go:SA6000",
+        "go",
+        "Compile regular expressions outside loops",
+        "Compiling a constant regular expression on every iteration wastes work.",
+        "MINOR",
+        "CODE_SMELL",
+        "EFFICIENT",
+        MAINTAINABILITY_MEDIUM,
+        Extended,
+        High,
+        ControlFlow,
+        "Staticcheck",
+        "SA6000",
+        STATICCHECK_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-javascript:loop-iteration-skipped-due-to-shifting",
+        "js",
+        "Do not splice at an incrementing loop index",
+        "Removing the current indexed element with splice while incrementing can skip the following element.",
+        "MAJOR",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        ControlFlow,
+        "CodeQL",
+        "js/loop-iteration-skipped-due-to-shifting",
+        CODEQL_JS_LOOP_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-javascript:no-async-promise-executor",
+        "js",
+        "Do not use async Promise executors",
+        "Exceptions thrown by an async Promise executor do not reject the Promise being constructed.",
+        "CRITICAL",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        SemanticAdapter,
+        "ESLint",
+        "no-async-promise-executor",
+        ESLINT_ASYNC_EXECUTOR_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-javascript:no-promise-executor-return",
+        "js",
+        "Do not return values from Promise executors",
+        "A Promise constructor ignores the executor's return value, so valued returns are misleading.",
+        "MAJOR",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Extended,
+        High,
+        ControlFlow,
+        "ESLint",
+        "no-promise-executor-return",
+        ESLINT_EXECUTOR_RETURN_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-javascript:unhandled-error-in-stream-pipeline",
+        "js",
+        "Handle errors on piped streams",
+        "A source stream passed through pipe needs its own error handler; stream.pipeline handles the chain automatically.",
+        "CRITICAL",
+        "BUG",
+        "COMPLETE",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        SemanticAdapter,
+        "CodeQL",
+        "js/unhandled-error-in-stream-pipeline",
+        CODEQL_JS_STREAM_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-python:file-not-closed",
+        "py",
+        "Close opened files",
+        "A locally opened file with no observed close or ownership transfer can leak resources.",
+        "CRITICAL",
+        "BUG",
+        "COMPLETE",
+        RELIABILITY_HIGH,
+        Extended,
+        High,
+        ControlFlow,
+        "CodeQL",
+        "py/file-not-closed",
+        CODEQL_PY_FILE_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-python:request-without-timeout",
+        "py",
+        "Set timeouts on HTTP client calls",
+        "Requests has no default timeout, and an explicit None disables HTTPX's default timeout.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Recommended,
+        High,
+        SemanticAdapter,
+        "Ruff",
+        "S113",
+        RUFF_REQUEST_TIMEOUT_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-python:side-effect-in-assert",
+        "py",
+        "Do not rely on assertion side effects",
+        "Assertions can be disabled, so their conditions must not perform required side effects.",
+        "CRITICAL",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        Syntax,
+        "CodeQL",
+        "py/side-effect-in-assert",
+        CODEQL_PY_ASSERT_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-rust:await-holding-lock",
+        "rust",
+        "Do not await while holding a lock guard",
+        "Holding a lock guard across an await point can deadlock and blocks other tasks.",
+        "CRITICAL",
+        "BUG",
+        "EFFICIENT",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        ControlFlow,
+        "Clippy",
+        "await_holding_lock",
+        CLIPPY_LOCK_URL,
+        "Apache-2.0 OR MIT"
+    ),
+    native_rule!(
+        "hoonarqube-rust:await-holding-refcell-ref",
+        "rust",
+        "Do not await while holding a RefCell borrow",
+        "Holding a RefCell borrow across an await point can panic on later mutable borrowing.",
+        "CRITICAL",
+        "BUG",
+        "EFFICIENT",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        ControlFlow,
+        "Clippy",
+        "await_holding_refcell_ref",
+        CLIPPY_REFCELL_URL,
+        "Apache-2.0 OR MIT"
+    ),
+    native_rule!(
+        "hoonarqube-rust:permissions-set-readonly-false",
+        "rust",
+        "Do not clear readonly with set_readonly(false)",
+        "On Unix, clearing readonly this way can make a file world-writable.",
+        "CRITICAL",
+        "VULNERABILITY",
+        "COMPLETE",
+        SECURITY_HIGH,
+        Extended,
+        Medium,
+        SemanticAdapter,
+        "Clippy",
+        "permissions_set_readonly_false",
+        CLIPPY_PERMISSIONS_URL,
+        "Apache-2.0 OR MIT"
+    ),
+    native_rule!(
+        "hoonarqube-rust:suspicious-open-options",
+        "rust",
+        "Declare truncation behavior for created files",
+        "OpenOptions with create(true) should explicitly select truncation, appending, or exclusive creation semantics.",
+        "CRITICAL",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        SemanticAdapter,
+        "Clippy",
+        "suspicious_open_options",
+        CLIPPY_OPEN_OPTIONS_URL,
+        "Apache-2.0 OR MIT"
+    ),
+    native_rule!(
+        "hoonarqube-typescript:loop-iteration-skipped-due-to-shifting",
+        "ts",
+        "Do not splice at an incrementing loop index",
+        "Removing the current indexed element with splice while incrementing can skip the following element.",
+        "MAJOR",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        ControlFlow,
+        "CodeQL",
+        "js/loop-iteration-skipped-due-to-shifting",
+        CODEQL_JS_LOOP_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-typescript:no-async-promise-executor",
+        "ts",
+        "Do not use async Promise executors",
+        "Exceptions thrown by an async Promise executor do not reject the Promise being constructed.",
+        "CRITICAL",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        SemanticAdapter,
+        "ESLint",
+        "no-async-promise-executor",
+        ESLINT_ASYNC_EXECUTOR_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-typescript:no-promise-executor-return",
+        "ts",
+        "Do not return values from Promise executors",
+        "A Promise constructor ignores the executor's return value, so valued returns are misleading.",
+        "MAJOR",
+        "BUG",
+        "LOGICAL",
+        RELIABILITY_HIGH,
+        Extended,
+        High,
+        ControlFlow,
+        "ESLint",
+        "no-promise-executor-return",
+        ESLINT_EXECUTOR_RETURN_URL,
+        "MIT"
+    ),
+    native_rule!(
+        "hoonarqube-typescript:unhandled-error-in-stream-pipeline",
+        "ts",
+        "Handle errors on piped streams",
+        "A source stream passed through pipe needs its own error handler; stream.pipeline handles the chain automatically.",
+        "CRITICAL",
+        "BUG",
+        "COMPLETE",
+        RELIABILITY_HIGH,
+        Recommended,
+        High,
+        SemanticAdapter,
+        "CodeQL",
+        "js/unhandled-error-in-stream-pipeline",
+        CODEQL_JS_STREAM_URL,
+        "MIT"
+    ),
+];
+
+/// Iterates the Hoonarqube-native catalog in stable key order.
+#[must_use]
+pub fn native_rules() -> impl ExactSizeIterator<Item = &'static NativeRuleRecord> {
+    NATIVE_RULES.iter()
+}
+
+/// Looks up one independently implemented native rule by external key.
+#[must_use]
+pub fn native_rule(external_key: &str) -> Option<&'static NativeRuleRecord> {
+    NATIVE_RULES
+        .binary_search_by_key(&external_key, |rule| rule.external_key)
+        .ok()
+        .map(|index| &NATIVE_RULES[index])
+}
+
 /// Embedded languages in canonical audit order: `(catalog name, language id, repository)`.
 const LANGUAGES: [(&str, &str, &str); 6] = [
     ("csharp", "cs", "csharpsquid"),
@@ -744,6 +1743,96 @@ mod tests {
         assert_eq!(rule.repository, "python");
         assert_eq!(rule.language, "py");
         assert!(catalog.rule("java:NoSuchRule").is_none());
+    }
+
+    #[test]
+    fn native_catalog_is_separate_sorted_and_complete() {
+        let rules: Vec<_> = super::native_rules().collect();
+        assert_eq!(rules.len(), 47);
+        assert!(
+            rules
+                .windows(2)
+                .all(|pair| pair[0].external_key < pair[1].external_key)
+        );
+        for rule in rules {
+            assert!(rule.external_key.starts_with("hoonarqube-"));
+            assert!(!rule.name.is_empty());
+            assert!(!rule.description.is_empty());
+            assert!(!rule.origin_tool.is_empty());
+            assert!(!rule.origin_rule_id.is_empty());
+            assert!(rule.origin_url.starts_with("https://"));
+            assert!(!rule.origin_license.is_empty());
+            assert!(!rule.impacts.is_empty());
+            assert!(
+                [
+                    "CLEAR",
+                    "COMPLETE",
+                    "CONVENTIONAL",
+                    "DISTINCT",
+                    "EFFICIENT",
+                    "FOCUSED",
+                    "FORMATTED",
+                    "IDENTIFIABLE",
+                    "LAWFUL",
+                    "LOGICAL",
+                    "MODULAR",
+                    "TESTED",
+                    "TRUSTWORTHY",
+                ]
+                .contains(&rule.clean_code_attribute),
+                "invalid Sonar clean-code attribute: {}",
+                rule.clean_code_attribute,
+            );
+            assert!(
+                ["BUG", "VULNERABILITY", "CODE_SMELL", "SECURITY_HOTSPOT"]
+                    .contains(&rule.rule_type),
+                "invalid Sonar rule type: {}",
+                rule.rule_type,
+            );
+            assert!(
+                ["BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO"].contains(&rule.severity),
+                "invalid Sonar severity: {}",
+                rule.severity,
+            );
+            for impact in rule.impacts {
+                assert!(
+                    ["SECURITY", "RELIABILITY", "MAINTAINABILITY"]
+                        .contains(&impact.software_quality),
+                    "invalid Sonar software quality: {}",
+                    impact.software_quality,
+                );
+                assert!(
+                    ["BLOCKER", "HIGH", "MEDIUM", "LOW", "INFO"].contains(&impact.severity),
+                    "invalid Sonar impact severity: {}",
+                    impact.severity,
+                );
+            }
+            assert!(super::embedded().rule(rule.external_key).is_none());
+            assert_eq!(super::native_rule(rule.external_key), Some(rule));
+        }
+        assert!(super::native_rule("hoonarqube-go:missing").is_none());
+    }
+
+    #[test]
+    fn native_profiles_are_cumulative_and_parity_isolated() {
+        use super::RuleProfile::{Extended, Recommended, SonarParity, Strict};
+
+        assert!(!SonarParity.includes(Recommended));
+        assert!(Recommended.includes(Recommended));
+        assert!(!Recommended.includes(Extended));
+        assert!(Extended.includes(Recommended));
+        assert!(Extended.includes(Extended));
+        assert!(Strict.includes(Recommended));
+        assert!(Strict.includes(Extended));
+        let enabled = |profile: super::RuleProfile| {
+            super::native_rules()
+                .filter(|rule| profile.includes(rule.minimum_profile))
+                .count()
+        };
+        assert_eq!(enabled(SonarParity), 0);
+        assert_eq!(enabled(Recommended), 37);
+        assert_eq!(enabled(Extended), 46);
+        assert_eq!(enabled(Strict), 47);
     }
 
     /// Flips the first hex digit of the 64-character hash following `marker`.

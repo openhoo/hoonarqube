@@ -51,6 +51,7 @@ pub(crate) fn check_commented_code(
                 message: "Remove this commented out code.".to_string(),
                 range: to_range(token.range(), index, source),
                 fix: None,
+                flows: Vec::new(),
             });
         }
     }

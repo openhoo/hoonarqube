@@ -394,6 +394,7 @@ pub(crate) fn span_issue(
         message: message.into(),
         range: index.range(span),
         fix: None,
+        flows: Vec::new(),
     }
 }
 
@@ -443,6 +444,7 @@ impl IssueSink<'_> {
                 },
             },
             fix: None,
+            flows: Vec::new(),
         });
     }
 }

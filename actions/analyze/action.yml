@@ -24,6 +24,10 @@ inputs:
     description: "Minimum blocking severity: critical, major, minor, info, or none."
     required: false
     default: "none"
+  profile:
+    description: "Rule profile: sonar-parity, recommended, extended, or strict."
+    required: false
+    default: "sonar-parity"
   go-header-format:
     description: Optional literal Go license header for go:S1451.
     required: false
@@ -57,6 +61,7 @@ runs:
         INPUT_GO_HEADER_FORMAT: ${{ inputs.go-header-format }}
         INPUT_OUTPUT: ${{ inputs.output }}
         INPUT_PATHS: ${{ inputs.paths }}
+        INPUT_PROFILE: ${{ inputs.profile }}
       run: |
         set -euo pipefail
 
@@ -72,6 +77,14 @@ runs:
             exit 2
             ;;
         esac
+        profile="${INPUT_PROFILE,,}"
+        case "$profile" in
+          sonar-parity|recommended|extended|strict) ;;
+          *)
+            echo "::error::profile must be sonar-parity, recommended, extended, or strict."
+            exit 2
+            ;;
+        esac
         if [[ -z "$INPUT_OUTPUT" ]]; then
           echo "::error::output must name a report file."
           exit 2
@@ -83,6 +96,9 @@ runs:
           exit 2
         fi
         args=(analyze --format sonar)
+        if [[ "$profile" != sonar-parity ]]; then
+          args+=(--profile "$profile")
+        fi
         if [[ -n "$INPUT_GO_HEADER_FORMAT" ]]; then
           args+=(--go-header-format "$INPUT_GO_HEADER_FORMAT")
         fi

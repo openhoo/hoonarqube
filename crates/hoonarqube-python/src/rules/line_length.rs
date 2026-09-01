@@ -27,6 +27,7 @@ pub(crate) fn check_line_length(source: &str, options: &AnalyzerOptions) -> Vec<
                     },
                 },
                 fix: None,
+                flows: Vec::new(),
             });
         }
     }

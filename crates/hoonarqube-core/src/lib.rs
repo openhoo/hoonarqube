@@ -11,6 +11,8 @@ use std::path::Path;
 use hoonarqube_csharp::CsLanguage;
 use hoonarqube_jsts::JstsLanguage;
 
+pub use hoonarqube_catalog::RuleProfile;
+
 /// Languages the registry can analyze.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Language {
@@ -73,13 +75,29 @@ pub use hoonarqube_rust::AnalyzerOptions as RustAnalyzerOptions;
 
 /// Per-language analyzer knobs; [`Default`] matches each analyzer crate's
 /// default configuration.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalyzerOptions {
+    /// Native-rule profile. `sonar-parity` preserves the historical frozen
+    /// Sonar behavior and is the library default.
+    pub profile: RuleProfile,
     pub python: hoonarqube_python::AnalyzerOptions,
     pub jsts: hoonarqube_jsts::AnalyzerOptions,
     pub csharp: hoonarqube_csharp::AnalyzerOptions,
     pub go: hoonarqube_go::AnalyzerOptions,
     pub rust: hoonarqube_rust::AnalyzerOptions,
+}
+
+impl Default for AnalyzerOptions {
+    fn default() -> Self {
+        Self {
+            profile: RuleProfile::SonarParity,
+            python: hoonarqube_python::AnalyzerOptions::default(),
+            jsts: hoonarqube_jsts::AnalyzerOptions::default(),
+            csharp: hoonarqube_csharp::AnalyzerOptions::default(),
+            go: hoonarqube_go::AnalyzerOptions::default(),
+            rust: hoonarqube_rust::AnalyzerOptions::default(),
+        }
+    }
 }
 
 /// Analyzes one source file with the analyzer registered for its extension.
@@ -96,7 +114,7 @@ pub fn analyze(
 ) -> Option<hoonarqube_ir::FileReport> {
     let language = language_for_path(path)?;
     let path = path.to_path_buf();
-    let report = match language {
+    let mut report = match language {
         Language::Python => hoonarqube_python::analyze(path, source, &options.python),
         Language::JavaScript => {
             hoonarqube_jsts::analyze(path, source, JstsLanguage::JavaScript, &options.jsts)
@@ -110,12 +128,38 @@ pub fn analyze(
         Language::Go => hoonarqube_go::analyze(path, source, &options.go),
         Language::Rust => hoonarqube_rust::analyze(path, source, &options.rust),
     };
+    if options.profile != RuleProfile::SonarParity {
+        let mut native = match language {
+            Language::Python => hoonarqube_python::analyze_native(source),
+            Language::JavaScript => {
+                hoonarqube_jsts::analyze_native(source, JstsLanguage::JavaScript)
+            }
+            Language::TypeScript => {
+                hoonarqube_jsts::analyze_native(source, JstsLanguage::TypeScript)
+            }
+            Language::CSharp => hoonarqube_csharp::analyze_native(source),
+            Language::Go => hoonarqube_go::analyze_native(source),
+            Language::Rust => hoonarqube_rust::analyze_native(source),
+        };
+        debug_assert!(
+            native
+                .iter()
+                .all(|issue| { hoonarqube_catalog::native_rule(&issue.rule_key).is_some() })
+        );
+        native.retain(|issue| {
+            hoonarqube_catalog::native_rule(&issue.rule_key)
+                .is_some_and(|rule| options.profile.includes(rule.minimum_profile))
+        });
+        report.issues.extend(native);
+        hoonarqube_ir::sort_issues(&mut report.issues);
+        report.issues.dedup();
+    }
     Some(report)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{AnalyzerOptions, EXTENSIONS, Language, analyze, language_for_path};
+    use super::{AnalyzerOptions, EXTENSIONS, Language, RuleProfile, analyze, language_for_path};
     use std::collections::HashSet;
     use std::path::Path;
 
@@ -255,6 +299,7 @@ mod tests {
     #[test]
     fn default_options_match_per_crate_defaults() {
         let options = AnalyzerOptions::default();
+        assert_eq!(options.profile, RuleProfile::SonarParity);
         assert_eq!(
             options.python,
             hoonarqube_python::AnalyzerOptions::default()
@@ -266,5 +311,81 @@ mod tests {
         );
         assert_eq!(options.go, hoonarqube_go::AnalyzerOptions::default());
         assert_eq!(options.rust, hoonarqube_rust::AnalyzerOptions::default());
+    }
+
+    #[test]
+    fn profile_filter_keeps_sonar_parity_and_enables_cumulative_native_rules() {
+        let source = concat!(
+            "package p\n",
+            "import (\"os\"; \"sync\")\n",
+            "func f() { var wg sync.WaitGroup; go func() { wg.Add(1) }(); mu.Lock(); mu.Unlock(); os.Create(\"x\") }\n",
+        );
+        let parity = analyze(Path::new("main.go"), source, &AnalyzerOptions::default()).unwrap();
+        assert!(
+            parity
+                .issues
+                .iter()
+                .all(|issue| !issue.rule_key.starts_with("hoonarqube-"))
+        );
+
+        let recommended = analyze(
+            Path::new("main.go"),
+            source,
+            &AnalyzerOptions {
+                profile: RuleProfile::Recommended,
+                ..AnalyzerOptions::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            recommended
+                .issues
+                .iter()
+                .any(|issue| issue.rule_key == "hoonarqube-go:SA2000")
+        );
+        assert!(
+            recommended
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "hoonarqube-go:SA2001")
+        );
+
+        let extended = analyze(
+            Path::new("main.go"),
+            source,
+            &AnalyzerOptions {
+                profile: RuleProfile::Extended,
+                ..AnalyzerOptions::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            extended
+                .issues
+                .iter()
+                .any(|issue| issue.rule_key == "hoonarqube-go:SA2001")
+        );
+        assert!(
+            extended
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "hoonarqube-go:G307")
+        );
+
+        let strict = analyze(
+            Path::new("main.go"),
+            source,
+            &AnalyzerOptions {
+                profile: RuleProfile::Strict,
+                ..AnalyzerOptions::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            strict
+                .issues
+                .iter()
+                .any(|issue| issue.rule_key == "hoonarqube-go:G307")
+        );
     }
 }

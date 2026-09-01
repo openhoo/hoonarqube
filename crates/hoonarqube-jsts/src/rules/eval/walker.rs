@@ -57,6 +57,7 @@ impl EvalUsageCollector<'_> {
             message: message.to_string(),
             range: self.index.range(span),
             fix: None,
+            flows: Vec::new(),
         });
     }
 }

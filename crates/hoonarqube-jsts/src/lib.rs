@@ -41,6 +41,7 @@ use crate::support::{
 
 mod context;
 mod engine;
+mod native;
 mod rules;
 mod support;
 use std::path::PathBuf;
@@ -155,6 +156,29 @@ pub fn analyze(
     // defaults inside the rule modules.
     let rules = RuleOptions::from(options);
     analyze_on_scoped_stack(path, source, language, options, &rules)
+}
+
+/// Runs independently implemented non-Sonar JS/TS rules on a large worker
+/// stack, matching the main analyzer's nesting tolerance.
+///
+/// # Panics
+///
+/// Panics if the dedicated analyzer thread cannot be started or if its parser
+/// worker panics.
+#[must_use]
+pub fn analyze_native(source: &str, language: JstsLanguage) -> Vec<hoonarqube_ir::Issue> {
+    std::thread::scope(|scope| {
+        let worker = std::thread::Builder::new()
+            .name("hoonarqube-jsts-native".to_owned())
+            .stack_size(ANALYZER_STACK_SIZE)
+            .spawn_scoped(scope, move || native::analyze(source, language))
+            .unwrap_or_else(|error| {
+                panic!("failed to start JS/TS native analyzer worker: {error}")
+            });
+        worker
+            .join()
+            .unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+    })
 }
 
 fn analyze_on_scoped_stack(

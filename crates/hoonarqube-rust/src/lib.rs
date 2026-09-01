@@ -8,7 +8,9 @@ use std::collections::{BTreeSet, HashSet};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use hoonarqube_ir::{FileMetrics, FileReport, Issue, Pos, Range, sort_issues, u32_saturating};
+use hoonarqube_ir::{
+    FileMetrics, FileReport, FlowLocation, Issue, Pos, Range, sort_issues, u32_saturating,
+};
 use regex::Regex;
 use tree_sitter::{Node, Parser, Point};
 
@@ -395,6 +397,782 @@ pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileRe
         issues,
         metrics: metrics(root, source),
     }
+}
+
+/// Runs independently implemented non-Sonar Rust rules. The adapter stays
+/// conservative: it requires visible standard-library lock/RefCell type
+/// evidence and a guard binding that remains in lexical scope across `await`.
+#[must_use]
+pub fn analyze_native(source: &str) -> Vec<Issue> {
+    let mut parser = Parser::new();
+    if parser
+        .set_language(&tree_sitter_rust::LANGUAGE.into())
+        .is_err()
+    {
+        return Vec::new();
+    }
+    let Some(tree) = parser.parse(source, None) else {
+        return Vec::new();
+    };
+    let root = tree.root_node();
+    if root.has_error() {
+        return Vec::new();
+    }
+
+    let mut issues = Vec::new();
+    walk(root, &mut |declaration| {
+        if declaration.kind() != "let_declaration" {
+            return;
+        }
+        let Some(pattern) = declaration.child_by_field_name("pattern") else {
+            return;
+        };
+        let binding = text(pattern, source).trim_start_matches("mut ");
+        if !binding.bytes().enumerate().all(|(index, byte)| {
+            byte == b'_' || byte.is_ascii_alphanumeric() && (index > 0 || !byte.is_ascii_digit())
+        }) {
+            return;
+        }
+        let Some(value) = declaration.child_by_field_name("value") else {
+            return;
+        };
+        let rule = native_guard_rule(declaration, value, source);
+        let Some((key, message)) = rule else {
+            return;
+        };
+        let Some(block) = enclosing_block(declaration) else {
+            return;
+        };
+        if let Some(await_) = first_await_before_guard_end(block, declaration, binding, source) {
+            issues.push(node_issue(key, message, await_, source).with_flow(vec![
+                FlowLocation::in_primary_file(
+                    "Guard acquired here.",
+                    node_range(declaration, source),
+                ),
+                FlowLocation::in_primary_file(
+                    "Guard remains live across this await.",
+                    node_range(await_, source),
+                ),
+            ]));
+        }
+    });
+    walk(root, &mut |call| {
+        if call.kind() != "call_expression" {
+            return;
+        }
+        let Some((_, method)) = native_method_call(call, source) else {
+            return;
+        };
+        if !matches!(method, "open" | "set_readonly") {
+            return;
+        }
+        let standard = NativeGuardTypes::collect_for(call, source);
+        if let Some(target) = native_suspicious_open_options(call, source, &standard) {
+            issues.push(node_issue(
+                "hoonarqube-rust:suspicious-open-options",
+                "Specify whether this newly created file should be truncated.",
+                target,
+                source,
+            ));
+        }
+        if let Some(target) = native_permissions_set_readonly_false(call, source, &standard) {
+            issues.push(node_issue(
+                "hoonarqube-rust:permissions-set-readonly-false",
+                "Set explicit Unix permissions; clearing readonly can make this file world-writable.",
+                target,
+                source,
+            ));
+        }
+    });
+    sort_issues(&mut issues);
+    issues.dedup();
+    issues
+}
+
+#[derive(Default)]
+struct NativeGuardTypes {
+    mutexes: HashSet<String>,
+    rwlocks: HashSet<String>,
+    refcells: HashSet<String>,
+    open_options: HashSet<String>,
+    files: HashSet<String>,
+    fs_modules: HashSet<String>,
+    metadata_functions: HashSet<String>,
+    tokio_open_options: HashSet<String>,
+    tokio_files: HashSet<String>,
+    tokio_fs_modules: HashSet<String>,
+    std_shadowed: bool,
+    tokio_shadowed: bool,
+}
+
+impl NativeGuardTypes {
+    fn collect_for(at: Node<'_>, source: &str) -> Self {
+        let mut types = Self::default();
+        let mut shadowed = HashSet::new();
+        for scope in std::iter::successors(at.parent(), Node::parent) {
+            collect_native_type_parameter_bindings(scope, source, &mut shadowed);
+            if !matches!(scope.kind(), "block" | "declaration_list" | "source_file") {
+                continue;
+            }
+            let (scope_types, scope_bindings) = Self::collect_scope(scope, source);
+            types.extend_visible(&scope_types, &shadowed);
+            shadowed.extend(scope_bindings);
+            if native_scope_ends_module_lookup(scope) {
+                // A Rust child module does not inherit unqualified imports from
+                // its parent module. Stop after the nearest module scope while
+                // still accepting imports from enclosing blocks and impls.
+                break;
+            }
+        }
+        types.std_shadowed = shadowed.contains("std");
+        types.tokio_shadowed = shadowed.contains("tokio");
+        types.clear_shadowed_roots();
+        types
+    }
+
+    fn collect_scope(scope: Node<'_>, source: &str) -> (Self, HashSet<String>) {
+        let mut types = Self::default();
+        let mut bindings = HashSet::new();
+        let mut cursor = scope.walk();
+        for node in scope.named_children(&mut cursor) {
+            if native_type_namespace_binding(node)
+                && let Some(name) = node.child_by_field_name("name")
+            {
+                bindings.insert(text(name, source).to_string());
+            }
+            if node.kind() != "use_declaration" {
+                continue;
+            }
+            let compact: String = text(node, source)
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .collect();
+            types.record_use(&compact);
+            collect_native_use_bindings(node, source, &mut bindings);
+        }
+        (types, bindings)
+    }
+
+    fn record_use(&mut self, declaration: &str) {
+        collect_native_use_aliases(declaration, "std::sync", "Mutex", &mut self.mutexes);
+        collect_native_use_aliases(declaration, "std::sync", "RwLock", &mut self.rwlocks);
+        collect_native_use_aliases(declaration, "std::cell", "RefCell", &mut self.refcells);
+        collect_native_use_aliases(
+            declaration,
+            "std::fs",
+            "OpenOptions",
+            &mut self.open_options,
+        );
+        collect_native_use_aliases(declaration, "std::fs", "File", &mut self.files);
+        collect_native_use_aliases(declaration, "std", "fs", &mut self.fs_modules);
+        collect_native_group_self_aliases(declaration, "std::fs", "fs", &mut self.fs_modules);
+        collect_native_use_aliases(
+            declaration,
+            "std::fs",
+            "metadata",
+            &mut self.metadata_functions,
+        );
+        collect_native_use_aliases(
+            declaration,
+            "tokio::fs",
+            "OpenOptions",
+            &mut self.tokio_open_options,
+        );
+        collect_native_use_aliases(declaration, "tokio::fs", "File", &mut self.tokio_files);
+        collect_native_use_aliases(declaration, "tokio", "fs", &mut self.tokio_fs_modules);
+        collect_native_group_self_aliases(
+            declaration,
+            "tokio::fs",
+            "fs",
+            &mut self.tokio_fs_modules,
+        );
+    }
+
+    fn extend_visible(&mut self, scope: &Self, shadowed: &HashSet<String>) {
+        extend_native_names(&mut self.mutexes, &scope.mutexes, shadowed);
+        extend_native_names(&mut self.rwlocks, &scope.rwlocks, shadowed);
+        extend_native_names(&mut self.refcells, &scope.refcells, shadowed);
+        extend_native_names(&mut self.open_options, &scope.open_options, shadowed);
+        extend_native_names(&mut self.files, &scope.files, shadowed);
+        extend_native_names(&mut self.fs_modules, &scope.fs_modules, shadowed);
+        extend_native_names(
+            &mut self.metadata_functions,
+            &scope.metadata_functions,
+            shadowed,
+        );
+        extend_native_names(
+            &mut self.tokio_open_options,
+            &scope.tokio_open_options,
+            shadowed,
+        );
+        extend_native_names(&mut self.tokio_files, &scope.tokio_files, shadowed);
+        extend_native_names(
+            &mut self.tokio_fs_modules,
+            &scope.tokio_fs_modules,
+            shadowed,
+        );
+    }
+
+    fn clear_shadowed_roots(&mut self) {
+        if self.std_shadowed {
+            self.mutexes.clear();
+            self.rwlocks.clear();
+            self.refcells.clear();
+            self.open_options.clear();
+            self.files.clear();
+            self.fs_modules.clear();
+            self.metadata_functions.clear();
+        }
+        if self.tokio_shadowed {
+            self.tokio_open_options.clear();
+            self.tokio_files.clear();
+            self.tokio_fs_modules.clear();
+        }
+    }
+}
+
+fn extend_native_names(
+    target: &mut HashSet<String>,
+    source: &HashSet<String>,
+    shadowed: &HashSet<String>,
+) {
+    target.extend(source.difference(shadowed).cloned());
+}
+
+fn native_type_namespace_binding(node: Node<'_>) -> bool {
+    matches!(
+        node.kind(),
+        "mod_item" | "struct_item" | "enum_item" | "union_item" | "trait_item" | "type_item"
+    )
+}
+
+fn native_scope_ends_module_lookup(scope: Node<'_>) -> bool {
+    scope.kind() == "source_file"
+        || (scope.kind() == "declaration_list"
+            && scope
+                .parent()
+                .is_some_and(|parent| parent.kind() == "mod_item"))
+}
+
+fn native_suspicious_open_options<'tree>(
+    call: Node<'tree>,
+    source: &str,
+    standard: &NativeGuardTypes,
+) -> Option<Node<'tree>> {
+    let (mut receiver, method) = native_method_call(call, source)?;
+    if method != "open" {
+        return None;
+    }
+    let target = call
+        .child_by_field_name("function")?
+        .child_by_field_name("field")
+        .unwrap_or(call);
+    // Outer builder calls run last. Preserve "present but dynamic" separately
+    // from "not present" so an inner literal cannot overwrite an unknown final
+    // value and create a false positive.
+    let mut creates: Option<Option<bool>> = None;
+    let mut declares_truncation = false;
+    let mut creates_new: Option<Option<bool>> = None;
+    let mut appends: Option<Option<bool>> = None;
+    loop {
+        let current = unwrap_native_expression(receiver);
+        if native_open_options_constructor(current, source, standard) {
+            break;
+        }
+        let (next, option) = native_method_call(current, source)?;
+        match option {
+            "create" => {
+                if creates.is_none() {
+                    creates = Some(native_first_boolean_argument(current, source));
+                }
+            }
+            "truncate" => declares_truncation = true,
+            "create_new" => {
+                if creates_new.is_none() {
+                    creates_new = Some(native_first_boolean_argument(current, source));
+                }
+            }
+            "append" => {
+                if appends.is_none() {
+                    appends = Some(native_first_boolean_argument(current, source));
+                }
+            }
+            "read" | "write" => {}
+            _ => return None,
+        }
+        receiver = next;
+    }
+    (creates == Some(Some(true))
+        && !declares_truncation
+        && matches!(creates_new, None | Some(Some(false)))
+        && matches!(appends, None | Some(Some(false))))
+    .then_some(target)
+}
+
+fn native_open_options_constructor(
+    call: Node<'_>,
+    source: &str,
+    standard: &NativeGuardTypes,
+) -> bool {
+    if call.kind() != "call_expression" || !native_call_has_no_arguments(call) {
+        return false;
+    }
+    let Some(function) = call.child_by_field_name("function") else {
+        return false;
+    };
+    let function = compact_text(function, source);
+    let standard_constructor = (!standard.std_shadowed
+        && matches!(
+            function.as_str(),
+            "std::fs::OpenOptions::new"
+                | "::std::fs::OpenOptions::new"
+                | "std::fs::File::options"
+                | "::std::fs::File::options"
+        ))
+        || standard
+            .open_options
+            .iter()
+            .any(|alias| function == format!("{alias}::new"))
+        || standard
+            .files
+            .iter()
+            .any(|alias| function == format!("{alias}::options"))
+        || standard
+            .fs_modules
+            .iter()
+            .any(|alias| function == format!("{alias}::File::options"));
+    let tokio_constructor = (!standard.tokio_shadowed
+        && matches!(
+            function.as_str(),
+            "tokio::fs::OpenOptions::new"
+                | "::tokio::fs::OpenOptions::new"
+                | "tokio::fs::File::options"
+                | "::tokio::fs::File::options"
+        ))
+        || standard
+            .tokio_open_options
+            .iter()
+            .any(|alias| function == format!("{alias}::new"))
+        || standard
+            .tokio_files
+            .iter()
+            .any(|alias| function == format!("{alias}::options"))
+        || standard
+            .tokio_fs_modules
+            .iter()
+            .any(|alias| function == format!("{alias}::File::options"));
+    standard_constructor || tokio_constructor
+}
+
+fn native_permissions_set_readonly_false<'tree>(
+    call: Node<'tree>,
+    source: &str,
+    standard: &NativeGuardTypes,
+) -> Option<Node<'tree>> {
+    let (permissions, method) = native_method_call(call, source)?;
+    if method != "set_readonly" || !native_first_argument_is(call, "false", source) {
+        return None;
+    }
+    let (metadata, method) = native_method_call(unwrap_native_expression(permissions), source)?;
+    if method != "permissions" || !native_call_has_no_arguments(permissions) {
+        return None;
+    }
+    native_metadata_origin(unwrap_native_expression(metadata), source, standard).then(|| {
+        call.child_by_field_name("function")
+            .and_then(|function| function.child_by_field_name("field"))
+            .unwrap_or(call)
+    })
+}
+
+fn native_metadata_origin(node: Node<'_>, source: &str, standard: &NativeGuardTypes) -> bool {
+    let node = unwrap_native_expression(node);
+    if node.kind() != "call_expression" {
+        return false;
+    }
+    let Some(function) = node.child_by_field_name("function") else {
+        return false;
+    };
+    let function_text = compact_text(function, source);
+    if (!standard.std_shadowed
+        && matches!(
+            function_text.as_str(),
+            "std::fs::metadata" | "::std::fs::metadata"
+        ))
+        || standard
+            .metadata_functions
+            .iter()
+            .any(|alias| function_text == *alias)
+        || standard
+            .fs_modules
+            .iter()
+            .any(|alias| function_text == format!("{alias}::metadata"))
+    {
+        return true;
+    }
+    native_method_call(node, source).is_some_and(|(receiver, method)| {
+        matches!(method, "unwrap" | "expect") && native_metadata_origin(receiver, source, standard)
+    })
+}
+
+fn native_method_call<'tree, 'source>(
+    call: Node<'tree>,
+    source: &'source str,
+) -> Option<(Node<'tree>, &'source str)> {
+    if call.kind() != "call_expression" {
+        return None;
+    }
+    let function = call.child_by_field_name("function")?;
+    if function.kind() != "field_expression" {
+        return None;
+    }
+    Some((
+        function.child_by_field_name("value")?,
+        text(function.child_by_field_name("field")?, source),
+    ))
+}
+
+fn native_first_argument_is(call: Node<'_>, expected: &str, source: &str) -> bool {
+    call.child_by_field_name("arguments")
+        .and_then(|arguments| arguments.named_child(0))
+        .is_some_and(|argument| compact_text(argument, source) == expected)
+}
+
+fn native_first_boolean_argument(call: Node<'_>, source: &str) -> Option<bool> {
+    call.child_by_field_name("arguments")
+        .and_then(|arguments| arguments.named_child(0))
+        .and_then(|argument| match compact_text(argument, source).as_str() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        })
+}
+
+fn native_call_has_no_arguments(call: Node<'_>) -> bool {
+    call.child_by_field_name("arguments")
+        .is_some_and(|arguments| arguments.named_child_count() == 0)
+}
+
+fn unwrap_native_expression(mut node: Node<'_>) -> Node<'_> {
+    while matches!(
+        node.kind(),
+        "parenthesized_expression" | "try_expression" | "reference_expression"
+    ) {
+        let Some(inner) = node.named_child(0) else {
+            break;
+        };
+        node = inner;
+    }
+    node
+}
+
+fn compact_text(node: Node<'_>, source: &str) -> String {
+    text(node, source)
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
+}
+
+fn collect_native_type_parameter_bindings(
+    item: Node<'_>,
+    source: &str,
+    bindings: &mut HashSet<String>,
+) {
+    let Some(parameters) = item.child_by_field_name("type_parameters") else {
+        return;
+    };
+    let mut cursor = parameters.walk();
+    for parameter in parameters
+        .named_children(&mut cursor)
+        .filter(|parameter| parameter.kind() == "type_parameter")
+    {
+        if let Some(name) = parameter.child_by_field_name("name") {
+            bindings.insert(text(name, source).to_string());
+        }
+    }
+}
+
+fn collect_native_use_bindings(
+    declaration: Node<'_>,
+    source: &str,
+    bindings: &mut HashSet<String>,
+) {
+    let Some(argument) = declaration.child_by_field_name("argument") else {
+        return;
+    };
+    walk(argument, &mut |node| {
+        if node.kind() == "use_as_clause" {
+            if let Some(alias) = node.child_by_field_name("alias") {
+                bindings.insert(text(alias, source).to_string());
+            }
+            return;
+        }
+        let is_top_level_argument = node == argument;
+        let is_list_item = node
+            .parent()
+            .is_some_and(|parent| parent.kind() == "use_list");
+        if !(is_top_level_argument || is_list_item) {
+            return;
+        }
+        let name = match node.kind() {
+            "identifier" => Some(node),
+            "scoped_identifier" => node.child_by_field_name("name"),
+            _ => None,
+        };
+        if let Some(name) = name {
+            bindings.insert(text(name, source).to_string());
+        }
+    });
+}
+
+fn collect_native_use_aliases(
+    declaration: &str,
+    module: &str,
+    original: &str,
+    aliases: &mut HashSet<String>,
+) {
+    let direct = format!("use{module}::{original}");
+    if let Some(tail) = declaration
+        .strip_prefix(&direct)
+        .and_then(|tail| tail.strip_suffix(';'))
+    {
+        if tail.is_empty() {
+            aliases.insert(original.to_string());
+        } else if let Some(alias) = tail.strip_prefix("as")
+            && !alias.is_empty()
+        {
+            aliases.insert(alias.to_string());
+        }
+    }
+    let grouped = format!("use{module}::{{");
+    let Some(items) = declaration
+        .strip_prefix(&grouped)
+        .and_then(|tail| tail.strip_suffix("};"))
+    else {
+        return;
+    };
+    for item in items.split(',') {
+        if item == original {
+            aliases.insert(original.to_string());
+        } else if let Some(alias) = item.strip_prefix(&format!("{original}as"))
+            && !alias.is_empty()
+        {
+            aliases.insert(alias.to_string());
+        }
+    }
+}
+
+fn collect_native_group_self_aliases(
+    declaration: &str,
+    module: &str,
+    default_name: &str,
+    aliases: &mut HashSet<String>,
+) {
+    let grouped = format!("use{module}::{{");
+    let Some(items) = declaration
+        .strip_prefix(&grouped)
+        .and_then(|tail| tail.strip_suffix("};"))
+    else {
+        return;
+    };
+    for item in items.split(',') {
+        if item == "self" {
+            aliases.insert(default_name.to_string());
+        } else if let Some(alias) = item.strip_prefix("selfas")
+            && !alias.is_empty()
+        {
+            aliases.insert(alias.to_string());
+        }
+    }
+}
+
+fn native_guard_rule(
+    declaration: Node<'_>,
+    value: Node<'_>,
+    source: &str,
+) -> Option<(&'static str, &'static str)> {
+    let (receiver, method) = native_guard_acquisition(value, source)?;
+    let function = std::iter::successors(declaration.parent(), Node::parent)
+        .find(|ancestor| ancestor.kind() == "function_item")?;
+    let types = NativeGuardTypes::collect_for(declaration, source);
+    let receiver_type = native_parameter_type(function, receiver, source)?;
+    let is_mutex = method == "lock"
+        && native_type_matches(
+            receiver_type,
+            "std::sync::Mutex",
+            &types.mutexes,
+            types.std_shadowed,
+        );
+    let is_rwlock = matches!(method, "read" | "write")
+        && native_type_matches(
+            receiver_type,
+            "std::sync::RwLock",
+            &types.rwlocks,
+            types.std_shadowed,
+        );
+    if is_mutex || is_rwlock {
+        return Some((
+            "hoonarqube-rust:await-holding-lock",
+            "Drop this lock guard before awaiting.",
+        ));
+    }
+    if matches!(method, "borrow" | "borrow_mut")
+        && native_type_matches(
+            receiver_type,
+            "std::cell::RefCell",
+            &types.refcells,
+            types.std_shadowed,
+        )
+    {
+        return Some((
+            "hoonarqube-rust:await-holding-refcell-ref",
+            "Drop this RefCell borrow before awaiting.",
+        ));
+    }
+    None
+}
+
+fn native_guard_acquisition<'a>(value: Node<'_>, source: &'a str) -> Option<(&'a str, &'a str)> {
+    let mut found = None;
+    walk(value, &mut |node| {
+        if found.is_some() || node.kind() != "call_expression" {
+            return;
+        }
+        let Some(function) = node.child_by_field_name("function") else {
+            return;
+        };
+        if function.kind() != "field_expression" {
+            return;
+        }
+        let (Some(receiver), Some(method)) = (
+            function.child_by_field_name("value"),
+            function.child_by_field_name("field"),
+        ) else {
+            return;
+        };
+        if receiver.kind() == "identifier"
+            && matches!(
+                text(method, source),
+                "lock" | "read" | "write" | "borrow" | "borrow_mut"
+            )
+        {
+            found = Some((text(receiver, source), text(method, source)));
+        }
+    });
+    found
+}
+
+fn native_parameter_type<'a>(
+    function: Node<'_>,
+    receiver: &str,
+    source: &'a str,
+) -> Option<&'a str> {
+    let parameters = function.child_by_field_name("parameters")?;
+    let mut cursor = parameters.walk();
+    parameters
+        .named_children(&mut cursor)
+        .find_map(|parameter| {
+            let pattern = parameter.child_by_field_name("pattern")?;
+            (text(pattern, source).trim_start_matches("mut ") == receiver)
+                .then(|| parameter.child_by_field_name("type"))
+                .flatten()
+                .map(|type_node| text(type_node, source))
+        })
+}
+
+fn native_type_matches(
+    type_text: &str,
+    full_name: &str,
+    aliases: &HashSet<String>,
+    std_shadowed: bool,
+) -> bool {
+    (!std_shadowed && native_type_contains_path(type_text, full_name))
+        || type_text
+            .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+            .any(|word| aliases.contains(word))
+}
+
+fn native_type_contains_path(type_text: &str, full_name: &str) -> bool {
+    type_text.match_indices(full_name).any(|(start, matched)| {
+        let prefix = &type_text[..start];
+        let before = prefix.chars().next_back();
+        let before_absolute = prefix
+            .strip_suffix("::")
+            .and_then(|outer| outer.chars().next_back());
+        let after = type_text[start + matched.len()..].chars().next();
+        let starts_path = before.is_none_or(|character| {
+            !character.is_ascii_alphanumeric() && character != '_' && character != ':'
+        }) || (prefix.ends_with("::")
+            && before_absolute.is_none_or(|character| {
+                !character.is_ascii_alphanumeric() && character != '_' && character != ':'
+            }));
+        starts_path
+            && after.is_none_or(|character| !character.is_ascii_alphanumeric() && character != '_')
+    })
+}
+
+fn first_await_before_guard_end<'tree>(
+    block: Node<'tree>,
+    declaration: Node<'tree>,
+    binding: &str,
+    source: &str,
+) -> Option<Node<'tree>> {
+    let mut events = Vec::new();
+    walk(block, &mut |node| {
+        if node.start_byte() <= declaration.end_byte() {
+            return;
+        }
+        if ancestors_until(node, block).any(|ancestor| {
+            matches!(
+                ancestor.kind(),
+                "closure_expression" | "async_block" | "function_item"
+            )
+        }) {
+            return;
+        }
+        if node.kind() == "await_expression" {
+            events.push((node.start_byte(), false, node));
+        } else if (node.kind() == "call_expression"
+            && is_drop_call(node, binding, source)
+            && guard_end_is_unconditional(node, block))
+            || (node.kind() == "let_declaration"
+                && node.parent() == Some(block)
+                && node.child_by_field_name("pattern").is_some_and(|pattern| {
+                    text(pattern, source).trim_start_matches("mut ") == binding
+                }))
+        {
+            events.push((node.start_byte(), true, node));
+        }
+    });
+    events.sort_by_key(|event| event.0);
+    events
+        .into_iter()
+        .take_while(|(_, guard_ends, _)| !*guard_ends)
+        .find_map(|(_, _, node)| (node.kind() == "await_expression").then_some(node))
+}
+
+fn guard_end_is_unconditional(node: Node<'_>, block: Node<'_>) -> bool {
+    ancestors_until(node, block).all(|ancestor| {
+        matches!(
+            ancestor.kind(),
+            "expression_statement" | "parenthesized_expression"
+        )
+    })
+}
+
+fn is_drop_call(node: Node<'_>, binding: &str, source: &str) -> bool {
+    node.child_by_field_name("function")
+        .is_some_and(|function| matches!(text(function, source), "drop" | "std::mem::drop"))
+        && node
+            .child_by_field_name("arguments")
+            .and_then(|arguments| arguments.named_child(0))
+            .is_some_and(|argument| text(argument, source) == binding)
+}
+
+fn ancestors_until<'tree>(
+    node: Node<'tree>,
+    stop: Node<'tree>,
+) -> impl Iterator<Item = Node<'tree>> {
+    std::iter::successors(node.parent(), Node::parent).take_while(move |ancestor| *ancestor != stop)
 }
 
 fn normalize_sonar_contract(source: &str, issues: &mut Vec<Issue>) {
@@ -3372,5 +4150,220 @@ mod tests {
                 good_report.issues
             );
         }
+    }
+
+    #[test]
+    fn native_async_guard_rules_require_type_evidence_and_live_guard() {
+        let bad = analyze_native(concat!(
+            "use std::sync::Mutex;\n",
+            "use std::cell::RefCell;\n",
+            "async fn run(mutex: &Mutex<i32>, cell: &RefCell<i32>) {\n",
+            "  let lock = mutex.lock().unwrap();\n",
+            "  work().await;\n",
+            "  drop(lock);\n",
+            "  let borrowed = cell.borrow();\n",
+            "  more().await;\n",
+            "  drop(borrowed);\n",
+            "}\n",
+        ));
+        assert!(
+            bad.iter()
+                .any(|issue| issue.rule_key == "hoonarqube-rust:await-holding-lock")
+        );
+        assert!(
+            bad.iter()
+                .any(|issue| { issue.rule_key == "hoonarqube-rust:await-holding-refcell-ref" })
+        );
+
+        let clean = analyze_native(concat!(
+            "use std::sync::Mutex;\n",
+            "use std::cell::RefCell;\n",
+            "async fn run(mutex: &Mutex<i32>, cell: &RefCell<i32>) {\n",
+            "  let lock = mutex.lock().unwrap();\n",
+            "  drop(lock);\n",
+            "  work().await;\n",
+            "  { let borrowed = cell.borrow(); inspect(&borrowed); }\n",
+            "  more().await;\n",
+            "}\n",
+        ));
+        assert!(clean.is_empty(), "unexpected native findings: {clean:?}");
+
+        let custom_path = analyze_native(concat!(
+            "async fn run(mutex: &mystd::sync::Mutex<i32>) {\n",
+            "  let lock = mutex.lock().unwrap();\n",
+            "  work().await;\n",
+            "  drop(lock);\n",
+            "}\n",
+        ));
+        assert!(
+            custom_path.is_empty(),
+            "a path containing `std` must not count as `std`: {custom_path:?}",
+        );
+    }
+
+    #[test]
+    fn native_lock_rule_ignores_async_aware_lock_acquisition() {
+        let clean = analyze_native(concat!(
+            "use tokio::sync::Mutex;\n",
+            "async fn run(mutex: &Mutex<i32>) {\n",
+            "  let lock = mutex.lock().await;\n",
+            "  work().await;\n",
+            "  drop(lock);\n",
+            "}\n",
+        ));
+        assert!(clean.is_empty(), "unexpected native findings: {clean:?}");
+    }
+
+    #[test]
+    fn native_guard_rules_resolve_receiver_types_and_conditional_drops() {
+        let clean = analyze_native(concat!(
+            "use std::sync::Mutex;\n",
+            "struct Gate; impl Gate { fn lock(&self) -> Guard { Guard } }\n",
+            "async fn run(gate: &Gate) { let guard = gate.lock(); work().await; drop(guard); }\n",
+        ));
+        assert!(clean.is_empty(), "custom lock must stay clean: {clean:?}");
+
+        let conditional_drop = analyze_native(concat!(
+            "use std::sync::Mutex as StdMutex;\n",
+            "async fn run(mutex: &StdMutex<i32>, release: bool) {\n",
+            "  let guard = mutex.lock().unwrap();\n",
+            "  if release { drop(guard); }\n",
+            "  work().await;\n",
+            "}\n",
+        ));
+        assert!(
+            conditional_drop
+                .iter()
+                .any(|issue| issue.rule_key == "hoonarqube-rust:await-holding-lock")
+        );
+
+        let scoped_alias = analyze_native(concat!(
+            "use std::sync::Mutex;\n",
+            "mod custom {\n",
+            "  use crate::Gate as Mutex;\n",
+            "  impl Mutex { fn lock(&self) -> Guard { Guard } }\n",
+            "  async fn run(mutex: &Mutex) {\n",
+            "    let guard = mutex.lock(); work().await; drop(guard);\n",
+            "  }\n",
+            "}\n",
+            "struct Gate; struct Guard;\n",
+        ));
+        assert!(
+            scoped_alias.is_empty(),
+            "imports from sibling modules must not provide type evidence: {scoped_alias:?}",
+        );
+
+        let parent_import = analyze_native(concat!(
+            "use std::sync::Mutex;\n",
+            "mod custom {\n",
+            "  struct Mutex; struct Guard;\n",
+            "  impl Mutex { fn lock(&self) -> Guard { Guard } }\n",
+            "  async fn run(mutex: &Mutex) {\n",
+            "    let guard = mutex.lock(); work().await; drop(guard);\n",
+            "  }\n",
+            "}\n",
+        ));
+        assert!(
+            parent_import.is_empty(),
+            "parent-module imports must not leak into child modules: {parent_import:?}",
+        );
+
+        let local_import = analyze_native(concat!(
+            "struct C;\n",
+            "async fn run(mutex: &C) {\n",
+            "  use std::sync::Mutex as C;\n",
+            "  let guard = mutex.lock(); work().await; drop(guard);\n",
+            "}\n",
+        ));
+        assert!(
+            local_import
+                .iter()
+                .any(|issue| issue.rule_key == "hoonarqube-rust:await-holding-lock"),
+            "function-local imports must provide type evidence: {local_import:?}",
+        );
+
+        let generic_shadow = analyze_native(concat!(
+            "use std::sync::Mutex;\n",
+            "async fn run<Mutex>(mutex: &Mutex) {\n",
+            "  let guard = mutex.lock(); work().await; drop(guard);\n",
+            "}\n",
+        ));
+        assert!(
+            generic_shadow.is_empty(),
+            "generic parameters must shadow imported guard names: {generic_shadow:?}",
+        );
+    }
+
+    #[test]
+    fn native_file_rules_require_resolved_standard_library_chains() {
+        let found = analyze_native(concat!(
+            "use std::fs::{self as filesystem, OpenOptions as Options};\n",
+            "fn write(path: &str) {\n",
+            "  Options::new().write(true).create(true).open(path).unwrap();\n",
+            "  filesystem::File::options().create(true).open(path).unwrap();\n",
+            "  filesystem::metadata(path).unwrap().permissions().set_readonly(false);\n",
+            "  tokio::fs::OpenOptions::new().create(true).open(path).await.unwrap();\n",
+            "}\n",
+        ));
+        assert!(
+            found
+                .iter()
+                .any(|issue| issue.rule_key == "hoonarqube-rust:suspicious-open-options"),
+            "missing OpenOptions finding: {found:?}",
+        );
+        assert!(
+            found.iter().any(|issue| {
+                issue.rule_key == "hoonarqube-rust:permissions-set-readonly-false"
+            }),
+            "missing permissions finding: {found:?}",
+        );
+
+        for clean in [
+            "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create(true).truncate(true).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create(true).truncate(false).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create_new(true).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create(true).create(false).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create(true).create_new(true).create_new(false).create_new(true).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str, create: bool) { OpenOptions::new().create(true).create(create).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str, exclusive: bool) { OpenOptions::new().create(true).create_new(exclusive).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str, exclusive: bool) { OpenOptions::new().create(true).create_new(false).create_new(exclusive).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create(true).append(true).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str, append: bool) { OpenOptions::new().create(true).append(append).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create(true).append(true).append(false).append(true).open(path); }",
+            "use std::fs::OpenOptions; trait Ext { fn truncate_write(&mut self, value: bool) -> &mut Self; } fn f(path: &str) { OpenOptions::new().create(true).truncate_write(true).open(path); }",
+            "struct OpenOptions; impl OpenOptions { fn new() -> Builder { Builder } } fn f(path: &str) { OpenOptions::new().create(true).open(path); }",
+            "fn f(metadata: Metadata) { metadata.permissions().set_readonly(false); }",
+            "fn f(path: &str) { custom::metadata(path).permissions().set_readonly(false); }",
+            "fn f(path: &str) { std::fs::metadata(path).unwrap().permissions().set_readonly(true); }",
+            "mod std { pub mod fs { pub struct OpenOptions; } } fn f(path: &str) { std::fs::OpenOptions::new().create(true).open(path); }",
+            "mod std { pub mod fs { pub fn metadata(_: &str) -> Metadata { todo!() } } } fn f(path: &str) { std::fs::metadata(path).permissions().set_readonly(false); }",
+            "mod tokio { pub mod fs { pub struct OpenOptions; } } async fn f(path: &str) { tokio::fs::OpenOptions::new().create(true).open(path).await; }",
+        ] {
+            assert!(analyze_native(clean).is_empty(), "{clean}");
+        }
+
+        for suspicious in [
+            "use std::fs::OpenOptions; fn f(path: &str, create: bool) { OpenOptions::new().create(create).create(true).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str, exclusive: bool) { OpenOptions::new().create(true).create_new(exclusive).create_new(false).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create(true).append(false).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str, append: bool) { OpenOptions::new().create(true).append(append).append(false).open(path); }",
+        ] {
+            assert!(
+                analyze_native(suspicious)
+                    .iter()
+                    .any(|issue| issue.rule_key == "hoonarqube-rust:suspicious-open-options"),
+                "{suspicious}",
+            );
+        }
+
+        let absolute = analyze_native(
+            "fn f(path: &str) { ::std::fs::OpenOptions::new().create(true).open(path); }",
+        );
+        assert!(
+            absolute
+                .iter()
+                .any(|issue| issue.rule_key == "hoonarqube-rust:suspicious-open-options"),
+            "absolute standard-library paths must remain resolved: {absolute:?}",
+        );
     }
 }

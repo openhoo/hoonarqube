@@ -24,6 +24,7 @@
 //!   containing `RenderTreeBuilder` plus semantic invocation binding, which a
 //!   single-pass tree-sitter syntax tree cannot provide.
 
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use tree_sitter::Parser;
@@ -236,6 +237,294 @@ pub fn analyze(
     }
 }
 
+/// Runs independently implemented non-Sonar C# rules. Rules requiring a
+/// semantic model only emit when the local declaration provides exact type
+/// evidence.
+#[must_use]
+pub fn analyze_native(source: &str) -> Vec<hoonarqube_ir::Issue> {
+    let tree = parse(source);
+    let root = tree.root_node();
+    if root.has_error() {
+        return Vec::new();
+    }
+    let mut issues = Vec::new();
+    for invocation in cst::collect_kinds(root, &["invocation_expression"]) {
+        let Some(access) = invocation.child_by_field_name("function") else {
+            continue;
+        };
+        if access.kind() != "member_access_expression"
+            || !native_result_is_discarded(invocation, source)
+        {
+            continue;
+        }
+        let (Some(name), Some(receiver)) = (
+            access.child_by_field_name("name"),
+            access.child_by_field_name("expression"),
+        ) else {
+            continue;
+        };
+        if !matches!(cst::node_text(name, source), "Read" | "ReadAsync") {
+            continue;
+        }
+        let type_evidence = NativeTypeEvidence::collect_for(root, receiver, source);
+        let is_known_stream = rules::expressions::resolved_identifier_type(receiver, source)
+            .is_some_and(|type_name| type_evidence.is_stream(type_name));
+        if is_known_stream {
+            issues.push(hoonarqube_ir::Issue::new(
+                "hoonarqube-csharp:CA2022",
+                "Inspect the returned byte count because a stream read can be partial.",
+                cst::range_of(name, source),
+            ));
+        }
+    }
+    issues.extend(native_end_of_stream_issues(root, source));
+    issues.extend(native_json_element_parse_issues(root, source));
+    hoonarqube_ir::sort_issues(&mut issues);
+    issues
+}
+
+fn native_end_of_stream_issues(
+    root: tree_sitter::Node<'_>,
+    source: &str,
+) -> Vec<hoonarqube_ir::Issue> {
+    let mut issues = Vec::new();
+    for access in cst::collect_kinds(root, &["member_access_expression"]) {
+        let Some(name) = access.child_by_field_name("name") else {
+            continue;
+        };
+        if cst::node_text(name, source) != "EndOfStream" {
+            continue;
+        }
+        let Some(receiver) = access.child_by_field_name("expression") else {
+            continue;
+        };
+        let type_evidence = NativeTypeEvidence::collect_for(root, receiver, source);
+        if rules::expressions::resolved_identifier_type(receiver, source)
+            .is_none_or(|type_name| !type_evidence.matches(type_name, &["System.IO.StreamReader"]))
+        {
+            continue;
+        }
+        let inside_async = rules::expressions::enclosing_callable(access)
+            .is_some_and(|callable| native_callable_is_async(callable, source));
+        if inside_async {
+            issues.push(hoonarqube_ir::Issue::new(
+                "hoonarqube-csharp:CA2024",
+                "Use ReadLineAsync and test its result instead of EndOfStream.",
+                cst::range_of(name, source),
+            ));
+        }
+    }
+    issues
+}
+
+fn native_json_element_parse_issues(
+    root: tree_sitter::Node<'_>,
+    source: &str,
+) -> Vec<hoonarqube_ir::Issue> {
+    let mut issues = Vec::new();
+    for access in cst::collect_kinds(root, &["member_access_expression"]) {
+        let (Some(name), Some(invocation)) = (
+            access.child_by_field_name("name"),
+            access.child_by_field_name("expression"),
+        ) else {
+            continue;
+        };
+        if cst::node_text(name, source) != "RootElement"
+            || invocation.kind() != "invocation_expression"
+        {
+            continue;
+        }
+        let Some(parse_access) = invocation.child_by_field_name("function") else {
+            continue;
+        };
+        if parse_access.kind() != "member_access_expression" {
+            continue;
+        }
+        let (Some(parse_name), Some(json_document)) = (
+            parse_access.child_by_field_name("name"),
+            parse_access.child_by_field_name("expression"),
+        ) else {
+            continue;
+        };
+        if cst::node_text(parse_name, source) != "Parse"
+            || rules::expressions::resolved_identifier_type(json_document, source).is_some()
+        {
+            continue;
+        }
+        let type_evidence = NativeTypeEvidence::collect_for(root, json_document, source);
+        if type_evidence.matches(
+            cst::node_text(json_document, source),
+            &["System.Text.Json.JsonDocument"],
+        ) {
+            issues.push(hoonarqube_ir::Issue::new(
+                "hoonarqube-csharp:CA2026",
+                "Use JsonElement.Parse instead of retaining RootElement from a temporary JsonDocument.",
+                cst::range_of(name, source),
+            ));
+        }
+    }
+    issues
+}
+
+#[derive(Default)]
+struct NativeTypeEvidence {
+    imported_namespaces: HashSet<String>,
+    aliases: HashMap<String, String>,
+    declared_types: HashSet<String>,
+}
+
+impl NativeTypeEvidence {
+    fn collect_for(root: tree_sitter::Node<'_>, at: tree_sitter::Node<'_>, source: &str) -> Self {
+        let mut evidence = Self::default();
+        for declaration in cst::collect_kinds(
+            root,
+            &[
+                "class_declaration",
+                "interface_declaration",
+                "record_declaration",
+                "struct_declaration",
+            ],
+        ) {
+            if let Some(name) = declaration.child_by_field_name("name") {
+                evidence
+                    .declared_types
+                    .insert(cst::node_text(name, source).to_string());
+            }
+        }
+        for using in cst::collect_kinds(root, &["using_directive"]) {
+            if !native_using_applies(using, at) {
+                continue;
+            }
+            let compact: String = cst::node_text(using, source)
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .collect();
+            let Some(body) = compact
+                .strip_prefix("globalusing")
+                .or_else(|| compact.strip_prefix("using"))
+                .and_then(|body| body.strip_suffix(';'))
+            else {
+                continue;
+            };
+            if body.starts_with("static") {
+                continue;
+            }
+            if let Some((alias, target)) = body.split_once('=') {
+                evidence.aliases.insert(
+                    alias.to_string(),
+                    target.trim_start_matches("global::").to_string(),
+                );
+            } else {
+                evidence
+                    .imported_namespaces
+                    .insert(body.trim_start_matches("global::").to_string());
+            }
+        }
+        evidence
+    }
+
+    fn is_stream(&self, type_name: &str) -> bool {
+        self.matches(
+            type_name,
+            &[
+                "System.IO.Stream",
+                "System.IO.FileStream",
+                "System.IO.MemoryStream",
+                "System.IO.BufferedStream",
+                "System.Net.Sockets.NetworkStream",
+                "System.Security.Cryptography.CryptoStream",
+            ],
+        )
+    }
+
+    fn matches(&self, type_name: &str, full_names: &[&str]) -> bool {
+        let compact: String = type_name
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect();
+        let compact = compact.trim_end_matches('?');
+        let explicitly_global = compact.starts_with("global::");
+        let normalized = compact.trim_start_matches("global::");
+        full_names.iter().any(|full_name| {
+            if normalized == *full_name {
+                let root = normalized
+                    .split_once('.')
+                    .map_or(normalized, |(root, _)| root);
+                return explicitly_global
+                    || (!self.declared_types.contains(root)
+                        && self.aliases.get(root).is_none_or(|target| target == root));
+            }
+            if self
+                .aliases
+                .get(normalized)
+                .is_some_and(|target| target == full_name)
+            {
+                return true;
+            }
+            let Some((namespace, simple)) = full_name.rsplit_once('.') else {
+                return false;
+            };
+            if let Some((prefix, type_simple)) = normalized.rsplit_once('.') {
+                return type_simple == simple
+                    && self
+                        .aliases
+                        .get(prefix)
+                        .is_some_and(|target| target == namespace);
+            }
+            normalized == simple
+                && self.imported_namespaces.contains(namespace)
+                && !self.declared_types.contains(simple)
+                && !self.aliases.contains_key(simple)
+        })
+    }
+}
+
+fn native_using_applies(using: tree_sitter::Node<'_>, at: tree_sitter::Node<'_>) -> bool {
+    let owner = std::iter::successors(using.parent(), tree_sitter::Node::parent).find(|ancestor| {
+        matches!(
+            ancestor.kind(),
+            "compilation_unit" | "namespace_declaration" | "file_scoped_namespace_declaration"
+        )
+    });
+    let Some(owner) = owner else {
+        return false;
+    };
+    owner.kind() == "compilation_unit"
+        || std::iter::successors(at.parent(), tree_sitter::Node::parent)
+            .any(|ancestor| ancestor == owner)
+}
+
+fn native_callable_is_async(callable: tree_sitter::Node<'_>, source: &str) -> bool {
+    cst::modifiers_of(callable, source).contains(&"async")
+        || matches!(
+            callable.kind(),
+            "lambda_expression" | "anonymous_method_expression"
+        ) && callable
+            .children(&mut callable.walk())
+            .any(|child| cst::node_text(child, source) == "async")
+}
+
+fn native_result_is_discarded(mut expression: tree_sitter::Node<'_>, source: &str) -> bool {
+    while let Some(parent) = expression.parent() {
+        match parent.kind() {
+            "expression_statement" => return true,
+            "await_expression" | "parenthesized_expression" => expression = parent,
+            "assignment_expression"
+                if parent.child_by_field_name("left").is_some_and(|left| {
+                    cst::node_text(left, source) == "_"
+                        && parent
+                            .child_by_field_name("operator")
+                            .is_some_and(|operator| cst::node_text(operator, source) == "=")
+                }) =>
+            {
+                return true;
+            }
+            _ => return false,
+        }
+    }
+    false
+}
+
 fn parse(source: &str) -> tree_sitter::Tree {
     let mut parser = Parser::new();
     parser
@@ -253,3 +542,170 @@ mod symbol_table;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod native_tests {
+    use super::analyze_native;
+
+    #[test]
+    fn ca2024_requires_async_context_and_exact_stream_reader_type() {
+        let bad = analyze_native(concat!(
+            "using System.IO;\n",
+            "using System.Threading.Tasks;\n",
+            "class C {\n",
+            "  async Task Read(StreamReader reader) {\n",
+            "    while (!reader.EndOfStream) { await reader.ReadLineAsync(); }\n",
+            "  }\n",
+            "}\n",
+        ));
+        assert_eq!(bad.len(), 1);
+        assert_eq!(bad[0].rule_key, "hoonarqube-csharp:CA2024");
+
+        for clean in [
+            "using System.IO; class C { void Read(StreamReader reader) { if (reader.EndOfStream) {} } }",
+            "class Reader { public bool EndOfStream => false; } class C { async void Read(Reader reader) { if (reader.EndOfStream) {} } }",
+            "using System; using System.IO; class C { async void Read(StreamReader reader) { Action inspect = () => Console.Write(reader.EndOfStream); } }",
+        ] {
+            assert!(analyze_native(clean).is_empty(), "{clean}");
+        }
+
+        let async_lambda = analyze_native(concat!(
+            "using System; using System.IO; using System.Threading.Tasks; class C { ",
+            "void Read(StreamReader reader) { Func<Task> inspect = async () => { ",
+            "if (reader.EndOfStream) {} await Task.Yield(); }; } }",
+        ));
+        assert!(
+            async_lambda
+                .iter()
+                .any(|issue| issue.rule_key == "hoonarqube-csharp:CA2024")
+        );
+    }
+
+    #[test]
+    fn ca2022_requires_discarded_result_and_exact_stream_type() {
+        let bad = analyze_native(concat!(
+            "using System.IO; using System.Threading.Tasks; class C {\n",
+            "  void Sync(Stream stream) { stream.Read(buffer, 0, len); }\n",
+            "  async Task Async(FileStream stream) { await stream.ReadAsync(buffer); }\n",
+            "  void ExplicitDiscard(Stream stream) { _ = stream.Read(buffer, 0, len); }\n",
+            "}\n",
+        ));
+        assert_eq!(
+            bad.iter()
+                .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2022")
+                .count(),
+            3
+        );
+
+        for clean in [
+            "using System.IO; class C { int M(Stream stream) { return stream.Read(buffer, 0, len); } }",
+            "using System.IO; class C { void M(Stream stream) { int count = stream.Read(buffer, 0, len); } }",
+            "class Reader { public int Read(byte[] b) => 0; } class C { void M(Reader reader) { reader.Read(buffer); } }",
+            "class Stream { public int Read(byte[] b) => 0; } class C { void M(Stream stream) { stream.Read(buffer); } }",
+            "using System.IO; class Stream { public int Read(byte[] b) => 0; } class C { void M(Stream stream) { stream.Read(buffer); } }",
+        ] {
+            assert!(
+                !analyze_native(clean)
+                    .iter()
+                    .any(|issue| issue.rule_key == "hoonarqube-csharp:CA2022"),
+                "{clean}"
+            );
+        }
+
+        let scoped = analyze_native(concat!(
+            "using System.IO; class Reader { public int Read(byte[] b) => 0; } class C { ",
+            "void StreamUse(Stream value) { value.Read(buffer, 0, len); } ",
+            "void CustomUse(Reader value) { value.Read(buffer); } }",
+        ));
+        assert_eq!(
+            scoped
+                .iter()
+                .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2022")
+                .count(),
+            1
+        );
+
+        let alias = analyze_native(concat!(
+            "using IOStream = System.IO.Stream; class C { ",
+            "void Read(IOStream stream) { stream.Read(buffer, 0, len); } }",
+        ));
+        assert_eq!(
+            alias
+                .iter()
+                .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2022")
+                .count(),
+            1,
+        );
+
+        let namespace_scope = analyze_native(concat!(
+            "namespace Standard { using System.IO; class C { ",
+            "void Read(Stream stream) { stream.Read(buffer, 0, len); } } } ",
+            "namespace Custom { class C { ",
+            "void Read(Stream stream) { stream.Read(buffer, 0, len); } } }",
+        ));
+        assert_eq!(
+            namespace_scope
+                .iter()
+                .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2022")
+                .count(),
+            1,
+            "namespace-local imports must not leak type evidence",
+        );
+    }
+
+    #[test]
+    fn ca2026_requires_exact_json_document_parse_root_element_chain() {
+        let found = analyze_native(concat!(
+            "using System.Text.Json; class C { JsonElement Parse(string json) { ",
+            "return JsonDocument.Parse(json).RootElement; } }",
+        ));
+        assert_eq!(
+            found
+                .iter()
+                .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2026")
+                .count(),
+            1,
+        );
+
+        let aliases = analyze_native(concat!(
+            "using Doc = System.Text.Json.JsonDocument; ",
+            "using Json = System.Text.Json; class C { object Parse(string value) { ",
+            "var first = Doc.Parse(value).RootElement; ",
+            "return Json.JsonDocument.Parse(value).RootElement; } }",
+        ));
+        assert_eq!(
+            aliases
+                .iter()
+                .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2026")
+                .count(),
+            2,
+        );
+
+        for clean in [
+            "class JsonDocument { public static JsonDocument Parse(string value) => new(); public object RootElement => null; } class C { object M(string value) => JsonDocument.Parse(value).RootElement; }",
+            "using System.Text.Json; class C { object M(dynamic JsonDocument, string value) => JsonDocument.Parse(value).RootElement; }",
+            "using System.Text.Json; class C { object M(JsonDocument document) => document.RootElement; }",
+            "using System.Text.Json; class C { JsonDocument M(string value) => JsonDocument.Parse(value); }",
+            "using System = Custom; class C { object M(string value) => System.Text.Json.JsonDocument.Parse(value).RootElement; }",
+        ] {
+            assert!(
+                !analyze_native(clean)
+                    .iter()
+                    .any(|issue| issue.rule_key == "hoonarqube-csharp:CA2026"),
+                "{clean}",
+            );
+        }
+
+        let global = analyze_native(concat!(
+            "using System = Custom; class C { object M(string value) => ",
+            "global::System.Text.Json.JsonDocument.Parse(value).RootElement; }",
+        ));
+        assert_eq!(
+            global
+                .iter()
+                .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2026")
+                .count(),
+            1,
+        );
+    }
+}

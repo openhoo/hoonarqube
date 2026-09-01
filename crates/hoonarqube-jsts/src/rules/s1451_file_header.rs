@@ -27,6 +27,7 @@ fn check_file_header(source: &str, language: JstsLanguage, rules: &RuleOptions) 
             end: hoonarqube_ir::Pos { line: 1, column: 0 },
         },
         fix: None,
+        flows: Vec::new(),
     }]
 }
 

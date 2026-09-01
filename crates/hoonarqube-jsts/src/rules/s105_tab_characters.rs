@@ -28,6 +28,7 @@ fn check_tab_characters(source: &str, language: JstsLanguage) -> Vec<Issue> {
                     },
                 },
                 fix: None,
+                flows: Vec::new(),
             });
         }
     }

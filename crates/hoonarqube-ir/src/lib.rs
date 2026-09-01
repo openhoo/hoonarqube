@@ -1,9 +1,9 @@
 //! Findings-oriented intermediate representation for analyzer output.
 //!
 //! Language analyzers lower their findings into these plain data types; nothing
-//! here parses source code or runs analysis. [`Issue::rule_key`] references a
-//! `RuleRecord::external_key` from the frozen `hoonarqube-catalog` catalog, so
-//! severity and type always resolve through the catalog and are deliberately not
+//! here parses source code or runs analysis. [`Issue::rule_key`] references
+//! either a captured Sonar rule or an independently defined native rule from
+//! `hoonarqube-catalog`; severity and type remain catalog-owned and are not
 //! duplicated in this crate.
 //!
 //! Positions follow the `SonarQube` text-range convention: `line` is 1-based,
@@ -99,10 +99,38 @@ pub struct Fix {
     pub edits: Vec<TextEdit>,
 }
 
-/// One finding. `rule_key` is a `RuleRecord::external_key` from the frozen
-/// catalog (e.g. `python:BackticksUsage`); severity/type resolve through the
-/// catalog, never duplicated here. `fix` optionally carries a
-/// machine-applicable quick fix produced by a rule fixer.
+/// One secondary location in an execution/data-flow trace. `path=None`
+/// refers to the finding's primary file; a path enables cross-file flows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlowLocation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<PathBuf>,
+    pub message: String,
+    pub range: Range,
+}
+
+impl FlowLocation {
+    /// Builds a location in the finding's primary file.
+    #[must_use]
+    pub fn in_primary_file(message: impl Into<String>, range: Range) -> Self {
+        Self {
+            path: None,
+            message: message.into(),
+            range,
+        }
+    }
+}
+
+/// Ordered locations describing one execution or data-flow path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IssueFlow {
+    pub locations: Vec<FlowLocation>,
+}
+
+/// One finding. `rule_key` resolves through either the frozen Sonar catalog
+/// or the separate Hoonarqube-native catalog; severity/type are never
+/// duplicated here. `fix` optionally carries a machine-applicable quick fix.
+/// `flows` carries ordered supporting locations for path-sensitive rules.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Issue {
     pub rule_key: String,
@@ -110,6 +138,8 @@ pub struct Issue {
     pub range: Range,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fix: Option<Fix>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flows: Vec<IssueFlow>,
 }
 
 /// Canonical `SonarQube` issue ordering: start position, then end position
@@ -145,6 +175,7 @@ impl Issue {
             message: message.into(),
             range,
             fix: None,
+            flows: Vec::new(),
         }
     }
 
@@ -182,6 +213,17 @@ impl Issue {
             message: message.into(),
             edits,
         });
+        self
+    }
+
+    /// Attaches one non-empty ordered execution/data-flow path.
+    ///
+    /// # Panics
+    /// Panics when `locations` is empty because an empty flow has no evidence.
+    #[must_use]
+    pub fn with_flow(mut self, locations: Vec<FlowLocation>) -> Self {
+        assert!(!locations.is_empty(), "issue flow must contain a location");
+        self.flows.push(IssueFlow { locations });
         self
     }
 }
@@ -427,6 +469,7 @@ mod tests {
                         },
                     },
                     fix: None,
+                    flows: Vec::new(),
                 }],
                 metrics: FileMetrics {
                     lines: 42,
@@ -439,6 +482,39 @@ mod tests {
         let json = serde_json::to_string(&report).expect("serialize");
         let parsed: AnalysisReport = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(parsed, report);
+    }
+
+    #[test]
+    fn issue_flows_round_trip_and_empty_fields_stay_omitted() {
+        let plain = Issue::new(
+            "python:S1",
+            "plain",
+            Range {
+                start: Pos { line: 1, column: 0 },
+                end: Pos { line: 1, column: 1 },
+            },
+        );
+        let plain_json = serde_json::to_value(&plain).expect("serialize plain issue");
+        assert!(plain_json.get("flows").is_none());
+        assert!(plain_json.get("fix").is_none());
+
+        let traced = plain.clone().with_flow(vec![FlowLocation {
+            path: Some(PathBuf::from("src/source.py")),
+            message: "value originates here".to_string(),
+            range: Range {
+                start: Pos { line: 4, column: 2 },
+                end: Pos { line: 4, column: 8 },
+            },
+        }]);
+        let json = serde_json::to_string(&traced).expect("serialize flow");
+        let parsed: Issue = serde_json::from_str(&json).expect("deserialize flow");
+        assert_eq!(parsed, traced);
+    }
+
+    #[test]
+    #[should_panic(expected = "issue flow must contain a location")]
+    fn empty_issue_flow_is_rejected() {
+        let _ = Issue::new("python:S1", "plain", Range::file_level()).with_flow(Vec::new());
     }
 
     /// Builds a `TextEdit` from `(line, column)` tuples for compact tests.

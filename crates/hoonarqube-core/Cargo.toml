@@ -10,6 +10,7 @@ publish.workspace = true
 [lib]
 path = "src/lib.rs"
 [dependencies]
+hoonarqube-catalog = { version = "0.2.4", path = "../hoonarqube-catalog" }
 hoonarqube-csharp = { version = "0.2.4", path = "../hoonarqube-csharp" }
 hoonarqube-go = { version = "0.2.4", path = "../hoonarqube-go" }
 hoonarqube-ir = { version = "0.2.4", path = "../hoonarqube-ir" }

@@ -25,5 +25,6 @@ pub(crate) fn check_lines_of_code(
             end: hoonarqube_ir::Pos { line: 1, column: 0 },
         },
         fix: None,
+        flows: Vec::new(),
     }]
 }

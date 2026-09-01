@@ -49,6 +49,7 @@ pub(crate) fn check_hardcoded_credentials(
                     ),
                     range: to_range(statement_range, index, source),
                     fix: None,
+                    flows: Vec::new(),
                 });
             }
         }
@@ -60,6 +61,7 @@ pub(crate) fn check_hardcoded_credentials(
                 message: "Review this potentially hard-coded credentials.".to_string(),
                 range: to_range(range, index, source),
                 fix: None,
+                flows: Vec::new(),
             });
         }
     }

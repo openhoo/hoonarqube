@@ -33,6 +33,7 @@ pub(crate) fn check_invalid_string_escapes(
                         message: "Remove this \"\\\", add another \"\\\" to escape it, or make this a raw string.".to_string(),
                         range: to_range(part_range, index, source),
                         fix: None,
+                        flows: Vec::new(),
                     });
                 }
             }

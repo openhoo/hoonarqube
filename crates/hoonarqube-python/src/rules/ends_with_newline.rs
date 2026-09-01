@@ -15,6 +15,7 @@ pub(crate) fn check_ends_with_newline(path: &Path, source: &str) -> Vec<Issue> {
         message: format!("Add a new line at the end of this file \"{file_name}\"."),
         range: hoonarqube_ir::Range::file_level(),
         fix: None,
+        flows: Vec::new(),
     }]
 }
 

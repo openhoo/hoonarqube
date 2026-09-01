@@ -8,7 +8,7 @@
 //!   [`language_for_path`] from `hoonarqube-core` — the entry point for
 //!   analyzing a source file end to end.
 //! - [`catalog`] from `hoonarqube-catalog` — the frozen, integrity-verified
-//!   `SonarQube` rule catalog that every finding's rule key resolves against.
+//!   `SonarQube` catalog plus the separate native rule catalog.
 //! - [`ir`] from `hoonarqube-ir` — the plain-data findings model
 //!   ([`ir::AnalysisReport`], [`ir::Issue`], [`ir::Fix`], [`ir::TextEdit`],
 //!   ...).
@@ -30,9 +30,8 @@
 //! }
 //! ```
 //!
-//! Every [`ir::Issue::rule_key`] is an external key from the frozen catalog,
-//! so severity and type always resolve through [`catalog::embedded`] rather
-//! than being duplicated in findings.
+//! Every [`ir::Issue::rule_key`] resolves through either [`catalog::embedded`]
+//! or [`catalog::native_rule`]; metadata is never duplicated in findings.
 
 /// The frozen, verified `SonarQube` rule catalog.
 ///
@@ -41,8 +40,18 @@
 pub mod catalog {
     /// The fully verified frozen catalog (rule lookups, snapshot metadata).
     pub use hoonarqube_catalog::Catalog;
+    /// Native rule implementation capability.
+    pub use hoonarqube_catalog::NativeImplementation;
+    /// Native rule expected precision.
+    pub use hoonarqube_catalog::NativePrecision;
+    /// Native rule metadata and provenance.
+    pub use hoonarqube_catalog::NativeRuleRecord;
     /// Returns the process-wide verified embedded catalog.
     pub use hoonarqube_catalog::embedded;
+    /// Looks up an independently implemented native rule.
+    pub use hoonarqube_catalog::native_rule;
+    /// Iterates independently implemented native rules in stable key order.
+    pub use hoonarqube_catalog::native_rules;
 }
 
 /// Findings-oriented intermediate representation of analyzer output.
@@ -60,8 +69,12 @@ pub mod ir {
     pub use hoonarqube_ir::Fix;
     /// Validation failure returned while applying edits.
     pub use hoonarqube_ir::FixApplyError;
+    /// One secondary location in an execution or data-flow trace.
+    pub use hoonarqube_ir::FlowLocation;
     /// One finding whose `rule_key` references a frozen catalog external key.
     pub use hoonarqube_ir::Issue;
+    /// One ordered execution or data-flow trace.
+    pub use hoonarqube_ir::IssueFlow;
     /// Source position; `line` is 1-based, `column` is 0-based.
     pub use hoonarqube_ir::Pos;
     /// Half-open source span.
@@ -75,6 +88,8 @@ pub mod ir {
 /// Language dispatch knobs for [`analyze`]; defaults match analyzer defaults.
 pub use hoonarqube_core::AnalyzerOptions;
 pub use hoonarqube_core::Language;
+/// Cumulative native-rule profile.
+pub use hoonarqube_core::RuleProfile;
 /// Analyzes one source file end to end.
 pub use hoonarqube_core::analyze;
 /// Maps a file path to its analyzed [`Language`], or `None` if unknown.

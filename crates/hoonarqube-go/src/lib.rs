@@ -1,9 +1,14 @@
 //! Tolerant Go analyzer for the frozen `SonarQube` Community Go catalog.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use hoonarqube_ir::{FileMetrics, FileReport, Issue, Pos, Range, sort_issues, u32_saturating};
+use hoonarqube_dataflow::{
+    ControlFlowSpec, Direction, TaintFacts, build_from_blocks, solve_dataflow,
+};
+use hoonarqube_ir::{
+    FileMetrics, FileReport, FlowLocation, Issue, Pos, Range, sort_issues, u32_saturating,
+};
 use tree_sitter::{Node, Parser, Point};
 
 /// Go rule parameters exposed by the frozen catalog.
@@ -98,6 +103,1997 @@ pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileRe
         issues,
         metrics: metrics(source, &line_facts),
     }
+}
+
+/// Runs independently implemented, non-Sonar Go rules. Callers select the
+/// active profile and filter these findings through `hoonarqube-catalog`.
+/// Syntax-invalid input produces no native findings.
+#[must_use]
+pub fn analyze_native(source: &str) -> Vec<Issue> {
+    let mut parser = Parser::new();
+    if parser
+        .set_language(&tree_sitter_go::LANGUAGE.into())
+        .is_err()
+    {
+        return Vec::new();
+    }
+    let Some(tree) = parser.parse(source, None) else {
+        return Vec::new();
+    };
+    let root = tree.root_node();
+    if root.has_error() {
+        return Vec::new();
+    }
+
+    let imports = GoImports::collect(root, source);
+    let mut issues = Vec::new();
+    check_native_bidi_controls(source, &mut issues);
+    check_native_import_rules(root, source, &imports, &mut issues);
+    walk(root, &mut |node| {
+        check_native_node(node, source, &imports, &mut issues);
+    });
+    check_native_nil_contexts(root, source, &imports, &mut issues);
+    check_native_archive_paths(root, source, &imports, &mut issues);
+    check_native_decompression_flows(root, source, &imports, &mut issues);
+    sort_issues(&mut issues);
+    issues.dedup();
+    issues
+}
+
+#[derive(Debug, Default)]
+struct GoImports {
+    aliases: HashMap<String, String>,
+}
+
+impl GoImports {
+    fn collect(root: Node<'_>, source: &str) -> Self {
+        let mut imports = Self::default();
+        walk(root, &mut |node| {
+            if node.kind() != "import_spec" {
+                return;
+            }
+            let Some(path_node) = node.child_by_field_name("path") else {
+                return;
+            };
+            let path = text(path_node, source).trim_matches(['"', '`']);
+            let package = path.rsplit('/').next().unwrap_or(path);
+            let alias = node
+                .child_by_field_name("name")
+                .map_or(package, |name| text(name, source));
+            if !matches!(alias, "_" | ".") {
+                imports.aliases.insert(path.to_string(), alias.to_string());
+            }
+        });
+        imports
+    }
+
+    fn alias(&self, path: &str) -> Option<&str> {
+        self.aliases.get(path).map(String::as_str)
+    }
+
+    fn qualified(&self, path: &str, member: &str) -> Option<String> {
+        Some(format!("{}.{member}", self.alias(path)?))
+    }
+}
+
+fn check_native_node(node: Node<'_>, source: &str, imports: &GoImports, issues: &mut Vec<Issue>) {
+    match node.kind() {
+        "call_expression" => check_native_call(node, source, imports, issues),
+        "composite_literal" => check_native_composite(node, source, imports, issues),
+        "field_declaration" => check_native_serialized_secret(node, source, issues),
+        "go_statement" => check_native_waitgroup_add(node, source, imports, issues),
+        "expression_statement" => check_native_discarded_append(node, source, issues),
+        "statement_list" => {
+            check_native_lock_sequence(node, source, issues);
+            check_native_statement_flow(node, source, imports, issues);
+        }
+        "for_statement" => check_native_loop(node, source, imports, issues),
+        _ => {}
+    }
+}
+
+fn check_native_bidi_controls(source: &str, issues: &mut Vec<Issue>) {
+    const BIDI_CONTROLS: &[char] = &[
+        '\u{061c}', '\u{200e}', '\u{200f}', '\u{202a}', '\u{202b}', '\u{202c}', '\u{202d}',
+        '\u{202e}', '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}',
+    ];
+    for (offset, character) in source.char_indices() {
+        if !BIDI_CONTROLS.contains(&character) {
+            continue;
+        }
+        issues.push(offset_issue(
+            "hoonarqube-go:G116",
+            "Remove this bidirectional Unicode control character.",
+            source,
+            offset,
+            offset + character.len_utf8(),
+        ));
+    }
+}
+
+fn check_native_import_rules(
+    root: Node<'_>,
+    source: &str,
+    imports: &GoImports,
+    issues: &mut Vec<Issue>,
+) {
+    for (path, key, message) in [
+        (
+            "crypto/md5",
+            "hoonarqube-go:G401",
+            "Replace MD5 with a cryptographically strong hash.",
+        ),
+        (
+            "crypto/sha1",
+            "hoonarqube-go:G401",
+            "Replace SHA-1 with a cryptographically strong hash.",
+        ),
+        (
+            "crypto/des",
+            "hoonarqube-go:G405",
+            "Replace DES with a modern authenticated cipher.",
+        ),
+        (
+            "crypto/rc4",
+            "hoonarqube-go:G405",
+            "Replace RC4 with a modern authenticated cipher.",
+        ),
+        (
+            "golang.org/x/crypto/md4",
+            "hoonarqube-go:G406",
+            "Replace MD4 with a cryptographically strong hash.",
+        ),
+        (
+            "golang.org/x/crypto/ripemd160",
+            "hoonarqube-go:G406",
+            "Replace RIPEMD-160 with a cryptographically strong hash.",
+        ),
+    ] {
+        if imports.alias(path).is_none() {
+            continue;
+        }
+        walk(root, &mut |node| {
+            if node.kind() == "import_spec"
+                && node
+                    .child_by_field_name("path")
+                    .is_some_and(|value| text(value, source).trim_matches(['"', '`']) == path)
+            {
+                issues.push(node_issue(key, message, node, source));
+            }
+        });
+    }
+}
+
+fn check_native_call(node: Node<'_>, source: &str, imports: &GoImports, issues: &mut Vec<Issue>) {
+    let Some(function) = node.child_by_field_name("function") else {
+        return;
+    };
+    let function_name = text(function, source);
+
+    if let Some(http) = imports.alias("net/http")
+        && ["Serve", "ListenAndServe", "ListenAndServeTLS"]
+            .iter()
+            .any(|member| function_name == format!("{http}.{member}"))
+    {
+        issues.push(node_issue(
+            "hoonarqube-go:G114",
+            "Use an http.Server with explicit timeouts instead of this package-level serving helper.",
+            function,
+            source,
+        ));
+    }
+
+    let arguments = node
+        .child_by_field_name("arguments")
+        .map(named_children)
+        .unwrap_or_default();
+    if imports
+        .qualified("time", "Sleep")
+        .is_some_and(|sleep| function_name == sleep)
+        && let [duration] = arguments.as_slice()
+        && duration.kind() == "int_literal"
+        && parse_go_integer(text(*duration, source)).is_some_and(|value| (1..=120).contains(&value))
+    {
+        issues.push(node_issue(
+            "hoonarqube-go:SA1004",
+            "Multiply this small Sleep duration by an explicit time unit.",
+            *duration,
+            source,
+        ));
+    }
+    check_native_os_call(function, function_name, &arguments, source, imports, issues);
+    check_native_ioutil_call(function_name, &arguments, source, imports, issues);
+    check_native_rsa_call(function_name, &arguments, source, imports, issues);
+}
+
+fn check_native_os_call(
+    function: Node<'_>,
+    function_name: &str,
+    arguments: &[Node<'_>],
+    source: &str,
+    imports: &GoImports,
+    issues: &mut Vec<Issue>,
+) {
+    if let Some(os) = imports.alias("os") {
+        let permission_rule = match function_name {
+            name if name == format!("{os}.Mkdir") || name == format!("{os}.MkdirAll") => {
+                arguments.get(1).map(|argument| {
+                    (
+                        argument,
+                        0o750,
+                        "hoonarqube-go:G301",
+                        "Restrict directory permissions to 0750 or less.",
+                    )
+                })
+            }
+            name if name == format!("{os}.Chmod") => arguments.get(1).map(|argument| {
+                (
+                    argument,
+                    0o600,
+                    "hoonarqube-go:G302",
+                    "Restrict file permissions to 0600 or less.",
+                )
+            }),
+            name if name == format!("{os}.WriteFile") => arguments.get(2).map(|argument| {
+                (
+                    argument,
+                    0o600,
+                    "hoonarqube-go:G306",
+                    "Restrict written-file permissions to 0600 or less.",
+                )
+            }),
+            _ => None,
+        };
+        if let Some((argument, allowed, key, message)) = permission_rule
+            && parse_go_integer(text(*argument, source)).is_some_and(|mode| mode & !allowed != 0)
+        {
+            issues.push(node_issue(key, message, *argument, source));
+        }
+        if function_name == format!("{os}.Create") {
+            issues.push(node_issue(
+                "hoonarqube-go:G307",
+                "Use os.OpenFile with an explicit 0600 mode under the strict profile.",
+                function,
+                source,
+            ));
+        }
+        if (function_name == format!("{os}.Create") || function_name == format!("{os}.WriteFile"))
+            && arguments
+                .first()
+                .is_some_and(|argument| is_predictable_temp_path(*argument, source, imports))
+        {
+            issues.push(node_issue(
+                "hoonarqube-go:G303",
+                "Create a randomized temporary file instead of using this predictable shared path.",
+                arguments[0],
+                source,
+            ));
+        }
+    }
+}
+
+fn check_native_ioutil_call(
+    function_name: &str,
+    arguments: &[Node<'_>],
+    source: &str,
+    imports: &GoImports,
+    issues: &mut Vec<Issue>,
+) {
+    if let Some(ioutil) = imports.alias("io/ioutil")
+        && function_name == format!("{ioutil}.WriteFile")
+        && let Some(argument) = arguments.get(2)
+        && parse_go_integer(text(*argument, source)).is_some_and(|mode| mode & !0o600 != 0)
+    {
+        issues.push(node_issue(
+            "hoonarqube-go:G306",
+            "Restrict written-file permissions to 0600 or less.",
+            *argument,
+            source,
+        ));
+    }
+    if let Some(ioutil) = imports.alias("io/ioutil")
+        && function_name == format!("{ioutil}.WriteFile")
+        && arguments
+            .first()
+            .is_some_and(|argument| is_predictable_temp_path(*argument, source, imports))
+    {
+        issues.push(node_issue(
+            "hoonarqube-go:G303",
+            "Create a randomized temporary file instead of using this predictable shared path.",
+            arguments[0],
+            source,
+        ));
+    }
+}
+
+fn check_native_rsa_call(
+    function_name: &str,
+    arguments: &[Node<'_>],
+    source: &str,
+    imports: &GoImports,
+    issues: &mut Vec<Issue>,
+) {
+    if let Some(rsa) = imports.alias("crypto/rsa")
+        && function_name == format!("{rsa}.GenerateKey")
+        && let Some(bits) = arguments.get(1)
+        && parse_go_integer(text(*bits, source)).is_some_and(|bits| bits < 2048)
+    {
+        issues.push(node_issue(
+            "hoonarqube-go:G403",
+            "Generate RSA keys with at least 2048 bits.",
+            *bits,
+            source,
+        ));
+    }
+}
+
+fn is_predictable_temp_path(node: Node<'_>, source: &str, imports: &GoImports) -> bool {
+    match node.kind() {
+        "interpreted_string_literal" | "raw_string_literal" => {
+            let value = text(node, source).trim_matches(['"', '`']);
+            value == "/tmp"
+                || value.starts_with("/tmp/")
+                || value == "/usr/tmp"
+                || value.starts_with("/usr/tmp/")
+                || value == "/var/tmp"
+                || value.starts_with("/var/tmp/")
+        }
+        "binary_expression" => node
+            .child_by_field_name("left")
+            .is_some_and(|left| is_predictable_temp_path(left, source, imports)),
+        "call_expression" => {
+            let function = node
+                .child_by_field_name("function")
+                .map(|function| text(function, source));
+            if imports
+                .qualified("os", "TempDir")
+                .as_deref()
+                .is_some_and(|temp_dir| function == Some(temp_dir))
+            {
+                return true;
+            }
+            let is_join = ["path", "path/filepath"].into_iter().any(|package| {
+                imports
+                    .qualified(package, "Join")
+                    .as_deref()
+                    .is_some_and(|join| function == Some(join))
+            });
+            is_join
+                && node
+                    .child_by_field_name("arguments")
+                    .and_then(first_named)
+                    .is_some_and(|argument| is_predictable_temp_path(argument, source, imports))
+        }
+        "parenthesized_expression" => {
+            first_named(node).is_some_and(|inner| is_predictable_temp_path(inner, source, imports))
+        }
+        _ => false,
+    }
+}
+
+fn check_native_nil_contexts(
+    root: Node<'_>,
+    source: &str,
+    imports: &GoImports,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(context_alias) = imports.alias("context") else {
+        return;
+    };
+    let mut known = collect_local_context_parameters(root, source, context_alias);
+    if let Some(exec) = imports.alias("os/exec") {
+        known.insert(format!("{exec}.CommandContext"), vec![0]);
+    }
+    if let Some(http) = imports.alias("net/http") {
+        known.insert(format!("{http}.NewRequestWithContext"), vec![0]);
+    }
+    report_nil_context_arguments(root, source, &known, issues);
+}
+
+fn collect_local_context_parameters(
+    root: Node<'_>,
+    source: &str,
+    context_alias: &str,
+) -> HashMap<String, Vec<usize>> {
+    let mut local_context_parameters = HashMap::<String, Vec<usize>>::new();
+    walk(root, &mut |node| {
+        if node.kind() != "function_declaration" {
+            return;
+        }
+        let Some(name) = node.child_by_field_name("name") else {
+            return;
+        };
+        let Some(parameters) = node.child_by_field_name("parameters") else {
+            return;
+        };
+        let mut indexes = Vec::new();
+        let mut index = 0;
+        for parameter in named_children(parameters) {
+            if parameter.kind() != "parameter_declaration" {
+                continue;
+            }
+            let names: Vec<_> = {
+                let mut cursor = parameter.walk();
+                parameter
+                    .children_by_field_name("name", &mut cursor)
+                    .collect()
+            };
+            let is_context = parameter
+                .child_by_field_name("type")
+                .is_some_and(|kind| text(kind, source) == format!("{context_alias}.Context"));
+            for _ in &names {
+                if is_context {
+                    indexes.push(index);
+                }
+                index += 1;
+            }
+        }
+        if !indexes.is_empty() {
+            local_context_parameters.insert(text(name, source).to_string(), indexes);
+        }
+    });
+    local_context_parameters
+}
+
+fn report_nil_context_arguments(
+    root: Node<'_>,
+    source: &str,
+    known: &HashMap<String, Vec<usize>>,
+    issues: &mut Vec<Issue>,
+) {
+    walk(root, &mut |node| {
+        if node.kind() != "call_expression" {
+            return;
+        }
+        let Some(function) = node.child_by_field_name("function") else {
+            return;
+        };
+        let Some(indexes) = known.get(text(function, source)) else {
+            return;
+        };
+        let arguments = node
+            .child_by_field_name("arguments")
+            .map(named_children)
+            .unwrap_or_default();
+        for index in indexes {
+            if arguments
+                .get(*index)
+                .is_some_and(|argument| text(*argument, source) == "nil")
+            {
+                issues.push(node_issue(
+                    "hoonarqube-go:SA1012",
+                    "Pass context.TODO or context.Background instead of nil.",
+                    arguments[*index],
+                    source,
+                ));
+            }
+        }
+    });
+}
+
+fn check_native_archive_paths(
+    root: Node<'_>,
+    source: &str,
+    imports: &GoImports,
+    issues: &mut Vec<Issue>,
+) {
+    let archive_types: HashSet<String> = [("archive/zip", "File"), ("archive/tar", "Header")]
+        .into_iter()
+        .filter_map(|(package, name)| imports.qualified(package, name))
+        .collect();
+    if archive_types.is_empty() {
+        return;
+    }
+    let join_functions: HashSet<String> = ["path", "path/filepath"]
+        .into_iter()
+        .filter_map(|package| imports.qualified(package, "Join"))
+        .collect();
+    if join_functions.is_empty() {
+        return;
+    }
+
+    walk(root, &mut |function| {
+        if !is_function(function) {
+            return;
+        }
+        let archive_entries = collect_archive_entries(function, source, imports, &archive_types);
+        if archive_entries.is_empty() {
+            return;
+        }
+
+        let mut archive_names = HashSet::<String>::new();
+        walk(function, &mut |node| {
+            if matches!(
+                node.kind(),
+                "short_var_declaration" | "assignment_statement"
+            ) && let (Some(left), Some(right)) = (
+                node.child_by_field_name("left"),
+                node.child_by_field_name("right"),
+            ) && let Some(name) = first_identifier(left, source)
+                && selector_is_archive_name(right, source, &archive_entries)
+            {
+                archive_names.insert(name.to_string());
+            }
+        });
+
+        walk(function, &mut |node| {
+            if node.kind() != "call_expression"
+                || !node
+                    .child_by_field_name("function")
+                    .is_some_and(|callee| join_functions.contains(text(callee, source)))
+            {
+                return;
+            }
+            let arguments = node
+                .child_by_field_name("arguments")
+                .map(named_children)
+                .unwrap_or_default();
+            let unsafe_argument = arguments.iter().find(|argument| {
+                selector_is_archive_name(**argument, source, &archive_entries)
+                    || (argument.kind() == "identifier"
+                        && archive_names.contains(text(**argument, source)))
+            });
+            if let Some(argument) = unsafe_argument {
+                issues.push(node_issue(
+                    "hoonarqube-go:G305",
+                    "Validate and contain this archive entry name before joining it to the extraction root.",
+                    *argument,
+                    source,
+                ));
+            }
+        });
+    });
+}
+
+fn collect_archive_entries(
+    function: Node<'_>,
+    source: &str,
+    imports: &GoImports,
+    archive_entry_types: &HashSet<String>,
+) -> HashSet<String> {
+    let archive_reader_types: HashSet<String> = [("archive/zip", "Reader")]
+        .into_iter()
+        .filter_map(|(package, name)| imports.qualified(package, name))
+        .collect();
+    let archive_reader_calls: HashSet<String> =
+        [("archive/zip", "OpenReader"), ("archive/zip", "NewReader")]
+            .into_iter()
+            .filter_map(|(package, name)| imports.qualified(package, name))
+            .collect();
+    let mut entries = HashSet::new();
+    let mut readers = HashSet::new();
+    walk(function, &mut |node| {
+        if node != function
+            && ancestors(node)
+                .take_while(|ancestor| *ancestor != function)
+                .any(is_function)
+        {
+            return;
+        }
+        if node.kind() == "parameter_declaration"
+            && let Some(kind) = node.child_by_field_name("type")
+        {
+            let declared_type = text(kind, source).trim_start_matches('*');
+            let target = if archive_entry_types.contains(declared_type) {
+                &mut entries
+            } else if archive_reader_types.contains(declared_type) {
+                &mut readers
+            } else {
+                return;
+            };
+            let mut cursor = node.walk();
+            target.extend(
+                node.children_by_field_name("name", &mut cursor)
+                    .map(|name| text(name, source).to_string()),
+            );
+        }
+        if matches!(
+            node.kind(),
+            "short_var_declaration" | "assignment_statement"
+        ) && let (Some(left), Some(right)) = (
+            node.child_by_field_name("left"),
+            node.child_by_field_name("right"),
+        ) && expression_calls_any(right, source, &archive_reader_calls)
+            && let Some(name) = first_identifier(left, source)
+        {
+            readers.insert(name.to_string());
+        }
+    });
+    walk(function, &mut |node| {
+        if (node != function
+            && ancestors(node)
+                .take_while(|ancestor| *ancestor != function)
+                .any(is_function))
+            || node.kind() != "range_clause"
+            || node.child_by_field_name("right").is_none_or(|right| {
+                selector_parts(right, source).is_none_or(|(receiver, member)| {
+                    member != "File" || !readers.contains(receiver)
+                })
+            })
+        {
+            return;
+        }
+        let Some(left) = node.child_by_field_name("left") else {
+            return;
+        };
+        if let Some(entry) = named_children(left)
+            .into_iter()
+            .rfind(|name| name.kind() == "identifier")
+        {
+            entries.insert(text(entry, source).to_string());
+        }
+    });
+    entries
+}
+
+fn expression_calls_any(node: Node<'_>, source: &str, callees: &HashSet<String>) -> bool {
+    let mut found = false;
+    walk(node, &mut |candidate| {
+        if candidate.kind() == "call_expression"
+            && candidate
+                .child_by_field_name("function")
+                .is_some_and(|function| callees.contains(text(function, source)))
+        {
+            found = true;
+        }
+    });
+    found
+}
+
+fn selector_is_archive_name(
+    node: Node<'_>,
+    source: &str,
+    archive_entries: &HashSet<String>,
+) -> bool {
+    selector_parts(node, source)
+        .is_some_and(|(receiver, member)| member == "Name" && archive_entries.contains(receiver))
+}
+
+fn check_native_composite(
+    node: Node<'_>,
+    source: &str,
+    imports: &GoImports,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(type_node) = node.child_by_field_name("type") else {
+        return;
+    };
+    let Some(body) = node.child_by_field_name("body") else {
+        return;
+    };
+    if imports
+        .qualified("net/http", "Server")
+        .is_some_and(|name| text(type_node, source) == name)
+        && !literal_has_key(body, "ReadHeaderTimeout", source)
+    {
+        issues.push(node_issue(
+            "hoonarqube-go:G112",
+            "Set ReadHeaderTimeout on this http.Server.",
+            type_node,
+            source,
+        ));
+    }
+    if imports
+        .qualified("crypto/tls", "Config")
+        .is_some_and(|name| text(type_node, source) == name)
+        && literal_key_value(body, "InsecureSkipVerify", source) == Some("true")
+    {
+        let target = literal_key_node(body, "InsecureSkipVerify", source).unwrap_or(type_node);
+        issues.push(node_issue(
+            "hoonarqube-go:G402",
+            "Do not disable TLS certificate verification.",
+            target,
+            source,
+        ));
+    }
+    if imports
+        .qualified("net/http", "Cookie")
+        .is_some_and(|name| text(type_node, source) == name)
+        && cookie_literal_is_keyed_or_empty(body)
+        && cookie_literal_is_provably_insecure(node, body, source, imports)
+    {
+        issues.push(node_issue(
+            "hoonarqube-go:G124",
+            "Set Secure and HttpOnly, and use SameSite Lax or Strict on this HTTP cookie.",
+            type_node,
+            source,
+        ));
+    }
+}
+
+fn cookie_literal_is_keyed_or_empty(body: Node<'_>) -> bool {
+    let elements = named_children(body);
+    elements.is_empty()
+        || elements
+            .iter()
+            .any(|element| element.kind() == "keyed_element")
+}
+
+fn cookie_literal_is_provably_insecure(
+    literal: Node<'_>,
+    body: Node<'_>,
+    source: &str,
+    imports: &GoImports,
+) -> bool {
+    let values = cookie_effective_security_values(literal, body, source);
+    if matches!(values.secure, None | Some("false"))
+        || matches!(values.http_only, None | Some("false"))
+    {
+        return true;
+    }
+    let Some(http) = imports.alias("net/http") else {
+        return true;
+    };
+    let Some(same_site) = values.same_site else {
+        return true;
+    };
+    let compact: String = same_site
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect();
+    matches!(compact.as_str(), "0" | "1" | "4")
+        || compact == format!("{http}.SameSiteDefaultMode")
+        || compact == format!("{http}.SameSiteNoneMode")
+}
+
+struct CookieSecurityValues<'source> {
+    secure: Option<&'source str>,
+    http_only: Option<&'source str>,
+    same_site: Option<&'source str>,
+}
+
+fn cookie_effective_security_values<'source>(
+    literal: Node<'_>,
+    body: Node<'_>,
+    source: &'source str,
+) -> CookieSecurityValues<'source> {
+    let mut values = CookieSecurityValues {
+        secure: literal_key_value(body, "Secure", source),
+        http_only: literal_key_value(body, "HttpOnly", source),
+        same_site: literal_key_value(body, "SameSite", source),
+    };
+    let Some(binding) = cookie_literal_binding(literal, source) else {
+        return values;
+    };
+    let Some(function) = ancestors(literal).find(|ancestor| is_function(*ancestor)) else {
+        return values;
+    };
+    let Some(statement_list) =
+        ancestors(literal).find(|ancestor| ancestor.kind() == "statement_list")
+    else {
+        return values;
+    };
+    walk(function, &mut |candidate| {
+        if candidate.start_byte() <= literal.end_byte()
+            || candidate.kind() != "assignment_statement"
+            || ancestors(candidate).find(|ancestor| is_function(*ancestor)) != Some(function)
+            || ancestors(candidate).find(|ancestor| ancestor.kind() == "statement_list")
+                != Some(statement_list)
+        {
+            return;
+        }
+        let (Some(left), Some(right)) = (
+            candidate.child_by_field_name("left"),
+            candidate.child_by_field_name("right"),
+        ) else {
+            return;
+        };
+        let targets = expression_list_items(left);
+        let assigned_values = expression_list_items(right);
+        if targets.len() != assigned_values.len() {
+            return;
+        }
+        for (target, assigned) in targets.into_iter().zip(assigned_values) {
+            let Some((receiver, member)) = selector_parts(target, source) else {
+                continue;
+            };
+            if receiver != binding {
+                continue;
+            }
+            let assigned = Some(text(assigned, source));
+            if member == "Secure" {
+                values.secure = assigned;
+            }
+            if member == "HttpOnly" {
+                values.http_only = assigned;
+            }
+            if member == "SameSite" {
+                values.same_site = assigned;
+            }
+        }
+    });
+    values
+}
+
+fn cookie_literal_binding<'source>(
+    literal: Node<'_>,
+    source: &'source str,
+) -> Option<&'source str> {
+    for owner in ancestors(literal) {
+        if is_function(owner) {
+            break;
+        }
+        if matches!(
+            owner.kind(),
+            "short_var_declaration" | "assignment_statement"
+        ) && owner.child_by_field_name("right").is_some_and(|right| {
+            right.start_byte() <= literal.start_byte() && right.end_byte() >= literal.end_byte()
+        }) {
+            let targets = simple_assignment_targets(owner, source);
+            if targets.len() == 1 {
+                return Some(text(targets[0].1, source));
+            }
+        }
+        if owner.kind() == "var_spec"
+            && owner.child_by_field_name("value").is_some_and(|value| {
+                value.start_byte() <= literal.start_byte() && value.end_byte() >= literal.end_byte()
+            })
+        {
+            let mut cursor = owner.walk();
+            let names: Vec<_> = owner.children_by_field_name("name", &mut cursor).collect();
+            if names.len() == 1 {
+                return Some(text(names[0], source));
+            }
+        }
+    }
+    None
+}
+
+fn expression_list_items(node: Node<'_>) -> Vec<Node<'_>> {
+    if node.kind() == "expression_list" {
+        named_children(node)
+    } else {
+        vec![node]
+    }
+}
+
+fn check_native_serialized_secret(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    let Some(tag) = node.child_by_field_name("tag") else {
+        return;
+    };
+    let tag_text = text(tag, source);
+    if !has_exposed_serialization_tag(tag_text) {
+        return;
+    }
+    let mut cursor = node.walk();
+    for name in node.children_by_field_name("name", &mut cursor) {
+        let value = text(name, source);
+        let normalized = value.to_ascii_lowercase().replace('_', "");
+        if value.starts_with(char::is_uppercase)
+            && [
+                "password",
+                "passwd",
+                "passphrase",
+                "secret",
+                "token",
+                "apikey",
+                "privatekey",
+            ]
+            .iter()
+            .any(|word| normalized.contains(word))
+        {
+            issues.push(node_issue(
+                "hoonarqube-go:G117",
+                "Remove the serialization tag or keep this secret field unexported.",
+                name,
+                source,
+            ));
+        }
+    }
+}
+
+fn has_exposed_serialization_tag(tag: &str) -> bool {
+    ["json", "yaml", "xml", "toml"].into_iter().any(|format| {
+        let marker = format!("{format}:\"");
+        let mut remaining = tag;
+        while let Some(start) = remaining.find(&marker) {
+            let value = &remaining[start + marker.len()..];
+            let Some(end) = value.find('"') else {
+                return false;
+            };
+            if value[..end].split(',').next() != Some("-") {
+                return true;
+            }
+            remaining = &value[end + 1..];
+        }
+        false
+    })
+}
+
+fn check_native_waitgroup_add(
+    node: Node<'_>,
+    source: &str,
+    imports: &GoImports,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(sync_alias) = imports.alias("sync") else {
+        return;
+    };
+    let waitgroups = declared_waitgroups(node, source, sync_alias);
+    if waitgroups.is_empty() {
+        return;
+    }
+    walk(node, &mut |child| {
+        if child.kind() != "call_expression" {
+            return;
+        }
+        let Some(function) = child.child_by_field_name("function") else {
+            return;
+        };
+        let Some((receiver, member)) = selector_parts(function, source) else {
+            return;
+        };
+        if member == "Add" && waitgroups.contains(receiver) {
+            issues.push(node_issue(
+                "hoonarqube-go:SA2000",
+                "Call WaitGroup.Add before starting the goroutine.",
+                function,
+                source,
+            ));
+        }
+    });
+}
+
+fn declared_waitgroups(node: Node<'_>, source: &str, sync_alias: &str) -> HashSet<String> {
+    let Some(function) = ancestors(node).find(|ancestor| is_function(*ancestor)) else {
+        return HashSet::new();
+    };
+    let mut names = HashSet::new();
+    walk(function, &mut |candidate| {
+        if candidate.kind() == "var_spec"
+            && candidate
+                .child_by_field_name("type")
+                .is_some_and(|kind| text(kind, source) == format!("{sync_alias}.WaitGroup"))
+        {
+            let mut cursor = candidate.walk();
+            names.extend(
+                candidate
+                    .children_by_field_name("name", &mut cursor)
+                    .map(|name| text(name, source).to_string()),
+            );
+        }
+    });
+    names
+}
+
+fn check_native_discarded_append(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    let Some(call) = first_named(node).filter(|child| child.kind() == "call_expression") else {
+        return;
+    };
+    if call
+        .child_by_field_name("function")
+        .is_some_and(|function| text(function, source) == "append")
+    {
+        issues.push(node_issue(
+            "hoonarqube-go:SA4010",
+            "Use the slice returned by append.",
+            call,
+            source,
+        ));
+    }
+}
+
+fn check_native_lock_sequence(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    let statements: Vec<_> = named_children(node)
+        .into_iter()
+        .filter(|child| child.kind() != "comment")
+        .collect();
+    for pair in statements.windows(2) {
+        let Some((first_receiver, first_method, _)) = statement_call(pair[0], source) else {
+            continue;
+        };
+        if first_method != "Lock" {
+            continue;
+        }
+        if let Some((second_receiver, "Unlock", call)) = statement_call(pair[1], source)
+            && second_receiver == first_receiver
+        {
+            issues.push(node_issue(
+                "hoonarqube-go:SA2001",
+                "Remove this empty critical section or move protected work inside it.",
+                call,
+                source,
+            ));
+        }
+        if pair[1].kind() == "defer_statement"
+            && let Some((second_receiver, "Lock", call)) = statement_call(pair[1], source)
+            && second_receiver == first_receiver
+        {
+            issues.push(node_issue(
+                "hoonarqube-go:SA2003",
+                "Defer Unlock instead of Lock.",
+                call,
+                source,
+            ));
+        }
+    }
+}
+
+fn check_native_statement_flow(
+    node: Node<'_>,
+    source: &str,
+    imports: &GoImports,
+    issues: &mut Vec<Issue>,
+) {
+    let statements: Vec<_> = named_children(node)
+        .into_iter()
+        .filter(|child| child.kind() != "comment")
+        .collect();
+    check_native_overwritten_values(&statements, source, issues);
+    check_native_nil_map_assignments(&statements, source, issues);
+    check_native_defer_before_error(&statements, source, imports, issues);
+}
+
+fn check_native_overwritten_values(statements: &[Node<'_>], source: &str, issues: &mut Vec<Issue>) {
+    let mut unread = HashMap::<String, Node<'_>>::new();
+    for statement in statements {
+        if !is_native_assignment(*statement) {
+            let mut reads = HashSet::new();
+            collect_identifier_names(*statement, source, &mut reads);
+            unread.retain(|name, _| !reads.contains(name));
+            if statement_has_nested_block(*statement) {
+                unread.clear();
+            }
+            continue;
+        }
+        let targets = simple_assignment_targets(*statement, source);
+        if targets.is_empty() {
+            unread.clear();
+            continue;
+        }
+        let reads = native_assignment_reads(*statement, source);
+        unread.retain(|name, _| !reads.contains(name));
+        report_overwritten_targets(&mut unread, targets, source, issues);
+    }
+}
+
+fn native_assignment_reads(node: Node<'_>, source: &str) -> HashSet<String> {
+    let mut reads = HashSet::new();
+    if let Some(right) = node.child_by_field_name("right") {
+        collect_identifier_names(right, source, &mut reads);
+    }
+    if node.kind() == "assignment_statement"
+        && node
+            .child_by_field_name("operator")
+            .is_some_and(|operator| text(operator, source) != "=")
+        && let Some(left) = node.child_by_field_name("left")
+    {
+        // Compound assignments read their target before writing it. Treating
+        // `value += delta` as a plain overwrite incorrectly reports the value
+        // that feeds the operation as unused.
+        collect_identifier_names(left, source, &mut reads);
+    }
+    reads
+}
+
+fn report_overwritten_targets<'tree>(
+    unread: &mut HashMap<String, Node<'tree>>,
+    targets: Vec<(String, Node<'tree>)>,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    for (name, target) in targets {
+        if let Some(previous) = unread.insert(name, target) {
+            issues.push(node_issue(
+                "hoonarqube-go:SA4006",
+                "Use this assigned value before overwriting it.",
+                previous,
+                source,
+            ));
+        }
+    }
+}
+
+fn check_native_nil_map_assignments(
+    statements: &[Node<'_>],
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    let mut nil_maps = HashSet::<String>::new();
+    for statement in statements {
+        if matches!(statement.kind(), "declaration" | "var_declaration") {
+            nil_maps.extend(nil_map_declarations(*statement, source));
+            continue;
+        }
+        if is_native_assignment(*statement) {
+            report_nil_map_writes(*statement, source, &nil_maps, issues);
+            update_nil_map_facts(*statement, source, &mut nil_maps);
+            continue;
+        }
+        if statement_has_nested_block(*statement) {
+            nil_maps.clear();
+        }
+    }
+}
+
+fn is_native_assignment(node: Node<'_>) -> bool {
+    matches!(
+        node.kind(),
+        "short_var_declaration" | "assignment_statement"
+    )
+}
+
+fn statement_has_nested_block(node: Node<'_>) -> bool {
+    node.named_children(&mut node.walk())
+        .any(|child| matches!(child.kind(), "block" | "statement_list"))
+}
+
+fn report_nil_map_writes(
+    statement: Node<'_>,
+    source: &str,
+    nil_maps: &HashSet<String>,
+    issues: &mut Vec<Issue>,
+) {
+    issues.extend(
+        nil_map_index_operands(statement, source, nil_maps)
+            .into_iter()
+            .map(|operand| {
+                node_issue(
+                    "hoonarqube-go:SA5000",
+                    "Initialize this map before assigning an entry.",
+                    operand,
+                    source,
+                )
+            }),
+    );
+}
+
+fn update_nil_map_facts(statement: Node<'_>, source: &str, nil_maps: &mut HashSet<String>) {
+    let assigned_nil = nil_assignment_targets(statement, source);
+    for (name, _) in simple_assignment_targets(statement, source) {
+        if assigned_nil.contains(&name) {
+            nil_maps.insert(name);
+        } else {
+            nil_maps.remove(&name);
+        }
+    }
+}
+
+fn nil_map_declarations(statement: Node<'_>, source: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    walk(statement, &mut |candidate| {
+        if candidate.kind() != "var_spec"
+            || candidate
+                .child_by_field_name("type")
+                .is_none_or(|kind| kind.kind() != "map_type")
+            || candidate
+                .child_by_field_name("value")
+                .is_some_and(|value| text(value, source).trim() != "nil")
+        {
+            return;
+        }
+        let mut cursor = candidate.walk();
+        names.extend(
+            candidate
+                .children_by_field_name("name", &mut cursor)
+                .map(|name| text(name, source).to_string()),
+        );
+    });
+    names
+}
+
+fn nil_assignment_targets(node: Node<'_>, source: &str) -> HashSet<String> {
+    if node.kind() != "assignment_statement" {
+        return HashSet::new();
+    }
+    let targets = simple_assignment_targets(node, source);
+    let Some(right) = node.child_by_field_name("right") else {
+        return HashSet::new();
+    };
+    let values = if right.kind() == "expression_list" {
+        named_children(right)
+    } else {
+        vec![right]
+    };
+    if targets.len() != values.len() {
+        return HashSet::new();
+    }
+    targets
+        .into_iter()
+        .zip(values)
+        .filter_map(|((name, _), value)| (text(value, source) == "nil").then_some(name))
+        .collect()
+}
+
+fn nil_map_index_operands<'tree>(
+    statement: Node<'tree>,
+    source: &str,
+    nil_maps: &HashSet<String>,
+) -> Vec<Node<'tree>> {
+    let Some(left) = statement.child_by_field_name("left") else {
+        return Vec::new();
+    };
+    let mut indexed = Vec::new();
+    walk(left, &mut |candidate| {
+        if candidate.kind() == "index_expression"
+            && let Some(operand) = candidate.child_by_field_name("operand")
+            && operand.kind() == "identifier"
+            && nil_maps.contains(text(operand, source))
+        {
+            indexed.push(operand);
+        }
+    });
+    indexed
+}
+
+fn check_native_defer_before_error(
+    statements: &[Node<'_>],
+    source: &str,
+    imports: &GoImports,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(os) = imports.alias("os") else {
+        return;
+    };
+    for window in statements.windows(3) {
+        let assignment = window[0];
+        if !matches!(
+            assignment.kind(),
+            "short_var_declaration" | "assignment_statement"
+        ) {
+            continue;
+        }
+        let targets = simple_assignment_targets(assignment, source);
+        if targets.len() != 2 {
+            continue;
+        }
+        let Some(right) = assignment.child_by_field_name("right") else {
+            continue;
+        };
+        let mut opening_call = None;
+        walk(right, &mut |candidate| {
+            if opening_call.is_none()
+                && candidate.kind() == "call_expression"
+                && candidate
+                    .child_by_field_name("function")
+                    .is_some_and(|function| {
+                        ["Open", "OpenFile", "Create"]
+                            .iter()
+                            .any(|member| text(function, source) == format!("{os}.{member}"))
+                    })
+            {
+                opening_call = Some(candidate);
+            }
+        });
+        if opening_call.is_none() {
+            continue;
+        }
+        let resource = &targets[0].0;
+        let error = &targets[1].0;
+        let Some((receiver, "Close", close)) = statement_call(window[1], source) else {
+            continue;
+        };
+        if window[1].kind() == "defer_statement"
+            && receiver == resource
+            && window[2].kind() == "if_statement"
+            && window[2]
+                .child_by_field_name("condition")
+                .is_some_and(|condition| {
+                    let mut names = HashSet::new();
+                    collect_identifier_names(condition, source, &mut names);
+                    names.contains(error)
+                })
+        {
+            issues.push(node_issue(
+                "hoonarqube-go:SA5001",
+                "Check the open error before deferring Close.",
+                close,
+                source,
+            ));
+        }
+    }
+}
+
+fn simple_assignment_targets<'tree>(node: Node<'tree>, source: &str) -> Vec<(String, Node<'tree>)> {
+    let Some(left) = node.child_by_field_name("left") else {
+        return Vec::new();
+    };
+    let candidates = if left.kind() == "expression_list" {
+        named_children(left)
+    } else {
+        vec![left]
+    };
+    candidates
+        .into_iter()
+        .filter(|target| target.kind() == "identifier" && text(*target, source) != "_")
+        .map(|target| (text(target, source).to_string(), target))
+        .collect()
+}
+
+fn collect_identifier_names(node: Node<'_>, source: &str, names: &mut HashSet<String>) {
+    walk(node, &mut |candidate| {
+        if candidate.kind() == "identifier" {
+            names.insert(text(candidate, source).to_string());
+        }
+    });
+}
+
+fn check_native_loop(node: Node<'_>, source: &str, imports: &GoImports, issues: &mut Vec<Issue>) {
+    check_native_loop_condition_update(node, source, issues);
+    let endless = named_children(node)
+        .into_iter()
+        .all(|child| child.kind() == "block");
+    if endless {
+        walk(
+            node.child_by_field_name("body").unwrap_or(node),
+            &mut |child| {
+                if child.kind() == "defer_statement"
+                    && !ancestors(child)
+                        .take_while(|ancestor| *ancestor != node)
+                        .any(|ancestor| ancestor.kind() == "func_literal")
+                {
+                    issues.push(node_issue(
+                        "hoonarqube-go:SA5003",
+                        "Do not defer inside a loop that never returns.",
+                        child,
+                        source,
+                    ));
+                }
+            },
+        );
+    }
+    let Some(regexp) = imports.alias("regexp") else {
+        return;
+    };
+    walk(
+        node.child_by_field_name("body").unwrap_or(node),
+        &mut |child| {
+            if child.kind() != "call_expression" {
+                return;
+            }
+            let Some(function) = child.child_by_field_name("function") else {
+                return;
+            };
+            if ["Match", "MatchString", "Compile", "MustCompile"]
+                .iter()
+                .any(|member| text(function, source) == format!("{regexp}.{member}"))
+                && child
+                    .child_by_field_name("arguments")
+                    .and_then(first_named)
+                    .is_some_and(|argument| {
+                        matches!(
+                            argument.kind(),
+                            "interpreted_string_literal" | "raw_string_literal"
+                        )
+                    })
+            {
+                issues.push(node_issue(
+                    "hoonarqube-go:SA6000",
+                    "Compile this constant regular expression before the loop.",
+                    function,
+                    source,
+                ));
+            }
+        },
+    );
+}
+
+fn check_native_loop_condition_update(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    let Some(clause) = named_children(node)
+        .into_iter()
+        .find(|child| child.kind() == "for_clause")
+    else {
+        return;
+    };
+    let (Some(initializer), Some(condition), Some(update)) = (
+        clause.child_by_field_name("initializer"),
+        clause.child_by_field_name("condition"),
+        clause.child_by_field_name("update"),
+    ) else {
+        return;
+    };
+    let initialized_names: HashSet<_> = simple_assignment_targets(initializer, source)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    if initialized_names.is_empty() {
+        return;
+    }
+    let mut condition_names = HashSet::new();
+    collect_identifier_names(condition, source, &mut condition_names);
+    let mut update_names = HashSet::new();
+    collect_identifier_names(update, source, &mut update_names);
+    let mut body_names = HashSet::new();
+    if let Some(body) = node.child_by_field_name("body") {
+        walk(body, &mut |assignment| {
+            if ancestors(assignment)
+                .take_while(|ancestor| *ancestor != body)
+                .any(is_function)
+            {
+                return;
+            }
+            match assignment.kind() {
+                "short_var_declaration" | "assignment_statement" => {
+                    body_names.extend(
+                        simple_assignment_targets(assignment, source)
+                            .into_iter()
+                            .map(|(name, _)| name),
+                    );
+                }
+                "inc_statement" | "dec_statement" => {
+                    if let Some(target) = first_named(assignment)
+                        && target.kind() == "identifier"
+                    {
+                        body_names.insert(text(target, source).to_string());
+                    }
+                }
+                _ => {}
+            }
+        });
+    }
+    if let Some(variable) = initialized_names.into_iter().find(|variable| {
+        condition_names.contains(variable)
+            && !update_names.contains(variable)
+            && !body_names.contains(variable)
+    }) {
+        issues.push(node_issue(
+            "hoonarqube-go:SA4008",
+            format!("Update {variable} because it controls this loop."),
+            update,
+            source,
+        ));
+    }
+}
+
+fn check_native_decompression_flows(
+    root: Node<'_>,
+    source: &str,
+    imports: &GoImports,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(io_alias) = imports.alias("io") else {
+        return;
+    };
+    let decompression_calls: HashSet<String> = [
+        ("compress/bzip2", "NewReader"),
+        ("compress/flate", "NewReader"),
+        ("compress/gzip", "NewReader"),
+        ("compress/lzw", "NewReader"),
+        ("compress/zlib", "NewReader"),
+    ]
+    .into_iter()
+    .filter_map(|(path, member)| imports.qualified(path, member))
+    .collect();
+    if decompression_calls.is_empty() {
+        return;
+    }
+
+    walk(root, &mut |function| {
+        if !is_function(function) {
+            return;
+        }
+        let (spec, definitions) =
+            collect_decompression_events(function, source, io_alias, &decompression_calls);
+        report_decompression_events(spec, &definitions, source, issues);
+    });
+}
+
+fn collect_decompression_events<'tree>(
+    function: Node<'tree>,
+    source: &str,
+    io_alias: &str,
+    decompression_calls: &HashSet<String>,
+) -> (
+    ControlFlowSpec<DecompressionEvent<'tree>>,
+    HashMap<usize, Node<'tree>>,
+) {
+    let mut definitions = HashMap::new();
+    let spec = function.child_by_field_name("body").map_or_else(
+        || ControlFlowSpec::Seq(Vec::new()),
+        |body| {
+            decompression_control_flow(
+                body,
+                source,
+                io_alias,
+                decompression_calls,
+                &mut definitions,
+            )
+        },
+    );
+    (spec, definitions)
+}
+
+fn decompression_control_flow<'tree>(
+    node: Node<'tree>,
+    source: &str,
+    io_alias: &str,
+    decompression_calls: &HashSet<String>,
+    definitions: &mut HashMap<usize, Node<'tree>>,
+) -> ControlFlowSpec<DecompressionEvent<'tree>> {
+    match node.kind() {
+        "block" | "statement_list" => ControlFlowSpec::Seq(
+            named_children(node)
+                .into_iter()
+                .map(|child| {
+                    decompression_control_flow(
+                        child,
+                        source,
+                        io_alias,
+                        decompression_calls,
+                        definitions,
+                    )
+                })
+                .collect(),
+        ),
+        "if_statement" => {
+            decompression_if_flow(node, source, io_alias, decompression_calls, definitions)
+        }
+        "for_statement" => {
+            decompression_for_flow(node, source, io_alias, decompression_calls, definitions)
+        }
+        "expression_switch_statement" | "type_switch_statement" | "select_statement" => {
+            decompression_branch_flow(node, source, io_alias, decompression_calls, definitions)
+        }
+        "break_statement" => ControlFlowSpec::Break,
+        "continue_statement" => ControlFlowSpec::Continue,
+        "return_statement" => ControlFlowSpec::Seq(vec![
+            decompression_leaf_flow(node, source, io_alias, decompression_calls, definitions),
+            ControlFlowSpec::Return,
+        ]),
+        _ => decompression_leaf_flow(node, source, io_alias, decompression_calls, definitions),
+    }
+}
+
+fn decompression_if_flow<'tree>(
+    node: Node<'tree>,
+    source: &str,
+    io_alias: &str,
+    decompression_calls: &HashSet<String>,
+    definitions: &mut HashMap<usize, Node<'tree>>,
+) -> ControlFlowSpec<DecompressionEvent<'tree>> {
+    let mut sequence = Vec::new();
+    if let Some(initializer) = node.child_by_field_name("initializer") {
+        sequence.push(decompression_leaf_flow(
+            initializer,
+            source,
+            io_alias,
+            decompression_calls,
+            definitions,
+        ));
+    }
+    let then_arm = node.child_by_field_name("consequence").map_or_else(
+        || ControlFlowSpec::Seq(Vec::new()),
+        |branch| {
+            decompression_control_flow(branch, source, io_alias, decompression_calls, definitions)
+        },
+    );
+    let else_arm = node.child_by_field_name("alternative").map(|branch| {
+        Box::new(decompression_control_flow(
+            branch,
+            source,
+            io_alias,
+            decompression_calls,
+            definitions,
+        ))
+    });
+    sequence.push(ControlFlowSpec::If {
+        condition: DecompressionEvent::Nop,
+        then_arm: Box::new(then_arm),
+        else_arm,
+    });
+    ControlFlowSpec::Seq(sequence)
+}
+
+fn decompression_for_flow<'tree>(
+    node: Node<'tree>,
+    source: &str,
+    io_alias: &str,
+    decompression_calls: &HashSet<String>,
+    definitions: &mut HashMap<usize, Node<'tree>>,
+) -> ControlFlowSpec<DecompressionEvent<'tree>> {
+    let clause = named_children(node)
+        .into_iter()
+        .find(|child| matches!(child.kind(), "for_clause" | "range_clause"));
+    let init_node = clause.and_then(|clause| {
+        clause
+            .child_by_field_name("initializer")
+            .or((clause.kind() == "range_clause").then_some(clause))
+    });
+    let step_node = clause.and_then(|clause| clause.child_by_field_name("update"));
+    let init = init_node.map(|initializer| {
+        Box::new(decompression_leaf_flow(
+            initializer,
+            source,
+            io_alias,
+            decompression_calls,
+            definitions,
+        ))
+    });
+    let step = step_node.map(|update| {
+        Box::new(decompression_leaf_flow(
+            update,
+            source,
+            io_alias,
+            decompression_calls,
+            definitions,
+        ))
+    });
+    let body = node.child_by_field_name("body").map_or_else(
+        || ControlFlowSpec::Seq(Vec::new()),
+        |body| decompression_control_flow(body, source, io_alias, decompression_calls, definitions),
+    );
+    ControlFlowSpec::For {
+        init,
+        condition: Some(DecompressionEvent::Nop),
+        body: Box::new(body),
+        step,
+    }
+}
+
+fn decompression_branch_flow<'tree>(
+    node: Node<'tree>,
+    source: &str,
+    io_alias: &str,
+    decompression_calls: &HashSet<String>,
+    definitions: &mut HashMap<usize, Node<'tree>>,
+) -> ControlFlowSpec<DecompressionEvent<'tree>> {
+    let mut prefix = Vec::new();
+    if let Some(initializer) = node.child_by_field_name("initializer") {
+        prefix.push(decompression_leaf_flow(
+            initializer,
+            source,
+            io_alias,
+            decompression_calls,
+            definitions,
+        ));
+    }
+    let mut alternatives = Vec::new();
+    let mut fallback = None;
+    for case in named_children(node).into_iter().filter(|child| {
+        matches!(
+            child.kind(),
+            "expression_case" | "type_case" | "communication_case" | "default_case"
+        )
+    }) {
+        let body = named_children(case)
+            .into_iter()
+            .find(|child| child.kind() == "statement_list")
+            .map_or_else(
+                || ControlFlowSpec::Seq(Vec::new()),
+                |body| {
+                    decompression_control_flow(
+                        body,
+                        source,
+                        io_alias,
+                        decompression_calls,
+                        definitions,
+                    )
+                },
+            );
+        if case.kind() == "default_case" {
+            fallback = Some(Box::new(body));
+        } else {
+            alternatives.push(body);
+        }
+    }
+    for alternative in alternatives.into_iter().rev() {
+        fallback = Some(Box::new(ControlFlowSpec::If {
+            condition: DecompressionEvent::Nop,
+            then_arm: Box::new(alternative),
+            else_arm: fallback,
+        }));
+    }
+    prefix.push(fallback.map_or_else(|| ControlFlowSpec::Seq(Vec::new()), |flow| *flow));
+    ControlFlowSpec::Seq(prefix)
+}
+
+fn decompression_leaf_flow<'tree>(
+    node: Node<'tree>,
+    source: &str,
+    io_alias: &str,
+    decompression_calls: &HashSet<String>,
+    definitions: &mut HashMap<usize, Node<'tree>>,
+) -> ControlFlowSpec<DecompressionEvent<'tree>> {
+    let mut syntax_events = Vec::new();
+    if matches!(
+        node.kind(),
+        "short_var_declaration" | "assignment_statement"
+    ) {
+        syntax_events.push((node.start_byte(), 0_u8, node));
+    }
+    walk(node, &mut |candidate| {
+        if candidate.kind() != "call_expression"
+            || ancestors(candidate)
+                .take_while(|ancestor| *ancestor != node)
+                .any(is_function)
+        {
+            return;
+        }
+        syntax_events.push((candidate.start_byte(), 1_u8, candidate));
+    });
+    syntax_events.sort_by_key(|event| (event.0, event.1));
+
+    let mut events = Vec::new();
+    for (_, kind, node) in syntax_events {
+        if kind == 0 {
+            let Some((event, defines_reader)) =
+                decompression_assignment_event(node, source, decompression_calls)
+            else {
+                continue;
+            };
+            if defines_reader {
+                definitions.insert(node.start_byte(), node);
+            }
+            events.push(event);
+            continue;
+        }
+        let Some(call_function) = node.child_by_field_name("function") else {
+            continue;
+        };
+        if text(call_function, source) != format!("{io_alias}.Copy") {
+            continue;
+        }
+        let arguments = node
+            .child_by_field_name("arguments")
+            .map(named_children)
+            .unwrap_or_default();
+        if let Some(reader) = arguments
+            .get(1)
+            .filter(|reader| reader.kind() == "identifier")
+        {
+            events.push(DecompressionEvent::Copy {
+                reader: text(*reader, source).to_string(),
+                node: *reader,
+            });
+        }
+    }
+    ControlFlowSpec::Seq(events.into_iter().map(ControlFlowSpec::Stmt).collect())
+}
+
+fn decompression_assignment_event<'tree>(
+    node: Node<'tree>,
+    source: &str,
+    decompression_calls: &HashSet<String>,
+) -> Option<(DecompressionEvent<'tree>, bool)> {
+    let name = first_identifier(node.child_by_field_name("left")?, source)?;
+    let right = node.child_by_field_name("right")?;
+    if decompression_calls
+        .iter()
+        .any(|call| text(right, source).contains(call))
+    {
+        return Some((
+            DecompressionEvent::Define {
+                name: name.to_string(),
+                site: node.start_byte(),
+            },
+            true,
+        ));
+    }
+    if let Some(source_name) = simple_identifier_expression(right, source) {
+        return Some((
+            DecompressionEvent::Propagate {
+                source: source_name.to_string(),
+                target: name.to_string(),
+            },
+            false,
+        ));
+    }
+    Some((
+        DecompressionEvent::Kill {
+            name: name.to_string(),
+        },
+        false,
+    ))
+}
+
+fn report_decompression_events(
+    spec: ControlFlowSpec<DecompressionEvent<'_>>,
+    definitions: &HashMap<usize, Node<'_>>,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    let cfg = build_from_blocks(spec, DecompressionEvent::Nop, DecompressionEvent::Nop);
+    let result = solve_dataflow(
+        &cfg,
+        Direction::Forward,
+        &TaintFacts::<String, usize>::new(),
+        TaintFacts::meet_union,
+        |facts, event| {
+            let mut next = facts.clone();
+            match event {
+                DecompressionEvent::Define { name, site } => {
+                    next.clear(name);
+                    next.taint(name.clone(), *site);
+                }
+                DecompressionEvent::Kill { name } => {
+                    next.clear(name);
+                }
+                DecompressionEvent::Propagate { source, target } => {
+                    next.propagate(source, target.clone());
+                }
+                DecompressionEvent::Nop | DecompressionEvent::Copy { .. } => {}
+            }
+            next
+        },
+        |_block, facts| facts.clone(),
+    );
+    for block in cfg.blocks() {
+        let DecompressionEvent::Copy { reader, node } = cfg.payload(block) else {
+            continue;
+        };
+        let mut issue = node_issue(
+            "hoonarqube-go:G110",
+            "Wrap this decompression reader with io.LimitReader before copying.",
+            *node,
+            source,
+        );
+        let mut has_origin = false;
+        for site in result.in_fact(block).origins(reader) {
+            let Some(definition) = definitions.get(site) else {
+                continue;
+            };
+            has_origin = true;
+            issue = issue.with_flow(vec![
+                FlowLocation::in_primary_file(
+                    "Decompression reader created here.",
+                    node_range(*definition, source),
+                ),
+                FlowLocation::in_primary_file(
+                    "Unbounded decompressed data reaches io.Copy here.",
+                    node_range(*node, source),
+                ),
+            ]);
+        }
+        if has_origin {
+            issues.push(issue);
+        }
+    }
+}
+
+#[derive(Debug)]
+enum DecompressionEvent<'tree> {
+    Nop,
+    Define { name: String, site: usize },
+    Kill { name: String },
+    Propagate { source: String, target: String },
+    Copy { reader: String, node: Node<'tree> },
+}
+
+fn simple_identifier_expression<'source>(
+    node: Node<'_>,
+    source: &'source str,
+) -> Option<&'source str> {
+    if node.kind() == "identifier" {
+        return Some(text(node, source));
+    }
+    if node.kind() == "expression_list" && node.named_child_count() == 1 {
+        return node
+            .named_child(0)
+            .filter(|child| child.kind() == "identifier")
+            .map(|child| text(child, source));
+    }
+    None
+}
+
+fn statement_call<'tree, 'source>(
+    statement: Node<'tree>,
+    source: &'source str,
+) -> Option<(&'source str, &'source str, Node<'tree>)> {
+    let mut call = None;
+    walk(statement, &mut |node| {
+        if call.is_none() && node.kind() == "call_expression" {
+            call = Some(node);
+        }
+    });
+    let call = call?;
+    let function = call.child_by_field_name("function")?;
+    let (receiver, method) = selector_parts(function, source)?;
+    Some((receiver, method, call))
+}
+
+fn selector_parts<'source>(
+    node: Node<'_>,
+    source: &'source str,
+) -> Option<(&'source str, &'source str)> {
+    if node.kind() != "selector_expression" {
+        return None;
+    }
+    Some((
+        text(node.child_by_field_name("operand")?, source),
+        text(node.child_by_field_name("field")?, source),
+    ))
+}
+
+fn literal_has_key(node: Node<'_>, key: &str, source: &str) -> bool {
+    literal_key_node(node, key, source).is_some()
+}
+
+fn literal_key_node<'tree>(node: Node<'tree>, key: &str, source: &str) -> Option<Node<'tree>> {
+    named_children(node).into_iter().find_map(|child| {
+        (child.kind() == "keyed_element"
+            && child
+                .child_by_field_name("key")
+                .is_some_and(|candidate| text(candidate, source) == key))
+        .then(|| child.child_by_field_name("key"))
+        .flatten()
+    })
+}
+
+fn literal_key_value<'source>(
+    node: Node<'_>,
+    key: &str,
+    source: &'source str,
+) -> Option<&'source str> {
+    named_children(node).into_iter().find_map(|child| {
+        (child.kind() == "keyed_element"
+            && child
+                .child_by_field_name("key")
+                .is_some_and(|candidate| text(candidate, source) == key))
+        .then(|| {
+            child
+                .child_by_field_name("value")
+                .map(|value| text(value, source))
+        })
+        .flatten()
+    })
+}
+
+fn named_children(node: Node<'_>) -> Vec<Node<'_>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor).collect()
+}
+
+fn first_identifier<'a>(node: Node<'_>, source: &'a str) -> Option<&'a str> {
+    if node.kind() == "identifier" {
+        return Some(text(node, source));
+    }
+    let mut found = None;
+    walk(node, &mut |child| {
+        if found.is_none() && child.kind() == "identifier" {
+            found = Some(text(child, source));
+        }
+    });
+    found
+}
+
+fn parse_go_integer(value: &str) -> Option<u32> {
+    let value = value.replace('_', "");
+    let (radix, digits) = if let Some(value) = value.strip_prefix("0o") {
+        (8, value)
+    } else if let Some(value) = value.strip_prefix("0O") {
+        (8, value)
+    } else if let Some(value) = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+    {
+        (16, value)
+    } else if let Some(value) = value
+        .strip_prefix("0b")
+        .or_else(|| value.strip_prefix("0B"))
+    {
+        (2, value)
+    } else if value.starts_with('0') && value.len() > 1 {
+        (8, &value[1..])
+    } else {
+        (10, value.as_str())
+    };
+    u32::from_str_radix(digits, radix).ok()
+}
+
+fn offset_issue(
+    key: &str,
+    message: impl Into<String>,
+    source: &str,
+    start: usize,
+    end: usize,
+) -> Issue {
+    let position = |offset: usize| {
+        let before = &source[..offset];
+        let line = before.bytes().filter(|byte| *byte == b'\n').count() + 1;
+        let line_start = before.rfind('\n').map_or(0, |newline| newline + 1);
+        Pos {
+            line: u32_saturating(line),
+            column: u32_saturating(source[line_start..offset].chars().count()),
+        }
+    };
+    Issue::new(
+        key,
+        message,
+        Range {
+            start: position(start),
+            end: position(end),
+        },
+    )
 }
 
 #[derive(Debug)]
@@ -2079,6 +4075,341 @@ mod tests {
             !keys_with_options(&source, &options)
                 .iter()
                 .any(|key| key == "go:S2260")
+        );
+    }
+
+    fn native_keys(source: &str) -> Vec<String> {
+        super::analyze_native(source)
+            .into_iter()
+            .map(|issue| issue.rule_key)
+            .collect()
+    }
+
+    #[test]
+    fn native_gosec_rules_require_resolved_standard_imports() {
+        let found = native_keys(concat!(
+            "package p\n",
+            "import (\n",
+            "  h \"net/http\"\n",
+            "  \"crypto/tls\"\n",
+            "  \"crypto/rsa\"\n",
+            "  \"crypto/md5\"\n",
+            "  \"crypto/sha1\"\n",
+            "  \"os\"\n",
+            ")\n",
+            "var _ = h.Server{}\n",
+            "var _ = h.Server{Handler: struct{ ReadHeaderTimeout int }{ReadHeaderTimeout: 1}}\n",
+            "var _ = tls.Config{InsecureSkipVerify: true}\n",
+            "func f() {\n",
+            "  h.ListenAndServe(\":80\", nil)\n",
+            "  os.MkdirAll(\"x\", 0777)\n",
+            "  os.Chmod(\"x\", 0644)\n",
+            "  os.WriteFile(\"x\", nil, 0666)\n",
+            "  rsa.GenerateKey(nil, 1024)\n",
+            "}\n",
+        ));
+        for key in [
+            "hoonarqube-go:G112",
+            "hoonarqube-go:G114",
+            "hoonarqube-go:G301",
+            "hoonarqube-go:G302",
+            "hoonarqube-go:G306",
+            "hoonarqube-go:G402",
+            "hoonarqube-go:G403",
+            "hoonarqube-go:G401",
+        ] {
+            assert!(
+                found.iter().any(|found| found == key),
+                "missing {key}: {found:?}"
+            );
+        }
+
+        let clean = native_keys(concat!(
+            "package p\n",
+            "import (\"net/http\"; \"crypto/tls\"; \"crypto/rsa\"; \"os\")\n",
+            "var _ = http.Server{ReadHeaderTimeout: 1}\n",
+            "var _ = tls.Config{}\n",
+            "var _ = tls.Config{RootCAs: struct{ InsecureSkipVerify bool }{InsecureSkipVerify: true}}\n",
+            "func f() { os.MkdirAll(\"x\", 0750); os.Chmod(\"x\", 0600); os.WriteFile(\"x\", nil, 0600); rsa.GenerateKey(nil, 2048) }\n",
+        ));
+        assert!(clean.is_empty(), "unexpected native findings: {clean:?}");
+    }
+
+    #[test]
+    fn native_cookie_and_sleep_rules_require_exact_standard_apis() {
+        let found = native_keys(concat!(
+            "package p\n",
+            "import (h \"net/http\"; clock \"time\")\n",
+            "var missing = h.Cookie{Name: \"session\"}\n",
+            "var weak = h.Cookie{Secure: true, HttpOnly: true, SameSite: h.SameSiteDefaultMode}\n",
+            "var crossSite = h.Cookie{Secure: true, HttpOnly: true, SameSite: h.SameSiteNoneMode}\n",
+            "var numericNone = h.Cookie{Secure: true, HttpOnly: true, SameSite: 4}\n",
+            "var nested = h.Cookie{Raw: struct{ Secure bool }{Secure: true}}\n",
+            "func conditional(ready bool) {\n",
+            "  cookie := &h.Cookie{Name: \"session\"}\n",
+            "  if ready {\n",
+            "    cookie.Secure = true\n",
+            "    cookie.HttpOnly = true\n",
+            "    cookie.SameSite = h.SameSiteLaxMode\n",
+            "  }\n",
+            "}\n",
+            "func pause() { clock.Sleep(100) }\n",
+        ));
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "hoonarqube-go:G124")
+                .count(),
+            6,
+        );
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "hoonarqube-go:SA1004")
+                .count(),
+            1,
+        );
+
+        let clean = native_keys(concat!(
+            "package p\n",
+            "import (h \"net/http\"; clock \"time\")\n",
+            "var cookie = h.Cookie{Secure: true, HttpOnly: true, SameSite: h.SameSiteStrictMode}\n",
+            "var configured = h.Cookie{Secure: secure, HttpOnly: httpOnly, SameSite: sameSite}\n",
+            "var positional = h.Cookie{\"name\", \"value\"}\n",
+            "const delay = 10\n",
+            "func configure() {\n",
+            "  cookie := &h.Cookie{Name: \"session\"}\n",
+            "  cookie.Secure = true\n",
+            "  cookie.HttpOnly = true\n",
+            "  cookie.SameSite = h.SameSiteLaxMode\n",
+            "}\n",
+            "func pause() { clock.Sleep(0); clock.Sleep(121); clock.Sleep(delay); clock.Sleep(2 * clock.Nanosecond) }\n",
+        ));
+        assert!(clean.is_empty(), "unexpected native findings: {clean:?}");
+
+        let custom = native_keys(concat!(
+            "package p\n",
+            "type Cookie struct { Secure bool }\n",
+            "type clockType struct{}\n",
+            "func (clockType) Sleep(int) {}\n",
+            "var clock clockType\n",
+            "var _ = Cookie{}\n",
+            "func pause() { clock.Sleep(10) }\n",
+        ));
+        assert!(custom.is_empty(), "custom APIs must stay clean: {custom:?}");
+    }
+
+    #[test]
+    fn native_go_flow_and_concurrency_rules_are_precise_on_owned_shapes() {
+        let found = native_keys(concat!(
+            "package p\n",
+            "import (\"compress/gzip\"; \"io\"; \"regexp\"; \"sync\")\n",
+            "func f(src io.Reader, dst io.Writer) {\n",
+            "  var wg sync.WaitGroup\n",
+            "  go func() { wg.Add(1) }()\n",
+            "  mu.Lock(); mu.Unlock()\n",
+            "  lock.Lock(); defer lock.Lock()\n",
+            "  append([]int{}, 1)\n",
+            "  for { defer close(done); regexp.MatchString(\"x\", \"x\") }\n",
+            "  reader, _ := gzip.NewReader(src)\n",
+            "  alias := reader\n",
+            "  io.Copy(dst, alias)\n",
+            "}\n",
+        ));
+        for key in [
+            "hoonarqube-go:G110",
+            "hoonarqube-go:SA2000",
+            "hoonarqube-go:SA2001",
+            "hoonarqube-go:SA2003",
+            "hoonarqube-go:SA4010",
+            "hoonarqube-go:SA5003",
+            "hoonarqube-go:SA6000",
+        ] {
+            assert!(
+                found.iter().any(|found| found == key),
+                "missing {key}: {found:?}"
+            );
+        }
+
+        let mutually_exclusive = native_keys(concat!(
+            "package p\n",
+            "import (\"compress/gzip\"; \"io\")\n",
+            "func cleanDirect(src io.Reader, dst io.Writer, cond bool) {\n",
+            "  var reader io.Reader\n",
+            "  if cond { reader, _ = gzip.NewReader(src) } else { io.Copy(dst, reader) }\n",
+            "}\n",
+            "func cleanPropagation(src io.Reader, dst io.Writer, cond bool) {\n",
+            "  var reader io.Reader\n",
+            "  var alias io.Reader\n",
+            "  if cond { reader, _ = gzip.NewReader(src) } else { alias = reader }\n",
+            "  io.Copy(dst, alias)\n",
+            "}\n",
+            "func cleanReturn(src io.Reader, dst io.Writer, cond bool) {\n",
+            "  var reader io.Reader\n",
+            "  if cond { reader, _ = gzip.NewReader(src); return }\n",
+            "  io.Copy(dst, reader)\n",
+            "}\n",
+        ));
+        assert!(
+            !mutually_exclusive
+                .iter()
+                .any(|key| key == "hoonarqube-go:G110"),
+            "mutually exclusive taint steps must stay clean: {mutually_exclusive:?}",
+        );
+
+        let branch_to_join = native_keys(concat!(
+            "package p\n",
+            "import (\"compress/gzip\"; \"io\")\n",
+            "func bad(src io.Reader, dst io.Writer, other io.Reader, cond bool) {\n",
+            "  var reader io.Reader\n",
+            "  if cond { reader, _ = gzip.NewReader(src) } else { reader = other }\n",
+            "  io.Copy(dst, reader)\n",
+            "}\n",
+        ));
+        assert!(
+            branch_to_join.iter().any(|key| key == "hoonarqube-go:G110"),
+            "taint from one feasible branch must reach the join: {branch_to_join:?}",
+        );
+    }
+
+    #[test]
+    fn native_go_unicode_and_serialized_secret_rules_report_exact_source() {
+        let found = native_keys(concat!(
+            "package p\n",
+            "// suspicious \u{202e} marker\n",
+            "type Config struct { APIToken string `json:\"api_token\"` }\n",
+        ));
+        assert!(found.iter().any(|key| key == "hoonarqube-go:G116"));
+        assert!(found.iter().any(|key| key == "hoonarqube-go:G117"));
+
+        let mixed_tags = native_keys(concat!(
+            "package p\n",
+            "type Config struct { Password string `json:\"-\" yaml:\"password\"` }\n",
+        ));
+        assert!(
+            mixed_tags.iter().any(|key| key == "hoonarqube-go:G117"),
+            "one ignored format must not hide another exposed format: {mixed_tags:?}",
+        );
+    }
+
+    #[test]
+    fn native_current_gosec_filesystem_and_crypto_rules_fire() {
+        let found = native_keys(concat!(
+            "package p\n",
+            "import (\"archive/zip\"; \"crypto/des\"; \"crypto/md5\"; \"golang.org/x/crypto/md4\"; \"os\"; \"path/filepath\")\n",
+            "var _ = des.BlockSize; var _ = md5.Size; var _ = md4.Size\n",
+            "func extract(file *zip.File, root string) {\n",
+            "  _ = filepath.Join(root, file.Name)\n",
+            "  os.WriteFile(\"/tmp/result\", nil, 0600)\n",
+            "  os.Create(\"result\")\n",
+            "}\n",
+        ));
+        for key in [
+            "hoonarqube-go:G303",
+            "hoonarqube-go:G305",
+            "hoonarqube-go:G307",
+            "hoonarqube-go:G401",
+            "hoonarqube-go:G405",
+            "hoonarqube-go:G406",
+        ] {
+            assert!(
+                found.iter().any(|found| found == key),
+                "missing {key}: {found:?}"
+            );
+        }
+
+        let unrelated = native_keys(concat!(
+            "package p\n",
+            "import (\"archive/zip\"; \"path/filepath\")\n",
+            "var _ *zip.File\n",
+            "type entry struct { Name string }; type reader struct { File []entry }\n",
+            "func clean(r reader, root string) { for _, file := range r.File { _ = filepath.Join(root, file.Name) } }\n",
+        ));
+        assert!(
+            !unrelated.iter().any(|key| key == "hoonarqube-go:G305"),
+            "unrelated File fields are not archive readers: {unrelated:?}"
+        );
+    }
+
+    #[test]
+    fn native_staticcheck_local_semantics_find_bad_and_keep_good_clean() {
+        let found = native_keys(concat!(
+            "package p\n",
+            "import (\"context\"; \"os\"; \"os/exec\")\n",
+            "func takes(ctx context.Context) {}\n",
+            "func bad() {\n",
+            "  takes(nil); exec.CommandContext(nil, \"true\")\n",
+            "  value := first(); value = second(); _ = value\n",
+            "  var values map[string]int; values[\"x\"] = 1\n",
+            "  var later map[string]int = nil; later = nil; later[\"x\"] = 1\n",
+            "  file, err := os.Open(\"x\"); defer file.Close(); if err != nil { return }\n",
+            "  for i := 0; i < 10; j++ { println(j) }\n",
+            "}\n",
+        ));
+        for key in [
+            "hoonarqube-go:SA1012",
+            "hoonarqube-go:SA4006",
+            "hoonarqube-go:SA4008",
+            "hoonarqube-go:SA5000",
+            "hoonarqube-go:SA5001",
+        ] {
+            assert!(
+                found.iter().any(|found| found == key),
+                "missing {key}: {found:?}"
+            );
+        }
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "hoonarqube-go:SA5000")
+                .count(),
+            2,
+            "explicit nil initialization and reassignment stay nil: {found:?}",
+        );
+
+        let clean = native_keys(concat!(
+            "package p\n",
+            "import (\"context\"; \"os\")\n",
+            "func takes(ctx context.Context) {}\n",
+            "func good() {\n",
+            "  takes(context.TODO())\n",
+            "  value := first(); _ = value; value = second(); _ = value\n",
+            "  total := 1; total += 2; println(total)\n",
+            "  values := make(map[string]int); values[\"x\"] = 1\n",
+            "  for i := 0; i < 10; total++ { if ready() { i++ } }\n",
+            "  file, err := os.Open(\"x\"); if err != nil { return }; defer file.Close()\n",
+            "  for i := 0; i < 10; i++ { println(i) }\n",
+            "}\n",
+        ));
+        for key in [
+            "hoonarqube-go:SA1012",
+            "hoonarqube-go:SA4006",
+            "hoonarqube-go:SA4008",
+            "hoonarqube-go:SA5000",
+            "hoonarqube-go:SA5001",
+        ] {
+            assert!(
+                !clean.iter().any(|found| found == key),
+                "unexpected {key}: {clean:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn native_loop_update_tracks_writes_not_reads() {
+        let found = native_keys(concat!(
+            "package p\n",
+            "func bad() {\n",
+            "  for i := 0; i < 10; j++ { value = i }\n",
+            "}\n",
+        ));
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "hoonarqube-go:SA4008")
+                .count(),
+            1,
+            "reading the condition variable does not update it: {found:?}",
         );
     }
 }

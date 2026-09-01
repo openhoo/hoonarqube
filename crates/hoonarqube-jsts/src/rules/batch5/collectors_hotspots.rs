@@ -121,6 +121,7 @@ pub(crate) fn check_default_export_name(
             message: format!("Rename this file to \"{name}\""),
             range: hoonarqube_ir::Range::file_level(),
             fix: None,
+            flows: Vec::new(),
         });
     }
     issues
