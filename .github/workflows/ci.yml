@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  HOOVERSION_VERSION: 1.0.7
+  HOOVERSION_VERSION: 1.1.0
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -28,7 +28,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Lint commits
-        uses: openhoo/hooversion/actions/lint@d536bb45b5c2dbf9a17c866c0fe48f54216a1673 # v1.0.7
+        uses: openhoo/hooversion/actions/lint@f2186561c587b58c5ea08c74c15800cdd39eab42 # v1.1.0
         with:
           version: ${{ env.HOOVERSION_VERSION }}
 
