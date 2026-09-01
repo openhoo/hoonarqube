@@ -10,7 +10,8 @@ use ruff_text_size::{Ranged, TextRange, TextSize};
 
 use crate::support::{
     called_name, child_bodies, collect_target_names, for_each_expr, for_each_stmt,
-    for_each_stmt_expr_in_scope, for_each_stmt_in_scope, issue_at, parse, stmt_store_names,
+    for_each_stmt_expr_in_scope, for_each_stmt_in_scope, issue_at, parse, stmt_exprs,
+    stmt_store_names,
 };
 
 /// Runs the native Python rules. Syntax-invalid source stays silent because
@@ -40,11 +41,26 @@ pub(crate) fn analyze(source: &str) -> Vec<Issue> {
 const REQUEST_METHODS: &[&str] = &[
     "delete", "get", "head", "options", "patch", "post", "put", "request",
 ];
+const HTTPX_METHODS: &[&str] = &[
+    "AsyncClient",
+    "Client",
+    "delete",
+    "get",
+    "head",
+    "options",
+    "patch",
+    "post",
+    "put",
+    "request",
+    "stream",
+];
 
 #[derive(Clone, Default)]
 struct RequestNames {
     direct: HashSet<String>,
     modules: HashSet<String>,
+    httpx_direct: HashSet<String>,
+    httpx_modules: HashSet<String>,
 }
 
 impl RequestNames {
@@ -77,6 +93,10 @@ impl RequestNames {
             }
             self.direct.extend(recognized.direct.iter().cloned());
             self.modules.extend(recognized.modules.iter().cloned());
+            self.httpx_direct
+                .extend(recognized.httpx_direct.iter().cloned());
+            self.httpx_modules
+                .extend(recognized.httpx_modules.iter().cloned());
             shadowed.extend(
                 stmt_store_names(stmt)
                     .into_iter()
@@ -93,43 +113,45 @@ impl RequestNames {
         for name in shadowed {
             self.direct.remove(&name);
             self.modules.remove(&name);
+            self.httpx_direct.remove(&name);
+            self.httpx_modules.remove(&name);
         }
         self
     }
 
     fn contains(&self, name: &str) -> bool {
-        self.direct.contains(name) || self.modules.contains(name)
+        self.direct.contains(name)
+            || self.modules.contains(name)
+            || self.httpx_direct.contains(name)
+            || self.httpx_modules.contains(name)
     }
 
     fn record_import(&mut self, import: &ruff_python_ast::StmtImport) {
-        self.modules.extend(
-            import
-                .names
-                .iter()
-                .filter(|alias| alias.name.as_str() == "requests")
-                .map(|alias| {
-                    alias
-                        .asname
-                        .as_deref()
-                        .map_or(alias.name.as_str(), |asname| asname)
-                        .to_string()
-                }),
-        );
+        record_python_modules(&mut self.modules, import, "requests");
+        record_python_modules(&mut self.httpx_modules, import, "httpx");
     }
 
     fn record_import_from(&mut self, import: &ruff_python_ast::StmtImportFrom) {
-        if import
-            .module
-            .as_ref()
-            .is_none_or(|module| module.as_str() != "requests")
-        {
+        if import.level != 0 {
             return;
         }
-        self.direct.extend(
+        let Some(module) = import
+            .module
+            .as_ref()
+            .map(ruff_python_ast::Identifier::as_str)
+        else {
+            return;
+        };
+        let (methods, direct) = match module {
+            "requests" => (REQUEST_METHODS, &mut self.direct),
+            "httpx" => (HTTPX_METHODS, &mut self.httpx_direct),
+            _ => return,
+        };
+        direct.extend(
             import
                 .names
                 .iter()
-                .filter(|alias| REQUEST_METHODS.contains(&alias.name.as_str()))
+                .filter(|alias| methods.contains(&alias.name.as_str()))
                 .map(|alias| {
                     alias
                         .asname
@@ -139,6 +161,33 @@ impl RequestNames {
                 }),
         );
     }
+}
+
+fn record_python_modules(
+    modules: &mut HashSet<String>,
+    import: &ruff_python_ast::StmtImport,
+    package: &str,
+) {
+    modules.extend(import.names.iter().filter_map(|alias| {
+        let imported = alias.name.as_str();
+        if imported == package {
+            return Some(
+                alias
+                    .asname
+                    .as_deref()
+                    .map_or(imported, |asname| asname)
+                    .to_string(),
+            );
+        }
+        (alias.asname.is_none() && imported.starts_with(&format!("{package}.")))
+            .then(|| package.to_string())
+    }));
+}
+
+#[derive(Clone, Copy)]
+enum HttpClient {
+    Requests,
+    Httpx,
 }
 
 fn requests_without_timeout(
@@ -155,16 +204,47 @@ fn requests_without_timeout(
         source,
         &mut issues,
     );
-    visit_functions(parsed.syntax().body.as_slice(), &mut |function| {
-        check_request_calls_in_scope(
-            &function.body,
-            &module_names.for_function(function),
-            index,
-            source,
-            &mut issues,
-        );
-    });
+    check_request_scopes(
+        parsed.syntax().body.as_slice(),
+        module_names,
+        index,
+        source,
+        &mut issues,
+    );
     issues
+}
+
+fn check_request_scopes(
+    suite: &[Stmt],
+    inherited: &RequestNames,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    for stmt in suite {
+        match stmt {
+            Stmt::FunctionDef(function) => {
+                let names = inherited.for_function(function);
+                check_request_calls_in_scope(&function.body, &names, index, source, issues);
+                check_request_scopes(&function.body, &names, index, source, issues);
+                continue;
+            }
+            Stmt::ClassDef(class) => {
+                let names = inherited
+                    .clone()
+                    .with_scope(&class.body, std::iter::empty());
+                check_request_calls_in_scope(&class.body, &names, index, source, issues);
+                // Class locals are not closure variables for methods or nested
+                // classes. Their bodies inherit the surrounding lexical scope.
+                check_request_scopes(&class.body, inherited, index, source, issues);
+                continue;
+            }
+            _ => {}
+        }
+        for body in child_bodies(stmt) {
+            check_request_scopes(body, inherited, index, source, issues);
+        }
+    }
 }
 
 fn check_request_calls_in_scope(
@@ -174,30 +254,33 @@ fn check_request_calls_in_scope(
     source: &str,
     issues: &mut Vec<Issue>,
 ) {
-    for_each_stmt_expr_in_scope(suite, &mut |expr| {
+    let mut check = |expr: &Expr| {
         let Expr::Call(call) = expr else {
             return;
         };
-        let recognized = match call.func.as_ref() {
-            Expr::Name(name) => names.direct.contains(name.id.as_str()),
+        let clients = match call.func.as_ref() {
+            Expr::Name(name) => (
+                names.direct.contains(name.id.as_str()),
+                names.httpx_direct.contains(name.id.as_str()),
+            ),
             Expr::Attribute(attribute) => {
-                REQUEST_METHODS.contains(&attribute.attr.as_str())
-                    && matches!(
-                        attribute.value.as_ref(),
-                        Expr::Name(module) if names.modules.contains(module.id.as_str())
-                    )
+                let Some(module) = attribute.value.as_name_expr() else {
+                    return;
+                };
+                (
+                    REQUEST_METHODS.contains(&attribute.attr.as_str())
+                        && names.modules.contains(module.id.as_str()),
+                    HTTPX_METHODS.contains(&attribute.attr.as_str())
+                        && names.httpx_modules.contains(module.id.as_str()),
+                )
             }
-            _ => false,
+            _ => (false, false),
         };
-        if !recognized
-            || call
-                .arguments
-                .keywords
-                .iter()
-                .any(|keyword| keyword.arg.is_none())
-        {
-            return;
-        }
+        let client = match clients {
+            (true, false) => HttpClient::Requests,
+            (false, true) => HttpClient::Httpx,
+            _ => return,
+        };
         let timeout = call.arguments.keywords.iter().find(|keyword| {
             keyword
                 .arg
@@ -207,13 +290,34 @@ fn check_request_calls_in_scope(
         if timeout.is_some_and(|keyword| !matches!(keyword.value, Expr::NoneLiteral(_))) {
             return;
         }
+        if timeout.is_none() && matches!(client, HttpClient::Httpx) {
+            return;
+        }
+        if timeout.is_none()
+            && call
+                .arguments
+                .keywords
+                .iter()
+                .any(|keyword| keyword.arg.is_none())
+        {
+            return;
+        }
         issues.push(issue_at(
             "hoonarqube-python:request-without-timeout",
-            "Set an explicit finite timeout on this requests call.",
+            "Set an explicit non-None timeout on this requests call.",
             call.func.range(),
             index,
             source,
         ));
+    };
+    for_each_stmt_expr_in_scope(suite, &mut check);
+    for_each_stmt_in_scope(suite, &mut |stmt| {
+        if !matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
+            return;
+        }
+        for expression in stmt_exprs(stmt) {
+            for_each_expr(expression, &mut check);
+        }
     });
 }
 
@@ -372,10 +476,11 @@ impl FileOpenNames {
     }
 
     fn record_import_from(&mut self, import: &ruff_python_ast::StmtImportFrom) {
-        if !import
-            .module
-            .as_ref()
-            .is_some_and(|module| is_file_module(module.as_str()))
+        if import.level != 0
+            || !import
+                .module
+                .as_ref()
+                .is_some_and(|module| is_file_module(module.as_str()))
         {
             return;
         }
@@ -406,19 +511,32 @@ fn files_not_closed(
     open_names: &FileOpenNames,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    visit_functions(parsed.syntax().body.as_slice(), &mut |function| {
-        check_function_files(function, index, source, open_names, &mut issues);
-    });
+    check_file_functions(
+        parsed.syntax().body.as_slice(),
+        open_names,
+        index,
+        source,
+        &mut issues,
+    );
     issues
 }
 
-fn visit_functions<'a>(suite: &'a [Stmt], visit: &mut impl FnMut(&'a StmtFunctionDef)) {
+fn check_file_functions(
+    suite: &[Stmt],
+    inherited: &FileOpenNames,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
     for stmt in suite {
         if let Stmt::FunctionDef(function) = stmt {
-            visit(function);
+            check_function_files(function, index, source, inherited, issues);
+            let names = inherited.for_function(function);
+            check_file_functions(&function.body, &names, index, source, issues);
+            continue;
         }
         for body in child_bodies(stmt) {
-            visit_functions(body, visit);
+            check_file_functions(body, inherited, index, source, issues);
         }
     }
 }
@@ -761,13 +879,32 @@ mod tests {
             "from requests import post as submit\n",
             "http.get('https://example.test')\n",
             "submit('https://example.test', timeout=None)\n",
+            "http.get('https://example.test', timeout=None, **options)\n",
+            "import requests.sessions\n",
+            "requests.get('https://example.test')\n",
+            "import httpx as modern\n",
+            "from httpx import AsyncClient as Client\n",
+            "modern.get('https://example.test', timeout=None)\n",
+            "Client(timeout=None)\n",
+            "def outer():\n",
+            "    import requests as local\n",
+            "    def inner():\n",
+            "        local.get('https://example.test')\n",
+            "@http.get('https://example.test')\n",
+            "def decorated(): pass\n",
+            "def default(value=submit('https://example.test')): pass\n",
+            "class Config:\n",
+            "    import requests as local_class\n",
+            "    response = local_class.get('https://example.test')\n",
+            "    def method(self):\n",
+            "        local_class.get('class-local')\n",
         ));
         assert_eq!(
             found
                 .iter()
                 .filter(|key| key.as_str() == "hoonarqube-python:request-without-timeout")
                 .count(),
-            2,
+            10,
         );
 
         for clean in [
@@ -776,7 +913,11 @@ mod tests {
             "def custom(requests):\n    requests.get('local')",
             "class Client:\n    def get(self, url): return url\nClient().get('local')",
             "import httpx\nhttpx.get('https://example.test')",
+            "import httpx\nhttpx.Client()\nhttpx.stream('GET', 'https://example.test')",
+            "from httpx import get\nget('https://example.test')",
             "from requests import Session\nSession().get('https://example.test')",
+            "import requests\ndef outer(requests):\n    def inner():\n        requests.get('local')",
+            "from .requests import get\nget('local')",
         ] {
             assert!(
                 !keys(clean)
@@ -785,5 +926,32 @@ mod tests {
                 "{clean}",
             );
         }
+    }
+
+    #[test]
+    fn file_rule_inherits_resolved_open_names_into_closures() {
+        let found = keys(concat!(
+            "def outer():\n",
+            "    from gzip import open as gzip_open\n",
+            "    def inner():\n",
+            "        handle = gzip_open('archive.gz')\n",
+        ));
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "hoonarqube-python:file-not-closed")
+                .count(),
+            1,
+        );
+
+        let relative = keys(concat!(
+            "from .gzip import open as gzip_open\n",
+            "def read():\n",
+            "    handle = gzip_open('custom')\n",
+        ));
+        assert!(
+            relative.is_empty(),
+            "relative modules must not resolve as standard libraries: {relative:?}",
+        );
     }
 }

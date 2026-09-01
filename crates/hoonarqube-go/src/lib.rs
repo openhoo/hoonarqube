@@ -790,11 +790,11 @@ fn check_native_composite(
         .qualified("net/http", "Cookie")
         .is_some_and(|name| text(type_node, source) == name)
         && cookie_literal_is_keyed_or_empty(body)
-        && cookie_literal_is_provably_insecure(body, source, imports)
+        && cookie_literal_is_provably_insecure(node, body, source, imports)
     {
         issues.push(node_issue(
             "hoonarqube-go:G124",
-            "Set Secure, HttpOnly, and an explicit SameSite mode on this HTTP cookie.",
+            "Set Secure and HttpOnly, and use SameSite Lax or Strict on this HTTP cookie.",
             type_node,
             source,
         ));
@@ -809,27 +809,142 @@ fn cookie_literal_is_keyed_or_empty(body: Node<'_>) -> bool {
             .any(|element| element.kind() == "keyed_element")
 }
 
-fn cookie_literal_is_provably_insecure(body: Node<'_>, source: &str, imports: &GoImports) -> bool {
-    if cookie_boolean_is_insecure(body, "Secure", source)
-        || cookie_boolean_is_insecure(body, "HttpOnly", source)
+fn cookie_literal_is_provably_insecure(
+    literal: Node<'_>,
+    body: Node<'_>,
+    source: &str,
+    imports: &GoImports,
+) -> bool {
+    let values = cookie_effective_security_values(literal, body, source);
+    if matches!(values.secure, None | Some("false"))
+        || matches!(values.http_only, None | Some("false"))
     {
         return true;
     }
     let Some(http) = imports.alias("net/http") else {
         return true;
     };
-    let Some(same_site) = literal_key_value(body, "SameSite", source) else {
+    let Some(same_site) = values.same_site else {
         return true;
     };
     let compact: String = same_site
         .chars()
         .filter(|character| !character.is_whitespace())
         .collect();
-    matches!(compact.as_str(), "0") || compact == format!("{http}.SameSiteDefaultMode")
+    matches!(compact.as_str(), "0" | "1" | "4")
+        || compact == format!("{http}.SameSiteDefaultMode")
+        || compact == format!("{http}.SameSiteNoneMode")
 }
 
-fn cookie_boolean_is_insecure(body: Node<'_>, key: &str, source: &str) -> bool {
-    matches!(literal_key_value(body, key, source), None | Some("false"))
+struct CookieSecurityValues<'source> {
+    secure: Option<&'source str>,
+    http_only: Option<&'source str>,
+    same_site: Option<&'source str>,
+}
+
+fn cookie_effective_security_values<'source>(
+    literal: Node<'_>,
+    body: Node<'_>,
+    source: &'source str,
+) -> CookieSecurityValues<'source> {
+    let mut values = CookieSecurityValues {
+        secure: literal_key_value(body, "Secure", source),
+        http_only: literal_key_value(body, "HttpOnly", source),
+        same_site: literal_key_value(body, "SameSite", source),
+    };
+    let Some(binding) = cookie_literal_binding(literal, source) else {
+        return values;
+    };
+    let Some(function) = ancestors(literal).find(|ancestor| is_function(*ancestor)) else {
+        return values;
+    };
+    let Some(statement_list) =
+        ancestors(literal).find(|ancestor| ancestor.kind() == "statement_list")
+    else {
+        return values;
+    };
+    walk(function, &mut |candidate| {
+        if candidate.start_byte() <= literal.end_byte()
+            || candidate.kind() != "assignment_statement"
+            || ancestors(candidate).find(|ancestor| is_function(*ancestor)) != Some(function)
+            || ancestors(candidate).find(|ancestor| ancestor.kind() == "statement_list")
+                != Some(statement_list)
+        {
+            return;
+        }
+        let (Some(left), Some(right)) = (
+            candidate.child_by_field_name("left"),
+            candidate.child_by_field_name("right"),
+        ) else {
+            return;
+        };
+        let targets = expression_list_items(left);
+        let assigned_values = expression_list_items(right);
+        if targets.len() != assigned_values.len() {
+            return;
+        }
+        for (target, assigned) in targets.into_iter().zip(assigned_values) {
+            let Some((receiver, member)) = selector_parts(target, source) else {
+                continue;
+            };
+            if receiver != binding {
+                continue;
+            }
+            let assigned = Some(text(assigned, source));
+            if member == "Secure" {
+                values.secure = assigned;
+            }
+            if member == "HttpOnly" {
+                values.http_only = assigned;
+            }
+            if member == "SameSite" {
+                values.same_site = assigned;
+            }
+        }
+    });
+    values
+}
+
+fn cookie_literal_binding<'source>(
+    literal: Node<'_>,
+    source: &'source str,
+) -> Option<&'source str> {
+    for owner in ancestors(literal) {
+        if is_function(owner) {
+            break;
+        }
+        if matches!(
+            owner.kind(),
+            "short_var_declaration" | "assignment_statement"
+        ) && owner.child_by_field_name("right").is_some_and(|right| {
+            right.start_byte() <= literal.start_byte() && right.end_byte() >= literal.end_byte()
+        }) {
+            let targets = simple_assignment_targets(owner, source);
+            if targets.len() == 1 {
+                return Some(text(targets[0].1, source));
+            }
+        }
+        if owner.kind() == "var_spec"
+            && owner.child_by_field_name("value").is_some_and(|value| {
+                value.start_byte() <= literal.start_byte() && value.end_byte() >= literal.end_byte()
+            })
+        {
+            let mut cursor = owner.walk();
+            let names: Vec<_> = owner.children_by_field_name("name", &mut cursor).collect();
+            if names.len() == 1 {
+                return Some(text(names[0], source));
+            }
+        }
+    }
+    None
+}
+
+fn expression_list_items(node: Node<'_>) -> Vec<Node<'_>> {
+    if node.kind() == "expression_list" {
+        named_children(node)
+    } else {
+        vec![node]
+    }
 }
 
 fn check_native_serialized_secret(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
@@ -1884,37 +1999,33 @@ fn literal_has_key(node: Node<'_>, key: &str, source: &str) -> bool {
 }
 
 fn literal_key_node<'tree>(node: Node<'tree>, key: &str, source: &str) -> Option<Node<'tree>> {
-    let mut found = None;
-    walk(node, &mut |child| {
-        if child.kind() == "keyed_element"
+    named_children(node).into_iter().find_map(|child| {
+        (child.kind() == "keyed_element"
             && child
                 .child_by_field_name("key")
-                .is_some_and(|candidate| text(candidate, source) == key)
-        {
-            found = child.child_by_field_name("key");
-        }
-    });
-    found
+                .is_some_and(|candidate| text(candidate, source) == key))
+        .then(|| child.child_by_field_name("key"))
+        .flatten()
+    })
 }
 
-fn literal_key_value<'tree>(
-    node: Node<'tree>,
+fn literal_key_value<'source>(
+    node: Node<'_>,
     key: &str,
-    source: &'tree str,
-) -> Option<&'tree str> {
-    let mut found = None;
-    walk(node, &mut |child| {
-        if child.kind() == "keyed_element"
+    source: &'source str,
+) -> Option<&'source str> {
+    named_children(node).into_iter().find_map(|child| {
+        (child.kind() == "keyed_element"
             && child
                 .child_by_field_name("key")
-                .is_some_and(|candidate| text(candidate, source) == key)
-        {
-            found = child
+                .is_some_and(|candidate| text(candidate, source) == key))
+        .then(|| {
+            child
                 .child_by_field_name("value")
-                .map(|value| text(value, source));
-        }
-    });
-    found
+                .map(|value| text(value, source))
+        })
+        .flatten()
+    })
 }
 
 fn named_children(node: Node<'_>) -> Vec<Node<'_>> {
@@ -3987,6 +4098,7 @@ mod tests {
             "  \"os\"\n",
             ")\n",
             "var _ = h.Server{}\n",
+            "var _ = h.Server{Handler: struct{ ReadHeaderTimeout int }{ReadHeaderTimeout: 1}}\n",
             "var _ = tls.Config{InsecureSkipVerify: true}\n",
             "func f() {\n",
             "  h.ListenAndServe(\":80\", nil)\n",
@@ -4017,6 +4129,7 @@ mod tests {
             "import (\"net/http\"; \"crypto/tls\"; \"crypto/rsa\"; \"os\")\n",
             "var _ = http.Server{ReadHeaderTimeout: 1}\n",
             "var _ = tls.Config{}\n",
+            "var _ = tls.Config{RootCAs: struct{ InsecureSkipVerify bool }{InsecureSkipVerify: true}}\n",
             "func f() { os.MkdirAll(\"x\", 0750); os.Chmod(\"x\", 0600); os.WriteFile(\"x\", nil, 0600); rsa.GenerateKey(nil, 2048) }\n",
         ));
         assert!(clean.is_empty(), "unexpected native findings: {clean:?}");
@@ -4029,6 +4142,17 @@ mod tests {
             "import (h \"net/http\"; clock \"time\")\n",
             "var missing = h.Cookie{Name: \"session\"}\n",
             "var weak = h.Cookie{Secure: true, HttpOnly: true, SameSite: h.SameSiteDefaultMode}\n",
+            "var crossSite = h.Cookie{Secure: true, HttpOnly: true, SameSite: h.SameSiteNoneMode}\n",
+            "var numericNone = h.Cookie{Secure: true, HttpOnly: true, SameSite: 4}\n",
+            "var nested = h.Cookie{Raw: struct{ Secure bool }{Secure: true}}\n",
+            "func conditional(ready bool) {\n",
+            "  cookie := &h.Cookie{Name: \"session\"}\n",
+            "  if ready {\n",
+            "    cookie.Secure = true\n",
+            "    cookie.HttpOnly = true\n",
+            "    cookie.SameSite = h.SameSiteLaxMode\n",
+            "  }\n",
+            "}\n",
             "func pause() { clock.Sleep(100) }\n",
         ));
         assert_eq!(
@@ -4036,7 +4160,7 @@ mod tests {
                 .iter()
                 .filter(|key| key.as_str() == "hoonarqube-go:G124")
                 .count(),
-            2,
+            6,
         );
         assert_eq!(
             found
@@ -4050,10 +4174,15 @@ mod tests {
             "package p\n",
             "import (h \"net/http\"; clock \"time\")\n",
             "var cookie = h.Cookie{Secure: true, HttpOnly: true, SameSite: h.SameSiteStrictMode}\n",
-            "var crossSite = h.Cookie{Secure: true, HttpOnly: true, SameSite: h.SameSiteNoneMode}\n",
             "var configured = h.Cookie{Secure: secure, HttpOnly: httpOnly, SameSite: sameSite}\n",
             "var positional = h.Cookie{\"name\", \"value\"}\n",
             "const delay = 10\n",
+            "func configure() {\n",
+            "  cookie := &h.Cookie{Name: \"session\"}\n",
+            "  cookie.Secure = true\n",
+            "  cookie.HttpOnly = true\n",
+            "  cookie.SameSite = h.SameSiteLaxMode\n",
+            "}\n",
             "func pause() { clock.Sleep(0); clock.Sleep(121); clock.Sleep(delay); clock.Sleep(2 * clock.Nanosecond) }\n",
         ));
         assert!(clean.is_empty(), "unexpected native findings: {clean:?}");

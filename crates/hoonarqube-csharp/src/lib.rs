@@ -442,10 +442,17 @@ impl NativeTypeEvidence {
             .chars()
             .filter(|character| !character.is_whitespace())
             .collect();
-        let normalized = compact.trim_end_matches('?').trim_start_matches("global::");
+        let compact = compact.trim_end_matches('?');
+        let explicitly_global = compact.starts_with("global::");
+        let normalized = compact.trim_start_matches("global::");
         full_names.iter().any(|full_name| {
             if normalized == *full_name {
-                return true;
+                let root = normalized
+                    .split_once('.')
+                    .map_or(normalized, |(root, _)| root);
+                return explicitly_global
+                    || (!self.declared_types.contains(root)
+                        && self.aliases.get(root).is_none_or(|target| target == root));
             }
             if self
                 .aliases
@@ -679,6 +686,7 @@ mod native_tests {
             "using System.Text.Json; class C { object M(dynamic JsonDocument, string value) => JsonDocument.Parse(value).RootElement; }",
             "using System.Text.Json; class C { object M(JsonDocument document) => document.RootElement; }",
             "using System.Text.Json; class C { JsonDocument M(string value) => JsonDocument.Parse(value); }",
+            "using System = Custom; class C { object M(string value) => System.Text.Json.JsonDocument.Parse(value).RootElement; }",
         ] {
             assert!(
                 !analyze_native(clean)
@@ -687,5 +695,17 @@ mod native_tests {
                 "{clean}",
             );
         }
+
+        let global = analyze_native(concat!(
+            "using System = Custom; class C { object M(string value) => ",
+            "global::System.Text.Json.JsonDocument.Parse(value).RootElement; }",
+        ));
+        assert_eq!(
+            global
+                .iter()
+                .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2026")
+                .count(),
+            1,
+        );
     }
 }

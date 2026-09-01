@@ -11,7 +11,7 @@ Hoonarqube ships the frozen 1,741-rule catalog:
 - Go: 36.
 - Rust: 85.
 
-The separate 37-rule `hoonarqube-*` native catalog is excluded from every
+The separate 47-rule `hoonarqube-*` native catalog is excluded from every
 Sonar parity count and oracle claim. Native rules carry their own upstream
 provenance and profile membership; enabling them cannot turn local evidence
 into a SonarQube-equivalence claim.

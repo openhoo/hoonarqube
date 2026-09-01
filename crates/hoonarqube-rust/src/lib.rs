@@ -478,7 +478,7 @@ pub fn analyze_native(source: &str) -> Vec<Issue> {
         if let Some(target) = native_permissions_set_readonly_false(call, source, &standard) {
             issues.push(node_issue(
                 "hoonarqube-rust:permissions-set-readonly-false",
-                "Set explicit Unix permissions instead of making this file world-writable.",
+                "Set explicit Unix permissions; clearing readonly can make this file world-writable.",
                 target,
                 source,
             ));
@@ -495,8 +495,14 @@ struct NativeGuardTypes {
     rwlocks: HashSet<String>,
     refcells: HashSet<String>,
     open_options: HashSet<String>,
+    files: HashSet<String>,
     fs_modules: HashSet<String>,
     metadata_functions: HashSet<String>,
+    tokio_open_options: HashSet<String>,
+    tokio_files: HashSet<String>,
+    tokio_fs_modules: HashSet<String>,
+    std_shadowed: bool,
+    tokio_shadowed: bool,
 }
 
 impl NativeGuardTypes {
@@ -508,92 +514,144 @@ impl NativeGuardTypes {
             if !matches!(scope.kind(), "block" | "declaration_list" | "source_file") {
                 continue;
             }
-            let mut scope_types = Self::default();
-            let mut scope_bindings = HashSet::new();
-            let mut cursor = scope.walk();
-            for node in scope
-                .named_children(&mut cursor)
-                .filter(|child| child.kind() == "use_declaration")
-            {
-                let compact: String = text(node, source)
-                    .chars()
-                    .filter(|character| !character.is_whitespace())
-                    .collect();
-                collect_native_use_aliases(
-                    &compact,
-                    "std::sync",
-                    "Mutex",
-                    &mut scope_types.mutexes,
-                );
-                collect_native_use_aliases(
-                    &compact,
-                    "std::sync",
-                    "RwLock",
-                    &mut scope_types.rwlocks,
-                );
-                collect_native_use_aliases(
-                    &compact,
-                    "std::cell",
-                    "RefCell",
-                    &mut scope_types.refcells,
-                );
-                collect_native_use_aliases(
-                    &compact,
-                    "std::fs",
-                    "OpenOptions",
-                    &mut scope_types.open_options,
-                );
-                collect_native_use_aliases(&compact, "std", "fs", &mut scope_types.fs_modules);
-                collect_native_group_self_aliases(
-                    &compact,
-                    "std::fs",
-                    "fs",
-                    &mut scope_types.fs_modules,
-                );
-                collect_native_use_aliases(
-                    &compact,
-                    "std::fs",
-                    "metadata",
-                    &mut scope_types.metadata_functions,
-                );
-                collect_native_use_bindings(node, source, &mut scope_bindings);
-            }
-            types
-                .mutexes
-                .extend(scope_types.mutexes.difference(&shadowed).cloned());
-            types
-                .rwlocks
-                .extend(scope_types.rwlocks.difference(&shadowed).cloned());
-            types
-                .refcells
-                .extend(scope_types.refcells.difference(&shadowed).cloned());
-            types
-                .open_options
-                .extend(scope_types.open_options.difference(&shadowed).cloned());
-            types
-                .fs_modules
-                .extend(scope_types.fs_modules.difference(&shadowed).cloned());
-            types.metadata_functions.extend(
-                scope_types
-                    .metadata_functions
-                    .difference(&shadowed)
-                    .cloned(),
-            );
+            let (scope_types, scope_bindings) = Self::collect_scope(scope, source);
+            types.extend_visible(&scope_types, &shadowed);
             shadowed.extend(scope_bindings);
-            if scope.kind() == "source_file"
-                || (scope.kind() == "declaration_list"
-                    && scope
-                        .parent()
-                        .is_some_and(|parent| parent.kind() == "mod_item"))
-            {
+            if native_scope_ends_module_lookup(scope) {
                 // A Rust child module does not inherit unqualified imports from
                 // its parent module. Stop after the nearest module scope while
                 // still accepting imports from enclosing blocks and impls.
                 break;
             }
         }
+        types.std_shadowed = shadowed.contains("std");
+        types.tokio_shadowed = shadowed.contains("tokio");
+        types.clear_shadowed_roots();
         types
     }
+
+    fn collect_scope(scope: Node<'_>, source: &str) -> (Self, HashSet<String>) {
+        let mut types = Self::default();
+        let mut bindings = HashSet::new();
+        let mut cursor = scope.walk();
+        for node in scope.named_children(&mut cursor) {
+            if native_type_namespace_binding(node)
+                && let Some(name) = node.child_by_field_name("name")
+            {
+                bindings.insert(text(name, source).to_string());
+            }
+            if node.kind() != "use_declaration" {
+                continue;
+            }
+            let compact: String = text(node, source)
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .collect();
+            types.record_use(&compact);
+            collect_native_use_bindings(node, source, &mut bindings);
+        }
+        (types, bindings)
+    }
+
+    fn record_use(&mut self, declaration: &str) {
+        collect_native_use_aliases(declaration, "std::sync", "Mutex", &mut self.mutexes);
+        collect_native_use_aliases(declaration, "std::sync", "RwLock", &mut self.rwlocks);
+        collect_native_use_aliases(declaration, "std::cell", "RefCell", &mut self.refcells);
+        collect_native_use_aliases(
+            declaration,
+            "std::fs",
+            "OpenOptions",
+            &mut self.open_options,
+        );
+        collect_native_use_aliases(declaration, "std::fs", "File", &mut self.files);
+        collect_native_use_aliases(declaration, "std", "fs", &mut self.fs_modules);
+        collect_native_group_self_aliases(declaration, "std::fs", "fs", &mut self.fs_modules);
+        collect_native_use_aliases(
+            declaration,
+            "std::fs",
+            "metadata",
+            &mut self.metadata_functions,
+        );
+        collect_native_use_aliases(
+            declaration,
+            "tokio::fs",
+            "OpenOptions",
+            &mut self.tokio_open_options,
+        );
+        collect_native_use_aliases(declaration, "tokio::fs", "File", &mut self.tokio_files);
+        collect_native_use_aliases(declaration, "tokio", "fs", &mut self.tokio_fs_modules);
+        collect_native_group_self_aliases(
+            declaration,
+            "tokio::fs",
+            "fs",
+            &mut self.tokio_fs_modules,
+        );
+    }
+
+    fn extend_visible(&mut self, scope: &Self, shadowed: &HashSet<String>) {
+        extend_native_names(&mut self.mutexes, &scope.mutexes, shadowed);
+        extend_native_names(&mut self.rwlocks, &scope.rwlocks, shadowed);
+        extend_native_names(&mut self.refcells, &scope.refcells, shadowed);
+        extend_native_names(&mut self.open_options, &scope.open_options, shadowed);
+        extend_native_names(&mut self.files, &scope.files, shadowed);
+        extend_native_names(&mut self.fs_modules, &scope.fs_modules, shadowed);
+        extend_native_names(
+            &mut self.metadata_functions,
+            &scope.metadata_functions,
+            shadowed,
+        );
+        extend_native_names(
+            &mut self.tokio_open_options,
+            &scope.tokio_open_options,
+            shadowed,
+        );
+        extend_native_names(&mut self.tokio_files, &scope.tokio_files, shadowed);
+        extend_native_names(
+            &mut self.tokio_fs_modules,
+            &scope.tokio_fs_modules,
+            shadowed,
+        );
+    }
+
+    fn clear_shadowed_roots(&mut self) {
+        if self.std_shadowed {
+            self.mutexes.clear();
+            self.rwlocks.clear();
+            self.refcells.clear();
+            self.open_options.clear();
+            self.files.clear();
+            self.fs_modules.clear();
+            self.metadata_functions.clear();
+        }
+        if self.tokio_shadowed {
+            self.tokio_open_options.clear();
+            self.tokio_files.clear();
+            self.tokio_fs_modules.clear();
+        }
+    }
+}
+
+fn extend_native_names(
+    target: &mut HashSet<String>,
+    source: &HashSet<String>,
+    shadowed: &HashSet<String>,
+) {
+    target.extend(source.difference(shadowed).cloned());
+}
+
+fn native_type_namespace_binding(node: Node<'_>) -> bool {
+    matches!(
+        node.kind(),
+        "mod_item" | "struct_item" | "enum_item" | "union_item" | "trait_item" | "type_item"
+    )
+}
+
+fn native_scope_ends_module_lookup(scope: Node<'_>) -> bool {
+    scope.kind() == "source_file"
+        || (scope.kind() == "declaration_list"
+            && scope
+                .parent()
+                .is_some_and(|parent| parent.kind() == "mod_item"))
 }
 
 fn native_suspicious_open_options<'tree>(
@@ -609,9 +667,13 @@ fn native_suspicious_open_options<'tree>(
         .child_by_field_name("function")?
         .child_by_field_name("field")
         .unwrap_or(call);
-    let mut creates = None;
+    // Outer builder calls run last. Preserve "present but dynamic" separately
+    // from "not present" so an inner literal cannot overwrite an unknown final
+    // value and create a false positive.
+    let mut creates: Option<Option<bool>> = None;
     let mut declares_truncation = false;
-    let mut creates_new = None;
+    let mut creates_new: Option<Option<bool>> = None;
+    let mut appends: Option<Option<bool>> = None;
     loop {
         let current = unwrap_native_expression(receiver);
         if native_open_options_constructor(current, source, standard) {
@@ -619,18 +681,32 @@ fn native_suspicious_open_options<'tree>(
         }
         let (next, option) = native_method_call(current, source)?;
         match option {
-            "create" if creates.is_none() => {
-                creates = native_first_boolean_argument(current, source);
+            "create" => {
+                if creates.is_none() {
+                    creates = Some(native_first_boolean_argument(current, source));
+                }
             }
             "truncate" => declares_truncation = true,
-            "create_new" if creates_new.is_none() => {
-                creates_new = native_first_boolean_argument(current, source);
+            "create_new" => {
+                if creates_new.is_none() {
+                    creates_new = Some(native_first_boolean_argument(current, source));
+                }
             }
-            _ => {}
+            "append" => {
+                if appends.is_none() {
+                    appends = Some(native_first_boolean_argument(current, source));
+                }
+            }
+            "read" | "write" => {}
+            _ => return None,
         }
         receiver = next;
     }
-    (creates == Some(true) && !declares_truncation && creates_new != Some(true)).then_some(target)
+    (creates == Some(Some(true))
+        && !declares_truncation
+        && matches!(creates_new, None | Some(Some(false)))
+        && matches!(appends, None | Some(Some(false))))
+    .then_some(target)
 }
 
 fn native_open_options_constructor(
@@ -638,18 +714,54 @@ fn native_open_options_constructor(
     source: &str,
     standard: &NativeGuardTypes,
 ) -> bool {
-    if call.kind() != "call_expression" {
+    if call.kind() != "call_expression" || !native_call_has_no_arguments(call) {
         return false;
     }
     let Some(function) = call.child_by_field_name("function") else {
         return false;
     };
     let function = compact_text(function, source);
-    function == "std::fs::OpenOptions::new"
+    let standard_constructor = (!standard.std_shadowed
+        && matches!(
+            function.as_str(),
+            "std::fs::OpenOptions::new"
+                | "::std::fs::OpenOptions::new"
+                | "std::fs::File::options"
+                | "::std::fs::File::options"
+        ))
         || standard
             .open_options
             .iter()
             .any(|alias| function == format!("{alias}::new"))
+        || standard
+            .files
+            .iter()
+            .any(|alias| function == format!("{alias}::options"))
+        || standard
+            .fs_modules
+            .iter()
+            .any(|alias| function == format!("{alias}::File::options"));
+    let tokio_constructor = (!standard.tokio_shadowed
+        && matches!(
+            function.as_str(),
+            "tokio::fs::OpenOptions::new"
+                | "::tokio::fs::OpenOptions::new"
+                | "tokio::fs::File::options"
+                | "::tokio::fs::File::options"
+        ))
+        || standard
+            .tokio_open_options
+            .iter()
+            .any(|alias| function == format!("{alias}::new"))
+        || standard
+            .tokio_files
+            .iter()
+            .any(|alias| function == format!("{alias}::options"))
+        || standard
+            .tokio_fs_modules
+            .iter()
+            .any(|alias| function == format!("{alias}::File::options"));
+    standard_constructor || tokio_constructor
 }
 
 fn native_permissions_set_readonly_false<'tree>(
@@ -681,7 +793,11 @@ fn native_metadata_origin(node: Node<'_>, source: &str, standard: &NativeGuardTy
         return false;
     };
     let function_text = compact_text(function, source);
-    if function_text == "std::fs::metadata"
+    if (!standard.std_shadowed
+        && matches!(
+            function_text.as_str(),
+            "std::fs::metadata" | "::std::fs::metadata"
+        ))
         || standard
             .metadata_functions
             .iter()
@@ -879,10 +995,20 @@ fn native_guard_rule(
         .find(|ancestor| ancestor.kind() == "function_item")?;
     let types = NativeGuardTypes::collect_for(declaration, source);
     let receiver_type = native_parameter_type(function, receiver, source)?;
-    let is_mutex =
-        method == "lock" && native_type_matches(receiver_type, "std::sync::Mutex", &types.mutexes);
+    let is_mutex = method == "lock"
+        && native_type_matches(
+            receiver_type,
+            "std::sync::Mutex",
+            &types.mutexes,
+            types.std_shadowed,
+        );
     let is_rwlock = matches!(method, "read" | "write")
-        && native_type_matches(receiver_type, "std::sync::RwLock", &types.rwlocks);
+        && native_type_matches(
+            receiver_type,
+            "std::sync::RwLock",
+            &types.rwlocks,
+            types.std_shadowed,
+        );
     if is_mutex || is_rwlock {
         return Some((
             "hoonarqube-rust:await-holding-lock",
@@ -890,7 +1016,12 @@ fn native_guard_rule(
         ));
     }
     if matches!(method, "borrow" | "borrow_mut")
-        && native_type_matches(receiver_type, "std::cell::RefCell", &types.refcells)
+        && native_type_matches(
+            receiver_type,
+            "std::cell::RefCell",
+            &types.refcells,
+            types.std_shadowed,
+        )
     {
         return Some((
             "hoonarqube-rust:await-holding-refcell-ref",
@@ -948,11 +1079,35 @@ fn native_parameter_type<'a>(
         })
 }
 
-fn native_type_matches(type_text: &str, full_name: &str, aliases: &HashSet<String>) -> bool {
-    type_text.contains(full_name)
+fn native_type_matches(
+    type_text: &str,
+    full_name: &str,
+    aliases: &HashSet<String>,
+    std_shadowed: bool,
+) -> bool {
+    (!std_shadowed && native_type_contains_path(type_text, full_name))
         || type_text
             .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
             .any(|word| aliases.contains(word))
+}
+
+fn native_type_contains_path(type_text: &str, full_name: &str) -> bool {
+    type_text.match_indices(full_name).any(|(start, matched)| {
+        let prefix = &type_text[..start];
+        let before = prefix.chars().next_back();
+        let before_absolute = prefix
+            .strip_suffix("::")
+            .and_then(|outer| outer.chars().next_back());
+        let after = type_text[start + matched.len()..].chars().next();
+        let starts_path = before.is_none_or(|character| {
+            !character.is_ascii_alphanumeric() && character != '_' && character != ':'
+        }) || (prefix.ends_with("::")
+            && before_absolute.is_none_or(|character| {
+                !character.is_ascii_alphanumeric() && character != '_' && character != ':'
+            }));
+        starts_path
+            && after.is_none_or(|character| !character.is_ascii_alphanumeric() && character != '_')
+    })
 }
 
 fn first_await_before_guard_end<'tree>(
@@ -4032,6 +4187,18 @@ mod tests {
             "}\n",
         ));
         assert!(clean.is_empty(), "unexpected native findings: {clean:?}");
+
+        let custom_path = analyze_native(concat!(
+            "async fn run(mutex: &mystd::sync::Mutex<i32>) {\n",
+            "  let lock = mutex.lock().unwrap();\n",
+            "  work().await;\n",
+            "  drop(lock);\n",
+            "}\n",
+        ));
+        assert!(
+            custom_path.is_empty(),
+            "a path containing `std` must not count as `std`: {custom_path:?}",
+        );
     }
 
     #[test]
@@ -4133,7 +4300,9 @@ mod tests {
             "use std::fs::{self as filesystem, OpenOptions as Options};\n",
             "fn write(path: &str) {\n",
             "  Options::new().write(true).create(true).open(path).unwrap();\n",
+            "  filesystem::File::options().create(true).open(path).unwrap();\n",
             "  filesystem::metadata(path).unwrap().permissions().set_readonly(false);\n",
+            "  tokio::fs::OpenOptions::new().create(true).open(path).await.unwrap();\n",
             "}\n",
         ));
         assert!(
@@ -4155,12 +4324,46 @@ mod tests {
             "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create_new(true).open(path); }",
             "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create(true).create(false).open(path); }",
             "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create(true).create_new(true).create_new(false).create_new(true).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str, create: bool) { OpenOptions::new().create(true).create(create).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str, exclusive: bool) { OpenOptions::new().create(true).create_new(exclusive).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str, exclusive: bool) { OpenOptions::new().create(true).create_new(false).create_new(exclusive).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create(true).append(true).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str, append: bool) { OpenOptions::new().create(true).append(append).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create(true).append(true).append(false).append(true).open(path); }",
+            "use std::fs::OpenOptions; trait Ext { fn truncate_write(&mut self, value: bool) -> &mut Self; } fn f(path: &str) { OpenOptions::new().create(true).truncate_write(true).open(path); }",
             "struct OpenOptions; impl OpenOptions { fn new() -> Builder { Builder } } fn f(path: &str) { OpenOptions::new().create(true).open(path); }",
             "fn f(metadata: Metadata) { metadata.permissions().set_readonly(false); }",
             "fn f(path: &str) { custom::metadata(path).permissions().set_readonly(false); }",
             "fn f(path: &str) { std::fs::metadata(path).unwrap().permissions().set_readonly(true); }",
+            "mod std { pub mod fs { pub struct OpenOptions; } } fn f(path: &str) { std::fs::OpenOptions::new().create(true).open(path); }",
+            "mod std { pub mod fs { pub fn metadata(_: &str) -> Metadata { todo!() } } } fn f(path: &str) { std::fs::metadata(path).permissions().set_readonly(false); }",
+            "mod tokio { pub mod fs { pub struct OpenOptions; } } async fn f(path: &str) { tokio::fs::OpenOptions::new().create(true).open(path).await; }",
         ] {
             assert!(analyze_native(clean).is_empty(), "{clean}");
         }
+
+        for suspicious in [
+            "use std::fs::OpenOptions; fn f(path: &str, create: bool) { OpenOptions::new().create(create).create(true).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str, exclusive: bool) { OpenOptions::new().create(true).create_new(exclusive).create_new(false).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str) { OpenOptions::new().create(true).append(false).open(path); }",
+            "use std::fs::OpenOptions; fn f(path: &str, append: bool) { OpenOptions::new().create(true).append(append).append(false).open(path); }",
+        ] {
+            assert!(
+                analyze_native(suspicious)
+                    .iter()
+                    .any(|issue| issue.rule_key == "hoonarqube-rust:suspicious-open-options"),
+                "{suspicious}",
+            );
+        }
+
+        let absolute = analyze_native(
+            "fn f(path: &str) { ::std::fs::OpenOptions::new().create(true).open(path); }",
+        );
+        assert!(
+            absolute
+                .iter()
+                .any(|issue| issue.rule_key == "hoonarqube-rust:suspicious-open-options"),
+            "absolute standard-library paths must remain resolved: {absolute:?}",
+        );
     }
 }
