@@ -1543,10 +1543,12 @@ fn sonar_import_value(
     let mut rules = std::collections::BTreeMap::new();
     let mut issues = Vec::new();
     for report in reports {
-        let file_path = report
-            .path
-            .to_str()
-            .ok_or_else(|| format!("primary report path is not valid UTF-8: {:?}", report.path))?;
+        let file_path = report.path.to_str().ok_or_else(|| {
+            format!(
+                "primary report path is not valid UTF-8: {}",
+                report.path.display()
+            )
+        })?;
         for issue in &report.issues {
             let rule_id = sonar_rule_id(&issue.rule_key);
             rules
@@ -1630,9 +1632,9 @@ fn sonar_import_issue(
         .filter(|location| location.path.is_some() || location.range != issue.range)
         .map(|location| {
             let secondary_file_path = match location.path.as_ref() {
-                Some(path) => path
-                    .to_str()
-                    .ok_or_else(|| format!("secondary flow path is not valid UTF-8: {:?}", path))?,
+                Some(path) => path.to_str().ok_or_else(|| {
+                    format!("secondary flow path is not valid UTF-8: {}", path.display())
+                })?,
                 None => file_path,
             };
             let mut value = serde_json::json!({

@@ -67,7 +67,11 @@ impl S3Bindings {
                     }
                 }
                 AnyImport::From(import) => {
-                    let Some(module) = import.module.as_ref().map(|module| module.as_str()) else {
+                    let Some(module) = import
+                        .module
+                        .as_ref()
+                        .map(ruff_python_ast::Identifier::as_str)
+                    else {
                         continue;
                     };
                     match module {
@@ -283,7 +287,11 @@ fn record_trusted_import_events(
             }
         }
         AnyImport::From(import) => {
-            let Some(module) = import.module.as_ref().map(|module| module.as_str()) else {
+            let Some(module) = import
+                .module
+                .as_ref()
+                .map(ruff_python_ast::Identifier::as_str)
+            else {
                 return;
             };
             for alias in &import.names {
@@ -491,6 +499,7 @@ fn is_s3_module(value: &Expr, bindings: &S3Bindings, at: TextSize) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::test_support::{findings, scan};
+    use std::fmt::Write as _;
 
     #[test]
     fn inspects_only_block_public_access_ast_values() {
@@ -725,9 +734,11 @@ mod tests {
 
     #[test]
     fn non_aws_files_skip_s3_provenance_work() {
-        let source = (0..1024)
-            .map(|index| format!("def function_{index}():\n    return {index}\n"))
-            .collect::<String>();
+        let mut source = String::new();
+        for index in 0..1024 {
+            writeln!(&mut source, "def function_{index}():").unwrap();
+            writeln!(&mut source, "    return {index}").unwrap();
+        }
         assert!(findings(&scan(&source), "python:S6281").is_empty());
     }
 }
