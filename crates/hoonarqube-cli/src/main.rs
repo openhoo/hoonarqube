@@ -1539,23 +1539,28 @@ fn render_text_report(reports: &[hoonarqube_ir::FileReport]) -> String {
 fn sonar_import_value(
     catalog: &Catalog,
     reports: &[hoonarqube_ir::FileReport],
-) -> serde_json::Value {
+) -> Result<serde_json::Value, String> {
     let mut rules = std::collections::BTreeMap::new();
     let mut issues = Vec::new();
     for report in reports {
-        let file_path = report.path.display().to_string();
+        let file_path = report.path.to_str().ok_or_else(|| {
+            format!(
+                "primary report path is not valid UTF-8: {}",
+                report.path.display()
+            )
+        })?;
         for issue in &report.issues {
             let rule_id = sonar_rule_id(&issue.rule_key);
             rules
                 .entry(rule_id.to_string())
                 .or_insert_with(|| sonar_import_rule(catalog, issue));
-            issues.push(sonar_import_issue(&file_path, issue));
+            issues.push(sonar_import_issue(file_path, issue)?);
         }
     }
-    serde_json::json!({
+    Ok(serde_json::json!({
         "rules": rules.into_values().collect::<Vec<_>>(),
         "issues": issues,
-    })
+    }))
 }
 
 fn sonar_import_rule(catalog: &Catalog, issue: &hoonarqube_ir::Issue) -> serde_json::Value {
@@ -1605,7 +1610,10 @@ fn sonar_import_rule(catalog: &Catalog, issue: &hoonarqube_ir::Issue) -> serde_j
     })
 }
 
-fn sonar_import_issue(file_path: &str, issue: &hoonarqube_ir::Issue) -> serde_json::Value {
+fn sonar_import_issue(
+    file_path: &str,
+    issue: &hoonarqube_ir::Issue,
+) -> Result<serde_json::Value, String> {
     let mut primary_location = serde_json::json!({
         "message": &issue.message,
         "filePath": file_path,
@@ -1617,29 +1625,33 @@ fn sonar_import_issue(file_path: &str, issue: &hoonarqube_ir::Issue) -> serde_js
         "ruleId": sonar_rule_id(&issue.rule_key),
         "primaryLocation": primary_location,
     });
-    let secondary_locations: Vec<_> = issue
+    let secondary_locations: Result<Vec<_>, String> = issue
         .flows
         .iter()
         .flat_map(|flow| &flow.locations)
         .filter(|location| location.path.is_some() || location.range != issue.range)
         .map(|location| {
+            let secondary_file_path = match location.path.as_ref() {
+                Some(path) => path.to_str().ok_or_else(|| {
+                    format!("secondary flow path is not valid UTF-8: {}", path.display())
+                })?,
+                None => file_path,
+            };
             let mut value = serde_json::json!({
                 "message": location.message,
-                "filePath": location
-                    .path
-                    .as_ref()
-                    .map_or_else(|| file_path.to_string(), |path| path.display().to_string()),
+                "filePath": secondary_file_path,
             });
             if !location.range.is_file_level() {
                 value["textRange"] = sonar_text_range(&location.range);
             }
-            value
+            Ok(value)
         })
         .collect();
+    let secondary_locations = secondary_locations?;
     if !secondary_locations.is_empty() {
         imported["secondaryLocations"] = serde_json::Value::Array(secondary_locations);
     }
-    imported
+    Ok(imported)
 }
 
 fn sonar_text_range(range: &hoonarqube_ir::Range) -> serde_json::Value {
@@ -1692,7 +1704,13 @@ fn run_analyze(
 
     let output_ok = match format {
         AnalyzeFormat::Json => print_json(&hoonarqube_ir::AnalysisReport { files: reports }),
-        AnalyzeFormat::Sonar => print_json(&sonar_import_value(catalog, &reports)),
+        AnalyzeFormat::Sonar => match sonar_import_value(catalog, &reports) {
+            Ok(value) => print_json(&value),
+            Err(error) => {
+                eprintln!("cannot render Sonar output: {error}");
+                false
+            }
+        },
         AnalyzeFormat::Text => {
             print!("{}", render_text_report(&reports));
             true
@@ -1761,7 +1779,7 @@ mod tests {
             ),
         ];
 
-        let value = sonar_import_value(embedded(), &reports);
+        let value = sonar_import_value(embedded(), &reports).unwrap();
         let rules = value["rules"].as_array().expect("rules array");
         let issues = value["issues"].as_array().expect("issues array");
         assert_eq!(rules.len(), 2);
@@ -1799,7 +1817,7 @@ mod tests {
 
     #[test]
     fn sonar_import_of_clean_report_has_empty_issue_list() {
-        let value = sonar_import_value(embedded(), &[]);
+        let value = sonar_import_value(embedded(), &[]).unwrap();
         assert_eq!(value["rules"].as_array().map(Vec::len), Some(0));
         assert_eq!(value["issues"].as_array().map(Vec::len), Some(0));
     }
@@ -1832,7 +1850,8 @@ mod tests {
         let value = sonar_import_value(
             embedded(),
             &[sample_report("src/archive.go", "go", vec![issue])],
-        );
+        )
+        .unwrap();
         let rule = &value["rules"][0];
         assert_eq!(rule["engineId"], "hoonarqube-native");
         assert_eq!(rule["name"], "Limit decompression output");
@@ -1861,7 +1880,7 @@ mod tests {
                 flows: Vec::new(),
             }],
         )];
-        let value = sonar_import_value(embedded(), &reports);
+        let value = sonar_import_value(embedded(), &reports).unwrap();
         let primary = &value["issues"][0]["primaryLocation"];
         assert_eq!(primary["filePath"], "src/no-newline.py");
         assert!(primary.get("textRange").is_none());
@@ -1884,7 +1903,7 @@ mod tests {
             }],
         )];
 
-        let value = sonar_import_value(embedded(), &reports);
+        let value = sonar_import_value(embedded(), &reports).unwrap();
         let rule = &value["rules"][0];
         assert_eq!(rule["id"], "python:S999999");
         assert_eq!(rule["severity"], "INFO");
@@ -1911,7 +1930,7 @@ mod tests {
             sample_report("src/a.cs", "csharp", vec![issue("csharpsquid:S112")]),
         ];
 
-        let value = sonar_import_value(embedded(), &reports);
+        let value = sonar_import_value(embedded(), &reports).unwrap();
         let ids = value["rules"]
             .as_array()
             .expect("rules")
@@ -1921,6 +1940,51 @@ mod tests {
         assert_eq!(ids, ["csharpsquid:S112", "python:S112"]);
         assert_eq!(value["issues"][0]["ruleId"], "python:S112");
         assert_eq!(value["issues"][1]["ruleId"], "csharpsquid:S112");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sonar_import_rejects_invalid_primary_path_encoding() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let mut report = sample_report("src/invalid.py", "python", Vec::new());
+        report.path = std::path::PathBuf::from(OsString::from_vec(vec![
+            b's', b'r', b'c', b'/', 0xff, b'.', b'p', b'y',
+        ]));
+
+        let error = sonar_import_value(embedded(), &[report]).expect_err("invalid path");
+        assert!(error.contains("primary report path is not valid UTF-8"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sonar_import_rejects_invalid_secondary_path_encoding() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let issue = Issue::new(
+            "python:S2076",
+            "Do not use this insecure path.",
+            Range {
+                start: Pos { line: 1, column: 0 },
+                end: Pos { line: 1, column: 1 },
+            },
+        )
+        .with_flow(vec![FlowLocation {
+            path: Some(std::path::PathBuf::from(OsString::from_vec(vec![
+                b's', b'r', b'c', b'/', 0xfe, b'.', b'p', b'y',
+            ]))),
+            message: "Secondary flow location.".to_string(),
+            range: Range {
+                start: Pos { line: 2, column: 0 },
+                end: Pos { line: 2, column: 1 },
+            },
+        }]);
+        let report = sample_report("src/valid.py", "python", vec![issue]);
+
+        let error = sonar_import_value(embedded(), &[report]).expect_err("invalid path");
+        assert!(error.contains("secondary flow path is not valid UTF-8"));
     }
 
     /// Unique temp path for `fix_file` tests; callers clean up after use.

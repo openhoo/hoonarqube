@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  HOOVERSION_VERSION: 1.1.0
+  HOOVERSION_VERSION: 1.1.1
 
 jobs:
   release:
@@ -44,7 +44,7 @@ jobs:
 
       - name: Prepare protected-branch release
         if: github.event_name == 'workflow_dispatch' || !startsWith(github.event.workflow_run.head_commit.message, 'chore(release):')
-        uses: openhoo/hooversion/actions/prepare-release@f2186561c587b58c5ea08c74c15800cdd39eab42 # v1.1.0
+        uses: openhoo/hooversion/actions/prepare-release@ac503b23b9b36ebbf39ee6103713c81f1f18b64d # v1.1.1
         with:
           version: ${{ env.HOOVERSION_VERSION }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -53,7 +53,7 @@ jobs:
       - name: Finalize protected-branch release
         id: finalize
         if: github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.head_commit.message, 'chore(release):')
-        uses: openhoo/hooversion/actions/release@f2186561c587b58c5ea08c74c15800cdd39eab42 # v1.1.0
+        uses: openhoo/hooversion/actions/release@ac503b23b9b36ebbf39ee6103713c81f1f18b64d # v1.1.1
         with:
           version: ${{ env.HOOVERSION_VERSION }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
