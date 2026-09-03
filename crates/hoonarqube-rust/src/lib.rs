@@ -2355,54 +2355,82 @@ fn collect_pointer_pattern_names(
     match type_node.kind() {
         "pointer_type" => collect_pattern_binding_names(pattern, source, names),
         "reference_type" => {
-            let Some(inner_type) = type_node.child_by_field_name("type") else {
-                return;
-            };
-            let inner_pattern = if pattern.kind() == "reference_pattern" {
-                pattern.named_child(0).unwrap_or(pattern)
-            } else {
-                pattern
-            };
-            collect_pointer_pattern_names(inner_pattern, inner_type, source, names);
+            collect_reference_pointer_pattern_names(pattern, type_node, source, names);
         }
-        "array_type" => {
-            let Some(element_type) = type_node.child_by_field_name("element") else {
-                return;
-            };
-            if !matches!(pattern.kind(), "slice_pattern" | "array_pattern") {
-                return;
-            }
-            let mut cursor = pattern.walk();
-            for nested_pattern in pattern.named_children(&mut cursor) {
-                if nested_pattern.kind() == "remaining_pattern" {
-                    continue;
-                }
-                collect_pointer_pattern_names(nested_pattern, element_type, source, names);
-            }
-        }
-        "tuple_type" => {
-            if pattern.kind() != "tuple_pattern" {
-                return;
-            }
-            let mut types_cursor = type_node.walk();
-            let types: Vec<_> = type_node.named_children(&mut types_cursor).collect();
-            let mut patterns = Vec::new();
-            for index in 0..pattern.child_count() {
-                let Some(child) = pattern.child(index) else {
-                    continue;
-                };
-                if child.is_named() || child.kind() == "_" {
-                    patterns.push(child);
-                }
-            }
-            for (nested_pattern, nested_type) in patterns.into_iter().zip(types) {
-                if nested_pattern.kind() != "_" {
-                    collect_pointer_pattern_names(nested_pattern, nested_type, source, names);
-                }
-            }
-        }
+        "array_type" => collect_array_pointer_pattern_names(pattern, type_node, source, names),
+        "tuple_type" => collect_tuple_pointer_pattern_names(pattern, type_node, source, names),
         _ => {}
     }
+}
+
+fn collect_reference_pointer_pattern_names(
+    pattern: Node<'_>,
+    type_node: Node<'_>,
+    source: &str,
+    names: &mut HashSet<String>,
+) {
+    let Some(inner_type) = type_node.child_by_field_name("type") else {
+        return;
+    };
+    let inner_pattern = if pattern.kind() == "reference_pattern" {
+        pattern.named_child(0).unwrap_or(pattern)
+    } else {
+        pattern
+    };
+    collect_pointer_pattern_names(inner_pattern, inner_type, source, names);
+}
+
+fn collect_array_pointer_pattern_names(
+    pattern: Node<'_>,
+    type_node: Node<'_>,
+    source: &str,
+    names: &mut HashSet<String>,
+) {
+    let Some(element_type) = type_node.child_by_field_name("element") else {
+        return;
+    };
+    if !matches!(pattern.kind(), "slice_pattern" | "array_pattern") {
+        return;
+    }
+    let mut cursor = pattern.walk();
+    for nested_pattern in pattern.named_children(&mut cursor) {
+        if nested_pattern.kind() == "remaining_pattern" {
+            continue;
+        }
+        collect_pointer_pattern_names(nested_pattern, element_type, source, names);
+    }
+}
+
+fn collect_tuple_pointer_pattern_names(
+    pattern: Node<'_>,
+    type_node: Node<'_>,
+    source: &str,
+    names: &mut HashSet<String>,
+) {
+    if pattern.kind() != "tuple_pattern" {
+        return;
+    }
+    let mut types_cursor = type_node.walk();
+    let types: Vec<_> = type_node.named_children(&mut types_cursor).collect();
+    let patterns = tuple_pattern_children(pattern);
+    for (nested_pattern, nested_type) in patterns.into_iter().zip(types) {
+        if nested_pattern.kind() != "_" {
+            collect_pointer_pattern_names(nested_pattern, nested_type, source, names);
+        }
+    }
+}
+
+fn tuple_pattern_children(pattern: Node<'_>) -> Vec<Node<'_>> {
+    let mut patterns = Vec::new();
+    for index in 0..pattern.child_count() {
+        let Some(child) = pattern.child(index) else {
+            continue;
+        };
+        if child.is_named() || child.kind() == "_" {
+            patterns.push(child);
+        }
+    }
+    patterns
 }
 fn collect_pattern_binding_names(pattern: Node<'_>, source: &str, names: &mut HashSet<String>) {
     match pattern.kind() {
@@ -3986,87 +4014,175 @@ fn standard_name_is_shadowed(
     let mut crossed_function = false;
     let mut scope = node.parent();
     while let Some(current) = scope {
-        if !crossed_function
-            && matches!(current.kind(), "closure_expression" | "function_item")
-            && current
-                .child_by_field_name("parameters")
-                .is_some_and(|parameters| standard_parameters_bind_name(parameters, name, source))
-            && !qualified_path
-        {
+        if function_scope_shadows_name(current, name, source, qualified_path, crossed_function) {
             return true;
         }
-        if matches!(current.kind(), "block" | "declaration_list" | "source_file") {
-            let mut shadowed = false;
-            walk_valid(current, &mut |candidate| {
-                let same_scope = match current.kind() {
-                    "block" => enclosing_block(candidate)
-                        .is_some_and(|block| block.start_byte() == current.start_byte()),
-                    "declaration_list" | "source_file" => {
-                        candidate.parent().is_some_and(|parent| parent == current)
-                    }
-                    _ => false,
-                };
-                if shadowed || candidate == current || !same_scope {
-                    return;
-                }
-                let item_binding = matches!(
-                    candidate.kind(),
-                    "const_item"
-                        | "enum_item"
-                        | "function_item"
-                        | "mod_item"
-                        | "static_item"
-                        | "struct_item"
-                        | "trait_item"
-                        | "type_item"
-                        | "union_item"
-                );
-                if item_binding
-                    && candidate
-                        .child_by_field_name("name")
-                        .is_some_and(|item_name| text(item_name, source).trim() == name)
-                    && candidate.end_byte() <= use_start
-                {
-                    shadowed = true;
-                    return;
-                }
-                if candidate.kind() == "use_declaration" {
-                    let mut aliases = HashSet::new();
-                    collect_use_binding_names(candidate, "", source, &mut aliases);
-                    if aliases.contains(name) {
-                        shadowed = true;
-                        return;
-                    }
-                }
-                if !crossed_function
-                    && !qualified_path
-                    && candidate.kind() == "let_declaration"
-                    && candidate.end_byte() <= use_start
-                    && candidate
-                        .child_by_field_name("pattern")
-                        .is_some_and(|pattern| pattern_binds_name(pattern, name, source))
-                {
-                    shadowed = true;
-                }
-            });
-            if shadowed {
-                return true;
-            }
+        if scope_contains_shadowing_binding(
+            current,
+            use_start,
+            name,
+            source,
+            crossed_function,
+            qualified_path,
+        ) {
+            return true;
         }
-        if current.kind() == "source_file"
-            || (current.kind() == "declaration_list"
-                && current
-                    .parent()
-                    .is_some_and(|parent| parent.kind() == "mod_item"))
-        {
+        if is_shadow_search_boundary(current) {
             break;
         }
-        if current.kind() == "function_item" {
-            crossed_function = true;
-        }
+        crossed_function |= current.kind() == "function_item";
         scope = current.parent();
     }
     false
+}
+
+fn function_scope_shadows_name(
+    current: Node<'_>,
+    name: &str,
+    source: &str,
+    qualified_path: bool,
+    crossed_function: bool,
+) -> bool {
+    if crossed_function
+        || !matches!(current.kind(), "closure_expression" | "function_item")
+        || qualified_path
+    {
+        return false;
+    }
+    current
+        .child_by_field_name("parameters")
+        .is_some_and(|parameters| standard_parameters_bind_name(parameters, name, source))
+}
+
+fn scope_contains_shadowing_binding(
+    current: Node<'_>,
+    use_start: usize,
+    name: &str,
+    source: &str,
+    crossed_function: bool,
+    qualified_path: bool,
+) -> bool {
+    if !matches!(current.kind(), "block" | "declaration_list" | "source_file") {
+        return false;
+    }
+    let mut shadowed = false;
+    walk_valid(current, &mut |candidate| {
+        if shadowed {
+            return;
+        }
+        if candidate_shadows_name(
+            candidate,
+            current,
+            use_start,
+            name,
+            source,
+            crossed_function,
+            qualified_path,
+        ) {
+            shadowed = true;
+        }
+    });
+    shadowed
+}
+
+fn candidate_shadows_name(
+    candidate: Node<'_>,
+    current: Node<'_>,
+    use_start: usize,
+    name: &str,
+    source: &str,
+    crossed_function: bool,
+    qualified_path: bool,
+) -> bool {
+    let same_scope = candidate_is_in_scope(candidate, current);
+    if candidate == current || !same_scope {
+        return false;
+    }
+    if item_declaration_shadows_name(candidate, use_start, name, source) {
+        return true;
+    }
+    if use_declaration_shadows_name(candidate, name, source) {
+        return true;
+    }
+    let_declaration_shadows_name(
+        candidate,
+        use_start,
+        name,
+        source,
+        crossed_function,
+        qualified_path,
+    )
+}
+
+fn candidate_is_in_scope(candidate: Node<'_>, current: Node<'_>) -> bool {
+    match current.kind() {
+        "block" => enclosing_block(candidate)
+            .is_some_and(|block| block.start_byte() == current.start_byte()),
+        "declaration_list" | "source_file" => {
+            candidate.parent().is_some_and(|parent| parent == current)
+        }
+        _ => false,
+    }
+}
+
+fn item_declaration_shadows_name(
+    candidate: Node<'_>,
+    use_start: usize,
+    name: &str,
+    source: &str,
+) -> bool {
+    if !matches!(
+        candidate.kind(),
+        "const_item"
+            | "enum_item"
+            | "function_item"
+            | "mod_item"
+            | "static_item"
+            | "struct_item"
+            | "trait_item"
+            | "type_item"
+            | "union_item"
+    ) {
+        return false;
+    }
+    candidate
+        .child_by_field_name("name")
+        .is_some_and(|item_name| text(item_name, source).trim() == name)
+        && candidate.end_byte() <= use_start
+}
+
+fn use_declaration_shadows_name(candidate: Node<'_>, name: &str, source: &str) -> bool {
+    if candidate.kind() != "use_declaration" {
+        return false;
+    }
+    let mut aliases = HashSet::new();
+    collect_use_binding_names(candidate, "", source, &mut aliases);
+    aliases.contains(name)
+}
+
+fn let_declaration_shadows_name(
+    candidate: Node<'_>,
+    use_start: usize,
+    name: &str,
+    source: &str,
+    crossed_function: bool,
+    qualified_path: bool,
+) -> bool {
+    if crossed_function || qualified_path || candidate.kind() != "let_declaration" {
+        return false;
+    }
+    candidate.end_byte() <= use_start
+        && candidate
+            .child_by_field_name("pattern")
+            .is_some_and(|pattern| pattern_binds_name(pattern, name, source))
+}
+
+fn is_shadow_search_boundary(current: Node<'_>) -> bool {
+    current.kind() == "source_file"
+        || (current.kind() == "declaration_list"
+            && current
+                .parent()
+                .is_some_and(|parent| parent.kind() == "mod_item"))
 }
 
 fn visible_standard_imports(node: Node<'_>, source: &str) -> Vec<(String, String)> {

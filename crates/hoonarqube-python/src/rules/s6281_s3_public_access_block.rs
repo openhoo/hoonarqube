@@ -45,98 +45,13 @@ impl S3Bindings {
             scopes: lexical_scopes(file_ctx),
             ..Self::default()
         };
-        for import in &file_ctx.imports {
-            match import {
-                AnyImport::Plain(import) => {
-                    for alias in &import.names {
-                        match alias.name.as_str() {
-                            "aws_cdk" => {
-                                bindings.imported_module_roots.insert(
-                                    alias.asname.as_deref().unwrap_or("aws_cdk").to_string(),
-                                );
-                            }
-                            "aws_cdk.aws_s3" => {
-                                if let Some(asname) = alias.asname.as_deref() {
-                                    bindings.module_aliases.insert(asname.to_string());
-                                } else {
-                                    bindings.imported_module_roots.insert("aws_cdk".to_string());
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                AnyImport::From(import) => {
-                    let Some(module) = import
-                        .module
-                        .as_ref()
-                        .map(ruff_python_ast::Identifier::as_str)
-                    else {
-                        continue;
-                    };
-                    match module {
-                        "aws_cdk" => {
-                            for alias in &import.names {
-                                match alias.name.as_str() {
-                                    "aws_s3" => {
-                                        bindings.module_aliases.insert(
-                                            alias
-                                                .asname
-                                                .as_deref()
-                                                .map_or("aws_s3", |asname| asname)
-                                                .to_string(),
-                                        );
-                                    }
-                                    "*" => {
-                                        bindings.module_aliases.insert("aws_s3".to_string());
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                        "aws_cdk.aws_s3" => {
-                            for alias in &import.names {
-                                if alias.name.as_str() == "*" {
-                                    bindings.bucket_names.insert("Bucket".to_string());
-                                    bindings
-                                        .block_public_access_names
-                                        .insert("BlockPublicAccess".to_string());
-                                    continue;
-                                }
-                                let local = alias
-                                    .asname
-                                    .as_deref()
-                                    .map_or(alias.name.as_str(), |asname| asname);
-                                match alias.name.as_str() {
-                                    "Bucket" => {
-                                        bindings.bucket_names.insert(local.to_string());
-                                    }
-                                    "BlockPublicAccess" => {
-                                        bindings
-                                            .block_public_access_names
-                                            .insert(local.to_string());
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-        for import in &file_ctx.imports {
-            record_trusted_import_events(import, &bindings.scopes, &mut bindings.events);
-        }
+        collect_import_bindings(&mut bindings, &file_ctx.imports);
+        collect_import_events(&mut bindings.events, &bindings.scopes, &file_ctx.imports);
         let tracked_names = bindings.tracked_names();
         for stmt in &file_ctx.stmts {
             record_rebinding_events(stmt, &bindings.scopes, &tracked_names, &mut bindings.events);
         }
-        for events_by_name in bindings.events.values_mut() {
-            for events in events_by_name.values_mut() {
-                events.sort_by_key(|event| event.start);
-            }
-        }
+        sort_binding_events(&mut bindings.events);
         bindings
     }
 
@@ -176,6 +91,110 @@ impl S3Bindings {
                 return false;
             };
             scope_id = parent;
+        }
+    }
+}
+
+fn collect_import_bindings(bindings: &mut S3Bindings, imports: &[AnyImport<'_>]) {
+    for import in imports {
+        match import {
+            AnyImport::Plain(import) => collect_plain_import_bindings(bindings, import),
+            AnyImport::From(import) => collect_from_import_bindings(bindings, import),
+        }
+    }
+}
+
+fn collect_plain_import_bindings(bindings: &mut S3Bindings, import: &ruff_python_ast::StmtImport) {
+    for alias in &import.names {
+        match alias.name.as_str() {
+            "aws_cdk" => {
+                bindings
+                    .imported_module_roots
+                    .insert(alias.asname.as_deref().unwrap_or("aws_cdk").to_string());
+            }
+            "aws_cdk.aws_s3" => {
+                if let Some(asname) = alias.asname.as_deref() {
+                    bindings.module_aliases.insert(asname.to_string());
+                } else {
+                    bindings.imported_module_roots.insert("aws_cdk".to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_from_import_bindings(
+    bindings: &mut S3Bindings,
+    import: &ruff_python_ast::StmtImportFrom,
+) {
+    let Some(module) = import
+        .module
+        .as_ref()
+        .map(ruff_python_ast::Identifier::as_str)
+    else {
+        return;
+    };
+    match module {
+        "aws_cdk" => collect_aws_cdk_bindings(bindings, import),
+        "aws_cdk.aws_s3" => collect_aws_s3_bindings(bindings, import),
+        _ => {}
+    }
+}
+
+fn collect_aws_cdk_bindings(bindings: &mut S3Bindings, import: &ruff_python_ast::StmtImportFrom) {
+    for alias in &import.names {
+        if matches!(alias.name.as_str(), "aws_s3" | "*") {
+            bindings.module_aliases.insert(
+                alias
+                    .asname
+                    .as_deref()
+                    .map_or("aws_s3", |asname| asname)
+                    .to_string(),
+            );
+        }
+    }
+}
+
+fn collect_aws_s3_bindings(bindings: &mut S3Bindings, import: &ruff_python_ast::StmtImportFrom) {
+    for alias in &import.names {
+        if alias.name.as_str() == "*" {
+            bindings.bucket_names.insert("Bucket".to_string());
+            bindings
+                .block_public_access_names
+                .insert("BlockPublicAccess".to_string());
+            continue;
+        }
+        let local = alias
+            .asname
+            .as_deref()
+            .map_or(alias.name.as_str(), |asname| asname);
+        match alias.name.as_str() {
+            "Bucket" => {
+                bindings.bucket_names.insert(local.to_string());
+            }
+            "BlockPublicAccess" => {
+                bindings.block_public_access_names.insert(local.to_string());
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_import_events(
+    events: &mut HashMap<usize, HashMap<String, Vec<S3BindingEvent>>>,
+    scopes: &[LexicalScope],
+    imports: &[AnyImport<'_>],
+) {
+    for import in imports {
+        record_trusted_import_events(import, scopes, events);
+    }
+}
+
+fn sort_binding_events(events: &mut HashMap<usize, HashMap<String, Vec<S3BindingEvent>>>) {
+    for events_by_name in events.values_mut() {
+        for events in events_by_name.values_mut() {
+            events.sort_by_key(|event| event.start);
         }
     }
 }
@@ -265,60 +284,97 @@ fn record_trusted_import_events(
     scopes: &[LexicalScope],
     events: &mut HashMap<usize, HashMap<String, Vec<S3BindingEvent>>>,
 ) {
-    let import_range = match import {
-        AnyImport::Plain(import) => import.range(),
-        AnyImport::From(import) => import.range(),
-    };
+    let import_range = import_range(import);
     let scope_id = scope_for_range(scopes, import_range);
     match import {
         AnyImport::Plain(import) => {
-            for alias in &import.names {
-                let local = alias.asname.as_deref().unwrap_or_else(|| {
-                    alias
-                        .name
-                        .as_str()
-                        .split('.')
-                        .next()
-                        .unwrap_or(alias.name.as_str())
-                });
-                if alias.name.as_str() == "aws_cdk" || alias.name.as_str() == "aws_cdk.aws_s3" {
-                    push_binding_event(events, scope_id, local, import_range.end(), true);
-                }
-            }
+            record_plain_import_events(import, events, scope_id, import_range.end());
         }
         AnyImport::From(import) => {
-            let Some(module) = import
-                .module
-                .as_ref()
-                .map(ruff_python_ast::Identifier::as_str)
-            else {
-                return;
-            };
-            for alias in &import.names {
-                let local = if module == "aws_cdk" && alias.name.as_str() == "*" {
-                    "aws_s3"
-                } else {
-                    alias.asname.as_deref().unwrap_or(alias.name.as_str())
-                };
-                if module == "aws_cdk"
-                    && (alias.name.as_str() == "aws_s3" || alias.name.as_str() == "*")
-                {
-                    push_binding_event(events, scope_id, local, import_range.end(), true);
-                } else if module == "aws_cdk.aws_s3" {
-                    if alias.name.as_str() == "*" {
-                        push_binding_event(events, scope_id, "Bucket", import_range.end(), true);
-                        push_binding_event(
-                            events,
-                            scope_id,
-                            "BlockPublicAccess",
-                            import_range.end(),
-                            true,
-                        );
-                    } else if matches!(alias.name.as_str(), "Bucket" | "BlockPublicAccess") {
-                        push_binding_event(events, scope_id, local, import_range.end(), true);
-                    }
-                }
-            }
+            record_from_import_events(import, events, scope_id, import_range.end());
+        }
+    }
+}
+
+fn import_range(import: &AnyImport<'_>) -> TextRange {
+    match import {
+        AnyImport::Plain(import) => import.range(),
+        AnyImport::From(import) => import.range(),
+    }
+}
+
+fn record_plain_import_events(
+    import: &ruff_python_ast::StmtImport,
+    events: &mut HashMap<usize, HashMap<String, Vec<S3BindingEvent>>>,
+    scope_id: usize,
+    event_start: TextSize,
+) {
+    for alias in &import.names {
+        let local = alias.asname.as_deref().unwrap_or_else(|| {
+            alias
+                .name
+                .as_str()
+                .split('.')
+                .next()
+                .unwrap_or(alias.name.as_str())
+        });
+        if alias.name.as_str() == "aws_cdk" || alias.name.as_str() == "aws_cdk.aws_s3" {
+            push_binding_event(events, scope_id, local, event_start, true);
+        }
+    }
+}
+
+fn record_from_import_events(
+    import: &ruff_python_ast::StmtImportFrom,
+    events: &mut HashMap<usize, HashMap<String, Vec<S3BindingEvent>>>,
+    scope_id: usize,
+    event_start: TextSize,
+) {
+    let Some(module) = import
+        .module
+        .as_ref()
+        .map(ruff_python_ast::Identifier::as_str)
+    else {
+        return;
+    };
+    match module {
+        "aws_cdk" => record_aws_cdk_import_events(import, events, scope_id, event_start),
+        "aws_cdk.aws_s3" => record_aws_s3_import_events(import, events, scope_id, event_start),
+        _ => {}
+    }
+}
+
+fn record_aws_cdk_import_events(
+    import: &ruff_python_ast::StmtImportFrom,
+    events: &mut HashMap<usize, HashMap<String, Vec<S3BindingEvent>>>,
+    scope_id: usize,
+    event_start: TextSize,
+) {
+    for alias in &import.names {
+        let local = if alias.name.as_str() == "*" {
+            "aws_s3"
+        } else {
+            alias.asname.as_deref().unwrap_or(alias.name.as_str())
+        };
+        if alias.name.as_str() == "aws_s3" || alias.name.as_str() == "*" {
+            push_binding_event(events, scope_id, local, event_start, true);
+        }
+    }
+}
+
+fn record_aws_s3_import_events(
+    import: &ruff_python_ast::StmtImportFrom,
+    events: &mut HashMap<usize, HashMap<String, Vec<S3BindingEvent>>>,
+    scope_id: usize,
+    event_start: TextSize,
+) {
+    for alias in &import.names {
+        if alias.name.as_str() == "*" {
+            push_binding_event(events, scope_id, "Bucket", event_start, true);
+            push_binding_event(events, scope_id, "BlockPublicAccess", event_start, true);
+        } else if matches!(alias.name.as_str(), "Bucket" | "BlockPublicAccess") {
+            let local = alias.asname.as_deref().unwrap_or(alias.name.as_str());
+            push_binding_event(events, scope_id, local, event_start, true);
         }
     }
 }
