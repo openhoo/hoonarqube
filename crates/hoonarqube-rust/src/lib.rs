@@ -3318,7 +3318,7 @@ fn check_eager_transmute(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) 
     });
 }
 
-fn standard_ufcs_eager_method<'a>(function: Node<'a>, source: &str) -> Option<&'static str> {
+fn standard_ufcs_eager_method(function: Node<'_>, source: &str) -> Option<&'static str> {
     let mut base = function;
     while base.kind() == "generic_function" {
         base = base.child_by_field_name("function")?;
@@ -3523,17 +3523,15 @@ fn macro_path_call(
                 .map(|token| text(*token, source))
                 .collect::<String>(),
         );
-        if macro_standard_path_matches(&candidate, tokens[start], invocation, source, expected) {
-            if let Some(open) = macro_call_open_after(tokens, end) {
-                return Some((end, open));
-            }
+        if macro_standard_path_matches(&candidate, tokens[start], invocation, source, expected)
+            && let Some(open) = macro_call_open_after(tokens, end)
+        {
+            return Some((end, open));
         }
-        if !tokens
-            .get(end + 1)
-            .is_some_and(|token| token.kind() == "::")
-            || !tokens
-                .get(end + 2)
-                .is_some_and(|token| matches!(token.kind(), "identifier" | "type_identifier"))
+        if tokens.get(end + 1).is_none_or(|token| token.kind() != "::")
+            || tokens.get(end + 2).is_none_or(|token| {
+                token.kind() != "identifier" && token.kind() != "type_identifier"
+            })
         {
             break;
         }
@@ -3546,10 +3544,8 @@ fn macro_call_open_after(tokens: &[Node<'_>], end: usize) -> Option<usize> {
     if tokens.get(end + 1).is_some_and(|token| token.kind() == "(") {
         return Some(end + 1);
     }
-    if !tokens
-        .get(end + 1)
-        .is_some_and(|token| token.kind() == "::")
-        || !tokens.get(end + 2).is_some_and(|token| token.kind() == "<")
+    if tokens.get(end + 1).is_none_or(|token| token.kind() != "::")
+        || tokens.get(end + 2).is_none_or(|token| token.kind() != "<")
     {
         return None;
     }
@@ -3588,7 +3584,7 @@ fn macro_standard_path_matches(
 ) -> bool {
     let absolute = candidate.starts_with("::");
     let candidate = candidate.strip_prefix("::").unwrap_or(candidate);
-    if expected.iter().any(|path| *path == candidate) {
+    if expected.contains(&candidate) {
         if absolute {
             return true;
         }
@@ -3836,7 +3832,7 @@ fn macro_method_call<'a>(
     dot: usize,
     source: &'a str,
 ) -> Option<(&'a str, usize)> {
-    if !tokens.get(dot).is_some_and(|token| token.kind() == ".") {
+    if tokens.get(dot).is_none_or(|token| token.kind() != ".") {
         return None;
     }
     let method = tokens.get(dot + 1)?;
@@ -3921,10 +3917,7 @@ fn is_repeat_constructor(function: Node<'_>, source: &str) -> bool {
         base = inner;
     }
     match base.kind() {
-        "identifier" => {
-            standard_import_matches(base, source, &["std::iter::repeat", "core::iter::repeat"])
-        }
-        "scoped_identifier" => {
+        "identifier" | "scoped_identifier" => {
             standard_import_matches(base, source, &["std::iter::repeat", "core::iter::repeat"])
         }
         _ => false,
@@ -3935,7 +3928,7 @@ fn standard_import_matches(node: Node<'_>, source: &str, expected: &[&str]) -> b
     let candidate = normalized_node(node, source);
     let absolute = candidate.starts_with("::");
     let normalized_candidate = candidate.strip_prefix("::").unwrap_or(&candidate);
-    if expected.iter().any(|path| *path == normalized_candidate) {
+    if expected.contains(&normalized_candidate) {
         if absolute {
             return true;
         }
@@ -4246,6 +4239,12 @@ fn is_standard_import_path(path: &str) -> bool {
     path == "std" || path == "core" || path.starts_with("std::") || path.starts_with("core::")
 }
 
+enum BindingState<'tree> {
+    NotFound,
+    NoValue,
+    Value(Node<'tree>),
+}
+
 fn infinite_iterator_origin<'tree>(
     node: Node<'tree>,
     source: &str,
@@ -4299,12 +4298,15 @@ fn resolve_infinite_binding<'tree>(
     let owner = enclosing_function(identifier)?;
     let mut scope = enclosing_block(identifier)?;
     loop {
-        if let Some(value) = latest_binding_value(scope, identifier, name, owner, source) {
-            let value = value?;
-            if !seen_bindings.insert(value.start_byte()) {
-                return None;
+        match latest_binding_value(scope, identifier, name, owner, source) {
+            BindingState::NotFound => {}
+            BindingState::NoValue => return None,
+            BindingState::Value(value) => {
+                if !seen_bindings.insert(value.start_byte()) {
+                    return None;
+                }
+                return infinite_iterator_origin(value, source, seen_bindings);
             }
-            return infinite_iterator_origin(value, source, seen_bindings);
         }
         let parent = scope.parent()?;
         scope = enclosing_block(parent)?;
@@ -4317,8 +4319,8 @@ fn latest_binding_value<'tree>(
     name: &str,
     owner: Node<'tree>,
     source: &str,
-) -> Option<Option<Node<'tree>>> {
-    let mut latest: Option<(usize, Option<Node<'tree>>)> = None;
+) -> BindingState<'tree> {
+    let mut latest: Option<(usize, BindingState<'tree>)> = None;
     walk_valid(scope, &mut |node| {
         let Some(node_function) = enclosing_function(node) else {
             return;
@@ -4337,7 +4339,11 @@ fn latest_binding_value<'tree>(
                 {
                     return;
                 }
-                Some((node.end_byte(), node.child_by_field_name("value")))
+                Some((
+                    node.end_byte(),
+                    node.child_by_field_name("value")
+                        .map_or(BindingState::NoValue, BindingState::Value),
+                ))
             }
             "assignment_expression" => {
                 if node.end_byte() > use_site.start_byte()
@@ -4347,7 +4353,11 @@ fn latest_binding_value<'tree>(
                 {
                     return;
                 }
-                Some((node.end_byte(), node.child_by_field_name("right")))
+                Some((
+                    node.end_byte(),
+                    node.child_by_field_name("right")
+                        .map_or(BindingState::NoValue, BindingState::Value),
+                ))
             }
             "compound_assignment_expr" => {
                 if node.end_byte() > use_site.start_byte()
@@ -4357,7 +4367,7 @@ fn latest_binding_value<'tree>(
                 {
                     return;
                 }
-                Some((node.end_byte(), None))
+                Some((node.end_byte(), BindingState::NoValue))
             }
             _ => None,
         };
@@ -4371,7 +4381,7 @@ fn latest_binding_value<'tree>(
             latest = Some(event);
         }
     });
-    latest.map(|(_, value)| value)
+    latest.map_or(BindingState::NotFound, |(_, value)| value)
 }
 
 fn check_overflow_addition(source: &str, scan: &str, issues: &mut Vec<Issue>) {
