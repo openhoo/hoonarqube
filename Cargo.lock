@@ -143,9 +143,9 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "aws-lc-rs"
-version = "1.18.0"
+version = "1.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce2b2dcc879c3bae0d371e77c99f2238400ef24ec001394befa67b6e543add9e"
+checksum = "b281d307588d634de920874890732659e2e7672f72b5e10e81badc1a8a83621e"
 dependencies = [
  "aws-lc-sys",
  "zeroize",
@@ -153,9 +153,9 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-sys"
-version = "0.44.0"
+version = "0.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f09fae7be8bb3174e05c6afdb34199e6dc0c7c04ba9fa237b1967adfbde27483"
+checksum = "9bff6c3b54fad79a2e60b8102caf565819711497c1f5f092f49508e2f5c31b27"
 dependencies = [
  "cc",
  "cmake",
@@ -690,7 +690,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hoonarqube"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "hoonarqube-catalog",
  "hoonarqube-core",
@@ -699,7 +699,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-bench"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "hoonarqube-csharp",
  "hoonarqube-go",
@@ -710,7 +710,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-catalog"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "hex",
  "serde",
@@ -721,7 +721,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-cli"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "atomicwrites",
  "clap",
@@ -735,7 +735,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "hoonarqube-catalog",
  "hoonarqube-csharp",
@@ -748,7 +748,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-csharp"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "hoonarqube-core",
  "hoonarqube-ir",
@@ -758,11 +758,11 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-dataflow"
-version = "0.3.0"
+version = "0.3.1"
 
 [[package]]
 name = "hoonarqube-go"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "hoonarqube-dataflow",
  "hoonarqube-ir",
@@ -772,7 +772,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-ir"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -780,7 +780,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-jsts"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "hoonarqube-core",
  "hoonarqube-ir",
@@ -794,7 +794,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-python"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "hoonarqube-ir",
  "ruff_python_ast",
@@ -805,7 +805,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-rust"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "hoonarqube-ir",
  "regex",
@@ -1222,9 +1222,9 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "mio"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30d65c71f1ce40ab09135ce117d742b9f8a19ff91a41a8b57ed50bc2de59c427"
+checksum = "4b18443e9c262bfe8fa82f51666e2642c53393f7e5c27b3e1aeab922cff5b9d8"
 dependencies = [
  "libc",
  "wasi",
@@ -3020,7 +3020,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",

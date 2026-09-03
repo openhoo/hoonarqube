@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 (2026-09-03)
+
+### Bug Fixes
+
+- **analyzers:** harden language semantics (0074f69)
+
+### Other Changes
+
+- **ci:** update Hoostack tool pins (9e13ab1)
+- **ci:** pin HooNeedsUpdates to v0.3.0 (#12) (887c2a9)
+
 ## 0.3.0 (2026-09-01)
 
 ### Features

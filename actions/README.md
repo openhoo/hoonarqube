@@ -5,7 +5,7 @@ Use immutable action revisions in consuming repositories.
 ```yaml
 - uses: openhoo/hoonarqube/actions/analyze@<full-commit-sha>
   with:
-    version: 0.3.0
+    version: 0.3.1
     paths: |
       src
       tests
