@@ -264,11 +264,6 @@ const PATTERN_RULES: &[PatternRule] = &[
         message: "Trim the line read from standard input before using it.",
     },
     PatternRule {
-        key: "rust:S7443",
-        any: &["transmute::<", "std::mem::transmute::<"],
-        message: "Delay this transmute until its value is needed.",
-    },
-    PatternRule {
         key: "rust:S7444",
         any: &[" + 1", "+= 1"],
         message: "Use a checked or overflowing addition when overflow is possible.",
@@ -277,11 +272,6 @@ const PATTERN_RULES: &[PatternRule] = &[
         key: "rust:S7445",
         any: &["option_env!("],
         message: "Use `env!` when this environment variable is required.",
-    },
-    PatternRule {
-        key: "rust:S7446",
-        any: &["*const ", "*mut "],
-        message: "Mark this function as unsafe because it dereferences a raw pointer.",
     },
     PatternRule {
         key: "rust:S7447",
@@ -352,11 +342,6 @@ const PATTERN_RULES: &[PatternRule] = &[
         key: "rust:S7462",
         any: &["mem::replace(", "std::mem::replace("],
         message: "Do not replace a value with `uninitialized` or `zeroed`.",
-    },
-    PatternRule {
-        key: "rust:S7464",
-        any: &["std::iter::repeat(", "iter::repeat(", ".cycle()"],
-        message: "Finish this infinite iterator with a terminating operation.",
     },
 ];
 
@@ -721,14 +706,14 @@ fn native_open_options_constructor(
         return false;
     };
     let function = compact_text(function, source);
-    let standard_constructor = (!standard.std_shadowed
+    let standard_constructor = (matches!(
+        function.as_str(),
+        "::std::fs::OpenOptions::new" | "::std::fs::File::options"
+    ) || (!standard.std_shadowed
         && matches!(
             function.as_str(),
-            "std::fs::OpenOptions::new"
-                | "::std::fs::OpenOptions::new"
-                | "std::fs::File::options"
-                | "::std::fs::File::options"
-        ))
+            "std::fs::OpenOptions::new" | "std::fs::File::options"
+        )))
         || standard
             .open_options
             .iter()
@@ -793,11 +778,8 @@ fn native_metadata_origin(node: Node<'_>, source: &str, standard: &NativeGuardTy
         return false;
     };
     let function_text = compact_text(function, source);
-    if (!standard.std_shadowed
-        && matches!(
-            function_text.as_str(),
-            "std::fs::metadata" | "::std::fs::metadata"
-        ))
+    if (function_text == "::std::fs::metadata"
+        || (!standard.std_shadowed && function_text == "std::fs::metadata"))
         || standard
             .metadata_functions
             .iter()
@@ -1085,7 +1067,8 @@ fn native_type_matches(
     aliases: &HashSet<String>,
     std_shadowed: bool,
 ) -> bool {
-    (!std_shadowed && native_type_contains_path(type_text, full_name))
+    let absolute = native_type_contains_path(type_text, &format!("::{full_name}"));
+    (absolute || (!std_shadowed && native_type_contains_path(type_text, full_name)))
         || type_text
             .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
             .any(|word| aliases.contains(word))
@@ -1328,15 +1311,7 @@ fn pattern_guard(key: &str, source: &str, line: &str) -> bool {
                 || source.contains("format!(\"{}\", self)")
         }
         "rust:S7441" => !source.contains(".trim()") && !source.contains(".trim_end()"),
-        "rust:S7443" => {
-            source.contains("then_some(") || line.contains("unwrap_or(") || line.contains("map_or(")
-        }
         "rust:S7444" => overflow_comparison_regex().is_match(line),
-        "rust:S7446" => {
-            line.contains("fn ")
-                && !line.contains("unsafe fn")
-                && (source.contains("unsafe { *") || source.contains("unsafe{*"))
-        }
         "rust:S7449" => source.contains("trait ") && !line.contains('{'),
         "rust:S7450" => line.trim_start().starts_with("let _ ="),
         "rust:S7455" => line.contains("for ") && line.contains(".next()"),
@@ -1348,9 +1323,6 @@ fn pattern_guard(key: &str, source: &str, line: &str) -> bool {
             source.matches("impl Borrow<").count() > 1 && source.contains("impl Hash for")
         }
         "rust:S7462" => line.contains("uninitialized()") || line.contains("zeroed()"),
-        "rust:S7464" => ![".take(", ".find(", ".any(", ".next()", ".position("]
-            .iter()
-            .any(|term| line.contains(term)),
         _ => true,
     }
 }
@@ -1376,7 +1348,8 @@ fn check_whole_file(
     check_function_pointer_closures(source, code, issues);
     check_enum_portability(source, code, issues);
     check_match_case(source, uncommented, issues);
-    check_raw_pointer_functions(source, code, issues);
+    check_raw_pointer_functions(root, source, issues);
+    check_infinite_iterators(root, source, issues);
     check_mutable_return(source, code, issues);
     check_float_loop_counter(source, code, issues);
     check_redundant_casts(source, code, issues);
@@ -1391,7 +1364,7 @@ fn check_whole_file(
     check_double_comparisons(source, code, issues);
     check_almost_swap(source, code, issues);
     check_panicking_unwrap(root, source, code, issues);
-    check_eager_transmute(source, code, issues);
+    check_eager_transmute(root, source, issues);
     check_overflow_addition(source, code, issues);
     check_partial_io_calls(root, source, code, issues);
     check_inverted_saturating_subtractions(root, source, code, issues);
@@ -2316,21 +2289,576 @@ fn check_match_case(source: &str, scan: &str, issues: &mut Vec<Issue>) {
     }
 }
 
-fn check_raw_pointer_functions(source: &str, scan: &str, issues: &mut Vec<Issue>) {
-    for full in raw_pointer_function_regex().find_iter(scan) {
-        if !full
-            .as_str()
-            .split("fn")
-            .next()
-            .is_some_and(|prefix| prefix.contains("unsafe"))
-        {
-            issues.push(offset_issue(
+fn check_raw_pointer_functions(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    walk_valid(root, &mut |node| {
+        if node.kind() != "function_item" || function_is_unsafe(node, source) {
+            return;
+        }
+        let Some(parameters) = node.child_by_field_name("parameters") else {
+            return;
+        };
+        let pointer_parameters = pointer_parameter_names(parameters, source);
+        if pointer_parameters.is_empty() {
+            return;
+        }
+        let Some(body) = node.child_by_field_name("body") else {
+            return;
+        };
+        if function_dereferences_parameter(node, body, &pointer_parameters, source) {
+            issues.push(node_issue(
                 "rust:S7446",
                 "Mark this function as unsafe because it dereferences a raw pointer.",
+                node,
                 source,
-                full.start(),
-                full.end(),
             ));
+        }
+    });
+}
+
+fn function_is_unsafe(function: Node<'_>, _source: &str) -> bool {
+    let Some(modifiers) = (0..function.named_child_count())
+        .filter_map(|index| function.named_child(index))
+        .find(|child| child.kind() == "function_modifiers")
+    else {
+        return false;
+    };
+    (0..modifiers.child_count()).any(|index| {
+        modifiers
+            .child(index)
+            .is_some_and(|child| child.kind() == "unsafe")
+    })
+}
+
+fn pointer_parameter_names(parameters: Node<'_>, source: &str) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for parameter in parameters.named_children(&mut parameters.walk()) {
+        if parameter.kind() != "parameter" {
+            continue;
+        }
+        let Some(pattern) = parameter.child_by_field_name("pattern") else {
+            continue;
+        };
+        let Some(type_node) = parameter.child_by_field_name("type") else {
+            continue;
+        };
+        collect_pointer_pattern_names(pattern, type_node, source, &mut names);
+    }
+    names
+}
+
+fn collect_pointer_pattern_names(
+    pattern: Node<'_>,
+    type_node: Node<'_>,
+    source: &str,
+    names: &mut HashSet<String>,
+) {
+    match type_node.kind() {
+        "pointer_type" => collect_pattern_binding_names(pattern, source, names),
+        "reference_type" => {
+            let Some(inner_type) = type_node.child_by_field_name("type") else {
+                return;
+            };
+            let inner_pattern = if pattern.kind() == "reference_pattern" {
+                pattern.named_child(0).unwrap_or(pattern)
+            } else {
+                pattern
+            };
+            collect_pointer_pattern_names(inner_pattern, inner_type, source, names);
+        }
+        "array_type" => {
+            let Some(element_type) = type_node.child_by_field_name("element") else {
+                return;
+            };
+            if !matches!(pattern.kind(), "slice_pattern" | "array_pattern") {
+                return;
+            }
+            let mut cursor = pattern.walk();
+            for nested_pattern in pattern.named_children(&mut cursor) {
+                if nested_pattern.kind() == "remaining_pattern" {
+                    continue;
+                }
+                collect_pointer_pattern_names(nested_pattern, element_type, source, names);
+            }
+        }
+        "tuple_type" => {
+            if pattern.kind() != "tuple_pattern" {
+                return;
+            }
+            let mut types_cursor = type_node.walk();
+            let types: Vec<_> = type_node.named_children(&mut types_cursor).collect();
+            let mut patterns = Vec::new();
+            for index in 0..pattern.child_count() {
+                let Some(child) = pattern.child(index) else {
+                    continue;
+                };
+                if child.is_named() || child.kind() == "_" {
+                    patterns.push(child);
+                }
+            }
+            for (nested_pattern, nested_type) in patterns.into_iter().zip(types) {
+                if nested_pattern.kind() != "_" {
+                    collect_pointer_pattern_names(nested_pattern, nested_type, source, names);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+fn collect_pattern_binding_names(pattern: Node<'_>, source: &str, names: &mut HashSet<String>) {
+    match pattern.kind() {
+        "identifier" | "shorthand_field_identifier" => {
+            names.insert(text(pattern, source).trim().to_string());
+        }
+        "tuple_struct_pattern" | "struct_pattern" => {
+            let type_node = pattern.child_by_field_name("type");
+            let mut cursor = pattern.walk();
+            for child in pattern.named_children(&mut cursor) {
+                if type_node.is_none_or(|type_node| child != type_node) {
+                    collect_pattern_binding_names(child, source, names);
+                }
+            }
+        }
+        "field_pattern" => {
+            if let Some(nested) = pattern.child_by_field_name("pattern") {
+                collect_pattern_binding_names(nested, source, names);
+            } else if let Some(name) = pattern.child_by_field_name("name") {
+                collect_pattern_binding_names(name, source, names);
+            }
+        }
+        "scoped_identifier" | "generic_pattern" | "type_identifier" | "field_identifier"
+        | "primitive_type" => {}
+        _ => {
+            let mut cursor = pattern.walk();
+            for child in pattern.named_children(&mut cursor) {
+                collect_pattern_binding_names(child, source, names);
+            }
+        }
+    }
+}
+
+fn unwrap_raw_pointer_expression(mut node: Node<'_>) -> Node<'_> {
+    while matches!(
+        node.kind(),
+        "parenthesized_expression" | "type_cast_expression"
+    ) {
+        let Some(inner) = node
+            .child_by_field_name("value")
+            .or_else(|| node.named_child(0))
+        else {
+            break;
+        };
+        node = inner;
+    }
+    node
+}
+
+fn raw_pointer_expression_target(mut node: Node<'_>) -> Option<Node<'_>> {
+    node = unwrap_raw_pointer_expression(node);
+    match node.kind() {
+        "identifier" => Some(node),
+        "field_expression" => node
+            .child_by_field_name("value")
+            .and_then(raw_pointer_expression_target),
+        "call_expression" => node
+            .child_by_field_name("function")
+            .and_then(call_receiver)
+            .and_then(raw_pointer_expression_target),
+        _ => None,
+    }
+}
+
+fn function_dereferences_parameter(
+    function: Node<'_>,
+    body: Node<'_>,
+    pointer_parameters: &HashSet<String>,
+    source: &str,
+) -> bool {
+    let mut pending = vec![body];
+    while let Some(node) = pending.pop() {
+        if node != body && node.kind() == "function_item" {
+            continue;
+        }
+        if node.kind() == "macro_invocation"
+            && macro_invocation_dereferences_parameter(
+                node,
+                function,
+                body,
+                pointer_parameters,
+                source,
+            )
+        {
+            return true;
+        }
+        if node.kind() == "unary_expression"
+            && text(node, source).trim_start().starts_with('*')
+            && let Some(operand) = node.named_child(0)
+            && let Some(target) = raw_pointer_expression_target(operand)
+            && raw_pointer_name_resolves(function, body, target, pointer_parameters, source)
+        {
+            return true;
+        }
+        for index in (0..node.named_child_count()).rev() {
+            if let Some(child) = node.named_child(index) {
+                pending.push(child);
+            }
+        }
+    }
+    false
+}
+
+fn macro_invocation_dereferences_parameter(
+    invocation: Node<'_>,
+    function: Node<'_>,
+    body: Node<'_>,
+    pointer_parameters: &HashSet<String>,
+    source: &str,
+) -> bool {
+    let Some(token_tree) = (0..invocation.named_child_count())
+        .filter_map(|index| invocation.named_child(index))
+        .find(|child| child.kind() == "token_tree")
+    else {
+        return false;
+    };
+    let mut tokens = Vec::new();
+    collect_macro_tokens(token_tree, &mut tokens);
+    for index in 0..tokens.len() {
+        let star = tokens[index];
+        if star.kind() != "*" || !macro_star_is_unary(&tokens, index) {
+            continue;
+        }
+        let Some(target) = macro_pointer_operand(&tokens, index + 1) else {
+            continue;
+        };
+        if target.start_byte() < token_tree.start_byte()
+            || target.end_byte() > token_tree.end_byte()
+            || target.start_byte() < body.start_byte()
+            || target.end_byte() > body.end_byte()
+        {
+            continue;
+        }
+        if raw_pointer_name_resolves(function, body, target, pointer_parameters, source) {
+            return true;
+        }
+    }
+    false
+}
+
+fn macro_pointer_operand<'tree>(tokens: &[Node<'tree>], mut index: usize) -> Option<Node<'tree>> {
+    let token = tokens.get(index)?;
+    if token.kind() != "(" {
+        return (token.kind() == "identifier").then_some(*token);
+    }
+    let close = matching_macro_delimiter(tokens, index)?;
+    index += 1;
+    if close == index + 1 {
+        return tokens.get(index).copied();
+    }
+    if tokens.get(index).is_some_and(|token| token.kind() == "(") {
+        let nested_close = matching_macro_delimiter(tokens, index)?;
+        if nested_close + 1 == close {
+            return macro_pointer_operand(tokens, index);
+        }
+    }
+    None
+}
+
+fn matching_macro_delimiter(tokens: &[Node<'_>], open: usize) -> Option<usize> {
+    let close_kind = match tokens.get(open)?.kind() {
+        "(" => ")",
+        "[" => "]",
+        "{" => "}",
+        _ => return None,
+    };
+    let mut depth = 0usize;
+    for (index, token) in tokens.iter().enumerate().skip(open) {
+        match token.kind() {
+            kind if kind == tokens[open].kind() => depth += 1,
+            kind if kind == close_kind => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn collect_macro_tokens<'tree>(node: Node<'tree>, tokens: &mut Vec<Node<'tree>>) {
+    let mut pending = vec![node];
+    while let Some(current) = pending.pop() {
+        if matches!(
+            current.kind(),
+            "char_literal"
+                | "doc_comment"
+                | "line_comment"
+                | "block_comment"
+                | "raw_string_literal"
+                | "string_literal"
+        ) {
+            continue;
+        }
+        if current.child_count() == 0 {
+            tokens.push(current);
+            continue;
+        }
+        for index in (0..current.child_count()).rev() {
+            if let Some(child) = current.child(index) {
+                pending.push(child);
+            }
+        }
+    }
+}
+
+fn macro_star_is_unary(tokens: &[Node<'_>], index: usize) -> bool {
+    let Some(previous) = index.checked_sub(1).and_then(|index| tokens.get(index)) else {
+        return true;
+    };
+    matches!(
+        previous.kind(),
+        "(" | "["
+            | "{"
+            | ","
+            | ";"
+            | ":"
+            | "="
+            | "=="
+            | "!="
+            | ">"
+            | "<"
+            | ">="
+            | "<="
+            | "+"
+            | "-"
+            | "/"
+            | "%"
+            | "^"
+            | "&"
+            | "|"
+            | "&&"
+            | "||"
+            | "<<"
+            | ">>"
+            | "+="
+            | "-="
+            | "*="
+            | "/="
+            | "%="
+            | "^="
+            | "&="
+            | "|="
+            | "<<="
+            | ">>="
+            | "->"
+            | "=>"
+            | "!"
+            | "?"
+            | "@"
+            | "as"
+            | "if"
+            | "match"
+            | "return"
+            | "unsafe"
+            | "*"
+    )
+}
+
+fn raw_pointer_name_resolves(
+    function: Node<'_>,
+    body: Node<'_>,
+    use_site: Node<'_>,
+    pointer_parameters: &HashSet<String>,
+    source: &str,
+) -> bool {
+    let name = text(use_site, source).trim();
+    let mut seen_bindings = HashSet::new();
+    resolve_raw_pointer_name(
+        function,
+        body,
+        use_site,
+        name,
+        pointer_parameters,
+        source,
+        &mut seen_bindings,
+    )
+}
+
+fn resolve_raw_pointer_name(
+    function: Node<'_>,
+    body: Node<'_>,
+    use_site: Node<'_>,
+    name: &str,
+    pointer_parameters: &HashSet<String>,
+    source: &str,
+    seen_bindings: &mut HashSet<usize>,
+) -> bool {
+    let mut scope = enclosing_block(use_site);
+    while let Some(current_scope) = scope {
+        if let Some((position, value)) =
+            latest_raw_pointer_binding(current_scope, function, use_site, name, source)
+        {
+            if !seen_bindings.insert(position) {
+                return false;
+            }
+            let Some(value) = value else {
+                return false;
+            };
+            let value = unwrap_raw_pointer_expression(value);
+            if value.kind() != "identifier" {
+                return false;
+            }
+            let value_name = text(value, source).trim();
+            return resolve_raw_pointer_name(
+                function,
+                body,
+                value,
+                value_name,
+                pointer_parameters,
+                source,
+                seen_bindings,
+            );
+        }
+        if current_scope == body {
+            break;
+        }
+        scope = enclosing_block(current_scope);
+    }
+    pointer_parameters.contains(name)
+}
+
+fn latest_raw_pointer_binding<'tree>(
+    scope: Node<'tree>,
+    function: Node<'tree>,
+    use_site: Node<'tree>,
+    name: &str,
+    source: &str,
+) -> Option<(usize, Option<Node<'tree>>)> {
+    let mut latest = None;
+    walk_valid(scope, &mut |node| {
+        let Some(node_function) = enclosing_function(node) else {
+            return;
+        };
+        if node_function.start_byte() != function.start_byte()
+            || node != scope
+                && enclosing_block(node)
+                    .is_none_or(|block| block.start_byte() != scope.start_byte())
+            || node.end_byte() > use_site.start_byte()
+        {
+            return;
+        }
+        let event = match node.kind() {
+            "let_declaration" => {
+                let Some(pattern) = node.child_by_field_name("pattern") else {
+                    return;
+                };
+                if !pattern_binds_name(pattern, name, source) {
+                    return;
+                }
+                let value = node
+                    .child_by_field_name("value")
+                    .and_then(|value| pointer_binding_value(pattern, value, name, source));
+                Some((node.end_byte(), value))
+            }
+            "assignment_expression" | "compound_assignment_expr" => {
+                let Some(left) = node.child_by_field_name("left") else {
+                    return;
+                };
+                if left.kind() != "identifier" || text(left, source).trim() != name {
+                    return;
+                }
+                Some((
+                    node.end_byte(),
+                    (node.kind() == "assignment_expression")
+                        .then(|| node.child_by_field_name("right"))
+                        .flatten(),
+                ))
+            }
+            _ => None,
+        };
+        if let Some(event) = event
+            && latest
+                .as_ref()
+                .is_none_or(|(position, _)| event.0 > *position)
+        {
+            latest = Some(event);
+        }
+    });
+    latest
+}
+
+fn pointer_binding_value<'tree>(
+    pattern: Node<'tree>,
+    value: Node<'tree>,
+    wanted: &str,
+    source: &str,
+) -> Option<Node<'tree>> {
+    match pattern.kind() {
+        "identifier" | "shorthand_field_identifier" => {
+            (text(pattern, source).trim() == wanted).then_some(value)
+        }
+        "mut_pattern" | "reference_pattern" => {
+            let nested = pattern.named_child(pattern.named_child_count().saturating_sub(1))?;
+            let value = if value.kind() == "reference_expression" {
+                value
+                    .child_by_field_name("value")
+                    .or_else(|| value.named_child(0))
+                    .unwrap_or(value)
+            } else {
+                value
+            };
+            pointer_binding_value(nested, value, wanted, source)
+        }
+        "tuple_pattern" | "slice_pattern" => {
+            let mut patterns = Vec::new();
+            for index in 0..pattern.child_count() {
+                let Some(child) = pattern.child(index) else {
+                    continue;
+                };
+                if child.is_named() || child.kind() == "_" {
+                    patterns.push(child);
+                }
+            }
+            let value = unwrap_raw_pointer_expression(value);
+            let values: Vec<_> = match value.kind() {
+                "tuple_expression" | "array_expression" => {
+                    let mut value_cursor = value.walk();
+                    value.named_children(&mut value_cursor).collect()
+                }
+                _ => Vec::new(),
+            };
+            if patterns.len() != values.len() {
+                return (patterns.len() == 1)
+                    .then(|| pointer_binding_value(patterns[0], value, wanted, source))
+                    .flatten();
+            }
+            patterns
+                .into_iter()
+                .zip(values)
+                .find_map(|(pattern, value)| pointer_binding_value(pattern, value, wanted, source))
+        }
+        "field_pattern" => pattern
+            .child_by_field_name("pattern")
+            .or_else(|| pattern.child_by_field_name("name"))
+            .and_then(|nested| pointer_binding_value(nested, value, wanted, source)),
+        _ => {
+            let mut cursor = pattern.walk();
+            pattern
+                .named_children(&mut cursor)
+                .find_map(|nested| pointer_binding_value(nested, value, wanted, source))
+        }
+    }
+}
+fn pattern_binds_name(pattern: Node<'_>, wanted: &str, source: &str) -> bool {
+    match pattern.kind() {
+        "identifier" | "shorthand_field_identifier" => text(pattern, source).trim() == wanted,
+        "scoped_identifier" | "generic_pattern" | "type_identifier" | "field_identifier"
+        | "primitive_type" => false,
+        _ => {
+            let mut cursor = pattern.walk();
+            pattern
+                .named_children(&mut cursor)
+                .any(|child| pattern_binds_name(child, wanted, source))
         }
     }
 }
@@ -2758,19 +3286,1092 @@ fn check_panicking_unwrap(root: Node<'_>, source: &str, scan: &str, issues: &mut
     });
 }
 
-fn check_eager_transmute(source: &str, scan: &str, issues: &mut Vec<Issue>) {
-    if !scan.contains("then_some(") {
+fn check_eager_transmute(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    let mut emitted = HashSet::new();
+    walk_valid(root, &mut |node| {
+        if node.kind() != "call_expression" {
+            return;
+        }
+        let Some(function) = node.child_by_field_name("function") else {
+            return;
+        };
+        let (method, fallback_index) = if call_receiver(function).is_some() {
+            let Some(method) = callable_name(function, source) else {
+                return;
+            };
+            (method, 0)
+        } else {
+            let Some(method) = standard_ufcs_eager_method(function, source) else {
+                return;
+            };
+            (method, 1)
+        };
+        if !matches!(method, "then_some" | "unwrap_or" | "map_or") {
+            return;
+        }
+        let Some(arguments) = node.child_by_field_name("arguments") else {
+            return;
+        };
+        if let Some(argument) = arguments.named_child(fallback_index) {
+            collect_eager_transmutes(argument, source, issues, &mut emitted);
+        }
+    });
+}
+
+fn standard_ufcs_eager_method<'a>(function: Node<'a>, source: &str) -> Option<&'static str> {
+    let mut base = function;
+    while base.kind() == "generic_function" {
+        base = base.child_by_field_name("function")?;
+    }
+    if base.kind() != "scoped_identifier" {
+        return None;
+    }
+    let method = callable_name(base, source)?;
+    let direct = match method {
+        "then_some" => "then_some",
+        "unwrap_or" => "unwrap_or",
+        "map_or" => "map_or",
+        _ => return None,
+    };
+    let candidate = normalized_node(base, source);
+    let candidate = candidate.strip_prefix("::").unwrap_or(&candidate);
+    if candidate == "bool::then_some" {
+        return Some(direct);
+    }
+    if candidate.starts_with("Option::") && candidate.split("::").count() == 2 {
+        if standard_name_is_shadowed(base, "Option", source, false) {
+            return None;
+        }
+        return Some(direct);
+    }
+    let expected = match method {
+        "unwrap_or" => [
+            "std::option::Option::unwrap_or",
+            "core::option::Option::unwrap_or",
+        ],
+        "map_or" => [
+            "std::option::Option::map_or",
+            "core::option::Option::map_or",
+        ],
+        _ => return None,
+    };
+    standard_import_matches(base, source, &expected).then_some(direct)
+}
+
+fn collect_eager_transmutes(
+    node: Node<'_>,
+    source: &str,
+    issues: &mut Vec<Issue>,
+    emitted: &mut HashSet<usize>,
+) {
+    if matches!(
+        node.kind(),
+        "closure_expression" | "async_block" | "function_item"
+    ) {
         return;
     }
-    for full in transmute_call_regex().find_iter(scan) {
-        issues.push(offset_issue(
+    if node.kind() == "call_expression"
+        && is_transmute_function(node, source)
+        && emitted.insert(node.start_byte())
+    {
+        issues.push(node_issue(
             "rust:S7443",
             "Evaluate this transmute lazily.",
+            node,
             source,
-            full.start(),
-            full.end(),
         ));
     }
+    if node.kind() == "macro_invocation" {
+        collect_macro_eager_transmutes(node, source, issues, emitted);
+        return;
+    }
+    for index in (0..node.named_child_count()).rev() {
+        if let Some(child) = node.named_child(index) {
+            collect_eager_transmutes(child, source, issues, emitted);
+        }
+    }
+}
+fn collect_macro_eager_transmutes(
+    invocation: Node<'_>,
+    source: &str,
+    issues: &mut Vec<Issue>,
+    emitted: &mut HashSet<usize>,
+) {
+    if !macro_forwards_expression(invocation, source) {
+        return;
+    }
+    let Some(token_tree) = (0..invocation.named_child_count())
+        .filter_map(|index| invocation.named_child(index))
+        .find(|child| child.kind() == "token_tree")
+    else {
+        return;
+    };
+    let mut tokens = Vec::new();
+    collect_macro_tokens(token_tree, &mut tokens);
+    for index in 0..tokens.len() {
+        let Some((end, _)) = macro_path_call(
+            &tokens,
+            index,
+            invocation,
+            source,
+            &["std::mem::transmute", "core::intrinsics::transmute"],
+        ) else {
+            continue;
+        };
+        let token = tokens[end];
+        if emitted.insert(token.start_byte()) {
+            issues.push(node_issue(
+                "rust:S7443",
+                "Evaluate this transmute lazily.",
+                token,
+                source,
+            ));
+        }
+    }
+}
+
+fn macro_forwards_expression(invocation: Node<'_>, source: &str) -> bool {
+    let Some(macro_name) = invocation.child_by_field_name("macro") else {
+        return false;
+    };
+    if standard_import_matches(macro_name, source, &["std::dbg", "core::dbg"]) {
+        return true;
+    }
+    let name = text(macro_name, source).trim();
+    let mut root = invocation;
+    while let Some(parent) = root.parent() {
+        root = parent;
+    }
+    let mut forwards = false;
+    walk_valid(root, &mut |node| {
+        if forwards || node.kind() != "macro_definition" {
+            return;
+        }
+        if node
+            .child_by_field_name("name")
+            .is_none_or(|candidate| text(candidate, source).trim() != name)
+        {
+            return;
+        }
+        let mut cursor = node.walk();
+        for rule in node.named_children(&mut cursor) {
+            if rule.kind() != "macro_rule" {
+                continue;
+            }
+            let (Some(left), Some(right)) = (
+                rule.child_by_field_name("left"),
+                rule.child_by_field_name("right"),
+            ) else {
+                continue;
+            };
+            let captures = macro_capture_names(text(left, source));
+            if captures
+                .iter()
+                .any(|capture| text(right, source).contains(&format!("${capture}")))
+            {
+                forwards = true;
+                break;
+            }
+        }
+    });
+    forwards
+}
+
+fn macro_capture_names(value: &str) -> Vec<String> {
+    let bytes = value.as_bytes();
+    let mut captures = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] != b'$' || bytes.get(index + 1) == Some(&b'$') {
+            index += 1;
+            continue;
+        }
+        let start = index + 1;
+        let mut end = start;
+        while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
+            end += 1;
+        }
+        if end > start {
+            captures.push(value[start..end].to_string());
+        }
+        index = end.max(index + 1);
+    }
+    captures
+}
+
+fn macro_path_call(
+    tokens: &[Node<'_>],
+    start: usize,
+    invocation: Node<'_>,
+    source: &str,
+    expected: &[&str],
+) -> Option<(usize, usize)> {
+    let mut end = start;
+    if tokens.get(end).is_some_and(|token| token.kind() == "::") {
+        end += 1;
+    }
+    if !tokens
+        .get(end)
+        .is_some_and(|token| matches!(token.kind(), "identifier" | "type_identifier"))
+    {
+        return None;
+    }
+    loop {
+        let candidate = normalized(
+            &tokens[start..=end]
+                .iter()
+                .map(|token| text(*token, source))
+                .collect::<String>(),
+        );
+        if macro_standard_path_matches(&candidate, tokens[start], invocation, source, expected) {
+            if let Some(open) = macro_call_open_after(tokens, end) {
+                return Some((end, open));
+            }
+        }
+        if !tokens
+            .get(end + 1)
+            .is_some_and(|token| token.kind() == "::")
+            || !tokens
+                .get(end + 2)
+                .is_some_and(|token| matches!(token.kind(), "identifier" | "type_identifier"))
+        {
+            break;
+        }
+        end += 2;
+    }
+    None
+}
+
+fn macro_call_open_after(tokens: &[Node<'_>], end: usize) -> Option<usize> {
+    if tokens.get(end + 1).is_some_and(|token| token.kind() == "(") {
+        return Some(end + 1);
+    }
+    if !tokens
+        .get(end + 1)
+        .is_some_and(|token| token.kind() == "::")
+        || !tokens.get(end + 2).is_some_and(|token| token.kind() == "<")
+    {
+        return None;
+    }
+    let close = matching_macro_angle(tokens, end + 2)?;
+    tokens
+        .get(close + 1)
+        .is_some_and(|token| token.kind() == "(")
+        .then_some(close + 1)
+}
+
+fn matching_macro_angle(tokens: &[Node<'_>], open: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    for (index, token) in tokens.iter().enumerate().skip(open) {
+        match token.kind() {
+            "<" => depth += 1,
+            kind if kind.chars().all(|character| character == '>') => {
+                for _ in kind.chars() {
+                    depth = depth.checked_sub(1)?;
+                    if depth == 0 {
+                        return Some(index);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn macro_standard_path_matches(
+    candidate: &str,
+    first: Node<'_>,
+    invocation: Node<'_>,
+    source: &str,
+    expected: &[&str],
+) -> bool {
+    let absolute = candidate.starts_with("::");
+    let candidate = candidate.strip_prefix("::").unwrap_or(candidate);
+    if expected.iter().any(|path| *path == candidate) {
+        if absolute {
+            return true;
+        }
+        let root = candidate.split("::").next().unwrap_or_default();
+        return !standard_name_is_shadowed(first, root, source, true);
+    }
+    visible_standard_imports(invocation, source)
+        .into_iter()
+        .any(|(alias, path)| {
+            let tail = candidate
+                .strip_prefix(&alias)
+                .map_or("", |tail| tail.strip_prefix("::").unwrap_or(""));
+            if candidate != alias && tail.is_empty() {
+                return false;
+            }
+            expected
+                .iter()
+                .any(|expected| *expected == path || *expected == format!("{path}::{tail}"))
+        })
+}
+
+fn is_transmute_function(call: Node<'_>, source: &str) -> bool {
+    let Some(mut function) = call.child_by_field_name("function") else {
+        return false;
+    };
+    while function.kind() == "generic_function" {
+        let Some(inner) = function.child_by_field_name("function") else {
+            return false;
+        };
+        function = inner;
+    }
+    match function.kind() {
+        "scoped_identifier" => standard_import_matches(
+            function,
+            source,
+            &["std::mem::transmute", "core::intrinsics::transmute"],
+        ),
+        "identifier" => {
+            text(function, source).trim() == "transmute"
+                && standard_import_matches(
+                    function,
+                    source,
+                    &["std::mem::transmute", "core::intrinsics::transmute"],
+                )
+        }
+        _ => false,
+    }
+}
+
+fn check_infinite_iterators(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    let mut emitted = HashSet::new();
+    walk_valid(root, &mut |node| {
+        if node.kind() == "for_expression" {
+            let Some(value) = node.child_by_field_name("value") else {
+                return;
+            };
+            let mut seen_bindings = HashSet::new();
+            let Some(origin) = infinite_iterator_origin(value, source, &mut seen_bindings) else {
+                return;
+            };
+            if emitted.insert(origin.start_byte()) {
+                issues.push(node_issue(
+                    "rust:S7464",
+                    "Finish this infinite iterator with a terminating operation.",
+                    origin,
+                    source,
+                ));
+            }
+            return;
+        }
+        if node.kind() == "macro_invocation" {
+            collect_macro_infinite_iterators(node, source, issues, &mut emitted);
+            return;
+        }
+        if node.kind() != "call_expression" {
+            return;
+        }
+        let Some(method) = call_function_name(node, source) else {
+            return;
+        };
+        if !is_exhausting_iterator_consumer(method) {
+            return;
+        }
+        let Some(function) = node.child_by_field_name("function") else {
+            return;
+        };
+        let receiver = call_receiver(function)
+            .or_else(|| standard_iterator_ufcs_receiver(function, node, source));
+        let Some(receiver) = receiver else {
+            return;
+        };
+        let mut seen_bindings = HashSet::new();
+        let Some(origin) = infinite_iterator_origin(receiver, source, &mut seen_bindings) else {
+            return;
+        };
+        if emitted.insert(origin.start_byte()) {
+            issues.push(node_issue(
+                "rust:S7464",
+                "Finish this infinite iterator with a terminating operation.",
+                origin,
+                source,
+            ));
+        }
+    });
+    walk_all(root, &mut |node| {
+        if node.kind() == "macro_invocation" {
+            collect_macro_infinite_iterators(node, source, issues, &mut emitted);
+        }
+    });
+}
+
+fn standard_iterator_ufcs_receiver<'tree>(
+    function: Node<'tree>,
+    call: Node<'tree>,
+    source: &str,
+) -> Option<Node<'tree>> {
+    let mut base = function;
+    while base.kind() == "generic_function" {
+        base = base.child_by_field_name("function")?;
+    }
+    if base.kind() != "scoped_identifier" {
+        return None;
+    }
+    let method = callable_name(base, source)?;
+    if !is_exhausting_iterator_consumer(method) {
+        return None;
+    }
+    let candidate = normalized_node(base, source);
+    let candidate = candidate.strip_prefix("::").unwrap_or(&candidate);
+    let standard = candidate == format!("Iterator::{method}")
+        || candidate == format!("std::iter::Iterator::{method}")
+        || candidate == format!("core::iter::Iterator::{method}");
+    if !standard {
+        return None;
+    }
+    if candidate.starts_with("Iterator::")
+        && standard_name_is_shadowed(base, "Iterator", source, false)
+    {
+        return None;
+    }
+    let arguments = call.child_by_field_name("arguments")?;
+    arguments.named_child(0)
+}
+
+fn collect_macro_infinite_iterators(
+    invocation: Node<'_>,
+    source: &str,
+    issues: &mut Vec<Issue>,
+    emitted: &mut HashSet<usize>,
+) {
+    let Some(token_tree) = (0..invocation.named_child_count())
+        .filter_map(|index| invocation.named_child(index))
+        .find(|child| child.kind() == "token_tree")
+    else {
+        return;
+    };
+    let mut tokens = Vec::new();
+    collect_macro_tokens(token_tree, &mut tokens);
+    for index in 0..tokens.len() {
+        let Some((repeat_end, repeat_open)) = macro_path_call(
+            &tokens,
+            index,
+            invocation,
+            source,
+            &["std::iter::repeat", "core::iter::repeat"],
+        ) else {
+            continue;
+        };
+        let Some(repeat_close) = matching_macro_delimiter(&tokens, repeat_open) else {
+            continue;
+        };
+        let Some((_, origin_end)) = macro_exhausting_chain(&tokens, repeat_close, source) else {
+            continue;
+        };
+        let origin_start = tokens[index].start_byte();
+        if emitted.insert(origin_start) {
+            issues.push(offset_issue(
+                "rust:S7464",
+                "Finish this infinite iterator with a terminating operation.",
+                source,
+                origin_start,
+                tokens[origin_end]
+                    .end_byte()
+                    .max(tokens[repeat_end].end_byte()),
+            ));
+        }
+    }
+    for index in 0..tokens.len() {
+        let Some(prefix) = tokens.get(..index) else {
+            continue;
+        };
+        let contains_repeat = prefix
+            .iter()
+            .rev()
+            .take_while(|token| !matches!(token.kind(), ";" | "{" | "}" | "[" | "]"))
+            .any(|token| text(*token, source).trim() == "repeat");
+        if contains_repeat {
+            continue;
+        }
+        let Some((method, cycle_close)) = macro_method_call(&tokens, index, source) else {
+            continue;
+        };
+        if method != "cycle" {
+            continue;
+        }
+        let Some((consumer, consumer_close)) = macro_method_call(&tokens, cycle_close + 1, source)
+        else {
+            continue;
+        };
+        if consumer != "collect" {
+            continue;
+        }
+        let origin_start = tokens[index + 1].start_byte();
+        if emitted.insert(origin_start) {
+            issues.push(offset_issue(
+                "rust:S7464",
+                "Finish this infinite iterator with a terminating operation.",
+                source,
+                origin_start,
+                tokens[consumer_close].end_byte(),
+            ));
+        }
+    }
+}
+
+fn macro_exhausting_chain(
+    tokens: &[Node<'_>],
+    repeat_close: usize,
+    source: &str,
+) -> Option<(usize, usize)> {
+    let mut dot = repeat_close + 1;
+    loop {
+        let (method, close) = macro_method_call(tokens, dot, source)?;
+        if is_bounded_iterator_consumer(method) {
+            return None;
+        }
+        if method == "collect" || is_exhausting_iterator_consumer(method) {
+            return Some((close, repeat_close));
+        }
+        dot = close + 1;
+    }
+}
+fn macro_method_call<'a>(
+    tokens: &[Node<'_>],
+    dot: usize,
+    source: &'a str,
+) -> Option<(&'a str, usize)> {
+    if !tokens.get(dot).is_some_and(|token| token.kind() == ".") {
+        return None;
+    }
+    let method = tokens.get(dot + 1)?;
+    let method_name = text(*method, source).trim();
+    let open = macro_call_open_after(tokens, dot + 1)?;
+    let close = matching_macro_delimiter(tokens, open)?;
+    Some((method_name, close))
+}
+
+fn call_function_name<'a>(call: Node<'_>, source: &'a str) -> Option<&'a str> {
+    call.child_by_field_name("function")
+        .and_then(|function| callable_name(function, source))
+}
+
+fn callable_name<'a>(mut function: Node<'_>, source: &'a str) -> Option<&'a str> {
+    loop {
+        match function.kind() {
+            "identifier" | "field_identifier" | "type_identifier" => {
+                return Some(text(function, source).trim());
+            }
+            "scoped_identifier" => {
+                return function
+                    .child_by_field_name("name")
+                    .and_then(|name| callable_name(name, source));
+            }
+            "field_expression" => {
+                return function
+                    .child_by_field_name("field")
+                    .and_then(|field| callable_name(field, source));
+            }
+            "generic_function" => {
+                function = function.child_by_field_name("function")?;
+            }
+            _ => return None,
+        }
+    }
+}
+
+fn call_receiver(mut function: Node<'_>) -> Option<Node<'_>> {
+    loop {
+        match function.kind() {
+            "field_expression" => return function.child_by_field_name("value"),
+            "generic_function" => function = function.child_by_field_name("function")?,
+            _ => return None,
+        }
+    }
+}
+
+fn is_exhausting_iterator_consumer(method: &str) -> bool {
+    matches!(
+        method,
+        "collect"
+            | "count"
+            | "fold"
+            | "fold_first"
+            | "for_each"
+            | "last"
+            | "max"
+            | "max_by"
+            | "max_by_key"
+            | "min"
+            | "min_by"
+            | "min_by_key"
+            | "partition"
+            | "product"
+            | "reduce"
+            | "sum"
+            | "unzip"
+    )
+}
+
+fn is_bounded_iterator_consumer(method: &str) -> bool {
+    matches!(method, "take" | "find" | "any" | "next" | "position")
+}
+
+fn is_repeat_constructor(function: Node<'_>, source: &str) -> bool {
+    let mut base = function;
+    while base.kind() == "generic_function" {
+        let Some(inner) = base.child_by_field_name("function") else {
+            return false;
+        };
+        base = inner;
+    }
+    match base.kind() {
+        "identifier" => {
+            standard_import_matches(base, source, &["std::iter::repeat", "core::iter::repeat"])
+        }
+        "scoped_identifier" => {
+            standard_import_matches(base, source, &["std::iter::repeat", "core::iter::repeat"])
+        }
+        _ => false,
+    }
+}
+
+fn standard_import_matches(node: Node<'_>, source: &str, expected: &[&str]) -> bool {
+    let candidate = normalized_node(node, source);
+    let absolute = candidate.starts_with("::");
+    let normalized_candidate = candidate.strip_prefix("::").unwrap_or(&candidate);
+    if expected.iter().any(|path| *path == normalized_candidate) {
+        if absolute {
+            return true;
+        }
+        let root = normalized_candidate.split("::").next().unwrap_or_default();
+        return !standard_name_is_shadowed(node, root, source, true);
+    }
+    let name = if node.kind() == "identifier" {
+        text(node, source).trim()
+    } else {
+        candidate.split("::").next().unwrap_or_default()
+    };
+    if name.is_empty() || standard_name_is_shadowed(node, name, source, false) {
+        return false;
+    }
+    visible_standard_imports(node, source)
+        .into_iter()
+        .any(|(alias, path)| {
+            if alias == "*" {
+                return node.kind() == "identifier"
+                    && expected
+                        .iter()
+                        .any(|expected| *expected == format!("{path}::{name}"));
+            }
+            if node.kind() == "identifier" && alias == name {
+                return expected.iter().any(|expected| *expected == path);
+            }
+            candidate
+                .strip_prefix(&format!("{alias}::"))
+                .and_then(|tail| (!tail.is_empty()).then_some(tail))
+                .is_some_and(|tail| {
+                    expected
+                        .iter()
+                        .any(|expected| *expected == format!("{path}::{tail}"))
+                })
+        })
+}
+
+fn standard_parameters_bind_name(parameters: Node<'_>, name: &str, source: &str) -> bool {
+    let mut cursor = parameters.walk();
+    parameters.named_children(&mut cursor).any(|parameter| {
+        let pattern = parameter
+            .child_by_field_name("pattern")
+            .unwrap_or(parameter);
+        pattern_binds_name(pattern, name, source)
+    })
+}
+
+fn standard_name_is_shadowed(
+    node: Node<'_>,
+    name: &str,
+    source: &str,
+    qualified_path: bool,
+) -> bool {
+    let use_start = node.start_byte();
+    let mut crossed_function = false;
+    let mut scope = node.parent();
+    while let Some(current) = scope {
+        if !crossed_function
+            && matches!(current.kind(), "closure_expression" | "function_item")
+            && current
+                .child_by_field_name("parameters")
+                .is_some_and(|parameters| standard_parameters_bind_name(parameters, name, source))
+            && !qualified_path
+        {
+            return true;
+        }
+        if matches!(current.kind(), "block" | "declaration_list" | "source_file") {
+            let mut shadowed = false;
+            walk_valid(current, &mut |candidate| {
+                let same_scope = match current.kind() {
+                    "block" => enclosing_block(candidate)
+                        .is_some_and(|block| block.start_byte() == current.start_byte()),
+                    "declaration_list" | "source_file" => {
+                        candidate.parent().is_some_and(|parent| parent == current)
+                    }
+                    _ => false,
+                };
+                if shadowed || candidate == current || !same_scope {
+                    return;
+                }
+                let item_binding = matches!(
+                    candidate.kind(),
+                    "const_item"
+                        | "enum_item"
+                        | "function_item"
+                        | "mod_item"
+                        | "static_item"
+                        | "struct_item"
+                        | "trait_item"
+                        | "type_item"
+                        | "union_item"
+                );
+                if item_binding
+                    && candidate
+                        .child_by_field_name("name")
+                        .is_some_and(|item_name| text(item_name, source).trim() == name)
+                    && candidate.end_byte() <= use_start
+                {
+                    shadowed = true;
+                    return;
+                }
+                if candidate.kind() == "use_declaration" {
+                    let mut aliases = HashSet::new();
+                    collect_use_binding_names(candidate, "", source, &mut aliases);
+                    if aliases.contains(name) {
+                        shadowed = true;
+                        return;
+                    }
+                }
+                if !crossed_function
+                    && !qualified_path
+                    && candidate.kind() == "let_declaration"
+                    && candidate.end_byte() <= use_start
+                    && candidate
+                        .child_by_field_name("pattern")
+                        .is_some_and(|pattern| pattern_binds_name(pattern, name, source))
+                {
+                    shadowed = true;
+                }
+            });
+            if shadowed {
+                return true;
+            }
+        }
+        if current.kind() == "source_file"
+            || (current.kind() == "declaration_list"
+                && current
+                    .parent()
+                    .is_some_and(|parent| parent.kind() == "mod_item"))
+        {
+            break;
+        }
+        if current.kind() == "function_item" {
+            crossed_function = true;
+        }
+        scope = current.parent();
+    }
+    false
+}
+
+fn visible_standard_imports(node: Node<'_>, source: &str) -> Vec<(String, String)> {
+    let mut imports = Vec::new();
+    let mut scope = node.parent();
+    while let Some(current) = scope {
+        if matches!(current.kind(), "block" | "declaration_list" | "source_file") {
+            let mut cursor = current.walk();
+            for child in current.named_children(&mut cursor) {
+                if child.kind() != "use_declaration" {
+                    continue;
+                }
+                collect_standard_imports(child, source, &mut imports);
+            }
+        }
+        let stop = current.kind() == "source_file"
+            || (current.kind() == "declaration_list"
+                && current
+                    .parent()
+                    .is_some_and(|parent| parent.kind() == "mod_item"));
+        if stop {
+            break;
+        }
+        scope = current.parent();
+    }
+    imports
+}
+
+fn collect_standard_imports(
+    declaration: Node<'_>,
+    source: &str,
+    imports: &mut Vec<(String, String)>,
+) {
+    let Some(argument) = declaration.child_by_field_name("argument") else {
+        return;
+    };
+    collect_standard_use_tree(argument, "", source, imports);
+}
+
+fn collect_standard_use_tree(
+    node: Node<'_>,
+    prefix: &str,
+    source: &str,
+    imports: &mut Vec<(String, String)>,
+) {
+    match node.kind() {
+        "scoped_use_list" => {
+            let path = node
+                .child_by_field_name("path")
+                .map(|path| normalized_node(path, source))
+                .unwrap_or_default();
+            let prefix = join_standard_use_path(prefix, &path);
+            if let Some(list) = node.child_by_field_name("list") {
+                collect_standard_use_tree(list, &prefix, source, imports);
+            }
+        }
+        "use_list" => {
+            let mut cursor = node.walk();
+            for item in node.named_children(&mut cursor) {
+                collect_standard_use_tree(item, prefix, source, imports);
+            }
+        }
+        "use_as_clause" => {
+            let Some(path) = node.child_by_field_name("path") else {
+                return;
+            };
+            let path = join_standard_use_path(prefix, &normalized_node(path, source));
+            let Some(alias) = node.child_by_field_name("alias") else {
+                return;
+            };
+            record_standard_import(imports, text(alias, source).trim(), &path);
+        }
+        "use_wildcard" => {
+            let wildcard = normalized_node(node, source);
+            let wildcard = wildcard.strip_prefix("::").unwrap_or(&wildcard);
+            let path = wildcard.strip_suffix("::*").map_or_else(
+                || wildcard.strip_suffix('*').unwrap_or(wildcard),
+                |path| path,
+            );
+            let path = join_standard_use_path(prefix, path.trim_end_matches("::"));
+            record_standard_import(imports, "*", &path);
+        }
+        "self" => {
+            if !prefix.is_empty() {
+                let alias = prefix.rsplit("::").next().unwrap_or(prefix);
+                record_standard_import(imports, alias, prefix);
+            }
+        }
+        _ => {
+            let item = normalized_node(node, source);
+            let path = join_standard_use_path(prefix, &item);
+            let alias = item.rsplit("::").next().unwrap_or(item.as_str());
+            record_standard_import(imports, alias, &path);
+        }
+    }
+}
+
+fn join_standard_use_path(prefix: &str, path: &str) -> String {
+    let path = path.trim_start_matches("::");
+    if path.is_empty() || path == "self" {
+        return prefix.to_string();
+    }
+    if prefix.is_empty() {
+        path.to_string()
+    } else {
+        format!("{prefix}::{path}")
+    }
+}
+fn collect_use_binding_names(
+    node: Node<'_>,
+    prefix: &str,
+    source: &str,
+    names: &mut HashSet<String>,
+) {
+    match node.kind() {
+        "scoped_use_list" => {
+            let path = node
+                .child_by_field_name("path")
+                .map(|path| normalized_node(path, source))
+                .unwrap_or_default();
+            let prefix = join_standard_use_path(prefix, &path);
+            if let Some(list) = node.child_by_field_name("list") {
+                collect_use_binding_names(list, &prefix, source, names);
+            }
+        }
+        "use_list" => {
+            let mut cursor = node.walk();
+            for item in node.named_children(&mut cursor) {
+                collect_use_binding_names(item, prefix, source, names);
+            }
+        }
+        "use_as_clause" => {
+            let Some(alias) = node.child_by_field_name("alias") else {
+                return;
+            };
+            let Some(path) = node.child_by_field_name("path") else {
+                return;
+            };
+            let path = join_standard_use_path(prefix, &normalized_node(path, source));
+            if !is_standard_import_path(&path) {
+                names.insert(text(alias, source).trim().to_string());
+            }
+        }
+        "use_wildcard" => {}
+        "self" => {
+            if !prefix.is_empty() && !is_standard_import_path(prefix) {
+                names.insert(prefix.rsplit("::").next().unwrap_or(prefix).to_string());
+            }
+        }
+        _ => {
+            let item = normalized_node(node, source);
+            let path = join_standard_use_path(prefix, &item);
+            let alias = item.rsplit("::").next().unwrap_or(item.as_str());
+            if !alias.is_empty() && !is_standard_import_path(&path) {
+                names.insert(alias.to_string());
+            }
+        }
+    }
+}
+
+fn record_standard_import(imports: &mut Vec<(String, String)>, alias: &str, path: &str) {
+    let path = path.trim_start_matches("::");
+    if !alias.is_empty() && is_standard_import_path(path) {
+        imports.push((alias.to_string(), path.to_string()));
+    }
+}
+
+fn is_standard_import_path(path: &str) -> bool {
+    let path = path.trim_start_matches("::");
+    path == "std" || path == "core" || path.starts_with("std::") || path.starts_with("core::")
+}
+
+fn infinite_iterator_origin<'tree>(
+    node: Node<'tree>,
+    source: &str,
+    seen_bindings: &mut HashSet<usize>,
+) -> Option<Node<'tree>> {
+    let node = unwrap_parenthesized(node);
+    match node.kind() {
+        "range_expression" => {
+            let compact = normalized(text(node, source));
+            (compact.len() > 2 && compact.ends_with("..")).then_some(node)
+        }
+        "call_expression" => {
+            let function = node.child_by_field_name("function")?;
+            let method = callable_name(function, source)?;
+            if is_repeat_constructor(function, source) {
+                return Some(node);
+            }
+            if method == "cycle" && call_receiver(function).is_some() {
+                return Some(node);
+            }
+            if is_bounded_iterator_consumer(method) {
+                return None;
+            }
+            if method == "chain" {
+                let receiver_origin = call_receiver(function)
+                    .and_then(|receiver| infinite_iterator_origin(receiver, source, seen_bindings));
+                if receiver_origin.is_some() {
+                    return receiver_origin;
+                }
+                return node
+                    .child_by_field_name("arguments")
+                    .and_then(|arguments| arguments.named_child(0))
+                    .and_then(|argument| {
+                        infinite_iterator_origin(argument, source, seen_bindings)
+                    });
+            }
+            call_receiver(function)
+                .and_then(|receiver| infinite_iterator_origin(receiver, source, seen_bindings))
+        }
+        "identifier" => resolve_infinite_binding(node, source, seen_bindings),
+        _ => None,
+    }
+}
+
+fn resolve_infinite_binding<'tree>(
+    identifier: Node<'tree>,
+    source: &str,
+    seen_bindings: &mut HashSet<usize>,
+) -> Option<Node<'tree>> {
+    let name = text(identifier, source).trim();
+    let owner = enclosing_function(identifier)?;
+    let mut scope = enclosing_block(identifier)?;
+    loop {
+        if let Some(value) = latest_binding_value(scope, identifier, name, owner, source) {
+            let value = value?;
+            if !seen_bindings.insert(value.start_byte()) {
+                return None;
+            }
+            return infinite_iterator_origin(value, source, seen_bindings);
+        }
+        let parent = scope.parent()?;
+        scope = enclosing_block(parent)?;
+    }
+}
+
+fn latest_binding_value<'tree>(
+    scope: Node<'tree>,
+    use_site: Node<'tree>,
+    name: &str,
+    owner: Node<'tree>,
+    source: &str,
+) -> Option<Option<Node<'tree>>> {
+    let mut latest: Option<(usize, Option<Node<'tree>>)> = None;
+    walk_valid(scope, &mut |node| {
+        let Some(node_function) = enclosing_function(node) else {
+            return;
+        };
+        if node_function.start_byte() != owner.start_byte()
+            || enclosing_block(node).is_some_and(|block| block.start_byte() != scope.start_byte())
+        {
+            return;
+        }
+        let event = match node.kind() {
+            "let_declaration" => {
+                if node.end_byte() > use_site.start_byte()
+                    || !node
+                        .child_by_field_name("pattern")
+                        .is_some_and(|pattern| pattern_binds_name(pattern, name, source))
+                {
+                    return;
+                }
+                Some((node.end_byte(), node.child_by_field_name("value")))
+            }
+            "assignment_expression" => {
+                if node.end_byte() > use_site.start_byte()
+                    || !node.child_by_field_name("left").is_some_and(|left| {
+                        left.kind() == "identifier" && text(left, source).trim() == name
+                    })
+                {
+                    return;
+                }
+                Some((node.end_byte(), node.child_by_field_name("right")))
+            }
+            "compound_assignment_expr" => {
+                if node.end_byte() > use_site.start_byte()
+                    || !node.child_by_field_name("left").is_some_and(|left| {
+                        left.kind() == "identifier" && text(left, source).trim() == name
+                    })
+                {
+                    return;
+                }
+                Some((node.end_byte(), None))
+            }
+            _ => None,
+        };
+        let Some(event) = event else {
+            return;
+        };
+        if latest
+            .as_ref()
+            .is_none_or(|(position, _)| event.0 > *position)
+        {
+            latest = Some(event);
+        }
+    });
+    latest.map(|(_, value)| value)
 }
 
 fn check_overflow_addition(source: &str, scan: &str, issues: &mut Vec<Issue>) {
@@ -3267,10 +4868,6 @@ regex_fn!(
     r#"\"(?P<left>[A-Za-z]+)\"\s*=>[^,]+,\s*\"(?P<right>[A-Za-z]+)\"\s*=>"#
 );
 regex_fn!(
-    raw_pointer_function_regex,
-    r"(?s)(?:pub\s+)?(?:unsafe\s+)?fn\s+[A-Za-z_][A-Za-z0-9_]*\s*\([^\)]*\*(?:mut|const)\s+[^\)]*\)[^\{]*\{[^\}]*\*"
-);
-regex_fn!(
     mutable_return_regex,
     r"fn\s+[A-Za-z_][A-Za-z0-9_]*\s*\([^\)]*&[^\)]*\)\s*->\s*&mut\s+"
 );
@@ -3319,10 +4916,6 @@ regex_fn!(
 regex_fn!(
     panicking_condition_regex,
     r"^(?P<receiver>[A-Za-z_][A-Za-z0-9_]*)\.is_(?:none|err)\(\)$"
-);
-regex_fn!(
-    transmute_call_regex,
-    r"(?:std::mem::|core::intrinsics::)?transmute(?:::<[^>]+>)?\([^\)]*\)"
 );
 regex_fn!(
     overflow_comparison_regex,
@@ -4364,6 +5957,507 @@ mod tests {
                 .iter()
                 .any(|issue| issue.rule_key == "hoonarqube-rust:suspicious-open-options"),
             "absolute standard-library paths must remain resolved: {absolute:?}",
+        );
+    }
+    #[test]
+    fn eager_transmute_rule_scopes_only_eager_arguments() {
+        let source = concat!(
+            "fn unrelated() { unsafe { std::mem::transmute::<u8, u8>(1); } }\n",
+            "fn eager() {\n",
+            "  let _ = true.then_some(unsafe { std::mem::transmute::<u8, u8>(1) });\n",
+            "  let _ = Some(1).unwrap_or(unsafe { std::mem::transmute::<u8, u8>(1) });\n",
+            "  let _ = Some(1).map_or(unsafe { std::mem::transmute::<u8, u8>(1) }, |_| unsafe { std::mem::transmute::<u8, u8>(1) });\n",
+            "  let _ = true.then_some(async { unsafe { std::mem::transmute::<u8, u8>(1) } });\n",
+            "}\n",
+        );
+        assert_eq!(
+            keys(source)
+                .into_iter()
+                .filter(|key| key == "rust:S7443")
+                .count(),
+            3
+        );
+    }
+    #[test]
+    fn eager_transmute_rule_rejects_free_functions_and_custom_methods() {
+        let source = concat!(
+            "struct Value;\n",
+            "impl Value { fn transmute(&self) -> u8 { 0 } }\n",
+            "fn unwrap_or(value: u8) -> u8 { value }\n",
+            "fn check(value: Value) {\n",
+            "  let _ = unwrap_or(\n",
+            "      unsafe { std::mem::transmute::<u8, u8>(1) }\n",
+            "  );\n",
+            "  let _ = Some(1).unwrap_or(value.transmute());\n",
+            "}\n",
+        );
+        assert!(
+            keys(source).into_iter().all(|key| key != "rust:S7443"),
+            "user-defined eager/transmute calls must stay silent",
+        );
+    }
+
+    #[test]
+    fn standard_paths_are_not_resolved_through_shadowing_modules() {
+        let source = concat!(
+            "mod std { pub mod mem { pub fn transmute(value: u8) -> u8 { value } } }\n",
+            "mod core { pub mod iter { pub fn repeat(_: i32) -> std::ops::Range<i32> { 0..3 } } }\n",
+            "fn check() {\n",
+            "  let _ = Some(1).unwrap_or(std::mem::transmute(1));\n",
+            "  let _ = core::iter::repeat(1).collect::<Vec<_>>();\n",
+            "  let _ = Some(1).unwrap_or(::std::mem::transmute(1));\n",
+            "  let _ = ::core::iter::repeat(1).collect::<Vec<_>>();\n",
+            "}\n",
+        );
+        let found = keys(source);
+        assert_eq!(
+            found.iter().filter(|key| *key == "rust:S7443").count(),
+            1,
+            "relative module shadowing must stay silent while absolute std stays resolved: {found:?}",
+        );
+        assert_eq!(
+            found.iter().filter(|key| *key == "rust:S7464").count(),
+            1,
+            "relative module shadowing must stay silent while absolute core stays resolved: {found:?}",
+        );
+    }
+    #[test]
+    fn standard_imports_respect_closure_parameters() {
+        let source = concat!(
+            "use std::mem::transmute;\n",
+            "use std::iter::repeat;\n",
+            "fn check() {\n",
+            "  let _ = (|transmute| Some(1).unwrap_or(transmute(1)))(identity);\n",
+            "  let _ = (|repeat| repeat(1).collect::<Vec<_>>())(identity);\n",
+            "}\n",
+        );
+        let found = keys(source);
+        assert!(
+            found
+                .iter()
+                .all(|key| key != "rust:S7443" && key != "rust:S7464"),
+            "closure parameters must shadow standard imports: {found:?}",
+        );
+    }
+
+    #[test]
+    fn standard_imports_resolve_grouped_self_aliases_and_globs() {
+        let grouped = concat!(
+            "use std::mem::{self, transmute};\n",
+            "use std::iter::{self as iter, repeat};\n",
+            "fn grouped() {\n",
+            "  let _ = Some(1).unwrap_or(mem::transmute(1));\n",
+            "  let _ = Some(1).unwrap_or(transmute(1));\n",
+            "  let _ = iter::repeat(1).collect::<Vec<_>>();\n",
+            "  let _ = repeat(1).collect::<Vec<_>>();\n",
+            "}\n",
+        );
+        let grouped_found = keys(grouped);
+        assert_eq!(
+            grouped_found
+                .iter()
+                .filter(|key| *key == "rust:S7443" || *key == "rust:S7464")
+                .count(),
+            4,
+            "grouped use trees must preserve self aliases: {grouped_found:?}",
+        );
+
+        let glob = concat!(
+            "use std::mem::*;\n",
+            "use std::iter::*;\n",
+            "fn glob() {\n",
+            "  let _ = Some(1).unwrap_or(transmute(1));\n",
+            "  let _ = repeat(1).collect::<Vec<_>>();\n",
+            "}\n",
+        );
+        let glob_found = keys(glob);
+        assert_eq!(
+            glob_found
+                .iter()
+                .filter(|key| *key == "rust:S7443" || *key == "rust:S7464")
+                .count(),
+            2,
+            "glob use trees must resolve standard leaves: {glob_found:?}",
+        );
+    }
+
+    #[test]
+    fn raw_pointer_rule_does_not_mistake_unsafe_function_types_for_modifiers() {
+        let source = concat!(
+            "fn callback_parameter(ptr: *const i32, callback: unsafe fn()) { unsafe { *ptr; } }\n",
+            "fn callback_return(ptr: *const i32) -> unsafe fn() { unsafe { *ptr; } panic!(); }\n",
+        );
+        assert_eq!(
+            keys(source)
+                .into_iter()
+                .filter(|key| key == "rust:S7446")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn raw_pointer_rule_requires_a_dereferenced_parameter_in_the_same_function() {
+        let source = concat!(
+            "fn no_deref(ptr: *const i32) { let _ = ptr; }\n",
+            "fn unrelated() { unsafe { let ptr: *const i32 = std::ptr::null(); *ptr; } }\n",
+            "fn actual(ptr: *const i32) { unsafe { *ptr; *ptr; } }\n",
+            "unsafe fn already(ptr: *const i32) { unsafe { *ptr; } }\n",
+            "fn shadowed(ptr: *const i32) { let ptr = 0; unsafe { *ptr; } }\n",
+            "fn alias(ptr: *const i32) { let alias = ptr; unsafe { *alias; } }\n",
+            "fn reassigned(ptr: *const i32) { let mut alias = ptr; alias = std::ptr::null(); unsafe { *alias; } }\n",
+            "fn shadowed_alias(ptr: *const i32) { let alias = ptr; { let alias = 0; unsafe { *alias; } } }\n",
+            "fn outer(ptr: *const i32) { fn inner() { unsafe { *ptr; } } }\n",
+        );
+        assert_eq!(
+            keys(source)
+                .into_iter()
+                .filter(|key| key == "rust:S7446")
+                .count(),
+            2
+        );
+    }
+    #[test]
+    fn raw_pointer_rule_unwraps_casts_and_destructured_parameters() {
+        let source = concat!(
+            "fn direct_cast(ptr: *const i32) { unsafe { *(ptr as *const i32); } }\n",
+            "fn alias_cast(ptr: *const i32) { let alias = ptr as *const i32; unsafe { *alias; } }\n",
+            "fn destructured((ptr, _): (*const i32, i32)) { unsafe { *ptr; } }\n",
+            "fn destructured_leading_wildcard((_, ptr): (i32, *const i32)) { unsafe { *ptr; } }\n",
+            "fn non_pointer((value, _): (i32, i32)) { unsafe { let _ = value; } }\n",
+        );
+        assert_eq!(
+            keys(source)
+                .into_iter()
+                .filter(|key| key == "rust:S7446")
+                .count(),
+            4,
+        );
+    }
+    #[test]
+    fn raw_pointer_rule_scans_macro_tokens_only_in_the_current_function() {
+        let source = concat!(
+            "fn macro_oracle(ptr: *const i32) { println!(\"{}\", unsafe { *ptr }); }\n",
+            "fn other_function() { println!(\"{}\", unsafe { *ptr }); }\n",
+            "fn string_only(ptr: *const i32) { println!(\"{}\", \"unsafe { *ptr }\"); }\n",
+            "fn comment_only(ptr: *const i32) { println!(\"{}\", /* unsafe { *ptr } */ 0); }\n",
+            "fn shadowed(ptr: *const i32) { let ptr = 0; println!(\"{}\", unsafe { *ptr }); }\n",
+            "fn alias_macro(ptr: *const i32) { let alias = ptr; println!(\"{}\", unsafe { *alias }); }\n",
+        );
+        assert_eq!(
+            keys(source)
+                .into_iter()
+                .filter(|key| key == "rust:S7446")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn raw_pointer_macro_token_collection_handles_deep_nesting() {
+        let depth = 2048;
+        let mut nested = "(".repeat(depth);
+        nested.push('0');
+        nested.push_str(&")".repeat(depth));
+        let source =
+            format!("fn deep(ptr: *const i32) {{ println!({nested}, unsafe {{ *ptr }}); }}");
+        assert_eq!(
+            keys(&source)
+                .into_iter()
+                .filter(|key| key == "rust:S7446")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn infinite_iterator_rule_follows_bounded_and_exhausting_consumers() {
+        let source = concat!(
+            "fn iterators() {\n",
+            "  let bounded = std::iter::repeat(1)\n",
+            "      .take(2)\n",
+            "      .collect::<Vec<_>>();\n",
+            "  let later = std::iter::repeat(2);\n",
+            "  let _clean_later = later.find(|value| *value == 2);\n",
+            "  let unbounded = std::iter::repeat(3)\n",
+            "      .map(|value| value + 1)\n",
+            "      .collect::<Vec<_>>();\n",
+            "  let cycle = [1, 2].into_iter().cycle().collect::<Vec<_>>();\n",
+            "  let chain = std::iter::once(0).chain(std::iter::repeat(5)).collect::<Vec<_>>();\n",
+            "  let infinite = std::iter::repeat(6);\n",
+            "  let bound_chain = std::iter::once(0).chain(infinite);\n",
+            "  let _bound_chain_result = bound_chain.collect::<Vec<_>>();\n",
+            "  let mut assigned = std::iter::repeat(4);\n",
+            "  assigned = [1, 2].into_iter();\n",
+            "  let _clean_assignment = assigned.collect::<Vec<_>>();\n",
+            "}\n",
+        );
+        assert_eq!(
+            keys(source)
+                .into_iter()
+                .filter(|key| key == "rust:S7464")
+                .count(),
+            4
+        );
+    }
+    #[test]
+    fn infinite_iterator_rule_requires_standard_repeat_provenance() {
+        let local = concat!(
+            "fn repeat(_: i32) -> std::ops::Range<i32> { 0..3 }\n",
+            "fn local() { let _ = repeat(1).collect::<Vec<_>>(); }\n",
+        );
+        assert!(
+            keys(local).into_iter().all(|key| key != "rust:S7464"),
+            "finite user-defined repeat must stay silent",
+        );
+        let imported = concat!(
+            "use std::iter::repeat;\n",
+            "fn imported() { let _ = repeat(1).collect::<Vec<_>>(); }\n",
+        );
+        assert_eq!(
+            keys(imported)
+                .into_iter()
+                .filter(|key| key == "rust:S7464")
+                .count(),
+            1
+        );
+        let absolute = concat!(
+            "fn absolute() {\n",
+            "  let _ = ::std::iter::repeat(1).collect::<Vec<_>>();\n",
+            "  let _ = ::core::iter::repeat(2).collect::<Vec<_>>();\n",
+            "}\n",
+        );
+        assert_eq!(
+            keys(absolute)
+                .into_iter()
+                .filter(|key| key == "rust:S7464")
+                .count(),
+            2
+        );
+    }
+    #[test]
+    fn standard_paths_keep_absolute_and_namespace_semantics() {
+        let source = concat!(
+            "mod custom { pub mod std {} }\n",
+            "use custom::std as custom_std;\n",
+            "fn check() {\n",
+            "  let std = 1;\n",
+            "  let _ = Some(1).unwrap_or(std::mem::transmute(1));\n",
+            "  let _ = Some(1).unwrap_or(::std::mem::transmute(1));\n",
+            "  let _ = Some(1).unwrap_or(custom_std::mem::transmute(1));\n",
+            "}\n",
+        );
+        let found = keys(source);
+        assert_eq!(
+            found.iter().filter(|key| *key == "rust:S7443").count(),
+            2,
+            "values must not shadow qualified modules, but aliases must: {found:?}",
+        );
+    }
+
+    #[test]
+    fn standard_root_aliases_and_block_use_scopes_are_lexical() {
+        let source = concat!(
+            "use ::std as standard;\n",
+            "use ::core as fundamental;\n",
+            "fn check() {\n",
+            "  let _ = Some(1).unwrap_or(standard::mem::transmute(1));\n",
+            "  let _ = fundamental::iter::repeat(1).collect::<Vec<_>>();\n",
+            "  { use std::mem::transmute; let _ = Some(1).unwrap_or(transmute(1)); }\n",
+            "  { let _ = Some(1).unwrap_or(transmute(1)); use std::mem::transmute; }\n",
+            "  let _ = Some(1).unwrap_or(transmute(1));\n",
+            "}\n",
+        );
+        let found = keys(source);
+        assert_eq!(
+            found.iter().filter(|key| *key == "rust:S7443").count(),
+            3,
+            "root aliases and block-local imports must resolve throughout their scope: {found:?}",
+        );
+        assert_eq!(
+            found.iter().filter(|key| *key == "rust:S7464").count(),
+            1,
+            "core root alias must resolve without leaking block imports: {found:?}",
+        );
+    }
+
+    #[test]
+    fn raw_pointer_rule_handles_wrapped_destructuring_and_local_projection() {
+        let source = concat!(
+            "fn array([ptr]: [*const i32; 1]) { unsafe { *ptr; } }\n",
+            "fn slice([ptr]: [*const i32]) { unsafe { *ptr; } }\n",
+            "fn reference(&(ptr,): &(*const i32,)) { unsafe { *ptr; } }\n",
+            "fn parenthesized((ptr): (*const i32)) { unsafe { *ptr; } }\n",
+            "fn local_tuple(ptr: *const i32) {\n",
+            "  let (alias, _) = (ptr, 0);\n",
+            "  unsafe { *alias; }\n",
+            "}\n",
+            "fn local_array(ptr: *const i32) {\n",
+            "  let [alias] = [ptr];\n",
+            "  unsafe { *alias; }\n",
+            "}\n",
+        );
+        assert_eq!(
+            keys(source)
+                .into_iter()
+                .filter(|key| key == "rust:S7446")
+                .count(),
+            6,
+            "all wrapped/destructured pointer paths must resolve: {source}",
+        );
+    }
+    #[test]
+    fn raw_pointer_rule_unwraps_parenthesized_macro_operands() {
+        let source = concat!(
+            "fn parenthesized(ptr: *const i32) { consume!(unsafe { *(ptr) }); }\n",
+            "fn controls(ptr: *const i32) {\n",
+            "    let _ = \"*(ptr)\";\n",
+            "    /* unsafe { *(ptr) } */\n",
+            "    let _ = ptr * 2;\n",
+            "}\n",
+        );
+        assert_eq!(
+            keys(source)
+                .into_iter()
+                .filter(|key| key == "rust:S7446")
+                .count(),
+            1,
+            "only the parenthesized macro dereference should be reported: {source}",
+        );
+    }
+
+    #[test]
+    fn infinite_iterator_rule_recognizes_unbounded_ranges() {
+        let source = concat!(
+            "fn ranges() {\n",
+            "    let _ = (0..).collect::<Vec<_>>();\n",
+            "    let range = 0..;\n",
+            "    let _ = range.count();\n",
+            "    let _ = (0..10).collect::<Vec<_>>();\n",
+            "    let _ = (..10).collect::<Vec<_>>();\n",
+            "}\n",
+        );
+        assert_eq!(
+            keys(source)
+                .into_iter()
+                .filter(|key| key == "rust:S7464")
+                .count(),
+            2,
+            "only RangeFrom origins should be reported: {source}",
+        );
+    }
+
+    #[test]
+    fn eager_transmute_rule_handles_standard_ufcs_fallbacks() {
+        let source = concat!(
+            "fn ufcs() {\n",
+            "    Option::unwrap_or(Some(1u8), unsafe { std::mem::transmute::<u8, u8>(1) });\n",
+            "    use std::option::Option as StdOption;\n",
+            "    StdOption::unwrap_or(Some(1u8), unsafe { std::mem::transmute::<u8, u8>(1) });\n",
+            "    Option::map_or(Some(1u8), unsafe { std::mem::transmute::<u8, u8>(1) }, 0u8);\n",
+            "    bool::then_some(true, unsafe { std::mem::transmute::<u8, u8>(1) });\n",
+            "    let option = Some(1u8);\n",
+            "    let _ = option.unwrap_or(unsafe { std::mem::transmute::<u8, u8>(1) });\n",
+            "    let _ = option.map_or(unsafe { std::mem::transmute::<u8, u8>(1) }, 0u8);\n",
+            "    let _ = true.then_some(unsafe { std::mem::transmute::<u8, u8>(1) });\n",
+            "}\n",
+            "struct Option;\n",
+            "fn shadowed() {\n",
+            "    Option::unwrap_or(Option, unsafe { std::mem::transmute::<u8, u8>(1) });\n",
+            "}\n",
+        );
+        assert_eq!(
+            keys(source)
+                .into_iter()
+                .filter(|key| key == "rust:S7443")
+                .count(),
+            7,
+            "standard UFCS and method fallbacks should be eager: {source}",
+        );
+    }
+
+    #[test]
+    fn eager_transmute_rule_detects_macro_token_tree_calls() {
+        let source = concat!(
+            "macro_rules! identity { ($e:expr) => {{ $e }} }\n",
+            "macro_rules! discard { ($e:expr) => {{}} }\n",
+            "fn macros() {\n",
+            "    let _ = true.then_some(identity!(unsafe { std::mem::transmute::<u8, u8>(1) }));\n",
+            "    let _ = true.then_some(discard!(unsafe { std::mem::transmute::<u8, u8>(1) }));\n",
+            "    let _ = true.then_some(identity!(\"std::mem::transmute::<u8, u8>(1)\"));\n",
+            "    let _ = false.then_some(std::dbg!(unsafe { std::mem::transmute::<u8, u8>(1) }));\n",
+            "}\n",
+        );
+        assert_eq!(
+            keys(source)
+                .into_iter()
+                .filter(|key| key == "rust:S7443")
+                .count(),
+            2,
+            "only forwarding macro token trees should be reported: {source}",
+        );
+
+        let report = analyze(
+            PathBuf::from("fixture.rs"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        let starts = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "rust:S7443")
+            .map(|issue| issue.range.start.line)
+            .collect::<Vec<_>>();
+        assert!(
+            starts.contains(&7),
+            "std::dbg! transmute was not located: {starts:?}"
+        );
+    }
+
+    #[test]
+    fn infinite_iterator_rule_handles_iterator_ufcs_consumers() {
+        let source = concat!(
+            "fn standard() {\n",
+            "    let _ = Iterator::count(std::iter::repeat(1));\n",
+            "    let _ = Iterator::count(std::iter::repeat(1).take(1));\n",
+            "    let _ = Iterator::collect::<Vec<_>>(std::iter::repeat(1));\n",
+            "    let _ = Iterator::collect::<Vec<_>>(std::iter::repeat(1).take(1));\n",
+            "    let _ = std::iter::Iterator::count(std::iter::repeat(1));\n",
+            "}\n",
+            "fn shadowed() {\n",
+            "    trait Iterator {}\n",
+            "    let _ = Iterator::count(std::iter::repeat(1));\n",
+            "}\n",
+        );
+        assert_eq!(
+            keys(source)
+                .into_iter()
+                .filter(|key| key == "rust:S7464")
+                .count(),
+            3,
+            "only standard unbounded UFCS consumers should be reported: {source}",
+        );
+    }
+    #[test]
+    fn infinite_iterator_rule_covers_macro_and_for_consumers() {
+        let source = concat!(
+            "fn consumers() {\n",
+            "    vec![std::iter::repeat(1).collect::<Vec<_>>()];\n",
+            "    vec![[1, 2].into_iter().cycle().collect::<Vec<_>>()];\n",
+            "    vec![std::iter::repeat(1).map(|value| value + 1).collect::<Vec<_>>()];\n",
+            "    vec![std::iter::repeat(1).map(|value| value + 1).take(2).collect::<Vec<_>>()];\n",
+            "    for _ in std::iter::repeat(1) {}\n",
+            "    vec![std::iter::repeat(1).take(2).collect::<Vec<_>>()];\n",
+            "    for _ in std::iter::repeat(1).take(2) {}\n",
+            "}\n",
+        );
+        assert_eq!(
+            keys(source)
+                .into_iter()
+                .filter(|key| key == "rust:S7464")
+                .count(),
+            4,
+            "only unbounded macro and for consumers should be reported: {source}",
         );
     }
 }

@@ -42,6 +42,10 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Install pinned Cosign verifier
+      if: ${{ inputs.executable == '' }}
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
     - name: Set up Hoonarqube
       if: ${{ inputs.executable == '' }}
       shell: bash
@@ -102,7 +106,7 @@ runs:
         if [[ -n "$INPUT_GO_HEADER_FORMAT" ]]; then
           args+=(--go-header-format "$INPUT_GO_HEADER_FORMAT")
         fi
-        "${hoonarqube_command[@]}" "${args[@]}" "${paths[@]}" > "$INPUT_OUTPUT"
+        "${hoonarqube_command[@]}" "${args[@]}" -- "${paths[@]}" > "$INPUT_OUTPUT"
         jq -e '.rules | type == "array"' "$INPUT_OUTPUT" >/dev/null
         jq -e '.issues | type == "array"' "$INPUT_OUTPUT" >/dev/null
 

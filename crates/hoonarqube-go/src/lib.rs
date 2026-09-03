@@ -143,6 +143,7 @@ pub fn analyze_native(source: &str) -> Vec<Issue> {
 #[derive(Debug, Default)]
 struct GoImports {
     aliases: HashMap<String, String>,
+    dot_imports: HashSet<String>,
 }
 
 impl GoImports {
@@ -157,11 +158,22 @@ impl GoImports {
             };
             let path = text(path_node, source).trim_matches(['"', '`']);
             let package = path.rsplit('/').next().unwrap_or(path);
-            let alias = node
+            match node
                 .child_by_field_name("name")
-                .map_or(package, |name| text(name, source));
-            if !matches!(alias, "_" | ".") {
-                imports.aliases.insert(path.to_string(), alias.to_string());
+                .map(|name| text(name, source))
+            {
+                Some("_") => {}
+                Some(".") => {
+                    imports.dot_imports.insert(path.to_string());
+                }
+                Some(alias) => {
+                    imports.aliases.insert(path.to_string(), alias.to_string());
+                }
+                None => {
+                    imports
+                        .aliases
+                        .insert(path.to_string(), package.to_string());
+                }
             }
         });
         imports
@@ -173,6 +185,10 @@ impl GoImports {
 
     fn qualified(&self, path: &str, member: &str) -> Option<String> {
         Some(format!("{}.{member}", self.alias(path)?))
+    }
+
+    fn non_blank_import(&self, path: &str) -> bool {
+        self.aliases.contains_key(path) || self.dot_imports.contains(path)
     }
 }
 
@@ -249,7 +265,7 @@ fn check_native_import_rules(
             "Replace RIPEMD-160 with a cryptographically strong hash.",
         ),
     ] {
-        if imports.alias(path).is_none() {
+        if !imports.non_blank_import(path) {
             continue;
         }
         walk(root, &mut |node| {
@@ -2524,7 +2540,7 @@ fn check_function(
 ) {
     if let Some(name) = node.child_by_field_name("name") {
         let value = text(name, source);
-        if value != "_" && value.contains('_') {
+        if !is_valid_name(value) {
             issues.push(node_issue(
                 "go:S100",
                 format!(
@@ -2721,9 +2737,13 @@ fn opposite_comparison(value: &str) -> Option<&'static str> {
     .find_map(|(operator, opposite)| (value == operator).then_some(opposite))
 }
 
+fn is_valid_name(value: &str) -> bool {
+    value == "_" || (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_alphanumeric()))
+}
+
 fn check_local_name(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
     let value = text(node, source);
-    if value != "_" && value.contains('_') {
+    if !is_valid_name(value) {
         issues.push(node_issue(
             "go:S117",
             "Rename this local variable to match the regular expression \"^(_|[a-zA-Z0-9]+)$\".",
@@ -2735,7 +2755,7 @@ fn check_local_name(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
 
 fn check_parameter_name(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
     let value = text(node, source);
-    if value != "_" && value.contains('_') {
+    if !is_valid_name(value) {
         issues.push(node_issue(
             "go:S117",
             "Rename this parameter to match the regular expression \"^(_|[a-zA-Z0-9]+)$\".",
@@ -3892,6 +3912,75 @@ mod tests {
             0,
             "inline body comments explain intentionally empty function literals: {found:?}"
         );
+    }
+
+    #[test]
+    fn name_rules_require_ascii_identifiers_and_allow_underscore_controls() {
+        let found = keys(concat!(
+            "package p\n",
+            "func caféName(naïve int) {\n",
+            " café := naïve\n",
+            " _ = café\n",
+            "}\n",
+        ));
+        assert_eq!(
+            found.iter().filter(|key| key.as_str() == "go:S100").count(),
+            1,
+            "Unicode function names must not bypass S100: {found:?}"
+        );
+        assert_eq!(
+            found.iter().filter(|key| key.as_str() == "go:S117").count(),
+            2,
+            "Unicode parameter and local names must fire S117: {found:?}"
+        );
+
+        let clean = keys(concat!(
+            "package p\n",
+            "func goodName(_ int, value2 int) {\n",
+            " local3 := value2\n",
+            " _ = local3\n",
+            "}\n",
+        ));
+        assert!(
+            clean.is_empty(),
+            "ASCII alphanumeric and underscore controls must stay clean: {clean:?}"
+        );
+    }
+
+    #[test]
+    fn native_weak_crypto_rules_detect_dot_imports_but_ignore_blank_imports() {
+        for (path, key) in [
+            ("crypto/md5", "hoonarqube-go:G401"),
+            ("crypto/sha1", "hoonarqube-go:G401"),
+            ("crypto/des", "hoonarqube-go:G405"),
+            ("crypto/rc4", "hoonarqube-go:G405"),
+            ("golang.org/x/crypto/md4", "hoonarqube-go:G406"),
+            ("golang.org/x/crypto/ripemd160", "hoonarqube-go:G406"),
+        ] {
+            let source = format!("package p\nimport . \"{path}\"\n");
+            let found = native_keys(&source);
+            assert_eq!(
+                found.iter().filter(|found| found.as_str() == key).count(),
+                1,
+                "dot import {path} must emit {key}: {found:?}"
+            );
+        }
+
+        for path in [
+            "crypto/md5",
+            "crypto/sha1",
+            "crypto/des",
+            "crypto/rc4",
+            "golang.org/x/crypto/md4",
+            "golang.org/x/crypto/ripemd160",
+        ] {
+            let source = format!("package p\nimport _ \"{path}\"\n");
+            let found = native_keys(&source);
+            assert!(
+                found.is_empty(),
+                "blank import {path} must stay clean: {found:?}"
+            );
+        }
     }
 
     #[test]

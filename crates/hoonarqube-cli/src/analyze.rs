@@ -207,12 +207,6 @@ pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundl
         maximum_file_loc_threshold: parameter("csharpsquid:S104", "maximumFileLocThreshold")
             .and_then(|value| value.parse().ok())
             .unwrap_or(1000),
-        header_format: parameter("csharpsquid:S1451", "headerFormat")
-            .unwrap_or_default()
-            .to_string(),
-        header_is_regular_expression: parameter("csharpsquid:S1451", "isRegularExpression")
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(false),
         ..hoonarqube_core::CSharpAnalyzerOptions::default()
     };
     let go = hoonarqube_core::GoAnalyzerOptions {
@@ -612,5 +606,13 @@ mod tests {
         let options = analyzer_options_bundle(catalog);
         assert_eq!(options.python.maximum_line_length, 120);
         assert_eq!(options.jsts.maximum_line_length, 180);
+    }
+
+    #[test]
+    fn csharp_header_defaults_remain_disabled() {
+        let options = analyzer_options_bundle(hoonarqube_catalog::embedded());
+
+        assert!(options.csharp.header_format.is_empty());
+        assert!(!options.csharp.header_is_regular_expression);
     }
 }
