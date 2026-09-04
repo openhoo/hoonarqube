@@ -1,7 +1,7 @@
 //! Tier-B usage-analysis symbol table: one pass collects declared types
 //! and members, identifier references, and field write sites.
 
-use crate::cst::{ancestors_of, collect_kinds, modifiers_of, node_text};
+use crate::cst::{ancestors_of, canonical_identifier, collect_kinds, modifiers_of, node_text};
 use crate::rules::expressions::{binary_operands, first_named_child};
 use crate::rules::modifiers::has_modifier;
 use crate::rules::naming::{TYPE_DECLARATION_KINDS, type_members};
@@ -138,7 +138,7 @@ fn collect_usage_symbols<'t>(root: Node<'t>, source: &'t str, symbols: &mut Usag
                 child_owner = Some(node);
             }
             "identifier" => symbols.references.push(Reference {
-                name: node_text(node, source),
+                name: canonical_identifier(node_text(node, source)),
                 node,
                 introduces_binding: introduces_binding(node),
             }),
@@ -195,12 +195,12 @@ fn introduces_binding(identifier: Node<'_>) -> bool {
 /// The field a write expression targets: bare identifiers and `this.x`.
 fn write_target_name<'a>(target: Node<'_>, source: &'a str) -> Option<&'a str> {
     match target.kind() {
-        "identifier" => Some(node_text(target, source)),
+        "identifier" => Some(canonical_identifier(node_text(target, source))),
         "member_access_expression" => {
             let receiver = target.child(0)?;
             let name = target.child_by_field_name("name")?;
             (matches!(receiver.kind(), "this" | "this_expression") && name.kind() == "identifier")
-                .then(|| node_text(name, source))
+                .then(|| canonical_identifier(node_text(name, source)))
         }
         _ => None,
     }
@@ -259,7 +259,7 @@ fn collect_declared_members<'t>(
                     .any(|child| child.id() != anchor.id());
                 symbols.members.push(MemberSymbol {
                     flavor,
-                    name: node_text(anchor, source),
+                    name: canonical_identifier(node_text(anchor, source)),
                     declaration: member,
                     anchor,
                     owner: type_node,
@@ -274,7 +274,7 @@ fn collect_declared_members<'t>(
             };
             symbols.members.push(MemberSymbol {
                 flavor,
-                name: node_text(anchor, source),
+                name: canonical_identifier(node_text(anchor, source)),
                 declaration: member,
                 anchor,
                 owner: type_node,

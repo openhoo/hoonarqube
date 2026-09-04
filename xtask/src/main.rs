@@ -311,19 +311,16 @@ fn capture_catalog(
     let staging = raw_dir.join(format!(".capture-{}", std::process::id()));
     ensure!(!staging.exists(), "capture staging path already exists");
     create_private_dir(&staging)?;
+    let mut staging_cleanup = StagingCleanup::new(&staging);
 
-    let result = capture_into(
+    let (manifest, manifest_bytes) = capture_into(
         &staging,
         authorization_id,
         &environment_base,
         token,
         instance,
         &queries,
-    );
-    if result.is_err() {
-        let _ = fs::remove_dir_all(&staging);
-    }
-    let (manifest, manifest_bytes) = result?;
+    )?;
     let final_dir = raw_dir.join(format!(
         "{}-{}",
         "community",
@@ -340,8 +337,32 @@ fn capture_catalog(
     } else {
         fs::rename(&staging, &final_dir).context("failed to atomically publish raw capture")?;
     }
+    staging_cleanup.disarm();
     println!("captured {}", final_dir.display());
     Ok(())
+}
+
+struct StagingCleanup<'a> {
+    path: &'a Path,
+    armed: bool,
+}
+
+impl<'a> StagingCleanup<'a> {
+    fn new(path: &'a Path) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for StagingCleanup<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = fs::remove_dir_all(self.path);
+        }
+    }
 }
 
 fn capture_into(
@@ -781,6 +802,14 @@ fn validate_base_url(input: &str) -> Result<Url> {
         "base URL must use HTTP or HTTPS"
     );
     ensure!(url.host_str().is_some(), "base URL must include a host");
+    let authority = input
+        .split_once("://")
+        .and_then(|(_, remainder)| remainder.split(['/', '?', '#']).next())
+        .unwrap_or_default();
+    ensure!(
+        !authority.contains('@'),
+        "base URL must not contain credentials"
+    );
     ensure!(
         url.username().is_empty(),
         "base URL must not contain credentials"
@@ -864,7 +893,10 @@ fn same_origin(left: &Url, right: &Url) -> bool {
 }
 
 fn origin_string(url: &Url) -> String {
-    let host = url.host_str().unwrap_or_default();
+    let host = match url.host() {
+        Some(Host::Ipv6(address)) => format!("[{address}]"),
+        _ => url.host_str().unwrap_or_default().to_owned(),
+    };
     match url.port() {
         Some(port) => format!("{}://{host}:{port}", url.scheme()),
         None => format!("{}://{host}", url.scheme()),
@@ -969,6 +1001,7 @@ fn equivalent_manifests(left: &[u8], right: &[u8]) -> Result<bool> {
 /// Formats an instant as an RFC 3339 UTC timestamp ending in `Z`.
 fn format_rfc3339_utc(timestamp: OffsetDateTime) -> Result<String> {
     timestamp
+        .to_offset(time::UtcOffset::UTC)
         .format(&Rfc3339)
         .context("failed to format capture timestamp as RFC 3339")
 }
@@ -1136,5 +1169,153 @@ mod tests {
             "2025.4.4.119049",
             "2025.4.4 (build 119050)"
         ));
+    }
+    #[test]
+    fn approval_validation_rejects_missing_actions_and_empty_ids() {
+        let mut approval = Approval {
+            id: "approval-1".to_owned(),
+            dedicated_base_url: "https://sonar.example".to_owned(),
+            approved_actions: [
+                ApprovedAction::CatalogCapture,
+                ApprovedAction::ResultsDataHandling,
+            ]
+            .into_iter()
+            .collect(),
+            publication_control: PublicationControl::CounselReviewRequired,
+        };
+        let error = validate_approval(&approval).expect_err("retention approval is required");
+        assert!(error.to_string().contains("Retention"));
+
+        approval.approved_actions.insert(ApprovedAction::Retention);
+        approval.id = " ".to_owned();
+        let error = validate_approval(&approval).expect_err("blank approval IDs must fail");
+        assert!(error.to_string().contains("approval_id"));
+
+        approval.id = "approval-1".to_owned();
+        validate_approval(&approval).expect("complete approval must validate");
+    }
+
+    #[test]
+    fn base_url_and_oracle_path_validation_reject_unsafe_boundaries() {
+        for input in [
+            "ftp://sonar.example",
+            "https://user:secret@sonar.example",
+            "https://sonar.example/path",
+            "https://sonar.example/?query=1",
+        ] {
+            assert!(validate_base_url(input).is_err(), "must reject {input}");
+        }
+        let error = validate_base_url("https://@sonar.example")
+            .expect_err("empty userinfo must be rejected");
+        assert!(error.to_string().contains("credentials"));
+        let error =
+            ensure_oracle_path(Path::new(".oracle/../catalog")).expect_err("escape must fail");
+        assert!(error.to_string().contains("parent components"));
+    }
+
+    #[test]
+    fn ipv6_origin_and_non_utc_timestamp_are_canonicalized() {
+        let url = validate_base_url("https://[::1]:9443").unwrap();
+        assert_eq!(origin_string(&url), "https://[::1]:9443");
+
+        let instant = OffsetDateTime::from_unix_timestamp(1_234_567_890)
+            .unwrap()
+            .to_offset(time::UtcOffset::from_hms(2, 0, 0).unwrap());
+        assert_eq!(format_rfc3339_utc(instant).unwrap(), "2009-02-13T23:31:30Z");
+    }
+
+    #[test]
+    fn page_size_metadata_requires_a_matching_rules_service() {
+        let missing = json!({"webServices": []});
+        assert!(documented_rule_page_size(&missing).is_err());
+        let incomplete = json!({
+            "webServices": [{
+                "path": "api/rules",
+                "actions": [{"key": "search", "params": [{"key": "ps"}]}]
+            }]
+        });
+        assert!(documented_rule_page_size(&incomplete).is_err());
+    }
+
+    #[test]
+    fn capture_files_are_never_overwritten() {
+        let directory = std::env::temp_dir().join(format!(
+            "hoonarqube-xtask-collision-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        write_capture(&directory, "capture.json", b"first").unwrap();
+        let error = write_capture(&directory, "capture.json", b"second")
+            .expect_err("capture collision must fail");
+        assert!(error.to_string().contains("refusing to overwrite"));
+        assert_eq!(fs::read(directory.join("capture.json")).unwrap(), b"first");
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn staging_cleanup_guard_removes_failed_capture_and_preserves_published_capture() {
+        let root = std::env::temp_dir().join(format!(
+            "hoonarqube-xtask-staging-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        let failed = root.join(".capture-failed");
+        fs::create_dir_all(&failed).unwrap();
+        {
+            let _cleanup = StagingCleanup::new(&failed);
+        }
+        assert!(!failed.exists());
+        fs::create_dir_all(&failed).unwrap();
+        assert!(
+            failed.is_dir(),
+            "a retry may reuse the cleaned staging path"
+        );
+        fs::remove_dir_all(&failed).unwrap();
+
+        let published = root.join("community-published");
+        fs::create_dir_all(&published).unwrap();
+        {
+            let mut cleanup = StagingCleanup::new(&published);
+            cleanup.disarm();
+        }
+        assert!(published.is_dir());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn clap_dispatch_parses_coverage_policy_and_rejects_invalid_dependency() {
+        let cli = Cli::try_parse_from([
+            "xtask",
+            "catalog",
+            "coverage",
+            "--lang",
+            "python",
+            "--strict",
+            "--allow-infra",
+        ])
+        .expect("coverage policy should parse");
+        match cli.command {
+            Command::Catalog {
+                command:
+                    CatalogCommand::Coverage {
+                        lang,
+                        strict,
+                        allow_infra,
+                    },
+            } => {
+                assert_eq!(lang.as_deref(), Some("python"));
+                assert!(strict);
+                assert!(allow_infra);
+            }
+            Command::Catalog { .. } => panic!("unexpected command"),
+        }
+        assert!(Cli::try_parse_from(["xtask", "catalog", "coverage", "--allow-infra"]).is_err());
     }
 }

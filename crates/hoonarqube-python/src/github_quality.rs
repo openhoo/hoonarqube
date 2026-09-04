@@ -8,15 +8,15 @@ use ruff_python_ast::token::TokenKind;
 use ruff_python_ast::{Expr, ModModule, Stmt};
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
-use ruff_text_size::{Ranged, TextRange};
+use ruff_text_size::{Ranged, TextRange, TextSize};
 use std::collections::HashMap;
 
 use crate::engine::file_context::FileContext;
 use crate::engine::rx::{RxUnit, decode_string_part, for_each_class, parse_regex};
 use crate::support::{
-    called_name, child_bodies, child_exprs, collect_target_names, for_each_stmt,
-    for_each_stmt_in_scope, issue_at, parse, significant_tokens, sort_issues, stmt_exprs,
-    stmt_store_names, string_value_text,
+    called_name, child_bodies, child_exprs, collect_target_names, for_each_stmt_in_scope, issue_at,
+    named_parameters, parse, significant_tokens, sort_issues, stmt_exprs, stmt_store_names,
+    string_value_text,
 };
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum BindingValue {
@@ -30,42 +30,150 @@ enum BindingValue {
     Unknown,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ScopeKind {
+    Module,
+    Function,
+    Class,
+    Comprehension,
+}
+struct ScopeFacts {
+    kind: ScopeKind,
+    parent: Option<usize>,
+    regions: Vec<TextRange>,
+    bindings: HashMap<String, Vec<ScopedBinding>>,
+}
+
+struct ScopedBinding {
+    value: BindingValue,
+    range: TextRange,
+}
+
+impl ScopeFacts {
+    fn new(kind: ScopeKind, parent: Option<usize>, regions: Vec<TextRange>) -> Self {
+        Self {
+            kind,
+            parent,
+            regions,
+            bindings: HashMap::new(),
+        }
+    }
+}
+
 #[derive(Default)]
 struct BindingFacts {
-    bindings: HashMap<String, Vec<BindingValue>>,
+    scopes: Vec<ScopeFacts>,
 }
 
 impl BindingFacts {
     fn build(parsed: &Parsed<ModModule>) -> Self {
-        let mut facts = Self::default();
-        for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
-            facts.record_statement(stmt);
-        });
-        for expr in expressions_in_source(parsed) {
-            facts.record_named_expression(expr);
-        }
+        let mut facts = Self {
+            scopes: vec![ScopeFacts::new(
+                ScopeKind::Module,
+                None,
+                vec![parsed.syntax().range()],
+            )],
+        };
+        facts.record_statements(0, parsed.syntax().body.as_slice());
         facts
     }
 
-    fn record_statement(&mut self, stmt: &Stmt) {
-        match stmt {
-            Stmt::Import(import) => self.record_import(import),
-            Stmt::ImportFrom(import) if import.level == 0 => self.record_import_from(import),
+    fn record_statements(&mut self, scope: usize, statements: &[Stmt]) {
+        for statement in statements {
+            self.record_statement(scope, statement);
+        }
+    }
+
+    fn record_statement(&mut self, scope: usize, statement: &Stmt) {
+        match statement {
+            Stmt::Import(import) => {
+                self.record_import(scope, import);
+                self.record_statement_expressions(scope, statement);
+            }
+            Stmt::ImportFrom(import) if import.level == 0 => {
+                self.record_import_from(scope, import);
+                self.record_statement_expressions(scope, statement);
+            }
             Stmt::ImportFrom(_) => {}
-            Stmt::FunctionDef(function) => self.record_function(function),
-            Stmt::ClassDef(class) => self.bind(class.name.as_str(), BindingValue::Unknown),
-            Stmt::Assign(assign) => self.record_assignment(assign),
-            Stmt::AnnAssign(assign) => self.record_ann_assignment(assign),
-            Stmt::AugAssign(assign) => self.record_aug_assignment(assign),
+            Stmt::FunctionDef(function) => {
+                self.bind(
+                    scope,
+                    function.name.as_str(),
+                    BindingValue::Unknown,
+                    statement.range(),
+                );
+                self.record_statement_expressions(scope, statement);
+                let function_scope =
+                    self.push_scope(ScopeKind::Function, scope, body_range(&function.body));
+                self.bind_parameters(function_scope, &function.parameters);
+                self.record_statements(function_scope, &function.body);
+            }
+            Stmt::ClassDef(class) => {
+                self.bind(
+                    scope,
+                    class.name.as_str(),
+                    BindingValue::Unknown,
+                    statement.range(),
+                );
+                self.record_statement_expressions(scope, statement);
+                let class_scope = self.push_scope(ScopeKind::Class, scope, body_range(&class.body));
+                self.record_statements(class_scope, &class.body);
+            }
+            Stmt::Assign(assign) => {
+                let value = binding_value(&assign.value);
+                for target in &assign.targets {
+                    let mut names = Vec::new();
+                    collect_target_names(target, &mut names);
+                    for name in names {
+                        self.bind(scope, &name, value.clone(), statement.range());
+                    }
+                }
+                self.record_statement_expressions(scope, statement);
+            }
+            Stmt::AnnAssign(assign) => {
+                let value = assign
+                    .value
+                    .as_deref()
+                    .map_or(BindingValue::Unknown, binding_value);
+                let mut names = Vec::new();
+                collect_target_names(&assign.target, &mut names);
+                for name in names {
+                    self.bind(scope, &name, value.clone(), statement.range());
+                }
+                self.record_statement_expressions(scope, statement);
+            }
+            Stmt::AugAssign(assign) => {
+                let mut names = Vec::new();
+                collect_target_names(&assign.target, &mut names);
+                for name in names {
+                    self.bind(scope, &name, BindingValue::Unknown, statement.range());
+                }
+                self.record_statement_expressions(scope, statement);
+            }
             _ => {
-                for name in stmt_store_names(stmt) {
-                    self.bind(&name, BindingValue::Unknown);
+                for name in stmt_store_names(statement) {
+                    self.bind(
+                        scope,
+                        &name,
+                        BindingValue::Unknown,
+                        statement_binding_range(statement),
+                    );
+                }
+                self.record_statement_expressions(scope, statement);
+                for body in child_bodies(statement) {
+                    self.record_statements(scope, body);
                 }
             }
         }
     }
 
-    fn record_import(&mut self, import: &ruff_python_ast::StmtImport) {
+    fn record_statement_expressions(&mut self, scope: usize, statement: &Stmt) {
+        for expression in stmt_exprs(statement) {
+            self.record_expression(scope, expression);
+        }
+    }
+
+    fn record_import(&mut self, scope: usize, import: &ruff_python_ast::StmtImport) {
         for alias in &import.names {
             let local = alias.asname.as_deref().map_or_else(
                 || {
@@ -84,11 +192,11 @@ impl BindingFacts {
                 "builtins" => BindingValue::BuiltinsModule,
                 _ => BindingValue::Unknown,
             };
-            self.bind(&local, value);
+            self.bind(scope, &local, value, alias.range());
         }
     }
 
-    fn record_import_from(&mut self, import: &ruff_python_ast::StmtImportFrom) {
+    fn record_import_from(&mut self, scope: usize, import: &ruff_python_ast::StmtImportFrom) {
         let module = import
             .module
             .as_ref()
@@ -107,98 +215,254 @@ impl BindingFacts {
                 (Some("builtins"), "format") => BindingValue::FormatFunction,
                 _ => BindingValue::Unknown,
             };
-            self.bind(&local, value);
+            self.bind(scope, &local, value, alias.range());
         }
     }
-
-    fn record_function(&mut self, function: &ruff_python_ast::StmtFunctionDef) {
-        self.bind(function.name.as_str(), BindingValue::Unknown);
-        for parameter in &function.parameters {
-            self.bind(parameter.name().as_str(), BindingValue::Unknown);
-        }
-    }
-
-    fn record_assignment(&mut self, assign: &ruff_python_ast::StmtAssign) {
-        let value = binding_value(&assign.value);
-        for target in &assign.targets {
-            if let Expr::Name(name) = target {
-                self.bind(name.id.as_str(), value.clone());
-            } else {
-                let mut names = Vec::new();
-                collect_target_names(target, &mut names);
-                for name in names {
-                    self.bind(&name, BindingValue::Unknown);
+    fn record_expression(&mut self, scope: usize, expression: &Expr) {
+        match expression {
+            Expr::Named(named) => {
+                self.record_expression(scope, &named.value);
+                let target_scope = self.nearest_non_comprehension(scope);
+                let mut target_names = Vec::new();
+                collect_target_names(&named.target, &mut target_names);
+                for name in target_names {
+                    self.bind(
+                        target_scope,
+                        &name,
+                        BindingValue::Unknown,
+                        named.target.range(),
+                    );
+                }
+            }
+            Expr::Lambda(lambda) => {
+                if let Some(parameters) = &lambda.parameters {
+                    let mut expressions = Vec::new();
+                    crate::support::push_parameter_exprs(parameters, &mut expressions);
+                    for expression in expressions {
+                        self.record_expression(scope, expression);
+                    }
+                }
+                let lambda_scope =
+                    self.push_scope(ScopeKind::Function, scope, vec![lambda.body.range()]);
+                if let Some(parameters) = &lambda.parameters {
+                    self.bind_parameters(lambda_scope, parameters);
+                }
+                self.record_expression(lambda_scope, &lambda.body);
+            }
+            Expr::ListComp(comp) => {
+                self.record_comprehension(scope, &comp.elt, &comp.generators);
+            }
+            Expr::SetComp(comp) => {
+                self.record_comprehension(scope, &comp.elt, &comp.generators);
+            }
+            Expr::Generator(comp) => {
+                self.record_comprehension(scope, &comp.elt, &comp.generators);
+            }
+            Expr::DictComp(comp) => {
+                let mut results = Vec::new();
+                if let Some(key) = &comp.key {
+                    results.push(key.as_ref());
+                }
+                results.push(comp.value.as_ref());
+                self.record_comprehension_results(scope, &results, &comp.generators);
+            }
+            _ => {
+                for child in child_exprs(expression) {
+                    self.record_expression(scope, child);
                 }
             }
         }
     }
 
-    fn record_ann_assignment(&mut self, assign: &ruff_python_ast::StmtAnnAssign) {
-        let value = assign
-            .value
-            .as_deref()
-            .map_or(BindingValue::Unknown, binding_value);
-        let mut names = Vec::new();
-        collect_target_names(&assign.target, &mut names);
-        for name in names {
-            self.bind(&name, value.clone());
-        }
+    fn record_comprehension(
+        &mut self,
+        parent: usize,
+        result: &Expr,
+        generators: &[ruff_python_ast::Comprehension],
+    ) {
+        self.record_comprehension_results(parent, &[result], generators);
     }
 
-    fn record_aug_assignment(&mut self, assign: &ruff_python_ast::StmtAugAssign) {
-        let mut names = Vec::new();
-        collect_target_names(&assign.target, &mut names);
-        for name in names {
-            self.bind(&name, BindingValue::Unknown);
+    fn record_comprehension_results(
+        &mut self,
+        parent: usize,
+        results: &[&Expr],
+        generators: &[ruff_python_ast::Comprehension],
+    ) {
+        if generators.is_empty() {
+            for result in results {
+                self.record_expression(parent, result);
+            }
+            return;
         }
-    }
-
-    fn record_named_expression(&mut self, expr: &Expr) {
-        if let Expr::Named(named) = expr {
+        let mut regions = Vec::new();
+        for generator in generators {
+            regions.push(generator.target.range());
+            regions.extend(generator.ifs.iter().map(ruff_text_size::Ranged::range));
+        }
+        for generator in generators.iter().skip(1) {
+            regions.push(generator.iter.range());
+        }
+        regions.extend(
+            results
+                .iter()
+                .map(|result| ruff_text_size::Ranged::range(*result)),
+        );
+        let comprehension = self.push_scope(ScopeKind::Comprehension, parent, regions);
+        for (index, generator) in generators.iter().enumerate() {
+            let iter_scope = if index == 0 { parent } else { comprehension };
+            self.record_expression(iter_scope, &generator.iter);
             let mut names = Vec::new();
-            collect_target_names(&named.target, &mut names);
+            collect_target_names(&generator.target, &mut names);
             for name in names {
-                self.bind(&name, BindingValue::Unknown);
+                self.bind(
+                    comprehension,
+                    &name,
+                    BindingValue::Unknown,
+                    generator.target.range(),
+                );
+            }
+            for condition in &generator.ifs {
+                self.record_expression(comprehension, condition);
             }
         }
+        for result in results {
+            self.record_expression(comprehension, result);
+        }
     }
 
-    fn bind(&mut self, name: &str, value: BindingValue) {
-        self.bindings
+    fn push_scope(&mut self, kind: ScopeKind, parent: usize, regions: Vec<TextRange>) -> usize {
+        self.scopes
+            .push(ScopeFacts::new(kind, Some(parent), regions));
+        self.scopes.len() - 1
+    }
+    fn bind_parameters(&mut self, scope: usize, parameters: &ruff_python_ast::Parameters) {
+        for parameter in named_parameters(parameters) {
+            self.bind(
+                scope,
+                parameter.parameter.name.as_str(),
+                BindingValue::Unknown,
+                parameter.parameter.name.range(),
+            );
+        }
+        for parameter in [parameters.vararg.as_deref(), parameters.kwarg.as_deref()]
+            .into_iter()
+            .flatten()
+        {
+            self.bind(
+                scope,
+                parameter.name.as_str(),
+                BindingValue::Unknown,
+                parameter.name.range(),
+            );
+        }
+    }
+
+    fn bind(&mut self, scope: usize, name: &str, value: BindingValue, range: TextRange) {
+        self.scopes[scope]
+            .bindings
             .entry(name.to_string())
             .or_default()
-            .push(value);
+            .push(ScopedBinding { value, range });
     }
 
-    fn resolve(&self, name: &str) -> Option<BindingValue> {
-        self.resolve_inner(name, &mut Vec::new())
-    }
-
-    fn resolve_inner(&self, name: &str, visiting: &mut Vec<String>) -> Option<BindingValue> {
-        if name == "format" && !self.bindings.contains_key(name) {
-            return Some(BindingValue::FormatFunction);
+    fn nearest_non_comprehension(&self, mut scope: usize) -> usize {
+        while self.scopes[scope].kind == ScopeKind::Comprehension {
+            scope = self.scopes[scope].parent.unwrap_or(scope);
         }
+        scope
+    }
+
+    fn resolve_for(&self, range: TextRange, name: &str) -> Option<BindingValue> {
+        let scope = self.scope_for(range);
+        self.resolve_inner(scope, name, Some(range.start()), &mut Vec::new())
+    }
+
+    fn scope_for(&self, range: TextRange) -> usize {
+        self.scopes
+            .iter()
+            .enumerate()
+            .filter(|(_, scope)| {
+                scope
+                    .regions
+                    .iter()
+                    .any(|region| region.start() <= range.start() && range.end() <= region.end())
+            })
+            .min_by_key(|(_, scope)| {
+                scope
+                    .regions
+                    .iter()
+                    .filter(|region| region.start() <= range.start() && range.end() <= region.end())
+                    .map(|region| u32::from(region.end()) - u32::from(region.start()))
+                    .min()
+                    .unwrap_or(u32::MAX)
+            })
+            .map_or(0, |(index, _)| index)
+    }
+
+    fn active_bindings(
+        &self,
+        scope: usize,
+        name: &str,
+        position: Option<TextSize>,
+    ) -> Option<Vec<&ScopedBinding>> {
+        self.scopes[scope].bindings.get(name).map(|bindings| {
+            bindings
+                .iter()
+                .filter(|binding| position.is_none_or(|position| binding.range.end() <= position))
+                .collect()
+        })
+    }
+
+    fn resolve_inner(
+        &self,
+        scope: usize,
+        name: &str,
+        position: Option<TextSize>,
+        visiting: &mut Vec<String>,
+    ) -> Option<BindingValue> {
+        let Some(values) = self
+            .active_bindings(scope, name, position)
+            .filter(|values| !values.is_empty())
+        else {
+            return self.resolve_missing(scope, name, position, visiting);
+        };
         if visiting.iter().any(|seen| seen == name) {
             return None;
         }
-        let values = self.bindings.get(name)?;
+        self.resolve_bindings(scope, name, values, visiting)
+    }
+
+    fn resolve_missing(
+        &self,
+        scope: usize,
+        name: &str,
+        position: Option<TextSize>,
+        visiting: &mut Vec<String>,
+    ) -> Option<BindingValue> {
+        if self.scopes[scope].bindings.contains_key(name) {
+            return match self.scopes[scope].kind {
+                ScopeKind::Class => self.resolve_inner(0, name, position, visiting),
+                ScopeKind::Function | ScopeKind::Comprehension | ScopeKind::Module => None,
+            };
+        }
+        self.lexical_parent(scope).map_or_else(
+            || (name == "format").then_some(BindingValue::FormatFunction),
+            |parent| self.resolve_inner(parent, name, None, visiting),
+        )
+    }
+
+    fn resolve_bindings(
+        &self,
+        scope: usize,
+        name: &str,
+        values: Vec<&ScopedBinding>,
+        visiting: &mut Vec<String>,
+    ) -> Option<BindingValue> {
         visiting.push(name.to_string());
         let mut resolved = None;
-        for value in values {
-            let current = match value {
-                BindingValue::Name(other) => self.resolve_inner(other, visiting),
-                BindingValue::BuiltinsFormat => {
-                    if self.bindings.get("builtins").is_none_or(|_| {
-                        self.resolve_inner("builtins", visiting)
-                            == Some(BindingValue::BuiltinsModule)
-                    }) {
-                        Some(BindingValue::FormatFunction)
-                    } else {
-                        None
-                    }
-                }
-                concrete => Some(concrete.clone()),
-            };
+        for binding in values {
+            let current = self.resolve_binding_value(scope, binding, visiting);
             if current.is_none()
                 || resolved
                     .as_ref()
@@ -211,6 +475,76 @@ impl BindingFacts {
         }
         visiting.pop();
         resolved
+    }
+
+    fn resolve_binding_value(
+        &self,
+        scope: usize,
+        binding: &ScopedBinding,
+        visiting: &mut Vec<String>,
+    ) -> Option<BindingValue> {
+        let position = binding.range.start();
+        match &binding.value {
+            BindingValue::Name(other) => self.resolve_inner(scope, other, Some(position), visiting),
+            BindingValue::BuiltinsFormat => self.resolve_builtins_format(scope, position, visiting),
+            concrete => Some(concrete.clone()),
+        }
+    }
+
+    fn resolve_builtins_format(
+        &self,
+        scope: usize,
+        position: TextSize,
+        visiting: &mut Vec<String>,
+    ) -> Option<BindingValue> {
+        let builtins = self.resolve_inner(scope, "builtins", Some(position), visiting);
+        if builtins == Some(BindingValue::BuiltinsModule)
+            || (builtins.is_none() && !self.has_binding_in_chain(scope, "builtins"))
+        {
+            Some(BindingValue::FormatFunction)
+        } else {
+            None
+        }
+    }
+
+    fn has_binding_in_chain(&self, scope: usize, name: &str) -> bool {
+        self.scopes[scope].bindings.contains_key(name)
+            || self
+                .lexical_parent(scope)
+                .is_some_and(|parent| self.has_binding_in_chain(parent, name))
+    }
+
+    fn lexical_parent(&self, scope: usize) -> Option<usize> {
+        let mut parent = self.scopes[scope].parent?;
+        if self.scopes[scope].kind != ScopeKind::Module {
+            while self.scopes[parent].kind == ScopeKind::Class {
+                parent = self.scopes[parent].parent?;
+            }
+        }
+        Some(parent)
+    }
+}
+
+fn body_range(body: &[Stmt]) -> Vec<TextRange> {
+    body.first()
+        .zip(body.last())
+        .map(|(first, last)| vec![TextRange::new(first.range().start(), last.range().end())])
+        .unwrap_or_default()
+}
+
+fn statement_binding_range(statement: &Stmt) -> TextRange {
+    match statement {
+        Stmt::For(for_stmt) => for_stmt.target.range(),
+        Stmt::With(with_stmt) => with_stmt
+            .items
+            .iter()
+            .find_map(|item| {
+                item.optional_vars
+                    .as_deref()
+                    .map(ruff_text_size::Ranged::range)
+            })
+            .unwrap_or_else(|| statement.range()),
+        _ => statement.range(),
     }
 }
 
@@ -346,10 +680,13 @@ fn is_regex_call(func: &Expr, facts: &BindingFacts) -> bool {
                 && matches!(
                     attribute.value.as_ref(),
                     Expr::Name(name)
-                        if facts.resolve(name.id.as_str()) == Some(BindingValue::ReModule)
+                        if facts.resolve_for(attribute.value.range(), name.id.as_str())
+                            == Some(BindingValue::ReModule)
                 )
         }
-        Expr::Name(name) => facts.resolve(name.id.as_str()) == Some(BindingValue::ReFunction),
+        Expr::Name(name) => {
+            facts.resolve_for(name.range(), name.id.as_str()) == Some(BindingValue::ReFunction)
+        }
         _ => false,
     }
 }
@@ -643,7 +980,8 @@ fn format_literal_for_call(
             format_method_literal(call, attribute.value.as_ref(), facts)
         }
         Expr::Name(name)
-            if facts.resolve(name.id.as_str()) == Some(BindingValue::FormatFunction) =>
+            if facts.resolve_for(name.range(), name.id.as_str())
+                == Some(BindingValue::FormatFunction) =>
         {
             first_string_literal(call)
         }
@@ -667,14 +1005,15 @@ fn is_builtin_format_receiver(receiver: &Expr, facts: &BindingFacts) -> bool {
     matches!(
         receiver,
         Expr::Name(name)
-            if facts.resolve(name.id.as_str()) == Some(BindingValue::BuiltinsModule)
+            if facts.resolve_for(name.range(), name.id.as_str())
+                == Some(BindingValue::BuiltinsModule)
     )
 }
 
 fn format_receiver_literal(receiver: &Expr, facts: &BindingFacts) -> Option<(String, TextRange)> {
     match receiver {
         Expr::StringLiteral(literal) => Some((string_value_text(&literal.value), literal.range())),
-        Expr::Name(name) => match facts.resolve(name.id.as_str()) {
+        Expr::Name(name) => match facts.resolve_for(name.range(), name.id.as_str()) {
             Some(BindingValue::Template(text)) => Some((text, receiver.range())),
             _ => None,
         },
@@ -947,5 +1286,190 @@ mod tests {
         );
         assert_clean("def format(value, *args): pass\nformat('{} {1}', a, b)\n");
         assert_clean("template = '{} {}'\ntemplate.format(a, b)\n");
+    }
+    #[test]
+    fn binding_facts_keep_nested_imports_and_assignments_in_their_scope() {
+        let source = concat!(
+            "import re\n",
+            "def local():\n",
+            "    import re as rx\n",
+            "    rx.search(r'[\\b]')\n",
+            "    re = object()\n",
+            "    re.search(r'[\\b]')\n",
+            "re.compile(r'[\\b]')\n",
+        );
+        let issues = analyze(source);
+        let regex_issues: Vec<_> = issues
+            .iter()
+            .filter(|issue| issue.rule_key == "py/regex/backspace-escape")
+            .collect();
+        assert_eq!(regex_issues.len(), 2, "{issues:?}");
+        assert_eq!(
+            regex_issues
+                .iter()
+                .map(|issue| (issue.range.start.line, issue.range.start.column))
+                .collect::<Vec<_>>(),
+            vec![(4, 14), (7, 11)]
+        );
+    }
+
+    #[test]
+    fn binding_facts_do_not_use_imports_before_their_binding() {
+        let source = concat!(
+            "def local():\n",
+            "    rx.search(r'[\\b]')\n",
+            "    import re as rx\n",
+        );
+        assert_clean(source);
+    }
+
+    #[test]
+    fn binding_facts_resolve_enclosing_imports_for_nested_function_bodies() {
+        assert_single_issue(
+            concat!(
+                "def outer():\n",
+                "    def inner():\n",
+                "        re.search(r'[\\b]')\n",
+                "    import re\n",
+                "    inner()\n",
+                "outer()\n",
+            ),
+            "py/regex/backspace-escape",
+            "Backspace escape in regular expression at offset 1.",
+            (3, 18),
+            (3, 25),
+        );
+    }
+
+    #[test]
+    fn binding_facts_keep_prior_import_visible_in_assignment_rhs() {
+        assert_single_issue(
+            "import re\nre = re.compile(r'[\\b]')\n",
+            "py/regex/backspace-escape",
+            "Backspace escape in regular expression at offset 1.",
+            (2, 16),
+            (2, 23),
+        );
+    }
+
+    #[test]
+    fn binding_facts_isolate_parameters_lambdas_and_class_attributes() {
+        let source = concat!(
+            "import re\n",
+            "class C:\n",
+            "    re = object()\n",
+            "    def method(self, re):\n",
+            "        re.search(r'[\\b]')\n",
+            "    def inherited(self):\n",
+            "        re.search(r'[\\b]')\n",
+            "callback = lambda re: re.search(r'[\\b]')\n",
+            "re.search(r'[\\b]')\n",
+        );
+        let issues = analyze(source);
+        let regex_issues: Vec<_> = issues
+            .iter()
+            .filter(|issue| issue.rule_key == "py/regex/backspace-escape")
+            .collect();
+        assert_eq!(regex_issues.len(), 2, "{issues:?}");
+        assert_eq!(
+            regex_issues
+                .iter()
+                .map(|issue| (issue.range.start.line, issue.range.start.column))
+                .collect::<Vec<_>>(),
+            vec![(7, 18), (9, 10)]
+        );
+    }
+
+    #[test]
+    fn binding_facts_class_locals_fallback_to_module_globals() {
+        let source = concat!(
+            "re = object()\n",
+            "def outer():\n",
+            "    import re\n",
+            "    class C:\n",
+            "        re.search(r'[\\b]')\n",
+            "        re = object()\n",
+        );
+        assert_clean(source);
+    }
+
+    #[test]
+    fn binding_facts_respect_parent_builtins_shadowing() {
+        let source = concat!(
+            "builtins = object()\n",
+            "def local():\n",
+            "    fmt = builtins.format\n",
+            "    fmt('{} {1}', a, b)\n",
+        );
+        assert_clean(source);
+    }
+
+    #[test]
+    fn binding_facts_scope_comprehension_targets_without_leaking_them() {
+        let source = concat!(
+            "import re\n",
+            "values = []\n",
+            "[re.search(r'[\\b]') for re in values]\n",
+            "re.search(r'[\\b]')\n",
+        );
+        let issues = analyze(source);
+        let regex_issues: Vec<_> = issues
+            .iter()
+            .filter(|issue| issue.rule_key == "py/regex/backspace-escape")
+            .collect();
+        assert_eq!(regex_issues.len(), 1, "{issues:?}");
+        assert_eq!(
+            (
+                regex_issues[0].range.start.line,
+                regex_issues[0].range.start.column
+            ),
+            (4, 10)
+        );
+    }
+
+    #[test]
+    fn binding_facts_do_not_leak_nested_templates_into_format_calls() {
+        let source = concat!(
+            "template = '{} {1}'\n",
+            "def local(template):\n",
+            "    template.format(a, b)\n",
+            "template.format(a, b)\n",
+        );
+        let issues = analyze(source);
+        let format_issues: Vec<_> = issues
+            .iter()
+            .filter(|issue| issue.rule_key == "py/str-format/mixed-fields")
+            .collect();
+        assert_eq!(format_issues.len(), 1, "{issues:?}");
+        assert_eq!(
+            (
+                format_issues[0].range.start.line,
+                format_issues[0].range.start.column
+            ),
+            (4, 0)
+        );
+    }
+
+    #[test]
+    fn binding_facts_do_not_create_outer_templates_from_nested_assignments() {
+        let source = concat!(
+            "def local():\n",
+            "    template = '{} {1}'\n",
+            "    template.format(a, b)\n",
+            "template.format(a, b)\n",
+        );
+        let issues = analyze(source);
+        let format_issues: Vec<_> = issues
+            .iter()
+            .filter(|issue| issue.rule_key == "py/str-format/mixed-fields")
+            .collect();
+        assert_eq!(format_issues.len(), 1, "{issues:?}");
+        assert_eq!(
+            (
+                format_issues[0].range.start.line,
+                format_issues[0].range.start.column
+            ),
+            (3, 4)
+        );
     }
 }

@@ -1507,6 +1507,14 @@ fn print_json<T: serde::Serialize>(value: &T) -> bool {
     true
 }
 
+fn print_text(value: &str) -> bool {
+    if let Err(error) = std::io::stdout().lock().write_all(value.as_bytes()) {
+        eprintln!("cannot write text output: {error}");
+        return false;
+    }
+    true
+}
+
 fn unknown_language(value: &str) -> ExitCode {
     eprintln!("unknown language: {value}");
     ExitCode::from(2)
@@ -1556,7 +1564,7 @@ fn sonar_import_value(
     reports: &[hoonarqube_ir::FileReport],
 ) -> Result<serde_json::Value, String> {
     let mut rules = std::collections::BTreeMap::new();
-    let mut issues = Vec::new();
+    let mut findings = Vec::new();
     for report in reports {
         let file_path = report.path.to_str().ok_or_else(|| {
             format!(
@@ -1569,9 +1577,33 @@ fn sonar_import_value(
             rules
                 .entry(rule_id.to_string())
                 .or_insert_with(|| sonar_import_rule(catalog, issue));
-            issues.push(sonar_import_issue(file_path, issue)?);
+            findings.push((file_path.to_owned(), issue));
         }
     }
+    findings.sort_by(|(path_a, issue_a), (path_b, issue_b)| {
+        (
+            path_a.as_str(),
+            issue_a.range.start.line,
+            issue_a.range.start.column,
+            issue_a.range.end.line,
+            issue_a.range.end.column,
+            issue_a.rule_key.as_str(),
+            issue_a.message.as_str(),
+        )
+            .cmp(&(
+                path_b.as_str(),
+                issue_b.range.start.line,
+                issue_b.range.start.column,
+                issue_b.range.end.line,
+                issue_b.range.end.column,
+                issue_b.rule_key.as_str(),
+                issue_b.message.as_str(),
+            ))
+    });
+    let issues = findings
+        .into_iter()
+        .map(|(file_path, issue)| sonar_import_issue(&file_path, issue))
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(serde_json::json!({
         "rules": rules.into_values().collect::<Vec<_>>(),
         "issues": issues,
@@ -1629,6 +1661,7 @@ fn sonar_import_issue(
     file_path: &str,
     issue: &hoonarqube_ir::Issue,
 ) -> Result<serde_json::Value, String> {
+    sonar_validate_range(&issue.range, "primary location")?;
     let mut primary_location = serde_json::json!({
         "message": &issue.message,
         "filePath": file_path,
@@ -1646,6 +1679,7 @@ fn sonar_import_issue(
         .flat_map(|flow| &flow.locations)
         .filter(|location| location.path.is_some() || location.range != issue.range)
         .map(|location| {
+            sonar_validate_range(&location.range, "secondary location")?;
             let secondary_file_path = match location.path.as_ref() {
                 Some(path) => path.to_str().ok_or_else(|| {
                     format!("secondary flow path is not valid UTF-8: {}", path.display())
@@ -1669,12 +1703,25 @@ fn sonar_import_issue(
     Ok(imported)
 }
 
+fn sonar_validate_range(range: &hoonarqube_ir::Range, context: &str) -> Result<(), String> {
+    if !range.is_file_level()
+        && (range.start.line == 0
+            || range.end.line == 0
+            || range.start.column == u32::MAX
+            || range.end.column == u32::MAX
+            || (range.start.line, range.start.column) > (range.end.line, range.end.column))
+    {
+        return Err(format!("invalid {context} range for Sonar output"));
+    }
+    Ok(())
+}
+
 fn sonar_text_range(range: &hoonarqube_ir::Range) -> serde_json::Value {
     serde_json::json!({
         "startLine": range.start.line,
-        "startColumn": range.start.column,
+        "startColumn": range.start.column.saturating_add(1),
         "endLine": range.end.line,
-        "endColumn": range.end.column,
+        "endColumn": range.end.column.saturating_add(1),
     })
 }
 
@@ -2171,10 +2218,7 @@ fn run_analyze(
                 false
             }
         },
-        AnalyzeFormat::Text => {
-            print!("{}", render_text_report(&reports));
-            true
-        }
+        AnalyzeFormat::Text => print_text(&render_text_report(&reports)),
     };
     if output_ok {
         ExitCode::SUCCESS
@@ -2264,9 +2308,9 @@ mod tests {
         );
         assert_eq!(first["primaryLocation"]["filePath"], "src/bad.js");
         assert_eq!(first["primaryLocation"]["textRange"]["startLine"], 1);
-        assert_eq!(first["primaryLocation"]["textRange"]["startColumn"], 0);
+        assert_eq!(first["primaryLocation"]["textRange"]["startColumn"], 1);
         assert_eq!(first["primaryLocation"]["textRange"]["endLine"], 1);
-        assert_eq!(first["primaryLocation"]["textRange"]["endColumn"], 4);
+        assert_eq!(first["primaryLocation"]["textRange"]["endColumn"], 5);
 
         assert_eq!(issues[1]["ruleId"], "python:LineLength");
         assert_eq!(issues[1]["primaryLocation"]["filePath"], "src/long.py");
@@ -2305,6 +2349,13 @@ mod tests {
         )
         .with_flow(vec![
             FlowLocation::in_primary_file("Decompression reader created here.", source_range),
+            FlowLocation::in_primary_file(
+                "Zero-column secondary location.",
+                Range {
+                    start: Pos { line: 3, column: 0 },
+                    end: Pos { line: 3, column: 1 },
+                },
+            ),
             FlowLocation::in_primary_file("Unbounded copy occurs here.", sink_range),
         ]);
         let value = sonar_import_value(
@@ -2322,9 +2373,61 @@ mod tests {
         let secondary = value["issues"][0]["secondaryLocations"]
             .as_array()
             .expect("flow source exported as secondary location");
-        assert_eq!(secondary.len(), 1, "primary sink is not duplicated");
+        assert_eq!(secondary.len(), 2, "primary sink is not duplicated");
         assert_eq!(secondary[0]["filePath"], "src/archive.go");
         assert_eq!(secondary[0]["textRange"]["startLine"], 2);
+        assert_eq!(secondary[0]["textRange"]["startColumn"], 5);
+        assert_eq!(secondary[0]["textRange"]["endColumn"], 25);
+        assert_eq!(secondary[1]["textRange"]["startColumn"], 1);
+        assert_eq!(secondary[1]["textRange"]["endColumn"], 2);
+    }
+
+    #[test]
+    fn sonar_columns_handle_unicode_paths_and_max_boundaries() {
+        let issue = Issue::new(
+            "python:S999999",
+            "unicode finding",
+            Range {
+                start: Pos { line: 1, column: 1 },
+                end: Pos { line: 1, column: 2 },
+            },
+        );
+        let value = sonar_import_value(
+            embedded(),
+            &[sample_report("src/é.py", "python", vec![issue])],
+        )
+        .expect("Unicode Generic Issue output");
+        let range = &value["issues"][0]["primaryLocation"]["textRange"];
+        assert_eq!(range["startColumn"], 2);
+        assert_eq!(range["endColumn"], 3);
+        assert_eq!(
+            value["issues"][0]["primaryLocation"]["filePath"],
+            "src/é.py"
+        );
+
+        let boundary = Range {
+            start: Pos {
+                line: 1,
+                column: u32::MAX,
+            },
+            end: Pos {
+                line: 1,
+                column: u32::MAX,
+            },
+        };
+        let converted = sonar_text_range(&boundary);
+        assert_eq!(converted["startColumn"], u32::MAX);
+        assert_eq!(converted["endColumn"], u32::MAX);
+        let error = sonar_import_value(
+            embedded(),
+            &[sample_report(
+                "src/boundary.py",
+                "python",
+                vec![Issue::new("python:S999999", "overflow", boundary)],
+            )],
+        )
+        .expect_err("maximum columns must be rejected");
+        assert!(error.contains("invalid primary location range"));
     }
 
     #[test]
@@ -2398,8 +2501,30 @@ mod tests {
             .map(|rule| rule["id"].as_str().expect("id"))
             .collect::<Vec<_>>();
         assert_eq!(ids, ["csharpsquid:S112", "python:S112"]);
-        assert_eq!(value["issues"][0]["ruleId"], "python:S112");
-        assert_eq!(value["issues"][1]["ruleId"], "csharpsquid:S112");
+        assert_eq!(value["issues"][0]["ruleId"], "csharpsquid:S112");
+        assert_eq!(value["issues"][1]["ruleId"], "python:S112");
+    }
+
+    #[test]
+    fn sonar_import_orders_findings_independent_of_report_order() {
+        let make_issue = |rule_key: &str, line: u32| {
+            Issue::new(
+                rule_key,
+                "finding",
+                Range {
+                    start: Pos { line, column: 0 },
+                    end: Pos { line, column: 1 },
+                },
+            )
+        };
+        let first = sample_report("zeta.py", "python", vec![make_issue("python:S112", 2)]);
+        let second = sample_report("alpha.py", "python", vec![make_issue("python:S113", 1)]);
+
+        let left =
+            sonar_import_value(embedded(), &[first.clone(), second.clone()]).expect("Sonar output");
+        let right = sonar_import_value(embedded(), &[second, first]).expect("Sonar output");
+
+        assert_eq!(left["issues"], right["issues"]);
     }
 
     #[cfg(unix)]
@@ -2445,6 +2570,50 @@ mod tests {
 
         let error = sonar_import_value(embedded(), &[report]).expect_err("invalid path");
         assert!(error.contains("secondary flow path is not valid UTF-8"));
+    }
+
+    #[test]
+    fn sonar_import_rejects_malformed_primary_and_flow_ranges() {
+        let malformed_primary = Issue::new(
+            "python:S999999",
+            "reversed primary range",
+            Range {
+                start: Pos { line: 3, column: 0 },
+                end: Pos { line: 2, column: 0 },
+            },
+        );
+        let primary_error = sonar_import_value(
+            embedded(),
+            &[sample_report(
+                "src/bad.py",
+                "python",
+                vec![malformed_primary],
+            )],
+        )
+        .expect_err("reversed primary range");
+        assert!(primary_error.contains("invalid primary location range for Sonar output"));
+
+        let malformed_flow = Issue::new(
+            "python:S999999",
+            "malformed flow range",
+            Range {
+                start: Pos { line: 1, column: 0 },
+                end: Pos { line: 1, column: 1 },
+            },
+        )
+        .with_flow(vec![FlowLocation::in_primary_file(
+            "invalid flow",
+            Range {
+                start: Pos { line: 0, column: 0 },
+                end: Pos { line: 1, column: 1 },
+            },
+        )]);
+        let flow_error = sonar_import_value(
+            embedded(),
+            &[sample_report("src/bad.py", "python", vec![malformed_flow])],
+        )
+        .expect_err("invalid flow range");
+        assert!(flow_error.contains("invalid secondary location range for Sonar output"));
     }
 
     /// Unique temp path for `fix_file` tests; callers clean up after use.
@@ -3064,6 +3233,10 @@ mod tests {
             Err("github-code-quality profile requires --format sarif".to_string())
         );
         assert_eq!(
+            validate_analyze_format(AnalyzeFormat::Text, RuleProfile::GithubCodeQuality),
+            Err("github-code-quality profile requires --format sarif".to_string())
+        );
+        assert_eq!(
             validate_analyze_format(AnalyzeFormat::Text, RuleProfile::Recommended),
             Ok(())
         );
@@ -3252,6 +3425,29 @@ mod tests {
         let error = sarif_value(embedded(), &[sample_report("valid.go", "go", vec![issue])])
             .expect_err("invalid related path");
         assert!(error.contains("related flow path is not valid UTF-8"));
+    }
+
+    #[test]
+    fn sarif_percent_encodes_unicode_artifact_paths() {
+        let issue = Issue::new(
+            "go/duplicate-condition",
+            "finding",
+            Range {
+                start: Pos { line: 1, column: 0 },
+                end: Pos { line: 1, column: 1 },
+            },
+        );
+        let value = sarif_value(
+            embedded(),
+            &[sample_report("dir/é space.go", "go", vec![issue])],
+        )
+        .expect("SARIF");
+
+        assert_eq!(
+            value["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]
+                ["uri"],
+            "dir/%C3%A9%20space.go"
+        );
     }
 
     #[test]

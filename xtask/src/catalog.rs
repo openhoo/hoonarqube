@@ -1,6 +1,7 @@
 #![allow(clippy::print_stdout)]
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::fmt::Write as _;
 use std::fs::{self, OpenOptions};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -233,7 +234,7 @@ pub fn import(
     let original_digest = catalog_directory_digest(output)?;
     let staging = allocate_catalog_sibling(output, "staging")?;
     let mut staging_cleanup = DirectoryCleanup::new(staging.clone());
-    if original_digest.is_some() {
+    if merge && original_digest.is_some() {
         copy_catalog_directory(output, &staging)?;
     }
 
@@ -852,7 +853,7 @@ fn audit_language(
     language_name: &str,
     language_id: &str,
     repository: &str,
-    _require_pages_complete: bool,
+    require_pages_complete: bool,
     catalog_hasher: &mut Sha256,
 ) -> Result<(usize, usize)> {
     let path = root.join("rules").join(format!("{language_name}.json"));
@@ -891,6 +892,7 @@ fn audit_language(
         &catalog,
         language_id,
         repository,
+        require_pages_complete,
     )?;
     ensure!(
         snapshot.rule_files.get(language_name) == Some(&sha256(&bytes)),
@@ -908,6 +910,7 @@ fn audit_language_receipt(
     catalog: &RuleCatalog,
     language_id: &str,
     repository: &str,
+    require_pages_complete: bool,
 ) -> Result<()> {
     ensure!(
         receipt.language == language_id && receipt.repository == repository,
@@ -980,22 +983,24 @@ fn audit_language_receipt(
         "catalog count mismatch"
     );
     audit_rule_facts(catalog, language_id, repository)?;
-    let expected_pages = receipt
-        .source_total
-        .max(1)
-        .div_ceil(receipt.page_size.context("language page size is missing")?);
-    ensure!(
-        counts_match(expected_pages, receipt.page_count),
-        "page count mismatch"
-    );
-    ensure!(
-        counts_match(receipt.source_total, receipt.unique_keys),
-        "unique-key count mismatch"
-    );
-    ensure!(
-        counts_match(receipt.source_total, receipt.show_count),
-        "show count mismatch"
-    );
+    if require_pages_complete {
+        let expected_pages = receipt
+            .source_total
+            .max(1)
+            .div_ceil(receipt.page_size.context("language page size is missing")?);
+        ensure!(
+            counts_match(expected_pages, receipt.page_count),
+            "page count mismatch"
+        );
+        ensure!(
+            counts_match(receipt.source_total, receipt.unique_keys),
+            "unique-key count mismatch"
+        );
+        ensure!(
+            counts_match(receipt.source_total, receipt.show_count),
+            "show count mismatch"
+        );
+    }
     Ok(())
 }
 
@@ -1232,6 +1237,7 @@ pub fn coverage(lang: Option<&str>, strict: bool, allow_infra: bool) -> Result<(
 }
 
 /// One language's rule classification against its analyzer crate source.
+#[derive(Debug, Clone)]
 struct LanguageCoverage {
     name: &'static str,
     /// Keys with an implementation marker.
@@ -1397,16 +1403,16 @@ fn collect_token_literals(tokens: proc_macro2::TokenStream, values: &mut Vec<Str
     }
 }
 
+fn item_requires_test(item: &syn::Item) -> bool {
+    item_attrs(item).iter().any(attribute_requires_test)
+}
+
 fn is_test_source_path(path: &Path) -> bool {
     path.components()
         .any(|component| component.as_os_str() == "tests")
         || path
             .file_stem()
             .is_some_and(|stem| stem == "tests" || stem == "test_support")
-}
-
-fn item_requires_test(item: &syn::Item) -> bool {
-    item_attrs(item).iter().any(attribute_requires_test)
 }
 
 fn attribute_requires_test(attribute: &syn::Attribute) -> bool {
@@ -1630,10 +1636,30 @@ fn dynamic_rule_marker(literal: &str) -> Option<&str> {
     (prefix.contains('{') && prefix.contains('}') && !marker.is_empty()).then_some(marker)
 }
 
-fn print_coverage(rows: &[LanguageCoverage]) {
-    println!("language      implemented  tested  missing  untested  infra  total  coverage");
-    for row in rows {
-        println!(
+fn coverage_report(rows: &[LanguageCoverage]) -> String {
+    let mut ordered = rows.iter().collect::<Vec<_>>();
+    ordered.sort_by(|left, right| {
+        let left_index = LANGUAGES
+            .iter()
+            .position(|(name, _, _)| *name == left.name)
+            .unwrap_or(usize::MAX);
+        let right_index = LANGUAGES
+            .iter()
+            .position(|(name, _, _)| *name == right.name)
+            .unwrap_or(usize::MAX);
+        left_index
+            .cmp(&right_index)
+            .then_with(|| left.name.cmp(right.name))
+    });
+    let mut report = String::new();
+    writeln!(
+        &mut report,
+        "language      implemented  tested  missing  untested  infra  total  coverage"
+    )
+    .expect("writing a String cannot fail");
+    for row in &ordered {
+        writeln!(
+            &mut report,
             "{:<12} {:>11} {:>7} {:>7} {:>9} {:>5} {:>6} {:>8.1}%",
             row.name,
             row.implemented,
@@ -1643,23 +1669,35 @@ fn print_coverage(rows: &[LanguageCoverage]) {
             row.infra.len(),
             row.total(),
             row.percent(),
-        );
+        )
+        .expect("writing a String cannot fail");
     }
-    for row in rows {
+    for row in ordered {
         if row.missing.is_empty() && row.untested.is_empty() && row.infra.is_empty() {
             continue;
         }
-        println!("\n{}:", row.name);
+        writeln!(&mut report, "\n{}:", row.name).expect("writing a String cannot fail");
         for key in &row.missing {
-            println!("  {key} (implementation missing)");
+            writeln!(&mut report, "  {key} (implementation missing)")
+                .expect("writing a String cannot fail");
         }
         for key in &row.untested {
-            println!("  {key} (test evidence missing)");
+            writeln!(&mut report, "  {key} (test evidence missing)")
+                .expect("writing a String cannot fail");
         }
         for key in &row.infra {
-            println!("  {key} (requires out-of-repository infrastructure)");
+            writeln!(
+                &mut report,
+                "  {key} (requires out-of-repository infrastructure)"
+            )
+            .expect("writing a String cannot fail");
         }
     }
+    report
+}
+
+fn print_coverage(rows: &[LanguageCoverage]) {
+    print!("{}", coverage_report(rows));
 }
 
 fn extract_language(
@@ -1795,6 +1833,7 @@ fn validate_receipt(
     repository: &str,
     page_size: u64,
 ) -> Result<()> {
+    ensure!(page_size > 0, "capture page size must be positive");
     ensure!(
         receipt.language == language && receipt.repository == repository,
         "language receipt mismatch"
@@ -2068,11 +2107,16 @@ fn count_regular_files(directory: &Path) -> Result<usize> {
 }
 
 pub(crate) fn same_server_version(left: &str, right: &str) -> bool {
-    left.split(|character: char| !character.is_ascii_digit())
-        .filter(|component| !component.is_empty())
-        .eq(right
-            .split(|character: char| !character.is_ascii_digit())
-            .filter(|component| !component.is_empty()))
+    let mut left = left
+        .split(|character: char| !character.is_ascii_digit())
+        .filter(|component| !component.is_empty());
+    let mut right = right
+        .split(|character: char| !character.is_ascii_digit())
+        .filter(|component| !component.is_empty());
+    match (left.next(), right.next()) {
+        (Some(first_left), Some(first_right)) => first_left == first_right && left.eq(right),
+        _ => false,
+    }
 }
 
 pub(crate) fn canonical_json(value: &Value) -> Result<Vec<u8>> {
@@ -2093,7 +2137,7 @@ pub(crate) fn canonical_json(value: &Value) -> Result<Vec<u8>> {
 }
 
 fn instance_mode(value: &Value) -> Result<String> {
-    value
+    let enabled = value
         .get("settings")
         .and_then(Value::as_array)
         .into_iter()
@@ -2103,8 +2147,16 @@ fn instance_mode(value: &Value) -> Result<String> {
         })
         .and_then(|setting| setting.get("value"))
         .and_then(Value::as_str)
-        .map(|enabled| if enabled == "true" { "mqr" } else { "standard" }.to_owned())
-        .context("instance-mode evidence is missing")
+        .context("instance-mode evidence is missing")?;
+    ensure!(
+        matches!(enabled, "true" | "false"),
+        "instance mode setting is not boolean"
+    );
+    Ok(if enabled == "true" {
+        "mqr".to_owned()
+    } else {
+        "standard".to_owned()
+    })
 }
 
 fn is_strictly_sorted(rules: &[RuleRecord]) -> bool {
@@ -2385,6 +2437,62 @@ mod tests {
     }
 
     #[test]
+    fn raw_manifest_rejects_missing_and_unsuccessful_endpoints() {
+        let mut endpoints = serde_json::Map::new();
+        for endpoint in REQUIRED_ENDPOINTS {
+            endpoints.insert(
+                (*endpoint).to_owned(),
+                serde_json::json!({
+                    "status": 200,
+                    "bytes": 1,
+                    "sha256": sha256(b"x"),
+                }),
+            );
+        }
+        let base = serde_json::json!({
+            "schema_version": 1,
+            "captured_at_utc": "2026-01-01T00:00:00Z",
+            "approval_id": "approval",
+            "instance": "community",
+            "base_origin": "https://sonar.example",
+            "server_version": "2025.4.4.119049",
+            "page_size": 500,
+            "project_prefix": "prefix",
+            "endpoints": serde_json::Value::Object(endpoints),
+            "languages": {},
+            "snapshot_sha256": "",
+        });
+        let finish = |mut value: Value| -> (RawManifest, Vec<u8>) {
+            let mut identity = value.clone();
+            let object = identity
+                .as_object_mut()
+                .expect("manifest must be an object");
+            object.remove("snapshot_sha256");
+            object.remove("captured_at_utc");
+            value["snapshot_sha256"] = Value::String(sha256(&canonical_json(&identity).unwrap()));
+            let bytes = serde_json::to_vec(&value).unwrap();
+            (serde_json::from_value(value).unwrap(), bytes)
+        };
+
+        let mut missing = base.clone();
+        missing["endpoints"]
+            .as_object_mut()
+            .unwrap()
+            .remove(REQUIRED_ENDPOINTS[0]);
+        let (manifest, bytes) = finish(missing);
+        let error = verify_raw_manifest(Path::new("/missing"), &manifest, &bytes)
+            .expect_err("missing endpoint receipts must fail closed");
+        assert!(error.to_string().contains("endpoint scope mismatch"));
+
+        let mut unsuccessful = base;
+        unsuccessful["endpoints"]["api/server/version"]["status"] = Value::from(500_u64);
+        let (manifest, bytes) = finish(unsuccessful);
+        let error = verify_raw_manifest(Path::new("/missing"), &manifest, &bytes)
+            .expect_err("unsuccessful endpoint receipts must fail");
+        assert!(error.to_string().contains("was not successful"));
+    }
+
+    #[test]
     fn captured_pages_enforce_lengths_and_repository_identity() {
         let receipt = RawLanguageReceipt {
             language: "py".to_owned(),
@@ -2429,6 +2537,206 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    fn create_non_merge_import_fixture(root: &Path) -> (PathBuf, PathBuf, PathBuf) {
+        let capture = root.join("capture");
+        let output = root.join("catalog");
+        let resolution = root.join("community.json");
+        fs::create_dir_all(output.join("rules")).unwrap();
+        fs::write(output.join("stale.txt"), b"stale").unwrap();
+        fs::write(output.join("rules/python.json"), b"old-catalog").unwrap();
+        fs::create_dir_all(capture.join("rules")).unwrap();
+        write_non_merge_capture(&capture);
+        write_non_merge_resolution(&resolution);
+        (capture, resolution, output)
+    }
+
+    fn write_non_merge_capture(capture: &Path) {
+        let server_version = "2025.4.4.119049";
+        let mut languages = serde_json::Map::new();
+        for (language_name, language_id, repository) in LANGUAGES {
+            languages.insert(
+                language_name.to_owned(),
+                write_non_merge_language(capture, language_name, language_id, repository),
+            );
+        }
+        let endpoints = write_non_merge_endpoints(capture);
+        let mut manifest = serde_json::json!({
+            "schema_version": 1,
+            "captured_at_utc": "2026-01-01T00:00:00Z",
+            "approval_id": "fixture",
+            "instance": "community",
+            "base_origin": "https://sonar.example",
+            "server_version": server_version,
+            "page_size": 500,
+            "project_prefix": "fixture-",
+            "endpoints": endpoints,
+            "languages": languages,
+            "snapshot_sha256": "",
+        });
+        let mut identity = manifest.clone();
+        let identity_object = identity.as_object_mut().unwrap();
+        identity_object.remove("snapshot_sha256");
+        identity_object.remove("captured_at_utc");
+        manifest["snapshot_sha256"] =
+            serde_json::Value::String(sha256(&canonical_json(&identity).unwrap()));
+        fs::write(
+            capture.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn write_non_merge_language(
+        capture: &Path,
+        language_name: &str,
+        language_id: &str,
+        repository: &str,
+    ) -> serde_json::Value {
+        let key = format!("{repository}:S100");
+        let language_dir = capture.join("rules").join(language_name);
+        fs::create_dir_all(language_dir.join("show")).unwrap();
+        let query = serde_json::to_vec(&serde_json::json!({
+            "include_external": false,
+            "is_template": false,
+            "languages": language_id,
+            "repositories": repository,
+        }))
+        .unwrap();
+        let keys = serde_json::to_vec(&serde_json::json!([key.clone()])).unwrap();
+        let page = serde_json::to_vec(&serde_json::json!({
+            "paging": {"pageIndex": 1, "pageSize": 500, "total": 1},
+            "rules": [{"key": key.clone()}],
+        }))
+        .unwrap();
+        let show = serde_json::to_vec(&serde_json::json!({
+            "rule": {
+                "key": key.clone(),
+                "lang": language_id,
+                "repo": repository,
+                "status": "ready",
+                "scope": "Main",
+                "severity": "MAJOR",
+                "type": "CODE_SMELL",
+                "isExternal": false,
+                "isTemplate": false,
+                "impacts": [],
+                "params": [],
+                "sysTags": [],
+                "tags": [],
+                "educationPrinciples": [],
+            },
+        }))
+        .unwrap();
+        fs::write(language_dir.join("query.json"), &query).unwrap();
+        fs::write(language_dir.join("keys.json"), &keys).unwrap();
+        fs::write(language_dir.join("page-0001.json"), &page).unwrap();
+        fs::write(language_dir.join("show/0000.json"), &show).unwrap();
+        let mut pages_hasher = Sha256::new();
+        hash_record(&mut pages_hasher, &page);
+        let mut shows_hasher = Sha256::new();
+        hash_record(&mut shows_hasher, key.as_bytes());
+        hash_record(&mut shows_hasher, &show);
+        serde_json::json!({
+            "language": language_id,
+            "repository": repository,
+            "query_sha256": sha256(&query),
+            "total": 1,
+            "unique_keys": 1,
+            "page_count": 1,
+            "pages_sha256": hex::encode(pages_hasher.finalize()),
+            "keys_sha256": sha256(&keys),
+            "show_count": 1,
+            "shows_sha256": hex::encode(shows_hasher.finalize()),
+        })
+    }
+
+    fn write_non_merge_endpoints(capture: &Path) -> serde_json::Map<String, serde_json::Value> {
+        let endpoint_files = [
+            (
+                "api/server/version",
+                "server-version.txt",
+                b"2025.4.4.119049".as_slice(),
+            ),
+            (
+                "api/system/status",
+                "system-status.json",
+                br#"{"version":"2025.4.4.119049","id":"fixture"}"#.as_slice(),
+            ),
+            (
+                "api/plugins/installed",
+                "plugins-installed.json",
+                br#"{"plugins":[{"key":"fixture"}]}"#.as_slice(),
+            ),
+            (
+                "api/webservices/list",
+                "webservices-list.json",
+                br#"{"webServices":[]}"#.as_slice(),
+            ),
+            (
+                "api/navigation/global",
+                "navigation-global.json",
+                br#"{"version":"2025.4.4.119049","edition":"enterprise"}"#.as_slice(),
+            ),
+            (
+                "api/settings/values?keys=sonar.multi-quality-mode.enabled",
+                "instance-mode.json",
+                br#"{"settings":[{"key":"sonar.multi-quality-mode.enabled","value":"false"}]}"#
+                    .as_slice(),
+            ),
+        ];
+        endpoint_files
+            .into_iter()
+            .map(|(endpoint, file, bytes)| {
+                fs::write(capture.join(file), bytes).unwrap();
+                (
+                    endpoint.to_owned(),
+                    serde_json::json!({
+                        "status": 200,
+                        "bytes": bytes.len(),
+                        "sha256": sha256(bytes),
+                    }),
+                )
+            })
+            .collect()
+    }
+
+    fn write_non_merge_resolution(path: &Path) {
+        let mut unverified = serde_json::Map::new();
+        for (language_name, _, _) in LANGUAGES {
+            unverified.insert(language_name.to_owned(), serde_json::json!([]));
+        }
+        let resolution = serde_json::json!({
+            "schema_version": 3,
+            "target": {
+                "oracle_edition": "community",
+                "requires_license": false,
+                "includes_enterprise_rules": true,
+                "classification": SCOPE_CLASSIFICATION,
+            },
+            "enterprise_unverified_rules": unverified,
+        });
+        fs::write(path, serde_json::to_vec(&resolution).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn non_merge_import_replaces_existing_tree() {
+        let root = std::env::temp_dir().join(format!(
+            "hoonarqube-xtask-import-replace-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        let _cleanup = DirectoryCleanup::new(root.clone());
+        let (capture, resolution, output) = create_non_merge_import_fixture(&root);
+        import(&capture, &resolution, &output, false).unwrap();
+        assert!(!output.join("stale.txt").exists());
+        let imported: RuleCatalog =
+            serde_json::from_slice(&fs::read(output.join("rules/python.json")).unwrap()).unwrap();
+        assert_eq!(imported.rules[0].external_key, "python:S100");
     }
 
     #[test]
@@ -2508,24 +2816,23 @@ mod tests {
 
     #[test]
     fn github_registry_reports_current_partial_state() {
-        use hoonarqube_catalog::github_quality::{LanguageFamily, queries_for_language};
+        use hoonarqube_catalog::github_quality::LanguageFamily;
 
-        let registry = hoonarqube_core::GITHUB_QUALITY_RULES_BY_FAMILY;
-        let report = github_coverage_report(registry).unwrap();
-        let registered = registry.iter().map(|(_, ids)| ids.len()).sum::<usize>();
-        let total = LanguageFamily::ALL
-            .into_iter()
-            .map(|family| queries_for_language(family).count())
-            .sum::<usize>();
-        assert_eq!(report.registered, registered);
-        assert_eq!(report.total, total);
-        assert_eq!(report.missing.len(), report.total - report.registered);
+        let report =
+            github_coverage_report(hoonarqube_core::GITHUB_QUALITY_RULES_BY_FAMILY).unwrap();
+        assert_eq!(report.registered, 54);
+        assert_eq!(report.total, 382);
+        assert_eq!(report.missing.len(), 328);
+        assert_eq!(
+            report.rows.iter().map(|row| row.total).collect::<Vec<_>>(),
+            [69, 22, 89, 98, 101, 3]
+        );
         assert_eq!(report.rows.len(), LanguageFamily::ALL.len());
         assert!(
             report
                 .rows
                 .iter()
-                .all(|row| { row.implemented + row.missing.len() == row.total })
+                .all(|row| row.implemented + row.missing.len() == row.total)
         );
     }
 
@@ -2632,5 +2939,205 @@ mod tests {
         };
         assert!((row.percent() - 100.0).abs() < 1e-9);
         assert!(!row.has_gaps(false));
+    }
+    #[test]
+    fn multi_language_catalog_keys_keep_coverage_partitioned() {
+        let keys: Vec<_> = LANGUAGES
+            .iter()
+            .map(|(name, language_id, _)| {
+                coverage_keys(name, language_id)
+                    .expect("frozen language catalog must be readable")
+                    .into_iter()
+                    .next()
+                    .expect("each language fixture must contain a rule")
+            })
+            .collect();
+        let markers = keys
+            .iter()
+            .map(|key| rule_key_marker(key).to_owned())
+            .collect::<Vec<_>>();
+        assert!(missing_rules(&keys, &markers, false).is_empty());
+
+        let tested = vec![keys[0].clone(), keys[3].clone()];
+        let expected_untested = keys
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != 0 && *index != 3)
+            .map(|(_, key)| key.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(missing_rules(&keys, &tested, true), expected_untested);
+    }
+
+    #[test]
+    fn coverage_report_is_deterministic_and_policy_complete() {
+        let csharp = LanguageCoverage {
+            name: "csharp",
+            implemented: 1,
+            missing: vec!["csharpsquid:S100".to_owned()],
+            untested: vec!["csharpsquid:S101".to_owned()],
+            infra: Vec::new(),
+        };
+        let python = LanguageCoverage {
+            name: "python",
+            implemented: 0,
+            missing: Vec::new(),
+            untested: Vec::new(),
+            infra: vec!["python:S6786".to_owned()],
+        };
+        let forward = coverage_report(&[python.clone(), csharp.clone()]);
+        let reverse = coverage_report(&[csharp, python]);
+        assert_eq!(forward, reverse);
+        assert!(forward.find("csharp").unwrap() < forward.find("python").unwrap());
+        assert!(forward.contains("csharpsquid:S100 (implementation missing)"));
+        assert!(forward.contains("python:S6786 (requires out-of-repository infrastructure)"));
+    }
+    #[test]
+    fn imported_evidence_rejects_invalid_mode_but_accepts_enterprise_source() {
+        let capture = std::env::temp_dir().join(format!(
+            "hoonarqube-xtask-evidence-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&capture).unwrap();
+        fs::write(
+            capture.join("navigation-global.json"),
+            br#"{"version":"2025.4.4.119049","edition":"enterprise"}"#,
+        )
+        .unwrap();
+        fs::write(
+            capture.join("system-status.json"),
+            br#"{"version":"2025.4.4.119049","id":"instance"}"#,
+        )
+        .unwrap();
+        fs::write(
+            capture.join("instance-mode.json"),
+            br#"{"settings":[{"key":"sonar.multi-quality-mode.enabled","value":"garbage"}]}"#,
+        )
+        .unwrap();
+
+        let error = imported_instance_evidence(&capture, "2025.4.4.119049")
+            .expect_err("non-boolean mode must be rejected");
+        assert!(error.to_string().contains("not boolean"));
+
+        fs::write(
+            capture.join("instance-mode.json"),
+            br#"{"settings":[{"key":"sonar.multi-quality-mode.enabled","value":"false"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            imported_instance_evidence(&capture, "2025.4.4.119049").unwrap(),
+            ("enterprise".to_owned(), "standard".to_owned())
+        );
+        fs::remove_dir_all(capture).unwrap();
+    }
+
+    #[test]
+    fn malformed_server_versions_never_compare_equal() {
+        assert!(!same_server_version("not-a-version", "totally-different"));
+        assert!(!same_server_version(
+            "2025.4.4.119049",
+            "2026.4.4 (build 119049)"
+        ));
+        assert!(same_server_version(
+            "2025.4.4.119049",
+            "2025.4.4 (build 119049)"
+        ));
+    }
+
+    #[test]
+    fn receipt_validation_rejects_zero_page_size_without_panicking() {
+        let receipt = RawLanguageReceipt {
+            language: "py".to_owned(),
+            repository: "python".to_owned(),
+            query_sha256: "0".repeat(64),
+            total: 0,
+            unique_keys: 0,
+            page_count: 1,
+            pages_sha256: "0".repeat(64),
+            keys_sha256: "0".repeat(64),
+            show_count: 0,
+            shows_sha256: "0".repeat(64),
+        };
+        let error = validate_receipt(Path::new("/missing"), "python", &receipt, "py", "python", 0)
+            .expect_err("zero page size must be rejected");
+        assert!(error.to_string().contains("page size"));
+    }
+
+    #[test]
+    fn receipt_validation_accepts_zero_total_and_rejects_wrong_page_closure() {
+        let root = std::env::temp_dir().join(format!(
+            "hoonarqube-xtask-zero-receipt-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        let language_dir = root.join("rules").join("python");
+        fs::create_dir_all(language_dir.join("show")).unwrap();
+        let query =
+            br#"{"include_external":false,"is_template":false,"languages":"py","repositories":"python"}"#;
+        let keys = br"[]";
+        let page = br#"{"paging":{"pageIndex":1,"pageSize":1,"total":0},"rules":[]}"#;
+        fs::write(language_dir.join("query.json"), query).unwrap();
+        fs::write(language_dir.join("keys.json"), keys).unwrap();
+        fs::write(language_dir.join("page-0001.json"), page).unwrap();
+        let mut pages_hasher = Sha256::new();
+        hash_record(&mut pages_hasher, page);
+        let receipt = RawLanguageReceipt {
+            language: "py".to_owned(),
+            repository: "python".to_owned(),
+            query_sha256: sha256(query),
+            total: 0,
+            unique_keys: 0,
+            page_count: 1,
+            pages_sha256: hex::encode(pages_hasher.finalize()),
+            keys_sha256: sha256(keys),
+            show_count: 0,
+            shows_sha256: sha256(&[]),
+        };
+        validate_receipt(&root, "python", &receipt, "py", "python", 1)
+            .expect("zero-total receipt with one empty page must validate");
+
+        let mut wrong_pages = receipt;
+        wrong_pages.page_count = 2;
+        let error = validate_receipt(&root, "python", &wrong_pages, "py", "python", 1)
+            .expect_err("wrong zero-total page closure must fail");
+        assert!(error.to_string().contains("page closure mismatch"));
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn page_completeness_flag_controls_closure_checks() {
+        let mut snapshot: Snapshot = toml::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../catalog/snapshot.toml"
+        )))
+        .expect("frozen snapshot must parse");
+        let catalog: RuleCatalog = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../catalog/rules/python.json"
+        )))
+        .expect("frozen Python catalog must parse");
+        let mut receipt = snapshot
+            .languages
+            .remove("python")
+            .expect("snapshot must contain Python");
+        receipt.page_count += 1;
+
+        assert!(
+            audit_language_receipt(
+                &snapshot, "python", &receipt, &catalog, "py", "python", false
+            )
+            .is_ok(),
+            "relaxed mode should permit incomplete page closure"
+        );
+        let error = audit_language_receipt(
+            &snapshot, "python", &receipt, &catalog, "py", "python", true,
+        )
+        .expect_err("required mode must enforce page closure");
+        assert!(error.to_string().contains("page count mismatch"));
     }
 }

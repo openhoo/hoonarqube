@@ -129,6 +129,9 @@ pub fn semantic_index(source: &str) -> SemanticIndex {
     let Some(tree) = context::parse(source) else {
         return context::SemanticIndex::empty();
     };
+    if tree.root_node().has_error() {
+        return context::SemanticIndex::empty();
+    }
     let lines = support::LineIndex::new(source);
     SemanticIndex::build(tree.root_node(), source, &lines)
 }
@@ -139,6 +142,9 @@ pub fn method_flows(source: &str) -> Vec<MethodFlow> {
     let Some(tree) = context::parse(source) else {
         return Vec::new();
     };
+    if tree.root_node().has_error() {
+        return Vec::new();
+    }
     let lines = support::LineIndex::new(source);
     let root = tree.root_node();
     let semantics = SemanticIndex::build(root, source, &lines);
@@ -343,5 +349,175 @@ class Values {
         let flows = method_flows(source);
         assert_eq!(flows.len(), 1);
         assert!(flows[0].facts.iterations > 0);
+    }
+    #[test]
+    fn advanced_semantics_keep_records_lambdas_and_nested_scopes_conservative() {
+        let source = r#"
+import java.util.List;
+record Box<T>(T value) {
+    String text() { return value.toString(); }
+}
+class Host {
+    void use(List<String> values) {
+        for (String item : values) { new String(item); }
+        try (java.io.InputStream stream = open()) {
+            stream.toString();
+        }
+        Runnable task = new Runnable() {
+            String field;
+            public void run() { field = "x"; }
+        };
+        values.stream().map(String::trim).forEach(item -> item.trim());
+    }
+}
+"#;
+        let index = semantic_index(source);
+        assert!(index.symbols.iter().any(|symbol| {
+            symbol.name == "Box" && matches!(&symbol.kind, super::SymbolKind::Type)
+        }));
+        assert!(index.symbols.iter().any(|symbol| symbol.name == "T"));
+        assert!(index.symbols.iter().any(|symbol| symbol.name == "value"));
+        assert!(index.symbols.iter().any(|symbol| symbol.name == "item"));
+        assert!(index.symbols.iter().any(|symbol| symbol.name == "stream"));
+        assert!(index.symbols.iter().any(|symbol| symbol.name == "field"));
+        assert!(
+            index
+                .references
+                .iter()
+                .any(|reference| reference.name == "value" && reference.symbol.is_some())
+        );
+        assert!(
+            index
+                .references
+                .iter()
+                .any(|reference| reference.name == "item" && reference.symbol.is_some())
+        );
+    }
+
+    #[test]
+    fn github_quality_uses_qualified_junit_and_test_class_boundaries() {
+        let source = "\
+import org.junit.jupiter.api.RepeatedTest;
+class Outer {
+    class Inner {
+        @RepeatedTest(2) void repeated() {}
+    }
+}
+class Contest {
+    void build() { String value = \"a\u{200B}b\"; }
+}
+interface First { void run(Object value); }
+interface Second { void run(String value); }
+";
+        let findings = analyze_github_quality(source);
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|issue| issue.rule_key == "java/junit5-missing-nested-annotation")
+                .count(),
+            1
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|issue| {
+                    issue.rule_key == "java/non-explicit-control-and-whitespace-chars-in-literals"
+                })
+                .count(),
+            1
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|issue| issue.rule_key == "java/confusing-method-signature")
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn jdk_constructor_lookup_is_lexical_for_type_parameters() {
+        let source = "\
+class Generic<String> {}
+class Uses {
+    void plain() { new String(\"value\"); }
+    <String> void shadowed() { new String(\"value\"); }
+}
+";
+        let findings = analyze_github_quality(source);
+        let counts = findings.iter().fold(
+            std::collections::BTreeMap::<&str, usize>::new(),
+            |mut counts, issue| {
+                *counts.entry(issue.rule_key.as_str()).or_default() += 1;
+                counts
+            },
+        );
+        assert_eq!(
+            counts
+                .get("java/inefficient-string-constructor")
+                .copied()
+                .unwrap_or(0),
+            1
+        );
+        assert_eq!(
+            counts
+                .get("java/string-buffer-char-init")
+                .copied()
+                .unwrap_or(0),
+            0
+        );
+        let issue = findings
+            .iter()
+            .find(|issue| issue.rule_key == "java/inefficient-string-constructor")
+            .expect("plain JDK String constructor should be reported");
+        assert_eq!(issue.message, "Inefficient new String(String) constructor.");
+        assert_eq!(issue.range.start.line, 3);
+    }
+
+    #[test]
+    fn compact_constructor_javadoc_uses_record_components() {
+        let source = "\
+record Pair(int x, int y) {
+    /**
+     * @param x Valid record component.
+     * @param nope Unknown parameter.
+     */
+    Pair {
+        this.x = x;
+    }
+}
+";
+        let findings = analyze_github_quality(source);
+        let counts = findings.iter().fold(
+            std::collections::BTreeMap::<&str, usize>::new(),
+            |mut counts, issue| {
+                *counts.entry(issue.rule_key.as_str()).or_default() += 1;
+                counts
+            },
+        );
+        assert_eq!(
+            counts
+                .get("java/unknown-javadoc-parameter")
+                .copied()
+                .unwrap_or(0),
+            1
+        );
+        let issue = findings
+            .iter()
+            .find(|issue| issue.rule_key == "java/unknown-javadoc-parameter")
+            .expect("unknown compact-constructor parameter should be reported");
+        assert_eq!(
+            issue.message,
+            "@param tag \"nope\" does not match any actual parameter of constructor \"Pair()\"."
+        );
+        assert_eq!(issue.range.start.line, 4);
+        assert_eq!(issue.range.start.column, 7);
+    }
+
+    #[test]
+    fn malformed_semantic_public_helpers_do_not_expose_recovered_facts() {
+        let source = "class Broken { void f( { String value = ;";
+        assert!(semantic_index(source).symbols.is_empty());
+        assert!(method_flows(source).is_empty());
     }
 }

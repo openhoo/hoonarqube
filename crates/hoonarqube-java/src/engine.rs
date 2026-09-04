@@ -272,6 +272,9 @@ impl<'source, 'index> Builder<'source, 'index> {
         let mut cursor = node.walk();
         let children: Vec<_> = node.named_children(&mut cursor).collect();
         if children.is_empty() {
+            if matches!(node.kind(), "block" | "constructor_body") {
+                return incoming;
+            }
             return self.statement(node, incoming, depth);
         }
         let mut frontier = incoming;
@@ -417,21 +420,36 @@ impl<'source, 'index> Builder<'source, 'index> {
         if let Some(init) = node.child_by_field_name("init") {
             frontier = self.statement(init, frontier, depth + 1);
         }
-        let condition = node.child_by_field_name("condition").unwrap_or(node);
-        let cond = self.add("condition", Some(condition));
+        let condition = node
+            .child_by_field_name("condition")
+            .or_else(|| node.child_by_field_name("value"));
+        let cond = self.add("condition", condition);
         self.connect(&frontier, cond);
         let after = self.add("loop_join", None);
         self.edge(cond, after);
         self.break_targets.push((None, after));
-        self.continue_targets.push(cond);
+
+        // A Java `continue` in a for-loop executes the update expression
+        // before testing the condition again. Build that node first so both
+        // normal body completion and continue edges can target it.
+        let update_start = node.child_by_field_name("update").map_or(cond, |update| {
+            self.statement(update, Vec::new(), depth + 1)[0]
+        });
+        self.continue_targets.push(update_start);
         let body_end = node.child_by_field_name("body").map_or(vec![cond], |body| {
             self.statement(body, vec![cond], depth + 1)
         });
-        let mut step_end = body_end;
-        if let Some(update) = node.child_by_field_name("update") {
-            step_end = self.statement(update, step_end, depth + 1);
+        if update_start == cond {
+            self.connect(&body_end, cond);
+        } else {
+            self.connect(&body_end, update_start);
+            let update_end = self
+                .nodes
+                .iter()
+                .find(|candidate| candidate.id == update_start)
+                .map_or(update_start, |candidate| candidate.id);
+            self.edge(update_end, cond);
         }
-        self.connect(&step_end, cond);
         self.continue_targets.pop();
         self.break_targets.pop();
         vec![after]
@@ -861,7 +879,7 @@ fn object_creation_issues(
         return;
     };
     if type_name == "String"
-        && expression_is_type(first, semantics, source, "String")
+        && expression_is_type(first, semantics, source, index, "String")
         && is_jdk_type(semantics, ty, source, "String")
     {
         issues.push(issue(
@@ -872,7 +890,7 @@ fn object_creation_issues(
             index,
         ));
     } else if matches!(type_name, "StringBuffer" | "StringBuilder")
-        && expression_is_type(first, semantics, source, "char")
+        && expression_is_type(first, semantics, source, index, "char")
         && is_jdk_type(semantics, ty, source, type_name)
     {
         issues.push(issue(
@@ -886,10 +904,12 @@ fn object_creation_issues(
         ));
     }
 }
+
 fn expression_is_type(
     expression: Node<'_>,
     semantics: &SemanticIndex,
     source: &str,
+    lines: &LineIndex,
     expected: &str,
 ) -> bool {
     if expected == "String" && matches!(expression.kind(), "string_literal" | "text_block") {
@@ -898,16 +918,34 @@ fn expression_is_type(
     if expected == "char" && expression.kind() == "character_literal" {
         return true;
     }
+    if expression.kind() == "parenthesized_expression"
+        && let Some(inner) = expression.named_child(0)
+    {
+        return expression_is_type(inner, semantics, source, lines, expected);
+    }
+    if expected == "String"
+        && expression.kind() == "binary_expression"
+        && expression
+            .child_by_field_name("operator")
+            .is_some_and(|operator| node_text(operator, source) == "+")
+        && expression
+            .child_by_field_name("left")
+            .is_some_and(|left| expression_is_type(left, semantics, source, lines, expected))
+        && expression
+            .child_by_field_name("right")
+            .is_some_and(|right| expression_is_type(right, semantics, source, lines, expected))
+    {
+        return true;
+    }
     if expression.kind() != "identifier" {
         return false;
     }
+    let position = lines.position(source, expression.start_byte());
     semantics
         .references
         .iter()
         .find(|reference| {
-            reference.range.start.line as usize == expression.start_position().row + 1
-                && reference.range.start.column as usize == expression.start_position().column
-                && reference.name == node_text(expression, source)
+            reference.range.start == position && reference.name == node_text(expression, source)
         })
         .and_then(|reference| reference.symbol)
         .and_then(|symbol| semantics.symbols.get(symbol.0))
@@ -1011,11 +1049,15 @@ fn is_likely_test_literal(node: Node<'_>, source: &str, index: &SemanticIndex) -
         || junit3_shape
         || ancestor(method, "class_declaration")
             .and_then(|class| class.child_by_field_name("name"))
-            .is_some_and(|name| {
-                node_text(name, source)
-                    .to_ascii_lowercase()
-                    .contains("test")
-            })
+            .is_some_and(|name| is_test_class_name(node_text(name, source)))
+}
+
+fn is_test_class_name(name: &str) -> bool {
+    name == "Test"
+        || name == "Tests"
+        || name.starts_with("Test")
+        || name.ends_with("Test")
+        || name.ends_with("Tests")
 }
 
 fn binary_issues(node: Node<'_>, source: &str, index: &LineIndex, issues: &mut Vec<Issue>) {
@@ -1032,7 +1074,7 @@ fn binary_issues(node: Node<'_>, source: &str, index: &LineIndex, issues: &mut V
                 "This string appears to be missing a space after '{}'.",
                 string_tail(left, source)
             ),
-            node,
+            left,
             source,
             index,
         );
@@ -1078,6 +1120,22 @@ fn issue(key: &str, message: &str, node: Node<'_>, source: &str, index: &LineInd
 fn ancestor<'tree>(mut node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
     while let Some(parent) = node.parent() {
         if parent.kind() == kind {
+            return Some(parent);
+        }
+        node = parent;
+    }
+    None
+}
+fn declaring_type(mut node: Node<'_>) -> Option<Node<'_>> {
+    while let Some(parent) = node.parent() {
+        if matches!(
+            parent.kind(),
+            "class_declaration"
+                | "interface_declaration"
+                | "enum_declaration"
+                | "record_declaration"
+                | "annotation_type_declaration"
+        ) {
             return Some(parent);
         }
         node = parent;
@@ -1148,9 +1206,10 @@ fn has_annotation(node: Node<'_>, source: &str, wanted: &str) -> bool {
             crate::support::collect_kinds(modifiers, &["marker_annotation", "annotation"])
         })
         .any(|annotation| {
-            annotation
-                .child_by_field_name("name")
-                .is_some_and(|name| crate::support::simple_name(node_text(name, source)) == wanted)
+            annotation.child_by_field_name("name").is_some_and(|name| {
+                let spelling = node_text(name, source);
+                spelling == wanted || spelling == format!("java.lang.{wanted}")
+            })
         })
 }
 
@@ -1170,7 +1229,7 @@ fn has_junit_annotation(node: Node<'_>, source: &str, index: &SemanticIndex, wan
         .filter_map(|annotation| annotation.child_by_field_name("name"))
         .any(|name| {
             let spelling = node_text(name, source);
-            spelling == qualified || (imported && crate::support::simple_name(spelling) == wanted)
+            spelling == qualified || (imported && spelling == wanted)
         })
 }
 
@@ -1187,22 +1246,30 @@ fn is_nested_test_class(node: Node<'_>, source: &str, index: &SemanticIndex) -> 
             _ => current = parent,
         }
     }
-    member_class
-        && !["static", "private", "abstract"]
+    if !member_class
+        || ["static", "private", "abstract"]
             .iter()
             .any(|modifier| has_modifier(node, source, modifier))
-        && (has_junit_annotation(node, source, index, "Test")
-            || crate::support::collect_kinds(node, &["method_declaration"])
-                .into_iter()
-                .any(|method| has_junit_annotation(method, source, index, "Test")))
-}
-
-fn is_shadowed_type(index: &SemanticIndex, name: &str) -> bool {
-    index.symbols.iter().any(|symbol| {
-        symbol.kind == crate::context::SymbolKind::Type && symbol.canonical_name == name
-    }) || index.imports.iter().any(|import| {
-        !import.wildcard && import.simple_name == name && import.path != format!("java.lang.{name}")
-    })
+    {
+        return false;
+    }
+    let Some(body) = node.child_by_field_name("body") else {
+        return false;
+    };
+    direct_named_children(body)
+        .into_iter()
+        .filter(|member| member.kind() == "method_declaration")
+        .any(|method| {
+            [
+                "Test",
+                "RepeatedTest",
+                "ParameterizedTest",
+                "TestFactory",
+                "TestTemplate",
+            ]
+            .iter()
+            .any(|name| has_junit_annotation(method, source, index, name))
+        })
 }
 
 fn is_jdk_type(index: &SemanticIndex, node: Node<'_>, source: &str, expected: &str) -> bool {
@@ -1210,7 +1277,7 @@ fn is_jdk_type(index: &SemanticIndex, node: Node<'_>, source: &str, expected: &s
         .split_whitespace()
         .collect::<String>();
     spelling == format!("java.lang.{expected}")
-        || (spelling == expected && !is_shadowed_type(index, expected))
+        || (spelling == expected && !index.type_name_is_shadowed_at(expected, node.start_byte()))
 }
 
 fn direct_named_children(node: Node<'_>) -> Vec<Node<'_>> {
@@ -1359,7 +1426,7 @@ fn string_tail(node: Node<'_>, source: &str) -> String {
 fn missing_space(left: Node<'_>, right: Node<'_>, source: &str) -> bool {
     let l = string_tail(left, source);
     let r = string_tail(right, source);
-    if !r.chars().next().is_some_and(|ch| ch.is_ascii_alphabetic()) {
+    if !r.chars().next().is_some_and(char::is_alphabetic) {
         return false;
     }
     let mut word = l.trim_end();
@@ -1373,9 +1440,7 @@ fn missing_space(left: Node<'_>, right: Node<'_>, source: &str) -> bool {
     {
         word = word.get(..word.len().saturating_sub(1)).unwrap_or("");
     }
-    word.chars()
-        .last()
-        .is_some_and(|ch| ch.is_ascii_alphanumeric())
+    word.chars().last().is_some_and(char::is_alphanumeric)
 }
 
 fn whitespace_contradicts(node: Node<'_>, source: &str) -> bool {
@@ -1500,6 +1565,124 @@ fn doc_comment_before(node: Node<'_>, source: &str) -> Option<(usize, usize)> {
         .then_some((start, end))
 }
 
+fn javadoc_param_tag<'a>(
+    text: &'a str,
+    start: usize,
+    offset: usize,
+    line: &'a str,
+) -> Option<(usize, &'a str)> {
+    let at = line.find("@param")?;
+    let tag_start = start
+        + text
+            .split_inclusive('\n')
+            .take(offset)
+            .map(str::len)
+            .sum::<usize>()
+        + at;
+    Some((tag_start, line[at + 6..].trim()))
+}
+
+fn javadoc_param_value(rest: &str) -> (bool, &str) {
+    let valid = match rest {
+        "" => false,
+        value if value.starts_with('<') => value.find('>').is_some(),
+        _ => true,
+    };
+    let name_text = rest.split_whitespace().next().unwrap_or("");
+    (valid, name_text)
+}
+
+fn javadoc_declaration(node: Node<'_>) -> Node<'_> {
+    if node.kind() == "compact_constructor_declaration" {
+        ancestor(node, "record_declaration").unwrap_or(node)
+    } else {
+        node
+    }
+}
+
+fn javadoc_parameter_names<'a>(declaration: Node<'_>, source: &'a str) -> Vec<&'a str> {
+    declaration
+        .child_by_field_name("parameters")
+        .map(|parameters| {
+            direct_named_children(parameters)
+                .into_iter()
+                .filter_map(|parameter| parameter.child_by_field_name("name"))
+                .map(|name| node_text(name, source))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn javadoc_type_parameter_names<'a>(declaration: Node<'_>, source: &'a str) -> Vec<&'a str> {
+    declaration
+        .child_by_field_name("type_parameters")
+        .map(|parameters| {
+            direct_named_children(parameters)
+                .into_iter()
+                .map(|parameter| node_text(parameter, source))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn javadoc_param_is_known(name_text: &str, params: &[&str], type_params: &[&str]) -> bool {
+    if name_text.starts_with('<') {
+        type_params
+            .iter()
+            .any(|parameter| parameter.contains(name_text.trim_matches(['<', '>'])))
+    } else {
+        params.contains(&name_text)
+    }
+}
+
+fn javadoc_param_message(
+    node: Node<'_>,
+    name: Node<'_>,
+    name_text: &str,
+    valid: bool,
+    source: &str,
+) -> String {
+    if !valid {
+        return "This @param tag does not have a value.".to_owned();
+    }
+    let what = if matches!(
+        node.kind(),
+        "constructor_declaration" | "compact_constructor_declaration"
+    ) {
+        "constructor"
+    } else {
+        "method"
+    };
+    format!(
+        "@param tag \"{name_text}\" does not match any actual parameter of {what} \"{}()\".",
+        node_text(name, source)
+    )
+}
+
+fn javadoc_param_issue(
+    node: Node<'_>,
+    name: Node<'_>,
+    rest: &str,
+    tag_start: usize,
+    source: &str,
+    index: &LineIndex,
+) -> Option<Issue> {
+    let tag_range = index.range(source, tag_start, tag_start + 6);
+    let (valid, name_text) = javadoc_param_value(rest);
+    let declaration = javadoc_declaration(node);
+    let params = javadoc_parameter_names(declaration, source);
+    let type_params = javadoc_type_parameter_names(declaration, source);
+    if valid && javadoc_param_is_known(name_text, &params, &type_params) {
+        return None;
+    }
+    let message = javadoc_param_message(node, name, name_text, valid, source);
+    Some(Issue::new(
+        "java/unknown-javadoc-parameter",
+        message,
+        tag_range,
+    ))
+}
+
 fn javadoc_param_issues(
     node: Node<'_>,
     name: Node<'_>,
@@ -1512,69 +1695,11 @@ fn javadoc_param_issues(
     let text = &source[start..end];
     let mut out = Vec::new();
     for (offset, line) in text.lines().enumerate() {
-        let Some(at) = line.find("@param") else {
+        let Some((tag_start, rest)) = javadoc_param_tag(text, start, offset, line) else {
             continue;
         };
-        let rest = line[at + 6..].trim();
-        let tag_start = start
-            + text
-                .split_inclusive('\n')
-                .take(offset)
-                .map(str::len)
-                .sum::<usize>()
-            + at;
-        let tag_range = index.range(source, tag_start, tag_start + 6);
-        let valid = if rest.is_empty() {
-            false
-        } else {
-            rest.starts_with('<') && rest.find('>').is_some() || !rest.starts_with('<')
-        };
-        let name_text = rest.split_whitespace().next().unwrap_or("");
-        let params = node
-            .child_by_field_name("parameters")
-            .map(|p| {
-                direct_named_children(p)
-                    .into_iter()
-                    .filter_map(|p| p.child_by_field_name("name"))
-                    .map(|n| node_text(n, source))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let type_params = node
-            .child_by_field_name("type_parameters")
-            .map(|p| {
-                direct_named_children(p)
-                    .into_iter()
-                    .map(|p| node_text(p, source))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let known = if name_text.starts_with('<') {
-            type_params
-                .iter()
-                .any(|p| p.contains(name_text.trim_matches(['<', '>'])))
-        } else {
-            params.contains(&name_text)
-        };
-        if !valid || !known {
-            let message = if valid {
-                let what = if node.kind() == "constructor_declaration" {
-                    "constructor"
-                } else {
-                    "method"
-                };
-                format!(
-                    "@param tag \"{name_text}\" does not match any actual parameter of {what} \"{}()\".",
-                    node_text(name, source)
-                )
-            } else {
-                "This @param tag does not have a value.".to_owned()
-            };
-            out.push(Issue::new(
-                "java/unknown-javadoc-parameter",
-                message,
-                tag_range,
-            ));
+        if let Some(issue) = javadoc_param_issue(node, name, rest, tag_start, source, index) {
+            out.push(issue);
         }
     }
     out
@@ -1590,6 +1715,7 @@ fn javadoc_issues(root: Node<'_>, source: &str, index: &LineIndex) -> Vec<Issue>
             "record_declaration",
             "method_declaration",
             "constructor_declaration",
+            "compact_constructor_declaration",
         ],
     ) {
         let Some(comment) = doc_comment_before(node, source) else {
@@ -1612,7 +1738,7 @@ fn method_name_issues(root: Node<'_>, source: &str, index: &LineIndex) -> Vec<Is
     let methods = crate::support::collect_kinds(root, &["method_declaration"]);
     let mut out = Vec::new();
     for (i, method) in methods.iter().enumerate() {
-        let Some(owner) = ancestor(*method, "class_declaration") else {
+        let Some(owner) = declaring_type(*method) else {
             continue;
         };
         let Some(name) = method.child_by_field_name("name") else {
@@ -1622,7 +1748,7 @@ fn method_name_issues(root: Node<'_>, source: &str, index: &LineIndex) -> Vec<Is
             continue;
         }
         for other in methods.iter().skip(i + 1) {
-            if ancestor(*other, "class_declaration").is_none_or(|value| value.id() != owner.id())
+            if declaring_type(*other).is_none_or(|value| value.id() != owner.id())
                 || has_annotation(*other, source, "Deprecated")
             {
                 continue;
@@ -1666,18 +1792,19 @@ fn method_signature_issues(root: Node<'_>, source: &str, index: &LineIndex) -> V
         let Some(name) = method.child_by_field_name("name") else {
             continue;
         };
+        let Some(owner) = declaring_type(*method) else {
+            continue;
+        };
         let count = method
             .child_by_field_name("parameters")
             .map_or(0, |p| p.named_child_count());
         for other in methods.iter().skip(i + 1) {
+            if declaring_type(*other).is_none_or(|value| value.id() != owner.id()) {
+                continue;
+            }
             let Some(other_name) = other.child_by_field_name("name") else {
                 continue;
             };
-            if ancestor(*method, "class_declaration").map(|node| node.id())
-                != ancestor(*other, "class_declaration").map(|node| node.id())
-            {
-                continue;
-            }
             if node_text(name, source) != node_text(other_name, source)
                 || count
                     != other
@@ -1697,15 +1824,12 @@ fn method_signature_issues(root: Node<'_>, source: &str, index: &LineIndex) -> V
             {
                 continue;
             }
-            let (primary, related) = if ancestor(*method, "class_declaration").map(|n| n.id())
-                == ancestor(*other, "class_declaration").map(|n| n.id())
-                || method.start_byte() > other.start_byte()
-            {
+            let (primary, related) = if method.start_byte() > other.start_byte() {
                 (*method, *other)
             } else {
                 (*other, *method)
             };
-            let owner = ancestor(primary, "class_declaration")
+            let owner_name = declaring_type(primary)
                 .and_then(|n| n.child_by_field_name("name"))
                 .map_or("", |n| node_text(n, source));
             let method_name = primary
@@ -1714,7 +1838,7 @@ fn method_signature_issues(root: Node<'_>, source: &str, index: &LineIndex) -> V
             let mut finding = issue(
                 "java/confusing-method-signature",
                 &format!(
-                    "Method {owner}.{method_name}(..) could be confused with overloaded method $@, since dispatch depends on static types."
+                    "Method {owner_name}.{method_name}(..) could be confused with overloaded method $@, since dispatch depends on static types."
                 ),
                 primary,
                 source,
@@ -1746,9 +1870,14 @@ fn parameter_types(method: Node<'_>, source: &str) -> Vec<String> {
 }
 
 fn potentially_confusing(a: &str, b: &str) -> bool {
+    let primitive = |name: &str| {
+        matches!(
+            name,
+            "byte" | "short" | "int" | "long" | "char" | "float" | "double" | "boolean"
+        )
+    };
     a == b
-        || a == "Object"
-        || b == "Object"
+        || ((!primitive(a) && !primitive(b)) && (a == "Object" || b == "Object"))
         || matches!(
             (a, b),
             ("int", "Integer")
@@ -1800,5 +1929,54 @@ mod tests {
         );
         let facts = solve_dataflow(&cfg);
         assert!(facts.iterations <= cfg.nodes.len() * 8 + 8);
+    }
+    #[test]
+    fn for_continue_runs_update_before_condition() {
+        let source =
+            "class C { void f() { for (int i = 0; i < 2; i++) { if (i == 0) continue; } } }";
+        let lines = LineIndex::new(source);
+        let tree = parse(source).expect("valid Java fixture");
+        let semantics = SemanticIndex::build(tree.root_node(), source, &lines);
+        let body = crate::support::collect_kinds(tree.root_node(), &["block"])
+            .into_iter()
+            .find(|node| node.start_byte() > 15)
+            .expect("method body");
+        let cfg = build_cfg(body, source, &lines, &semantics);
+        let continue_node = cfg
+            .nodes
+            .iter()
+            .find(|node| node.kind == "continue")
+            .expect("continue node");
+        let update = cfg
+            .nodes
+            .iter()
+            .find(|node| node.kind == "update_expression")
+            .expect("for update node");
+        assert!(continue_node.successors.contains(&update.id));
+        let condition = cfg
+            .nodes
+            .iter()
+            .find(|node| node.kind == "condition")
+            .expect("for condition");
+        assert!(update.successors.contains(&condition.id));
+        assert!(condition.successors.iter().any(|target| {
+            cfg.node(*target)
+                .is_some_and(|node| node.kind == "loop_join")
+        }));
+    }
+
+    #[test]
+    fn empty_method_blocks_do_not_consume_depth_budget() {
+        let source = "class C { void empty() {} }";
+        let lines = LineIndex::new(source);
+        let tree = parse(source).expect("valid Java fixture");
+        let semantics = SemanticIndex::build(tree.root_node(), source, &lines);
+        let body = crate::support::collect_kinds(tree.root_node(), &["block"])
+            .into_iter()
+            .find(|node| node.start_byte() > 15)
+            .expect("method body");
+        let cfg = build_cfg(body, source, &lines, &semantics);
+        assert!(cfg.nodes.iter().all(|node| node.kind != "depth_limit"));
+        assert_eq!(cfg.nodes.len(), 2);
     }
 }

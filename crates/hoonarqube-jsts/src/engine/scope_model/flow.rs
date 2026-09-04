@@ -1,12 +1,12 @@
 use super::{
     ArrowFunctionBody, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator,
-    AssignmentTarget, AssignmentTargetPropertyIdentifier, AssignmentTargetWithDefault,
-    BindingIdentifier, BindingPattern, BlockStatement, BreakStatement, CatchClause,
-    ConditionalExpression, ContinueStatement, DoWhileStatement, Expression, ForInStatement,
-    ForOfStatement, ForStatement, FormalParameters, Function, GetSpan, HashMap, IfStatement,
-    IssueSink, LogicalExpression, MemberExpression, ReturnStatement, RuleScope, ScopeFlags,
-    SimpleAssignmentTarget, Span, Statement, StaticBlock, SwitchStatement, ThrowStatement,
-    TryStatement, UpdateExpression, VariableDeclaration, VariableDeclarationKind,
+    AssignmentTarget, AssignmentTargetPropertyIdentifier, AssignmentTargetPropertyProperty,
+    AssignmentTargetWithDefault, BindingIdentifier, BindingPattern, BlockStatement, BreakStatement,
+    CatchClause, ConditionalExpression, ContinueStatement, DoWhileStatement, Expression,
+    ForInStatement, ForOfStatement, ForStatement, FormalParameters, Function, GetSpan, HashMap,
+    IfStatement, IssueSink, LogicalExpression, MemberExpression, ReturnStatement, RuleScope,
+    ScopeFlags, SimpleAssignmentTarget, Span, Statement, StaticBlock, SwitchStatement,
+    ThrowStatement, TryStatement, UpdateExpression, VariableDeclaration, VariableDeclarationKind,
     VariableDeclarator, Visit, WhileStatement, source_slice, unparenthesized,
     walk_member_expression,
 };
@@ -224,8 +224,55 @@ impl<'p> TbFlow<'p, '_, '_> {
     }
 
     fn forget_pattern_declaration(&mut self, pattern: &BindingPattern<'p>) {
-        for name in bound_names(pattern) {
-            self.env.remove(name);
+        match pattern {
+            BindingPattern::BindingIdentifier(identifier) => {
+                self.env.remove(identifier.name.as_str());
+            }
+            BindingPattern::ObjectPattern(object) => {
+                for property in &object.properties {
+                    self.forget_pattern_declaration(&property.value);
+                }
+                if let Some(rest) = &object.rest {
+                    self.forget_pattern_declaration(&rest.argument);
+                }
+            }
+            BindingPattern::ArrayPattern(array) => {
+                for element in array.elements.iter().flatten() {
+                    self.forget_pattern_declaration(element);
+                }
+                if let Some(rest) = &array.rest {
+                    self.forget_pattern_declaration(&rest.argument);
+                }
+            }
+            BindingPattern::AssignmentPattern(assignment) => {
+                self.visit_expression(&assignment.right);
+                self.forget_pattern_declaration(&assignment.left);
+            }
+        }
+    }
+    fn visit_pattern_defaults(&mut self, pattern: &BindingPattern<'p>) {
+        match pattern {
+            BindingPattern::BindingIdentifier(_) => {}
+            BindingPattern::ObjectPattern(object) => {
+                for property in &object.properties {
+                    self.visit_pattern_defaults(&property.value);
+                }
+                if let Some(rest) = &object.rest {
+                    self.visit_pattern_defaults(&rest.argument);
+                }
+            }
+            BindingPattern::ArrayPattern(array) => {
+                for element in array.elements.iter().flatten() {
+                    self.visit_pattern_defaults(element);
+                }
+                if let Some(rest) = &array.rest {
+                    self.visit_pattern_defaults(&rest.argument);
+                }
+            }
+            BindingPattern::AssignmentPattern(assignment) => {
+                self.visit_expression(&assignment.right);
+                self.visit_pattern_defaults(&assignment.left);
+            }
         }
     }
 
@@ -248,6 +295,7 @@ impl<'p> TbFlow<'p, '_, '_> {
             if let Some(init) = &declarator.init {
                 self.visit_expression(init);
             }
+            self.visit_pattern_defaults(&declarator.id);
             for name in bound_names(&declarator.id) {
                 self.write(name, declarator.id.span(), value.map(GetSpan::span), true);
             }
@@ -633,6 +681,15 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
         self.target_write_depth = saved;
         self.visit_identifier_reference(&property.binding);
     }
+    fn visit_assignment_target_property_property(
+        &mut self,
+        property: &AssignmentTargetPropertyProperty<'p>,
+    ) {
+        let saved = std::mem::replace(&mut self.target_write_depth, 0);
+        self.visit_property_key(&property.name);
+        self.target_write_depth = saved;
+        self.visit_assignment_target_maybe_default(&property.binding);
+    }
 
     fn visit_variable_declaration(&mut self, declaration: &VariableDeclaration<'p>) {
         let saved = self.decl_kind;
@@ -819,6 +876,16 @@ mod tests {
     }
 
     #[test]
+    fn loop_destructuring_defaults_participate_in_flow() {
+        let with_default =
+            "let target; for (let [value = (target = a(), target = b())] of values) {}";
+        assert!(flow_ids(with_default).contains(&"javascript:S1854".to_owned()));
+
+        let without_default = "let target; for (let [value] of values) {}";
+        assert!(!flow_ids(without_default).contains(&"javascript:S1854".to_owned()));
+    }
+
+    #[test]
     fn defaultless_switch_keeps_no_match_path() {
         let source = "function f(kind) { let x = a(); switch (kind) { case 1: use(x); x = b(); use(x); break; } x = c(); use(x); }";
         assert!(!flow_ids(source).contains(&"javascript:S1854".to_owned()));
@@ -829,5 +896,21 @@ mod tests {
         assert!(flow_ids(overwritten).contains(&"javascript:S1854".to_owned()));
         let consumed = "let x = a(); x++; use(x); x = b();";
         assert!(!flow_ids(consumed).contains(&"javascript:S1854".to_owned()));
+    }
+    #[test]
+    fn computed_assignment_and_loop_keys_are_reads_not_writes() {
+        let assignment = "let key = get(); let value; ({ [key]: value } = source);";
+        assert!(!flow_ids(assignment).contains(&"javascript:S1854".to_owned()));
+
+        let loop_head = "let key = get(); for ({ [key]: value } of values) {}";
+        assert!(!flow_ids(loop_head).contains(&"javascript:S1854".to_owned()));
+    }
+    #[test]
+    fn destructuring_defaults_read_prior_values_before_forgetting_bindings() {
+        let with_default = "let fallback = a(); let { value = fallback } = source; fallback = b();";
+        assert!(!flow_ids(with_default).contains(&"javascript:S1854".to_owned()));
+
+        let without_default = "let fallback = a(); let { value } = source; fallback = b();";
+        assert!(flow_ids(without_default).contains(&"javascript:S1854".to_owned()));
     }
 }

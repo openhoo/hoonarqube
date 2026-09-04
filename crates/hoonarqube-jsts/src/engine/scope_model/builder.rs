@@ -199,32 +199,61 @@ impl<'a> TbBuilder<'a, '_> {
     }
 
     /// `for (let v of xs)` assigns `v` although no assignment node exists.
-    pub(crate) fn mark_loop_bindings(&mut self, declaration: &VariableDeclaration<'a>, span: Span) {
+    pub(crate) fn mark_loop_bindings(&mut self, declaration: &VariableDeclaration<'a>) {
         if matches!(declaration.kind, VariableDeclarationKind::Const) {
             return;
         }
         for declarator in &declaration.declarations {
-            if let BindingPattern::BindingIdentifier(identifier) = &declarator.id {
+            self.mark_loop_pattern(&declarator.id);
+        }
+    }
+
+    fn mark_loop_pattern(&mut self, pattern: &BindingPattern<'a>) {
+        match pattern {
+            BindingPattern::BindingIdentifier(identifier) => {
                 self.model.events.push(TbEvent {
                     name: identifier.name.as_str(),
-                    span,
+                    span: identifier.span,
                     write: true,
                     compound: false,
                     chain: self.stack.clone(),
                 });
             }
+            BindingPattern::ObjectPattern(object) => {
+                for property in &object.properties {
+                    self.mark_loop_pattern(&property.value);
+                }
+                if let Some(rest) = &object.rest {
+                    self.mark_loop_pattern(&rest.argument);
+                }
+            }
+            BindingPattern::ArrayPattern(array) => {
+                for element in array.elements.iter().flatten() {
+                    self.mark_loop_pattern(element);
+                }
+                if let Some(rest) = &array.rest {
+                    self.mark_loop_pattern(&rest.argument);
+                }
+            }
+            BindingPattern::AssignmentPattern(assignment) => {
+                self.mark_loop_pattern(&assignment.left);
+            }
         }
     }
-    /// Declaration heads record their per-iteration writes while that scope
-    /// is still on the chain, so they resolve onto the loop binding instead
-    /// of degrading to implicit globals.
-    fn visit_for_head(&mut self, left: &oxc_ast::ast::ForStatementLeft<'a>, loop_span: Span) {
+    /// Loop-head targets are visited while the loop scope is active, with
+    /// declaration and assignment targets classified as writes accordingly.
+    fn visit_for_head(&mut self, left: &oxc_ast::ast::ForStatementLeft<'a>) {
         match left {
             oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) => {
                 self.visit_variable_declaration(declaration);
-                self.mark_loop_bindings(declaration, loop_span);
+                self.mark_loop_bindings(declaration);
             }
-            left => self.visit_for_statement_left(left),
+            left => {
+                let saved = self.write_depth;
+                self.write_depth += 1;
+                self.visit_for_statement_left(left);
+                self.write_depth = saved;
+            }
         }
     }
 }
@@ -262,7 +291,7 @@ impl<'a> Visit<'a> for TbBuilder<'a, '_> {
 
     fn visit_for_in_statement(&mut self, statement: &oxc_ast::ast::ForInStatement<'a>) {
         self.push_scope(TbScopeKind::Block, statement.span);
-        self.visit_for_head(&statement.left, statement.span);
+        self.visit_for_head(&statement.left);
         // The iterable resolves in the enclosing scope: the loop-head
         // binding is not yet initialized where the iterable evaluates.
         let head = self.stack.pop();
@@ -276,7 +305,7 @@ impl<'a> Visit<'a> for TbBuilder<'a, '_> {
 
     fn visit_for_of_statement(&mut self, statement: &oxc_ast::ast::ForOfStatement<'a>) {
         self.push_scope(TbScopeKind::Block, statement.span);
-        self.visit_for_head(&statement.left, statement.span);
+        self.visit_for_head(&statement.left);
         // The iterable resolves in the enclosing scope: the loop-head
         // binding is not yet initialized where the iterable evaluates.
         let head = self.stack.pop();
@@ -459,6 +488,19 @@ impl<'a> Visit<'a> for TbBuilder<'a, '_> {
             self.visit_expression(init);
         }
         self.write_depth = saved;
+    }
+
+    /// Computed destructuring keys are reads; only their binding targets
+    /// inherit the surrounding assignment write classification.
+    fn visit_assignment_target_property_property(
+        &mut self,
+        property: &oxc_ast::ast::AssignmentTargetPropertyProperty<'a>,
+    ) {
+        let saved = self.write_depth;
+        self.write_depth = 0;
+        self.visit_property_key(&property.name);
+        self.write_depth = saved;
+        self.visit_assignment_target_maybe_default(&property.binding);
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {

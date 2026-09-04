@@ -501,6 +501,9 @@ impl NativeGuardTypes {
             }
             let (scope_types, scope_bindings) = Self::collect_scope(scope, source);
             types.extend_visible(&scope_types, &shadowed);
+            if scope_bindings.contains("std") {
+                types.remove_same_scope_std_aliases(&scope_types);
+            }
             shadowed.extend(scope_bindings);
             if native_scope_ends_module_lookup(scope) {
                 // A Rust child module does not inherit unqualified imports from
@@ -511,7 +514,6 @@ impl NativeGuardTypes {
         }
         types.std_shadowed = shadowed.contains("std");
         types.tokio_shadowed = shadowed.contains("tokio");
-        types.clear_shadowed_roots();
         types
     }
 
@@ -597,22 +599,18 @@ impl NativeGuardTypes {
             shadowed,
         );
     }
-
-    fn clear_shadowed_roots(&mut self) {
-        if self.std_shadowed {
-            self.mutexes.clear();
-            self.rwlocks.clear();
-            self.refcells.clear();
-            self.open_options.clear();
-            self.files.clear();
-            self.fs_modules.clear();
-            self.metadata_functions.clear();
-        }
-        if self.tokio_shadowed {
-            self.tokio_open_options.clear();
-            self.tokio_files.clear();
-            self.tokio_fs_modules.clear();
-        }
+    fn remove_same_scope_std_aliases(&mut self, scope: &Self) {
+        self.mutexes.retain(|alias| !scope.mutexes.contains(alias));
+        self.rwlocks.retain(|alias| !scope.rwlocks.contains(alias));
+        self.refcells
+            .retain(|alias| !scope.refcells.contains(alias));
+        self.open_options
+            .retain(|alias| !scope.open_options.contains(alias));
+        self.files.retain(|alias| !scope.files.contains(alias));
+        self.fs_modules
+            .retain(|alias| !scope.fs_modules.contains(alias));
+        self.metadata_functions
+            .retain(|alias| !scope.metadata_functions.contains(alias));
     }
 }
 
@@ -1014,32 +1012,42 @@ fn native_guard_rule(
 }
 
 fn native_guard_acquisition<'a>(value: Node<'_>, source: &'a str) -> Option<(&'a str, &'a str)> {
+    if matches!(value.kind(), "closure_expression" | "async_block") {
+        return None;
+    }
     let mut found = None;
-    walk(value, &mut |node| {
-        if found.is_some() || node.kind() != "call_expression" {
-            return;
+    let mut pending = vec![value];
+    while let Some(node) = pending.pop() {
+        if found.is_some() {
+            break;
         }
-        let Some(function) = node.child_by_field_name("function") else {
-            return;
-        };
-        if function.kind() != "field_expression" {
-            return;
+        // A closure or async block is a separate deferred body.  Calls inside
+        // it do not acquire the value produced by this `let` immediately.
+        if node != value && matches!(node.kind(), "closure_expression" | "async_block") {
+            continue;
         }
-        let (Some(receiver), Some(method)) = (
-            function.child_by_field_name("value"),
-            function.child_by_field_name("field"),
-        ) else {
-            return;
-        };
-        if receiver.kind() == "identifier"
+        if node.kind() == "call_expression"
+            && let Some(function) = node.child_by_field_name("function")
+            && function.kind() == "field_expression"
+            && let (Some(receiver), Some(method)) = (
+                function.child_by_field_name("value"),
+                function.child_by_field_name("field"),
+            )
+            && receiver.kind() == "identifier"
             && matches!(
                 text(method, source),
                 "lock" | "read" | "write" | "borrow" | "borrow_mut"
             )
         {
             found = Some((text(receiver, source), text(method, source)));
+            break;
         }
-    });
+        for index in (0..node.named_child_count()).rev() {
+            if let Some(child) = node.named_child(index) {
+                pending.push(child);
+            }
+        }
+    }
     found
 }
 
@@ -1068,7 +1076,14 @@ fn native_type_matches(
     std_shadowed: bool,
 ) -> bool {
     let absolute = native_type_contains_path(type_text, &format!("::{full_name}"));
-    (absolute || (!std_shadowed && native_type_contains_path(type_text, full_name)))
+    let rooted = native_type_contains_path(type_text, full_name);
+    if absolute {
+        return true;
+    }
+    if rooted && std_shadowed {
+        return false;
+    }
+    (!std_shadowed && rooted)
         || type_text
             .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
             .any(|word| aliases.contains(word))
@@ -1438,8 +1453,10 @@ fn check_standard_output_macro(node: Node<'_>, source: &str, code: &str, issues:
     };
     let name = text(name, source).rsplit("::").next().unwrap_or_default();
     let deliberately_allowed = match name {
-        "print" | "println" => file_allows_clippy_lint(code, "clippy::print_stdout"),
-        "eprint" | "eprintln" | "dbg" => file_allows_clippy_lint(code, "clippy::print_stderr"),
+        "print" | "println" => file_allows_clippy_lint(node, code, "clippy::print_stdout"),
+        "eprint" | "eprintln" | "dbg" => {
+            file_allows_clippy_lint(node, code, "clippy::print_stderr")
+        }
         _ => false,
     };
     if deliberately_allowed {
@@ -1455,11 +1472,24 @@ fn check_standard_output_macro(node: Node<'_>, source: &str, code: &str, issues:
     }
 }
 
-fn file_allows_clippy_lint(code: &str, lint_name: &str) -> bool {
-    code.lines().any(|source_line| {
-        let source_line = source_line.trim();
-        source_line.starts_with("#![allow(") && source_line.contains(lint_name)
-    })
+fn file_allows_clippy_lint(node: Node<'_>, code: &str, lint_name: &str) -> bool {
+    let use_start = node.start_byte();
+    let mut scope = Some(node);
+    while let Some(current) = scope {
+        if matches!(current.kind(), "block" | "declaration_list" | "source_file") {
+            let mut cursor = current.walk();
+            if current.named_children(&mut cursor).any(|attribute| {
+                matches!(attribute.kind(), "attribute_item" | "inner_attribute_item")
+                    && attribute.end_byte() <= use_start
+                    && text(attribute, code).trim_start().starts_with("#![allow(")
+                    && text(attribute, code).contains(lint_name)
+            }) {
+                return true;
+            }
+        }
+        scope = current.parent();
+    }
+    false
 }
 
 fn check_wildcard_import(node: Node<'_>, source: &str, code: &str, issues: &mut Vec<Issue>) {
@@ -4085,6 +4115,29 @@ fn scope_contains_shadowing_binding(
     shadowed
 }
 
+fn match_pattern_shadows_name(
+    candidate: Node<'_>,
+    use_start: usize,
+    name: &str,
+    source: &str,
+) -> bool {
+    let mut ancestor = Some(candidate);
+    while let Some(current) = ancestor {
+        if current.kind() == "match_arm" {
+            let Some(pattern) = current.child_by_field_name("pattern") else {
+                return false;
+            };
+            return candidate.start_byte() >= pattern.start_byte()
+                && candidate.end_byte() <= pattern.end_byte()
+                && pattern.end_byte() <= use_start
+                && use_start < current.end_byte()
+                && pattern_binds_name(pattern, name, source);
+        }
+        ancestor = current.parent();
+    }
+    false
+}
+
 fn candidate_shadows_name(
     candidate: Node<'_>,
     current: Node<'_>,
@@ -4097,6 +4150,9 @@ fn candidate_shadows_name(
     let same_scope = candidate_is_in_scope(candidate, current);
     if candidate == current || !same_scope {
         return false;
+    }
+    if !qualified_path && match_pattern_shadows_name(candidate, use_start, name, source) {
+        return true;
     }
     if item_declaration_shadows_name(candidate, use_start, name, source) {
         return true;
@@ -5990,15 +6046,14 @@ mod tests {
         let local_import = analyze_native(concat!(
             "struct C;\n",
             "async fn run(mutex: &C) {\n",
-            "  use std::sync::Mutex as C;\n",
+            "  use std::sync::Mutex as Imported;\n",
+            "  let _typed: Option<Imported> = None;\n",
             "  let guard = mutex.lock(); work().await; drop(guard);\n",
             "}\n",
         ));
         assert!(
-            local_import
-                .iter()
-                .any(|issue| issue.rule_key == "hoonarqube-rust:await-holding-lock"),
-            "function-local imports must provide type evidence: {local_import:?}",
+            local_import.is_empty(),
+            "a body-local import must not rewrite an earlier parameter type: {local_import:?}",
         );
 
         let generic_shadow = analyze_native(concat!(
@@ -6010,6 +6065,59 @@ mod tests {
         assert!(
             generic_shadow.is_empty(),
             "generic parameters must shadow imported guard names: {generic_shadow:?}",
+        );
+    }
+    #[test]
+    fn native_guard_rules_respect_std_shadowing_scope() {
+        let inner_std_root_does_not_hide_imported_mutex = analyze_native(concat!(
+            "use std::sync::Mutex;\n",
+            "async fn run(mutex: &Mutex<i32>) {\n",
+            "  {\n",
+            "    mod std {}\n",
+            "    let guard = mutex.lock().unwrap();\n",
+            "    work().await;\n",
+            "    drop(guard);\n",
+            "  }\n",
+            "}\n",
+        ));
+        assert!(
+            inner_std_root_does_not_hide_imported_mutex
+                .iter()
+                .any(|issue| issue.rule_key == "hoonarqube-rust:await-holding-lock"),
+            "an inner `std` item must not clear an outer imported Mutex alias: {inner_std_root_does_not_hide_imported_mutex:?}",
+        );
+
+        let same_scope_std_root_stays_shadowed = analyze_native(concat!(
+            "use std::sync::Mutex;\n",
+            "mod std {}\n",
+            "async fn qualified(mutex: &std::sync::Mutex<i32>) {\n",
+            "  let guard = mutex.lock().unwrap();\n",
+            "  work().await;\n",
+            "  drop(guard);\n",
+            "}\n",
+            "async fn unqualified(mutex: &Mutex<i32>) {\n",
+            "  let guard = mutex.lock().unwrap();\n",
+            "  work().await;\n",
+            "  drop(guard);\n",
+            "}\n",
+        ));
+        assert!(
+            same_scope_std_root_stays_shadowed.is_empty(),
+            "same-scope `std` shadowing must reject both relative std paths and canonical aliases: {same_scope_std_root_stays_shadowed:?}",
+        );
+
+        let same_scope_std_alias_stays_shadowed = analyze_native(concat!(
+            "use std::sync::Mutex as StdMutex;\n",
+            "mod std {}\n",
+            "async fn run(mutex: &StdMutex<i32>) {\n",
+            "  let guard = mutex.lock().unwrap();\n",
+            "  work().await;\n",
+            "  drop(guard);\n",
+            "}\n",
+        ));
+        assert!(
+            same_scope_std_alias_stays_shadowed.is_empty(),
+            "same-scope `std` shadowing must reject aliases imported from that scope: {same_scope_std_alias_stays_shadowed:?}",
         );
     }
 
@@ -6024,11 +6132,15 @@ mod tests {
             "  tokio::fs::OpenOptions::new().create(true).open(path).await.unwrap();\n",
             "}\n",
         ));
-        assert!(
-            found
-                .iter()
-                .any(|issue| issue.rule_key == "hoonarqube-rust:suspicious-open-options"),
-            "missing OpenOptions finding: {found:?}",
+        let open_options_lines = found
+            .iter()
+            .filter(|issue| issue.rule_key == "hoonarqube-rust:suspicious-open-options")
+            .map(|issue| issue.range.start.line)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            open_options_lines,
+            vec![3, 4, 6],
+            "all positive open-options chains must be located exactly: {found:?}",
         );
         assert!(
             found.iter().any(|issue| {
@@ -6587,6 +6699,128 @@ mod tests {
                 .count(),
             4,
             "only unbounded macro and for consumers should be reported: {source}",
+        );
+    }
+    #[test]
+    fn console_allow_respects_module_and_cfg_scope() {
+        let scoped = analyze(
+            PathBuf::from("fixture.rs"),
+            concat!(
+                "mod nested {\n",
+                "    #![allow(clippy::print_stdout)]\n",
+                "    fn nested() { println!(\"nested\"); }\n",
+                "}\n",
+                "fn main() { println!(\"root\"); }\n",
+            ),
+            &AnalyzerOptions::default(),
+        );
+        let scoped_outputs: Vec<_> = scoped
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "rust:S106")
+            .collect();
+        assert_eq!(scoped_outputs.len(), 1, "{scoped_outputs:?}");
+        assert_eq!(scoped_outputs[0].range.start.line, 5);
+
+        let cfg_disabled = analyze(
+            PathBuf::from("fixture.rs"),
+            concat!(
+                "#[cfg(feature = \"never\")]\n",
+                "mod disabled {\n",
+                "    #![allow(clippy::print_stdout)]\n",
+                "    fn hidden() { println!(\"hidden\"); }\n",
+                "}\n",
+                "fn main() { println!(\"root\"); }\n",
+            ),
+            &AnalyzerOptions::default(),
+        );
+        let cfg_outputs: Vec<_> = cfg_disabled
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "rust:S106")
+            .collect();
+        assert_eq!(cfg_outputs.len(), 1, "{cfg_outputs:?}");
+        assert_eq!(cfg_outputs[0].range.start.line, 6);
+
+        let crate_allowed = keys(concat!(
+            "#![allow(clippy::print_stdout)]\n",
+            "fn main() { println!(\"allowed\"); }\n",
+        ));
+        assert!(
+            crate_allowed.iter().all(|key| key != "rust:S106"),
+            "{crate_allowed:?}"
+        );
+    }
+
+    #[test]
+    fn native_guard_acquisition_ignores_deferred_closure_and_async_bodies() {
+        let direct = analyze_native(concat!(
+            "use std::sync::Mutex;\n",
+            "async fn direct(mutex: &Mutex<i32>) {\n",
+            "    let guard = mutex.lock().unwrap();\n",
+            "    work().await;\n",
+            "    drop(guard);\n",
+            "}\n",
+        ));
+        assert_eq!(
+            direct
+                .iter()
+                .filter(|issue| issue.rule_key == "hoonarqube-rust:await-holding-lock")
+                .count(),
+            1,
+            "{direct:?}"
+        );
+
+        let deferred = analyze_native(concat!(
+            "use std::sync::Mutex;\n",
+            "async fn future(mutex: &Mutex<i32>) {\n",
+            "    let guard = async { mutex.lock().unwrap() };\n",
+            "    work().await;\n",
+            "    drop(guard);\n",
+            "}\n",
+            "async fn closure(mutex: &Mutex<i32>) {\n",
+            "    let guard = || mutex.lock().unwrap();\n",
+            "    work().await;\n",
+            "    drop(guard);\n",
+            "}\n",
+        ));
+        assert!(
+            deferred.is_empty(),
+            "deferred lock calls are not acquired guards: {deferred:?}"
+        );
+    }
+
+    #[test]
+    fn standard_transmute_import_is_shadowed_by_match_arm_bindings() {
+        let shadowed = keys(concat!(
+            "use std::mem::transmute;\n",
+            "fn check(value: Option<fn(u8) -> u8>) {\n",
+            "    match value {\n",
+            "        Some(transmute) => {\n",
+            "            let _ = Some(1u8).unwrap_or(transmute(1u8));\n",
+            "        }\n",
+            "        _ => {}\n",
+            "    }\n",
+            "}\n",
+        ));
+        assert!(
+            shadowed.iter().all(|key| key != "rust:S7443"),
+            "{shadowed:?}"
+        );
+
+        let imported = keys(concat!(
+            "use std::mem::transmute;\n",
+            "fn check() {\n",
+            "    let _ = Some(1u8).unwrap_or(transmute(1u8));\n",
+            "}\n",
+        ));
+        assert_eq!(
+            imported
+                .iter()
+                .filter(|key| key.as_str() == "rust:S7443")
+                .count(),
+            1,
+            "{imported:?}"
         );
     }
 }

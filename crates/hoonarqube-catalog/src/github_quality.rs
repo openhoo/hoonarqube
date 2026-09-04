@@ -198,14 +198,14 @@ pub fn queries_for_language(
 }
 
 fn parse_and_verify(json: &str) -> Result<Box<[QueryDefinition]>, String> {
+    let catalog: EmbeddedCatalog = serde_json::from_str(json)
+        .map_err(|error| format!("invalid GitHub Code Quality JSON: {error}"))?;
     let actual_digest = hex::encode(Sha256::digest(json.as_bytes()));
     if actual_digest != CATALOG_SHA256 {
         return Err(format!(
             "GitHub Code Quality catalog content digest mismatch: expected {CATALOG_SHA256}, got {actual_digest}"
         ));
     }
-    let catalog: EmbeddedCatalog = serde_json::from_str(json)
-        .map_err(|error| format!("invalid GitHub Code Quality JSON: {error}"))?;
 
     verify_catalog_metadata(&catalog)?;
     verify_definitions(&catalog.queries)?;
@@ -393,5 +393,50 @@ mod tests {
         value["queries"][0]["title"] = serde_json::Value::String("Drifted title".to_owned());
         let error = verify_json(&serde_json::to_string(&value).unwrap()).unwrap_err();
         assert!(error.contains("content digest mismatch"));
+    }
+    #[test]
+    fn language_family_views_reconstruct_global_catalog_order() {
+        let mut partitioned = Vec::new();
+        for family in LanguageFamily::ALL {
+            let definitions: Vec<_> = queries_for_language(family).collect();
+            assert!(
+                definitions
+                    .iter()
+                    .all(|definition| definition.language == family)
+            );
+            partitioned.extend(
+                definitions
+                    .into_iter()
+                    .map(|definition| definition.id.as_str()),
+            );
+        }
+
+        let global: Vec<_> = queries().map(|definition| definition.id.as_str()).collect();
+        assert_eq!(partitioned, global);
+        assert_eq!(
+            queries_for_language(LanguageFamily::JavaScriptTypeScript).len(),
+            98
+        );
+    }
+
+    #[test]
+    fn malformed_json_is_reported_before_content_integrity() {
+        let error = verify_json("{").expect_err("malformed JSON must be rejected");
+        assert!(error.starts_with("invalid GitHub Code Quality JSON:"));
+    }
+
+    #[test]
+    fn duplicate_and_cross_family_ids_are_rejected_by_definition_validation() {
+        let mut catalog: EmbeddedCatalog =
+            serde_json::from_str(CATALOG_JSON).expect("fixture JSON must parse");
+        catalog.queries[1].id = catalog.queries[0].id.clone();
+        let error = verify_definitions(&catalog.queries).expect_err("duplicate IDs must fail");
+        assert!(error.contains("duplicate query ID"));
+
+        let mut catalog: EmbeddedCatalog =
+            serde_json::from_str(CATALOG_JSON).expect("fixture JSON must parse");
+        catalog.queries[0].id = "go/not-a-csharp-query".to_owned();
+        let error = verify_definitions(&catalog.queries).expect_err("cross-family IDs must fail");
+        assert_eq!(error, "query 0 has invalid C# ID \"go/not-a-csharp-query\"");
     }
 }

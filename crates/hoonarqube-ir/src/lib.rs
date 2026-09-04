@@ -11,14 +11,38 @@
 
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
 
 /// Source position. `line` is 1-based, `column` is 0-based (`SonarQube`
 /// text-range convention).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct Pos {
     pub line: u32,
     pub column: u32,
+}
+#[derive(Deserialize)]
+struct PosRepr {
+    line: u32,
+    column: u32,
+}
+
+fn valid_pos<E: de::Error>(raw: &PosRepr) -> Result<Pos, E> {
+    if raw.line == 0 {
+        return Err(E::custom("source positions must use a 1-based line"));
+    }
+    Ok(Pos {
+        line: raw.line,
+        column: raw.column,
+    })
+}
+
+impl<'de> Deserialize<'de> for Pos {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        valid_pos(&PosRepr::deserialize(deserializer)?)
+    }
 }
 
 /// Canonical `usize` → `u32` conversion for position offsets coming from
@@ -32,7 +56,7 @@ pub fn u32_saturating(value: usize) -> u32 {
 /// [`Pos`] orders lexicographically, so spans compare the same way. The sole
 /// zero-based exception is [`Range::file_level`], used when `SonarQube` attaches
 /// an issue to a file without a text range.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Range {
     pub start: Pos,
     pub end: Pos,
@@ -51,6 +75,38 @@ impl Range {
     #[must_use]
     pub const fn is_file_level(&self) -> bool {
         self.start.line == 0 && self.start.column == 0 && self.end.line == 0 && self.end.column == 0
+    }
+}
+#[derive(Deserialize)]
+struct RangeRepr {
+    start: PosRepr,
+    end: PosRepr,
+}
+
+impl<'de> Deserialize<'de> for Range {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RangeRepr::deserialize(deserializer)?;
+        let is_file_level = raw.start.line == 0
+            && raw.start.column == 0
+            && raw.end.line == 0
+            && raw.end.column == 0;
+        let start = if is_file_level {
+            Pos { line: 0, column: 0 }
+        } else {
+            valid_pos(&raw.start)?
+        };
+        let end = if is_file_level {
+            Pos { line: 0, column: 0 }
+        } else {
+            valid_pos(&raw.end)?
+        };
+        if start > end {
+            return Err(de::Error::custom("range start must not be after range end"));
+        }
+        Ok(Self { start, end })
     }
 }
 
@@ -93,10 +149,50 @@ impl TextEdit {
 /// non-overlapping, every range within the bounds of the fixed file.
 /// [`Issue::with_fix`] enforces ordering and overlap on construction;
 /// [`apply_fixes`] re-validates bounds and overlap before rewriting anything.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Fix {
     pub message: String,
     pub edits: Vec<TextEdit>,
+}
+#[derive(Deserialize)]
+struct FixRepr {
+    message: String,
+    edits: Vec<TextEdit>,
+}
+
+impl<'de> Deserialize<'de> for Fix {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = FixRepr::deserialize(deserializer)?;
+        if raw.edits.is_empty() {
+            return Err(de::Error::custom(
+                "quick fix must contain at least one TextEdit",
+            ));
+        }
+        for edit in &raw.edits {
+            if edit.range.is_file_level() {
+                return Err(de::Error::custom(
+                    "quick fix edits cannot use a file-level range",
+                ));
+            }
+        }
+        for pair in raw.edits.windows(2) {
+            if pair[0].range.start > pair[1].range.start {
+                return Err(de::Error::custom(
+                    "quick fix edits must be sorted by start position",
+                ));
+            }
+            if pair[0].overlaps(&pair[1]) {
+                return Err(de::Error::custom("quick fix edits must not overlap"));
+            }
+        }
+        Ok(Self {
+            message: raw.message,
+            edits: raw.edits,
+        })
+    }
 }
 
 /// One secondary location in an execution/data-flow trace. `path=None`
@@ -122,24 +218,69 @@ impl FlowLocation {
 }
 
 /// Ordered locations describing one execution or data-flow path.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct IssueFlow {
     pub locations: Vec<FlowLocation>,
+}
+#[derive(Deserialize)]
+struct IssueFlowRepr {
+    locations: Vec<FlowLocation>,
+}
+
+impl<'de> Deserialize<'de> for IssueFlow {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = IssueFlowRepr::deserialize(deserializer)?;
+        if raw.locations.is_empty() {
+            return Err(de::Error::custom("issue flow must contain a location"));
+        }
+        Ok(Self {
+            locations: raw.locations,
+        })
+    }
 }
 
 /// One finding. `rule_key` resolves through either the frozen Sonar catalog
 /// or the separate Hoonarqube-native catalog; severity/type are never
 /// duplicated here. `fix` optionally carries a machine-applicable quick fix.
 /// `flows` carries ordered supporting locations for path-sensitive rules.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Issue {
     pub rule_key: String,
     pub message: String,
     pub range: Range,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fix: Option<Fix>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub flows: Vec<IssueFlow>,
+}
+#[derive(Deserialize)]
+struct IssueRepr {
+    rule_key: String,
+    message: String,
+    range: Range,
+    #[serde(default)]
+    fix: Option<Fix>,
+    #[serde(default)]
+    flows: Vec<IssueFlow>,
+}
+
+impl<'de> Deserialize<'de> for Issue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = IssueRepr::deserialize(deserializer)?;
+        Ok(Self {
+            rule_key: raw.rule_key,
+            message: raw.message,
+            range: raw.range,
+            fix: raw.fix,
+            flows: raw.flows,
+        })
+    }
 }
 
 /// Canonical `SonarQube` issue ordering: start position, then end position
@@ -701,6 +842,51 @@ mod tests {
         };
         let _ = Issue::new("python:S1721", "message", range)
             .with_fix("fix", vec![edit((1, 5), (1, 2), "A")]);
+    }
+
+    #[test]
+    fn serde_rejects_invalid_public_ir_invariants() {
+        assert!(serde_json::from_str::<Pos>(r#"{"line":0,"column":1}"#).is_err());
+        assert!(
+            serde_json::from_str::<Range>(
+                r#"{"start":{"line":2,"column":0},"end":{"line":1,"column":0}}"#
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<Range>(
+                r#"{"start":{"line":0,"column":0},"end":{"line":1,"column":0}}"#
+            )
+            .is_err()
+        );
+        assert_eq!(
+            serde_json::from_str::<Range>(
+                r#"{"start":{"line":0,"column":0},"end":{"line":0,"column":0}}"#
+            )
+            .expect("file-level sentinel"),
+            Range::file_level()
+        );
+
+        assert!(serde_json::from_str::<Fix>(r#"{"message":"fix","edits":[]}"#).is_err());
+        let file_level_edit = r#"{"message":"fix","edits":[
+            {"range":{"start":{"line":0,"column":0},"end":{"line":0,"column":0}},"replacement":"x"}
+        ]}"#;
+        assert!(serde_json::from_str::<Fix>(file_level_edit).is_err());
+        let unsorted = r#"{"message":"fix","edits":[
+            {"range":{"start":{"line":1,"column":2},"end":{"line":1,"column":3}},"replacement":"b"},
+            {"range":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},"replacement":"a"}
+        ]}"#;
+        assert!(serde_json::from_str::<Fix>(unsorted).is_err());
+        let overlapping = r#"{"message":"fix","edits":[
+            {"range":{"start":{"line":1,"column":0},"end":{"line":1,"column":2}},"replacement":"x"},
+            {"range":{"start":{"line":1,"column":1},"end":{"line":1,"column":3}},"replacement":"y"}
+        ]}"#;
+        assert!(serde_json::from_str::<Fix>(overlapping).is_err());
+        assert!(serde_json::from_str::<IssueFlow>(r#"{"locations":[]}"#).is_err());
+        assert!(serde_json::from_str::<Issue>(
+            r#"{"rule_key":"x","message":"m","range":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},"flows":[{"locations":[]}]}"#
+        )
+        .is_err());
     }
 
     #[test]

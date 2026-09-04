@@ -94,6 +94,13 @@ fn count_errors(root: Node<'_>) -> usize {
 }
 
 fn scope_kind(node: Node<'_>) -> Option<ScopeKind> {
+    if matches!(node.kind(), "block" | "do_block")
+        && node
+            .parent()
+            .is_some_and(|parent| parent.kind() == "lambda")
+    {
+        return None;
+    }
     match node.kind() {
         "block" | "do_block" => Some(ScopeKind::Block),
         "lambda" => Some(ScopeKind::Lambda),
@@ -170,7 +177,7 @@ fn visit_locals(
     let mut pending = vec![(node, current)];
     while let Some((node, current)) = pending.pop() {
         let scope = owner_for(node, current, by_start);
-        if handle_local_node(node, scope, map, facts, &mut pending) {
+        if handle_local_node(node, scope, map, by_start, facts, &mut pending) {
             continue;
         }
         schedule_local_children(node, scope, &mut pending);
@@ -181,17 +188,25 @@ fn handle_local_node<'tree>(
     node: Node<'tree>,
     scope: usize,
     map: &SourceMap,
+    by_start: &BTreeMap<usize, usize>,
     facts: &mut RubyFacts,
     pending: &mut Vec<(Node<'tree>, usize)>,
 ) -> bool {
     match node.kind() {
         "method" | "singleton_method" | "lambda" => {
-            collect_node_parameters(node, scope, BindingKind::Parameter, map, facts);
+            collect_node_parameters(node, scope, BindingKind::Parameter, map, by_start, facts);
             schedule_node_body(node, scope, pending);
             true
         }
         "block" | "do_block" => {
-            collect_node_parameters(node, scope, BindingKind::BlockParameter, map, facts);
+            collect_node_parameters(
+                node,
+                scope,
+                BindingKind::BlockParameter,
+                map,
+                by_start,
+                facts,
+            );
             false
         }
         "class" | "module" => {
@@ -212,6 +227,27 @@ fn handle_local_node<'tree>(
             }
             false
         }
+        "match_pattern" | "test_pattern" => {
+            if let Some(value) = node.child_by_field_name("value") {
+                collect_expression_reads(value, scope, map, facts);
+            }
+            if let Some(pattern) = node.child_by_field_name("pattern") {
+                collect_pattern_lhs(pattern, scope, map, facts);
+            }
+            true
+        }
+        "in_clause" => {
+            if let Some(pattern) = node.child_by_field_name("pattern") {
+                collect_pattern_lhs(pattern, scope, map, facts);
+            }
+            if let Some(guard) = node.child_by_field_name("guard") {
+                collect_expression_reads(guard, scope, map, facts);
+            }
+            if let Some(body) = node.child_by_field_name("body") {
+                pending.push((body, scope));
+            }
+            true
+        }
         "rescue" => {
             if let Some(variable) = node.child_by_field_name("variable") {
                 collect_lhs(variable, scope, map, facts, BindingKind::RescueVariable);
@@ -226,15 +262,122 @@ fn handle_local_node<'tree>(
     }
 }
 
+fn collect_pattern_lhs(node: Node<'_>, scope: usize, map: &SourceMap, facts: &mut RubyFacts) {
+    let mut pending = vec![node];
+    while let Some(node) = pending.pop() {
+        match node.kind() {
+            "identifier" => collect_pattern_identifier(node, scope, map, facts),
+            "splat_parameter" | "hash_splat_parameter" => {
+                collect_pattern_splat(node, scope, map, facts, &mut pending);
+            }
+            "variable_reference_pattern" => {
+                collect_pattern_reference(node, "name", scope, map, facts);
+            }
+            "expression_reference_pattern" => {
+                collect_pattern_reference(node, "value", scope, map, facts);
+            }
+            "as_pattern" => schedule_as_pattern(node, scope, map, facts, &mut pending),
+            "keyword_pattern" => schedule_keyword_pattern(node, scope, map, facts, &mut pending),
+            "constant" | "scope_resolution" | "hash_key_symbol" => {}
+            _ => schedule_pattern_children(node, &mut pending),
+        }
+    }
+}
+
+fn collect_pattern_identifier(
+    node: Node<'_>,
+    scope: usize,
+    map: &SourceMap,
+    facts: &mut RubyFacts,
+) {
+    add_local_with_kind(
+        facts,
+        map,
+        node,
+        LocalFactKind::Write,
+        scope,
+        BindingKind::Local,
+    );
+}
+
+fn collect_pattern_splat<'tree>(
+    node: Node<'tree>,
+    scope: usize,
+    map: &SourceMap,
+    facts: &mut RubyFacts,
+    pending: &mut Vec<Node<'tree>>,
+) {
+    if let Some(name) = node.child_by_field_name("name") {
+        collect_pattern_identifier(name, scope, map, facts);
+    } else {
+        schedule_pattern_children(node, pending);
+    }
+}
+
+fn collect_pattern_reference(
+    node: Node<'_>,
+    field: &str,
+    scope: usize,
+    map: &SourceMap,
+    facts: &mut RubyFacts,
+) {
+    if let Some(value) = node.child_by_field_name(field) {
+        collect_expression_reads(value, scope, map, facts);
+    }
+}
+
+fn schedule_as_pattern<'tree>(
+    node: Node<'tree>,
+    scope: usize,
+    map: &SourceMap,
+    facts: &mut RubyFacts,
+    pending: &mut Vec<Node<'tree>>,
+) {
+    if let Some(value) = node.child_by_field_name("value") {
+        pending.push(value);
+    }
+    if let Some(name) = node.child_by_field_name("name") {
+        collect_pattern_identifier(name, scope, map, facts);
+    }
+}
+
+fn schedule_keyword_pattern<'tree>(
+    node: Node<'tree>,
+    scope: usize,
+    map: &SourceMap,
+    facts: &mut RubyFacts,
+    pending: &mut Vec<Node<'tree>>,
+) {
+    if let Some(value) = node.child_by_field_name("value") {
+        pending.push(value);
+    } else if let Some(key) = node.child_by_field_name("key") {
+        let name = node_text(key, map.source()).trim();
+        let is_local_name = name
+            .as_bytes()
+            .first()
+            .is_some_and(|byte| *byte == b'_' || byte.is_ascii_lowercase());
+        if is_local_name && is_identifier(name) {
+            collect_pattern_identifier(key, scope, map, facts);
+        }
+    }
+}
+
+fn schedule_pattern_children<'tree>(node: Node<'tree>, pending: &mut Vec<Node<'tree>>) {
+    let mut cursor = node.walk();
+    let children: Vec<_> = node.named_children(&mut cursor).collect();
+    pending.extend(children.into_iter().rev());
+}
+
 fn collect_node_parameters(
     node: Node<'_>,
     scope: usize,
     kind: BindingKind,
     map: &SourceMap,
+    by_start: &BTreeMap<usize, usize>,
     facts: &mut RubyFacts,
 ) {
     if let Some(parameters) = node.child_by_field_name("parameters") {
-        collect_parameter_writes(parameters, scope, kind, map, facts);
+        collect_parameter_writes(parameters, scope, kind, map, by_start, facts);
     }
 }
 
@@ -321,6 +464,7 @@ fn collect_parameter_writes(
     scope: usize,
     kind: BindingKind,
     map: &SourceMap,
+    by_start: &BTreeMap<usize, usize>,
     facts: &mut RubyFacts,
 ) {
     let (binding_nodes, default_values) = parameter_binding_nodes(parameters);
@@ -331,7 +475,7 @@ fn collect_parameter_writes(
         }
     }
     for value in default_values {
-        visit_locals(value, scope, map, &BTreeMap::new(), facts);
+        visit_locals(value, scope, map, by_start, facts);
     }
 }
 
@@ -2434,6 +2578,12 @@ fn looping_ancestor<'tree>(query: Node<'tree>, source: &str) -> Option<Node<'tre
         ) {
             return None;
         }
+        if matches!(
+            node.kind(),
+            "while" | "until" | "for" | "while_modifier" | "until_modifier"
+        ) {
+            return Some(node);
+        }
         if matches!(node.kind(), "block" | "do_block")
             && let Some(call) = node.parent()
             && call.kind() == "call"
@@ -2448,6 +2598,7 @@ fn looping_ancestor<'tree>(query: Node<'tree>, source: &str) -> Option<Node<'tre
                         | "map"
                         | "map!"
                         | "foreach"
+                        | "find_each"
                         | "flat_map"
                         | "in_batches"
                         | "one?"
@@ -2458,6 +2609,7 @@ fn looping_ancestor<'tree>(query: Node<'tree>, source: &str) -> Option<Node<'tre
                         | "select!"
                         | "reject"
                         | "reject!"
+                        | "loop"
                 )
             })
         {
@@ -2484,10 +2636,15 @@ fn query_controls_loop(query: Node<'_>, loop_node: Node<'_>, source: &str) -> bo
     let Some(body) = (if matches!(loop_node.kind(), "block" | "do_block") {
         Some(loop_node)
     } else {
-        loop_node.child_by_field_name("body")
+        loop_node
+            .child_by_field_name("body")
+            .or_else(|| loop_node.child_by_field_name("block"))
     }) else {
         return false;
     };
+    if has_direct_terminating_control_after(query, body) {
+        return true;
+    }
     let mut current = query.parent();
     while let Some(node) = current {
         if is_terminating_control(node.kind()) {
@@ -2547,6 +2704,62 @@ fn query_controls_loop(query: Node<'_>, loop_node: Node<'_>, source: &str) -> bo
     guarded
 }
 
+fn has_direct_terminating_control_after(query: Node<'_>, body: Node<'_>) -> bool {
+    if !is_direct_loop_body_member(query, body) {
+        return false;
+    }
+    let mut found = false;
+    walk(body, &mut |node: Node<'_>| {
+        if found
+            || !is_terminating_control(node.kind())
+            || node.start_byte() < query.end_byte()
+            || !is_direct_loop_body_member(node, body)
+        {
+            return;
+        }
+        found = true;
+    });
+    found
+}
+
+fn is_direct_loop_body_member(node: Node<'_>, body: Node<'_>) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        if parent.id() == body.id() {
+            return true;
+        }
+        if matches!(
+            parent.kind(),
+            "if" | "unless"
+                | "conditional"
+                | "case"
+                | "when"
+                | "in_clause"
+                | "while"
+                | "until"
+                | "for"
+                | "while_modifier"
+                | "until_modifier"
+                | "rescue"
+                | "ensure"
+                | "begin"
+                | "if_modifier"
+                | "unless_modifier"
+                | "block"
+                | "do_block"
+                | "lambda"
+                | "method"
+                | "singleton_method"
+                | "class"
+                | "module"
+        ) {
+            return false;
+        }
+        current = parent.parent();
+    }
+    false
+}
+
 fn is_terminating_control(kind: &str) -> bool {
     matches!(kind, "break" | "raise" | "return")
 }
@@ -2602,6 +2815,151 @@ mod tests {
         );
     }
 
+    #[test]
+    fn pattern_captures_initialize_locals_without_false_findings() {
+        let source = "def inspect(value)\n  case value\n  in {name: captured}\n    captured.length\n  else\n    value.to_s\n  end\nend\n";
+        let facts = analyze_facts(source);
+        assert!(!facts.malformed);
+        assert!(facts.analysis_complete);
+        let writes = facts
+            .locals
+            .iter()
+            .filter(|local| local.name == "captured" && local.kind == LocalFactKind::Write)
+            .count();
+        let reads = facts
+            .locals
+            .iter()
+            .filter(|local| local.name == "captured" && local.kind == LocalFactKind::Read)
+            .count();
+        assert_eq!(writes, 1);
+        assert_eq!(reads, 1);
+        assert!(
+            github_quality(source)
+                .into_iter()
+                .all(|issue| issue.rule_key != "rb/uninitialized-local-variable"),
+            "a case capture dominates its guarded receiver read"
+        );
+    }
+    #[test]
+    fn shorthand_keyword_patterns_bind_only_bare_locals() {
+        let source = "def inspect(value)\n  case value\n  in {name:}\n    name.length\n  else\n    value.to_s\n  end\nend\n";
+        let facts = analyze_facts(source);
+        assert!(!facts.malformed);
+        assert_eq!(
+            facts
+                .locals
+                .iter()
+                .filter(|local| local.name == "name" && local.kind == LocalFactKind::Write)
+                .count(),
+            1
+        );
+        assert_eq!(
+            facts
+                .locals
+                .iter()
+                .filter(|local| local.name == "name" && local.kind == LocalFactKind::Read)
+                .count(),
+            1
+        );
+        assert!(github_quality(source).is_empty());
+
+        let conservative = "def inspect(value)\n  case value\n  in {Name:}\n    value\n  in {\"name\":}\n    value\n  end\nend\n";
+        let facts = analyze_facts(conservative);
+        assert!(
+            facts
+                .locals
+                .iter()
+                .all(|local| local.name != "Name" && local.name != "name")
+        );
+    }
+
+    #[test]
+    fn malformed_pattern_and_heredoc_recovery_fails_closed() {
+        for source in [
+            "def broken(value)\n  case value\n  in {name: captured}\n    captured.length\n",
+            "def broken\n  query = <<~SQL\n    unfinished\n",
+        ] {
+            let facts = analyze_facts(source);
+            assert!(facts.malformed);
+            assert!(
+                github_quality(source).is_empty(),
+                "recovered fragments must not become quality findings"
+            );
+        }
+    }
+
+    #[test]
+    fn nested_lambda_and_block_defaults_preserve_capture_scopes() {
+        let source = "def build(seed, callback = -> { seed.length })\n  callback\nend\n\
+def build_with_block(seed, callback = proc { seed.length })\n  callback\nend\n";
+        let facts = analyze_facts(source);
+        assert!(!facts.malformed);
+        assert!(facts.analysis_complete);
+        let nested_scopes: Vec<_> = facts
+            .scopes
+            .iter()
+            .filter(|scope| matches!(scope.kind, ScopeKind::Lambda | ScopeKind::Block))
+            .map(|scope| scope.id)
+            .collect();
+        assert!(nested_scopes.len() >= 2);
+        for scope_id in nested_scopes {
+            let seed = facts
+                .locals
+                .iter()
+                .find(|local| {
+                    local.name == "seed"
+                        && local.kind == LocalFactKind::Read
+                        && local.lexical_scope == scope_id
+                })
+                .expect("default closure read must retain its nested lexical scope");
+            assert_ne!(seed.binding_scope, Some(scope_id));
+        }
+        assert!(
+            facts
+                .scopes
+                .iter()
+                .filter_map(|scope| scope.bindings.get("seed"))
+                .any(|binding| binding.captured),
+            "default closures must mark the method parameter as captured"
+        );
+        assert!(
+            github_quality(source)
+                .into_iter()
+                .all(|issue| issue.rule_key != "rb/uninitialized-local-variable")
+        );
+    }
+
+    #[test]
+    fn endless_methods_modifiers_lambdas_and_heredocs_keep_scope_facts() {
+        let source = "def label(value) = value&.to_s\n\ndef render(value)\n  outer = 1\n  worker = -> { outer }\n  [value].each { |item| item.to_s if item }\n  <<~SQL\n    # payload, not a Ruby comment\n  SQL\n  outer if value\n  worker.call\nend\n";
+        let facts = analyze_facts(source);
+        assert!(!facts.malformed);
+        assert!(facts.analysis_complete);
+        assert!(
+            facts
+                .scopes
+                .iter()
+                .any(|scope| scope.kind == ScopeKind::Lambda)
+        );
+        assert!(
+            facts
+                .calls
+                .iter()
+                .any(|call| call.method == "to_s" && call.safe_navigation)
+        );
+        assert!(
+            facts
+                .scopes
+                .iter()
+                .flat_map(|scope| scope.bindings.values())
+                .any(|binding| binding.name == "outer" && binding.captured)
+        );
+        assert_eq!(facts.metrics.file.comment_lines, 0);
+        assert!(
+            github_quality(source).is_empty(),
+            "initialized captures and modifier control flow must stay clean"
+        );
+    }
     #[test]
     fn only_call_receiver_reads_are_checked_for_uninitialized_use() {
         let issues = github_quality("def f\n  value.length\nend\n");
@@ -2696,10 +3054,106 @@ mod tests {
                 .iter()
                 .all(|issue| issue.rule_key != "rb/database-query-in-loop")
         );
-        assert!(
-            github_quality("User.find_each { |user| User.where(id: user.id) }\n")
+        let find_each = github_quality(
+            "class User < ApplicationRecord; end\nitems.find_each { User.find(1) }\n",
+        );
+        assert_eq!(
+            find_each
                 .iter()
-                .all(|issue| issue.rule_key != "rb/database-query-in-loop")
+                .filter(|issue| issue.rule_key == "rb/database-query-in-loop")
+                .count(),
+            1,
+            "find_each is a real loop and must classify nested model queries"
+        );
+        let query_issue = find_each
+            .iter()
+            .find(|issue| issue.rule_key == "rb/database-query-in-loop")
+            .expect("find_each query finding");
+        assert_eq!(query_issue.range.start.line, 2);
+        assert_eq!(query_issue.range.start.column, 18);
+        assert_eq!(query_issue.flows.len(), 1);
+        let near_miss =
+            "class User < ApplicationRecord; end\nitems.find_each { |user| user.name }\n";
+        assert!(
+            github_quality(near_miss)
+                .iter()
+                .all(|issue| issue.rule_key != "rb/database-query-in-loop"),
+            "ordinary receiver calls inside find_each are not database queries"
+        );
+    }
+
+    #[test]
+    fn github_database_rule_covers_native_loops_and_real_termination() {
+        let source = "class User < ApplicationRecord; end\n\
+def scan(items, done)\n\
+  while !done\n\
+    User.find(1)\n\
+  end\n\
+  until done\n\
+    User.find(1)\n\
+  end\n\
+  for item in items\n\
+    User.find(1)\n\
+  end\n\
+  loop do\n\
+    User.find(1)\n\
+  end\n\
+end\n";
+        let findings = github_quality(source)
+            .into_iter()
+            .filter(|issue| issue.rule_key == "rb/database-query-in-loop")
+            .collect::<Vec<_>>();
+        assert_eq!(findings.len(), 4);
+        assert!(findings.iter().all(|issue| {
+            issue.flows.len() == 1
+                && issue.flows[0].locations.len() == 1
+                && issue.flows[0].locations[0].message == "loop"
+        }));
+
+        let terminated = "class User < ApplicationRecord; end\n\
+def stop(items, done)\n\
+  while !done\n\
+    User.find(1)\n\
+    break\n\
+  end\n\
+  until done\n\
+    User.find(1)\n\
+    return\n\
+  end\n\
+  for item in items\n\
+    User.find(1)\n\
+    return\n\
+  end\n\
+  loop do\n\
+    User.find(1)\n\
+    break\n\
+  end\n\
+end\n";
+        let terminated_findings: Vec<_> = github_quality(terminated)
+            .into_iter()
+            .filter(|issue| issue.rule_key == "rb/database-query-in-loop")
+            .map(|issue| (issue.range.start.line, issue.range.start.column))
+            .collect();
+        assert!(
+            terminated_findings.is_empty(),
+            "unconditional break and return terminate each loop path: {terminated_findings:?}"
+        );
+
+        let conditional = "class User < ApplicationRecord; end\n\
+def maybe(items, done)\n\
+  while !done\n\
+    User.find(1)\n\
+    break if done\n\
+  end\n\
+  items.tap { User.find(1) }\n\
+end\n";
+        assert_eq!(
+            github_quality(conditional)
+                .into_iter()
+                .filter(|issue| issue.rule_key == "rb/database-query-in-loop")
+                .count(),
+            1,
+            "conditional break must not suppress a query, and tap is not a loop"
         );
     }
 

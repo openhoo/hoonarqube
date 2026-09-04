@@ -106,6 +106,15 @@ mod tests {
     }
 
     #[test]
+    fn s4487_resolves_escaped_field_reads_to_the_same_member() {
+        let report = analyze_default(
+            "class C\n{\n    private int @value = 1;\n\n    public int Get()\n    {\n        return value;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S4487");
+        assert_eq!(flagged.len(), 0);
+    }
+
+    #[test]
     fn s4487_does_not_borrow_reads_from_unrelated_types() {
         let report = analyze_default(
             "class A\n{\n    private int stale = 1;\n}\n\nclass B\n{\n    private int stale;\n    public int Read() => stale;\n}\n",
