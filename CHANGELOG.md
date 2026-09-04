@@ -6,6 +6,8 @@
 
 - **github-quality:** align conservative CodeQL detectors, registry coverage,
   SARIF validation, path handling, and action gating
+- **release:** synchronize `xtask` path dependencies during version bumps while
+  keeping CI dogfood pinned to an already-published binary
 
 ### Performance
 

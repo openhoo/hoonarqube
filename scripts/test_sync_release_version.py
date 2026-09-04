@@ -31,23 +31,40 @@ class SyncReleaseVersionTest(unittest.TestCase):
             self.assertIn('version = "0.3.0"', updated)
             self.assertIn('serde = "1.0"', updated)
 
-    def test_updates_only_internal_path_dependency(self) -> None:
+    def test_updates_only_internal_path_dependencies(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "Cargo.toml"
-            path.write_text(
+            sibling = Path(directory) / "crates" / "example" / "Cargo.toml"
+            sibling.parent.mkdir(parents=True)
+            sibling.write_text(
                 "[dependencies]\n"
                 'hoonarqube-core = { version = "0.2.0", path = "../hoonarqube-core" }\n'
                 'hoonarqube-remote = "0.2.0"\n'
                 'serde = { version = "1.0", path = "../serde" }\n',
                 encoding="utf-8",
             )
-            updated = SYNC.synchronized(path, "0.3.0")
+            xtask = Path(directory) / "xtask" / "Cargo.toml"
+            xtask.parent.mkdir()
+            xtask.write_text(
+                "[dependencies]\n"
+                'hoonarqube-catalog = { version = "0.2.0", path = "../crates/hoonarqube-catalog" }\n',
+                encoding="utf-8",
+            )
+
+            updated_sibling = SYNC.synchronized(sibling, "0.3.0")
+            updated_xtask = SYNC.synchronized(xtask, "0.3.0")
+
             self.assertIn(
                 'hoonarqube-core = { version = "0.3.0", path = "../hoonarqube-core" }',
-                updated,
+                updated_sibling,
             )
-            self.assertIn('hoonarqube-remote = "0.2.0"', updated)
-            self.assertIn('serde = { version = "1.0", path = "../serde" }', updated)
+            self.assertIn(
+                'hoonarqube-catalog = { version = "0.3.0", path = "../crates/hoonarqube-catalog" }',
+                updated_xtask,
+            )
+            self.assertIn('hoonarqube-remote = "0.2.0"', updated_sibling)
+            self.assertIn(
+                'serde = { version = "1.0", path = "../serde" }', updated_sibling
+            )
 
     def test_updates_all_action_defaults_and_documentation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -78,7 +95,7 @@ class SyncReleaseVersionTest(unittest.TestCase):
             finally:
                 SYNC.ROOT = original_root
 
-    def test_updates_pinned_ci_dogfood_version(self) -> None:
+    def test_keeps_pinned_ci_dogfood_version_independent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             original_root = SYNC.ROOT
             try:
@@ -90,9 +107,8 @@ class SyncReleaseVersionTest(unittest.TestCase):
                     "  HOONARQUBE_DOGFOOD_VERSION: 0.3.1\n",
                     encoding="utf-8",
                 )
-                updated = SYNC.synchronized(workflow, "0.3.2")
-                self.assertIn("HOONARQUBE_DOGFOOD_VERSION: 0.3.2", updated)
-                self.assertIn("HOOVERSION_VERSION: 1.1.1", updated)
+                updated = SYNC.synchronized(workflow, "0.4.0")
+                self.assertEqual(workflow.read_text(encoding="utf-8"), updated)
             finally:
                 SYNC.ROOT = original_root
 

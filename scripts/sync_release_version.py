@@ -16,12 +16,11 @@ WORKSPACE_VERSION = re.compile(
     r'(?ms)(^\[workspace\.package\]\s*$.*?^version\s*=\s*")[^"]+("\s*$)'
 )
 INTERNAL_DEPENDENCY = re.compile(
-    r'^(\s*hoonarqube(?:-[a-z0-9-]+)?\s*=\s*\{[^}\n]*\bversion\s*=\s*")[^"]+("[^}\n]*\bpath\s*=\s*"\.\./hoonarqube[^"\n]*"[^}\n]*\}\s*)$',
+    r'^(\s*hoonarqube(?:-[a-z0-9-]+)?\s*=\s*\{[^}\n]*\bversion\s*=\s*")[^"]+("[^}\n]*\bpath\s*=\s*"\.\./(?:crates/)?hoonarqube[^"\n]*"[^}\n]*\}\s*)$',
     re.MULTILINE,
 )
 ACTION_DEFAULT = re.compile(r'(?m)^(    default: ")[0-9]+\.[0-9]+\.[0-9]+("\s*)$')
 ACTION_DOC_VERSION = re.compile(r"(?m)^(    version: )[0-9]+\.[0-9]+\.[0-9]+(\s*)$")
-DOGFOOD_VERSION = re.compile(r"(?m)^(  HOONARQUBE_DOGFOOD_VERSION: )[^\s]+(\s*)$")
 
 
 def synchronized(path: Path, version: str) -> str:
@@ -37,11 +36,6 @@ def synchronized(path: Path, version: str) -> str:
         updated, count = ACTION_DEFAULT.subn(rf"\g<1>{version}\g<2>", text, count=1)
         if count != 1:
             raise RuntimeError(f"{path}: action version default missing or ambiguous")
-        return updated
-    if path == ROOT / ".github" / "workflows" / "ci.yml":
-        updated, count = DOGFOOD_VERSION.subn(rf"\g<1>{version}\g<2>", text, count=1)
-        if count != 1:
-            raise RuntimeError("CI dogfood version missing or ambiguous")
         return updated
     if path == ROOT / "actions" / "README.md":
         updated, count = ACTION_DOC_VERSION.subn(rf"\g<1>{version}\g<2>", text, count=1)
@@ -65,10 +59,10 @@ def main() -> int:
     paths = [
         ROOT / "Cargo.toml",
         *sorted((ROOT / "crates").glob("*/Cargo.toml")),
+        ROOT / "xtask" / "Cargo.toml",
         ROOT / "actions" / "setup" / "action.yml",
         ROOT / "actions" / "analyze" / "action.yml",
         ROOT / "actions" / "code-quality" / "action.yml",
-        ROOT / ".github" / "workflows" / "ci.yml",
         ROOT / "actions" / "README.md",
     ]
     drifted: list[Path] = []
