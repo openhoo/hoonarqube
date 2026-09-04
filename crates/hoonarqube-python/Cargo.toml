@@ -11,7 +11,7 @@ publish.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
-hoonarqube-ir = { version = "0.4.0", path = "../hoonarqube-ir" }
+hoonarqube-ir = { version = "0.4.1", path = "../hoonarqube-ir" }
 ruff_python_ast = "0.0.10"
 ruff_python_parser = "0.0.10"
 ruff_source_file = "0.0.10"
