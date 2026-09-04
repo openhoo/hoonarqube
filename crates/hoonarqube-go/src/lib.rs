@@ -10,6 +10,18 @@ use hoonarqube_ir::{
     FileMetrics, FileReport, FlowLocation, Issue, Pos, Range, sort_issues, u32_saturating,
 };
 use tree_sitter::{Node, Parser, Point};
+mod github_quality;
+
+pub use github_quality::analyze_github_quality;
+
+/// Exact `CodeQL` query IDs emitted by [`analyze_github_quality`], in sorted order.
+pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
+    "go/duplicate-condition",
+    "go/duplicate-switch-case",
+    "go/mistyped-exponentiation",
+    "go/negative-length-check",
+    "go/whitespace-contradicts-precedence",
+];
 
 /// Go rule parameters exposed by the frozen catalog.
 #[derive(Debug, Clone, PartialEq, Eq)]

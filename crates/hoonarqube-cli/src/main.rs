@@ -46,16 +46,17 @@ enum Command {
         /// Files or directories to analyze.
         #[arg(required = true)]
         paths: Vec<std::path::PathBuf>,
-        /// Output format: `text` (default), `json`, or `sonar`
-        /// (`SonarQube` Generic Issue Import).
+        /// Output format: `text` (default), `json`, `sonar`, or `sarif`
+        /// (`SonarQube` Generic Issue Import or SARIF 2.1.0).
         #[arg(long)]
         format: Option<String>,
         /// Expected literal Go license header (`go:S1451`); empty keeps the
         /// catalog-default disabled behavior.
         #[arg(long, default_value = "")]
         go_header_format: String,
-        /// Native-rule profile: `sonar-parity`, `recommended`, `extended`,
-        /// or `strict`.
+        /// Analyzer profile: `sonar-parity` (default), cumulative native
+        /// profiles `recommended`/`extended`/`strict`, or isolated
+        /// `github-code-quality`.
         #[arg(long, default_value = "sonar-parity")]
         profile: RuleProfile,
     },
@@ -102,7 +103,7 @@ enum RulesCommand {
     Info { external_key: String },
     /// List independently implemented native rules and their provenance.
     Native {
-        /// Language id (`py`, `js`, `ts`, `cs`, `go`, or `rust`).
+        /// Language id (`py`, `js`, `ts`, `cs`, `go`, `java`, `rb`, or `rust`).
         #[arg(long)]
         lang: Option<String>,
         /// Limit output to rules enabled by this cumulative profile.
@@ -121,6 +122,8 @@ enum AnalyzeFormat {
     Json,
     /// `SonarQube` Generic Issue Import JSON.
     Sonar,
+    /// SARIF 2.1.0 for GitHub Code Quality findings.
+    Sarif,
 }
 
 /// Resolves the analyze output format: an explicit `--format` value wins over
@@ -131,6 +134,7 @@ fn analyze_format(format: Option<&str>, json_flag: bool) -> Result<AnalyzeFormat
         Some("text") => Ok(AnalyzeFormat::Text),
         Some("json") => Ok(AnalyzeFormat::Json),
         Some("sonar") => Ok(AnalyzeFormat::Sonar),
+        Some("sarif") => Ok(AnalyzeFormat::Sarif),
         Some(value) => Err(value.to_string()),
         None if json_flag => Ok(AnalyzeFormat::Json),
         None => Ok(AnalyzeFormat::Text),
@@ -1340,7 +1344,8 @@ fn run_rules_info(catalog: &Catalog, external_key: &str, json: bool) -> ExitCode
 }
 
 fn run_native_rules(lang: Option<&str>, profile: Option<RuleProfile>, json: bool) -> ExitCode {
-    let valid_language = |value: &str| ["cs", "js", "ts", "py", "go", "rust"].contains(&value);
+    let valid_language =
+        |value: &str| ["cs", "js", "ts", "py", "go", "java", "rb", "rust"].contains(&value);
     if lang.is_some_and(|value| !valid_language(value)) {
         return unknown_language(lang.unwrap_or_default());
     }
@@ -1663,6 +1668,380 @@ fn sonar_text_range(range: &hoonarqube_ir::Range) -> serde_json::Value {
     })
 }
 
+fn sarif_level(severity: hoonarqube_catalog::github_quality::Severity) -> &'static str {
+    use hoonarqube_catalog::github_quality::Severity;
+
+    match severity {
+        Severity::Error => "error",
+        Severity::Warning => "warning",
+        Severity::Info | Severity::Recommendation => "note",
+    }
+}
+
+fn sarif_rule(
+    definition: &hoonarqube_catalog::github_quality::QueryDefinition,
+) -> serde_json::Value {
+    serde_json::json!({
+        "id": definition.id,
+        "name": definition.title,
+        "shortDescription": {
+            "text": definition.title,
+        },
+        "helpUri": definition.help_url,
+        "properties": {
+            "category": definition.category,
+            "severity": definition.severity,
+            "help": definition.help_url,
+        },
+    })
+}
+
+fn sarif_region(range: &hoonarqube_ir::Range) -> serde_json::Value {
+    serde_json::json!({
+        "startLine": range.start.line,
+        "startColumn": range.start.column.saturating_add(1),
+        "endLine": range.end.line,
+        "endColumn": range.end.column.saturating_add(1),
+    })
+}
+
+fn sarif_location(file_path: &str, message: Option<&str>, range: &Range) -> serde_json::Value {
+    let mut location = serde_json::json!({
+        "physicalLocation": {
+            "artifactLocation": {
+                "uri": file_path,
+            },
+        },
+    });
+    if !range.is_file_level() {
+        location["physicalLocation"]["region"] = sarif_region(range);
+    }
+    if let Some(message) = message {
+        location["message"] = serde_json::json!({ "text": message });
+    }
+    location
+}
+
+fn sarif_validate_range(range: &Range, context: &str) -> Result<(), String> {
+    if !range.is_file_level()
+        && (range.start.line == 0
+            || range.end.line == 0
+            || (range.start.line, range.start.column) > (range.end.line, range.end.column))
+    {
+        return Err(format!("invalid {context} range for SARIF output"));
+    }
+    Ok(())
+}
+
+fn sarif_normalize_path(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let mut normalized = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::Prefix(_) | std::path::Component::RootDir => {
+                normalized.push(component.as_os_str());
+            }
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !normalized.pop() {
+                    return None;
+                }
+            }
+            std::path::Component::Normal(value) => normalized.push(value),
+        }
+    }
+    Some(normalized)
+}
+
+fn sarif_uri_byte_allowed(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric()
+        || matches!(
+            byte,
+            b'-' | b'.'
+                | b'_'
+                | b'~'
+                | b'!'
+                | b'$'
+                | b'&'
+                | b'\''
+                | b'('
+                | b')'
+                | b'*'
+                | b'+'
+                | b','
+                | b';'
+                | b'='
+                | b':'
+                | b'@'
+        )
+}
+
+fn sarif_percent_encode_path(path: &std::path::Path) -> Result<String, String> {
+    let mut encoded = String::new();
+    for (index, component) in path.components().enumerate() {
+        let value = match component {
+            std::path::Component::Normal(value) => value.to_str(),
+            _ => None,
+        }
+        .ok_or_else(|| format!("SARIF artifact path is not valid UTF-8: {}", path.display()))?;
+        if index != 0 {
+            encoded.push('/');
+        }
+        for byte in value.as_bytes() {
+            if sarif_uri_byte_allowed(*byte) {
+                encoded.push(char::from(*byte));
+            } else {
+                use std::fmt::Write as _;
+                write!(&mut encoded, "%{byte:02X}").expect("writing to String cannot fail");
+            }
+        }
+    }
+    if encoded.is_empty() {
+        return Err("SARIF artifact path must not be empty".to_owned());
+    }
+    Ok(encoded)
+}
+
+fn sarif_artifact_uri(
+    path: &std::path::Path,
+    checkout_root: &std::path::Path,
+    context: &str,
+) -> Result<String, String> {
+    if path.to_str().is_none() {
+        return Err(format!("{context} is not valid UTF-8: {}", path.display()));
+    }
+    let root = sarif_normalize_path(checkout_root)
+        .ok_or_else(|| "checkout root is not a valid normalized path".to_owned())?;
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    let absolute = sarif_normalize_path(&absolute)
+        .ok_or_else(|| format!("{context} is outside checkout root: {}", path.display()))?;
+    let relative = absolute
+        .strip_prefix(&root)
+        .map_err(|_| format!("{context} is outside checkout root: {}", path.display()))?;
+    sarif_percent_encode_path(relative)
+}
+
+fn sarif_related_locations(
+    file_path: &str,
+    checkout_root: &std::path::Path,
+    issue: &hoonarqube_ir::Issue,
+) -> Result<Vec<serde_json::Value>, String> {
+    issue
+        .flows
+        .iter()
+        .flat_map(|flow| &flow.locations)
+        .filter(|location| location.path.is_some() || location.range != issue.range)
+        .enumerate()
+        .map(|(id, location)| {
+            let location_path = match location.path.as_ref() {
+                Some(path) => sarif_artifact_uri(path, checkout_root, "related flow path")?,
+                None => file_path.to_owned(),
+            };
+            let mut value =
+                sarif_location(&location_path, Some(&location.message), &location.range);
+            value["id"] = serde_json::json!(id);
+            Ok(value)
+        })
+        .collect()
+}
+
+fn sarif_code_flows(
+    file_path: &str,
+    checkout_root: &std::path::Path,
+    issue: &hoonarqube_ir::Issue,
+) -> Result<Vec<serde_json::Value>, String> {
+    issue
+        .flows
+        .iter()
+        .filter(|flow| !flow.locations.is_empty())
+        .map(|flow| {
+            let locations: Result<Vec<_>, String> = flow
+                .locations
+                .iter()
+                .map(|location| {
+                    let location_path = match location.path.as_ref() {
+                        Some(path) => sarif_artifact_uri(path, checkout_root, "related flow path")?,
+                        None => file_path.to_owned(),
+                    };
+                    Ok(serde_json::json!({
+                        "location": sarif_location(
+                            &location_path,
+                            Some(&location.message),
+                            &location.range,
+                        ),
+                    }))
+                })
+                .collect();
+            Ok(serde_json::json!({
+                "threadFlows": [{
+                    "locations": locations?,
+                }],
+            }))
+        })
+        .collect()
+}
+
+fn sarif_report_family(
+    language: &str,
+) -> Option<hoonarqube_catalog::github_quality::LanguageFamily> {
+    use hoonarqube_catalog::github_quality::LanguageFamily;
+    match language {
+        "csharp" | "csharpsquid" => Some(LanguageFamily::CSharp),
+        "go" => Some(LanguageFamily::Go),
+        "java" => Some(LanguageFamily::Java),
+        "javascript" | "typescript" => Some(LanguageFamily::JavaScriptTypeScript),
+        "python" => Some(LanguageFamily::Python),
+        "ruby" => Some(LanguageFamily::Ruby),
+        _ => None,
+    }
+}
+
+fn sarif_results(
+    definitions: &std::collections::BTreeMap<
+        String,
+        &'static hoonarqube_catalog::github_quality::QueryDefinition,
+    >,
+    checkout_root: &std::path::Path,
+    findings: Vec<(String, &hoonarqube_ir::Issue, String)>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let rule_indices: std::collections::BTreeMap<_, _> = definitions
+        .keys()
+        .enumerate()
+        .map(|(index, rule_id)| (rule_id.as_str(), index))
+        .collect();
+
+    let mut results = Vec::with_capacity(findings.len());
+    for (file_path, issue, _) in findings {
+        let definition = definitions
+            .get(issue.rule_key.as_str())
+            .expect("validated GitHub query");
+        let mut result = serde_json::json!({
+            "ruleId": issue.rule_key,
+            "ruleIndex": rule_indices[issue.rule_key.as_str()],
+            "level": sarif_level(definition.severity),
+            "message": {
+                "text": issue.message,
+            },
+            "locations": [
+                sarif_location(&file_path, None, &issue.range),
+            ],
+        });
+        let related = sarif_related_locations(&file_path, checkout_root, issue)?;
+        if !related.is_empty() {
+            result["relatedLocations"] = serde_json::Value::Array(related);
+        }
+        let code_flows = sarif_code_flows(&file_path, checkout_root, issue)?;
+        if !code_flows.is_empty() {
+            result["codeFlows"] = serde_json::Value::Array(code_flows);
+        }
+        results.push(result);
+    }
+    Ok(results)
+}
+
+/// Builds a deterministic SARIF 2.1.0 document from GitHub Code Quality
+/// findings. The report contract carries zero-based columns, while SARIF
+/// regions use one-based columns. Every rule is resolved through the official
+/// GitHub query catalog; no fallback metadata is permitted.
+fn sarif_value(
+    _catalog: &Catalog,
+    reports: &[hoonarqube_ir::FileReport],
+) -> Result<serde_json::Value, String> {
+    let checkout_root = std::env::current_dir()
+        .map_err(|error| format!("cannot determine checkout root for SARIF: {error}"))?;
+    let mut definitions = std::collections::BTreeMap::new();
+    let mut findings = Vec::new();
+
+    for report in reports {
+        let report_family = sarif_report_family(&report.language);
+        let file_path = sarif_artifact_uri(&report.path, &checkout_root, "primary report path")?;
+        for issue in &report.issues {
+            let report_family = report_family.ok_or_else(|| {
+                format!(
+                    "report language {:?} has no GitHub Code Quality family",
+                    report.language
+                )
+            })?;
+            let definition = hoonarqube_catalog::github_quality::query(&issue.rule_key)
+                .ok_or_else(|| {
+                    format!("unknown GitHub Code Quality query id: {}", issue.rule_key)
+                })?;
+            if definition.language != report_family {
+                return Err(format!(
+                    "GitHub Code Quality query {} belongs to {}, not report language {}",
+                    issue.rule_key,
+                    definition.language.as_str(),
+                    report.language
+                ));
+            }
+            sarif_validate_range(&issue.range, "primary location")?;
+            for flow in &issue.flows {
+                for location in &flow.locations {
+                    sarif_validate_range(&location.range, "related location")?;
+                    if let Some(path) = location.path.as_ref() {
+                        sarif_artifact_uri(path, &checkout_root, "related flow path")?;
+                    }
+                }
+            }
+            definitions.insert(issue.rule_key.clone(), definition);
+            let canonical_issue = serde_json::to_string(issue).map_err(|error| {
+                format!(
+                    "cannot canonicalize SARIF finding {}: {error}",
+                    issue.rule_key
+                )
+            })?;
+            findings.push((file_path.clone(), issue, canonical_issue));
+        }
+    }
+
+    findings.sort_by(|(path_a, issue_a, key_a), (path_b, issue_b, key_b)| {
+        (
+            path_a.as_str(),
+            issue_a.range.start.line,
+            issue_a.range.start.column,
+            issue_a.range.end.line,
+            issue_a.range.end.column,
+            issue_a.rule_key.as_str(),
+            issue_a.message.as_str(),
+            key_a.as_str(),
+        )
+            .cmp(&(
+                path_b.as_str(),
+                issue_b.range.start.line,
+                issue_b.range.start.column,
+                issue_b.range.end.line,
+                issue_b.range.end.column,
+                issue_b.rule_key.as_str(),
+                issue_b.message.as_str(),
+                key_b.as_str(),
+            ))
+    });
+
+    let rules: Vec<_> = definitions
+        .values()
+        .map(|definition| sarif_rule(definition))
+        .collect();
+    let results = sarif_results(&definitions, &checkout_root, findings)?;
+
+    Ok(serde_json::json!({
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {
+                "driver": {
+                    "name": "Hoonarqube",
+                    "informationUri": "https://github.com/openhoo/hoonarqube",
+                    "rules": rules,
+                },
+            },
+            "results": results,
+        }],
+    }))
+}
+
 /// Validates input paths and the requested output format, then walks and
 /// analyzes them; issues found are not failures (scanner-style); only missing
 /// paths or an unknown format exit nonzero.
@@ -1681,6 +2060,10 @@ fn run_analyze(
             return ExitCode::from(2);
         }
     };
+    if format == AnalyzeFormat::Sarif && profile != RuleProfile::GithubCodeQuality {
+        eprintln!("SARIF output requires --profile github-code-quality");
+        return ExitCode::from(2);
+    }
 
     let mut valid = true;
     for path in paths {
@@ -1708,6 +2091,13 @@ fn run_analyze(
             Ok(value) => print_json(&value),
             Err(error) => {
                 eprintln!("cannot render Sonar output: {error}");
+                false
+            }
+        },
+        AnalyzeFormat::Sarif => match sarif_value(catalog, &reports) {
+            Ok(value) => print_json(&value),
+            Err(error) => {
+                eprintln!("cannot render SARIF output: {error}");
                 false
             }
         },
@@ -2588,6 +2978,249 @@ mod tests {
         );
         assert_eq!(analyze_format(Some("xml"), true), Err("xml".to_string()));
     }
+    #[test]
+    fn sarif_maps_github_metadata_levels_and_columns() {
+        let issue = Issue::new(
+            "go/duplicate-condition",
+            "Duplicate condition.",
+            Range {
+                start: Pos { line: 2, column: 0 },
+                end: Pos { line: 2, column: 4 },
+            },
+        );
+        let value = sarif_value(
+            embedded(),
+            &[sample_report("src/main.go", "go", vec![issue])],
+        )
+        .expect("SARIF");
+        let run = &value["runs"][0];
+        let rule = &run["tool"]["driver"]["rules"][0];
+        assert_eq!(rule["id"], "go/duplicate-condition");
+        assert_eq!(rule["name"], "Duplicate 'if' condition");
+        assert_eq!(rule["properties"]["category"], "Reliability");
+        assert_eq!(rule["properties"]["severity"], "Error");
+        assert_eq!(rule["properties"]["help"], rule["helpUri"]);
+        assert_eq!(run["results"][0]["level"], "error");
+        assert_eq!(
+            run["results"][0]["locations"][0]["physicalLocation"]["region"],
+            serde_json::json!({
+                "startLine": 2,
+                "startColumn": 1,
+                "endLine": 2,
+                "endColumn": 5,
+            })
+        );
+        assert_eq!(
+            run["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"],
+            "src/main.go"
+        );
+        assert!(run["results"][0]["partialFingerprints"].is_null());
+    }
+
+    #[test]
+    fn sarif_exports_flows_as_related_locations_and_code_flows() {
+        let source_range = Range {
+            start: Pos { line: 1, column: 2 },
+            end: Pos { line: 1, column: 8 },
+        };
+        let sink_range = Range {
+            start: Pos { line: 4, column: 1 },
+            end: Pos { line: 4, column: 7 },
+        };
+        let issue = Issue::new(
+            "go/duplicate-condition",
+            "Duplicate condition.",
+            sink_range.clone(),
+        )
+        .with_flow(vec![
+            FlowLocation::in_primary_file("Condition source.", source_range),
+            FlowLocation::in_primary_file("Condition sink.", sink_range),
+        ]);
+        let value =
+            sarif_value(embedded(), &[sample_report("main.go", "go", vec![issue])]).expect("SARIF");
+        let result = &value["runs"][0]["results"][0];
+        assert_eq!(result["relatedLocations"].as_array().map(Vec::len), Some(1));
+        assert_eq!(result["relatedLocations"][0]["id"], 0);
+        assert_eq!(
+            result["relatedLocations"][0]["message"]["text"],
+            "Condition source."
+        );
+        assert_eq!(result["codeFlows"].as_array().map(Vec::len), Some(1));
+        assert_eq!(
+            result["codeFlows"][0]["threadFlows"][0]["locations"]
+                .as_array()
+                .map(Vec::len),
+            Some(2)
+        );
+        assert_eq!(
+            result["codeFlows"][0]["threadFlows"][0]["locations"][0]["location"]["physicalLocation"]
+                ["region"]["startColumn"],
+            3
+        );
+    }
+
+    #[test]
+    fn sarif_clean_output_has_no_rules_or_results() {
+        let value = sarif_value(embedded(), &[]).expect("clean SARIF");
+        assert_eq!(value["version"], "2.1.0");
+        assert_eq!(
+            value["$schema"],
+            "https://json.schemastore.org/sarif-2.1.0.json"
+        );
+        assert_eq!(
+            value["runs"][0]["tool"]["driver"]["rules"]
+                .as_array()
+                .map(Vec::len),
+            Some(0)
+        );
+        assert_eq!(
+            value["runs"][0]["results"].as_array().map(Vec::len),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn sarif_order_is_deterministic_without_coordinate_fingerprints() {
+        let make_issue = |rule_key: &str, line: u32| {
+            Issue::new(
+                rule_key,
+                "quality finding",
+                Range {
+                    start: Pos { line, column: 1 },
+                    end: Pos { line, column: 3 },
+                },
+            )
+        };
+        let first = sample_report(
+            "z.go",
+            "go",
+            vec![make_issue("go/mistyped-exponentiation", 3)],
+        );
+        let second = sample_report("a.go", "go", vec![make_issue("go/duplicate-condition", 2)]);
+        let left = sarif_value(embedded(), &[first.clone(), second.clone()]).expect("SARIF");
+        let right = sarif_value(embedded(), &[second, first]).expect("SARIF");
+        assert_eq!(
+            serde_json::to_string(&left).expect("serialize"),
+            serde_json::to_string(&right).expect("serialize")
+        );
+        assert_eq!(
+            left["runs"][0]["tool"]["driver"]["rules"][0]["id"],
+            "go/duplicate-condition"
+        );
+        assert!(left["runs"][0]["results"][0]["partialFingerprints"].is_null());
+    }
+
+    #[test]
+    fn sarif_rejects_unknown_github_query_ids() {
+        let issue = Issue::new(
+            "go/not-a-real-query",
+            "unknown",
+            Range {
+                start: Pos { line: 1, column: 0 },
+                end: Pos { line: 1, column: 1 },
+            },
+        );
+        let error = sarif_value(
+            embedded(),
+            &[sample_report("unknown.go", "go", vec![issue])],
+        )
+        .expect_err("unknown query");
+        assert!(error.contains("unknown GitHub Code Quality query id"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sarif_rejects_invalid_primary_and_related_path_encoding() {
+        use std::os::unix::ffi::OsStringExt as _;
+
+        let mut primary = sample_report("valid.go", "go", Vec::new());
+        primary.path = std::path::PathBuf::from(std::ffi::OsString::from_vec(vec![
+            b'v', b'a', b'l', b'i', b'd', b'/', 0xff, b'.', b'g', b'o',
+        ]));
+        let error = sarif_value(embedded(), &[primary]).expect_err("invalid primary path");
+        assert!(error.contains("primary report path is not valid UTF-8"));
+
+        let issue = Issue::new(
+            "go/duplicate-condition",
+            "finding",
+            Range {
+                start: Pos { line: 1, column: 0 },
+                end: Pos { line: 1, column: 1 },
+            },
+        )
+        .with_flow(vec![FlowLocation {
+            path: Some(std::path::PathBuf::from(std::ffi::OsString::from_vec(
+                vec![b'f', b'/', 0xfe, b'.', b'g', b'o'],
+            ))),
+            message: "related".to_string(),
+            range: Range {
+                start: Pos { line: 2, column: 0 },
+                end: Pos { line: 2, column: 1 },
+            },
+        }]);
+        let error = sarif_value(embedded(), &[sample_report("valid.go", "go", vec![issue])])
+            .expect_err("invalid related path");
+        assert!(error.contains("related flow path is not valid UTF-8"));
+    }
+
+    #[test]
+    fn sarif_percent_encodes_special_artifact_path_bytes() {
+        let issue = Issue::new(
+            "go/duplicate-condition",
+            "finding",
+            Range {
+                start: Pos { line: 1, column: 0 },
+                end: Pos { line: 1, column: 1 },
+            },
+        );
+        let value = sarif_value(
+            embedded(),
+            &[sample_report("dir/a b#?.go", "go", vec![issue])],
+        )
+        .expect("SARIF");
+        assert_eq!(
+            value["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]
+                ["uri"],
+            "dir/a%20b%23%3F.go"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sarif_rejects_absolute_paths_outside_checkout_root() {
+        let mut report = sample_report("/tmp/outside.go", "go", Vec::new());
+        report.path = std::path::PathBuf::from("/tmp/outside.go");
+        let error = sarif_value(embedded(), &[report]).expect_err("outside path");
+        assert!(error.contains("outside checkout root"));
+    }
+
+    #[test]
+    fn sarif_rejects_rule_family_mismatch() {
+        let issue = Issue::new(
+            "py/explicit-call-to-delete",
+            "wrong family",
+            Range {
+                start: Pos { line: 1, column: 0 },
+                end: Pos { line: 1, column: 1 },
+            },
+        );
+        let error = sarif_value(embedded(), &[sample_report("wrong.go", "go", vec![issue])])
+            .expect_err("family mismatch");
+        assert!(error.contains("belongs to Python"));
+    }
+
+    #[test]
+    fn analyze_format_accepts_sarif_and_keeps_precedence() {
+        assert_eq!(
+            analyze_format(Some("sarif"), false),
+            Ok(AnalyzeFormat::Sarif)
+        );
+        assert_eq!(
+            analyze_format(Some("sarif"), true),
+            Ok(AnalyzeFormat::Sarif)
+        );
+        assert_eq!(analyze_format(Some("xml"), true), Err("xml".to_string()));
+    }
 
     #[test]
     fn select_language_accepts_catalog_names_and_ids() {
@@ -2596,5 +3229,32 @@ mod tests {
         let by_name = select_language(catalog, Some("python")).expect("name resolves");
         assert_eq!(by_id.count(), by_name.count());
         assert!(select_language(catalog, Some("zz")).is_none());
+    }
+
+    #[test]
+    fn parser_accepts_github_quality_profile_and_sarif_format() {
+        let parsed = Cli::try_parse_from([
+            "hoonarqube",
+            "analyze",
+            "--profile",
+            "github-code-quality",
+            "--format",
+            "sarif",
+            "Main.java",
+        ])
+        .expect("GitHub Code Quality profile and SARIF format should parse");
+        let Command::Analyze {
+            profile, format, ..
+        } = parsed.command
+        else {
+            panic!("expected analyze command");
+        };
+        assert_eq!(profile, RuleProfile::GithubCodeQuality);
+        assert_eq!(format.as_deref(), Some("sarif"));
+
+        let error = Cli::try_parse_from(["hoonarqube", "analyze", "--profile", "unknown", "a.py"])
+            .err()
+            .expect("unknown profile should fail parsing");
+        assert!(error.to_string().contains("github-code-quality"));
     }
 }

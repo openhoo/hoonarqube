@@ -1066,6 +1066,126 @@ fn is_sha256(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+#[derive(Debug, Eq, PartialEq)]
+struct GithubCoverageRow {
+    family: hoonarqube_catalog::github_quality::LanguageFamily,
+    implemented: usize,
+    total: usize,
+    missing: Vec<String>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct GithubCoverageReport {
+    registered: usize,
+    total: usize,
+    rows: Vec<GithubCoverageRow>,
+    missing: Vec<String>,
+}
+
+fn github_coverage_report(
+    registry: &[(hoonarqube_catalog::github_quality::LanguageFamily, &[&str])],
+) -> Result<GithubCoverageReport> {
+    use hoonarqube_catalog::github_quality::{LanguageFamily, query};
+
+    let mut registered = BTreeSet::new();
+    let mut by_family = BTreeMap::new();
+    for (family, ids) in registry {
+        ensure!(
+            by_family.insert(*family, BTreeSet::new()).is_none(),
+            "duplicate GitHub Code Quality family {}",
+            family.as_str()
+        );
+        for id in *ids {
+            ensure!(
+                registered.insert((*id).to_owned()),
+                "duplicate registered GitHub Code Quality ID {id}"
+            );
+            let definition = query(id)
+                .with_context(|| format!("unknown registered GitHub Code Quality ID {id}"))?;
+            ensure!(
+                definition.language == *family,
+                "GitHub Code Quality ID {id} belongs to {}, not {}",
+                definition.language.as_str(),
+                family.as_str()
+            );
+            by_family
+                .get_mut(family)
+                .expect("family inserted immediately above")
+                .insert((*id).to_owned());
+        }
+    }
+
+    let mut rows = Vec::new();
+    let mut missing = Vec::new();
+    for family in LanguageFamily::ALL {
+        let expected = hoonarqube_catalog::github_quality::queries_for_language(family)
+            .map(|definition| definition.id.as_str())
+            .collect::<Vec<_>>();
+        let family_ids = by_family.get(&family);
+        let family_missing = expected
+            .iter()
+            .filter(|id| family_ids.is_none_or(|ids| !ids.contains::<str>(**id)))
+            .map(|id| (*id).to_owned())
+            .collect::<Vec<_>>();
+        let total = expected.len();
+        rows.push(GithubCoverageRow {
+            family,
+            implemented: total - family_missing.len(),
+            total,
+            missing: family_missing.clone(),
+        });
+        missing.extend(family_missing);
+    }
+
+    Ok(GithubCoverageReport {
+        registered: registered.len(),
+        total: rows.iter().map(|row| row.total).sum(),
+        rows,
+        missing,
+    })
+}
+
+/// Audits explicit analyzer GitHub Code Quality IDs against the frozen metadata.
+///
+/// Missing IDs are an intentional partial state unless `require_full` is set.
+/// Duplicate, unknown, and wrong-family registrations always fail.
+pub fn github_coverage(require_full: bool) -> Result<()> {
+    hoonarqube_catalog::github_quality::verify()
+        .map_err(|error| anyhow::anyhow!("GitHub Code Quality catalog is invalid: {error}"))?;
+    let report = github_coverage_report(hoonarqube_core::GITHUB_QUALITY_RULES_BY_FAMILY)?;
+
+    println!("GitHub Code Quality coverage");
+    println!("family                    implemented  missing  total");
+    for row in &report.rows {
+        println!(
+            "{:<25} {:>11} {:>8} {:>6}",
+            row.family.as_str(),
+            row.implemented,
+            row.missing.len(),
+            row.total
+        );
+    }
+    println!(
+        "partial registry: {}/{} implemented; {} missing",
+        report.registered,
+        report.total,
+        report.missing.len()
+    );
+    println!("missing IDs ({}):", report.missing.len());
+    for id in &report.missing {
+        println!("  {id}");
+    }
+
+    if require_full && !report.missing.is_empty() {
+        bail!(
+            "--require-full requested, but {} of {} GitHub Code Quality IDs are missing",
+            report.missing.len(),
+            report.total
+        );
+    }
+    Ok(())
+}
+
 /// Audits implemented-rule coverage of the analyzer crates against the frozen catalogs.
 ///
 /// A frozen rule counts as implemented when its distinguishing key marker (the part
@@ -2338,6 +2458,72 @@ mod tests {
         assert!(error.to_string().contains("rolled back"));
         assert_eq!(fs::read(output.join("snapshot.toml")).unwrap(), b"original");
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn github_registry_reports_current_partial_state() {
+        let report =
+            github_coverage_report(hoonarqube_core::GITHUB_QUALITY_RULES_BY_FAMILY).unwrap();
+        assert_eq!(report.registered, 54);
+        assert_eq!(report.total, 382);
+        assert_eq!(report.missing.len(), 328);
+        assert_eq!(
+            report
+                .rows
+                .iter()
+                .map(|row| (row.implemented, row.total, row.missing.len()))
+                .collect::<Vec<_>>(),
+            vec![
+                (13, 69, 56),
+                (5, 22, 17),
+                (15, 89, 74),
+                (13, 98, 85),
+                (5, 101, 96),
+                (3, 3, 0)
+            ]
+        );
+    }
+
+    #[test]
+    fn github_registry_rejects_duplicate_unknown_and_wrong_family_ids() {
+        let duplicate = ["cs/call-to-gc", "cs/call-to-gc"];
+        assert!(
+            github_coverage_report(&[(
+                hoonarqube_catalog::github_quality::LanguageFamily::CSharp,
+                &duplicate,
+            )])
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate")
+        );
+
+        let unknown = ["cs/not-a-real-query"];
+        assert!(
+            github_coverage_report(&[(
+                hoonarqube_catalog::github_quality::LanguageFamily::CSharp,
+                &unknown,
+            )])
+            .unwrap_err()
+            .to_string()
+            .contains("unknown")
+        );
+
+        let wrong_family = ["cs/call-to-gc"];
+        assert!(
+            github_coverage_report(&[(
+                hoonarqube_catalog::github_quality::LanguageFamily::Go,
+                &wrong_family,
+            )])
+            .unwrap_err()
+            .to_string()
+            .contains("belongs to")
+        );
+    }
+
+    #[test]
+    fn github_coverage_require_full_rejects_partial_registry() {
+        assert!(github_coverage(false).is_ok());
+        assert!(github_coverage(true).is_err());
     }
 
     #[test]

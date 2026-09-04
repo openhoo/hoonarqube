@@ -1,0 +1,130 @@
+name: Hoonarqube Code Quality SARIF
+description: Analyze with Hoonarqube's Code Quality profile and optionally upload SARIF to GitHub code scanning.
+inputs:
+  version:
+    description: Hoonarqube release version to install.
+    required: false
+    default: "0.3.1"
+  executable:
+    description: Optional Hoonarqube executable path; skips release installation when set.
+    required: false
+    default: ""
+  working-directory:
+    description: Repository directory where Hoonarqube should run.
+    required: false
+    default: "."
+  paths:
+    description: Newline-separated source paths to analyze.
+    required: true
+  output:
+    description: SARIF report path, relative to working-directory unless absolute.
+    required: false
+    default: "hoonarqube.sarif"
+  upload:
+    description: Upload the validated SARIF report to GitHub code scanning when true.
+    required: false
+    default: "false"
+outputs:
+  report:
+    description: Absolute path to the validated SARIF report.
+    value: ${{ steps.analyze.outputs.report }}
+  result-count:
+    description: Number of SARIF results in the report.
+    value: ${{ steps.analyze.outputs.result-count }}
+runs:
+  using: composite
+  steps:
+    - name: Install pinned Cosign verifier
+      if: ${{ inputs.executable == '' }}
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+    - name: Set up Hoonarqube
+      if: ${{ inputs.executable == '' }}
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        RUNNER_OS_VALUE: ${{ runner.os }}
+        RUNNER_ARCH_VALUE: ${{ runner.arch }}
+      run: bash "$GITHUB_ACTION_PATH/../setup/install.sh"
+
+    - name: Analyze source and write SARIF
+      id: analyze
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        INPUT_EXECUTABLE: ${{ inputs.executable }}
+        INPUT_OUTPUT: ${{ inputs.output }}
+        INPUT_PATHS: ${{ inputs.paths }}
+        INPUT_UPLOAD: ${{ inputs.upload }}
+      run: |
+        set -euo pipefail
+
+        hoonarqube_command=(hoonarqube)
+        if [[ -n "$INPUT_EXECUTABLE" ]]; then
+          hoonarqube_command=("$INPUT_EXECUTABLE")
+        fi
+
+        if [[ -z "$INPUT_OUTPUT" ]]; then
+          echo "::error::output must name a report file."
+          exit 2
+        fi
+        if [[ "$INPUT_OUTPUT" == *$'\n'* || "$INPUT_OUTPUT" == *$'\r'* ]]; then
+          echo "::error::output must be a single-line report path."
+          exit 2
+        fi
+        case "$INPUT_UPLOAD" in
+          true|false) ;;
+          *)
+            echo "::error::upload must be true or false."
+            exit 2
+            ;;
+        esac
+
+        mapfile -t paths < <(printf '%s\n' "$INPUT_PATHS" | sed '/^[[:space:]]*$/d')
+        if [[ "${#paths[@]}" -eq 0 ]]; then
+          echo "::error::paths must contain at least one source path."
+          exit 2
+        fi
+
+        report_path="$INPUT_OUTPUT"
+        if [[ "$report_path" != /* ]]; then
+          report_path="$PWD/$report_path"
+        fi
+        mkdir -p -- "$(dirname -- "$report_path")"
+
+        temp_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+        mkdir -p -- "$temp_root"
+        temporary_report="$(mktemp "$temp_root/hoonarqube-code-quality.XXXXXX.sarif")"
+        trap 'rm -f -- "$temporary_report"' EXIT
+
+        "${hoonarqube_command[@]}" analyze --profile github-code-quality --format sarif -- "${paths[@]}" > "$temporary_report"
+
+        jq -e '
+          (.["$schema"] == "https://json.schemastore.org/sarif-2.1.0.json")
+          and (.version == "2.1.0")
+          and (.runs | type == "array" and length == 1)
+          and (.runs[0].tool.driver.name == "Hoonarqube")
+          and (.runs[0].tool.driver.rules | type == "array")
+          and (.runs[0].results | type == "array")
+          and all(.runs[0].results[];
+            (.ruleId | type == "string")
+            and (.level | (type == "string" and (. == "error" or . == "warning" or . == "note")))
+            and (.message.text | type == "string")
+            and (.locations | type == "array" and length >= 1)
+          )
+        ' "$temporary_report" >/dev/null
+        mv -- "$temporary_report" "$report_path"
+
+        result_count="$(jq -er '.runs[0].results | length' "$report_path")"
+        {
+          echo "report=$report_path"
+          echo "result-count=$result_count"
+          echo "checkout-path=$PWD"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Upload SARIF to GitHub code scanning
+      if: ${{ inputs.upload == 'true' }}
+      uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+      with:
+        sarif_file: ${{ steps.analyze.outputs.report }}
+        checkout_path: ${{ steps.analyze.outputs.checkout-path }}

@@ -49,7 +49,7 @@ class SyncReleaseVersionTest(unittest.TestCase):
             self.assertIn('hoonarqube-remote = "0.2.0"', updated)
             self.assertIn('serde = { version = "1.0", path = "../serde" }', updated)
 
-    def test_updates_action_defaults_and_documentation(self) -> None:
+    def test_updates_all_action_defaults_and_documentation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             original_root = SYNC.ROOT
             try:
@@ -60,10 +60,20 @@ class SyncReleaseVersionTest(unittest.TestCase):
                     'inputs:\n  version:\n    default: "0.2.2"\n  path:\n    default: "."\n',
                     encoding="utf-8",
                 )
+                code_quality = SYNC.ROOT / "actions" / "code-quality" / "action.yml"
+                code_quality.parent.mkdir(parents=True)
+                code_quality.write_text(
+                    'inputs:\n  version:\n    default: "0.2.2"\n',
+                    encoding="utf-8",
+                )
                 readme = SYNC.ROOT / "actions" / "README.md"
                 readme.write_text("with:\n    version: 0.2.2\n", encoding="utf-8")
 
                 self.assertIn('default: "0.2.3"', SYNC.synchronized(action, "0.2.3"))
+                self.assertIn(
+                    'default: "0.2.3"',
+                    SYNC.synchronized(code_quality, "0.2.3"),
+                )
                 self.assertIn("version: 0.2.3", SYNC.synchronized(readme, "0.2.3"))
             finally:
                 SYNC.ROOT = original_root

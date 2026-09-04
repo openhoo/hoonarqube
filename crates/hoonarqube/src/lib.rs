@@ -54,6 +54,18 @@ pub mod catalog {
     pub use hoonarqube_catalog::native_rules;
 }
 
+/// GitHub Code Quality metadata and lookup APIs.
+///
+/// This namespace is re-exported from `hoonarqube-catalog`, so facade
+/// consumers can validate every key emitted by the isolated GitHub profile
+/// without depending on workspace-internal crate boundaries.
+pub mod github_quality {
+    pub use hoonarqube_catalog::github_quality::{
+        Category, EvidenceStatus, ImplementationStatus, LanguageFamily, QueryDefinition, Severity,
+        queries, queries_for_language, query, verify, verify_json,
+    };
+}
+
 /// Findings-oriented intermediate representation of analyzer output.
 ///
 /// Re-exported from `hoonarqube-ir`; positions follow the `SonarQube`
@@ -97,7 +109,7 @@ pub use hoonarqube_core::language_for_path;
 
 #[cfg(test)]
 mod tests {
-    use super::{AnalyzerOptions, analyze};
+    use super::{AnalyzerOptions, RuleProfile, analyze};
     use crate::catalog;
     use std::path::Path;
 
@@ -127,6 +139,49 @@ mod tests {
                     )
                 });
                 assert_eq!(record.external_key, issue.rule_key);
+            }
+        }
+    }
+
+    /// GitHub-profile findings must resolve through the facade's public
+    /// metadata lookup, including the Java and Ruby families.
+    #[test]
+    fn github_findings_resolve_through_facade_lookup() {
+        let options = AnalyzerOptions {
+            profile: RuleProfile::GithubCodeQuality,
+            ..AnalyzerOptions::default()
+        };
+        let fixtures = [
+            (
+                "fixture.cs",
+                "using System; class C { void M() { GC.Collect(); } }",
+            ),
+            (
+                "fixture.go",
+                "package p\nfunc f(x int) { if x == 1 {} else if (x == 1) {} }\n",
+            ),
+            (
+                "fixture.java",
+                "class Main { void f() { new String(\"x\"); } }\n",
+            ),
+            ("fixture.js", "/*@cc_on @*/\n"),
+            ("fixture.ts", "const n: number = 1; n = 2;\n"),
+            ("fixture.py", "global value\n"),
+            ("fixture.rb", "def f\n  value\nend\n"),
+        ];
+        for (path, source) in fixtures {
+            let report = analyze(Path::new(path), source, &options)
+                .unwrap_or_else(|| panic!("{path} must be registered"));
+            assert!(
+                !report.issues.is_empty(),
+                "{path} must produce a GitHub finding"
+            );
+            for issue in &report.issues {
+                assert!(
+                    super::github_quality::query(&issue.rule_key).is_some(),
+                    "facade lookup must resolve {} from {path}",
+                    issue.rule_key
+                );
             }
         }
     }

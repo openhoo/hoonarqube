@@ -164,6 +164,93 @@ cargo run -p hoonarqube-bench -- --iterations N                # throughput tabl
 cargo run -p xtask -- catalog coverage                         # parity audit
 ```
 
+## GitHub Code Quality action
+
+`catalog/github-code-quality.json` is the authoritative metadata catalog for
+GitHub Code Quality: it contains 382 definitions captured from CodeQL. A
+definition is not an implementation claim. The `github-code-quality` profile
+intentionally runs only Hoonarqube's conservative, high-confidence implemented
+subset across C#, Go, Java, JavaScript/TypeScript, Python, and Ruby. The
+remaining definitions are not silently approximated, so this action must never
+be described as implementing all 382 queries or as full CodeQL behavioral
+parity.
+
+The executable registry currently covers **54 of 382** definitions: C# 13/69,
+Go 5/22, Java 15/89, JavaScript/TypeScript 13/98, Python 5/101, and Ruby 3/3.
+Audit the registry and print every missing ID with:
+
+```bash
+cargo run --locked -q -p xtask -- catalog github-coverage
+```
+
+Add `--require-full` when a release is intended to claim complete parity; it
+currently fails closed because 328 definitions remain unimplemented.
+
+Rust is deliberately excluded from this profile. Rust files produce no GitHub
+Code Quality findings; use the regular Sonar-compatible profile when Rust
+analysis is required. Hoonarqube runs its own detectors and does not install,
+invoke, or require the CodeQL CLI. The catalog preserves CodeQL query
+metadata, but metadata presence is not detector coverage.
+
+The CLI emits the SARIF 2.1.0 contract directly:
+
+```bash
+cargo run --locked -q -p hoonarqube-cli -- analyze \
+  --profile github-code-quality --format sarif -- src
+```
+
+The SARIF driver is `Hoonarqube`. Query categories are `Maintainability` and
+`Reliability`. Query severities map to SARIF levels as follows: `Error` to
+`error`, `Warning` to `warning`, and `Recommendation` or `Info` to `note`.
+Hoonarqube converts its internal 0-based columns to SARIF's 1-based columns
+and retains flow evidence as `relatedLocations`. Coordinate-dependent partial
+fingerprints are intentionally omitted unless a stable content fingerprint is
+available.
+
+`actions/code-quality` installs through the verified setup action, validates
+the SARIF document, and exposes `report` and `result-count` outputs. Upload is
+opt-in. GitHub's `upload-sarif` action publishes third-party results to code
+scanning; it does not inject them into GitHub's native Code Quality dashboard.
+The existing `actions/analyze` action remains for SonarQube Generic Issue
+Import JSON and local `fail-on` gating.
+
+Copy-paste workflow example:
+
+```yaml
+name: Code quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  code-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: hoonarqube
+        uses: openhoo/hoonarqube/actions/code-quality@03b34bc8957995959d43531e82130a2c95bf01fa # pin to the consuming commit
+        with:
+          paths: |
+            src
+            crates
+          output: .reports/hoonarqube-code-quality.sarif
+          upload: ${{ github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
+      - run: echo "Hoonarqube reported ${{ steps.hoonarqube.outputs.result-count }} finding(s)"
+```
+
+Uploading to code scanning requires `security-events: write`; `contents: read`
+is sufficient for checkout. GitHub downgrades the token for pull requests from
+forks, so that permission is unavailable there. The condition above uploads
+pushes and same-repository pull requests only; fork pull requests still get a
+local validated report, but cannot upload it. Keep upload disabled for
+untrusted contexts and do not grant write permissions to forked code.
+
 ### Automatic fixes
 
 `fix` combines quick fixes attached to catalog findings with a safe mechanical

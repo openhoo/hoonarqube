@@ -21,8 +21,44 @@ pub enum Language {
     TypeScript,
     CSharp,
     Go,
+    Java,
     Rust,
+    Ruby,
 }
+
+/// Deterministic GitHub Code Quality registry grouped by catalog family.
+///
+/// JavaScript and TypeScript intentionally share one family and one analyzer
+/// registry. Rust is absent because it has no GitHub Code Quality IDs.
+pub const GITHUB_QUALITY_RULES_BY_FAMILY: &[(
+    hoonarqube_catalog::github_quality::LanguageFamily,
+    &[&str],
+)] = &[
+    (
+        hoonarqube_catalog::github_quality::LanguageFamily::CSharp,
+        hoonarqube_csharp::GITHUB_QUALITY_RULE_IDS,
+    ),
+    (
+        hoonarqube_catalog::github_quality::LanguageFamily::Go,
+        hoonarqube_go::GITHUB_QUALITY_RULE_IDS,
+    ),
+    (
+        hoonarqube_catalog::github_quality::LanguageFamily::Java,
+        hoonarqube_java::GITHUB_QUALITY_RULE_IDS,
+    ),
+    (
+        hoonarqube_catalog::github_quality::LanguageFamily::JavaScriptTypeScript,
+        hoonarqube_jsts::GITHUB_QUALITY_RULE_IDS,
+    ),
+    (
+        hoonarqube_catalog::github_quality::LanguageFamily::Python,
+        hoonarqube_python::GITHUB_QUALITY_RULE_IDS,
+    ),
+    (
+        hoonarqube_catalog::github_quality::LanguageFamily::Ruby,
+        hoonarqube_ruby::GITHUB_QUALITY_RULE_IDS,
+    ),
+];
 
 /// Extension table; matched case-insensitively so `.PY`/`.CS` style inputs
 /// resolve like their lowercase forms.
@@ -38,7 +74,9 @@ const EXTENSIONS: &[(&str, Language)] = &[
     ("cts", Language::TypeScript),
     ("cs", Language::CSharp),
     ("go", Language::Go),
+    ("java", Language::Java),
     ("rs", Language::Rust),
+    ("rb", Language::Ruby),
 ];
 
 /// Maps a bare file extension to its language; matched case-insensitively
@@ -66,10 +104,14 @@ pub fn language_for_path(path: &Path) -> Option<Language> {
 pub use hoonarqube_csharp::AnalyzerOptions as CSharpAnalyzerOptions;
 /// Go analyzer knobs, re-exported for consumers constructing [`AnalyzerOptions`] field-by-field.
 pub use hoonarqube_go::AnalyzerOptions as GoAnalyzerOptions;
+/// Java analyzer knobs, re-exported for consumers constructing [`AnalyzerOptions`] field-by-field.
+pub use hoonarqube_java::AnalyzerOptions as JavaAnalyzerOptions;
 /// JavaScript/TypeScript analyzer knobs, re-exported for consumers constructing [`AnalyzerOptions`] field-by-field.
 pub use hoonarqube_jsts::AnalyzerOptions as JstsAnalyzerOptions;
 /// Python analyzer knobs, re-exported for consumers constructing [`AnalyzerOptions`] field-by-field.
 pub use hoonarqube_python::AnalyzerOptions as PythonAnalyzerOptions;
+/// Ruby analyzer knobs, re-exported for consumers constructing [`AnalyzerOptions`] field-by-field.
+pub use hoonarqube_ruby::AnalyzerOptions as RubyAnalyzerOptions;
 /// Rust analyzer knobs, re-exported for consumers constructing [`AnalyzerOptions`] field-by-field.
 pub use hoonarqube_rust::AnalyzerOptions as RustAnalyzerOptions;
 
@@ -84,7 +126,9 @@ pub struct AnalyzerOptions {
     pub jsts: hoonarqube_jsts::AnalyzerOptions,
     pub csharp: hoonarqube_csharp::AnalyzerOptions,
     pub go: hoonarqube_go::AnalyzerOptions,
+    pub java: hoonarqube_java::AnalyzerOptions,
     pub rust: hoonarqube_rust::AnalyzerOptions,
+    pub ruby: hoonarqube_ruby::AnalyzerOptions,
 }
 
 impl Default for AnalyzerOptions {
@@ -95,7 +139,9 @@ impl Default for AnalyzerOptions {
             jsts: hoonarqube_jsts::AnalyzerOptions::default(),
             csharp: hoonarqube_csharp::AnalyzerOptions::default(),
             go: hoonarqube_go::AnalyzerOptions::default(),
+            java: hoonarqube_java::AnalyzerOptions::default(),
             rust: hoonarqube_rust::AnalyzerOptions::default(),
+            ruby: hoonarqube_ruby::AnalyzerOptions::default(),
         }
     }
 }
@@ -106,6 +152,11 @@ impl Default for AnalyzerOptions {
 /// [`language_for_path`]); otherwise every analyzer returns a complete
 /// [`hoonarqube_ir::FileReport`] whose `language` field carries the catalog
 /// repository prefix.
+///
+/// # Panics
+///
+/// Panics if a GitHub Code Quality analyzer violates its internal registry
+/// contract by emitting an unknown or wrong-language query ID.
 #[must_use]
 pub fn analyze(
     path: &Path,
@@ -126,9 +177,41 @@ pub fn analyze(
             hoonarqube_csharp::analyze(path, source, CsLanguage::CSharp, &options.csharp)
         }
         Language::Go => hoonarqube_go::analyze(path, source, &options.go),
+        Language::Java => hoonarqube_java::analyze(path, source, &options.java),
         Language::Rust => hoonarqube_rust::analyze(path, source, &options.rust),
+        Language::Ruby => hoonarqube_ruby::analyze(path, source, &options.ruby),
     };
-    if options.profile != RuleProfile::SonarParity {
+    if options.profile == RuleProfile::GithubCodeQuality {
+        let family = github_family(language);
+        let github = match language {
+            Language::Python => hoonarqube_python::analyze_github_quality(source),
+            Language::JavaScript => {
+                hoonarqube_jsts::analyze_github_quality(source, JstsLanguage::JavaScript)
+            }
+            Language::TypeScript => {
+                hoonarqube_jsts::analyze_github_quality(source, JstsLanguage::TypeScript)
+            }
+            Language::CSharp => hoonarqube_csharp::analyze_github_quality(source),
+            Language::Go => hoonarqube_go::analyze_github_quality(source),
+            Language::Java => hoonarqube_java::analyze_github_quality(source),
+            Language::Rust => Vec::new(),
+            Language::Ruby => hoonarqube_ruby::analyze_github_quality(source),
+        };
+        // Never hide registry drift in release builds. An invalid or
+        // wrong-family ID is a production integrity failure, not a finding
+        // to silently discard.
+        assert!(
+            github.iter().all(|issue| {
+                hoonarqube_catalog::github_quality::query(&issue.rule_key)
+                    .is_some_and(|query| family == Some(query.language))
+            }),
+            "GitHub Code Quality analyzer emitted an unknown or wrong-family rule ID"
+        );
+        report.issues = github;
+
+        hoonarqube_ir::sort_issues(&mut report.issues);
+        report.issues.dedup();
+    } else if options.profile != RuleProfile::SonarParity {
         let mut native = match language {
             Language::Python => hoonarqube_python::analyze_native(source),
             Language::JavaScript => {
@@ -139,6 +222,7 @@ pub fn analyze(
             }
             Language::CSharp => hoonarqube_csharp::analyze_native(source),
             Language::Go => hoonarqube_go::analyze_native(source),
+            Language::Java | Language::Ruby => Vec::new(),
             Language::Rust => hoonarqube_rust::analyze_native(source),
         };
         debug_assert!(
@@ -157,12 +241,50 @@ pub fn analyze(
     Some(report)
 }
 
+fn github_family(language: Language) -> Option<hoonarqube_catalog::github_quality::LanguageFamily> {
+    use hoonarqube_catalog::github_quality::LanguageFamily;
+
+    match language {
+        Language::CSharp => Some(LanguageFamily::CSharp),
+        Language::Go => Some(LanguageFamily::Go),
+        Language::Java => Some(LanguageFamily::Java),
+        Language::JavaScript | Language::TypeScript => Some(LanguageFamily::JavaScriptTypeScript),
+        Language::Python => Some(LanguageFamily::Python),
+        Language::Ruby => Some(LanguageFamily::Ruby),
+        Language::Rust => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{AnalyzerOptions, EXTENSIONS, Language, RuleProfile, analyze, language_for_path};
-    use std::collections::HashSet;
+    use super::{
+        AnalyzerOptions, EXTENSIONS, GITHUB_QUALITY_RULES_BY_FAMILY, Language, RuleProfile,
+        analyze, language_for_path,
+    };
+    use std::collections::{BTreeSet, HashSet};
     use std::path::Path;
 
+    #[test]
+    fn github_quality_registry_is_sorted_unique_and_family_complete() {
+        let mut all_ids = BTreeSet::new();
+        for (family, ids) in GITHUB_QUALITY_RULES_BY_FAMILY {
+            assert!(ids.windows(2).all(|pair| pair[0] < pair[1]));
+            for id in *ids {
+                assert!(all_ids.insert(*id), "duplicate GitHub rule ID {id}");
+                let definition = hoonarqube_catalog::github_quality::query(id)
+                    .unwrap_or_else(|| panic!("unknown GitHub rule ID {id}"));
+                assert_eq!(definition.language, *family);
+            }
+        }
+        assert_eq!(all_ids.len(), 54);
+        assert_eq!(
+            GITHUB_QUALITY_RULES_BY_FAMILY
+                .iter()
+                .map(|(_, ids)| ids.len())
+                .collect::<Vec<_>>(),
+            vec![13, 5, 15, 13, 5, 3]
+        );
+    }
     #[test]
     fn every_supported_extension_maps_to_its_language() {
         let cases = [
@@ -177,6 +299,8 @@ mod tests {
             ("cts", Language::TypeScript),
             ("cs", Language::CSharp),
             ("go", Language::Go),
+            ("java", Language::Java),
+            ("rb", Language::Ruby),
             ("rs", Language::Rust),
         ];
         for (ext, expected) in cases {
@@ -199,7 +323,7 @@ mod tests {
             );
             languages.insert(*language);
         }
-        assert_eq!(languages.len(), 6, "every language needs an extension");
+        assert_eq!(languages.len(), 8, "every language needs an extension");
     }
 
     #[test]
@@ -211,6 +335,14 @@ mod tests {
         assert_eq!(
             language_for_path(Path::new("Widget.CS")),
             Some(Language::CSharp)
+        );
+        assert_eq!(
+            language_for_path(Path::new("Main.JAVA")),
+            Some(Language::Java)
+        );
+        assert_eq!(
+            language_for_path(Path::new("model.RB")),
+            Some(Language::Ruby)
         );
     }
 
@@ -283,6 +415,27 @@ mod tests {
         assert_eq!(report.language, "go");
         assert!(!report.issues.is_empty());
     }
+    #[test]
+    fn java_analyzer_runs_through_the_registry() {
+        let report = analyze(
+            Path::new("Main.java"),
+            "class Main {}\n",
+            &AnalyzerOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(report.language, "java");
+    }
+
+    #[test]
+    fn ruby_analyzer_runs_through_the_registry() {
+        let report = analyze(
+            Path::new("main.rb"),
+            "value = 1\n",
+            &AnalyzerOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(report.language, "ruby");
+    }
 
     #[test]
     fn rust_analyzer_runs_through_the_registry() {
@@ -310,7 +463,9 @@ mod tests {
             hoonarqube_csharp::AnalyzerOptions::default()
         );
         assert_eq!(options.go, hoonarqube_go::AnalyzerOptions::default());
+        assert_eq!(options.java, hoonarqube_java::AnalyzerOptions::default());
         assert_eq!(options.rust, hoonarqube_rust::AnalyzerOptions::default());
+        assert_eq!(options.ruby, hoonarqube_ruby::AnalyzerOptions::default());
     }
 
     #[test]
@@ -387,5 +542,50 @@ mod tests {
                 .iter()
                 .any(|issue| issue.rule_key == "hoonarqube-go:G307")
         );
+    }
+
+    #[test]
+    fn github_profile_isolated_and_covers_every_catalog_family() {
+        let options = AnalyzerOptions {
+            profile: RuleProfile::GithubCodeQuality,
+            ..AnalyzerOptions::default()
+        };
+        let cases = [
+            (
+                "sample.cs",
+                "using System; class C { void M() { GC.Collect(); } }",
+                "cs/",
+            ),
+            (
+                "sample.go",
+                "package p\nfunc f(x int) { if x == 1 {} else if (x == 1) {} }\n",
+                "go/",
+            ),
+            (
+                "sample.java",
+                "class Main { void f() { new String(\"x\"); } }\n",
+                "java/",
+            ),
+            ("sample.js", "/*@cc_on @*/\n", "js/"),
+            ("sample.ts", "const n: number = 1; n = 2;\n", "js/"),
+            ("sample.py", "global value\n", "py/"),
+            ("sample.rb", "def f\n  value\nend\n", "rb/"),
+        ];
+        for (path, source, prefix) in cases {
+            let report = analyze(Path::new(path), source, &options).unwrap();
+            assert!(
+                !report.issues.is_empty(),
+                "{path} should produce a GitHub Code Quality finding"
+            );
+            assert!(report.issues.iter().all(|issue| {
+                issue.rule_key.starts_with(prefix)
+                    && hoonarqube_catalog::github_quality::query(&issue.rule_key).is_some()
+            }));
+            let mut unique = report.issues.clone();
+            unique.dedup();
+            assert_eq!(unique.len(), report.issues.len());
+        }
+        let rust = analyze(Path::new("sample.rs"), "fn main() {}\n", &options).unwrap();
+        assert!(rust.issues.is_empty());
     }
 }

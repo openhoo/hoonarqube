@@ -741,8 +741,10 @@ dependencies = [
  "hoonarqube-csharp",
  "hoonarqube-go",
  "hoonarqube-ir",
+ "hoonarqube-java",
  "hoonarqube-jsts",
  "hoonarqube-python",
+ "hoonarqube-ruby",
  "hoonarqube-rust",
 ]
 
@@ -779,6 +781,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hoonarqube-java"
+version = "0.3.1"
+dependencies = [
+ "hoonarqube-ir",
+ "tree-sitter",
+ "tree-sitter-java",
+]
+
+[[package]]
 name = "hoonarqube-jsts"
 version = "0.3.1"
 dependencies = [
@@ -801,6 +812,15 @@ dependencies = [
  "ruff_python_parser",
  "ruff_source_file",
  "ruff_text_size",
+]
+
+[[package]]
+name = "hoonarqube-ruby"
+version = "0.3.1"
+dependencies = [
+ "hoonarqube-ir",
+ "tree-sitter",
+ "tree-sitter-ruby",
 ]
 
 [[package]]
@@ -2661,10 +2681,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter-java"
+version = "0.23.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0aa6cbcdc8c679b214e616fd3300da67da0e492e066df01bcf5a5921a71e90d6"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "tree-sitter-language"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca0d1bf6fdd806e43ae5198f82f527056d359def39e54e67a0f478ac09dac081"
+
+[[package]]
+name = "tree-sitter-ruby"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be0484ea4ef6bb9c575b4fdabde7e31340a8d2dbc7d52b321ac83da703249f95"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
 
 [[package]]
 name = "tree-sitter-rust"
@@ -3025,6 +3065,8 @@ dependencies = [
  "anyhow",
  "clap",
  "hex",
+ "hoonarqube-catalog",
+ "hoonarqube-core",
  "proc-macro2",
  "rayon",
  "reqwest",

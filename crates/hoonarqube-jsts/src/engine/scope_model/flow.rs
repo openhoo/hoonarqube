@@ -8,14 +8,16 @@ use super::{
     SimpleAssignmentTarget, Span, Statement, StaticBlock, SwitchStatement, ThrowStatement,
     TryStatement, UpdateExpression, VariableDeclaration, VariableDeclarationKind,
     VariableDeclarator, Visit, WhileStatement, source_slice, unparenthesized,
-    walk_for_in_statement, walk_for_of_statement, walk_for_statement, walk_member_expression,
+    walk_member_expression,
 };
 
 /// Reachability of the code following the current point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TbHalt {
     Live,
-    /// `break`/`continue`: only the innermost loop body ends here.
+    /// `break` exits the innermost switch or loop.
+    Broken,
+    /// `continue` skips the rest of the innermost loop body.
     Jumped,
     /// `return`/`throw`: everything after is unreachable.
     Exited,
@@ -107,12 +109,14 @@ impl<'p> TbFlow<'p, '_, '_> {
     }
 
     pub(crate) fn seed_parameter(&mut self, pattern: Option<&BindingPattern<'p>>) {
-        if let Some(BindingPattern::BindingIdentifier(identifier)) = pattern {
-            let name = identifier.name.as_str();
+        let Some(pattern) = pattern else {
+            return;
+        };
+        for name in bound_names(pattern) {
             self.env.insert(
                 name,
                 TbPending {
-                    site: identifier.span,
+                    site: pattern.span(),
                     value: None,
                     initial: true,
                 },
@@ -163,6 +167,10 @@ impl<'p> TbFlow<'p, '_, '_> {
             (_, TbHalt::Exited) | (TbHalt::Exited, _) => {
                 self.env = pre;
                 self.status = TbHalt::Exited;
+            }
+            (TbHalt::Broken, TbHalt::Broken) => {
+                self.env = pre;
+                self.status = TbHalt::Broken;
             }
             _ => {
                 self.env = pre;
@@ -220,6 +228,69 @@ impl<'p> TbFlow<'p, '_, '_> {
             self.env.remove(name);
         }
     }
+
+    fn restore_scope(&mut self, saved: &TbEnv<'p>, locals: &[&'p str]) {
+        for name in locals {
+            if let Some(pending) = saved.get(name) {
+                self.env.insert(name, *pending);
+            } else {
+                self.env.remove(name);
+            }
+        }
+    }
+
+    fn seed_loop_declaration(
+        &mut self,
+        declaration: &VariableDeclaration<'p>,
+        value: Option<&Expression<'p>>,
+    ) {
+        for declarator in &declaration.declarations {
+            if let Some(init) = &declarator.init {
+                self.visit_expression(init);
+            }
+            for name in bound_names(&declarator.id) {
+                self.write(name, declarator.id.span(), value.map(GetSpan::span), true);
+            }
+        }
+    }
+
+    fn visit_for_head(&mut self, left: &oxc_ast::ast::ForStatementLeft<'p>) {
+        match left {
+            oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) => {
+                self.seed_loop_declaration(declaration, None);
+            }
+            left => {
+                self.target_write_depth += 1;
+                self.visit_for_statement_left(left);
+                self.target_write_depth -= 1;
+            }
+        }
+    }
+
+    fn visit_for_init(&mut self, init: &oxc_ast::ast::ForStatementInit<'p>) {
+        match init {
+            oxc_ast::ast::ForStatementInit::VariableDeclaration(declaration) => {
+                self.seed_loop_declaration(declaration, None);
+            }
+            init => self.visit_for_statement_init(init),
+        }
+    }
+
+    fn visit_scoped_statements(&mut self, statements: &[Statement<'p>], include_var: bool) {
+        let locals = direct_scope_names(statements, include_var);
+        let saved = self.env.clone();
+        for name in &locals {
+            self.env.remove(name);
+        }
+        self.process_statements(statements);
+        self.restore_scope(&saved, &locals);
+    }
+
+    fn forget_local_bindings(&mut self, names: &[&'p str]) {
+        for name in names {
+            self.env.remove(name);
+        }
+    }
 }
 
 impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
@@ -228,16 +299,20 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
     }
 
     fn visit_block_statement(&mut self, block: &BlockStatement<'p>) {
-        self.process_statements(&block.body);
+        self.visit_scoped_statements(&block.body, false);
     }
 
     fn visit_static_block(&mut self, block: &StaticBlock<'p>) {
-        let saved = (std::mem::take(&mut self.env), self.status, self.depth);
+        let locals = direct_scope_names(&block.body, true);
+        let saved_env = self.env.clone();
+        let saved_status = self.status;
+        let saved_depth = self.depth;
+        self.forget_local_bindings(&locals);
         self.status = TbHalt::Live;
         self.process_statements(&block.body);
-        self.env = saved.0;
-        self.status = saved.1;
-        self.depth = saved.2;
+        self.restore_scope(&saved_env, &locals);
+        self.status = saved_status;
+        self.depth = saved_depth;
     }
 
     fn visit_function(&mut self, function: &Function<'p>, _flags: ScopeFlags) {
@@ -270,12 +345,20 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
     }
 
     fn visit_catch_clause(&mut self, clause: &CatchClause<'p>) {
-        let saved = (std::mem::take(&mut self.env), self.status, self.depth);
+        let locals = clause
+            .param
+            .as_ref()
+            .map(|param| bound_names(&param.pattern))
+            .unwrap_or_default();
+        let saved_env = self.env.clone();
+        let saved_status = self.status;
+        let saved_depth = self.depth;
+        self.forget_local_bindings(&locals);
         self.seed_parameter(clause.param.as_ref().map(|param| &param.pattern));
         self.process_statements(&clause.body.body);
-        self.env = saved.0;
-        self.status = saved.1;
-        self.depth = saved.2;
+        self.restore_scope(&saved_env, &locals);
+        self.status = saved_status;
+        self.depth = saved_depth;
     }
 
     fn visit_if_statement(&mut self, node: &IfStatement<'p>) {
@@ -330,6 +413,7 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
         self.visit_expression(&node.discriminant);
         let pre = self.env.clone();
         let saved_depth = self.depth;
+        let no_match = node.cases.iter().all(|case| case.test.is_some());
         self.depth += 1;
         let mut joined: Option<TbEnv<'p>> = None;
         for case in &node.cases {
@@ -339,7 +423,7 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
                 self.visit_expression(test);
             }
             self.process_statements(&case.consequent);
-            if self.status == TbHalt::Live {
+            if matches!(self.status, TbHalt::Live | TbHalt::Broken) {
                 let current = std::mem::replace(&mut self.env, pre.clone());
                 joined = Some(match joined {
                     None => current,
@@ -348,10 +432,12 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
             }
         }
         self.depth = saved_depth;
-        // A default-less switch or a final break keeps executing after the
-        // switch, so treat the join point as live regardless.
         self.status = TbHalt::Live;
-        self.env = joined.unwrap_or(pre);
+        self.env = match joined {
+            Some(joined) if no_match => intersect_envs(joined, &pre),
+            Some(joined) => joined,
+            None => pre,
+        };
     }
 
     fn visit_try_statement(&mut self, node: &TryStatement<'p>) {
@@ -408,7 +494,20 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
         for name in subtree_names(&parts, &[&node.body]) {
             self.env.remove(name);
         }
-        walk_for_statement(self, node);
+        if let Some(init) = &node.init {
+            self.visit_for_init(init);
+        }
+        if let Some(test) = &node.test {
+            self.visit_expression(test);
+        }
+        if self.status == TbHalt::Live {
+            self.visit_statement(&node.body);
+        }
+        if self.status == TbHalt::Live
+            && let Some(update) = &node.update
+        {
+            self.visit_expression(update);
+        }
         self.end_loop();
     }
 
@@ -416,7 +515,11 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
         for name in subtree_names(&[&node.right], &[&node.body]) {
             self.env.remove(name);
         }
-        walk_for_in_statement(self, node);
+        self.visit_expression(&node.right);
+        self.visit_for_head(&node.left);
+        if self.status == TbHalt::Live {
+            self.visit_statement(&node.body);
+        }
         self.end_loop();
     }
 
@@ -424,12 +527,16 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
         for name in subtree_names(&[&node.right], &[&node.body]) {
             self.env.remove(name);
         }
-        walk_for_of_statement(self, node);
+        self.visit_expression(&node.right);
+        self.visit_for_head(&node.left);
+        if self.status == TbHalt::Live {
+            self.visit_statement(&node.body);
+        }
         self.end_loop();
     }
 
     fn visit_break_statement(&mut self, _: &BreakStatement<'p>) {
-        self.status = TbHalt::Jumped;
+        self.status = TbHalt::Broken;
     }
 
     fn visit_continue_statement(&mut self, _: &ContinueStatement<'p>) {
@@ -605,7 +712,7 @@ impl<'a> Visit<'a> for TbBoundNames<'a> {
     }
 }
 
-pub(crate) fn bound_names<'a>(pattern: &'a BindingPattern<'a>) -> Vec<&'a str> {
+pub(crate) fn bound_names<'a>(pattern: &BindingPattern<'a>) -> Vec<&'a str> {
     let mut collector = TbBoundNames::default();
     collector.visit_binding_pattern(pattern);
     collector.names
@@ -631,5 +738,96 @@ pub(crate) fn member_optional(member: &MemberExpression<'_>) -> bool {
         MemberExpression::StaticMemberExpression(expression) => expression.optional,
         MemberExpression::ComputedMemberExpression(expression) => expression.optional,
         MemberExpression::PrivateFieldExpression(expression) => expression.optional,
+    }
+}
+fn direct_scope_names<'p>(statements: &[Statement<'p>], include_var: bool) -> Vec<&'p str> {
+    let mut names = Vec::new();
+    for statement in statements {
+        match statement {
+            Statement::VariableDeclaration(declaration)
+                if include_var || declaration.kind != VariableDeclarationKind::Var =>
+            {
+                for declarator in &declaration.declarations {
+                    names.extend(bound_names(&declarator.id));
+                }
+            }
+            Statement::FunctionDeclaration(function) => {
+                if let Some(identifier) = &function.id {
+                    names.push(identifier.name.as_str());
+                }
+            }
+            Statement::ClassDeclaration(class) => {
+                if let Some(identifier) = &class.id {
+                    names.push(identifier.name.as_str());
+                }
+            }
+            _ => {}
+        }
+    }
+    names
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::JstsLanguage;
+    use crate::support::LineIndex;
+    use oxc_allocator::Allocator;
+    use oxc_parser::Parser;
+    use oxc_span::SourceType;
+
+    fn flow_ids(source: &str) -> Vec<String> {
+        let allocator = Allocator::default();
+        let parsed = Parser::new(&allocator, source, SourceType::mjs()).parse();
+        let index = LineIndex::new(source);
+        let mut sink = IssueSink {
+            index: &index,
+            language: JstsLanguage::JavaScript,
+            issues: Vec::new(),
+        };
+        let mut flow = TbFlow {
+            source,
+            sink: &mut sink,
+            env: HashMap::new(),
+            status: TbHalt::Live,
+            depth: 0,
+            decl_kind: VariableDeclarationKind::Let,
+            target_write_depth: 0,
+        };
+        flow.visit_program(&parsed.program);
+        sink.issues
+            .into_iter()
+            .map(|issue| issue.rule_key)
+            .collect()
+    }
+
+    #[test]
+    fn static_block_reads_outer_binding() {
+        let source = "let x = a(); class C { static { use(x); } } x = b();";
+        assert!(!flow_ids(source).contains(&"javascript:S1854".to_owned()));
+    }
+
+    #[test]
+    fn loop_heads_seed_initial_values_for_reassignments() {
+        for source in [
+            "for (let item of items) { item = normalize(); }",
+            "for (let item in items) { item = normalize(); }",
+            "for (let item = initial();;) { item = normalize(); break; }",
+        ] {
+            assert!(flow_ids(source).contains(&"javascript:S1226".to_owned()));
+        }
+    }
+
+    #[test]
+    fn defaultless_switch_keeps_no_match_path() {
+        let source = "function f(kind) { let x = a(); switch (kind) { case 1: use(x); x = b(); use(x); break; } x = c(); use(x); }";
+        assert!(!flow_ids(source).contains(&"javascript:S1854".to_owned()));
+    }
+    #[test]
+    fn update_reads_previous_value_before_recording_write() {
+        let overwritten = "let x = a(); x++; x = b();";
+        assert!(flow_ids(overwritten).contains(&"javascript:S1854".to_owned()));
+        let consumed = "let x = a(); x++; use(x); x = b();";
+        assert!(!flow_ids(consumed).contains(&"javascript:S1854".to_owned()));
     }
 }

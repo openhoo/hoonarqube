@@ -119,6 +119,12 @@ enum CatalogCommand {
         #[arg(long, requires = "strict")]
         allow_infra: bool,
     },
+    /// Audit explicit GitHub Code Quality analyzer registries against metadata.
+    GithubCoverage {
+        /// Exit nonzero when any catalog query is not implemented.
+        #[arg(long)]
+        require_full: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -293,6 +299,9 @@ fn main() -> Result<()> {
                 snapshot,
                 require_pages_complete,
             } => catalog::audit(&snapshot, require_pages_complete),
+            CatalogCommand::GithubCoverage { require_full } => {
+                catalog::github_coverage(require_full)
+            }
             CatalogCommand::Coverage {
                 lang,
                 strict,

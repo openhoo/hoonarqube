@@ -27,6 +27,55 @@ The remaining rule records carry `community-base`. Development and Community
 oracle runs need no commercial license. Full SonarQube parity cannot be claimed
 without valid Enterprise oracle evidence for the 17 commercial rules.
 
+## GitHub Code Quality scope
+
+The separate `catalog/github-code-quality.json` is authoritative metadata for
+382 GitHub Code Quality definitions captured from CodeQL. Its definitions and
+help links are not evidence that a detector exists. The
+`github-code-quality` profile deliberately exposes only the conservative,
+high-confidence implemented subset in Hoonarqube's C#, Go, Java,
+JavaScript/TypeScript, Python, and Ruby analyzers. Missing definitions are not
+approximated, and this subset is not full behavioral parity with CodeQL or
+GitHub Code Quality.
+
+The executable registry currently covers 54/382 definitions: C# 13/69, Go
+5/22, Java 15/89, JavaScript/TypeScript 13/98, Python 5/101, and Ruby 3/3.
+`cargo run --locked -q -p xtask -- catalog github-coverage` verifies registry
+coherence and prints all 328 missing IDs. `--require-full` is the release gate
+for any future complete-parity claim and currently fails closed.
+
+Rust is intentionally outside this profile: the core route returns no GitHub
+Code Quality findings for Rust. Rust remains covered only by its separate
+Sonar-compatible/native analyzer contracts. Hoonarqube does not depend on or
+bundle the CodeQL CLI; the catalog is captured metadata and the detectors are
+implemented in Hoonarqube.
+
+The CLI contract is `analyze --profile github-code-quality --format sarif`.
+It emits SARIF 2.1.0 with a `Hoonarqube` driver. `Maintainability` and
+`Reliability` are the catalog categories; `Error` maps to SARIF `error`,
+`Warning` to `warning`, and `Recommendation`/`Info` to `note`. Internal
+0-based columns become SARIF 1-based columns, and flow locations become
+`relatedLocations`. Coordinate-dependent partial fingerprints are omitted
+unless a stable content fingerprint is available.
+`actions/code-quality` validates this report and uploads it only when explicitly
+enabled, through the pinned
+`github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938`
+revision. That action transports third-party SARIF into GitHub code scanning;
+it neither runs CodeQL nor injects findings into GitHub's native Code Quality
+dashboard.
+
+Consumers should declare only `contents: read` and `security-events: write`.
+The latter is unavailable for fork pull-request tokens, so workflows must keep
+upload disabled for forked code or condition it on a push or same-repository
+pull request. `actions/analyze` remains the SonarQube Generic Issue Import
+action and does not accept the isolated GitHub Code Quality profile.
+
+No full Code Quality parity claim is allowed until every one of the 382
+definitions has an implemented, independently verified query with matching
+fixtures, locations, messages, categories, severities, and interaction
+behavior. This boundary is independent of the SonarQube parity requirements
+below.
+
 ## Full-parity requirements
 
 1. Every catalog rule must be executable. No rule may be hidden by an `INFRA`,
