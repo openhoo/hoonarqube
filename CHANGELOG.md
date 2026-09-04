@@ -7,6 +7,14 @@
 - **github-quality:** align conservative CodeQL detectors, registry coverage,
   SARIF validation, path handling, and action gating
 
+### Performance
+
+- **ci:** shard quality tests, pin dogfood analysis to the released binary,
+  replace the 2.2 GB mixed target cache with dependency-aware Rust caching,
+  and remove a duplicate full-repository analysis pass
+- **rust:** keep the deep macro-token regression without making the normal
+  suite an extreme third-party parser stress benchmark
+
 ## 0.3.1 (2026-09-03)
 
 ### Bug Fixes

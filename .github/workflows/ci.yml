@@ -11,6 +11,7 @@ permissions:
 
 env:
   HOOVERSION_VERSION: 1.1.1
+  HOONARQUBE_DOGFOOD_VERSION: 0.3.1
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -46,23 +47,20 @@ jobs:
         with:
           rust-version: "1.96.0"
 
-  quality:
+  quality-static:
+    name: Quality (static)
     needs: commitlint
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: ci
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Rust format
         run: cargo fmt --all --check
@@ -85,52 +83,135 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --locked --workspace --all-features --no-deps
 
-      - name: Rust tests
-        run: cargo test --locked --workspace --all-targets --all-features
+  quality-tests:
+    name: Tests (${{ matrix.package }})
+    needs: commitlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - hoonarqube-csharp
+          - hoonarqube-java
+          - hoonarqube-jsts
+          - hoonarqube-python
+          - hoonarqube-rust
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Self-analysis complexity
-        run: |
-          cargo run --locked -q -p hoonarqube-cli -- --json analyze crates xtask |
-            jq -e '[.files[].issues[] | select(.rule_key == "rust:S3776")] | length == 0'
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: ci
+          save-if: false
+
+      - name: Run package tests
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: cargo test --locked -p "$PACKAGE" --all-targets --all-features
+
+  quality-tests-rest:
+    name: Tests (remaining workspace)
+    needs: commitlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: ci
+          save-if: false
+
+      - name: Run remaining workspace tests
+        run: >-
+          cargo test --locked --workspace --all-targets --all-features
+          --exclude hoonarqube-csharp
+          --exclude hoonarqube-java
+          --exclude hoonarqube-jsts
+          --exclude hoonarqube-python
+          --exclude hoonarqube-rust
+
+  quality-dogfood:
+    name: Quality (pinned dogfood)
+    needs: commitlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up pinned Hoonarqube
+        uses: ./actions/setup
+        with:
+          version: ${{ env.HOONARQUBE_DOGFOOD_VERSION }}
 
       - name: Dogfood Hoonarqube action
+        id: dogfood
         uses: ./actions/analyze
         with:
-          executable: ./target/debug/hoonarqube
+          executable: hoonarqube
           paths: |
             crates
             xtask
           output: ${{ runner.temp }}/hoonarqube.json
           fail-on: none
 
-      - name: Enforce Hoolicy policy
-        uses: openhoo/hoolicy/actions/check@46529a99335938e7284f11099bf15f7e1800e6f5 # v0.3.1
-        with:
-          version: 0.3.1
-
-      - name: Scan with Hooray
-        uses: openhoo/hooray/actions/scan@f2b28d71398749142f4d9366b0427369f3af6e02 # v0.6.5
-        with:
-          version: 0.6.5
-          policy: hooray-policy.yaml
-          format: table
-          output: ""
-
-      - name: Set up HooNeedsUpdates
-        uses: openhoo/hooneedsupdates/actions/setup@ffd31b013dafcd772bb067a0eec76f739ecd76a3 # v0.3.1
-        with:
-          version: 0.3.1
-
-      - name: Audit dependency freshness
-        run: hooneedsupdates scan --fail-on unresolved .
+      - name: Self-analysis complexity
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          REPORT: ${{ steps.dogfood.outputs.report }}
+        run: jq -e '[.issues[] | select(.ruleId == "rust:S3776")] | length == 0' "$REPORT"
+
+  quality-catalog:
+    name: Quality (catalog)
+    needs: commitlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: ci
+          save-if: false
+
+      - name: Build catalog auditor
+        run: cargo build --locked -p xtask
 
       - name: Frozen catalog integrity
-        run: cargo run --locked -q -p xtask -- catalog audit --require-pages-complete
+        run: ./target/debug/xtask catalog audit --require-pages-complete
 
       - name: GitHub Code Quality registry coverage
-        run: cargo run --locked -q -p xtask -- catalog github-coverage
+        run: ./target/debug/xtask catalog github-coverage
+
+      - name: Actionable rule coverage
+        run: ./target/debug/xtask catalog coverage --strict --allow-infra
+
+  quality-code-quality:
+    name: Quality (current Code Quality)
+    needs: commitlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: ci
+          save-if: false
+
+      - name: Build current Code Quality CLI
+        run: cargo build --locked -p hoonarqube-cli
 
       - name: GitHub Code Quality action smoke (upload disabled)
         id: code-quality-smoke
@@ -162,8 +243,40 @@ jobs:
             and (.runs[0].tool.driver.name == "Hoonarqube")
             and (.runs[0].results | type == "array" and length == ($result_count | tonumber))
           ' --arg result_count "$RESULT_COUNT" "$REPORT" >/dev/null
-      - name: Actionable rule coverage
-        run: cargo run --locked -q -p xtask -- catalog coverage --strict --allow-infra
+
+  quality-policy:
+    name: Quality (policy)
+    needs: commitlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Enforce Hoolicy policy
+        uses: openhoo/hoolicy/actions/check@46529a99335938e7284f11099bf15f7e1800e6f5 # v0.3.1
+        with:
+          version: 0.3.1
+
+      - name: Scan with Hooray
+        uses: openhoo/hooray/actions/scan@f2b28d71398749142f4d9366b0427369f3af6e02 # v0.6.5
+        with:
+          version: 0.6.5
+          policy: hooray-policy.yaml
+          format: table
+          output: ""
+
+      - name: Set up HooNeedsUpdates
+        uses: openhoo/hooneedsupdates/actions/setup@ffd31b013dafcd772bb067a0eec76f739ecd76a3 # v0.3.1
+        with:
+          version: 0.3.1
+
+      - name: Audit dependency freshness
+        run: hooneedsupdates scan --fail-on unresolved .
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Oracle harness tests
         run: python3 -m unittest discover -s tools/oracle -p 'test_*.py' -v
@@ -177,3 +290,34 @@ jobs:
           ruff check tools/oracle --exclude tools/oracle/fixtures \
             --extend-select C90,PLR0911,PLR0912,PLR0915,PERF,SIM,B
           ruff format --check tools/oracle --exclude tools/oracle/fixtures
+
+  quality:
+    needs:
+      - quality-static
+      - quality-tests
+      - quality-tests-rest
+      - quality-dogfood
+      - quality-catalog
+      - quality-code-quality
+      - quality-policy
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every quality shard
+        env:
+          STATIC_RESULT: ${{ needs.quality-static.result }}
+          TESTS_RESULT: ${{ needs.quality-tests.result }}
+          REST_RESULT: ${{ needs.quality-tests-rest.result }}
+          DOGFOOD_RESULT: ${{ needs.quality-dogfood.result }}
+          POLICY_RESULT: ${{ needs.quality-policy.result }}
+          CATALOG_RESULT: ${{ needs.quality-catalog.result }}
+          CODE_QUALITY_RESULT: ${{ needs.quality-code-quality.result }}
+        run: |
+          test "$STATIC_RESULT" = success
+          test "$TESTS_RESULT" = success
+          test "$REST_RESULT" = success
+          test "$DOGFOOD_RESULT" = success
+          test "$CATALOG_RESULT" = success
+          test "$CODE_QUALITY_RESULT" = success
+          test "$POLICY_RESULT" = success

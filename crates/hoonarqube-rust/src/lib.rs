@@ -6281,7 +6281,10 @@ mod tests {
 
     #[test]
     fn raw_pointer_macro_token_collection_handles_deep_nesting() {
-        let depth = 2048;
+        // Tree-sitter's macro-token grammar becomes superlinear at extreme
+        // delimiter depths; 256 still exercises the iterative collector
+        // without turning this regression into a parser stress benchmark.
+        let depth = 256;
         let mut nested = "(".repeat(depth);
         nested.push('0');
         nested.push_str(&")".repeat(depth));

@@ -65,34 +65,47 @@ pub(crate) fn collect_input_files(
 ) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for path in paths {
-        let metadata = match fs::symlink_metadata(path) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == ErrorKind::NotFound => {
-                warnings.push(format!("path does not exist: {}", path.display()));
-                continue;
-            }
-            Err(error) => {
-                warnings.push(format!("cannot inspect path: {}: {error}", path.display()));
-                continue;
-            }
-        };
-        if mode == InputMode::Fix && reject_symlinked_ancestor(path, warnings) {
-            continue;
-        }
-        if metadata.file_type().is_symlink() {
-            collect_explicit_symlink(path, mode, &mut files, warnings);
-        } else if metadata.is_dir() {
-            collect_files(path, mode, &mut files, warnings);
-        } else if metadata.is_file() {
-            collect_explicit_file(path, mode.include_unsupported_files(), &mut files, warnings);
-        } else {
-            warnings.push(format!("skipping unsupported path: {}", path.display()));
-        }
+        collect_input_path(path, mode, &mut files, warnings);
     }
+    deduplicate_input_files(files)
+}
+
+fn collect_input_path(
+    path: &Path,
+    mode: InputMode,
+    files: &mut Vec<PathBuf>,
+    warnings: &mut Vec<String>,
+) {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            warnings.push(format!("path does not exist: {}", path.display()));
+            return;
+        }
+        Err(error) => {
+            warnings.push(format!("cannot inspect path: {}: {error}", path.display()));
+            return;
+        }
+    };
+    if mode == InputMode::Fix && reject_symlinked_ancestor(path, warnings) {
+        return;
+    }
+    if metadata.file_type().is_symlink() {
+        collect_explicit_symlink(path, mode, files, warnings);
+    } else if metadata.is_dir() {
+        collect_files(path, mode, files, warnings);
+    } else if metadata.is_file() {
+        collect_explicit_file(path, mode.include_unsupported_files(), files, warnings);
+    } else {
+        warnings.push(format!("skipping unsupported path: {}", path.display()));
+    }
+}
+
+fn deduplicate_input_files(files: Vec<PathBuf>) -> Vec<PathBuf> {
     // Resolve filesystem identity for deduplication while retaining the
     // lexically smallest original spelling for I/O and report paths.
     let mut unique = std::collections::BTreeMap::new();
-    for file in files.drain(..) {
+    for file in files {
         let key = normalized_input_path(&file);
         match unique.entry(key) {
             std::collections::btree_map::Entry::Vacant(entry) => {
@@ -105,7 +118,7 @@ pub(crate) fn collect_input_files(
             }
         }
     }
-    files.extend(unique.into_values());
+    let mut files: Vec<_> = unique.into_values().collect();
     files.sort();
     files
 }
