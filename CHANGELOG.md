@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.3 (2026-09-04)
+
+### Bug Fixes
+
+- correct analyzer data flow and oracle validation (#24) (d305104)
+
 ## 0.4.2 (2026-09-04)
 
 ### Performance

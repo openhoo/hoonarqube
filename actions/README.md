@@ -8,7 +8,7 @@ checkout action and each Hoonarqube action to a full commit SHA.
 ```yaml
 - uses: openhoo/hoonarqube/actions/analyze@03b34bc8957995959d43531e82130a2c95bf01fa # pinned revision
   with:
-    version: 0.4.2
+    version: 0.4.3
     paths: |
       src
       tests
@@ -29,7 +29,7 @@ Non-default profiles require a release containing the native catalog, or the
 - id: hoonarqube
   uses: openhoo/hoonarqube/actions/code-quality@03b34bc8957995959d43531e82130a2c95bf01fa # pinned revision
   with:
-    version: 0.4.2
+    version: 0.4.3
     paths: |
       src
       tests

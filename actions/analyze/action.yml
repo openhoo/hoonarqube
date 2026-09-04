@@ -4,7 +4,7 @@ inputs:
   version:
     description: Hoonarqube release version to install.
     required: false
-    default: "0.4.2"
+    default: "0.4.3"
   executable:
     description: Optional Hoonarqube executable path; skips release installation when set.
     required: false
