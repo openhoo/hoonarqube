@@ -225,9 +225,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.4.4"
+version = "1.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ad534f4357a5264cce5019c989cf66a4f0dc4e0d1b1d15f8aacec0ff7360273"
+checksum = "005ec2760ca554fae18df7a11195552ec576cd665632a881bc011d5bb2fd4d80"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -515,9 +515,9 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "find-msvc-tools"
-version = "0.1.11"
+version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890"
+checksum = "3e0f1c7c3a72c66fd80abe965175f7523475c0489a87d3ff9d6e8c87d87a9d2d"
 
 [[package]]
 name = "form_urlencoded"
@@ -690,7 +690,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hoonarqube"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "hoonarqube-catalog",
  "hoonarqube-core",
@@ -699,7 +699,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-bench"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "hoonarqube-csharp",
  "hoonarqube-go",
@@ -710,7 +710,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-catalog"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "hex",
  "serde",
@@ -721,7 +721,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-cli"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "atomicwrites",
  "clap",
@@ -735,7 +735,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-core"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "hoonarqube-catalog",
  "hoonarqube-csharp",
@@ -750,7 +750,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-csharp"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "hoonarqube-core",
  "hoonarqube-ir",
@@ -760,11 +760,11 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-dataflow"
-version = "0.3.1"
+version = "0.4.0"
 
 [[package]]
 name = "hoonarqube-go"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "hoonarqube-dataflow",
  "hoonarqube-ir",
@@ -774,7 +774,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-ir"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -782,7 +782,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-java"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "hoonarqube-ir",
  "tree-sitter",
@@ -791,7 +791,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-jsts"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "hoonarqube-core",
  "hoonarqube-ir",
@@ -805,7 +805,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-python"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "hoonarqube-ir",
  "ruff_python_ast",
@@ -816,7 +816,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-ruby"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "hoonarqube-ir",
  "tree-sitter",
@@ -825,7 +825,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-rust"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "hoonarqube-ir",
  "regex",
@@ -2506,9 +2506,9 @@ dependencies = [
 
 [[package]]
 name = "tinyvec"
-version = "1.12.0"
+version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb4ebadaa0af04fab11ae01eb5f9fdb5f9c5b875506e210e71c07873528baa7f"
+checksum = "4cf0ded5c4e56918d8f8a339e1bb67d038d3bc6d144ac407904015ba2e4cde9b"
 dependencies = [
  "tinyvec_macros",
 ]
@@ -2535,9 +2535,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-rustls"
-version = "0.26.4"
+version = "0.26.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1729aa945f29d91ba541258c8df89027d5792d85a8841fb65e8bf0f4ede4ef61"
+checksum = "b0c85f2c3ef0b1cd58b36682f4b17aaa995f0e5db534d85692b4903abce21f67"
 dependencies = [
  "rustls",
  "tokio",
@@ -3060,7 +3060,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",

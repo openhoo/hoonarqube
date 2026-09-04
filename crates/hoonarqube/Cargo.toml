@@ -11,9 +11,9 @@ publish.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
-hoonarqube-catalog = { version = "0.3.1", path = "../hoonarqube-catalog" }
-hoonarqube-core = { version = "0.3.1", path = "../hoonarqube-core" }
-hoonarqube-ir = { version = "0.3.1", path = "../hoonarqube-ir" }
+hoonarqube-catalog = { version = "0.4.0", path = "../hoonarqube-catalog" }
+hoonarqube-core = { version = "0.4.0", path = "../hoonarqube-core" }
+hoonarqube-ir = { version = "0.4.0", path = "../hoonarqube-ir" }
 
 [lints]
 workspace = true
