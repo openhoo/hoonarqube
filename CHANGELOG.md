@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0 (2026-09-04)
+
+### Features
+
+- **github-quality:** add CodeQL analysis profile (#15) (90357d9)
+
+### Bug Fixes
+
+- **hoonarqube:** align GitHub CodeQL parity (68058d3)
+- **release:** repair version synchronization (4b01d0a)
+
 ## Unreleased
 
 ### Bug Fixes
