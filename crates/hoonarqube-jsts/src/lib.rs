@@ -63,6 +63,7 @@ pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
 ];
 mod rules;
 mod support;
+use std::cell::Cell;
 use std::path::PathBuf;
 
 use hoonarqube_ir::Issue;
@@ -70,9 +71,75 @@ use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 
 // Oxc's generated visitors recurse once per AST level. Keep that recursion off
-// the caller's usually small test/runtime stack: adversarial but valid source
-// must not abort the whole analyzer process before a report can be produced.
-const ANALYZER_STACK_SIZE: usize = 128 * 1024 * 1024;
+// the caller's usually small test/runtime stack to reduce stack-overflow risk
+// for deeply nested valid source.
+//
+// The parser's recursive-descent productions use loops for sibling lists, and
+// the crate's own recursive mini-parsers cap pattern nesting at 48. The 16 MiB
+// value is a conservative fixed reservation reduction informed by those
+// bounded sub-parsers, not an arbitrary AST-depth guarantee: Oxc's general
+// parser and visitors remain recursive for deeply nested source.
+// It avoids the former 128 MiB reservation on every concurrent file.
+const ANALYZER_STACK_SIZE: usize = 16 * 1024 * 1024;
+
+thread_local! {
+    static ANALYZER_STACK_ACTIVE: Cell<bool> = const { Cell::new(false) };
+}
+
+fn with_analyzer_stack<T>(job: impl FnOnce() -> T) -> T {
+    struct RestoreStackMarker(bool);
+
+    impl Drop for RestoreStackMarker {
+        fn drop(&mut self) {
+            ANALYZER_STACK_ACTIVE.with(|active| active.set(self.0));
+        }
+    }
+
+    let previous = ANALYZER_STACK_ACTIVE.with(|active| active.replace(true));
+    let _restore = RestoreStackMarker(previous);
+    job()
+}
+
+/// Spawns one bounded analysis worker with enough stack for JSTS parsing.
+///
+/// This hidden workspace API lets the CLI reuse its file worker for JSTS
+/// analysis instead of creating a second thread for every JavaScript or
+/// TypeScript file.
+#[doc(hidden)]
+pub fn spawn_analyzer_worker<'scope, 'env, T, F>(
+    scope: &'scope std::thread::Scope<'scope, 'env>,
+    name: &str,
+    job: F,
+) -> std::io::Result<std::thread::ScopedJoinHandle<'scope, T>>
+where
+    F: FnOnce() -> T + Send + 'scope,
+    T: Send + 'scope,
+{
+    std::thread::Builder::new()
+        .name(name.to_owned())
+        .stack_size(ANALYZER_STACK_SIZE)
+        .spawn_scoped(scope, move || with_analyzer_stack(job))
+}
+
+pub(crate) fn run_on_analyzer_stack<'scope, 'env, T, F>(
+    scope: &'scope std::thread::Scope<'scope, 'env>,
+    name: &str,
+    start_error: &str,
+    job: F,
+) -> T
+where
+    F: FnOnce() -> T + Send + 'scope,
+    T: Send + 'scope,
+{
+    if ANALYZER_STACK_ACTIVE.with(Cell::get) {
+        return job();
+    }
+    let worker = spawn_analyzer_worker(scope, name, job)
+        .unwrap_or_else(|error| panic!("{start_error}: {error}"));
+    worker
+        .join()
+        .unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+}
 
 /// Language of one analyzed file; selects the issue `rule_key` prefix and the
 /// parser's source type.
@@ -177,7 +244,7 @@ pub fn analyze(
     analyze_on_scoped_stack(path, source, language, options, &rules)
 }
 
-/// Runs independently implemented non-Sonar JS/TS rules on a large worker
+/// Runs independently implemented non-Sonar JS/TS rules on a bounded worker
 /// stack, matching the main analyzer's nesting tolerance.
 ///
 /// # Panics
@@ -187,16 +254,12 @@ pub fn analyze(
 #[must_use]
 pub fn analyze_native(source: &str, language: JstsLanguage) -> Vec<hoonarqube_ir::Issue> {
     std::thread::scope(|scope| {
-        let worker = std::thread::Builder::new()
-            .name("hoonarqube-jsts-native".to_owned())
-            .stack_size(ANALYZER_STACK_SIZE)
-            .spawn_scoped(scope, move || native::analyze(source, language))
-            .unwrap_or_else(|error| {
-                panic!("failed to start JS/TS native analyzer worker: {error}")
-            });
-        worker
-            .join()
-            .unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+        run_on_analyzer_stack(
+            scope,
+            "hoonarqube-jsts-native",
+            "failed to start JS/TS native analyzer worker",
+            move || native::analyze(source, language),
+        )
     })
 }
 
@@ -208,16 +271,12 @@ fn analyze_on_scoped_stack(
     rules: &RuleOptions,
 ) -> hoonarqube_ir::FileReport {
     std::thread::scope(|scope| {
-        let worker = std::thread::Builder::new()
-            .name("hoonarqube-jsts".to_owned())
-            .stack_size(ANALYZER_STACK_SIZE)
-            .spawn_scoped(scope, move || {
-                analyze_with_rules(path, source, language, options, rules)
-            })
-            .unwrap_or_else(|error| panic!("failed to start JS/TS analyzer worker: {error}"));
-        worker
-            .join()
-            .unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+        run_on_analyzer_stack(
+            scope,
+            "hoonarqube-jsts",
+            "failed to start JS/TS analyzer worker",
+            move || analyze_with_rules(path, source, language, options, rules),
+        )
     })
 }
 

@@ -18,15 +18,19 @@ pub fn analyze_facts(source: &str) -> RubyFacts {
     let Some(tree) = parse(source) else {
         return empty_facts(source, &map, true, 1);
     };
+    analyze_facts_with_tree(source, &tree, &map)
+}
+
+fn analyze_facts_with_tree(source: &str, tree: &Tree, map: &SourceMap) -> RubyFacts {
     let root = tree.root_node();
     let malformed = root.has_error();
     let syntax_error_count = count_errors(root);
-    let mut facts = empty_facts(source, &map, malformed, syntax_error_count);
+    let mut facts = empty_facts(source, map, malformed, syntax_error_count);
     let mut scopes_by_start = BTreeMap::new();
-    collect_scopes(root, 0, &map, &mut facts.scopes, &mut scopes_by_start);
-    collect_locals(root, 0, &map, &scopes_by_start, &mut facts);
-    collect_calls_and_guards(root, 0, &map, &scopes_by_start, &mut facts);
-    let (cfg, cfg_complete) = build_cfg(root, &map, &facts);
+    collect_scopes(root, 0, map, &mut facts.scopes, &mut scopes_by_start);
+    collect_locals(root, 0, map, &scopes_by_start, &mut facts);
+    collect_calls_and_guards(root, 0, map, &scopes_by_start, &mut facts);
+    let (cfg, cfg_complete) = build_cfg(root, map, &facts);
     facts.cfg = cfg;
     facts.definitions = definitions(&facts);
     attach_definition_ids(&mut facts);
@@ -2144,14 +2148,19 @@ fn collect_ruby_metrics(
 /// into a finding.
 #[must_use]
 pub fn github_quality(source: &str) -> Vec<hoonarqube_ir::Issue> {
-    let facts = analyze_facts(source);
+    let map = SourceMap::new(source);
+    let Some(tree) = parse(source) else {
+        return Vec::new();
+    };
+    let root = tree.root_node();
+    let facts = analyze_facts_with_tree(source, &tree, &map);
     if facts.malformed || !facts.analysis_complete {
         return Vec::new();
     }
     let mut issues = Vec::new();
-    report_uninitialized(&facts, source, &mut issues);
+    report_uninitialized(&facts, root, source, &mut issues);
     report_useless_assignments(&facts, source, &mut issues);
-    report_database_queries(source, &mut issues);
+    report_database_queries(root, &map, source, &mut issues);
     hoonarqube_ir::sort_issues(&mut issues);
     issues.dedup();
     debug_assert!(
@@ -2162,9 +2171,12 @@ pub fn github_quality(source: &str) -> Vec<hoonarqube_ir::Issue> {
     issues
 }
 
-fn report_uninitialized(facts: &RubyFacts, source: &str, issues: &mut Vec<hoonarqube_ir::Issue>) {
-    let Some(tree) = parse(source) else { return };
-    let root = tree.root_node();
+fn report_uninitialized(
+    facts: &RubyFacts,
+    root: Node<'_>,
+    source: &str,
+    issues: &mut Vec<hoonarqube_ir::Issue>,
+) {
     for local in facts
         .locals
         .iter()
@@ -2431,13 +2443,15 @@ fn useless_assignment_excluded(facts: &RubyFacts, local: &LocalFact) -> bool {
     })
 }
 
-fn report_database_queries(source: &str, issues: &mut Vec<hoonarqube_ir::Issue>) {
-    let Some(tree) = parse(source) else { return };
-    let root = tree.root_node();
+fn report_database_queries(
+    root: Node<'_>,
+    map: &SourceMap,
+    source: &str,
+    issues: &mut Vec<hoonarqube_ir::Issue>,
+) {
     let Some(models) = resolved_framework_models(root, source) else {
         return;
     };
-    let map = SourceMap::new(source);
     let mut query_ranges = HashSet::new();
     walk(root, &mut |query: Node<'_>| {
         if query.kind() != "call" || !is_database_query(query, source, &models) {

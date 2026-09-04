@@ -29,6 +29,11 @@
 
 ### Performance
 
+- **analyzers:** parallelize file analysis across available CPUs with
+  deterministic output and serial fallback; remove redundant parsing, semantic
+  indexing, and tree walks across every language while reducing each
+  JavaScript/TypeScript analyzer stack from 128 MiB to 16 MiB
+
 - **ci:** shard quality tests, pin dogfood analysis to the released binary,
   replace the 2.2 GB mixed target cache with dependency-aware Rust caching,
   and remove a duplicate full-repository analysis pass

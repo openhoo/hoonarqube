@@ -245,7 +245,7 @@ fn check_native_import_rules(
     imports: &GoImports,
     issues: &mut Vec<Issue>,
 ) {
-    for (path, key, message) in [
+    let rules = [
         (
             "crypto/md5",
             "hoonarqube-go:G401",
@@ -276,19 +276,31 @@ fn check_native_import_rules(
             "hoonarqube-go:G406",
             "Replace RIPEMD-160 with a cryptographically strong hash.",
         ),
-    ] {
-        if !imports.non_blank_import(path) {
-            continue;
+    ];
+    let active = rules.map(|(path, _, _)| imports.non_blank_import(path));
+    if !active.iter().any(|active| *active) {
+        return;
+    }
+    let mut matched: [Vec<Node<'_>>; 6] = std::array::from_fn(|_| Vec::new());
+    walk(root, &mut |node| {
+        if node.kind() != "import_spec" {
+            return;
         }
-        walk(root, &mut |node| {
-            if node.kind() == "import_spec"
-                && node
-                    .child_by_field_name("path")
-                    .is_some_and(|value| text(value, source).trim_matches(['"', '`']) == path)
-            {
-                issues.push(node_issue(key, message, node, source));
+        let Some(value) = node.child_by_field_name("path") else {
+            return;
+        };
+        let imported = text(value, source).trim_matches(['"', '`']);
+        for (index, (path, _, _)) in rules.iter().enumerate() {
+            if active[index] && imported == *path {
+                matched[index].push(node);
+                break;
             }
-        });
+        }
+    });
+    for (index, (_, key, message)) in rules.into_iter().enumerate() {
+        for node in matched[index].drain(..) {
+            issues.push(node_issue(key, message, node, source));
+        }
     }
 }
 
@@ -3062,14 +3074,14 @@ fn check_duplicate_strings(
     options: &AnalyzerOptions,
     issues: &mut Vec<Issue>,
 ) {
-    let mut values: HashMap<String, Vec<Node<'_>>> = HashMap::new();
+    let mut values: HashMap<&str, Vec<Node<'_>>> = HashMap::new();
     walk(root, &mut |node| {
         if matches!(
             node.kind(),
             "interpreted_string_literal" | "raw_string_literal"
         ) && !is_excluded_duplicate_string(node, source)
         {
-            let value = text(node, source).to_string();
+            let value = text(node, source);
             values.entry(value).or_default().push(node);
         }
     });

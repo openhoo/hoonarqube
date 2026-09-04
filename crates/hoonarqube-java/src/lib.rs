@@ -45,8 +45,7 @@ impl Default for AnalyzerOptions {
 }
 
 /// Parses one Java source file and returns metrics plus currently registered
-/// findings. Syntax errors fail closed: recovered trees are indexed only by
-/// internal tests/future rules and never produce fabricated issues.
+/// findings. Syntax errors fail closed and never produce fabricated issues.
 #[must_use]
 pub fn analyze(path: PathBuf, source: &str, _options: &AnalyzerOptions) -> FileReport {
     let Some(tree) = context::parse(source) else {
@@ -66,9 +65,7 @@ pub fn analyze(path: PathBuf, source: &str, _options: &AnalyzerOptions) -> FileR
         };
     };
     let root = tree.root_node();
-    let line_index = support::LineIndex::new(source);
     let metrics = support::file_metrics(root, source);
-    let _semantic_index = context::SemanticIndex::build(root, source, &line_index);
     FileReport {
         path,
         language: "java".to_owned(),

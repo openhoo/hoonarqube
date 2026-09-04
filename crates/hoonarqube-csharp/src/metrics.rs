@@ -1,9 +1,9 @@
 //! File-level metric computation: LOC classification via a full CST walk.
 
-use crate::cst::to_u32;
+use crate::cst::{to_u32, walk_all};
 use tree_sitter::Node;
 
-pub(crate) fn file_metrics(root: Node<'_>, source: &str) -> hoonarqube_ir::FileMetrics {
+pub(crate) fn file_metrics(root: Node<'_>, source: &str) -> (hoonarqube_ir::FileMetrics, usize) {
     let lines = if source.is_empty() {
         0
     } else {
@@ -14,11 +14,15 @@ pub(crate) fn file_metrics(root: Node<'_>, source: &str) -> hoonarqube_ir::FileM
     let mut comment_lines = std::collections::BTreeSet::new();
     collect_line_kinds(root, &mut code_lines, &mut comment_lines);
     // A line holding both code and a comment counts as code only.
-    hoonarqube_ir::FileMetrics {
-        lines,
-        code_lines: to_u32(code_lines.len()),
-        comment_lines: to_u32(comment_lines.difference(&code_lines).count()),
-    }
+    let code_line_count = code_lines.len();
+    (
+        hoonarqube_ir::FileMetrics {
+            lines,
+            code_lines: to_u32(code_line_count),
+            comment_lines: to_u32(comment_lines.difference(&code_lines).count()),
+        },
+        code_line_count,
+    )
 }
 
 /// Classifies every covered row as code or comment by walking the whole CST;
@@ -28,22 +32,14 @@ pub(crate) fn collect_line_kinds(
     code_lines: &mut std::collections::BTreeSet<u32>,
     comment_lines: &mut std::collections::BTreeSet<u32>,
 ) {
-    let mut pending = vec![node];
-    while let Some(node) = pending.pop() {
+    walk_all(node, &mut |node| {
+        let rows = node.start_position().row..=node.end_position().row;
         if node.kind() == "comment" {
-            for row in node.start_position().row..=node.end_position().row {
-                comment_lines.insert(to_u32(row));
-            }
-            continue;
+            comment_lines.extend(rows.map(to_u32));
+        } else if node.child_count() == 0 && node.kind() != "ERROR" {
+            code_lines.extend(rows.map(to_u32));
         }
-        if node.child_count() == 0 && node.kind() != "ERROR" {
-            for row in node.start_position().row..=node.end_position().row {
-                code_lines.insert(to_u32(row));
-            }
-        }
-        let mut cursor = node.walk();
-        pending.extend(node.children(&mut cursor));
-    }
+    });
 }
 
 #[cfg(test)]

@@ -11,9 +11,11 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread;
 
 use hoonarqube_catalog::Catalog;
-use hoonarqube_core::AnalyzerOptions as CoreOptions;
+use hoonarqube_core::{AnalyzerOptions as CoreOptions, Language};
 use hoonarqube_ir::FileReport;
 
 /// Per-language analyzer knobs threaded through the walker.
@@ -45,9 +47,17 @@ pub(crate) fn analyze_paths(
     warnings: &mut Vec<String>,
 ) -> Vec<FileReport> {
     let files = collect_input_files(paths, InputMode::Analyze, warnings);
-    let mut reports = Vec::new();
-    for path in &files {
-        read_and_analyze(path, options, warnings, &mut reports);
+    let worker_count = thread::available_parallelism()
+        .map_or(1, std::num::NonZeroUsize::get)
+        .min(files.len());
+    let outcomes = analyze_files(&files, options, worker_count);
+    let mut reports = Vec::with_capacity(outcomes.len());
+    for (_, outcome) in outcomes {
+        match outcome {
+            FileAnalysisOutcome::Report(report) => reports.push(report),
+            FileAnalysisOutcome::Warning(warning) => warnings.push(warning),
+            FileAnalysisOutcome::Skipped => {}
+        }
     }
     reports.sort_by(|a, b| a.path.cmp(&b.path));
     reports
@@ -397,24 +407,99 @@ fn is_analyzable_file(path: &Path) -> bool {
     hoonarqube_core::language_for_path(path).is_some()
 }
 
-fn read_and_analyze(
-    path: &Path,
+enum FileAnalysisOutcome {
+    Report(FileReport),
+    Warning(String),
+    Skipped,
+}
+
+fn analyze_files(
+    files: &[PathBuf],
     options: &AnalyzerOptionsBundle,
-    warnings: &mut Vec<String>,
-    reports: &mut Vec<FileReport>,
-) {
-    match fs::read_to_string(path) {
-        Ok(source) => {
-            let Some(report) = hoonarqube_core::analyze(path, &source, options) else {
-                return;
+    worker_count: usize,
+) -> Vec<(usize, FileAnalysisOutcome)> {
+    if worker_count <= 1 {
+        return files
+            .iter()
+            .enumerate()
+            .map(|(index, path)| (index, read_and_analyze(path, options)))
+            .collect();
+    }
+
+    let requires_jsts_stack = files.iter().any(|path| {
+        matches!(
+            hoonarqube_core::language_for_path(path),
+            Some(Language::JavaScript | Language::TypeScript)
+        )
+    });
+    let next = AtomicUsize::new(0);
+    let mut outcomes = thread::scope(|scope| {
+        let background_worker_count = if requires_jsts_stack {
+            worker_count
+        } else {
+            worker_count - 1
+        };
+        let mut workers = Vec::with_capacity(background_worker_count);
+        for _ in 0..background_worker_count {
+            let worker = if requires_jsts_stack {
+                hoonarqube_core::spawn_analyzer_worker(scope, "hoonarqube-file-worker", || {
+                    analyze_pending(files, options, &next)
+                })
+            } else {
+                thread::Builder::new()
+                    .spawn_scoped(scope, || analyze_pending(files, options, &next))
             };
-            reports.push(report);
+            let Ok(worker) = worker else {
+                break;
+            };
+            workers.push(worker);
         }
+        // On JSTS input, keep the caller out of analysis while any guarded
+        // worker exists. If stack-sized worker creation is refused, the
+        // existing workers drain the queue; if none start, fall back to the
+        // original serial path with one dedicated JSTS analyzer thread.
+        let mut outcomes = if requires_jsts_stack && !workers.is_empty() {
+            Vec::new()
+        } else {
+            analyze_pending(files, options, &next)
+        };
+        for worker in workers {
+            outcomes.extend(
+                worker
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+            );
+        }
+        outcomes
+    });
+    outcomes.sort_unstable_by_key(|(index, _)| *index);
+    outcomes
+}
+
+fn analyze_pending(
+    files: &[PathBuf],
+    options: &AnalyzerOptionsBundle,
+    next: &AtomicUsize,
+) -> Vec<(usize, FileAnalysisOutcome)> {
+    let mut outcomes = Vec::new();
+    loop {
+        let index = next.fetch_add(1, Ordering::Relaxed);
+        let Some(path) = files.get(index) else {
+            return outcomes;
+        };
+        outcomes.push((index, read_and_analyze(path, options)));
+    }
+}
+
+fn read_and_analyze(path: &Path, options: &AnalyzerOptionsBundle) -> FileAnalysisOutcome {
+    match fs::read_to_string(path) {
+        Ok(source) => hoonarqube_core::analyze(path, &source, options)
+            .map_or(FileAnalysisOutcome::Skipped, FileAnalysisOutcome::Report),
         Err(error) if error.kind() == ErrorKind::InvalidData => {
-            warnings.push(format!("skipping non-UTF-8 file: {}", path.display()));
+            FileAnalysisOutcome::Warning(format!("skipping non-UTF-8 file: {}", path.display()))
         }
         Err(error) => {
-            warnings.push(format!("cannot read file: {}: {error}", path.display()));
+            FileAnalysisOutcome::Warning(format!("cannot read file: {}: {error}", path.display()))
         }
     }
 }
@@ -599,6 +684,36 @@ mod tests {
         assert!(reports.is_empty());
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].starts_with("skipping non-UTF-8 file: "));
+    }
+
+    #[test]
+    fn parallel_analysis_preserves_input_order_for_warnings() {
+        let fix = TempDir::new("parallel-warning-order");
+        let files: Vec<_> = ["a.py", "b.py", "c.py", "d.py"]
+            .into_iter()
+            .map(|name| {
+                let path = fix.0.join(name);
+                fs::write(&path, [0xff, b'\n']).expect("write invalid source");
+                path
+            })
+            .collect();
+
+        let outcomes = analyze_files(&files, &AnalyzerOptionsBundle::default(), 4);
+        let warnings: Vec<_> = outcomes
+            .into_iter()
+            .map(|(_, outcome)| match outcome {
+                FileAnalysisOutcome::Warning(warning) => warning,
+                FileAnalysisOutcome::Report(_) | FileAnalysisOutcome::Skipped => {
+                    panic!("invalid UTF-8 inputs must produce warnings")
+                }
+            })
+            .collect();
+        let expected: Vec<_> = files
+            .iter()
+            .map(|path| format!("skipping non-UTF-8 file: {}", path.display()))
+            .collect();
+
+        assert_eq!(warnings, expected);
     }
 
     #[test]

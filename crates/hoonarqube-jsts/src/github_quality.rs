@@ -41,7 +41,7 @@ use crate::support::{
 };
 
 /// Run the high-confidence CodeQL-compatible JavaScript/TypeScript quality checks
-/// on a guarded worker stack. Oxc's visitor implementations recurse with AST
+/// on a bounded worker stack. Oxc's visitor implementations recurse with AST
 /// depth, so this boundary is part of the public API's safety contract.
 ///
 /// # Panics
@@ -50,16 +50,12 @@ use crate::support::{
 #[must_use]
 pub fn analyze_github_quality(source: &str, language: JstsLanguage) -> Vec<Issue> {
     std::thread::scope(|scope| {
-        let worker = std::thread::Builder::new()
-            .name("hoonarqube-jsts-github-quality".to_owned())
-            .stack_size(crate::ANALYZER_STACK_SIZE)
-            .spawn_scoped(scope, move || {
-                analyze_github_quality_inner(source, language)
-            })
-            .unwrap_or_else(|error| panic!("failed to start JS/TS GitHub quality worker: {error}"));
-        worker
-            .join()
-            .unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+        crate::run_on_analyzer_stack(
+            scope,
+            "hoonarqube-jsts-github-quality",
+            "failed to start JS/TS GitHub quality worker",
+            move || analyze_github_quality_inner(source, language),
+        )
     })
 }
 

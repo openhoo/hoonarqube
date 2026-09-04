@@ -101,7 +101,11 @@ impl<'a> TbBuilder<'a, '_> {
             span,
             write: self.write_depth > 0,
             compound: self.compound,
-            chain: self.stack.clone(),
+            scope: self
+                .stack
+                .last()
+                .copied()
+                .expect("scope stack must contain the program scope"),
         });
     }
 
@@ -133,7 +137,11 @@ impl<'a> TbBuilder<'a, '_> {
             span: reference.span,
             arity: arguments.len(),
             constructor,
-            chain: self.stack.clone(),
+            scope: self
+                .stack
+                .last()
+                .copied()
+                .expect("scope stack must contain the program scope"),
             explicit_undefined,
             spread,
         });
@@ -150,7 +158,11 @@ impl<'a> TbBuilder<'a, '_> {
             self.model.delete_sites.push(TbSite {
                 name: object.name.as_str(),
                 span: unary.span,
-                chain: self.stack.clone(),
+                scope: self
+                    .stack
+                    .last()
+                    .copied()
+                    .expect("scope stack must contain the program scope"),
             });
         }
     }
@@ -216,7 +228,11 @@ impl<'a> TbBuilder<'a, '_> {
                     span: identifier.span,
                     write: true,
                     compound: false,
-                    chain: self.stack.clone(),
+                    scope: self
+                        .stack
+                        .last()
+                        .copied()
+                        .expect("scope stack must contain the program scope"),
                 });
             }
             BindingPattern::ObjectPattern(object) => {

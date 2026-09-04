@@ -363,8 +363,7 @@ pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileRe
         .expect("Rust parser returned no tree");
     let root = tree.root_node();
     let mut issues = Vec::new();
-    let code = masked_source(source, root, true);
-    let uncommented = masked_source(source, root, false);
+    let (code, uncommented) = masked_sources(source, root);
 
     check_patterns(source, &code, &mut issues);
     check_whole_file(source, &code, &uncommented, root, &mut issues);
@@ -1254,18 +1253,23 @@ fn check_patterns(source: &str, code: &str, issues: &mut Vec<Issue>) {
     }
 }
 
-/// Replaces comments, optionally literals, and parser-error regions with spaces
-/// while retaining byte length and line endings. Textual rules can then search
-/// accepted Rust code without matching examples, diagnostics, or invalid CSTs.
-fn masked_source(source: &str, root: Node<'_>, mask_literals: bool) -> String {
+/// Builds the two source masks used by textual checks in one pair of CST
+/// traversals. Error/comment regions are shared; literals are additionally
+/// masked only in `code`, while both masks retain byte length and line endings.
+fn masked_sources(source: &str, root: Node<'_>) -> (String, String) {
     let mut code = source.as_bytes().to_vec();
+    let mut uncommented = code.clone();
     walk(root, &mut |node| {
         let comment = matches!(node.kind(), "line_comment" | "block_comment");
         let literal = matches!(
             node.kind(),
             "string_literal" | "raw_string_literal" | "char_literal"
         );
-        if node.is_error() || comment || mask_literals && literal {
+        if node.is_error() || comment {
+            let range = node.byte_range();
+            mask_range(&mut code, range.clone());
+            mask_range(&mut uncommented, range);
+        } else if literal {
             mask_range(&mut code, node.byte_range());
         }
     });
@@ -1274,14 +1278,21 @@ fn masked_source(source: &str, root: Node<'_>, mask_literals: bool) -> String {
             && let Some(parent) = node.parent()
         {
             if parent.kind() != "source_file" {
-                mask_range(&mut code, parent.byte_range());
+                let range = parent.byte_range();
+                mask_range(&mut code, range.clone());
+                mask_range(&mut uncommented, range);
             }
-            mask_range(&mut code, line_byte_range(source, node.start_byte()));
+            let range = line_byte_range(source, node.start_byte());
+            mask_range(&mut code, range.clone());
+            mask_range(&mut uncommented, range);
         }
     });
     // Replacing every non-line-ending byte in syntax-tree ranges with ASCII
     // spaces cannot create invalid UTF-8 outside those fully replaced ranges.
-    String::from_utf8(code).expect("masked Rust source remains valid UTF-8")
+    (
+        String::from_utf8(code).expect("masked Rust source remains valid UTF-8"),
+        String::from_utf8(uncommented).expect("masked Rust source remains valid UTF-8"),
+    )
 }
 
 fn mask_range(code: &mut [u8], range: std::ops::Range<usize>) {
@@ -6049,12 +6060,23 @@ mod tests {
             "  use std::sync::Mutex as Imported;\n",
             "  let _typed: Option<Imported> = None;\n",
             "  let guard = mutex.lock(); work().await; drop(guard);\n",
+            "  async fn inner(mutex: &Imported) {\n",
+            "    let guard = mutex.lock();\n",
+            "    work().await;\n",
+            "    drop(guard);\n",
+            "  }\n",
             "}\n",
         ));
-        assert!(
-            local_import.is_empty(),
-            "a body-local import must not rewrite an earlier parameter type: {local_import:?}",
+        let local_import_issues = local_import
+            .iter()
+            .filter(|issue| issue.rule_key == "hoonarqube-rust:await-holding-lock")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            local_import_issues.len(),
+            1,
+            "only the post-import nested type-use should resolve as a Mutex: {local_import:?}",
         );
+        assert_eq!(local_import_issues[0].range.start.line, 8);
 
         let generic_shadow = analyze_native(concat!(
             "use std::sync::Mutex;\n",
