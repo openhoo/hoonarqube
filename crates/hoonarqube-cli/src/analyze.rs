@@ -407,6 +407,7 @@ fn is_analyzable_file(path: &Path) -> bool {
     hoonarqube_core::language_for_path(path).is_some()
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum FileAnalysisOutcome {
     Report(FileReport),
     Warning(String),
@@ -418,7 +419,15 @@ fn analyze_files(
     options: &AnalyzerOptionsBundle,
     worker_count: usize,
 ) -> Vec<(usize, FileAnalysisOutcome)> {
-    if worker_count <= 1 {
+    let requires_jsts_stack = files.iter().any(|path| {
+        matches!(
+            hoonarqube_core::language_for_path(path),
+            Some(Language::JavaScript | Language::TypeScript)
+        )
+    });
+    // Even one CPU benefits from one reusable guarded JSTS worker; otherwise
+    // each file spawns a new parser thread (and each additional profile again).
+    if files.is_empty() || (worker_count <= 1 && !requires_jsts_stack) {
         return files
             .iter()
             .enumerate()
@@ -426,16 +435,10 @@ fn analyze_files(
             .collect();
     }
 
-    let requires_jsts_stack = files.iter().any(|path| {
-        matches!(
-            hoonarqube_core::language_for_path(path),
-            Some(Language::JavaScript | Language::TypeScript)
-        )
-    });
     let next = AtomicUsize::new(0);
     let mut outcomes = thread::scope(|scope| {
         let background_worker_count = if requires_jsts_stack {
-            worker_count
+            worker_count.max(1)
         } else {
             worker_count - 1
         };
@@ -684,6 +687,37 @@ mod tests {
         assert!(reports.is_empty());
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].starts_with("skipping non-UTF-8 file: "));
+    }
+
+    #[test]
+    fn guarded_workers_preserve_results_and_warning_order_at_every_worker_count() {
+        let fix = TempDir::new("guarded-workers");
+        let files = vec![
+            fix.write("a.js", "const n = 1; n = 2;\n"),
+            fix.write("b.tsx", "const element = <div />;\n"),
+            fix.write("c.py", "values = ['a' 'b']\n"),
+            fix.0.join("missing.js"),
+            fix.write("broken.js", "function f( {\n"),
+        ];
+        for profile in [
+            hoonarqube_core::RuleProfile::SonarParity,
+            hoonarqube_core::RuleProfile::Strict,
+            hoonarqube_core::RuleProfile::GithubCodeQuality,
+        ] {
+            let options = AnalyzerOptionsBundle {
+                profile,
+                ..AnalyzerOptionsBundle::default()
+            };
+            let expected: Vec<_> = files
+                .iter()
+                .enumerate()
+                .map(|(index, path)| (index, read_and_analyze(path, &options)))
+                .collect();
+            for workers in [0, 1, 2, 4] {
+                assert_eq!(analyze_files(&files, &options, workers), expected);
+            }
+            assert!(analyze_files(&[], &options, 1).is_empty());
+        }
     }
 
     #[test]

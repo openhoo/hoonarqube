@@ -46,12 +46,11 @@ impl Default for AnalyzerOptions {
 #[must_use]
 pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileReport {
     let _ = options;
-    let facts = analyze_facts(source);
     FileReport {
         path,
         language: "ruby".to_string(),
         issues: Vec::new(),
-        metrics: facts.metrics.file,
+        metrics: support::lexical_metrics(source),
     }
 }
 
@@ -69,6 +68,17 @@ pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
 #[must_use]
 pub fn analyze_github_quality(source: &str) -> Vec<hoonarqube_ir::Issue> {
     engine::github_quality(source)
+}
+
+/// Runs GitHub Code Quality queries with the same lexical metrics as [`analyze`].
+#[must_use]
+pub fn analyze_github_quality_report(path: PathBuf, source: &str) -> FileReport {
+    FileReport {
+        path,
+        language: "ruby".to_owned(),
+        issues: analyze_github_quality(source),
+        metrics: support::lexical_metrics(source),
+    }
 }
 
 #[cfg(test)]

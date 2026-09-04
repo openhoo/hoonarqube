@@ -167,6 +167,9 @@ pub fn analyze(
 ) -> Option<hoonarqube_ir::FileReport> {
     let language = language_for_path(path)?;
     let path = path.to_path_buf();
+    if options.profile == RuleProfile::GithubCodeQuality {
+        return Some(analyze_github_quality(path, source, language));
+    }
     let mut report = match language {
         Language::Python => hoonarqube_python::analyze(path, source, &options.python),
         Language::JavaScript => {
@@ -183,40 +186,7 @@ pub fn analyze(
         Language::Rust => hoonarqube_rust::analyze(path, source, &options.rust),
         Language::Ruby => hoonarqube_ruby::analyze(path, source, &options.ruby),
     };
-    if options.profile == RuleProfile::GithubCodeQuality {
-        let family = github_family(language);
-        let github = match language {
-            Language::Python => hoonarqube_python::analyze_github_quality(source),
-            Language::JavaScript => {
-                hoonarqube_jsts::analyze_github_quality(source, JstsLanguage::JavaScript)
-            }
-            Language::TypeScript => {
-                hoonarqube_jsts::analyze_github_quality(source, JstsLanguage::TypeScript)
-            }
-            Language::CSharp => hoonarqube_csharp::analyze_github_quality(source),
-            Language::Go => hoonarqube_go::analyze_github_quality(source),
-            Language::Java => hoonarqube_java::analyze_github_quality(source),
-            Language::Rust => Vec::new(),
-            Language::Ruby => hoonarqube_ruby::analyze_github_quality(source),
-        };
-        // Never hide registry drift in release builds. An invalid, wrong-family,
-        // or unregistered ID is a production integrity failure, not a finding
-        // to silently discard.
-        let registry = github_registry(language);
-        assert!(
-            github.iter().all(|issue| {
-                hoonarqube_catalog::github_quality::query(&issue.rule_key).is_some_and(|query| {
-                    family == Some(query.language)
-                        && registry.is_some_and(|ids| ids.contains(&issue.rule_key.as_str()))
-                })
-            }),
-            "GitHub Code Quality analyzer emitted an unknown, wrong-family, or unregistered rule ID"
-        );
-        report.issues = github;
-
-        hoonarqube_ir::sort_issues(&mut report.issues);
-        report.issues.dedup();
-    } else if options.profile != RuleProfile::SonarParity {
+    if options.profile != RuleProfile::SonarParity {
         let mut native = match language {
             Language::Python => hoonarqube_python::analyze_native(source),
             Language::JavaScript => {
@@ -244,6 +214,47 @@ pub fn analyze(
         report.issues.dedup();
     }
     Some(report)
+}
+
+fn analyze_github_quality(
+    path: std::path::PathBuf,
+    source: &str,
+    language: Language,
+) -> hoonarqube_ir::FileReport {
+    let mut report = match language {
+        Language::Python => hoonarqube_python::analyze_github_quality_report(path, source),
+        Language::JavaScript => {
+            hoonarqube_jsts::analyze_github_quality_report(path, source, JstsLanguage::JavaScript)
+        }
+        Language::TypeScript => {
+            hoonarqube_jsts::analyze_github_quality_report(path, source, JstsLanguage::TypeScript)
+        }
+        Language::CSharp => hoonarqube_csharp::analyze_github_quality_report(path, source),
+        Language::Go => hoonarqube_go::analyze_github_quality_report(path, source),
+        Language::Java => hoonarqube_java::analyze_github_quality_report(path, source),
+        Language::Ruby => hoonarqube_ruby::analyze_github_quality_report(path, source),
+        Language::Rust => hoonarqube_ir::FileReport {
+            path,
+            language: "rust".to_owned(),
+            issues: Vec::new(),
+            metrics: hoonarqube_rust::file_metrics(source),
+        },
+    };
+    let family = github_family(language);
+    let registry = github_registry(language);
+    // Registry drift remains a production integrity failure in release builds.
+    assert!(
+        report.issues.iter().all(|issue| {
+            hoonarqube_catalog::github_quality::query(&issue.rule_key).is_some_and(|query| {
+                family == Some(query.language)
+                    && registry.is_some_and(|ids| ids.contains(&issue.rule_key.as_str()))
+            })
+        }),
+        "GitHub Code Quality analyzer emitted an unknown, wrong-family, or unregistered rule ID"
+    );
+    hoonarqube_ir::sort_issues(&mut report.issues);
+    report.issues.dedup();
+    report
 }
 
 fn github_family(language: Language) -> Option<hoonarqube_catalog::github_quality::LanguageFamily> {
@@ -276,6 +287,80 @@ mod tests {
     };
     use std::collections::{BTreeSet, HashSet};
     use std::path::Path;
+
+    #[test]
+    fn github_profile_preserves_tolerant_metrics_and_strict_query_results() {
+        let options = AnalyzerOptions::default();
+        let github_options = AnalyzerOptions {
+            profile: RuleProfile::GithubCodeQuality,
+            ..AnalyzerOptions::default()
+        };
+        // Include malformed source, comments, Unicode, CRLF, and JSTS grammar
+        // differences: quality findings remain strict, metrics remain tolerant.
+        let cases = [
+            ("a.py", "# π\r\nvalues = ['a' 'b']\r\n"),
+            ("a.py", "def broken(:\n  pass\n"),
+            ("a.js", "// π\r\nconst n = 1; n = 2;\r\n"),
+            ("a.cjs", "return 1; // CommonJS\n"),
+            ("a.ts", "const x = <number>value;\n"),
+            ("a.tsx", "const x = <div>π</div>;\n"),
+            ("a.d.ts", "declare const x: number;\n"),
+            ("a.JS", "const x = <div />;\n"),
+            ("a.ts", "const x = <div />;\n"),
+            ("a.js", "function f( {\n"),
+            (
+                "A.cs",
+                "// π\r\nclass A { void F() { lock (this) {} } }\r\n",
+            ),
+            ("A.cs", "class A { void F( {\n"),
+            (
+                "a.go",
+                "package p\nfunc f(x int) bool { return len(\"π\") < 0 }\n",
+            ),
+            ("a.go", "package p\nfunc f( {\n"),
+            ("A.java", "// π\r\nclass A extends A {}\r\n"),
+            ("A.java", "class A { void f( {\n"),
+            ("a.rb", "# π\r\ndef f\r\n unused = 1\r\nend\r\n"),
+            ("a.rb", "def f(\n value =\n"),
+            ("a.rs", "// π\r\nfn f() { println!(\"hello\"); }\r\n"),
+            ("a.rs", "fn f( {\n"),
+        ];
+        for (name, source) in cases {
+            let path = Path::new(name);
+            let parity = analyze(path, source, &options).unwrap();
+            let github = analyze(path, source, &github_options).unwrap();
+            assert_eq!(github.path, parity.path, "{name}");
+            assert_eq!(github.language, parity.language, "{name}");
+            assert_eq!(github.metrics, parity.metrics, "{name}: {source}");
+            let mut expected = match language_for_path(path).unwrap() {
+                Language::Python => hoonarqube_python::analyze_github_quality(source),
+                Language::JavaScript => hoonarqube_jsts::analyze_github_quality(
+                    source,
+                    hoonarqube_jsts::JstsLanguage::JavaScript,
+                ),
+                Language::TypeScript => hoonarqube_jsts::analyze_github_quality(
+                    source,
+                    hoonarqube_jsts::JstsLanguage::TypeScript,
+                ),
+                Language::CSharp => hoonarqube_csharp::analyze_github_quality(source),
+                Language::Go => hoonarqube_go::analyze_github_quality(source),
+                Language::Java => hoonarqube_java::analyze_github_quality(source),
+                Language::Ruby => hoonarqube_ruby::analyze_github_quality(source),
+                Language::Rust => Vec::new(),
+            };
+            hoonarqube_ir::sort_issues(&mut expected);
+            expected.dedup();
+            assert_eq!(github.issues, expected, "{name}: {source}");
+        }
+        for (extension, _) in EXTENSIONS {
+            let name = format!("empty.{extension}");
+            let path = Path::new(&name);
+            assert_eq!(
+                analyze(path, "", &github_options).unwrap().metrics,
+                analyze(path, "", &options).unwrap().metrics
+            );
+        }
+    }
 
     #[test]
     fn github_quality_registry_is_sorted_unique_and_family_complete() {

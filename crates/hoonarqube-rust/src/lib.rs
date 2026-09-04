@@ -4,7 +4,7 @@
 //! from Clippy type analysis use conservative source shapes and stay silent
 //! when the required type or API evidence is absent.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -15,6 +15,22 @@ use regex::Regex;
 use tree_sitter::{Node, Parser, Point};
 
 mod sonar_contract;
+
+/// Computes file metrics without running rules or creating source masks.
+///
+/// # Panics
+/// Panics if the embedded grammar is incompatible or parsing returns no tree.
+#[must_use]
+pub fn file_metrics(source: &str) -> FileMetrics {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&tree_sitter_rust::LANGUAGE.into())
+        .expect("tree-sitter-rust language is compatible");
+    let tree = parser
+        .parse(source, None)
+        .expect("Rust parser returned no tree");
+    metrics(tree.root_node(), source)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalyzerOptions {
@@ -3098,7 +3114,42 @@ fn check_named_array_indexes(root: Node<'_>, source: &str, scan: &str, issues: &
 /// and similar calls needs a narrow textual fallback. Stop at the next binding
 /// of the same name so a shadowed vector cannot inherit an outer array length.
 fn check_macro_array_indexes(source: &str, scan: &str, issues: &mut Vec<Issue>) {
-    for declaration in named_array_regex().captures_iter(scan) {
+    let mut declarations = named_array_regex().captures_iter(scan).peekable();
+    if declarations.peek().is_none() {
+        return;
+    }
+    // Index bindings and accesses once. Compiling two identifier-specific
+    // regexes and scanning the remaining source for every array scales poorly
+    // in generated files with hundreds of array declarations.
+    let mut shadows: HashMap<&str, Vec<usize>> = HashMap::new();
+    for keyword in array_let_regex().find_iter(scan) {
+        let Some(binding) = array_binding_regex().captures(&scan[keyword.end()..]) else {
+            continue;
+        };
+        let start = keyword.start();
+        let name = binding.name("name").expect("binding name").as_str();
+        shadows.entry(name).or_default().push(start);
+        // Preserve the textual fallback's interpretation of `let mut` when
+        // recovered source previously declared an array literally named mut.
+        if binding.name("mutable").is_some() && name != "mut" {
+            shadows.entry("mut").or_default().push(start);
+        }
+    }
+    let mut accesses: HashMap<&str, Vec<(usize, usize, usize)>> = HashMap::new();
+    for access in named_array_access_regex().captures_iter(scan) {
+        let Some(index) = access
+            .name("index")
+            .and_then(|value| value.as_str().parse().ok())
+        else {
+            continue;
+        };
+        let full = access.get(0).expect("whole regex capture");
+        accesses
+            .entry(access.name("name").expect("array name").as_str())
+            .or_default()
+            .push((full.start(), full.end(), index));
+    }
+    for declaration in declarations {
         let Some(name) = declaration.name("name") else {
             continue;
         };
@@ -3111,33 +3162,29 @@ fn check_macro_array_indexes(source: &str, scan: &str, issues: &mut Vec<Issue>) 
             .filter(|item| !item.trim().is_empty())
             .count();
         let full_declaration = declaration.get(0).expect("whole regex capture");
-        let remaining = &scan[full_declaration.end()..];
-        let shadow = Regex::new(&format!(
-            r"\blet\s+(?:mut\s+)?{}\b",
-            regex::escape(name.as_str())
-        ))
-        .expect("escaped identifier regex");
-        let visible = shadow.find(remaining).map_or(remaining, |next| {
-            remaining.get(..next.start()).unwrap_or_default()
-        });
-        let access = Regex::new(&format!(
-            r"\b{}\s*\[\s*(\d+)\s*\]",
-            regex::escape(name.as_str())
-        ))
-        .expect("escaped identifier regex");
-        for indexed in access.captures_iter(visible) {
-            let index = indexed
-                .get(1)
-                .and_then(|value| value.as_str().parse::<usize>().ok());
-            if index.is_some_and(|index| index >= length) {
-                let full = indexed.get(0).expect("whole regex capture");
-                let start = full_declaration.end() + full.start();
+        let first = full_declaration.end();
+        let end = shadows
+            .get(name.as_str())
+            .and_then(|positions| {
+                positions.get(positions.partition_point(|position| *position < first))
+            })
+            .copied()
+            .unwrap_or(scan.len());
+        let Some(indexed) = accesses.get(name.as_str()) else {
+            continue;
+        };
+        let start_index = indexed.partition_point(|(start, _, _)| *start < first);
+        for &(start, access_end, index) in &indexed[start_index..] {
+            if access_end > end {
+                break;
+            }
+            if index >= length {
                 issues.push(offset_issue(
                     "rust:S6466",
                     "This array index always panics.",
                     source,
                     start,
-                    full_declaration.end() + full.end(),
+                    access_end,
                 ));
             }
         }
@@ -5090,6 +5137,15 @@ regex_fn!(
     named_array_regex,
     r"let\s+(?:mut\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*\[(?P<items>[^\]\n]+)\]\s*;"
 );
+regex_fn!(array_let_regex, r"\blet\s+");
+regex_fn!(
+    array_binding_regex,
+    r"^(?:(?P<mutable>mut)\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b"
+);
+regex_fn!(
+    named_array_access_regex,
+    r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\[\s*(?P<index>\d+)\s*\]"
+);
 regex_fn!(
     async_block_regex,
     r"(?s)async\s*\{[^\}]*?(?P<call>[A-Za-z_][A-Za-z0-9_:]*\([^;\n]*\)(?:\.await)?)(?:\s*//[^\n]*)?\s*\}"
@@ -5131,6 +5187,46 @@ regex_fn!(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn array_macro_index_tracks_each_binding_until_its_next_shadow() {
+        let source = concat!(
+            "let a = [1, 2]; emit!(a[2], a[1], aa[99], éa[99]);\n",
+            "let b = [1]; emit!(b[1], a[3]);\n",
+            "let mut a = other; emit!(a[99]);\n",
+            "let a = [1, 2, 3]; emit!(a[3], a[2]);\n",
+            "let b = [1, 2]; emit!(b[2], b[1]);\n",
+        );
+        let mut issues = Vec::new();
+        check_macro_array_indexes(source, source, &mut issues);
+        let selected: Vec<_> = issues
+            .iter()
+            .map(|issue| {
+                let line = source
+                    .lines()
+                    .nth(issue.range.start.line as usize - 1)
+                    .unwrap();
+                line.chars()
+                    .skip(issue.range.start.column as usize)
+                    .take((issue.range.end.column - issue.range.start.column) as usize)
+                    .collect::<String>()
+            })
+            .collect();
+        assert_eq!(selected, ["a[2]", "a[3]", "b[1]", "a[3]", "b[2]"]);
+    }
+
+    #[test]
+    fn array_macro_index_retains_recovered_keyword_binding_boundaries() {
+        for source in [
+            "let mut = [1]; let mut next; emit!(mut[2]);",
+            "let a = [1]; let let a; emit!(a[2]);",
+            "let a = [1]; let mut a; emit!(a[2]);",
+        ] {
+            let mut issues = Vec::new();
+            check_macro_array_indexes(source, source, &mut issues);
+            assert!(issues.is_empty(), "{source}: {issues:?}");
+        }
+    }
 
     const TEST_RULE_KEYS: &[&str] = &[
         "rust:S106",

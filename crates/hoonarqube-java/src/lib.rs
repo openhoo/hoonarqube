@@ -48,6 +48,16 @@ impl Default for AnalyzerOptions {
 /// findings. Syntax errors fail closed and never produce fabricated issues.
 #[must_use]
 pub fn analyze(path: PathBuf, source: &str, _options: &AnalyzerOptions) -> FileReport {
+    analyze_report(path, source, false)
+}
+
+/// Runs GitHub Code Quality queries and computes file metrics from one parse.
+#[must_use]
+pub fn analyze_github_quality_report(path: PathBuf, source: &str) -> FileReport {
+    analyze_report(path, source, true)
+}
+
+fn analyze_report(path: PathBuf, source: &str, github_quality: bool) -> FileReport {
     let Some(tree) = context::parse(source) else {
         return FileReport {
             path,
@@ -66,10 +76,15 @@ pub fn analyze(path: PathBuf, source: &str, _options: &AnalyzerOptions) -> FileR
     };
     let root = tree.root_node();
     let metrics = support::file_metrics(root, source);
+    let issues = if github_quality {
+        github_quality_issues(root, source)
+    } else {
+        Vec::new()
+    };
     FileReport {
         path,
         language: "java".to_owned(),
-        issues: Vec::new(),
+        issues,
         metrics,
     }
 }
@@ -100,7 +115,10 @@ pub fn analyze_github_quality(source: &str) -> Vec<Issue> {
     let Some(tree) = context::parse(source) else {
         return Vec::new();
     };
-    let root = tree.root_node();
+    github_quality_issues(tree.root_node(), source)
+}
+
+fn github_quality_issues(root: tree_sitter::Node<'_>, source: &str) -> Vec<Issue> {
     if root.has_error() {
         return Vec::new();
     }

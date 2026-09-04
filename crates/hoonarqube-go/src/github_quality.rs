@@ -31,7 +31,10 @@ pub fn analyze_github_quality(source: &str) -> Vec<Issue> {
     let Some(tree) = parser.parse(source, None) else {
         return Vec::new();
     };
-    let root = tree.root_node();
+    analyze_parsed(tree.root_node(), source)
+}
+
+pub(crate) fn analyze_parsed(root: Node<'_>, source: &str) -> Vec<Issue> {
     if root.has_error() {
         return Vec::new();
     }
