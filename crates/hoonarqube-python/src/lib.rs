@@ -244,6 +244,19 @@ pub fn analyze_github_quality(source: &str) -> Vec<hoonarqube_ir::Issue> {
 
 mod github_quality;
 
+/// Runs GitHub Code Quality queries and computes file metrics from one parse.
+#[must_use]
+pub fn analyze_github_quality_report(path: PathBuf, source: &str) -> hoonarqube_ir::FileReport {
+    let parsed = parse(source);
+    let index = LineIndex::from_source_text(source);
+    hoonarqube_ir::FileReport {
+        path,
+        language: "python".to_owned(),
+        issues: github_quality::analyze_parsed(source, &parsed, &index),
+        metrics: file_metrics(&parsed, source, &index),
+    }
+}
+
 mod context;
 mod engine;
 mod rules;

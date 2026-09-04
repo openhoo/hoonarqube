@@ -35,10 +35,10 @@ impl Direction {
         }
     }
 
-    fn prior<F: Clone>(self, result: &DataflowResult<F>, block: BlockId) -> F {
+    fn prior<F>(self, result: &DataflowResult<F>, block: BlockId) -> &F {
         match self {
-            Self::Forward => result.out_facts[block.index()].clone(),
-            Self::Backward => result.in_facts[block.index()].clone(),
+            Self::Forward => &result.out_facts[block.index()],
+            Self::Backward => &result.in_facts[block.index()],
         }
     }
 
@@ -153,7 +153,7 @@ where
         let computed = block_effect(block, &transferred);
         let idx = block.index();
         let prior = direction.prior(&result, block);
-        let changed = computed != prior;
+        let changed = &computed != prior;
         direction.store(&mut result, block, side, computed);
         let first_visit = !visited[idx];
         visited[idx] = true;

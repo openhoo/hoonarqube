@@ -1575,14 +1575,14 @@ fn sonar_import_value(
         for issue in &report.issues {
             let rule_id = sonar_rule_id(&issue.rule_key);
             rules
-                .entry(rule_id.to_string())
+                .entry(rule_id)
                 .or_insert_with(|| sonar_import_rule(catalog, issue));
-            findings.push((file_path.to_owned(), issue));
+            findings.push((file_path, issue));
         }
     }
     findings.sort_by(|(path_a, issue_a), (path_b, issue_b)| {
         (
-            path_a.as_str(),
+            path_a,
             issue_a.range.start.line,
             issue_a.range.start.column,
             issue_a.range.end.line,
@@ -1591,7 +1591,7 @@ fn sonar_import_value(
             issue_a.message.as_str(),
         )
             .cmp(&(
-                path_b.as_str(),
+                path_b,
                 issue_b.range.start.line,
                 issue_b.range.start.column,
                 issue_b.range.end.line,
@@ -1602,12 +1602,17 @@ fn sonar_import_value(
     });
     let issues = findings
         .into_iter()
-        .map(|(file_path, issue)| sonar_import_issue(&file_path, issue))
+        .map(|(file_path, issue)| sonar_import_issue(file_path, issue))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(serde_json::json!({
-        "rules": rules.into_values().collect::<Vec<_>>(),
-        "issues": issues,
-    }))
+    // Move the already-built values into the document. Passing them through
+    // json! serializes them again, cloning every finding and location.
+    Ok(serde_json::Value::Object(serde_json::Map::from_iter([
+        (
+            "rules".to_owned(),
+            serde_json::Value::Array(rules.into_values().collect()),
+        ),
+        ("issues".to_owned(), serde_json::Value::Array(issues)),
+    ])))
 }
 
 fn sonar_import_rule(catalog: &Catalog, issue: &hoonarqube_ir::Issue) -> serde_json::Value {
@@ -2020,7 +2025,7 @@ fn sarif_value(
         .collect();
     let results = sarif_results(&definitions, &checkout_root, findings)?;
 
-    Ok(serde_json::json!({
+    let mut document = serde_json::json!({
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
         "version": "2.1.0",
         "runs": [{
@@ -2029,12 +2034,15 @@ fn sarif_value(
                 "driver": {
                     "name": "Hoonarqube",
                     "informationUri": "https://github.com/openhoo/hoonarqube",
-                    "rules": rules,
+                    "rules": [],
                 },
             },
-            "results": results,
+            "results": [],
         }],
-    }))
+    });
+    document["runs"][0]["tool"]["driver"]["rules"] = serde_json::Value::Array(rules);
+    document["runs"][0]["results"] = serde_json::Value::Array(results);
+    Ok(document)
 }
 
 type SarifDefinitions = std::collections::BTreeMap<

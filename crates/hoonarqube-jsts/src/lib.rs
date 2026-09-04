@@ -263,6 +263,49 @@ pub fn analyze_native(source: &str, language: JstsLanguage) -> Vec<hoonarqube_ir
     })
 }
 
+/// Runs GitHub Code Quality queries without running Sonar rules.
+///
+/// Metrics retain the path-specific tolerant grammar used by [`analyze`]. The
+/// quality queries use their own strict grammar and JSX fallback, so both
+/// parses deliberately remain separate, on the same bounded worker stack.
+///
+/// # Panics
+/// Panics if the analyzer worker cannot be started or if analysis panics.
+#[must_use]
+pub fn analyze_github_quality_report(
+    path: PathBuf,
+    source: &str,
+    language: JstsLanguage,
+) -> hoonarqube_ir::FileReport {
+    std::thread::scope(|scope| {
+        run_on_analyzer_stack(
+            scope,
+            "hoonarqube-jsts-github-report",
+            "failed to start JS/TS GitHub quality worker",
+            move || {
+                let metrics = {
+                    let allocator = Allocator::default();
+                    let parsed =
+                        Parser::new(&allocator, source, source_type_for(language, &path)).parse();
+                    let index = LineIndex::new(source);
+                    file_metrics(
+                        parsed.program.body.as_slice(),
+                        source,
+                        &index,
+                        &scan_comments(source),
+                    )
+                };
+                hoonarqube_ir::FileReport {
+                    path,
+                    language: language.prefix().to_owned(),
+                    issues: analyze_github_quality(source, language),
+                    metrics,
+                }
+            },
+        )
+    })
+}
+
 fn analyze_on_scoped_stack(
     path: PathBuf,
     source: &str,

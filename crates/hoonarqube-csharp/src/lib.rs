@@ -264,7 +264,23 @@ pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
 #[must_use]
 pub fn analyze_github_quality(source: &str) -> Vec<hoonarqube_ir::Issue> {
     let tree = parse(source);
+    github_quality_issues(tree.root_node(), source)
+}
+
+/// Runs GitHub Code Quality queries and computes file metrics from one parse.
+#[must_use]
+pub fn analyze_github_quality_report(path: PathBuf, source: &str) -> hoonarqube_ir::FileReport {
+    let tree = parse(source);
     let root = tree.root_node();
+    hoonarqube_ir::FileReport {
+        path,
+        language: CsLanguage::CSharp.prefix().to_owned(),
+        issues: github_quality_issues(root, source),
+        metrics: metrics::file_metrics(root, source).0,
+    }
+}
+
+fn github_quality_issues(root: tree_sitter::Node<'_>, source: &str) -> Vec<hoonarqube_ir::Issue> {
     if root.has_error() {
         return Vec::new();
     }
