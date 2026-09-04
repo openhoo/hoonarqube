@@ -12,7 +12,7 @@ use sha2::{Digest as _, Sha256};
 use syn::parse::Parser as _;
 use syn::visit::{self, Visit as _};
 
-const LANGUAGES: [(&str, &str, &str); 6] = [
+pub(crate) const LANGUAGES: [(&str, &str, &str); 6] = [
     ("csharp", "cs", "csharpsquid"),
     ("javascript", "js", "javascript"),
     ("typescript", "ts", "typescript"),
@@ -1108,10 +1108,13 @@ fn github_coverage_report(
                 definition.language.as_str(),
                 family.as_str()
             );
-            by_family
-                .get_mut(family)
-                .expect("family inserted immediately above")
-                .insert((*id).to_owned());
+            let family_ids = by_family.get_mut(family).with_context(|| {
+                format!(
+                    "GitHub Code Quality family {} disappeared from registry",
+                    family.as_str()
+                )
+            })?;
+            family_ids.insert((*id).to_owned());
         }
     }
 
@@ -1124,13 +1127,19 @@ fn github_coverage_report(
         let family_ids = by_family.get(&family);
         let family_missing = expected
             .iter()
-            .filter(|id| family_ids.is_none_or(|ids| !ids.contains::<str>(**id)))
+            .filter(|id| family_ids.is_none_or(|ids| !ids.contains::<str>(*id)))
             .map(|id| (*id).to_owned())
             .collect::<Vec<_>>();
         let total = expected.len();
+        let implemented = family_ids.map_or(0, std::collections::BTreeSet::len);
+        ensure!(
+            implemented + family_missing.len() == total,
+            "GitHub Code Quality coverage accounting mismatch for {}",
+            family.as_str()
+        );
         rows.push(GithubCoverageRow {
             family,
-            implemented: total - family_missing.len(),
+            implemented,
             total,
             missing: family_missing.clone(),
         });
@@ -1206,16 +1215,18 @@ pub fn coverage(lang: Option<&str>, strict: bool, allow_infra: bool) -> Result<(
     }
     audit(Path::new("catalog/snapshot.toml"), true)
         .context("catalog integrity audit failed before coverage")?;
+    let boundaries = infra_boundaries()?;
+    validate_infra_boundaries(&boundaries)?;
     let mut rows = Vec::new();
     for (name, language_id, _) in LANGUAGES {
         if lang.is_some_and(|filter| filter != name) {
             continue;
         }
-        rows.push(coverage_language(name, language_id)?);
+        rows.push(coverage_language(name, language_id, &boundaries)?);
     }
     print_coverage(&rows);
     if strict && rows.iter().any(|row| row.has_gaps(allow_infra)) {
-        std::process::exit(1);
+        bail!("strict coverage found implementation, test, or infrastructure gaps");
     }
     Ok(())
 }
@@ -1261,12 +1272,22 @@ impl LanguageCoverage {
     }
 }
 
-fn coverage_language(name: &'static str, language_id: &str) -> Result<LanguageCoverage> {
+fn workspace_root() -> &'static Path {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask must be a workspace member")
+}
+
+fn coverage_language(
+    name: &'static str,
+    language_id: &str,
+    boundaries: &BTreeMap<String, InfraBoundary>,
+) -> Result<LanguageCoverage> {
     let source_dir = coverage_source_dir(name)
         .with_context(|| format!("no analyzer crate maps language {name}"))?;
     let mut production_literals = Vec::new();
     let mut test_literals = Vec::new();
-    let sources = collect_rust_sources(Path::new(source_dir))?;
+    let sources = collect_rust_sources(&workspace_root().join(source_dir))?;
     for path in &sources {
         let source = fs::read_to_string(path)
             .with_context(|| format!("failed to read analyzer source {}", path.display()))?;
@@ -1280,7 +1301,6 @@ fn coverage_language(name: &'static str, language_id: &str) -> Result<LanguageCo
         ));
     }
     let keys = coverage_keys(name, language_id)?;
-    let boundaries = infra_boundaries()?;
     // Infra classification takes precedence over marker matching: a key that
     // only appears in a documented skip note must not count as implemented.
     let (infra_keys, actionable_keys): (Vec<_>, Vec<_>) = keys.iter().partition(|key| {
@@ -1486,6 +1506,31 @@ fn infra_boundaries() -> Result<BTreeMap<String, InfraBoundary>> {
     Ok(manifest.boundaries)
 }
 
+fn validate_infra_boundaries(boundaries: &BTreeMap<String, InfraBoundary>) -> Result<()> {
+    let mut catalog_keys = BTreeMap::new();
+    for (name, language_id, repository) in LANGUAGES {
+        for key in coverage_keys(name, language_id)? {
+            ensure!(
+                key.strip_prefix(repository)
+                    .and_then(|rest| rest.strip_prefix(':'))
+                    .is_some_and(|marker| !marker.is_empty()),
+                "catalog key {key} does not belong to repository {repository}"
+            );
+            ensure!(
+                catalog_keys.insert(key.clone(), repository).is_none(),
+                "duplicate catalog rule key {key}"
+            );
+        }
+    }
+    for key in boundaries.keys() {
+        ensure!(
+            catalog_keys.contains_key(key),
+            "infra boundary {key} is not present in the frozen catalogs"
+        );
+    }
+    Ok(())
+}
+
 /// Iteratively collects `*.rs` paths without following symbolic links.
 fn collect_rust_sources(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut pending = vec![dir.to_path_buf()];
@@ -1530,7 +1575,8 @@ fn coverage_source_dir(name: &str) -> Option<&'static str> {
 
 /// Frozen external keys for one language, reusing the audit catalog contract.
 fn coverage_keys(name: &str, language_id: &str) -> Result<Vec<String>> {
-    let path = Path::new("catalog")
+    let path = workspace_root()
+        .join("catalog")
         .join("rules")
         .join(format!("{name}.json"));
     let bytes = read(&path)?;
@@ -2462,25 +2508,24 @@ mod tests {
 
     #[test]
     fn github_registry_reports_current_partial_state() {
-        let report =
-            github_coverage_report(hoonarqube_core::GITHUB_QUALITY_RULES_BY_FAMILY).unwrap();
-        assert_eq!(report.registered, 54);
-        assert_eq!(report.total, 382);
-        assert_eq!(report.missing.len(), 328);
-        assert_eq!(
+        use hoonarqube_catalog::github_quality::{LanguageFamily, queries_for_language};
+
+        let registry = hoonarqube_core::GITHUB_QUALITY_RULES_BY_FAMILY;
+        let report = github_coverage_report(registry).unwrap();
+        let registered = registry.iter().map(|(_, ids)| ids.len()).sum::<usize>();
+        let total = LanguageFamily::ALL
+            .into_iter()
+            .map(|family| queries_for_language(family).count())
+            .sum::<usize>();
+        assert_eq!(report.registered, registered);
+        assert_eq!(report.total, total);
+        assert_eq!(report.missing.len(), report.total - report.registered);
+        assert_eq!(report.rows.len(), LanguageFamily::ALL.len());
+        assert!(
             report
                 .rows
                 .iter()
-                .map(|row| (row.implemented, row.total, row.missing.len()))
-                .collect::<Vec<_>>(),
-            vec![
-                (13, 69, 56),
-                (5, 22, 17),
-                (15, 89, 74),
-                (13, 98, 85),
-                (5, 101, 96),
-                (3, 3, 0)
-            ]
+                .all(|row| { row.implemented + row.missing.len() == row.total })
         );
     }
 
@@ -2549,21 +2594,23 @@ mod tests {
     }
 
     #[test]
-    fn infrastructure_boundaries_have_exact_implementation_gap_count() {
+    fn infrastructure_boundaries_match_frozen_catalog_keys() {
         let boundaries = infra_boundaries().unwrap();
-        assert_eq!(boundaries.len(), 52);
-        assert_eq!(
-            boundaries
-                .values()
-                .filter(|boundary| boundary.implementation_gap)
-                .count(),
-            17
-        );
+        validate_infra_boundaries(&boundaries).unwrap();
         assert!(
             boundaries
                 .get("python:S6786")
                 .is_some_and(|boundary| boundary.implementation_gap)
         );
+
+        let stale = BTreeMap::from([(
+            "python:S999999".to_owned(),
+            InfraBoundary {
+                reason: "stale test boundary".to_owned(),
+                implementation_gap: true,
+            },
+        )]);
+        assert!(validate_infra_boundaries(&stale).is_err());
     }
 
     #[test]

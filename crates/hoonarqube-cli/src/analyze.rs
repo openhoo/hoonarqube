@@ -89,11 +89,55 @@ pub(crate) fn collect_input_files(
             warnings.push(format!("skipping unsupported path: {}", path.display()));
         }
     }
-    // Explicit arguments may overlap walked directories (`src src/main.py`);
-    // each file is processed once so reports and summary counts stay accurate.
+    // Resolve filesystem identity for deduplication while retaining the
+    // lexically smallest original spelling for I/O and report paths.
+    let mut unique = std::collections::BTreeMap::new();
+    for file in files.drain(..) {
+        let key = normalized_input_path(&file);
+        match unique.entry(key) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(file);
+            }
+            std::collections::btree_map::Entry::Occupied(mut entry) => {
+                if file < *entry.get() {
+                    entry.insert(file);
+                }
+            }
+        }
+    }
+    files.extend(unique.into_values());
     files.sort();
-    files.dedup();
     files
+}
+
+fn normalized_input_path(path: &Path) -> PathBuf {
+    if let Some((parent, name)) = path.parent().zip(path.file_name())
+        && let Ok(canonical_parent) = parent.canonicalize()
+    {
+        return canonical_parent.join(name);
+    }
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_or_else(|_| path.to_path_buf(), |directory| directory.join(path))
+    };
+    let mut normalized = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            std::path::Component::Prefix(_) | std::path::Component::RootDir => {
+                normalized.push(component.as_os_str());
+            }
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !normalized.pop() {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            std::path::Component::Normal(value) => normalized.push(value),
+        }
+    }
+    normalized
 }
 
 fn reject_symlinked_ancestor(path: &Path, warnings: &mut Vec<String>) -> bool {
@@ -592,6 +636,49 @@ mod tests {
 
         let paths: Vec<_> = reports.iter().map(|r| r.path.clone()).collect();
         assert_eq!(paths, vec![fix.0.join("a.py"), fix.0.join("b.py")]);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn deduplicates_lexically_equivalent_paths() {
+        let fix = TempDir::new("lexical-overlap");
+        let source = fix.write("a.py", "x = 1\n");
+        fs::create_dir(fix.0.join("nested")).expect("create nested directory");
+        let equivalent = fix.0.join("nested").join("..").join("a.py");
+
+        let mut warnings = Vec::new();
+        let reports = analyze_paths(
+            &[equivalent, source.clone()],
+            &AnalyzerOptionsBundle::default(),
+            &mut warnings,
+        );
+
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].path, source);
+        assert!(warnings.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn distinct_paths_across_symlink_parent_are_not_collapsed() {
+        let fixture = TempDir::new("symlink-parent-dedup-input");
+        let local = fixture.write("bar.py", "local = 1\n");
+        let outside = TempDir::new("symlink-parent-dedup-target");
+        fs::create_dir(outside.0.join("nested")).expect("create symlink target directory");
+        outside.write("bar.py", "outside = 1\n");
+        let linked = fixture.0.join("linked");
+        std::os::unix::fs::symlink(outside.0.join("nested"), &linked)
+            .expect("create directory symlink");
+
+        let through_parent = linked.join("..").join("bar.py");
+        let mut warnings = Vec::new();
+        let reports = analyze_paths(
+            &[through_parent, local],
+            &AnalyzerOptionsBundle::default(),
+            &mut warnings,
+        );
+
+        assert_eq!(reports.len(), 2);
         assert!(warnings.is_empty());
     }
 

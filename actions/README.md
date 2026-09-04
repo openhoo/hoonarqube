@@ -37,13 +37,16 @@ Non-default profiles require a release containing the native catalog, or the
     upload: false
 ```
 
-`actions/code-quality` validates SARIF 2.1.0 and exposes `report` and
-`result-count` outputs. Upload is opt-in; set `upload: true` only for trusted
-pushes or same-repository pull requests and grant `security-events: write`.
-The action's profile is the isolated `github-code-quality` profile.
+`actions/code-quality` validates SARIF 2.1.0 and exposes `report`,
+`result-count`, and `blocking-findings` outputs. Upload is opt-in; set
+`upload: true` only for trusted pushes or same-repository pull requests and
+grant `security-events: write`. The action's profile is the isolated
+`github-code-quality` profile.
 
 Adoption is report-only by default because Hoonarqube does not yet have a
-reviewed baseline contract; set `fail-on` explicitly only after repository
-findings have been reviewed. Directory analysis honors repository ignore files.
-Repository self-tests may set `executable` to a freshly built local binary;
-normal consumers should omit it so the verified release installer runs.
+reviewed baseline contract. `fail-on` accepts `none` (default), `findings`,
+`note`, `warning`, or `error`. A validated report is uploaded before a
+configured threshold fails the job. Directory analysis honors repository
+ignore files. Repository self-tests may set `executable` to a freshly built
+local binary; normal consumers should omit it so the verified release installer
+runs.

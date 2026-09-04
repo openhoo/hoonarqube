@@ -472,7 +472,7 @@ impl SemanticFacts {
 fn is_predeclared_value(name: &str) -> bool {
     matches!(
         name,
-        "len" | "cap" | "uint" | "uint8" | "uint16" | "uint32" | "uint64" | "uintptr"
+        "len" | "cap" | "uint" | "uint8" | "uint16" | "uint32" | "uint64" | "uintptr" | "byte"
     )
 }
 
@@ -564,11 +564,7 @@ fn check_duplicate_switch_cases(
             let Some(label) = switch_case_label(case) else {
                 continue;
             };
-            let Some(key) = (if case.kind() == "type_case" {
-                Some(format!("type:{}", compact_trivia(text(label, source))))
-            } else {
-                expression_key(label, source, facts)
-            }) else {
+            let Some(key) = expression_key(label, source, facts) else {
                 continue;
             };
             for (_, earlier) in prior.iter().filter(|(old, _)| *old == key) {
@@ -595,7 +591,6 @@ fn switch_case_label(case: Node<'_>) -> Option<Node<'_>> {
         "expression_case" => case
             .child_by_field_name("value")
             .and_then(|values| values.named_child(0)),
-        "type_case" => case.child_by_field_name("type"),
         _ => None,
     }
 }
@@ -797,6 +792,11 @@ fn non_negative_description(
     }
     if node.kind() == "call_expression" {
         let function = node.child_by_field_name("function")?;
+        let function = if function.kind() == "parenthesized_expression" {
+            function.named_child(0)?
+        } else {
+            function
+        };
         let name = text(function, source);
         if matches!(name, "len" | "cap")
             && function.kind() == "identifier"
@@ -868,7 +868,7 @@ fn expr_is_unsigned(node: Node<'_>, source: &str, facts: &SemanticFacts) -> bool
 fn is_unsigned_conversion(name: &str) -> bool {
     matches!(
         name,
-        "uint" | "uint8" | "uint16" | "uint32" | "uint64" | "uintptr"
+        "uint" | "uint8" | "uint16" | "uint32" | "uint64" | "uintptr" | "byte"
     )
 }
 
@@ -952,7 +952,10 @@ fn check_whitespace_precedence(root: Node<'_>, source: &str, issues: &mut Vec<Is
 
 fn interesting_nesting(inner_op: &str, outer_op: &str, index: usize) -> bool {
     let associative = inner_op == outer_op
-        && matches!(inner_op, "+" | "*" | "&" | "|" | "^" | "&^" | "&&" | "||");
+        && matches!(
+            inner_op,
+            "+" | "*" | "&" | "|" | "^" | "&^" | "<<" | ">>" | "&&" | "||"
+        );
     let reassociated = (inner_op == "*" && outer_op == "/" && index == 0)
         || (inner_op == "/" && outer_op == "%" && index == 0)
         || (inner_op == "+" && outer_op == "-" && index == 0);
@@ -984,9 +987,16 @@ fn whitespace_around(node: Node<'_>, source: &str) -> Option<usize> {
     if left.start_position().row != right.start_position().row {
         return None;
     }
-    let before = source.get(left.end_byte()..operator.start_byte())?;
-    let after = source.get(operator.end_byte()..right.start_byte())?;
-    Some(before.chars().count() + after.chars().count())
+    // Match CodeQL's Location-column formula rather than counting raw
+    // characters. This intentionally uses byte columns, as tree-sitter and
+    // CodeQL both measure the source locations of these ASCII operators.
+    let gap = right
+        .start_position()
+        .column
+        .saturating_sub(left.end_position().column)
+        .saturating_sub(operator.end_byte().saturating_sub(operator.start_byte()));
+    let _ = source;
+    Some(gap / 2)
 }
 
 fn expression_key(node: Node<'_>, source: &str, facts: &SemanticFacts) -> Option<String> {
@@ -997,10 +1007,15 @@ fn expression_key(node: Node<'_>, source: &str, facts: &SemanticFacts) -> Option
         "parenthesized_expression" => node
             .named_child(0)
             .and_then(|inner| expression_key(inner, source, facts)),
-        "identifier" => Some(format!(
-            "id:{}",
-            facts.binding_key(text(node, source), node.start_byte())
-        )),
+        "identifier" => {
+            let name = text(node, source);
+            if name == "nil" {
+                // CodeQL gives each unanalyzable nil expression a distinct
+                // global value; spelling alone must not imply equality.
+                return None;
+            }
+            Some(format!("id:{}", facts.binding_key(name, node.start_byte())))
+        }
         "field_identifier" => Some(format!("name:{}", text(node, source))),
         "type_identifier"
         | "qualified_type"
@@ -1173,7 +1188,7 @@ fn type_is_unsigned(ty: &str, facts: &SemanticFacts, at: usize) -> bool {
         }
         return matches!(
             current.as_str(),
-            "uint" | "uint8" | "uint16" | "uint32" | "uint64" | "uintptr"
+            "uint" | "uint8" | "uint16" | "uint32" | "uint64" | "uintptr" | "byte"
         );
     }
 }
@@ -1411,6 +1426,7 @@ func f(a, b, c, d bool) bool {
     fn malformed_syntax_is_a_semantic_boundary() {
         assert!(analyze_github_quality("package p\nfunc f( {\n").is_empty());
     }
+
     #[test]
     fn duplicate_reports_have_codeql_pair_cardinality() {
         let source =
@@ -1435,14 +1451,12 @@ func f(a, b, c, d bool) bool {
     }
 
     #[test]
-    fn duplicate_switch_supports_type_cases() {
+    fn duplicate_switch_type_cases_are_not_equated_as_gvn_values() {
         let source = "package p\nfunc f(x any) { switch x.(type) { case int: case int: case string: case int: } }\n";
-        assert_eq!(
+        assert!(
             keys(source)
                 .into_iter()
-                .filter(|key| key == DUPLICATE_SWITCH_CASE)
-                .count(),
-            3
+                .all(|key| key != DUPLICATE_SWITCH_CASE)
         );
     }
 
@@ -1497,8 +1511,10 @@ func f(x int, xs []int) {
     }
 
     #[test]
-    fn whitespace_precedence_counts_comment_trivia() {
-        let source = "package p\nfunc f(x int) int { return x+x /* padding */ >> 1 }\n";
+    fn whitespace_precedence_uses_codeql_column_scoring() {
+        let source = "package p\nfunc f(x int) int { return x+x  >>  1 }\n";
         assert_eq!(keys(source), vec![WHITESPACE_PRECEDENCE]);
+        let comment = "package p\nfunc f(x int) int { return x+x /* padding */ >> 1 }\n";
+        assert_eq!(keys(comment), vec![WHITESPACE_PRECEDENCE]);
     }
 }

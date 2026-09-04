@@ -586,12 +586,14 @@ pub fn github_quality_issues(root: Node<'_>, source: &str, index: &LineIndex) ->
             "interface_declaration",
             "enum_declaration",
             "record_declaration",
+            "annotation_type_declaration",
             "method_declaration",
             "constructor_declaration",
             "compact_constructor_declaration",
             "object_creation_expression",
             "labeled_statement",
             "string_literal",
+            "text_block",
             "binary_expression",
             "if_statement",
             "while_statement",
@@ -603,6 +605,10 @@ pub fn github_quality_issues(root: Node<'_>, source: &str, index: &LineIndex) ->
             "constant_declaration",
             "formal_parameter",
             "spread_parameter",
+            "catch_formal_parameter",
+            "resource",
+            "lambda_expression",
+            "package_declaration",
             "enum_constant",
             "type_pattern",
         ],
@@ -630,7 +636,7 @@ fn collect_node_issues(
 ) {
     collect_declaration_issues(root, node, source, index, semantics, issues);
     collect_underscore_issue(node, source, index, issues);
-    collect_expression_issues(node, source, index, issues);
+    collect_expression_issues(node, source, index, semantics, issues);
     collect_indentation_issue(node, source, index, issues);
 }
 
@@ -643,7 +649,13 @@ fn collect_declaration_issues(
     issues: &mut Vec<Issue>,
 ) {
     match node.kind() {
-        "class_declaration" => class_issues(root, node, source, index, semantics, issues),
+        "class_declaration"
+        | "interface_declaration"
+        | "enum_declaration"
+        | "record_declaration"
+        | "annotation_type_declaration" => {
+            class_issues(root, node, source, index, semantics, issues);
+        }
         "object_creation_expression" => {
             object_creation_issues(node, source, index, semantics, issues);
         }
@@ -673,10 +685,11 @@ fn collect_expression_issues(
     node: Node<'_>,
     source: &str,
     index: &LineIndex,
+    semantics: &SemanticIndex,
     issues: &mut Vec<Issue>,
 ) {
     match node.kind() {
-        "string_literal" => literal_issues(node, source, index, issues),
+        "string_literal" | "text_block" => literal_issues(node, source, index, semantics, issues),
         "binary_expression" => binary_issues(node, source, index, issues),
         _ => {}
     }
@@ -696,7 +709,48 @@ fn collect_indentation_issue(
 fn is_indentation_control(kind: &str) -> bool {
     matches!(
         kind,
-        "if_statement" | "while_statement" | "for_statement" | "enhanced_for_statement"
+        "if_statement"
+            | "while_statement"
+            | "for_statement"
+            | "enhanced_for_statement"
+            | "do_statement"
+    )
+}
+
+fn push_supertype_nodes<'tree>(node: Node<'tree>, result: &mut Vec<Node<'tree>>) {
+    if matches!(
+        node.kind(),
+        "superclass" | "super_interfaces" | "extends_interfaces" | "type_list"
+    ) {
+        for child in direct_named_children(node) {
+            push_supertype_nodes(child, result);
+        }
+    } else {
+        result.push(node);
+    }
+}
+
+fn direct_supertype_nodes(node: Node<'_>) -> Vec<Node<'_>> {
+    let mut result = Vec::new();
+    for field in ["superclass", "interfaces"] {
+        if let Some(value) = node.child_by_field_name(field) {
+            push_supertype_nodes(value, &mut result);
+        }
+    }
+    for child in direct_named_children(node) {
+        if child.kind() == "extends_interfaces" {
+            push_supertype_nodes(child, &mut result);
+        }
+    }
+    result
+}
+
+fn simple_supertype_name<'a>(node: Node<'_>, source: &'a str) -> &'a str {
+    crate::support::simple_name(
+        node_text(node, source)
+            .trim_start_matches("extends")
+            .trim_start_matches("implements")
+            .trim(),
     )
 }
 
@@ -708,31 +762,25 @@ fn class_issues(
     semantics: &SemanticIndex,
     issues: &mut Vec<Issue>,
 ) {
-    if let (Some(name), Some(superclass)) = (
-        node.child_by_field_name("name"),
-        node.child_by_field_name("superclass"),
-    ) {
-        let super_name = crate::support::simple_name(
-            node_text(superclass, source)
-                .trim_start_matches("extends")
-                .trim(),
-        );
-        if node_text(name, source) == super_name {
+    if let Some(name) = node.child_by_field_name("name") {
+        let name_text = node_text(name, source);
+        for supertype in direct_supertype_nodes(node) {
+            if simple_supertype_name(supertype, source) != name_text {
+                continue;
+            }
             let mut finding = issue(
                 "java/class-name-matches-super-class",
-                &format!(
-                    "{} has the same name as its supertype $@.",
-                    node_text(name, source)
-                ),
+                &format!("{name_text} has the same name as its supertype $@."),
                 node,
                 source,
                 index,
             );
             finding = finding.with_flow(vec![FlowLocation::in_primary_file(
-                node_text(superclass, source)
+                node_text(supertype, source)
                     .trim_start_matches("extends")
+                    .trim_start_matches("implements")
                     .trim(),
-                range_of(superclass, source, index),
+                range_of(supertype, source, index),
             )]);
             issues.push(finding);
         }
@@ -752,39 +800,46 @@ fn class_issues(
         && let Some(comment) = doc_comment_before(node, source)
     {
         issues.extend(javadoc_param_issues(
-            node, name, comment, source, index, false,
+            node,
+            name,
+            comment,
+            source,
+            index,
+            node.kind() == "record_declaration",
         ));
     }
-    if let Some(interfaces) = node.child_by_field_name("interfaces") {
-        for ty in crate::support::collect_kinds(
-            interfaces,
-            &["type_identifier", "scoped_type_identifier", "generic_type"],
-        ) {
-            let interface_name = crate::support::simple_name(node_text(ty, source));
-            if let Some(interface) = find_type(root, interface_name, source)
-                && is_constant_only_type(interface, source)
-                && node_text(interfaces, source).split(',').any(|part| {
-                    crate::support::simple_name(part.trim().trim_start_matches("implements").trim())
-                        == interface_name
-                })
-            {
-                let mut finding = issue(
-                    "java/constants-only-interface",
-                    &format!(
-                        "Type {} implements constant interface $@.",
-                        node_text(node.child_by_field_name("name").unwrap_or(node), source)
-                    ),
-                    node,
-                    source,
-                    index,
-                );
-                finding = finding.with_flow(vec![FlowLocation::in_primary_file(
-                    interface_name,
-                    range_of(interface, source, index),
-                )]);
-                issues.push(finding);
-            }
+    if is_constant_only_type(node, source) {
+        return;
+    }
+    for supertype in direct_supertype_nodes(node) {
+        let interface_name = simple_supertype_name(supertype, source);
+        let Some(super_decl) = find_unique_type(root, interface_name, source) else {
+            continue;
+        };
+        if !is_constant_only_type(super_decl, source) {
+            continue;
         }
+        let kind = if super_decl.kind() == "interface_declaration" {
+            "interface"
+        } else {
+            "class"
+        };
+        let mut finding = issue(
+            "java/constants-only-interface",
+            &format!(
+                "Type {} implements constant {kind} $@.",
+                node.child_by_field_name("name")
+                    .map_or("", |value| node_text(value, source))
+            ),
+            node,
+            source,
+            index,
+        );
+        finding = finding.with_flow(vec![FlowLocation::in_primary_file(
+            interface_name,
+            range_of(super_decl, source, index),
+        )]);
+        issues.push(finding);
     }
 }
 
@@ -806,7 +861,7 @@ fn object_creation_issues(
         return;
     };
     if type_name == "String"
-        && first.kind() == "string_literal"
+        && expression_is_type(first, semantics, source, "String")
         && is_jdk_type(semantics, ty, source, "String")
     {
         issues.push(issue(
@@ -817,7 +872,7 @@ fn object_creation_issues(
             index,
         ));
     } else if matches!(type_name, "StringBuffer" | "StringBuilder")
-        && first.kind() == "character_literal"
+        && expression_is_type(first, semantics, source, "char")
         && is_jdk_type(semantics, ty, source, type_name)
     {
         issues.push(issue(
@@ -830,6 +885,57 @@ fn object_creation_issues(
             index,
         ));
     }
+}
+fn expression_is_type(
+    expression: Node<'_>,
+    semantics: &SemanticIndex,
+    source: &str,
+    expected: &str,
+) -> bool {
+    if expected == "String" && matches!(expression.kind(), "string_literal" | "text_block") {
+        return true;
+    }
+    if expected == "char" && expression.kind() == "character_literal" {
+        return true;
+    }
+    if expression.kind() != "identifier" {
+        return false;
+    }
+    semantics
+        .references
+        .iter()
+        .find(|reference| {
+            reference.range.start.line as usize == expression.start_position().row + 1
+                && reference.range.start.column as usize == expression.start_position().column
+                && reference.name == node_text(expression, source)
+        })
+        .and_then(|reference| reference.symbol)
+        .and_then(|symbol| semantics.symbols.get(symbol.0))
+        .and_then(|symbol| symbol.type_fact.as_ref())
+        .is_some_and(|type_fact| match type_fact {
+            crate::context::TypeFact::Primitive(name)
+            | crate::context::TypeFact::LocalType(name)
+            | crate::context::TypeFact::JavaLang(name) => name == expected,
+        })
+}
+
+fn find_unique_type<'tree>(root: Node<'tree>, name: &str, source: &str) -> Option<Node<'tree>> {
+    let matches = crate::support::collect_kinds(
+        root,
+        &[
+            "interface_declaration",
+            "class_declaration",
+            "record_declaration",
+            "enum_declaration",
+        ],
+    )
+    .into_iter()
+    .filter(|node| {
+        node.child_by_field_name("name")
+            .is_some_and(|value| node_text(value, source) == name)
+    })
+    .collect::<Vec<_>>();
+    (matches.len() == 1).then(|| matches[0])
 }
 
 fn label_issues(node: Node<'_>, source: &str, index: &LineIndex, issues: &mut Vec<Issue>) {
@@ -854,7 +960,16 @@ fn label_issues(node: Node<'_>, source: &str, index: &LineIndex, issues: &mut Ve
     }
 }
 
-fn literal_issues(node: Node<'_>, source: &str, index: &LineIndex, issues: &mut Vec<Issue>) {
+fn literal_issues(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    if is_likely_test_literal(node, source, semantics) {
+        return;
+    }
     for (offset, code) in literal_controls(node, source) {
         issues.push(issue(
             "java/non-explicit-control-and-whitespace-chars-in-literals",
@@ -868,12 +983,47 @@ fn literal_issues(node: Node<'_>, source: &str, index: &LineIndex, issues: &mut 
     }
 }
 
+fn is_likely_test_literal(node: Node<'_>, source: &str, index: &SemanticIndex) -> bool {
+    let Some(method) = ancestor(node, "method_declaration") else {
+        return false;
+    };
+    let method_name = method
+        .child_by_field_name("name")
+        .map_or("", |name| node_text(name, source));
+    let junit_annotation = [
+        "Test",
+        "RepeatedTest",
+        "ParameterizedTest",
+        "TestFactory",
+        "TestTemplate",
+    ]
+    .iter()
+    .any(|name| has_junit_annotation(method, source, index, name));
+    let junit3_shape = method_name.starts_with("test")
+        && has_modifier(method, source, "public")
+        && method
+            .child_by_field_name("type")
+            .is_some_and(|ty| node_text(ty, source) == "void")
+        && method
+            .child_by_field_name("parameters")
+            .is_some_and(|parameters| parameters.named_child_count() == 0);
+    junit_annotation
+        || junit3_shape
+        || ancestor(method, "class_declaration")
+            .and_then(|class| class.child_by_field_name("name"))
+            .is_some_and(|name| {
+                node_text(name, source)
+                    .to_ascii_lowercase()
+                    .contains("test")
+            })
+}
+
 fn binary_issues(node: Node<'_>, source: &str, index: &LineIndex, issues: &mut Vec<Issue>) {
     if let (Some(left), Some(right)) = (
         node.child_by_field_name("left"),
         node.child_by_field_name("right"),
-    ) && left.kind() == "string_literal"
-        && right.kind() == "string_literal"
+    ) && matches!(left.kind(), "string_literal" | "text_block")
+        && matches!(right.kind(), "string_literal" | "text_block")
         && missing_space(left, right, source)
     {
         let finding = issue(
@@ -978,6 +1128,17 @@ fn nearest_control<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> 
     None
 }
 
+fn has_modifier(node: Node<'_>, source: &str, wanted: &str) -> bool {
+    direct_named_children(node)
+        .into_iter()
+        .find(|child| child.kind() == "modifiers")
+        .is_some_and(|modifiers| {
+            node_text(modifiers, source)
+                .split_whitespace()
+                .any(|modifier| modifier == wanted)
+        })
+}
+
 fn has_annotation(node: Node<'_>, source: &str, wanted: &str) -> bool {
     direct_named_children(node)
         .into_iter()
@@ -1014,7 +1175,22 @@ fn has_junit_annotation(node: Node<'_>, source: &str, index: &SemanticIndex, wan
 }
 
 fn is_nested_test_class(node: Node<'_>, source: &str, index: &SemanticIndex) -> bool {
-    ancestor(node, "class_declaration").is_some()
+    let mut current = node;
+    let mut member_class = false;
+    while let Some(parent) = current.parent() {
+        match parent.kind() {
+            "class_declaration" => {
+                member_class = true;
+                break;
+            }
+            "method_declaration" | "constructor_declaration" | "lambda_expression" => return false,
+            _ => current = parent,
+        }
+    }
+    member_class
+        && !["static", "private", "abstract"]
+            .iter()
+            .any(|modifier| has_modifier(node, source, modifier))
         && (has_junit_annotation(node, source, index, "Test")
             || crate::support::collect_kinds(node, &["method_declaration"])
                 .into_iter()
@@ -1037,15 +1213,6 @@ fn is_jdk_type(index: &SemanticIndex, node: Node<'_>, source: &str, expected: &s
         || (spelling == expected && !is_shadowed_type(index, expected))
 }
 
-fn find_type<'tree>(root: Node<'tree>, name: &str, source: &str) -> Option<Node<'tree>> {
-    crate::support::collect_kinds(root, &["interface_declaration", "class_declaration"])
-        .into_iter()
-        .find(|node| {
-            node.child_by_field_name("name")
-                .is_some_and(|value| node_text(value, source) == name)
-        })
-}
-
 fn direct_named_children(node: Node<'_>) -> Vec<Node<'_>> {
     let mut cursor = node.walk();
     node.named_children(&mut cursor).collect()
@@ -1053,12 +1220,8 @@ fn direct_named_children(node: Node<'_>) -> Vec<Node<'_>> {
 
 fn is_constant_only_type(node: Node<'_>, source: &str) -> bool {
     let is_interface = node.kind() == "interface_declaration";
-    let is_abstract_class = node.kind() == "class_declaration"
-        && node.child_by_field_name("modifiers").is_some_and(|m| {
-            node_text(m, source)
-                .split_whitespace()
-                .any(|x| x == "abstract")
-        });
+    let is_abstract_class =
+        node.kind() == "class_declaration" && has_modifier(node, source, "abstract");
     if !is_interface && !is_abstract_class {
         return false;
     }
@@ -1069,27 +1232,13 @@ fn is_constant_only_type(node: Node<'_>, source: &str) -> bool {
     for member in direct_named_children(body) {
         match member.kind() {
             "constant_declaration" | "field_declaration" if is_interface => has_constant = true,
-            "field_declaration" => {
-                let modifiers = member
-                    .child_by_field_name("modifiers")
-                    .map_or("", |m| node_text(m, source));
-                if modifiers.split_whitespace().any(|x| x == "static")
-                    && modifiers.split_whitespace().any(|x| x == "final")
-                {
-                    has_constant = true;
-                } else {
-                    return false;
-                }
+            "field_declaration"
+                if has_modifier(member, source, "static")
+                    && has_modifier(member, source, "final") =>
+            {
+                has_constant = true;
             }
             "static_initializer" => {}
-            "constructor_declaration" => {
-                if member
-                    .child_by_field_name("parameters")
-                    .is_some_and(|p| p.named_child_count() != 0)
-                {
-                    return false;
-                }
-            }
             _ => return false,
         }
     }
@@ -1097,20 +1246,43 @@ fn is_constant_only_type(node: Node<'_>, source: &str) -> bool {
 }
 
 fn jump_targets_label(label_node: Node<'_>, label: &str, source: &str) -> bool {
-    let mut used = false;
-    walk_all(label_node, &mut |jump| {
-        if matches!(jump.kind(), "break_statement" | "continue_statement")
-            && jump
-                .named_child(0)
+    crate::support::collect_kinds(label_node, &["break_statement", "continue_statement"])
+        .into_iter()
+        .filter(|jump| {
+            jump.named_child(0)
                 .is_some_and(|name| node_text(name, source) == label)
-        {
-            used = true;
-        }
-    });
-    used
+        })
+        .any(|jump| {
+            let mut current = jump;
+            while let Some(parent) = current.parent() {
+                if parent.id() == label_node.id() {
+                    return true;
+                }
+                if matches!(
+                    parent.kind(),
+                    "lambda_expression"
+                        | "method_declaration"
+                        | "constructor_declaration"
+                        | "class_declaration"
+                        | "interface_declaration"
+                        | "record_declaration"
+                        | "enum_declaration"
+                ) {
+                    return false;
+                }
+                current = parent;
+            }
+            false
+        })
 }
 
 fn is_underscore_declaration(node: Node<'_>, source: &str) -> bool {
+    if node.kind() == "package_declaration" {
+        return node_text(node, source)
+            .trim_end_matches(';')
+            .strip_prefix("package")
+            .is_some_and(|package| package.split('.').any(|name| name.trim() == "_"));
+    }
     let declaration = matches!(
         node.kind(),
         "class_declaration"
@@ -1127,22 +1299,37 @@ fn is_underscore_declaration(node: Node<'_>, source: &str) -> bool {
             | "constant_declaration"
             | "formal_parameter"
             | "spread_parameter"
+            | "catch_formal_parameter"
+            | "resource"
+            | "enhanced_for_statement"
+            | "lambda_expression"
             | "type_pattern"
     );
     declaration
         && (node
             .child_by_field_name("name")
             .is_some_and(|name| node_text(name, source) == "_")
-            || crate::support::collect_kinds(node, &["underscore_pattern"])
+            || node
+                .child_by_field_name("parameters")
+                .is_some_and(|parameters| node_text(parameters, source).trim() == "_")
+            || crate::support::collect_kinds(node, &["_reserved_identifier", "underscore_pattern"])
                 .iter()
                 .any(|name| node_text(*name, source) == "_"))
 }
 
 fn literal_controls(node: Node<'_>, source: &str) -> Vec<(usize, u32)> {
     let text = node_text(node, source);
+    let (start, end) = if text.starts_with("\"\"\"") && text.ends_with("\"\"\"") {
+        (3, text.len().saturating_sub(3))
+    } else if text.starts_with('"') && text.ends_with('"') {
+        (1, text.len().saturating_sub(1))
+    } else {
+        (0, text.len())
+    };
+    let value = &text[start.min(text.len())..end.max(start).min(text.len())];
     let mut result = Vec::new();
     let mut escaped = false;
-    for (offset, ch) in text.char_indices() {
+    for (offset, ch) in value.char_indices() {
         if escaped {
             escaped = false;
             continue;
@@ -1153,23 +1340,42 @@ fn literal_controls(node: Node<'_>, source: &str) -> Vec<(usize, u32)> {
         }
         let code = ch as u32;
         if (code < 32 && !matches!(code, 9 | 10 | 12 | 13)) || code == 127 || code == 8203 {
-            result.push((text[..offset].chars().count(), code));
+            result.push((
+                text[..start].chars().count() + value[..offset].chars().count(),
+                code,
+            ));
         }
     }
     result
 }
 
 fn string_tail(node: Node<'_>, source: &str) -> String {
-    node_text(node, source).trim_matches('"').to_owned()
+    node_text(node, source)
+        .trim_matches('"')
+        .trim_matches(|ch| ch == '"')
+        .to_owned()
 }
 
 fn missing_space(left: Node<'_>, right: Node<'_>, source: &str) -> bool {
-    let l = node_text(left, source).trim_matches('"');
-    let r = node_text(right, source).trim_matches('"');
-    l.chars()
+    let l = string_tail(left, source);
+    let r = string_tail(right, source);
+    if !r.chars().next().is_some_and(|ch| ch.is_ascii_alphabetic()) {
+        return false;
+    }
+    let mut word = l.trim_end();
+    if word.len() != l.len() {
+        return false;
+    }
+    while word
+        .chars()
+        .last()
+        .is_some_and(|ch| matches!(ch, '.' | ':' | ',' | ';' | '!' | '?' | '\''))
+    {
+        word = word.get(..word.len().saturating_sub(1)).unwrap_or("");
+    }
+    word.chars()
         .last()
         .is_some_and(|ch| ch.is_ascii_alphanumeric())
-        && r.chars().next().is_some_and(|ch| ch.is_ascii_alphabetic())
 }
 
 fn whitespace_contradicts(node: Node<'_>, source: &str) -> bool {
@@ -1183,12 +1389,16 @@ fn whitespace_contradicts(node: Node<'_>, source: &str) -> bool {
         return false;
     };
     let outer_op = node_text(operator, source);
-    if !matches!(outer_op, "+" | "-" | "*" | "/" | "%" | "<<" | ">>" | ">>>") {
+    if matches!(outer_op, "=" | "+=" | "-=" | "*=" | "/=" | "%=") {
         return false;
     }
-    let Some(inner) = [left, right]
+    let Some((inner, inner_op_node)) = [left, right]
         .into_iter()
-        .find(|child| child.kind() == "binary_expression")
+        .find_map(|child| {
+            (child.kind() == "binary_expression")
+                .then(|| (child, child.child_by_field_name("operator")))
+        })
+        .and_then(|(child, op)| op.map(|op| (child, op)))
     else {
         return false;
     };
@@ -1198,17 +1408,43 @@ fn whitespace_contradicts(node: Node<'_>, source: &str) -> bool {
     {
         return false;
     }
-    let Some(inner_op) = inner.child_by_field_name("operator") else {
-        return false;
-    };
-    let inner_op = node_text(inner_op, source);
-    if !matches!(inner_op, "+" | "-" | "*" | "/" | "%" | "<<" | ">>" | ">>>") {
+    let inner_op = node_text(inner_op_node, source);
+    let arithmetic = |op: &str| matches!(op, "+" | "-" | "*" | "/" | "%");
+    let shift = |op: &str| matches!(op, "<<" | ">>" | ">>>");
+    let relation = |op: &str| matches!(op, "==" | "!=" | "<" | ">" | "<=" | ">=");
+    let logical = |op: &str| matches!(op, "&&" | "||");
+    let bitwise = |op: &str| matches!(op, "&" | "|" | "^");
+    if !(arithmetic(outer_op)
+        || shift(outer_op)
+        || relation(outer_op)
+        || logical(outer_op)
+        || bitwise(outer_op))
+        || !(arithmetic(inner_op)
+            || shift(inner_op)
+            || relation(inner_op)
+            || logical(inner_op)
+            || bitwise(inner_op))
+    {
         return false;
     }
-    precedence(inner_op) > precedence(outer_op)
-        && whitespace_around(inner, source)
-            .zip(whitespace_around(node, source))
-            .is_some_and(|(inner_gap, outer_gap)| inner_gap > outer_gap)
+    let inner_left = left.id() == inner.id();
+    let associative = (matches!(inner_op, "+" | "*" | "&" | "|" | "^" | "&&" | "||")
+        && inner_op == outer_op)
+        || (relation(inner_op)
+            && relation(outer_op)
+            && matches!(inner_op, "==" | "!=")
+            && matches!(outer_op, "==" | "!="))
+        || (inner_left && matches!((inner_op, outer_op), ("*", "/") | ("/", "%") | ("+", "-")));
+    let harmless = (relation(outer_op) && (arithmetic(inner_op) || shift(inner_op)))
+        || (logical(outer_op) && relation(inner_op));
+    if associative || harmless {
+        return false;
+    }
+    whitespace_around(inner, source)
+        .zip(whitespace_around(node, source))
+        .is_some_and(|(inner_gap, outer_gap)| {
+            inner_gap % 2 == 0 && outer_gap % 2 == 0 && inner_gap > outer_gap
+        })
 }
 
 fn whitespace_around(node: Node<'_>, source: &str) -> Option<usize> {
@@ -1221,15 +1457,6 @@ fn whitespace_around(node: Node<'_>, source: &str) -> Option<usize> {
     let before = source.get(left.end_byte()..operator.start_byte())?;
     let after = source.get(operator.end_byte()..right.start_byte())?;
     Some(before.chars().count() + after.chars().count())
-}
-
-fn precedence(operator: &str) -> u8 {
-    match operator {
-        "<<" | ">>" | ">>>" => 3,
-        "+" | "-" => 4,
-        "*" | "/" | "%" => 5,
-        _ => 0,
-    }
 }
 
 fn misleading_indentation(node: Node<'_>, source: &str) -> bool {

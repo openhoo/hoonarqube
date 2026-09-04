@@ -141,6 +141,16 @@ fn analyze_format(format: Option<&str>, json_flag: bool) -> Result<AnalyzeFormat
     }
 }
 
+fn validate_analyze_format(format: AnalyzeFormat, profile: RuleProfile) -> Result<(), String> {
+    if format == AnalyzeFormat::Sarif && profile != RuleProfile::GithubCodeQuality {
+        return Err("SARIF output requires --profile github-code-quality".to_owned());
+    }
+    if profile == RuleProfile::GithubCodeQuality && format != AnalyzeFormat::Sarif {
+        return Err("github-code-quality profile requires --format sarif".to_owned());
+    }
+    Ok(())
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let catalog = embedded();
@@ -1726,6 +1736,8 @@ fn sarif_validate_range(range: &Range, context: &str) -> Result<(), String> {
     if !range.is_file_level()
         && (range.start.line == 0
             || range.end.line == 0
+            || range.start.column == u32::MAX
+            || range.end.column == u32::MAX
             || (range.start.line, range.start.column) > (range.end.line, range.end.column))
     {
         return Err(format!("invalid {context} range for SARIF output"));
@@ -2100,9 +2112,9 @@ fn sarif_validate_flow_locations(
     Ok(())
 }
 
-/// Validates input paths and the requested output format, then walks and
-/// analyzes them; issues found are not failures (scanner-style); only missing
-/// paths or an unknown format exit nonzero.
+/// Validates input paths and the requested output format/profile, then walks
+/// and analyzes them; issues and non-fatal read skips do not fail the scan,
+/// while invalid inputs or output rendering errors exit nonzero.
 fn run_analyze(
     catalog: &Catalog,
     paths: &[std::path::PathBuf],
@@ -2118,8 +2130,8 @@ fn run_analyze(
             return ExitCode::from(2);
         }
     };
-    if format == AnalyzeFormat::Sarif && profile != RuleProfile::GithubCodeQuality {
-        eprintln!("SARIF output requires --profile github-code-quality");
+    if let Err(error) = validate_analyze_format(format, profile) {
+        eprintln!("{error}");
         return ExitCode::from(2);
     }
 
@@ -3036,6 +3048,27 @@ mod tests {
         );
         assert_eq!(analyze_format(Some("xml"), true), Err("xml".to_string()));
     }
+
+    #[test]
+    fn analyze_profile_and_format_must_be_compatible() {
+        assert_eq!(
+            validate_analyze_format(AnalyzeFormat::Sarif, RuleProfile::GithubCodeQuality),
+            Ok(())
+        );
+        assert_eq!(
+            validate_analyze_format(AnalyzeFormat::Sarif, RuleProfile::SonarParity),
+            Err("SARIF output requires --profile github-code-quality".to_string())
+        );
+        assert_eq!(
+            validate_analyze_format(AnalyzeFormat::Json, RuleProfile::GithubCodeQuality),
+            Err("github-code-quality profile requires --format sarif".to_string())
+        );
+        assert_eq!(
+            validate_analyze_format(AnalyzeFormat::Text, RuleProfile::Recommended),
+            Ok(())
+        );
+    }
+
     #[test]
     fn sarif_maps_github_metadata_levels_and_columns() {
         let issue = Issue::new(
@@ -3265,6 +3298,30 @@ mod tests {
         let error = sarif_value(embedded(), &[sample_report("wrong.go", "go", vec![issue])])
             .expect_err("family mismatch");
         assert!(error.contains("belongs to Python"));
+    }
+
+    #[test]
+    fn sarif_rejects_unrepresentable_columns() {
+        let issue = Issue::new(
+            "go/duplicate-condition",
+            "finding",
+            Range {
+                start: Pos {
+                    line: 1,
+                    column: u32::MAX,
+                },
+                end: Pos {
+                    line: 1,
+                    column: u32::MAX,
+                },
+            },
+        );
+        let error = sarif_value(
+            embedded(),
+            &[sample_report("overflow.go", "go", vec![issue])],
+        )
+        .expect_err("column overflow");
+        assert!(error.contains("invalid primary location range"));
     }
 
     #[test]

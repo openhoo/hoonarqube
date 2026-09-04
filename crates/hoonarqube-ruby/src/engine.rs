@@ -380,6 +380,15 @@ fn collect_lhs(
 ) {
     let mut pending = vec![node];
     while let Some(node) = pending.pop() {
+        if node.kind() == "call" {
+            if let Some(receiver) = node.child_by_field_name("receiver") {
+                collect_expression_reads(receiver, scope, map, facts);
+            }
+            if let Some(arguments) = node.child_by_field_name("arguments") {
+                collect_expression_reads(arguments, scope, map, facts);
+            }
+            continue;
+        }
         if node.kind() == "identifier" {
             add_local_with_kind(facts, map, node, LocalFactKind::Write, scope, kind);
             continue;
@@ -393,6 +402,29 @@ fn collect_lhs(
         let mut cursor = node.walk();
         let children: Vec<_> = node.named_children(&mut cursor).collect();
         for child in children.into_iter().rev() {
+            pending.push(child);
+        }
+    }
+}
+
+fn collect_expression_reads(node: Node<'_>, scope: usize, map: &SourceMap, facts: &mut RubyFacts) {
+    let mut pending = vec![node];
+    while let Some(node) = pending.pop() {
+        if node.kind() == "identifier" {
+            add_local(facts, map, node, LocalFactKind::Read, scope);
+            continue;
+        }
+        let method = if node.kind() == "call" {
+            node.child_by_field_name("method")
+        } else {
+            None
+        };
+        let mut cursor = node.walk();
+        let children: Vec<_> = node.named_children(&mut cursor).collect();
+        for child in children.into_iter().rev() {
+            if method.is_some_and(|value| value.id() == child.id()) {
+                continue;
+            }
             pending.push(child);
         }
     }
@@ -480,7 +512,10 @@ fn write_target_for(
 ) -> usize {
     let target = local.lexical_scope;
     if local.binding_kind == BindingKind::BlockParameter
-        || facts.scopes[target].kind != ScopeKind::Block
+        || !matches!(
+            facts.scopes[target].kind,
+            ScopeKind::Block | ScopeKind::Lambda
+        )
     {
         return target;
     }
@@ -618,7 +653,7 @@ fn collect_calls_and_guards(
                             .child_by_field_name("parameters")
                             .map(|p| parameter_names(p, map.source()))
                             .unwrap_or_default(),
-                        scope_id: scope,
+                        scope_id: owner_for(block_node, scope, by_start),
                     });
                 facts.calls.push(MethodCall {
                     receiver,
@@ -2062,14 +2097,19 @@ fn report_uninitialized(facts: &RubyFacts, source: &str, issues: &mut Vec<hoonar
                 && other.byte_end <= local.byte_start
         });
         if !(initialized || (cfg_node.is_none() && lexical_fallback)) {
-            issues.push(hoonarqube_ir::Issue::new(
-                "rb/uninitialized-local-variable",
-                format!(
-                    "Local variable `{}` may be used before it is initialized.",
-                    local.name
-                ),
-                local.range.clone(),
-            ));
+            let related_range =
+                local_binding_range(facts, local).unwrap_or_else(|| local.range.clone());
+            issues.push(
+                hoonarqube_ir::Issue::new(
+                    "rb/uninitialized-local-variable",
+                    "Local variable $@ may be used before it is initialized.",
+                    local.range.clone(),
+                )
+                .with_flow(vec![hoonarqube_ir::FlowLocation::in_primary_file(
+                    local.name.clone(),
+                    related_range,
+                )]),
+            );
         }
     }
 }
@@ -2150,6 +2190,10 @@ fn guard_proves_not_nil(condition: &str, truthy_branch: bool) -> bool {
     let (negated, expression) = condition
         .strip_prefix('!')
         .map_or((false, condition), |rest| (true, rest.trim()));
+    let expression = expression
+        .strip_prefix('(')
+        .and_then(|value| value.strip_suffix(')'))
+        .map_or(expression, str::trim);
     if is_identifier(expression) {
         return truthy_branch != negated;
     }
@@ -2157,13 +2201,6 @@ fn guard_proves_not_nil(condition: &str, truthy_branch: bool) -> bool {
         && is_identifier(variable.trim())
     {
         return truthy_branch == negated;
-    }
-    if let Some((left, right, equal)) = comparison(expression) {
-        let variable = if right == "nil" { left } else { right };
-        if is_identifier(variable) {
-            let not_nil_when_truthy = equal == "!=";
-            return truthy_branch == (not_nil_when_truthy ^ negated);
-        }
     }
     false
 }
@@ -2196,17 +2233,32 @@ fn report_useless_assignments(
                 })
         });
         if !has_read_before_next_write {
-            issues.push(hoonarqube_ir::Issue::new(
-                "rb/useless-assignment-to-local",
-                format!(
-                    "This assignment to `{}` is useless, since its value is never read.",
-                    local.name
-                ),
-                local.range.clone(),
-            ));
+            let related_range =
+                local_binding_range(facts, local).unwrap_or_else(|| local.range.clone());
+            issues.push(
+                hoonarqube_ir::Issue::new(
+                    "rb/useless-assignment-to-local",
+                    "This assignment to $@ is useless, since its value is never read.",
+                    local.range.clone(),
+                )
+                .with_flow(vec![hoonarqube_ir::FlowLocation::in_primary_file(
+                    local.name.clone(),
+                    related_range,
+                )]),
+            );
         }
     }
     let _ = source;
+}
+
+fn local_binding_range(facts: &RubyFacts, local: &LocalFact) -> Option<hoonarqube_ir::Range> {
+    let scope = local.binding_scope?;
+    facts
+        .scopes
+        .get(scope)?
+        .bindings
+        .get(&local.name)
+        .map(|binding| binding.declaration.clone())
 }
 
 fn useless_assignment_excluded(facts: &RubyFacts, local: &LocalFact) -> bool {
@@ -2256,11 +2308,16 @@ fn report_database_queries(source: &str, issues: &mut Vec<hoonarqube_ir::Issue>)
             return;
         }
         if query_ranges.insert((query.start_byte(), query.end_byte())) {
-            issues.push(hoonarqube_ir::Issue::new(
+            let issue = hoonarqube_ir::Issue::new(
                 "rb/database-query-in-loop",
-                "This call to a database query operation happens inside a loop, and could be hoisted to a single call outside the loop.",
+                "This call to a database query operation happens inside $@, and could be hoisted to a single call outside the loop.",
                 map.range(query.start_byte(), query.end_byte()),
-            ));
+            )
+            .with_flow(vec![hoonarqube_ir::FlowLocation::in_primary_file(
+                "loop",
+                map.range(loop_node.start_byte(), loop_node.end_byte()),
+            )]);
+            issues.push(issue);
         }
     });
 }
@@ -2322,32 +2379,28 @@ fn is_database_query(node: Node<'_>, source: &str, models: &HashSet<String>) -> 
         return false;
     };
     let method = node_text(method, source).trim();
-    models.contains(&model)
-        && matches!(
-            method,
-            "all"
-                | "where"
-                | "find"
-                | "find_by"
-                | "find_by!"
-                | "find_or_create_by"
-                | "first"
-                | "last"
-                | "take"
-                | "pluck"
-                | "select"
-                | "order"
-                | "joins"
-                | "includes"
-                | "eager_load"
-                | "preload"
-                | "exists?"
-                | "count"
-                | "sum"
-                | "average"
-                | "minimum"
-                | "maximum"
-        )
+    let static_finder = matches!(
+        method,
+        "fifth"
+            | "find"
+            | "find!"
+            | "find_by"
+            | "find_by!"
+            | "find_or_initialize_by"
+            | "find_or_initialize_by!"
+            | "find_or_create_by"
+            | "find_or_create_by!"
+            | "first"
+            | "forty_two"
+            | "fourth"
+            | "last"
+            | "second"
+            | "second_to_last"
+            | "take"
+            | "third"
+            | "third_to_last"
+    );
+    models.contains(&model) && (static_finder || method.starts_with("find_by_"))
 }
 
 fn ultimate_receiver_name(mut node: Node<'_>, source: &str) -> Option<String> {
@@ -2375,12 +2428,11 @@ fn ultimate_receiver_name(mut node: Node<'_>, source: &str) -> Option<String> {
 fn looping_ancestor<'tree>(query: Node<'tree>, source: &str) -> Option<Node<'tree>> {
     let mut current = query.parent();
     while let Some(node) = current {
-        if matches!(node.kind(), "while" | "until" | "for")
-            && node.child_by_field_name("body").is_some_and(|body| {
-                query.start_byte() >= body.start_byte() && query.end_byte() <= body.end_byte()
-            })
-        {
-            return Some(node);
+        if matches!(
+            node.kind(),
+            "method" | "singleton_method" | "lambda" | "class" | "module"
+        ) {
+            return None;
         }
         if matches!(node.kind(), "block" | "do_block")
             && let Some(call) = node.parent()
@@ -2632,9 +2684,8 @@ mod tests {
 
     #[test]
     fn github_database_rule_requires_active_record_and_loop_control() {
-        let finding = github_quality(
-            "class User < ApplicationRecord; end\nitems.each { User.where(active: true) }\n",
-        );
+        let finding =
+            github_quality("class User < ApplicationRecord; end\nitems.each { User.find(1) }\n");
         assert!(
             finding
                 .iter()

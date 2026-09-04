@@ -208,11 +208,13 @@ fingerprints are intentionally omitted unless a stable content fingerprint is
 available.
 
 `actions/code-quality` installs through the verified setup action, validates
-the SARIF document, and exposes `report` and `result-count` outputs. Upload is
-opt-in. GitHub's `upload-sarif` action publishes third-party results to code
-scanning; it does not inject them into GitHub's native Code Quality dashboard.
-The existing `actions/analyze` action remains for SonarQube Generic Issue
-Import JSON and local `fail-on` gating.
+the SARIF document, and exposes `report`, `result-count`, and
+`blocking-findings` outputs. Upload is opt-in. The `fail-on` input accepts
+`none` (default), `findings`, `note`, `warning`, or `error`; when enabled, a
+validated report is uploaded before the threshold gate fails the job. GitHub's
+`upload-sarif` action publishes third-party results to code scanning; it does
+not inject them into GitHub's native Code Quality dashboard. The existing
+`actions/analyze` action remains for SonarQube Generic Issue Import JSON.
 
 Copy-paste workflow example:
 

@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use crate::engine::file_context::FileContext;
 use crate::engine::rx::{RxUnit, decode_string_part, for_each_class, parse_regex};
 use crate::support::{
-    called_name, child_bodies, collect_target_names, for_each_expr, for_each_stmt,
+    called_name, child_bodies, child_exprs, collect_target_names, for_each_stmt,
     for_each_stmt_in_scope, issue_at, parse, significant_tokens, sort_issues, stmt_exprs,
     stmt_store_names, string_value_text,
 };
@@ -295,22 +295,32 @@ fn check_regex_backspace(
         if !is_regex_call(&call.func, &facts) {
             continue;
         }
-        let Some(Expr::StringLiteral(literal)) = regex_pattern(call) else {
+        let Some(pattern) = regex_pattern(call) else {
             continue;
         };
-        let mut units = Vec::new();
-        for part in &literal.value {
-            units.extend(decode_string_part(
-                &source[part.range()],
-                part.range.start(),
-            ));
-        }
+        let (literal_range, units) = match pattern {
+            Expr::StringLiteral(literal) => {
+                let mut units = Vec::new();
+                for part in &literal.value {
+                    units.extend(decode_string_part(
+                        &source[part.range()],
+                        part.range.start(),
+                    ));
+                }
+                (literal.range(), units)
+            }
+            Expr::BytesLiteral(literal) if !literal.value.is_implicit_concatenated() => (
+                literal.range(),
+                decode_string_part(&source[literal.range()], literal.range.start()),
+            ),
+            _ => continue,
+        };
         for offset in backspace_offsets_in_class(&units) {
             push(
                 issues,
                 "py/regex/backspace-escape",
                 &format!("Backspace escape in regular expression at offset {offset}."),
-                literal.range(),
+                literal_range,
                 index,
                 source,
             );
@@ -500,19 +510,30 @@ fn report_explicit_del_calls(
 ) {
     for stmt in scope {
         for expr in stmt_exprs(stmt) {
-            for_each_expr(expr, &mut |expr| {
-                let Some(call) = explicit_del_call(expr, in_del_method, self_name) else {
-                    return;
+            let mut pending = vec![(expr, in_del_method, self_name)];
+            while let Some((expr, expr_in_del_method, expr_self_name)) = pending.pop() {
+                if let Some(call) = explicit_del_call(expr, expr_in_del_method, expr_self_name) {
+                    push(
+                        issues,
+                        "py/explicit-call-to-delete",
+                        "The __del__ special method is called explicitly.",
+                        call.range(),
+                        index,
+                        source,
+                    );
+                }
+                let (child_in_del_method, child_self_name) = if matches!(expr, Expr::Lambda(_)) {
+                    (false, None)
+                } else {
+                    (expr_in_del_method, expr_self_name)
                 };
-                push(
-                    issues,
-                    "py/explicit-call-to-delete",
-                    "The __del__ special method is called explicitly.",
-                    call.range(),
-                    index,
-                    source,
+                pending.extend(
+                    child_exprs(expr)
+                        .into_iter()
+                        .rev()
+                        .map(|child| (child, child_in_del_method, child_self_name)),
                 );
-            });
+            }
         }
     }
 }
@@ -807,6 +828,13 @@ mod tests {
             (2, 18),
         );
         assert_clean("import re\nre.compile(r'\\b')\n");
+        assert_single_issue(
+            "import re\nre.compile(br'[\\b]')\n",
+            "py/regex/backspace-escape",
+            "Backspace escape in regular expression at offset 1.",
+            (2, 11),
+            (2, 19),
+        );
     }
 
     #[test]
@@ -887,6 +915,18 @@ mod tests {
             6
         );
         assert_clean("class C:\n    def __del__(self):\n        super().__del__()\n");
+        let lambda = concat!(
+            "class C:\n",
+            "    def __del__(self):\n",
+            "        callback = lambda self: obj.__del__(self)\n",
+        );
+        assert_eq!(
+            analyze(lambda)
+                .iter()
+                .filter(|issue| issue.rule_key == "py/explicit-call-to-delete")
+                .count(),
+            1
+        );
     }
 
     #[test]

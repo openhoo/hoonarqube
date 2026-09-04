@@ -60,9 +60,10 @@ unless a stable content fingerprint is available.
 `actions/code-quality` validates this report and uploads it only when explicitly
 enabled, through the pinned
 `github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938`
-revision. That action transports third-party SARIF into GitHub code scanning;
-it neither runs CodeQL nor injects findings into GitHub's native Code Quality
-dashboard.
+revision. Optional `fail-on` gating runs after upload, so blocking findings are
+still published to code scanning. That action transports third-party SARIF into
+GitHub code scanning; it neither runs CodeQL nor injects findings into GitHub's
+native Code Quality dashboard.
 
 Consumers should declare only `contents: read` and `security-events: write`.
 The latter is unavailable for fork pull-request tokens, so workflows must keep

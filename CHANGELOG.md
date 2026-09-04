@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Bug Fixes
+
+- **github-quality:** align conservative CodeQL detectors, registry coverage,
+  SARIF validation, path handling, and action gating
+
 ## 0.3.1 (2026-09-03)
 
 ### Bug Fixes
