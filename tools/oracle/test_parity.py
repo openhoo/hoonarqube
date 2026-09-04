@@ -379,6 +379,45 @@ class StrictParityTests(unittest.TestCase):
             ):
                 validate_search_page({}, "issues", page)
 
+    def test_search_page_rejects_missing_or_duplicate_issue_identity(self):
+        for items in [
+            [{}],
+            [{"key": ""}],
+            [{"key": 7}],
+            [{"key": "same"}, {"key": "same"}],
+        ]:
+            with self.subTest(items=items), self.assertRaisesRegex(ValueError, "key"):
+                validate_search_page(
+                    {
+                        "issues": items,
+                        "paging": {
+                            "pageIndex": 1,
+                            "pageSize": len(items),
+                            "total": len(items),
+                        },
+                    },
+                    "issues",
+                    1,
+                )
+
+    def test_search_page_keeps_distinct_ids_and_rejects_without_mutating_seen_keys(
+        self,
+    ):
+        seen = {"existing"}
+        items = [{"key": "fresh"}, {"key": "existing"}]
+        payload = {
+            "issues": items,
+            "paging": {"pageIndex": 1, "pageSize": 2, "total": 2},
+        }
+        with self.assertRaisesRegex(ValueError, "duplicate.*key"):
+            validate_search_page(payload, "issues", 1, seen_keys=seen)
+        self.assertEqual(seen, {"existing"})
+        items[1] = {"key": "another"}
+        self.assertEqual(
+            validate_search_page(payload, "issues", 1, seen_keys=seen)[0], items
+        )
+        self.assertEqual(seen, {"existing", "fresh", "another"})
+
     def test_malformed_findings_and_ranges_fail_closed(self):
         with self.assertRaisesRegex(ValueError, "oracle issue 0 must be an object"):
             compare_reports(

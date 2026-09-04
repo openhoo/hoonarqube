@@ -257,8 +257,9 @@ def validate_search_page(
     *,
     expected_total: int | None = None,
     expected_page_size: int | None = None,
+    seen_keys: set[str] | None = None,
 ) -> tuple[list[Any], int, int, bool]:
-    """Validate one Sonar search page and return items plus paging state."""
+    """Validate paging and unique item keys; extend caller's keys only on success."""
     if (
         not isinstance(requested_page, int)
         or isinstance(requested_page, bool)
@@ -297,7 +298,22 @@ def validate_search_page(
             f"{context} returned {len(items)} items, expected {expected_count} "
             f"from advertised total {total}"
         )
+    page_keys = _validate_search_item_keys(items, seen_keys, context)
+    if seen_keys is not None:
+        seen_keys.update(page_keys)
     return items, total, page_size, offset + len(items) == total
+
+
+def _validate_search_item_keys(
+    items: list[dict[str, Any]], seen_keys: set[str] | None, context: str
+) -> set[str]:
+    page_keys: set[str] = set()
+    for index, item in enumerate(items):
+        key = _required_string(item, "key", f"{context} item {index}")
+        if key in page_keys or (seen_keys is not None and key in seen_keys):
+            raise ValueError(f"{context} contains a duplicate item key")
+        page_keys.add(key)
+    return page_keys
 
 
 def _validate_search_paging(

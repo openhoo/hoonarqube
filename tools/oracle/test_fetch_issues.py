@@ -44,12 +44,38 @@ class FetchIssuesAuthenticationTests(unittest.TestCase):
 
 
 class FetchIssuesPaginationTests(unittest.TestCase):
+    def test_repeated_issue_key_across_pages_fails_closed(self):
+        item = {
+            "key": "same",
+            "rule": "python:S1",
+            "message": "finding",
+            "component": "oracle-project:src/a.py",
+        }
+        pages = [
+            response(
+                {
+                    "issues": [item],
+                    "paging": {"pageIndex": page, "pageSize": 1, "total": 2},
+                }
+            )
+            for page in (1, 2)
+        ]
+        with (
+            mock.patch.object(fetch_issues, "auth_header", return_value="Basic token"),
+            mock.patch.object(
+                fetch_issues.urllib.request, "urlopen", side_effect=pages
+            ),
+            self.assertRaisesRegex(ValueError, "duplicate.*key"),
+        ):
+            fetch_issues.fetch("oracle-project")
+
     def test_fetches_every_page_and_normalizes_issues(self):
         pages = [
             response(
                 {
                     "issues": [
                         {
+                            "key": "first-issue",
                             "rule": "python:S100",
                             "line": 3,
                             "message": "rename it",
@@ -69,6 +95,7 @@ class FetchIssuesPaginationTests(unittest.TestCase):
                 {
                     "issues": [
                         {
+                            "key": "second-issue",
                             "rule": "python:S101",
                             "component": "project:fixtures/other.py",
                             "message": "file issue",

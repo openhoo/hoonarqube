@@ -137,6 +137,8 @@ their bad fixture or fires on their good control, the result is `OURS_MISS` or
 `GOOD_FIRE`, not `ENTERPRISE_UNVERIFIED`.
 
 Oracle artifacts use schema version 2 and retain complete messages/ranges.
+Paginated API reads require unique issue/hotspot keys across every page;
+missing or repeated keys are rejected even when page counts and totals match.
 Legacy line-only artifacts are rejected. `--quick` validates cached artifacts;
 a full run refreshes scanner results.
 

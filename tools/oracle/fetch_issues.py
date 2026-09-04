@@ -41,6 +41,7 @@ def fetch(component):
     issues, page = [], 1
     authorization = auth_header()
     expected_total = expected_page_size = None
+    seen_keys = set()
     while True:
         q = urllib.parse.urlencode(
             {
@@ -64,6 +65,7 @@ def fetch(component):
             page,
             expected_total=expected_total,
             expected_page_size=expected_page_size,
+            seen_keys=seen_keys,
         )
         if expected_total is None:
             expected_total, expected_page_size = total, page_size

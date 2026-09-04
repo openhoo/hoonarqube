@@ -37,11 +37,19 @@ enum ScopeKind {
     Class,
     Comprehension,
 }
+
+#[derive(Clone, Copy)]
+enum ExternalScope {
+    Global,
+    Nonlocal,
+}
+
 struct ScopeFacts {
     kind: ScopeKind,
     parent: Option<usize>,
     regions: Vec<TextRange>,
     bindings: HashMap<String, Vec<ScopedBinding>>,
+    external_bindings: HashMap<String, ExternalScope>,
 }
 
 struct ScopedBinding {
@@ -56,6 +64,7 @@ impl ScopeFacts {
             parent,
             regions,
             bindings: HashMap::new(),
+            external_bindings: HashMap::new(),
         }
     }
 }
@@ -75,7 +84,52 @@ impl BindingFacts {
             )],
         };
         facts.record_statements(0, parsed.syntax().body.as_slice());
+        facts.invalidate_external_bindings();
         facts
+    }
+
+    fn invalidate_external_bindings(&mut self) {
+        let mut invalidations = Vec::new();
+        for (scope, facts) in self.scopes.iter().enumerate() {
+            for (name, external) in &facts.external_bindings {
+                let Some(target) = self.external_target(scope, name, *external) else {
+                    continue;
+                };
+                if target != scope
+                    && let Some(writes) = facts.bindings.get(name)
+                {
+                    invalidations.extend(
+                        writes
+                            .iter()
+                            .map(|write| (target, name.clone(), write.range)),
+                    );
+                }
+            }
+        }
+        // A callable can replace an enclosing binding. No call graph exists
+        // here, so retain that possible mutation as unknown, never as a proven
+        // replacement value. Declarations without writes do not invalidate it.
+        for (scope, name, range) in invalidations {
+            self.bind(scope, &name, BindingValue::Unknown, range);
+        }
+    }
+
+    fn external_target(&self, scope: usize, name: &str, external: ExternalScope) -> Option<usize> {
+        if matches!(external, ExternalScope::Global) {
+            return Some(0);
+        }
+        let mut parent = self.lexical_parent(scope);
+        while let Some(scope) = parent {
+            let facts = &self.scopes[scope];
+            if facts.kind == ScopeKind::Function
+                && facts.bindings.contains_key(name)
+                && !facts.external_bindings.contains_key(name)
+            {
+                return Some(scope);
+            }
+            parent = self.lexical_parent(scope);
+        }
+        None
     }
 
     fn record_statements(&mut self, scope: usize, statements: &[Stmt]) {
@@ -86,15 +140,30 @@ impl BindingFacts {
 
     fn record_statement(&mut self, scope: usize, statement: &Stmt) {
         match statement {
+            Stmt::Global(global) => {
+                self.scopes[scope].external_bindings.extend(
+                    global
+                        .names
+                        .iter()
+                        .map(|name| (name.to_string(), ExternalScope::Global)),
+                );
+            }
+            Stmt::Nonlocal(nonlocal) => {
+                self.scopes[scope].external_bindings.extend(
+                    nonlocal
+                        .names
+                        .iter()
+                        .map(|name| (name.to_string(), ExternalScope::Nonlocal)),
+                );
+            }
             Stmt::Import(import) => {
                 self.record_import(scope, import);
                 self.record_statement_expressions(scope, statement);
             }
-            Stmt::ImportFrom(import) if import.level == 0 => {
+            Stmt::ImportFrom(import) => {
                 self.record_import_from(scope, import);
                 self.record_statement_expressions(scope, statement);
             }
-            Stmt::ImportFrom(_) => {}
             Stmt::FunctionDef(function) => {
                 self.bind(
                     scope,
@@ -200,6 +269,7 @@ impl BindingFacts {
         let module = import
             .module
             .as_ref()
+            .filter(|_| import.level == 0)
             .map(ruff_python_ast::Identifier::as_str);
         for alias in &import.names {
             let local = alias
@@ -421,6 +491,14 @@ impl BindingFacts {
         position: Option<TextSize>,
         visiting: &mut Vec<String>,
     ) -> Option<BindingValue> {
+        // A wildcard import can replace any name in this namespace. Without
+        // cross-file export facts, known API identity is no longer provable.
+        if self
+            .active_bindings(scope, "*", position)
+            .is_some_and(|bindings| !bindings.is_empty())
+        {
+            return None;
+        }
         let Some(values) = self
             .active_bindings(scope, name, position)
             .filter(|values| !values.is_empty())
@@ -1194,6 +1272,72 @@ mod tests {
         assert_clean("def search(pattern): pass\nsearch(r'[\\b]')\n");
         assert_clean("re = object()\nre.search(r'[\\b]')\n");
         assert_clean("import re\nre.compile(r'[\\b')\n");
+    }
+
+    #[test]
+    fn relative_imports_shadow_known_regex_and_format_bindings() {
+        for source in [
+            "import re\nfrom . import re\nre.compile(r'[\\b]')\n",
+            "import re\ndef f():\n    from .helpers import regex as re\n    re.compile(r'[\\b]')\n",
+            "from re import compile\nfrom ..helpers import compile\ncompile(r'[\\b]')\n",
+            "from .helpers import format\nformat('{} {0}', 1)\n",
+            "from .re import compile\ncompile(r'[\\b]')\n",
+            "from .builtins import format\nformat('{} {0}', 1)\n",
+        ] {
+            assert_clean(source);
+        }
+    }
+
+    #[test]
+    fn wildcard_imports_make_enclosing_api_identity_unknown() {
+        for source in [
+            "import re\nfrom helpers import *\nre.compile(r'[\\b]')\n",
+            "from .helpers import *\nformat('{} {0}', 1)\n",
+            "import re\ndef f():\n    re.compile(r'[\\b]')\nfrom helpers import *\n",
+        ] {
+            assert_clean(source);
+        }
+        for source in [
+            "import re\nre.compile(r'[\\b]')\nfrom helpers import *\n",
+            "from helpers import *\ndef f():\n    import re\n    re.compile(r'[\\b]')\n",
+        ] {
+            assert_eq!(
+                analyze(source)
+                    .iter()
+                    .filter(|issue| issue.rule_key == "py/regex/backspace-escape")
+                    .count(),
+                1,
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn external_rebindings_invalidate_enclosing_api_identity() {
+        for source in [
+            "import re\ndef replace():\n    global re\n    re = object()\nreplace()\nre.compile(r'[\\b]')\n",
+            "import re\ndef f():\n    re.compile(r'[\\b]')\ndef replace():\n    global re\n    re = object()\nreplace()\nf()\n",
+            "def outer():\n    import re\n    def replace():\n        nonlocal re\n        re = object()\n    replace()\n    re.compile(r'[\\b]')\n",
+            "def outer():\n    template = '{} {0}'\n    def replace():\n        nonlocal template\n        template = '{0}'\n    replace()\n    template.format(1)\n",
+        ] {
+            assert_clean(source);
+        }
+        let readonly = "import re\ndef f():\n    global re\n    re.compile(r'[\\b]')\n";
+        assert_eq!(
+            analyze(readonly)
+                .iter()
+                .filter(|issue| issue.rule_key == "py/regex/backspace-escape")
+                .count(),
+            1
+        );
+        let shadowed = "import re\ndef replace():\n    global re\n    re = object()\ndef f():\n    import re\n    re.compile(r'[\\b]')\n";
+        assert_eq!(
+            analyze(shadowed)
+                .iter()
+                .filter(|issue| issue.rule_key == "py/regex/backspace-escape")
+                .count(),
+            1
+        );
     }
 
     #[test]

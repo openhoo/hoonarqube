@@ -1846,7 +1846,9 @@ fn sarif_percent_encode_path(path: &std::path::Path) -> Result<String, String> {
             encoded.push('/');
         }
         for byte in value.as_bytes() {
-            if sarif_uri_byte_allowed(*byte) {
+            // RFC 3986 forbids ':' in the first segment of a relative-path
+            // reference: otherwise a file name can be parsed as a URI scheme.
+            if sarif_uri_byte_allowed(*byte) && !(index == 0 && *byte == b':') {
                 encoded.push(char::from(*byte));
             } else {
                 use std::fmt::Write as _;
@@ -2022,6 +2024,7 @@ fn sarif_value(
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
         "version": "2.1.0",
         "runs": [{
+            "columnKind": "unicodeCodePoints",
             "tool": {
                 "driver": {
                     "name": "Hoonarqube",
@@ -3341,6 +3344,50 @@ mod tests {
             value["runs"][0]["results"].as_array().map(Vec::len),
             Some(0)
         );
+    }
+
+    #[test]
+    fn sarif_declares_character_columns_for_non_bmp_source() {
+        let source = "const marker = '😀'; const value = 1; value = 2;\n";
+        let report = hoonarqube_core::analyze(
+            std::path::Path::new("unicode.js"),
+            source,
+            &analyze::AnalyzerOptionsBundle {
+                profile: RuleProfile::GithubCodeQuality,
+                ..analyze::AnalyzerOptionsBundle::default()
+            },
+        )
+        .expect("JavaScript report");
+        let value = sarif_value(embedded(), &[report]).expect("SARIF");
+        let run = &value["runs"][0];
+        let finding = run["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|result| result["ruleId"] == "js/assignment-to-constant")
+            .expect("constant reassignment");
+        let expected = source[..source.rfind("value = 2").unwrap()].chars().count() + 1;
+        assert_eq!(
+            finding["locations"][0]["physicalLocation"]["region"]["startColumn"],
+            expected
+        );
+        assert_eq!(run["columnKind"], "unicodeCodePoints");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sarif_colons_cannot_turn_relative_artifacts_into_uri_schemes() {
+        let root = std::env::current_dir().unwrap();
+        for (path, expected) in [
+            ("generated:main.go", "generated%3Amain.go"),
+            ("generated:files/main.go", "generated%3Afiles/main.go"),
+            ("src/generated:main.go", "src/generated:main.go"),
+        ] {
+            assert_eq!(
+                sarif_artifact_uri(std::path::Path::new(path), &root, "test").unwrap(),
+                expected,
+            );
+        }
     }
 
     #[test]

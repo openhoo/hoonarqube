@@ -434,7 +434,8 @@ fn resolve_pos(
     let terminator_start = line_starts
         .get(line_index + 1)
         .map_or(source.len(), |next_start| next_start - 1);
-    let end = if terminator_start > start
+    let end = if line_index + 1 < line_starts.len()
+        && terminator_start > start
         && source.as_bytes().get(terminator_start - 1) == Some(&b'\r')
     {
         terminator_start - 1
@@ -680,6 +681,22 @@ mod tests {
         let source = "alpha\nbeta\n";
         let fixed = apply_fixes(source, &[&edit((1, 0), (1, 5), "ALPHA")]).expect("applies");
         assert_eq!(fixed, "ALPHA\nbeta\n");
+    }
+
+    #[test]
+    fn apply_fixes_preserves_a_standalone_final_carriage_return_as_content() {
+        for source in ["ab\r", "é😀\r"] {
+            let insertion = edit((1, 3), (1, 3), "!");
+            assert_eq!(
+                apply_fixes(source, &[&insertion]).unwrap(),
+                format!("{source}!")
+            );
+            let replacement = edit((1, 2), (1, 3), "!");
+            assert_eq!(
+                apply_fixes(source, &[&replacement]).unwrap(),
+                format!("{}!", &source[..source.len() - 1])
+            );
+        }
     }
 
     #[test]
