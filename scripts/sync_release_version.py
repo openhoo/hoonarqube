@@ -55,6 +55,7 @@ def main() -> int:
         *sorted((ROOT / "crates").glob("*/Cargo.toml")),
         ROOT / "actions" / "setup" / "action.yml",
         ROOT / "actions" / "analyze" / "action.yml",
+        ROOT / "actions" / "code-quality" / "action.yml",
         ROOT / "actions" / "README.md",
     ]
     drifted: list[Path] = []

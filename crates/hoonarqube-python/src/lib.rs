@@ -219,6 +219,30 @@ pub fn analyze(
 pub fn analyze_native(source: &str) -> Vec<hoonarqube_ir::Issue> {
     native::analyze(source)
 }
+/// Exact `CodeQL` query IDs emitted by [`analyze_github_quality`], in sorted order.
+pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
+    "py/explicit-call-to-delete",
+    "py/implicit-string-concatenation-in-list",
+    "py/redundant-global-declaration",
+    "py/regex/backspace-escape",
+    "py/str-format/mixed-fields",
+];
+
+/// Runs the independently implemented GitHub `CodeQL` Python quality queries.
+///
+/// This is a dedicated profile surface and does not alter Sonar/native output.
+#[must_use]
+pub fn analyze_github_quality(source: &str) -> Vec<hoonarqube_ir::Issue> {
+    let issues = github_quality::analyze(source);
+    debug_assert!(
+        issues
+            .iter()
+            .all(|issue| GITHUB_QUALITY_RULE_IDS.contains(&issue.rule_key.as_str()))
+    );
+    issues
+}
+
+mod github_quality;
 
 mod context;
 mod engine;

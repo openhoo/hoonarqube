@@ -41,7 +41,26 @@ use crate::support::{
 
 mod context;
 mod engine;
+mod github_quality;
 mod native;
+pub use github_quality::analyze_github_quality;
+
+/// Exact `CodeQL` query IDs emitted by [`analyze_github_quality`], in sorted order.
+pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
+    "js/arguments-redefinition",
+    "js/assignment-to-constant",
+    "js/conditional-comment",
+    "js/duplicate-parameter-name",
+    "js/duplicate-property",
+    "js/duplicate-switch-case",
+    "js/inconsistent-loop-direction",
+    "js/label-in-switch",
+    "js/shift-out-of-range",
+    "js/unused-index-variable",
+    "js/whitespace-contradicts-precedence",
+    "js/with-statement",
+    "js/yield-outside-generator",
+];
 mod rules;
 mod support;
 use std::path::PathBuf;

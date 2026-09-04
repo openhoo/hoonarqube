@@ -93,6 +93,10 @@ runs:
           echo "::error::output must name a report file."
           exit 2
         fi
+        if [[ "$INPUT_OUTPUT" == *$'\n'* || "$INPUT_OUTPUT" == *$'\r'* ]]; then
+          echo "::error::output must be a single-line report path."
+          exit 2
+        fi
 
         mapfile -t paths < <(printf '%s\n' "$INPUT_PATHS" | sed '/^[[:space:]]*$/d')
         if [[ "${#paths[@]}" -eq 0 ]]; then

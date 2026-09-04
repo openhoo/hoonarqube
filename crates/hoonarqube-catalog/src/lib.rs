@@ -14,13 +14,16 @@ use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
+pub mod github_quality;
 
 /// Analyzer profile controlling whether Hoonarqube-native rules run in
-/// addition to the frozen Sonar-parity catalog.
+/// addition to the frozen Sonar-parity catalog, or whether the analyzer
+/// emits GitHub Code Quality findings instead.
 ///
 /// Profiles are cumulative: `extended` includes `recommended`, while
 /// `strict` includes every native rule. `sonar-parity` is the compatibility
-/// profile and never enables native rules.
+/// profile and never enables native rules. `github-code-quality` is an
+/// isolated output profile and does not enable native rules.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RuleProfile {
@@ -29,6 +32,7 @@ pub enum RuleProfile {
     Recommended,
     Extended,
     Strict,
+    GithubCodeQuality,
 }
 
 impl RuleProfile {
@@ -37,10 +41,10 @@ impl RuleProfile {
     #[must_use]
     pub const fn includes(self, minimum_profile: Self) -> bool {
         match self {
-            Self::SonarParity => false,
+            Self::SonarParity | Self::GithubCodeQuality => false,
             Self::Recommended => matches!(minimum_profile, Self::Recommended),
             Self::Extended => matches!(minimum_profile, Self::Recommended | Self::Extended),
-            Self::Strict => !matches!(minimum_profile, Self::SonarParity),
+            Self::Strict => !matches!(minimum_profile, Self::SonarParity | Self::GithubCodeQuality),
         }
     }
 }
@@ -54,8 +58,9 @@ impl std::str::FromStr for RuleProfile {
             "recommended" => Ok(Self::Recommended),
             "extended" => Ok(Self::Extended),
             "strict" => Ok(Self::Strict),
+            "github-code-quality" => Ok(Self::GithubCodeQuality),
             _ => Err(format!(
-                "unknown profile {value:?}; expected sonar-parity, recommended, extended, or strict"
+                "unknown profile {value:?}; expected sonar-parity, recommended, extended, strict, or github-code-quality"
             )),
         }
     }
@@ -68,6 +73,7 @@ impl std::fmt::Display for RuleProfile {
             Self::Recommended => "recommended",
             Self::Extended => "extended",
             Self::Strict => "strict",
+            Self::GithubCodeQuality => "github-code-quality",
         })
     }
 }
@@ -1833,6 +1839,24 @@ mod tests {
         assert_eq!(enabled(Recommended), 37);
         assert_eq!(enabled(Extended), 46);
         assert_eq!(enabled(Strict), 47);
+    }
+
+    #[test]
+    fn github_profile_is_explicit_and_native_isolation_is_preserved() {
+        use super::RuleProfile::GithubCodeQuality;
+
+        assert_eq!(
+            "github-code-quality".parse::<super::RuleProfile>(),
+            Ok(GithubCodeQuality)
+        );
+        assert_eq!(GithubCodeQuality.to_string(), "github-code-quality");
+        assert!(!GithubCodeQuality.includes(super::RuleProfile::Recommended));
+        assert_eq!(
+            super::native_rules()
+                .filter(|rule| GithubCodeQuality.includes(rule.minimum_profile))
+                .count(),
+            0
+        );
     }
 
     /// Flips the first hex digit of the 64-character hash following `marker`.

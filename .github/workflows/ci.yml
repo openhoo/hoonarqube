@@ -129,6 +129,27 @@ jobs:
       - name: Frozen catalog integrity
         run: cargo run --locked -q -p xtask -- catalog audit --require-pages-complete
 
+      - name: GitHub Code Quality registry coverage
+        run: cargo run --locked -q -p xtask -- catalog github-coverage
+
+      - name: GitHub Code Quality action smoke (upload disabled)
+        id: code-quality-smoke
+        uses: ./actions/code-quality
+        with:
+          executable: ${{ github.workspace }}/target/debug/hoonarqube
+          working-directory: crates/hoonarqube-cli
+          paths: src
+          output: ${{ runner.temp }}/hoonarqube-code-quality.sarif
+          upload: false
+
+      - name: Assert Code Quality action outputs
+        env:
+          REPORT: ${{ steps.code-quality-smoke.outputs.report }}
+          RESULT_COUNT: ${{ steps.code-quality-smoke.outputs.result-count }}
+        run: |
+          test -s "$REPORT"
+          test "$RESULT_COUNT" -ge 0
+
       - name: Actionable rule coverage
         run: cargo run --locked -q -p xtask -- catalog coverage --strict --allow-infra
 

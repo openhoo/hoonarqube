@@ -1,0 +1,3825 @@
+{
+  "source_revision": "cb55cf1f281101f8e6d1522998e821d1b3547ce4",
+  "queries": [
+    {
+      "id": "cs/asp/response-write",
+      "language": "C#",
+      "title": "Block code with a single Response.Write()",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-asp-response-write/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/ASP/BlockCodeResponseWrite.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/call-to-gc",
+      "language": "C#",
+      "title": "Call to GC.Collect()",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-call-to-gc/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/API%20Abuse/CallToGCCollect.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/call-to-object-tostring",
+      "language": "C#",
+      "title": "Use of default ToString()",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-call-to-object-tostring/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Useless%20code/DefaultToString.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/call-to-obsolete-method",
+      "language": "C#",
+      "title": "Call to obsolete method",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-call-to-obsolete-method/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/API%20Abuse/CallToObsoleteMethod.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/call-to-unmanaged-code",
+      "language": "C#",
+      "title": "Calls to unmanaged code",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-call-to-unmanaged-code/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Bad%20Practices/CallsUnmanagedCode.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/cast-of-this-to-type-parameter",
+      "language": "C#",
+      "title": "Cast of 'this' to a type parameter",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-cast-of-this-to-type-parameter/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Language%20Abuse/CastThisToTypeParameter.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/catch-nullreferenceexception",
+      "language": "C#",
+      "title": "Poor error handling: catch of NullReferenceException",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-catch-nullreferenceexception/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Bad%20Practices/CatchOfNullReferenceException.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/catch-of-all-exceptions",
+      "language": "C#",
+      "title": "Generic catch clause",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-catch-of-all-exceptions/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Language%20Abuse/CatchOfGenericException.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/class-implements-icloneable",
+      "language": "C#",
+      "title": "Class implements ICloneable",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-class-implements-icloneable/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/API%20Abuse/ClassImplementsICloneable.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/class-name-matches-base-class",
+      "language": "C#",
+      "title": "Class has same name as super class",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-class-name-matches-base-class/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Bad%20Practices/Naming%20Conventions/SameNameAsSuper.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/comparison-of-identical-expressions",
+      "language": "C#",
+      "title": "Comparison of identical values",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-comparison-of-identical-expressions/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/CSI/CompareIdenticalValues.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/constant-condition",
+      "language": "C#",
+      "title": "Constant condition",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-constant-condition/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Bad%20Practices/Control-Flow/ConstantCondition.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/dereferenced-value-is-always-null",
+      "language": "C#",
+      "title": "Dereferenced variable is always null",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-dereferenced-value-is-always-null/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/CSI/NullAlways.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/dereferenced-value-may-be-null",
+      "language": "C#",
+      "title": "Dereferenced variable may be null",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-dereferenced-value-may-be-null/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/CSI/NullMaybe.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/downcast-of-this",
+      "language": "C#",
+      "title": "Dubious downcast of 'this'",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-downcast-of-this/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Language%20Abuse/DubiousDowncastOfThis.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/empty-block",
+      "language": "C#",
+      "title": "Empty branch of conditional, or empty loop body",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-empty-block/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/Statements/EmptyBlock.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/empty-catch-block",
+      "language": "C#",
+      "title": "Poor error handling: empty catch block",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-empty-catch-block/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Bad%20Practices/EmptyCatchBlock.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/empty-collection",
+      "language": "C#",
+      "title": "Container contents are never initialized",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-empty-collection/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/Collections/ReadOnlyContainer.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/empty-lock-statement",
+      "language": "C#",
+      "title": "Empty lock statement",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-empty-lock-statement/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/Statements/EmptyLockStatement.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/equality-on-floats",
+      "language": "C#",
+      "title": "Equality check on floating point values",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-equality-on-floats/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/EqualityCheckOnFloats.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/equals-on-arrays",
+      "language": "C#",
+      "title": "Equals on collections",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-equals-on-arrays/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/EqualsArray.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/equals-on-unrelated-types",
+      "language": "C#",
+      "title": "Equals on incomparable types",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-equals-on-unrelated-types/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/IncomparableEquals.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/expose-implementation",
+      "language": "C#",
+      "title": "Exposing internal representation",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-expose-implementation/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Bad%20Practices/Implementation%20Hiding/ExposeRepresentation.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/field-masks-base-field",
+      "language": "C#",
+      "title": "Field masks field in super class",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-field-masks-base-field/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Bad%20Practices/Naming%20Conventions/FieldMasksSuperField.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/gethashcode-is-not-defined",
+      "language": "C#",
+      "title": "Hashed value without GetHashCode definition",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-gethashcode-is-not-defined/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/HashedButNoHash.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/impossible-array-cast",
+      "language": "C#",
+      "title": "Impossible array cast",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-impossible-array-cast/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/ImpossibleArrayCast.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/inconsistent-lock-sequence",
+      "language": "C#",
+      "title": "Inconsistent lock sequence",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-inconsistent-lock-sequence/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Concurrency/LockOrder.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/index-out-of-bounds",
+      "language": "C#",
+      "title": "Off-by-one comparison against container length",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-index-out-of-bounds/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/Collections/ContainerLengthCmpOffByOne.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/inefficient-containskey",
+      "language": "C#",
+      "title": "Inefficient use of ContainsKey",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-inefficient-containskey/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Performance/UseTryGetValue.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/invalid-string-formatting",
+      "language": "C#",
+      "title": "Invalid string formatting",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-invalid-string-formatting/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/API%20Abuse/FormatInvalid.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/linq/missed-all",
+      "language": "C#",
+      "title": "Missed opportunity to use All",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-linq-missed-all/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Linq/MissedAllOpportunity.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/linq/missed-cast",
+      "language": "C#",
+      "title": "Missed opportunity to use Cast",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-linq-missed-cast/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Linq/MissedCastOpportunity.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/linq/missed-oftype",
+      "language": "C#",
+      "title": "Missed opportunity to use OfType",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-linq-missed-oftype/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Linq/MissedOfTypeOpportunity.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/linq/missed-select",
+      "language": "C#",
+      "title": "Missed opportunity to use Select",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-linq-missed-select/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Linq/MissedSelectOpportunity.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/linq/missed-where",
+      "language": "C#",
+      "title": "Missed opportunity to use Where",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-linq-missed-where/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Linq/MissedWhereOpportunity.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/linq/useless-select",
+      "language": "C#",
+      "title": "Redundant Select",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-linq-useless-select/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Linq/RedundantSelect.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/local-not-disposed",
+      "language": "C#",
+      "title": "Missing Dispose call on local IDisposable",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-local-not-disposed/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/API%20Abuse/NoDisposeCallOnLocalIDisposable.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/local-shadows-member",
+      "language": "C#",
+      "title": "Local scope variable shadows member",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-local-shadows-member/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Bad%20Practices/Declarations/LocalScopeVariableShadowsMember.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/lock-this",
+      "language": "C#",
+      "title": "Locking the 'this' object in a lock statement",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-lock-this/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Concurrency/LockThis.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/locked-wait",
+      "language": "C#",
+      "title": "A lock is held during a wait",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-locked-wait/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Concurrency/LockedWait.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/loss-of-precision",
+      "language": "C#",
+      "title": "Possible loss of precision",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-loss-of-precision/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/PossibleLossOfPrecision.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/missed-readonly-modifier",
+      "language": "C#",
+      "title": "Missed 'readonly' opportunity",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-missed-readonly-modifier/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Language%20Abuse/MissedReadonlyOpportunity.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/missed-ternary-operator",
+      "language": "C#",
+      "title": "Missed ternary opportunity",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-missed-ternary-operator/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Language%20Abuse/MissedTernaryOpportunity.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/missed-using-statement",
+      "language": "C#",
+      "title": "Missed 'using' opportunity",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-missed-using-statement/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Language%20Abuse/MissedUsingOpportunity.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/nested-if-statements",
+      "language": "C#",
+      "title": "Nested 'if' statements can be combined",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-nested-if-statements/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Language%20Abuse/NestedIf.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/nested-loops-with-same-variable",
+      "language": "C#",
+      "title": "Nested loops with same variable",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-nested-loops-with-same-variable/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/NestedLoopsSameVariable.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/non-short-circuit",
+      "language": "C#",
+      "title": "Potentially dangerous use of non-short-circuit logic",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-non-short-circuit/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/DangerousNonShortCircuitLogic.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/null-argument-to-equals",
+      "language": "C#",
+      "title": "Null argument to Equals(object)",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-null-argument-to-equals/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/API%20Abuse/NullArgumentToEquals.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/path-combine",
+      "language": "C#",
+      "title": "Call to 'System.IO.Path.Combine' may silently drop its earlier arguments",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-path-combine/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Bad%20Practices/PathCombine.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/recursive-equals-call",
+      "language": "C#",
+      "title": "Recursive call to Equals(object)",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-recursive-equals-call/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/RecursiveEquals.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/reference-equality-on-valuetypes",
+      "language": "C#",
+      "title": "Call to ReferenceEquals(...) on value type expressions",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-reference-equality-on-valuetypes/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/ReferenceEqualsOnValueTypes.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/rethrown-exception-variable",
+      "language": "C#",
+      "title": "Rethrowing exception variable",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-rethrown-exception-variable/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Language%20Abuse/RethrowException.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/self-assignment",
+      "language": "C#",
+      "title": "Self-assignment",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-self-assignment/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/SelfAssignment.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/simplifiable-boolean-expression",
+      "language": "C#",
+      "title": "Unnecessarily complex Boolean expression",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-simplifiable-boolean-expression/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Language%20Abuse/SimplifyBoolExpr.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/static-field-written-by-instance",
+      "language": "C#",
+      "title": "Static field written by instance method",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-static-field-written-by-instance/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/StaticFieldWrittenByInstance.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/string-concatenation-in-loop",
+      "language": "C#",
+      "title": "String concatenation in loop",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-string-concatenation-in-loop/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Performance/StringConcatenationInLoop.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/stringbuilder-creation-in-loop",
+      "language": "C#",
+      "title": "StringBuilder creation in loop",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-stringbuilder-creation-in-loop/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Performance/StringBuilderInLoop.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/stringbuilder-initialized-with-character",
+      "language": "C#",
+      "title": "Character passed to StringBuilder constructor",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-stringbuilder-initialized-with-character/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/StringBuilderCharInit.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/test-for-negative-container-size",
+      "language": "C#",
+      "title": "Container size compared to zero",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-test-for-negative-container-size/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/Collections/ContainerSizeCmpZero.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/type-test-of-this",
+      "language": "C#",
+      "title": "Dubious type test of 'this'",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-type-test-of-this/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Language%20Abuse/DubiousTypeTestOfThis.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/unchecked-cast-in-equals",
+      "language": "C#",
+      "title": "Unchecked cast in Equals method",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-unchecked-cast-in-equals/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/UncheckedCastInEquals.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/unmanaged-code",
+      "language": "C#",
+      "title": "Unmanaged code",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-unmanaged-code/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Bad%20Practices/UnmanagedCodeCheck.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/unsafe-sync-on-field",
+      "language": "C#",
+      "title": "Futile synchronization on field",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-unsafe-sync-on-field/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Concurrency/FutileSyncOnField.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/unused-collection",
+      "language": "C#",
+      "title": "Container contents are never accessed",
+      "category": "Maintainability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-unused-collection/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Likely%20Bugs/Collections/WriteOnlyContainer.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/unused-label",
+      "language": "C#",
+      "title": "Unused label",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-unused-label/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Useless%20code/UnusedLabel.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/unused-property-value",
+      "language": "C#",
+      "title": "Property value is not used when setting a property",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-unused-property-value/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Language%20Abuse/UnusedPropertyValue.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/useless-gethashcode-call",
+      "language": "C#",
+      "title": "Useless call to GetHashCode()",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-useless-gethashcode-call/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Useless%20code/IntGetHashCode.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/useless-if-statement",
+      "language": "C#",
+      "title": "Futile conditional",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-useless-if-statement/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Useless%20code/FutileConditional.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "cs/useless-tostring-call",
+      "language": "C#",
+      "title": "Redundant ToString() call",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/csharp/cs-useless-tostring-call/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/csharp/ql/src/Useless%20code/RedundantToStringCall.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/comparison-of-identical-expressions",
+      "language": "Go",
+      "title": "Comparison of identical values",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-comparison-of-identical-expressions/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/RedundantCode/CompareIdenticalValues.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/constant-length-comparison",
+      "language": "Go",
+      "title": "Constant length comparison",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-constant-length-comparison/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/InconsistentCode/ConstantLengthComparison.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/duplicate-branches",
+      "language": "Go",
+      "title": "Duplicate 'if' branches",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-duplicate-branches/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/RedundantCode/DuplicateBranches.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/duplicate-condition",
+      "language": "Go",
+      "title": "Duplicate 'if' condition",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-duplicate-condition/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/RedundantCode/DuplicateCondition.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/duplicate-switch-case",
+      "language": "Go",
+      "title": "Duplicate switch case",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-duplicate-switch-case/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/RedundantCode/DuplicateSwitchCase.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/impossible-interface-nil-check",
+      "language": "Go",
+      "title": "Impossible interface nil check",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-impossible-interface-nil-check/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/RedundantCode/ImpossibleInterfaceNilCheck.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/inconsistent-loop-direction",
+      "language": "Go",
+      "title": "Inconsistent direction of for loop",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-inconsistent-loop-direction/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/InconsistentCode/InconsistentLoopOrientation.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/index-out-of-bounds",
+      "language": "Go",
+      "title": "Off-by-one comparison against length",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-index-out-of-bounds/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/InconsistentCode/LengthComparisonOffByOne.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/missing-error-check",
+      "language": "Go",
+      "title": "Missing error check",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-missing-error-check/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/InconsistentCode/MissingErrorCheck.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/mistyped-exponentiation",
+      "language": "Go",
+      "title": "Bitwise exclusive-or used like exponentiation",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-mistyped-exponentiation/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/InconsistentCode/MistypedExponentiation.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/negative-length-check",
+      "language": "Go",
+      "title": "Redundant check for negative value",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-negative-length-check/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/RedundantCode/NegativeLengthCheck.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/redundant-assignment",
+      "language": "Go",
+      "title": "Self assignment",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-redundant-assignment/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/RedundantCode/SelfAssignment.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/redundant-operation",
+      "language": "Go",
+      "title": "Identical operands",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-redundant-operation/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/RedundantCode/RedundantExpr.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/redundant-recover",
+      "language": "Go",
+      "title": "Redundant call to recover",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-redundant-recover/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/RedundantCode/RedundantRecover.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/shift-out-of-range",
+      "language": "Go",
+      "title": "Shift out of range",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-shift-out-of-range/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/RedundantCode/ShiftOutOfRange.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/unexpected-nil-value",
+      "language": "Go",
+      "title": "Wrapped error is always nil",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-unexpected-nil-value/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/InconsistentCode/WrappedErrorAlwaysNil.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/unhandled-writable-file-close",
+      "language": "Go",
+      "title": "Writable file handle closed without error handling",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-unhandled-writable-file-close/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/InconsistentCode/UnhandledCloseWritableHandle.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/unreachable-statement",
+      "language": "Go",
+      "title": "Unreachable statement",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-unreachable-statement/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/RedundantCode/UnreachableStatement.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/useless-assignment-to-field",
+      "language": "Go",
+      "title": "Useless assignment to field",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-useless-assignment-to-field/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/RedundantCode/DeadStoreOfField.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/useless-assignment-to-local",
+      "language": "Go",
+      "title": "Useless assignment to local variable",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-useless-assignment-to-local/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/RedundantCode/DeadStoreOfLocal.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/useless-expression",
+      "language": "Go",
+      "title": "Expression has no effect",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-useless-expression/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/RedundantCode/ExprHasNoEffect.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "go/whitespace-contradicts-precedence",
+      "language": "Go",
+      "title": "Whitespace contradicts operator precedence",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/go/go-whitespace-contradicts-precedence/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/go/ql/src/InconsistentCode/WhitespaceContradictsPrecedence.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/abstract-to-concrete-cast",
+      "language": "Java",
+      "title": "Cast from abstract to concrete collection",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-abstract-to-concrete-cast/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Implementation%20Hiding/AbstractToConcreteCollection.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/call-to-object-tostring",
+      "language": "Java",
+      "title": "Use of default toString()",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-call-to-object-tostring/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Undesirable%20Calls/DefaultToString.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/call-to-thread-run",
+      "language": "Java",
+      "title": "Direct call to a run() method",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-call-to-thread-run/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Concurrency/CallsToRunnableRun.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/class-name-matches-super-class",
+      "language": "Java",
+      "title": "Class has same name as super class",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-class-name-matches-super-class/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Naming%20Conventions/SameNameAsSuper.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/comparison-of-identical-expressions",
+      "language": "Java",
+      "title": "Comparison of identical values",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-comparison-of-identical-expressions/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Comparison/CompareIdenticalValues.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/comparison-with-nan",
+      "language": "Java",
+      "title": "Wrong NaN comparison",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-comparison-with-nan/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Comparison/WrongNanComparison.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/confusing-method-name",
+      "language": "Java",
+      "title": "Confusing method names because of capitalization",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-confusing-method-name/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Naming%20Conventions/ConfusingMethodNames.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/confusing-method-signature",
+      "language": "Java",
+      "title": "Confusing overloading of methods",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-confusing-method-signature/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Naming%20Conventions/ConfusingOverloading.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/constant-comparison",
+      "language": "Java",
+      "title": "Useless comparison test",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-constant-comparison/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Comparison/UselessComparisonTest.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/constant-loop-condition",
+      "language": "Java",
+      "title": "Constant loop condition",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-constant-loop-condition/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Termination/ConstantLoopCondition.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/constants-only-interface",
+      "language": "Java",
+      "title": "Constant interface anti-pattern",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-constants-only-interface/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Declarations/NoConstantsOnly.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/continue-in-false-loop",
+      "language": "Java",
+      "title": "Continue statement that does not continue",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-continue-in-false-loop/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Statements/ContinueInFalseLoop.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/contradictory-type-checks",
+      "language": "Java",
+      "title": "Contradictory type checks",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-contradictory-type-checks/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Likely%20Typos/ContradictoryTypeChecks.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/database-resource-leak",
+      "language": "Java",
+      "title": "Potential database resource leak",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-database-resource-leak/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Resource%20Leaks/CloseSql.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/dereferenced-expr-may-be-null",
+      "language": "Java",
+      "title": "Dereferenced expression may be null",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-dereferenced-expr-may-be-null/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Nullness/NullExprDeref.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/dereferenced-value-is-always-null",
+      "language": "Java",
+      "title": "Dereferenced variable is always null",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-dereferenced-value-is-always-null/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Nullness/NullAlways.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/dereferenced-value-may-be-null",
+      "language": "Java",
+      "title": "Dereferenced variable may be null",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-dereferenced-value-may-be-null/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Nullness/NullMaybe.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/do-not-call-finalize",
+      "language": "Java",
+      "title": "Do not call `finalize()`",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-do-not-call-finalize/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Undesirable%20Calls/DoNotCallFinalize.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/empty-container",
+      "language": "Java",
+      "title": "Container contents are never initialized",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-empty-container/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Collections/ReadOnlyContainer.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/equals-on-arrays",
+      "language": "Java",
+      "title": "Equals or hashCode on arrays",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-equals-on-arrays/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Comparison/EqualsArray.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/equals-on-unrelated-types",
+      "language": "Java",
+      "title": "Equals on incomparable types",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-equals-on-unrelated-types/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Comparison/IncomparableEquals.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/escaping",
+      "language": "Java",
+      "title": "Escaping",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-escaping/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Concurrency/Escaping.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/evaluation-to-constant",
+      "language": "Java",
+      "title": "Expression always evaluates to the same value",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-evaluation-to-constant/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Arithmetic/ConstantExpAppearsNonConstant.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/excessive-public-method-mocking",
+      "language": "Java",
+      "title": "Mocking all public methods of a class may indicate the unit test is testing too much",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-excessive-public-method-mocking/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Testing/ExcessivePublicMethodMocking.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/hashing-without-hashcode",
+      "language": "Java",
+      "title": "Hashed value without hashCode definition",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-hashing-without-hashcode/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Comparison/HashedButNoHash.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/ignored-error-status-of-call",
+      "language": "Java",
+      "title": "Ignored error status of call",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-ignored-error-status-of-call/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Exception%20Handling/IgnoreExceptionalReturn.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/ignored-serialization-member-of-record-class",
+      "language": "Java",
+      "title": "Ignored serialization member of record class",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-ignored-serialization-member-of-record-class/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Records/IgnoredSerializationMembersOfRecordClass.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/inconsistent-equals-and-hashcode",
+      "language": "Java",
+      "title": "Inconsistent equals and hashCode",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-inconsistent-equals-and-hashcode/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Comparison/InconsistentEqualsHashCode.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/inconsistent-javadoc-throws",
+      "language": "Java",
+      "title": "Javadoc has impossible 'throws' tag",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-inconsistent-javadoc-throws/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Advisory/Documentation/ImpossibleJavadocThrows.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/index-out-of-bounds",
+      "language": "Java",
+      "title": "Array index out of bounds",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-index-out-of-bounds/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Collections/ArrayIndexOutOfBounds.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/inefficient-boxed-constructor",
+      "language": "Java",
+      "title": "Inefficient primitive constructor",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-inefficient-boxed-constructor/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Performance/InefficientPrimConstructor.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/inefficient-empty-string-test",
+      "language": "Java",
+      "title": "Inefficient empty string test",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-inefficient-empty-string-test/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Performance/InefficientEmptyStringTest.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/inefficient-key-set-iterator",
+      "language": "Java",
+      "title": "Inefficient use of key set iterator",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-inefficient-key-set-iterator/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Performance/InefficientKeySetIterator.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/inefficient-output-stream",
+      "language": "Java",
+      "title": "Inefficient output stream",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-inefficient-output-stream/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Performance/InefficientOutputStream.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/inefficient-string-constructor",
+      "language": "Java",
+      "title": "Inefficient String constructor",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-inefficient-string-constructor/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Performance/NewStringString.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/input-resource-leak",
+      "language": "Java",
+      "title": "Potential input resource leak",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-input-resource-leak/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Resource%20Leaks/CloseReader.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/integer-multiplication-cast-to-long",
+      "language": "Java",
+      "title": "Result of multiplication cast to wider type",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-integer-multiplication-cast-to-long/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Arithmetic/IntMultToLong.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/internal-representation-exposure",
+      "language": "Java",
+      "title": "Exposing internal representation",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-internal-representation-exposure/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Implementation%20Hiding/ExposeRepresentation.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/iterable-wraps-iterator",
+      "language": "Java",
+      "title": "Iterable wrapping an iterator",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-iterable-wraps-iterator/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Language%20Abuse/WrappedIterator.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/iterator-implements-iterable",
+      "language": "Java",
+      "title": "Iterator implementing Iterable",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-iterator-implements-iterable/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Language%20Abuse/IterableIterator.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/java-util-concurrent-scheduledthreadpoolexecutor",
+      "language": "Java",
+      "title": "Zero threads set for `java.util.concurrent.ScheduledThreadPoolExecutor`",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-java-util-concurrent-scheduledthreadpoolexecutor/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Concurrency/ScheduledThreadPoolExecutorZeroThread.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/jdk-internal-api-access",
+      "language": "Java",
+      "title": "Access to unsupported JDK-internal API",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-jdk-internal-api-access/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Compatibility/JDK9/JdkInternalAccess.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/junit5-missing-nested-annotation",
+      "language": "Java",
+      "title": "Missing `@Nested` annotation on JUnit 5 inner test class",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-junit5-missing-nested-annotation/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Frameworks/JUnit/JUnit5MissingNestedAnnotation.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/label-in-switch",
+      "language": "Java",
+      "title": "Non-case label in switch statement",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-label-in-switch/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Language%20Abuse/LabelInSwitch.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/local-shadows-field",
+      "language": "Java",
+      "title": "Possible confusion of local and field",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-local-shadows-field/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Naming%20Conventions/LocalShadowsFieldConfusing.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/local-variable-is-never-read",
+      "language": "Java",
+      "title": "Unread local variable",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-local-variable-is-never-read/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Dead%20Code/UnreadLocal.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/lshift-larger-than-type-width",
+      "language": "Java",
+      "title": "Left shift by more than the type width",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-lshift-larger-than-type-width/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Arithmetic/LShiftLargerThanTypeWidth.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/misleading-indentation",
+      "language": "Java",
+      "title": "Misleading indentation",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-misleading-indentation/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Statements/UseBraces.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/missing-format-argument",
+      "language": "Java",
+      "title": "Missing format argument",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-missing-format-argument/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Likely%20Typos/MissingFormatArg.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/missing-override-annotation",
+      "language": "Java",
+      "title": "Missing Override annotation",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-missing-override-annotation/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Advisory/Declarations/MissingOverrideAnnotation.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/missing-space-in-concatenation",
+      "language": "Java",
+      "title": "Missing space in string literal",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-missing-space-in-concatenation/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Likely%20Typos/MissingSpaceTypo.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/non-explicit-control-and-whitespace-chars-in-literals",
+      "language": "Java",
+      "title": "Non-explicit control and whitespace characters",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-non-explicit-control-and-whitespace-chars-in-literals/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/SpecialCharactersInLiterals/NonExplicitControlAndWhitespaceCharsInLiterals.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/non-final-call-in-constructor",
+      "language": "Java",
+      "title": "Non-final method invocation in constructor",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-non-final-call-in-constructor/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Inheritance/NoNonFinalInConstructor.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/non-null-boxed-variable",
+      "language": "Java",
+      "title": "Boxed variable is never null",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-non-null-boxed-variable/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Boxed%20Types/BoxedVariable.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/non-static-nested-class",
+      "language": "Java",
+      "title": "Inner class could be static",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-non-static-nested-class/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Performance/InnerClassCouldBeStatic.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/non-sync-override",
+      "language": "Java",
+      "title": "Non-synchronized override of synchronized method",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-non-sync-override/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Concurrency/NonSynchronizedOverride.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/not-threadsafe",
+      "language": "Java",
+      "title": "Not thread-safe",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-not-threadsafe/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Concurrency/ThreadSafe.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/output-resource-leak",
+      "language": "Java",
+      "title": "Potential output resource leak",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-output-resource-leak/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Resource%20Leaks/CloseWriter.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/print-array",
+      "language": "Java",
+      "title": "Implicit conversion from array to string",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-print-array/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Undesirable%20Calls/PrintLnArray.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/redundant-assignment",
+      "language": "Java",
+      "title": "Self assignment",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-redundant-assignment/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Likely%20Typos/SelfAssignment.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/reference-equality-of-boxed-types",
+      "language": "Java",
+      "title": "Reference equality test of boxed types",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-reference-equality-of-boxed-types/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Comparison/RefEqBoxed.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/safe-publication",
+      "language": "Java",
+      "title": "Safe publication",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-safe-publication/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Concurrency/SafePublication.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/string-buffer-char-init",
+      "language": "Java",
+      "title": "Character passed to StringBuffer or StringBuilder constructor",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-string-buffer-char-init/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Likely%20Typos/StringBufferCharInit.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/string-replace-all-with-non-regex",
+      "language": "Java",
+      "title": "Use of `String#replaceAll` with a first argument which is not a regular expression",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-string-replace-all-with-non-regex/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Performance/StringReplaceAllWithNonRegex.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/subtle-inherited-call",
+      "language": "Java",
+      "title": "Subtle call to inherited method",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-subtle-inherited-call/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Naming%20Conventions/AmbiguousOuterSuper.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/suspicious-date-format",
+      "language": "Java",
+      "title": "Suspicious date format",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-suspicious-date-format/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Likely%20Typos/SuspiciousDateFormat.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/sync-on-boxed-types",
+      "language": "Java",
+      "title": "Synchronization on boxed types or strings",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-sync-on-boxed-types/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Concurrency/SynchOnBoxedType.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/test-for-negative-container-size",
+      "language": "Java",
+      "title": "Container size compared to zero",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-test-for-negative-container-size/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Likely%20Typos/ContainerSizeCmpZero.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/type-mismatch-access",
+      "language": "Java",
+      "title": "Type mismatch on container access",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-type-mismatch-access/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Collections/ContainsTypeMismatch.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/type-mismatch-modification",
+      "language": "Java",
+      "title": "Type mismatch on container modification",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-type-mismatch-modification/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Collections/RemoveTypeMismatch.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/uncaught-number-format-exception",
+      "language": "Java",
+      "title": "Missing catch of NumberFormatException",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-uncaught-number-format-exception/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Exception%20Handling/NumberFormatException.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/unchecked-cast-in-equals",
+      "language": "Java",
+      "title": "Equals method does not inspect argument type",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-unchecked-cast-in-equals/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Comparison/MissingInstanceofInEquals.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/underscore-identifier",
+      "language": "Java",
+      "title": "Underscore used as identifier",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-underscore-identifier/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Compatibility/JDK9/UnderscoreIdentifier.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/unimplementable-interface",
+      "language": "Java",
+      "title": "Interface cannot be implemented",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-unimplementable-interface/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Dead%20Code/InterfaceCannotBeImplemented.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/unknown-javadoc-parameter",
+      "language": "Java",
+      "title": "Spurious Javadoc @param tags",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-unknown-javadoc-parameter/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Advisory/Documentation/SpuriousJavadocParam.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/unreachable-catch-clause",
+      "language": "Java",
+      "title": "Unreachable catch clause",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-unreachable-catch-clause/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Statements/PartiallyMaskedCatch.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/unsafe-double-checked-locking",
+      "language": "Java",
+      "title": "Double-checked locking is not thread-safe",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-unsafe-double-checked-locking/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Concurrency/DoubleCheckedLocking.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/unsafe-double-checked-locking-init-order",
+      "language": "Java",
+      "title": "Race condition in double-checked locking object initialization",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-unsafe-double-checked-locking-init-order/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Concurrency/DoubleCheckedLockingWithInitRace.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/unsynchronized-getter",
+      "language": "Java",
+      "title": "Inconsistent synchronization of getter and setter",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-unsynchronized-getter/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Concurrency/SynchSetUnsynchGet.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/unused-container",
+      "language": "Java",
+      "title": "Container contents are never accessed",
+      "category": "Maintainability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-unused-container/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Collections/WriteOnlyContainer.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/unused-format-argument",
+      "language": "Java",
+      "title": "Unused format argument",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-unused-format-argument/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Likely%20Typos/UnusedFormatArg.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/unused-label",
+      "language": "Java",
+      "title": "Unused label",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-unused-label/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Dead%20Code/UnusedLabel.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/unused-parameter",
+      "language": "Java",
+      "title": "Useless parameter",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-unused-parameter/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/DeadCode/UselessParameter.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/unused-reference-type",
+      "language": "Java",
+      "title": "Unused classes and interfaces",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-unused-reference-type/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Dead%20Code/DeadRefTypes.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/useless-null-check",
+      "language": "Java",
+      "title": "Useless null check",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-useless-null-check/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Language%20Abuse/UselessNullCheck.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/useless-tostring-call",
+      "language": "Java",
+      "title": "Useless toString on String",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-useless-tostring-call/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Undesirable%20Calls/CallsToStringToString.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/useless-type-test",
+      "language": "Java",
+      "title": "Useless type test",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-useless-type-test/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Language%20Abuse/UselessTypeTest.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/visible-for-testing-abuse",
+      "language": "Java",
+      "title": "Use of VisibleForTesting in production code",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-visible-for-testing-abuse/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Violations%20of%20Best%20Practice/Implementation%20Hiding/VisibleForTestingAbuse.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "java/whitespace-contradicts-precedence",
+      "language": "Java",
+      "title": "Whitespace contradicts operator precedence",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/java/java-whitespace-contradicts-precedence/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/java/ql/src/Likely%20Bugs/Arithmetic/WhitespaceContradictsPrecedence.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/angular/dependency-injection-mismatch",
+      "language": "JavaScript/TypeScript",
+      "title": "Dependency mismatch",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-angular-dependency-injection-mismatch/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/AngularJS/DependencyMismatch.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/angular/duplicate-dependency",
+      "language": "JavaScript/TypeScript",
+      "title": "Duplicate dependency",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-angular-duplicate-dependency/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/AngularJS/DuplicateDependency.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/angular/expression-in-url-attribute",
+      "language": "JavaScript/TypeScript",
+      "title": "Use of AngularJS markup in URL-valued attribute",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-angular-expression-in-url-attribute/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/AngularJS/UseNgSrc.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/angular/incompatible-service",
+      "language": "JavaScript/TypeScript",
+      "title": "Incompatible dependency injection",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-angular-incompatible-service/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/AngularJS/IncompatibleService.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/angular/missing-explicit-injection",
+      "language": "JavaScript/TypeScript",
+      "title": "Missing explicit dependency injection",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-angular-missing-explicit-injection/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/AngularJS/MissingExplicitInjection.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/angular/repeated-dependency-injection",
+      "language": "JavaScript/TypeScript",
+      "title": "Repeated dependency injection",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-angular-repeated-dependency-injection/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/AngularJS/RepeatedInjection.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/arguments-redefinition",
+      "language": "JavaScript/TypeScript",
+      "title": "Arguments redefined",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-arguments-redefinition/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/ArgumentsRedefined.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/assignment-to-constant",
+      "language": "JavaScript/TypeScript",
+      "title": "Assignment to constant",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-assignment-to-constant/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/AssignmentToConst.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/automatic-semicolon-insertion",
+      "language": "JavaScript/TypeScript",
+      "title": "Semicolon insertion",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-automatic-semicolon-insertion/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/SemicolonInsertion.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/call-to-non-callable",
+      "language": "JavaScript/TypeScript",
+      "title": "Invocation of non-function",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-call-to-non-callable/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/SuspiciousInvocation.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/comparison-between-incompatible-types",
+      "language": "JavaScript/TypeScript",
+      "title": "Comparison between inconvertible types",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-comparison-between-incompatible-types/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/HeterogeneousComparison.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/comparison-with-nan",
+      "language": "JavaScript/TypeScript",
+      "title": "Comparison with NaN",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-comparison-with-nan/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/ComparisonWithNaN.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/conditional-comment",
+      "language": "JavaScript/TypeScript",
+      "title": "Conditional comments",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-conditional-comment/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/ConditionalComments.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/deletion-of-non-property",
+      "language": "JavaScript/TypeScript",
+      "title": "Deleting non-property",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-deletion-of-non-property/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/DeleteVar.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/duplicate-condition",
+      "language": "JavaScript/TypeScript",
+      "title": "Duplicate 'if' condition",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-duplicate-condition/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/DuplicateCondition.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/duplicate-html-attribute",
+      "language": "JavaScript/TypeScript",
+      "title": "Duplicate HTML element attributes",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-duplicate-html-attribute/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/DOM/DuplicateAttributes.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/duplicate-parameter-name",
+      "language": "JavaScript/TypeScript",
+      "title": "Duplicate parameter names",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-duplicate-parameter-name/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/UniqueParameterNames.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/duplicate-property",
+      "language": "JavaScript/TypeScript",
+      "title": "Duplicate property",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-duplicate-property/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/DuplicateProperty.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/duplicate-switch-case",
+      "language": "JavaScript/TypeScript",
+      "title": "Duplicate switch case",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-duplicate-switch-case/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/DuplicateSwitchCase.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/duplicate-variable-declaration",
+      "language": "JavaScript/TypeScript",
+      "title": "Duplicate variable declaration",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-duplicate-variable-declaration/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/DuplicateVarDecl.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/eval-like-call",
+      "language": "JavaScript/TypeScript",
+      "title": "Call to eval-like DOM function",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-eval-like-call/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/DOM/PseudoEval.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/for-in-comprehension",
+      "language": "JavaScript/TypeScript",
+      "title": "Use of for-in comprehension blocks",
+      "category": "Maintainability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-for-in-comprehension/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/ForInComprehensionBlocks.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/function-declaration-conflict",
+      "language": "JavaScript/TypeScript",
+      "title": "Conflicting function declarations",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-function-declaration-conflict/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/ConflictingFunctions.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/ignore-array-result",
+      "language": "JavaScript/TypeScript",
+      "title": "Ignoring result from pure array method",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-ignore-array-result/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Statements/IgnoreArrayResult.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/illegal-invocation",
+      "language": "JavaScript/TypeScript",
+      "title": "Illegal invocation",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-illegal-invocation/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/IllegalInvocation.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/implicit-operand-conversion",
+      "language": "JavaScript/TypeScript",
+      "title": "Implicit operand conversion",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-implicit-operand-conversion/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/ImplicitOperandConversion.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/incomplete-object-initialization",
+      "language": "JavaScript/TypeScript",
+      "title": "Use of incompletely initialized object",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-incomplete-object-initialization/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/ThisBeforeSuper.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/inconsistent-loop-direction",
+      "language": "JavaScript/TypeScript",
+      "title": "Inconsistent direction of for loop",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-inconsistent-loop-direction/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Statements/InconsistentLoopOrientation.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/inconsistent-use-of-new",
+      "language": "JavaScript/TypeScript",
+      "title": "Inconsistent use of 'new'",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-inconsistent-use-of-new/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/InconsistentNew.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/index-out-of-bounds",
+      "language": "JavaScript/TypeScript",
+      "title": "Off-by-one comparison against length",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-index-out-of-bounds/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/LengthComparisonOffByOne.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/ineffective-parameter-type",
+      "language": "JavaScript/TypeScript",
+      "title": "Ineffective parameter type",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-ineffective-parameter-type/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/IneffectiveParameterType.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/invalid-prototype-value",
+      "language": "JavaScript/TypeScript",
+      "title": "Invalid prototype value",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-invalid-prototype-value/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/InvalidPrototype.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/label-in-switch",
+      "language": "JavaScript/TypeScript",
+      "title": "Non-case label in switch statement",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-label-in-switch/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Statements/LabelInCase.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/loop-iteration-skipped-due-to-shifting",
+      "language": "JavaScript/TypeScript",
+      "title": "Loop iteration skipped due to shifting",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-loop-iteration-skipped-due-to-shifting/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Statements/LoopIterationSkippedDueToShifting.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/malformed-html-id",
+      "language": "JavaScript/TypeScript",
+      "title": "Malformed id attribute",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-malformed-html-id/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/DOM/MalformedIdAttribute.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/misleading-indentation-after-control-statement",
+      "language": "JavaScript/TypeScript",
+      "title": "Misleading indentation after control statement",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-misleading-indentation-after-control-statement/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Statements/MisleadingIndentationAfterControlStmt.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/misleading-indentation-of-dangling-else",
+      "language": "JavaScript/TypeScript",
+      "title": "Misleading indentation of dangling 'else'",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-misleading-indentation-of-dangling-else/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Statements/DanglingElse.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/missing-await",
+      "language": "JavaScript/TypeScript",
+      "title": "Missing await",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-missing-await/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/MissingAwait.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/missing-dot-length-in-comparison",
+      "language": "JavaScript/TypeScript",
+      "title": "Missing '.length' in comparison",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-missing-dot-length-in-comparison/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/MissingDotLengthInComparison.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/missing-space-in-concatenation",
+      "language": "JavaScript/TypeScript",
+      "title": "Missing space in string concatenation",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-missing-space-in-concatenation/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/MissingSpaceInAppend.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/missing-this-qualifier",
+      "language": "JavaScript/TypeScript",
+      "title": "Missing 'this' qualifier",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-missing-this-qualifier/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/MissingThisQualifier.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/missing-variable-declaration",
+      "language": "JavaScript/TypeScript",
+      "title": "Missing variable declaration",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-missing-variable-declaration/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/MissingVarDecl.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/misspelled-variable-name",
+      "language": "JavaScript/TypeScript",
+      "title": "Misspelled variable name",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-misspelled-variable-name/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/MisspelledVariableName.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/mixed-static-instance-this-access",
+      "language": "JavaScript/TypeScript",
+      "title": "Wrong use of 'this' for static method",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-mixed-static-instance-this-access/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/MixedStaticInstanceThisAccess.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/nested-function-reference-in-default-parameter",
+      "language": "JavaScript/TypeScript",
+      "title": "Default parameter references nested function",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-nested-function-reference-in-default-parameter/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/DefaultArgumentReferencesNestedFunction.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/node/assignment-to-exports-variable",
+      "language": "JavaScript/TypeScript",
+      "title": "Assignment to exports variable",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-node-assignment-to-exports-variable/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/NodeJS/InvalidExport.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/node/missing-exports-qualifier",
+      "language": "JavaScript/TypeScript",
+      "title": "Missing exports qualifier",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-node-missing-exports-qualifier/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/NodeJS/MissingExports.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/non-linear-pattern",
+      "language": "JavaScript/TypeScript",
+      "title": "Non-linear pattern",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-non-linear-pattern/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/NonLinearPattern.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/non-standard-language-feature",
+      "language": "JavaScript/TypeScript",
+      "title": "Use of platform-specific language features",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-non-standard-language-feature/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/ExpressionClosures.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/overwritten-property",
+      "language": "JavaScript/TypeScript",
+      "title": "Overwritten property",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-overwritten-property/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/UniquePropertyNames.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/property-access-on-non-object",
+      "language": "JavaScript/TypeScript",
+      "title": "Property access on null or undefined",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-property-access-on-non-object/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/SuspiciousPropAccess.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/property-assignment-on-primitive",
+      "language": "JavaScript/TypeScript",
+      "title": "Assignment to property of primitive value",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-property-assignment-on-primitive/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/PropertyWriteOnPrimitive.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/react/direct-state-mutation",
+      "language": "JavaScript/TypeScript",
+      "title": "Direct state mutation",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-react-direct-state-mutation/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/React/DirectStateMutation.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/react/inconsistent-state-update",
+      "language": "JavaScript/TypeScript",
+      "title": "Potentially inconsistent state update",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-react-inconsistent-state-update/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/React/InconsistentStateUpdate.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/react/unsupported-state-update-in-lifecycle-method",
+      "language": "JavaScript/TypeScript",
+      "title": "Unsupported state update in lifecycle method",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-react-unsupported-state-update-in-lifecycle-method/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/React/UnsupportedStateUpdateInLifecycleMethod.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/react/unused-or-undefined-state-property",
+      "language": "JavaScript/TypeScript",
+      "title": "Unused or undefined state property",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-react-unused-or-undefined-state-property/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/React/UnusedOrUndefinedStateProperty.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/redundant-assignment",
+      "language": "JavaScript/TypeScript",
+      "title": "Self assignment",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-redundant-assignment/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/SelfAssignment.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/redundant-operation",
+      "language": "JavaScript/TypeScript",
+      "title": "Identical operands",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-redundant-operation/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/RedundantExpression.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/regex/always-matches",
+      "language": "JavaScript/TypeScript",
+      "title": "Regular expression always matches",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-regex-always-matches/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/RegExp/RegExpAlwaysMatches.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/regex/back-reference-before-group",
+      "language": "JavaScript/TypeScript",
+      "title": "Back reference precedes capture group",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-regex-back-reference-before-group/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/RegExp/BackrefBeforeGroup.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/regex/back-reference-to-negative-lookahead",
+      "language": "JavaScript/TypeScript",
+      "title": "Back reference into negative lookahead assertion",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-regex-back-reference-to-negative-lookahead/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/RegExp/BackrefIntoNegativeLookahead.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/regex/duplicate-in-character-class",
+      "language": "JavaScript/TypeScript",
+      "title": "Duplicate character in character class",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-regex-duplicate-in-character-class/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/RegExp/DuplicateCharacterInCharacterClass.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/regex/empty-character-class",
+      "language": "JavaScript/TypeScript",
+      "title": "Empty character class",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-regex-empty-character-class/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/RegExp/EmptyCharacterClass.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/regex/unbound-back-reference",
+      "language": "JavaScript/TypeScript",
+      "title": "Unbound back reference",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-regex-unbound-back-reference/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/RegExp/UnboundBackref.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/regex/unmatchable-caret",
+      "language": "JavaScript/TypeScript",
+      "title": "Unmatchable caret in regular expression",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-regex-unmatchable-caret/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/RegExp/UnmatchableCaret.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/regex/unmatchable-dollar",
+      "language": "JavaScript/TypeScript",
+      "title": "Unmatchable dollar in regular expression",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-regex-unmatchable-dollar/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/RegExp/UnmatchableDollar.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/setter-return",
+      "language": "JavaScript/TypeScript",
+      "title": "Useless return in setter",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-setter-return/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/SetterReturn.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/shift-out-of-range",
+      "language": "JavaScript/TypeScript",
+      "title": "Shift out of range",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-shift-out-of-range/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/ShiftOutOfRange.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/strict-mode-call-stack-introspection",
+      "language": "JavaScript/TypeScript",
+      "title": "Use of call stack introspection in strict mode",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-strict-mode-call-stack-introspection/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/StrictModeCallStackIntrospection.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/string-instead-of-regex",
+      "language": "JavaScript/TypeScript",
+      "title": "String instead of regular expression",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-string-instead-of-regex/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/StringInsteadOfRegex.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/superfluous-trailing-arguments",
+      "language": "JavaScript/TypeScript",
+      "title": "Superfluous trailing arguments",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-superfluous-trailing-arguments/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/SpuriousArguments.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/suspicious-method-name-declaration",
+      "language": "JavaScript/TypeScript",
+      "title": "Suspicious method name declaration",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-suspicious-method-name-declaration/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/SuspiciousMethodNameDeclaration.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/template-syntax-in-string-literal",
+      "language": "JavaScript/TypeScript",
+      "title": "Template syntax in string literal",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-template-syntax-in-string-literal/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/TemplateSyntaxInStringLiteral.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/trivial-conditional",
+      "language": "JavaScript/TypeScript",
+      "title": "Useless conditional",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-trivial-conditional/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Statements/UselessConditional.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/unbound-event-handler-receiver",
+      "language": "JavaScript/TypeScript",
+      "title": "Unbound event handler receiver",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-unbound-event-handler-receiver/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/UnboundEventHandlerReceiver.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/unclear-operator-precedence",
+      "language": "JavaScript/TypeScript",
+      "title": "Unclear precedence of nested operators",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-unclear-operator-precedence/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/UnclearOperatorPrecedence.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/unhandled-error-in-stream-pipeline",
+      "language": "JavaScript/TypeScript",
+      "title": "Unhandled error in stream pipeline",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-unhandled-error-in-stream-pipeline/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Quality/UnhandledErrorInStreamPipeline.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/unknown-directive",
+      "language": "JavaScript/TypeScript",
+      "title": "Unknown directive",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-unknown-directive/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/UnknownDirective.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/unneeded-defensive-code",
+      "language": "JavaScript/TypeScript",
+      "title": "Unneeded defensive code",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-unneeded-defensive-code/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/UnneededDefensiveProgramming.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/unreachable-method-overloads",
+      "language": "JavaScript/TypeScript",
+      "title": "Unreachable method overloads",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-unreachable-method-overloads/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/UnreachableMethodOverloads.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/unreachable-statement",
+      "language": "JavaScript/TypeScript",
+      "title": "Unreachable statement",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-unreachable-statement/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Statements/UnreachableStatement.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/unused-index-variable",
+      "language": "JavaScript/TypeScript",
+      "title": "Unused index variable",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-unused-index-variable/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/UnusedIndexVariable.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/unused-local-variable",
+      "language": "JavaScript/TypeScript",
+      "title": "Unused variable, import, function or class",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-unused-local-variable/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/UnusedVariable.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/unused-loop-variable",
+      "language": "JavaScript/TypeScript",
+      "title": "Unused loop iteration variable",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-unused-loop-variable/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Statements/SuspiciousUnusedLoopIterationVariable.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/use-before-declaration",
+      "language": "JavaScript/TypeScript",
+      "title": "Variable not declared before use",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-use-before-declaration/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/DeclBeforeUse.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/use-of-returnless-function",
+      "language": "JavaScript/TypeScript",
+      "title": "Use of returnless function",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-use-of-returnless-function/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Statements/UseOfReturnlessFunction.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/useless-assignment-in-return",
+      "language": "JavaScript/TypeScript",
+      "title": "Return statement assigns local variable",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-useless-assignment-in-return/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Statements/ReturnAssignsLocal.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/useless-assignment-to-local",
+      "language": "JavaScript/TypeScript",
+      "title": "Useless assignment to local variable",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-useless-assignment-to-local/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/DeadStoreOfLocal.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/useless-assignment-to-property",
+      "language": "JavaScript/TypeScript",
+      "title": "Useless assignment to property",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-useless-assignment-to-property/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/DeadStoreOfProperty.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/useless-comparison-test",
+      "language": "JavaScript/TypeScript",
+      "title": "Useless comparison test",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-useless-comparison-test/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Statements/UselessComparisonTest.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/useless-expression",
+      "language": "JavaScript/TypeScript",
+      "title": "Expression has no effect",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-useless-expression/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/ExprHasNoEffect.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/useless-type-test",
+      "language": "JavaScript/TypeScript",
+      "title": "Useless type test",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-useless-type-test/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/BadTypeof.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/variable-initialization-conflict",
+      "language": "JavaScript/TypeScript",
+      "title": "Conflicting variable initialization",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-variable-initialization-conflict/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/ClobberingVarInit.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/variable-use-in-temporal-dead-zone",
+      "language": "JavaScript/TypeScript",
+      "title": "Access to let-bound variable in temporal dead zone",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-variable-use-in-temporal-dead-zone/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Declarations/TemporalDeadZone.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/vue/arrow-method-on-vue-instance",
+      "language": "JavaScript/TypeScript",
+      "title": "Arrow method on Vue instance",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-vue-arrow-method-on-vue-instance/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Vue/ArrowMethodOnVueInstance.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/whitespace-contradicts-precedence",
+      "language": "JavaScript/TypeScript",
+      "title": "Whitespace contradicts operator precedence",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-whitespace-contradicts-precedence/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/Expressions/WhitespaceContradictsPrecedence.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/with-statement",
+      "language": "JavaScript/TypeScript",
+      "title": "With statement",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-with-statement/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/WithStatement.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "js/yield-outside-generator",
+      "language": "JavaScript/TypeScript",
+      "title": "Yield in non-generator function",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/javascript/js-yield-outside-generator/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/javascript/ql/src/LanguageFeatures/YieldInNonGenerator.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/asserts-tuple",
+      "language": "Python",
+      "title": "Asserting a tuple",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-asserts-tuple/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Statements/AssertOnTuple.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/attribute-shadows-method",
+      "language": "Python",
+      "title": "Superclass attribute shadows subclass method",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-attribute-shadows-method/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Classes/SubclassShadowing/SubclassShadowing.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/call-to-non-callable",
+      "language": "Python",
+      "title": "Non-callable called",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-call-to-non-callable/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/NonCallableCalled.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/call/wrong-arguments",
+      "language": "Python",
+      "title": "Wrong number of arguments in a call",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-call-wrong-arguments/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/WrongNumberArgumentsInCall.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/call/wrong-named-argument",
+      "language": "Python",
+      "title": "Wrong name for an argument in a call",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-call-wrong-named-argument/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/WrongNameForArgumentInCall.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/call/wrong-named-class-argument",
+      "language": "Python",
+      "title": "Wrong name for an argument in a class instantiation",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-call-wrong-named-class-argument/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Classes/WrongNameForArgumentInClassInstantiation.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/call/wrong-number-class-arguments",
+      "language": "Python",
+      "title": "Wrong number of arguments in a class instantiation",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-call-wrong-number-class-arguments/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Classes/WrongNumberArgumentsInClassInstantiation.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/catch-base-exception",
+      "language": "Python",
+      "title": "Except block handles 'BaseException'",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-catch-base-exception/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Exceptions/CatchingBaseException.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/commented-out-code",
+      "language": "Python",
+      "title": "Commented-out code",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-commented-out-code/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Lexical/CommentedOutCode.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/comparison-missing-self",
+      "language": "Python",
+      "title": "Maybe missing 'self' in comparison",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-comparison-missing-self/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/CompareIdenticalValuesMissingSelf.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/comparison-of-constants",
+      "language": "Python",
+      "title": "Comparison of constants",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-comparison-of-constants/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/CompareConstants.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/comparison-of-identical-expressions",
+      "language": "Python",
+      "title": "Comparison of identical values",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-comparison-of-identical-expressions/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/CompareIdenticalValues.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/comparison-using-is",
+      "language": "Python",
+      "title": "Comparison using is when operands support `__eq__`",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-comparison-using-is/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/IncorrectComparisonUsingIs.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/conflicting-attributes",
+      "language": "Python",
+      "title": "Conflicting attributes in base classes",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-conflicting-attributes/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Classes/ConflictingAttributesInBaseClasses.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/constant-conditional-expression",
+      "language": "Python",
+      "title": "Constant in conditional expression or statement",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-constant-conditional-expression/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Statements/ConstantInConditional.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/duplicate-key-dict-literal",
+      "language": "Python",
+      "title": "Duplicate key in dict literal",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-duplicate-key-dict-literal/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/DuplicateKeyInDictionaryLiteral.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/empty-except",
+      "language": "Python",
+      "title": "Empty except",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-empty-except/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Exceptions/EmptyExcept.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/encoding-error",
+      "language": "Python",
+      "title": "Encoding error",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-encoding-error/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Imports/EncodingError.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/equals-hash-mismatch",
+      "language": "Python",
+      "title": "Inconsistent equality and hashing",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-equals-hash-mismatch/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Classes/Comparisons/EqualsOrHash.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/explicit-call-to-delete",
+      "language": "Python",
+      "title": "`__del__` is called explicitly",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-explicit-call-to-delete/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/ExplicitCallToDel.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/explicit-return-in-init",
+      "language": "Python",
+      "title": "`__init__` method returns a value",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-explicit-return-in-init/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Functions/ExplicitReturnInInit.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/file-not-closed",
+      "language": "Python",
+      "title": "File is not always closed",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-file-not-closed/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Resources/FileNotAlwaysClosed.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/hash-unhashable-value",
+      "language": "Python",
+      "title": "Unhashable object hashed",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-hash-unhashable-value/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/HashedButNoHash.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/illegal-raise",
+      "language": "Python",
+      "title": "Illegal raise",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-illegal-raise/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Exceptions/IllegalRaise.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/implicit-string-concatenation-in-list",
+      "language": "Python",
+      "title": "Implicit string concatenation in a list",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-implicit-string-concatenation-in-list/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/UnintentionalImplicitStringConcatenation.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/import-and-import-from",
+      "language": "Python",
+      "title": "Module is imported with 'import' and 'import from'",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-import-and-import-from/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Imports/ImportandImportFrom.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/import-own-module",
+      "language": "Python",
+      "title": "Module imports itself",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-import-own-module/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Imports/ModuleImportsItself.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/imprecise-assert",
+      "language": "Python",
+      "title": "Imprecise assert",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-imprecise-assert/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Testing/ImpreciseAssert.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/incomplete-ordering",
+      "language": "Python",
+      "title": "Incomplete ordering",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-incomplete-ordering/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Classes/Comparisons/IncompleteOrdering.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/inconsistent-equality",
+      "language": "Python",
+      "title": "Inconsistent equality and inequality",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-inconsistent-equality/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Classes/Comparisons/EqualsOrNotEquals.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/inconsistent-mro",
+      "language": "Python",
+      "title": "Inconsistent method resolution order",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-inconsistent-mro/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Classes/InconsistentMRO.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/ineffectual-statement",
+      "language": "Python",
+      "title": "Statement has no effect",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-ineffectual-statement/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Statements/StatementNoEffect.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/inheritance/incorrect-overridden-signature",
+      "language": "Python",
+      "title": "Mismatch between signature and use of an overridden method",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-inheritance-incorrect-overridden-signature/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Functions/IncorrectlySpecifiedOverriddenMethod.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/inheritance/incorrect-overriding-signature",
+      "language": "Python",
+      "title": "Mismatch between signature and use of an overriding method",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-inheritance-incorrect-overriding-signature/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Functions/IncorrectlyOverriddenMethod.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/inheritance/signature-mismatch",
+      "language": "Python",
+      "title": "Signature mismatch in overriding method",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-inheritance-signature-mismatch/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Functions/SignatureOverriddenMethod.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/init-calls-subclass",
+      "language": "Python",
+      "title": "`__init__` method calls overridden method",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-init-calls-subclass/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Classes/InitCallsSubclass/InitCallsSubclassMethod.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/init-method-is-generator",
+      "language": "Python",
+      "title": "`__init__` method is a generator",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-init-method-is-generator/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Functions/InitIsGenerator.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/iter-returns-non-iterator",
+      "language": "Python",
+      "title": "`__iter__` method returns a non-iterator",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-iter-returns-non-iterator/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Functions/IterReturnsNonIterator.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/iter-returns-non-self",
+      "language": "Python",
+      "title": "Iterator does not return self from `__iter__` method",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-iter-returns-non-self/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Functions/IterReturnsNonSelf.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/iteration-string-and-sequence",
+      "language": "Python",
+      "title": "Iterable can be either a string or a sequence",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-iteration-string-and-sequence/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Statements/IterableStringOrSequence.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/loop-variable-capture",
+      "language": "Python",
+      "title": "Loop variable capture",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-loop-variable-capture/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Variables/LoopVariableCapture/LoopVariableCapture.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/member-test-non-container",
+      "language": "Python",
+      "title": "Membership test with a non-container",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-member-test-non-container/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/ContainsNonContainer.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/mismatched-multiple-assignment",
+      "language": "Python",
+      "title": "Mismatch in multiple assignment",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-mismatched-multiple-assignment/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Statements/MismatchInMultipleAssignment.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/missing-call-to-delete",
+      "language": "Python",
+      "title": "Missing call to superclass `__del__` during object destruction",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-missing-call-to-delete/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Classes/CallsToInitDel/MissingCallToDel.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/missing-call-to-init",
+      "language": "Python",
+      "title": "Missing call to superclass `__init__` during object initialization",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-missing-call-to-init/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Classes/CallsToInitDel/MissingCallToInit.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/missing-equals",
+      "language": "Python",
+      "title": "`__eq__` not overridden when adding attributes",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-missing-equals/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Classes/DefineEqualsWhenAddingAttributes.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/mixed-returns",
+      "language": "Python",
+      "title": "Explicit returns mixed with implicit (fall through) returns",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-mixed-returns/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Functions/ConsistentReturns.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/mixed-tuple-returns",
+      "language": "Python",
+      "title": "Returning tuples with varying lengths",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-mixed-tuple-returns/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Functions/ReturnConsistentTupleSizes.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/modification-of-default-value",
+      "language": "Python",
+      "title": "Modification of parameter with default",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-modification-of-default-value/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Functions/ModificationOfParameterWithDefault.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/modification-of-locals",
+      "language": "Python",
+      "title": "Modification of dictionary returned by locals()",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-modification-of-locals/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Statements/ModificationOfLocals.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/multiple-calls-to-delete",
+      "language": "Python",
+      "title": "Multiple calls to `__del__` during object destruction",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-multiple-calls-to-delete/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Classes/CallsToInitDel/SuperclassDelCalledMultipleTimes.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/multiple-calls-to-init",
+      "language": "Python",
+      "title": "Multiple calls to `__init__` during object initialization",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-multiple-calls-to-init/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Classes/CallsToInitDel/SuperclassInitCalledMultipleTimes.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/multiple-definition",
+      "language": "Python",
+      "title": "Variable defined multiple times",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-multiple-definition/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Variables/MultiplyDefined.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/mutable-descriptor",
+      "language": "Python",
+      "title": "Mutation of descriptor in `__get__` or `__set__` method",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-mutable-descriptor/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Classes/MutatingDescriptor.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/nested-loops-with-same-variable",
+      "language": "Python",
+      "title": "Nested loops with same variable",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-nested-loops-with-same-variable/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Statements/NestedLoopsSameVariable.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/nested-loops-with-same-variable-reused",
+      "language": "Python",
+      "title": "Nested loops with same variable reused after inner loop body",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-nested-loops-with-same-variable-reused/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Statements/NestedLoopsSameVariableWithReuse.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/non-iterable-in-for-loop",
+      "language": "Python",
+      "title": "Non-iterable used in for loop",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-non-iterable-in-for-loop/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Statements/NonIteratorInForLoop.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/not-named-cls",
+      "language": "Python",
+      "title": "First parameter of a class method is not named 'cls'",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-not-named-cls/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Functions/NonCls.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/not-named-self",
+      "language": "Python",
+      "title": "First parameter of a method is not named 'self'",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-not-named-self/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Functions/NonSelf.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/overly-complex-delete",
+      "language": "Python",
+      "title": "Overly complex `__del__` method",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-overly-complex-delete/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Functions/OverlyComplexDelMethod.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/percent-format/not-mapping",
+      "language": "Python",
+      "title": "Formatted object is not a mapping",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-percent-format-not-mapping/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/ExpectedMappingForFormatString.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/percent-format/unsupported-character",
+      "language": "Python",
+      "title": "Unsupported format character",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-percent-format-unsupported-character/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/UnsupportedFormatCharacter.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/percent-format/wrong-arguments",
+      "language": "Python",
+      "title": "Wrong number of arguments for format",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-percent-format-wrong-arguments/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/WrongNumberArgumentsForFormat.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/polluting-import",
+      "language": "Python",
+      "title": "'import *' may pollute namespace",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-polluting-import/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Imports/UnintentionalImport.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/print-during-import",
+      "language": "Python",
+      "title": "Use of a print statement at module level",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-print-during-import/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Statements/TopLevelPrint.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/procedure-return-value-used",
+      "language": "Python",
+      "title": "Use of the return value of a procedure",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-procedure-return-value-used/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Functions/UseImplicitNoneReturnValue.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/raise-not-implemented",
+      "language": "Python",
+      "title": "Raising `NotImplemented`",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-raise-not-implemented/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Exceptions/NotImplementedIsNotAnException.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/redundant-assignment",
+      "language": "Python",
+      "title": "Redundant assignment",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-redundant-assignment/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Statements/RedundantAssignment.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/redundant-comparison",
+      "language": "Python",
+      "title": "Redundant comparison",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-redundant-comparison/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/Comparisons/UselessComparisonTest.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/redundant-else",
+      "language": "Python",
+      "title": "Unnecessary 'else' clause in loop",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-redundant-else/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Statements/UnnecessaryElseClause.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/redundant-global-declaration",
+      "language": "Python",
+      "title": "Use of 'global' at module level",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-redundant-global-declaration/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Variables/GlobalAtModuleLevel.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/regex/backspace-escape",
+      "language": "Python",
+      "title": "Backspace escape in regular expression",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-regex-backspace-escape/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/Regex/BackspaceEscape.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/regex/duplicate-in-character-class",
+      "language": "Python",
+      "title": "Duplication in regular expression character class",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-regex-duplicate-in-character-class/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/Regex/DuplicateCharacterInSet.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/regex/incomplete-special-group",
+      "language": "Python",
+      "title": "Missing part of special group in regular expression",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-regex-incomplete-special-group/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/Regex/MissingPartSpecialGroup.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/regex/unmatchable-caret",
+      "language": "Python",
+      "title": "Unmatchable caret in regular expression",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-regex-unmatchable-caret/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/Regex/UnmatchableCaret.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/regex/unmatchable-dollar",
+      "language": "Python",
+      "title": "Unmatchable dollar in regular expression",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-regex-unmatchable-dollar/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/Regex/UnmatchableDollar.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/repeated-import",
+      "language": "Python",
+      "title": "Module is imported more than once",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-repeated-import/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Imports/MultipleImports.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/should-use-with",
+      "language": "Python",
+      "title": "Should use a 'with' statement",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-should-use-with/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Statements/ShouldUseWithStatement.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/side-effect-in-assert",
+      "language": "Python",
+      "title": "An assert statement has a side-effect",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-side-effect-in-assert/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Statements/SideEffectInAssert.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/special-method-wrong-signature",
+      "language": "Python",
+      "title": "Special method has incorrect signature",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-special-method-wrong-signature/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Functions/SignatureSpecialMethods.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/str-format/missing-argument",
+      "language": "Python",
+      "title": "Too few arguments in formatting call",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-str-format-missing-argument/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/Formatting/WrongNumberArgumentsFor3101Format.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/str-format/missing-named-argument",
+      "language": "Python",
+      "title": "Missing named arguments in formatting call",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-str-format-missing-named-argument/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/Formatting/WrongNameInArgumentsFor3101Format.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/str-format/mixed-fields",
+      "language": "Python",
+      "title": "Formatting string mixes implicitly and explicitly numbered fields",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-str-format-mixed-fields/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/Formatting/MixedExplicitImplicitIn3101Format.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/str-format/surplus-argument",
+      "language": "Python",
+      "title": "Unused argument in a formatting call",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-str-format-surplus-argument/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/Formatting/UnusedArgumentIn3101Format.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/str-format/surplus-named-argument",
+      "language": "Python",
+      "title": "Unused named argument in formatting call",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-str-format-surplus-named-argument/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/Formatting/UnusedNamedArgumentIn3101Format.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/super-not-enclosing-class",
+      "language": "Python",
+      "title": "First argument to super() is not enclosing class",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-super-not-enclosing-class/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/CallToSuperWrongClass.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/syntax-error",
+      "language": "Python",
+      "title": "Syntax error",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-syntax-error/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Imports/SyntaxError.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/test-equals-none",
+      "language": "Python",
+      "title": "Testing equality to None",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-test-equals-none/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/EqualsNone.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/undefined-export",
+      "language": "Python",
+      "title": "Explicit export is not defined",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-undefined-export/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Variables/UndefinedExport.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/unexpected-raise-in-special-method",
+      "language": "Python",
+      "title": "Non-standard exception raised in special method",
+      "category": "Reliability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-unexpected-raise-in-special-method/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Functions/IncorrectRaiseInSpecialMethod.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/unnecessary-lambda",
+      "language": "Python",
+      "title": "Unnecessary lambda",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-unnecessary-lambda/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Expressions/UnnecessaryLambda.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/unnecessary-pass",
+      "language": "Python",
+      "title": "Unnecessary pass",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-unnecessary-pass/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Statements/UnnecessaryPass.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/unreachable-except",
+      "language": "Python",
+      "title": "Unreachable `except` block",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-unreachable-except/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Exceptions/IncorrectExceptOrder.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/unreachable-statement",
+      "language": "Python",
+      "title": "Unreachable code",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-unreachable-statement/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Statements/UnreachableCode.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/unused-exception-object",
+      "language": "Python",
+      "title": "Unused exception object",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-unused-exception-object/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Statements/UnusedExceptionObject.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/unused-global-variable",
+      "language": "Python",
+      "title": "Unused global variable",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-unused-global-variable/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Variables/UnusedModuleVariable.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/unused-import",
+      "language": "Python",
+      "title": "Unused import",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-unused-import/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Imports/UnusedImport.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/unused-local-variable",
+      "language": "Python",
+      "title": "Unused local variable",
+      "category": "Maintainability",
+      "severity": "Recommendation",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-unused-local-variable/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Variables/UnusedLocalVariable.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/unused-loop-variable",
+      "language": "Python",
+      "title": "Suspicious unused loop iteration variable",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-unused-loop-variable/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Variables/SuspiciousUnusedLoopIterationVariable.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/use-of-exit-or-quit",
+      "language": "Python",
+      "title": "Use of exit() or quit()",
+      "category": "Reliability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-use-of-exit-or-quit/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Statements/UseOfExit.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "py/useless-except",
+      "language": "Python",
+      "title": "Non-exception in 'except' clause",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/python/py-useless-except/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/python/ql/src/Exceptions/IllegalExceptionHandlerType.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "rb/database-query-in-loop",
+      "language": "Ruby",
+      "title": "Database query in a loop",
+      "category": "Reliability",
+      "severity": "Info",
+      "help_url": "https://codeql.github.com/codeql-query-help/ruby/rb-database-query-in-loop/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/ruby/ql/src/queries/performance/DatabaseQueryInLoop.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "rb/uninitialized-local-variable",
+      "language": "Ruby",
+      "title": "Potentially uninitialized local variable",
+      "category": "Reliability",
+      "severity": "Error",
+      "help_url": "https://codeql.github.com/codeql-query-help/ruby/rb-uninitialized-local-variable/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/ruby/ql/src/queries/variables/UninitializedLocal.ql",
+      "implementation_status": "unimplemented"
+    },
+    {
+      "id": "rb/useless-assignment-to-local",
+      "language": "Ruby",
+      "title": "Useless assignment to local variable",
+      "category": "Maintainability",
+      "severity": "Warning",
+      "help_url": "https://codeql.github.com/codeql-query-help/ruby/rb-useless-assignment-to-local/",
+      "source_page": "https://github.com/github/codeql/blob/cb55cf1f281101f8e6d1522998e821d1b3547ce4/ruby/ql/src/queries/variables/DeadStoreOfLocal.ql",
+      "implementation_status": "unimplemented"
+    }
+  ]
+}

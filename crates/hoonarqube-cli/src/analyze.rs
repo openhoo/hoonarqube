@@ -1,7 +1,8 @@
 //! Path walking and per-file orchestration for the `analyze` subcommand.
 //!
-//! Walks requested paths, feeds each selected Python, JS/TS, C#, Go, or Rust
-//! file to its language analyzer, and returns one [`FileReport`]
+//! Walks requested paths, feeds each selected Python, JS/TS, C#, Go, Java,
+//! Ruby, or Rust file to its language analyzer, and returns one
+//! [`FileReport`]
 //! per file, sorted by path. Non-fatal problems (missing paths, explicitly
 //! passed non-source files, unreadable or non-UTF-8 files) are recorded as
 //! warnings instead of aborting the run.
@@ -254,7 +255,9 @@ pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundl
         jsts,
         csharp,
         go,
+        java: hoonarqube_core::JavaAnalyzerOptions::default(),
         rust,
+        ruby: hoonarqube_core::RubyAnalyzerOptions::default(),
     }
 }
 
@@ -370,14 +373,19 @@ mod tests {
 
     impl TempDir {
         fn new(label: &str) -> Self {
+            const MAX_ATTEMPTS: u64 = 100;
             static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let path = env::temp_dir().join(format!(
-                "hoonarqube-cli-{label}-{}-{id}",
-                std::process::id()
-            ));
-            fs::create_dir_all(&path).expect("create temp dir");
-            Self(path)
+            let pid = std::process::id();
+            for _ in 0..MAX_ATTEMPTS {
+                let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let path = env::temp_dir().join(format!("hoonarqube-cli-{label}-{pid}-{id}"));
+                match fs::create_dir(&path) {
+                    Ok(()) => return Self(path),
+                    Err(error) if error.kind() == ErrorKind::AlreadyExists => (),
+                    Err(error) => panic!("create temp dir {} for {label}: {error}", path.display()),
+                }
+            }
+            panic!("create temp dir for {label} (pid {pid}): exhausted {MAX_ATTEMPTS} attempts");
         }
 
         fn write(&self, relative: &str, contents: &str) -> PathBuf {

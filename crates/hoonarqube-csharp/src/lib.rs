@@ -236,6 +236,41 @@ pub fn analyze(
         metrics,
     }
 }
+/// Exact `CodeQL` query IDs emitted by [`analyze_github_quality`], in sorted order.
+pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
+    "cs/call-to-gc",
+    "cs/catch-nullreferenceexception",
+    "cs/class-implements-icloneable",
+    "cs/empty-lock-statement",
+    "cs/local-shadows-member",
+    "cs/lock-this",
+    "cs/nested-if-statements",
+    "cs/nested-loops-with-same-variable",
+    "cs/rethrown-exception-variable",
+    "cs/static-field-written-by-instance",
+    "cs/type-test-of-this",
+    "cs/unsafe-sync-on-field",
+    "cs/unused-label",
+];
+
+/// Runs the independently identified GitHub Code Quality queries for one C#
+/// source file.  These findings use `CodeQL` IDs (`cs/...`) and are deliberately
+/// separate from the `SonarQube` `analyze` rule set.
+#[must_use]
+pub fn analyze_github_quality(source: &str) -> Vec<hoonarqube_ir::Issue> {
+    let tree = parse(source);
+    let root = tree.root_node();
+    if root.has_error() {
+        return Vec::new();
+    }
+    let issues = github_quality::check(root, source);
+    debug_assert!(
+        issues
+            .iter()
+            .all(|issue| GITHUB_QUALITY_RULE_IDS.contains(&issue.rule_key.as_str()))
+    );
+    issues
+}
 
 /// Runs independently implemented non-Sonar C# rules. Rules requiring a
 /// semantic model only emit when the local declaration provides exact type
@@ -534,6 +569,7 @@ fn parse(source: &str) -> tree_sitter::Tree {
         .parse(source, None)
         .expect("parse always yields a tree")
 }
+mod github_quality;
 
 mod cst;
 mod metrics;
@@ -707,5 +743,425 @@ mod native_tests {
                 .count(),
             1,
         );
+    }
+}
+#[cfg(test)]
+mod github_quality_tests {
+    use super::analyze_github_quality;
+    use std::collections::BTreeSet;
+
+    fn keys(source: &str) -> BTreeSet<String> {
+        analyze_github_quality(source)
+            .into_iter()
+            .map(|issue| issue.rule_key)
+            .collect()
+    }
+
+    #[test]
+    fn every_dispatched_query_has_a_nominal_case() {
+        let found = keys(
+            r"
+using System;
+class Base
+{
+    protected object gate;
+    int value;
+    static int writes;
+    void Set(out object target) { target = null; }
+    void Shadow()
+    {
+        int value = 0;
+        if (value > 0) { if (value < 10) { } }
+        lock (gate) { gate = new object(); Set(out gate); }
+        L: ;
+        lock (this) { }
+        if (this is Child) { }
+        writes++;
+        GC.Collect();
+        System.GC.Collect();
+        global::System.GC.Collect();
+        for (int i = 0; i < 10; i++)
+        {
+            for (i = 0; i < 5; i++) { }
+    }
+    }
+    void Catch()
+    {
+        try { }
+        catch (NullReferenceException) { }
+        try { }
+        catch (Exception error) { throw error; }
+    }
+}
+class Child : Base { }
+class Cloneable : System.ICloneable
+{
+    public object Clone() => null;
+    void Test()
+    {
+        if (this is Cloneable) { }
+    }
+}
+",
+        );
+        for key in [
+            "cs/local-shadows-member",
+            "cs/nested-if-statements",
+            "cs/static-field-written-by-instance",
+            "cs/call-to-gc",
+            "cs/type-test-of-this",
+            "cs/unsafe-sync-on-field",
+            "cs/catch-nullreferenceexception",
+            "cs/rethrown-exception-variable",
+            "cs/class-implements-icloneable",
+            "cs/unused-label",
+            "cs/empty-lock-statement",
+            "cs/lock-this",
+            "cs/nested-loops-with-same-variable",
+        ] {
+            assert!(found.contains(key), "missing {key}: {found:?}");
+        }
+    }
+
+    #[test]
+    fn framework_names_and_inheritance_are_not_spelling_based() {
+        let found = analyze_github_quality(
+            r"
+using System = Custom;
+namespace Custom
+{
+    class GC { public static void Collect() {} }
+    interface ICloneable { object Clone(); }
+}
+class ICloneable { }
+class A : B { public object Clone() => null; }
+class B : A { public object Clone() => null; }
+class C
+{
+    void M()
+    {
+        Custom.GC.Collect();
+        GC.Collect();
+        try { } catch (Custom.ICloneable) { }
+    }
+}
+",
+        );
+        assert!(found.iter().all(|issue| {
+            !matches!(
+                issue.rule_key.as_str(),
+                "cs/call-to-gc"
+                    | "cs/class-implements-icloneable"
+                    | "cs/catch-nullreferenceexception"
+            )
+        }));
+    }
+
+    #[test]
+    fn qualified_types_and_nameless_catches_keep_their_entities() {
+        let found = analyze_github_quality(
+            r"
+namespace N1 { class D : C { } class C { } }
+namespace N2 { class D : C { } class C { } }
+class C
+{
+    void M()
+    {
+        if (this is N2.D) { }
+        try { } catch (System.NullReferenceException) { }
+    }
+}
+",
+        );
+        assert!(
+            found
+                .iter()
+                .any(|issue| issue.rule_key == "cs/catch-nullreferenceexception")
+        );
+        assert!(
+            found
+                .iter()
+                .all(|issue| issue.rule_key != "cs/type-test-of-this")
+        );
+    }
+
+    #[test]
+    fn linked_messages_and_flow_locations_match_codeql_shape() {
+        let found = analyze_github_quality(
+            r"
+class Base { }
+class Derived : Base { }
+class C
+{
+    object gate;
+    int value;
+    void M()
+    {
+        int value = 0;
+        value = value;
+        lock (gate) { gate = new object(); }
+        if (this is Derived) { }
+    }
+    void Deliberate()
+    {
+        int value = 0;
+        this.value = value;
+    }
+}
+",
+        );
+        let shadow = found
+            .iter()
+            .find(|issue| issue.rule_key == "cs/local-shadows-member")
+            .expect("local shadow");
+        assert!(shadow.message.contains("$@"));
+        assert_eq!(shadow.flows[0].locations[0].message, "C.value");
+        let sync = found
+            .iter()
+            .find(|issue| issue.rule_key == "cs/unsafe-sync-on-field")
+            .expect("unsafe synchronization");
+        assert!(sync.message.contains("$@"));
+        assert_eq!(sync.flows[0].locations[0].message, "gate");
+        assert_eq!(sync.flows[0].locations[1].message, "reassignment");
+    }
+
+    #[test]
+    fn binding_identity_and_callable_boundaries_are_respected() {
+        let found = analyze_github_quality(
+            r"
+class C
+{
+    int other;
+    int value;
+    void Shadow()
+    {
+        int value = 0;
+        void Later() { this.value = value; }
+    }
+    void M()
+    {
+        for (int i = 0; i < 10; i++)
+        {
+            for (int i = 0; i < 5; i++) { }
+        }
+        try { }
+        catch (System.Exception error)
+        {
+            void Later() { throw error; }
+            throw error;
+        }
+    }
+}
+",
+        );
+        assert_eq!(
+            found
+                .iter()
+                .filter(|issue| issue.rule_key == "cs/local-shadows-member")
+                .count(),
+            1
+        );
+        assert_eq!(
+            found
+                .iter()
+                .filter(|issue| issue.rule_key == "cs/nested-loops-with-same-variable")
+                .count(),
+            0
+        );
+        assert_eq!(
+            found
+                .iter()
+                .filter(|issue| issue.rule_key == "cs/rethrown-exception-variable")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn framework_type_shadows_are_lexical() {
+        let found = analyze_github_quality(
+            r"
+using System;
+namespace Unrelated
+{
+    class GC { public static void Collect() {} }
+}
+class Global
+{
+    void M() { GC.Collect(); }
+}
+namespace Shadowed
+{
+    class GC { public static void Collect() {} }
+    class Local
+    {
+        void M() { GC.Collect(); }
+    }
+}
+",
+        );
+        assert_eq!(
+            found
+                .iter()
+                .filter(|issue| issue.rule_key == "cs/call-to-gc")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn nested_type_names_are_part_of_type_identity() {
+        let found = analyze_github_quality(
+            r"
+class Base { }
+class OuterA
+{
+    class Child : Base { }
+}
+class OuterB
+{
+    class Child : OuterB { }
+    void M() { if (this is Child) { } }
+}
+",
+        );
+        assert_eq!(
+            found
+                .iter()
+                .filter(|issue| issue.rule_key == "cs/type-test-of-this")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn cst_predicates_accept_comments_without_prefix_matches() {
+        let found = analyze_github_quality(
+            r"
+class Base
+{
+    void M(object thisValue)
+    {
+        lock (/* before */ this /* after */) { }
+        if (this /* between */ is Derived) { }
+        if (thisValue is Derived) { }
+    }
+}
+class Derived : Base { }
+",
+        );
+        assert_eq!(
+            found
+                .iter()
+                .filter(|issue| issue.rule_key == "cs/lock-this")
+                .count(),
+            1
+        );
+        assert_eq!(
+            found
+                .iter()
+                .filter(|issue| issue.rule_key == "cs/type-test-of-this")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn nested_loop_analysis_reaches_past_an_unrelated_middle_loop() {
+        let found = analyze_github_quality(
+            r"
+class C
+{
+    void M()
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            for (int j = 0; j < 3; j++)
+            {
+                for (i = 0; i < 3; i++) { }
+            }
+            Console.WriteLine(i);
+        }
+    }
+}
+",
+        );
+        assert_eq!(
+            found
+                .iter()
+                .filter(|issue| issue.rule_key == "cs/nested-loops-with-same-variable")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn event_members_and_foreach_bindings_participate_in_shadowing() {
+        let found = analyze_github_quality(
+            r"
+class C
+{
+    event System.EventHandler Changed;
+    event System.EventHandler ChangedWithAccessors
+    {
+        add { }
+        remove { }
+    }
+
+    void M(System.EventHandler[] values)
+    {
+        foreach (var Changed in values) { }
+        foreach (var ChangedWithAccessors in values) { }
+    }
+}
+",
+        );
+        assert_eq!(
+            found
+                .iter()
+                .filter(|issue| issue.rule_key == "cs/local-shadows-member")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn static_event_accessors_do_not_shadow_instance_members() {
+        let found = analyze_github_quality(
+            r"
+class C
+{
+    int field;
+    static event System.EventHandler E
+    {
+        add { int field = 0; }
+        remove { int field = 0; }
+    }
+}
+",
+        );
+        assert!(
+            found
+                .iter()
+                .all(|issue| issue.rule_key != "cs/local-shadows-member")
+        );
+    }
+
+    #[test]
+    fn cloneable_issue_anchor_is_the_class_declaration() {
+        let found = analyze_github_quality(
+            r"
+class C : System.ICloneable
+{
+    public object Clone() => null;
+}
+",
+        );
+        let issue = found
+            .iter()
+            .find(|issue| issue.rule_key == "cs/class-implements-icloneable")
+            .expect("cloneable issue");
+        assert_eq!(issue.range.start.line, 2);
+        assert_eq!(issue.range.start.column, 0);
     }
 }
