@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.2 (2026-09-04)
+
+### Performance
+
+- **hoonarqube:** parallelize file analysis (#22) (48d89b5)
+
+### Other Changes
+
+- **release:** add immutable asset recovery (#21) (82a1f39)
+
 ## 0.4.1 (2026-09-04)
 
 ### Bug Fixes
