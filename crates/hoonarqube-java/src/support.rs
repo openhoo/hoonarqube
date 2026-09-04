@@ -123,66 +123,96 @@ pub(crate) fn canonical_expression(source: &str) -> String {
     let mut pending_space = false;
     let mut previous: Option<char> = None;
     while i < bytes.len() {
-        let byte = bytes[i];
-        if byte.is_ascii_whitespace() {
-            pending_space = true;
-            i += 1;
-            continue;
-        }
-        if byte == b'/' && bytes.get(i + 1) == Some(&b'/') {
-            pending_space = true;
-            i += 2;
-            while i < bytes.len() && bytes[i] != b'\n' {
-                i += 1;
-            }
-            continue;
-        }
-        if byte == b'/' && bytes.get(i + 1) == Some(&b'*') {
-            pending_space = true;
-            i += 2;
-            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                i += 1;
-            }
-            i = (i + 2).min(bytes.len());
+        if let Some(next) = skip_ignored(bytes, i, &mut pending_space) {
+            i = next;
             continue;
         }
         let Some(ch) = source[i..].chars().next() else {
             break;
         };
-        let literal = ch == '"' || ch == '\'';
-        if pending_space
-            && !output.is_empty()
-            && previous
-                .is_some_and(|value| value.is_ascii_alphanumeric() || value == '_' || value == '$')
-            && (ch.is_ascii_alphanumeric() || ch == '_' || ch == '$')
-        {
+        if needs_token_separator(pending_space, &output, previous, ch) {
             output.push(' ');
         }
         pending_space = false;
         output.push(ch);
         previous = Some(ch);
         i += ch.len_utf8();
-        if literal {
-            let quote = ch;
-            while i < bytes.len() {
-                let Some(next) = source[i..].chars().next() else {
-                    break;
-                };
-                output.push(next);
-                i += next.len_utf8();
-                if next == '\\' {
-                    if let Some(escaped) = source[i..].chars().next() {
-                        output.push(escaped);
-                        i += escaped.len_utf8();
-                    }
-                } else if next == quote {
-                    break;
-                }
-            }
-            previous = Some(quote);
+        if ch == '"' || ch == '\'' {
+            i = append_literal_tail(source, bytes, i, ch, &mut output);
+            previous = Some(ch);
         }
     }
     output
+}
+
+#[cfg(test)]
+fn skip_ignored(bytes: &[u8], i: usize, pending_space: &mut bool) -> Option<usize> {
+    if bytes[i].is_ascii_whitespace() {
+        *pending_space = true;
+        return Some(i + 1);
+    }
+    if starts_with_pair(bytes, i, b'/', b'/') {
+        *pending_space = true;
+        let mut next = i + 2;
+        while next < bytes.len() && bytes[next] != b'\n' {
+            next += 1;
+        }
+        return Some(next);
+    }
+    if starts_with_pair(bytes, i, b'/', b'*') {
+        *pending_space = true;
+        let mut next = i + 2;
+        while next + 1 < bytes.len() && !(bytes[next] == b'*' && bytes[next + 1] == b'/') {
+            next += 1;
+        }
+        return Some((next + 2).min(bytes.len()));
+    }
+    None
+}
+
+#[cfg(test)]
+fn starts_with_pair(bytes: &[u8], i: usize, first: u8, second: u8) -> bool {
+    bytes.get(i) == Some(&first) && bytes.get(i + 1) == Some(&second)
+}
+
+#[cfg(test)]
+fn needs_token_separator(
+    pending_space: bool,
+    output: &str,
+    previous: Option<char>,
+    current: char,
+) -> bool {
+    pending_space
+        && !output.is_empty()
+        && previous
+            .is_some_and(|value| value.is_ascii_alphanumeric() || value == '_' || value == '$')
+        && (current.is_ascii_alphanumeric() || current == '_' || current == '$')
+}
+
+#[cfg(test)]
+fn append_literal_tail(
+    source: &str,
+    bytes: &[u8],
+    mut i: usize,
+    quote: char,
+    output: &mut String,
+) -> usize {
+    while i < bytes.len() {
+        let Some(next) = source[i..].chars().next() else {
+            break;
+        };
+        output.push(next);
+        i += next.len_utf8();
+        if next == '\\' {
+            if let Some(escaped) = source[i..].chars().next() {
+                output.push(escaped);
+                i += escaped.len_utf8();
+            }
+        } else if next == quote {
+            break;
+        }
+    }
+    i
 }
 
 pub(crate) fn file_metrics(root: Node<'_>, source: &str) -> FileMetrics {

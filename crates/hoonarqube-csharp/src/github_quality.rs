@@ -341,106 +341,161 @@ fn member_is_static_for(
         })
 }
 
-fn local_shadows_member(root: Node<'_>, source: &str) -> Vec<Issue> {
-    let mut issues = Vec::new();
-    for owner in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
-        let Some(owner_name) = type_name(owner, source) else {
+fn owner_members<'t>(
+    owner: Node<'t>,
+    fields: &[Field<'t>],
+    source: &'t str,
+) -> Vec<(&'t str, Node<'t>)> {
+    let mut members: Vec<(&'t str, Node<'t>)> = fields
+        .iter()
+        .map(|field| (field.name, field.anchor))
+        .collect();
+    for member in type_members(owner) {
+        if !matches!(member.kind(), "property_declaration" | "event_declaration") {
+            continue;
+        }
+        let Some(name) = member_name_node(member, source) else {
             continue;
         };
-        let fields = fields_of(owner, source);
-        let mut members: Vec<(&str, Node<'_>)> = fields
-            .iter()
-            .map(|field| (field.name, field.anchor))
-            .collect();
-        for member in type_members(owner) {
-            if !matches!(member.kind(), "property_declaration" | "event_declaration") {
-                continue;
-            }
-            let Some(name) = member_name_node(member, source) else {
-                continue;
-            };
-            members.push((canonical_identifier(node_text(name, source)), name));
-        }
-        if members.is_empty() {
-            continue;
-        }
-        let members: Vec<(&str, Node<'_>)> = members;
-        let locals = collect_kinds(
-            owner,
-            &["variable_declarator", "parameter", "foreach_statement"],
-        );
-        for local in locals {
-            if enclosing_type(local) != Some(owner) {
-                continue;
-            }
-            let Some(callable) = enclosing_callable(local) else {
-                continue;
-            };
-            let Some(local_name_node) = local.child_by_field_name("name").or_else(|| {
-                matches!(local.kind(), "variable_declarator" | "foreach_statement")
-                    .then(|| {
-                        local
-                            .child_by_field_name("left")
-                            .or_else(|| first_named_child(local))
-                    })
-                    .flatten()
-            }) else {
-                continue;
-            };
-            if local_name_node.kind() != "identifier" {
-                continue;
-            }
-            let local_name = canonical_identifier(node_text(local_name_node, source));
-            let Some((_, member_anchor)) = members.iter().find(|(name, _)| *name == local_name)
-            else {
-                continue;
-            };
-            if (callable.kind() == "constructor_declaration" && local.kind() == "parameter")
-                || (callable.kind() == "method_declaration"
-                    && callable
-                        .child_by_field_name("name")
-                        .is_some_and(|name| node_text(name, source) == "Deconstruct")
-                    && local.kind() == "parameter")
-            {
-                continue;
-            }
-            let member = members
-                .iter()
-                .find(|(name, _)| *name == local_name)
-                .map_or(*member_anchor, |(_, anchor)| *anchor);
-            let member_is_static = member_is_static_for(owner, &fields, member, local_name, source);
-            if callable_is_static(callable, source) && !member_is_static {
-                continue;
-            }
-            let explicitly_qualified = collect_kinds(callable, &["member_access_expression"])
-                .into_iter()
-                .filter(|access| enclosing_callable(*access) == Some(callable))
-                .any(|access| {
-                    access.child_by_field_name("name").is_some_and(|name| {
-                        canonical_identifier(node_text(name, source)) == local_name
-                    }) && access
-                        .child_by_field_name("expression")
-                        .is_some_and(|expression| {
-                            matches!(expression.kind(), "this" | "this_expression")
-                        })
-                });
-            if explicitly_qualified {
-                continue;
-            }
-            let member_label = format!("{owner_name}.{local_name}");
-            let mut issue = Issue::new(
-                "cs/local-shadows-member",
-                format!("Local scope variable '{local_name}' shadows $@."),
-                range_of(local_name_node, source),
-            );
-            issue = issue.with_flow(vec![FlowLocation::in_primary_file(
-                member_label,
-                range_of(member, source),
-            )]);
-            issues.push(issue);
-        }
+        members.push((canonical_identifier(node_text(name, source)), name));
     }
-    issues
+    members
+}
+
+fn local_name_node(local: Node<'_>) -> Option<Node<'_>> {
+    local
+        .child_by_field_name("name")
+        .or_else(|| {
+            matches!(local.kind(), "variable_declarator" | "foreach_statement")
+                .then(|| {
+                    local
+                        .child_by_field_name("left")
+                        .or_else(|| first_named_child(local))
+                })
+                .flatten()
+        })
+        .filter(|name| name.kind() == "identifier")
+}
+
+fn local_binding_name<'t>(local: Node<'t>, source: &'t str) -> Option<(Node<'t>, &'t str)> {
+    local_name_node(local).map(|name| (name, canonical_identifier(node_text(name, source))))
+}
+
+fn is_constructor_or_deconstruct_parameter(
+    callable: Node<'_>,
+    local: Node<'_>,
+    source: &str,
+) -> bool {
+    local.kind() == "parameter"
+        && (callable.kind() == "constructor_declaration"
+            || (callable.kind() == "method_declaration"
+                && callable
+                    .child_by_field_name("name")
+                    .is_some_and(|name| node_text(name, source) == "Deconstruct")))
+}
+
+fn local_shadow_is_excluded(
+    owner: Node<'_>,
+    fields: &[Field<'_>],
+    member: Node<'_>,
+    callable: Node<'_>,
+    local_name: &str,
+    source: &str,
+) -> bool {
+    let member_is_static = member_is_static_for(owner, fields, member, local_name, source);
+    callable_is_static(callable, source) && !member_is_static
+}
+
+fn has_explicit_this_qualification(callable: Node<'_>, local_name: &str, source: &str) -> bool {
+    collect_kinds(callable, &["member_access_expression"])
+        .into_iter()
+        .filter(|access| enclosing_callable(*access) == Some(callable))
+        .any(|access| {
+            access
+                .child_by_field_name("name")
+                .is_some_and(|name| canonical_identifier(node_text(name, source)) == local_name)
+                && access
+                    .child_by_field_name("expression")
+                    .is_some_and(|expression| is_this_node(expression))
+        })
+}
+
+fn local_shadow_issue(
+    owner_name: &str,
+    local_name: &str,
+    local_name_node: Node<'_>,
+    member: Node<'_>,
+    source: &str,
+) -> Issue {
+    let mut issue = Issue::new(
+        "cs/local-shadows-member",
+        format!("Local scope variable '{local_name}' shadows $@."),
+        range_of(local_name_node, source),
+    );
+    issue = issue.with_flow(vec![FlowLocation::in_primary_file(
+        format!("{owner_name}.{local_name}"),
+        range_of(member, source),
+    )]);
+    issue
+}
+
+fn local_shadow_for_local<'t>(
+    owner: Node<'t>,
+    fields: &[Field<'t>],
+    members: &[(&'t str, Node<'t>)],
+    owner_name: &str,
+    local: Node<'t>,
+    source: &'t str,
+) -> Option<Issue> {
+    if enclosing_type(local) != Some(owner) {
+        return None;
+    }
+    let callable = enclosing_callable(local)?;
+    let (local_name_node, local_name) = local_binding_name(local, source)?;
+    let member = members
+        .iter()
+        .find(|(name, _)| *name == local_name)
+        .map(|(_, anchor)| *anchor)?;
+    if is_constructor_or_deconstruct_parameter(callable, local, source) {
+        return None;
+    }
+    if local_shadow_is_excluded(owner, fields, member, callable, local_name, source)
+        || has_explicit_this_qualification(callable, local_name, source)
+    {
+        return None;
+    }
+    Some(local_shadow_issue(
+        owner_name,
+        local_name,
+        local_name_node,
+        member,
+        source,
+    ))
+}
+
+fn local_shadows_for_owner<'t>(owner: Node<'t>, source: &'t str) -> Vec<Issue> {
+    let Some(owner_name) = type_name(owner, source) else {
+        return Vec::new();
+    };
+    let fields = fields_of(owner, source);
+    let members = owner_members(owner, &fields, source);
+    if members.is_empty() {
+        return Vec::new();
+    }
+    collect_kinds(
+        owner,
+        &["variable_declarator", "parameter", "foreach_statement"],
+    )
+    .into_iter()
+    .filter_map(|local| local_shadow_for_local(owner, &fields, &members, owner_name, local, source))
+    .collect()
+}
+
+fn local_shadows_member(root: Node<'_>, source: &str) -> Vec<Issue> {
+    collect_kinds(root, &TYPE_DECLARATION_KINDS)
+        .into_iter()
+        .flat_map(|owner| local_shadows_for_owner(owner, source))
+        .collect()
 }
 
 fn direct_statement_bodies(node: Node<'_>) -> Vec<Node<'_>> {

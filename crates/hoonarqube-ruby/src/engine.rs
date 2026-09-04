@@ -170,89 +170,150 @@ fn visit_locals(
     let mut pending = vec![(node, current)];
     while let Some((node, current)) = pending.pop() {
         let scope = owner_for(node, current, by_start);
-        match node.kind() {
-            "method" | "singleton_method" | "lambda" => {
-                if let Some(parameters) = node.child_by_field_name("parameters") {
-                    collect_parameter_writes(parameters, scope, BindingKind::Parameter, map, facts);
-                }
-                if let Some(body) = node.child_by_field_name("body") {
-                    pending.push((body, scope));
-                }
-                continue;
-            }
-            "block" | "do_block" => {
-                if let Some(parameters) = node.child_by_field_name("parameters") {
-                    collect_parameter_writes(
-                        parameters,
-                        scope,
-                        BindingKind::BlockParameter,
-                        map,
-                        facts,
-                    );
-                }
-            }
-            "class" | "module" => {
-                if let Some(body) = node.child_by_field_name("body") {
-                    pending.push((body, scope));
-                }
-                continue;
-            }
-            "assignment" => {
-                if let Some(right) = node.child_by_field_name("right") {
-                    pending.push((right, scope));
-                }
-                if let Some(left) = node.child_by_field_name("left") {
-                    collect_lhs(left, scope, map, facts, BindingKind::Local);
-                }
-                continue;
-            }
-            "operator_assignment" => {
-                if let Some(right) = node.child_by_field_name("right") {
-                    pending.push((right, scope));
-                }
-                if let Some(left) = node.child_by_field_name("left") {
-                    collect_lhs(left, scope, map, facts, BindingKind::Local);
-                    pending.push((left, scope));
-                }
-                continue;
-            }
-            "for" => {
-                if let Some(pattern) = node.child_by_field_name("pattern") {
-                    collect_lhs(pattern, scope, map, facts, BindingKind::ForVariable);
-                }
-            }
-            "rescue" => {
-                if let Some(variable) = node.child_by_field_name("variable") {
-                    collect_lhs(variable, scope, map, facts, BindingKind::RescueVariable);
-                }
-            }
-            "identifier" => {
-                add_local(facts, map, node, LocalFactKind::Read, scope);
-                continue;
-            }
-            _ => {}
+        if handle_local_node(node, scope, map, facts, &mut pending) {
+            continue;
         }
-        let parameters = node.child_by_field_name("parameters");
-        let excluded_binding = node.child_by_field_name(if node.kind() == "for" {
-            "pattern"
-        } else {
-            "variable"
-        });
-        let mut cursor = node.walk();
-        let children: Vec<_> = node.named_children(&mut cursor).collect();
-        for child in children.into_iter().rev() {
-            if parameters.is_some_and(|value| value.id() == child.id())
-                || excluded_binding.is_some_and(|value| value.id() == child.id())
-                || (node.kind() == "call"
-                    && node
-                        .child_by_field_name("method")
-                        .is_some_and(|method| method.id() == child.id()))
-            {
-                continue;
-            }
-            pending.push((child, scope));
-        }
+        schedule_local_children(node, scope, &mut pending);
     }
+}
+
+fn handle_local_node<'tree>(
+    node: Node<'tree>,
+    scope: usize,
+    map: &SourceMap,
+    facts: &mut RubyFacts,
+    pending: &mut Vec<(Node<'tree>, usize)>,
+) -> bool {
+    match node.kind() {
+        "method" | "singleton_method" | "lambda" => {
+            collect_node_parameters(node, scope, BindingKind::Parameter, map, facts);
+            schedule_node_body(node, scope, pending);
+            true
+        }
+        "block" | "do_block" => {
+            collect_node_parameters(node, scope, BindingKind::BlockParameter, map, facts);
+            false
+        }
+        "class" | "module" => {
+            schedule_node_body(node, scope, pending);
+            true
+        }
+        "assignment" => {
+            schedule_assignment(node, scope, map, facts, pending);
+            true
+        }
+        "operator_assignment" => {
+            schedule_operator_assignment(node, scope, map, facts, pending);
+            true
+        }
+        "for" => {
+            if let Some(pattern) = node.child_by_field_name("pattern") {
+                collect_lhs(pattern, scope, map, facts, BindingKind::ForVariable);
+            }
+            false
+        }
+        "rescue" => {
+            if let Some(variable) = node.child_by_field_name("variable") {
+                collect_lhs(variable, scope, map, facts, BindingKind::RescueVariable);
+            }
+            false
+        }
+        "identifier" => {
+            add_local(facts, map, node, LocalFactKind::Read, scope);
+            true
+        }
+        _ => false,
+    }
+}
+
+fn collect_node_parameters(
+    node: Node<'_>,
+    scope: usize,
+    kind: BindingKind,
+    map: &SourceMap,
+    facts: &mut RubyFacts,
+) {
+    if let Some(parameters) = node.child_by_field_name("parameters") {
+        collect_parameter_writes(parameters, scope, kind, map, facts);
+    }
+}
+
+fn schedule_node_body<'tree>(
+    node: Node<'tree>,
+    scope: usize,
+    pending: &mut Vec<(Node<'tree>, usize)>,
+) {
+    if let Some(body) = node.child_by_field_name("body") {
+        pending.push((body, scope));
+    }
+}
+
+fn schedule_assignment<'tree>(
+    node: Node<'tree>,
+    scope: usize,
+    map: &SourceMap,
+    facts: &mut RubyFacts,
+    pending: &mut Vec<(Node<'tree>, usize)>,
+) {
+    if let Some(right) = node.child_by_field_name("right") {
+        pending.push((right, scope));
+    }
+    if let Some(left) = node.child_by_field_name("left") {
+        collect_lhs(left, scope, map, facts, BindingKind::Local);
+    }
+}
+
+fn schedule_operator_assignment<'tree>(
+    node: Node<'tree>,
+    scope: usize,
+    map: &SourceMap,
+    facts: &mut RubyFacts,
+    pending: &mut Vec<(Node<'tree>, usize)>,
+) {
+    if let Some(right) = node.child_by_field_name("right") {
+        pending.push((right, scope));
+    }
+    if let Some(left) = node.child_by_field_name("left") {
+        collect_lhs(left, scope, map, facts, BindingKind::Local);
+        pending.push((left, scope));
+    }
+}
+
+fn schedule_local_children<'tree>(
+    node: Node<'tree>,
+    scope: usize,
+    pending: &mut Vec<(Node<'tree>, usize)>,
+) {
+    let parameters = node.child_by_field_name("parameters");
+    let excluded_binding = if node.kind() == "for" {
+        node.child_by_field_name("pattern")
+    } else {
+        node.child_by_field_name("variable")
+    };
+    let method = if node.kind() == "call" {
+        node.child_by_field_name("method")
+    } else {
+        None
+    };
+    let mut cursor = node.walk();
+    let children: Vec<_> = node.named_children(&mut cursor).collect();
+    for child in children.into_iter().rev() {
+        if local_child_is_excluded(child, parameters, excluded_binding, method) {
+            continue;
+        }
+        pending.push((child, scope));
+    }
+}
+
+fn local_child_is_excluded<'tree>(
+    child: Node<'tree>,
+    parameters: Option<Node<'tree>>,
+    excluded_binding: Option<Node<'tree>>,
+    method: Option<Node<'tree>>,
+) -> bool {
+    parameters.is_some_and(|value| value.id() == child.id())
+        || excluded_binding.is_some_and(|value| value.id() == child.id())
+        || method.is_some_and(|value| value.id() == child.id())
 }
 
 fn collect_parameter_writes(
@@ -374,6 +435,18 @@ fn add_local_with_kind(
 }
 
 fn resolve_bindings(facts: &mut RubyFacts) {
+    let declarations = collect_declarations(facts);
+    let targets = resolve_write_targets(facts, &declarations);
+    let binding_names = collect_binding_names(facts, &targets);
+    for (index, local) in facts.locals.clone().into_iter().enumerate() {
+        let binding_scope =
+            binding_scope_for_local(&local, targets[index], &binding_names, &facts.scopes);
+        record_binding(facts, index, &local, binding_scope);
+    }
+    sort_bindings(facts);
+}
+
+fn collect_declarations(facts: &RubyFacts) -> Vec<BTreeMap<String, BindingKind>> {
     let mut declarations = vec![BTreeMap::<String, BindingKind>::new(); facts.scopes.len()];
     for local in facts
         .locals
@@ -384,89 +457,127 @@ fn resolve_bindings(facts: &mut RubyFacts) {
             .entry(local.name.clone())
             .or_insert(local.binding_kind);
     }
+    declarations
+}
 
+fn resolve_write_targets(
+    facts: &RubyFacts,
+    declarations: &[BTreeMap<String, BindingKind>],
+) -> Vec<Option<usize>> {
     let mut targets = vec![None; facts.locals.len()];
     for (index, local) in facts.locals.iter().enumerate() {
-        if local.kind != LocalFactKind::Write {
-            continue;
+        if local.kind == LocalFactKind::Write {
+            targets[index] = Some(write_target_for(local, facts, declarations));
         }
-        let mut target = local.lexical_scope;
-        if local.binding_kind != BindingKind::BlockParameter
-            && facts.scopes[target].kind == ScopeKind::Block
-        {
-            let mut parent = facts.scopes[target].parent;
-            while let Some(parent_id) = parent {
-                if declarations[parent_id].contains_key(&local.name) {
-                    target = parent_id;
-                    break;
-                }
-                if is_scope_boundary(facts.scopes[parent_id].kind.as_str()) {
-                    break;
-                }
-                parent = facts.scopes[parent_id].parent;
-            }
-        }
-        targets[index] = Some(target);
     }
+    targets
+}
 
+fn write_target_for(
+    local: &LocalFact,
+    facts: &RubyFacts,
+    declarations: &[BTreeMap<String, BindingKind>],
+) -> usize {
+    let target = local.lexical_scope;
+    if local.binding_kind == BindingKind::BlockParameter
+        || facts.scopes[target].kind != ScopeKind::Block
+    {
+        return target;
+    }
+    let mut parent = facts.scopes[target].parent;
+    while let Some(parent_id) = parent {
+        if declarations[parent_id].contains_key(&local.name) {
+            return parent_id;
+        }
+        if is_scope_boundary(facts.scopes[parent_id].kind.as_str()) {
+            break;
+        }
+        parent = facts.scopes[parent_id].parent;
+    }
+    target
+}
+
+fn collect_binding_names(facts: &RubyFacts, targets: &[Option<usize>]) -> Vec<BTreeSet<String>> {
     let mut binding_names = vec![BTreeSet::new(); facts.scopes.len()];
     for (index, target) in targets.iter().enumerate() {
         if let Some(scope_id) = target {
             binding_names[*scope_id].insert(facts.locals[index].name.clone());
         }
     }
+    binding_names
+}
 
-    for (index, local) in facts.locals.clone().into_iter().enumerate() {
-        let binding_scope = if let Some(target) = targets[index] {
-            Some(target)
-        } else {
-            let mut scope = local.lexical_scope;
-            loop {
-                if binding_names[scope].contains(&local.name) {
-                    break Some(scope);
-                }
-                let parent = facts.scopes[scope].parent;
-                if parent.is_none() || is_scope_boundary(facts.scopes[scope].kind.as_str()) {
-                    break None;
-                }
-                scope = parent.expect("checked above");
-            }
-        };
-        facts.locals[index].binding_scope = binding_scope;
-        if let Some(scope_id) = binding_scope {
-            let binding_kind = if local.kind == LocalFactKind::Write {
-                local.binding_kind
-            } else {
-                BindingKind::Local
-            };
-            let binding = facts.scopes[scope_id]
-                .bindings
-                .entry(local.name.clone())
-                .or_insert_with(|| Binding {
-                    name: local.name.clone(),
-                    kind: binding_kind,
-                    scope_id,
-                    declaration: local.range.clone(),
-                    writes: Vec::new(),
-                    reads: Vec::new(),
-                    captured: false,
-                });
-            if local.kind == LocalFactKind::Write {
-                binding.writes.push(index);
-                if binding.kind == BindingKind::Local && binding_kind != BindingKind::Local {
-                    binding.kind = binding_kind;
-                }
-                if binding.writes.len() == 1 {
-                    binding.declaration = local.range.clone();
-                }
-            } else {
-                binding.reads.push(index);
-            }
-            if scope_id != local.lexical_scope {
-                binding.captured = true;
-            }
+fn binding_scope_for_local(
+    local: &LocalFact,
+    target: Option<usize>,
+    binding_names: &[BTreeSet<String>],
+    scopes: &[Scope],
+) -> Option<usize> {
+    target.or_else(|| inherited_binding_scope(local, binding_names, scopes))
+}
+
+fn inherited_binding_scope(
+    local: &LocalFact,
+    binding_names: &[BTreeSet<String>],
+    scopes: &[Scope],
+) -> Option<usize> {
+    let mut scope = local.lexical_scope;
+    loop {
+        if binding_names[scope].contains(&local.name) {
+            return Some(scope);
         }
+        let parent = scopes[scope].parent;
+        if parent.is_none() || is_scope_boundary(scopes[scope].kind.as_str()) {
+            return None;
+        }
+        scope = parent.expect("checked above");
     }
+}
+
+fn record_binding(
+    facts: &mut RubyFacts,
+    index: usize,
+    local: &LocalFact,
+    binding_scope: Option<usize>,
+) {
+    facts.locals[index].binding_scope = binding_scope;
+    let Some(scope_id) = binding_scope else {
+        return;
+    };
+    let binding_kind = if local.kind == LocalFactKind::Write {
+        local.binding_kind
+    } else {
+        BindingKind::Local
+    };
+    let binding = facts.scopes[scope_id]
+        .bindings
+        .entry(local.name.clone())
+        .or_insert_with(|| Binding {
+            name: local.name.clone(),
+            kind: binding_kind,
+            scope_id,
+            declaration: local.range.clone(),
+            writes: Vec::new(),
+            reads: Vec::new(),
+            captured: false,
+        });
+    if local.kind == LocalFactKind::Write {
+        binding.writes.push(index);
+        if binding.kind == BindingKind::Local && binding_kind != BindingKind::Local {
+            binding.kind = binding_kind;
+        }
+        if binding.writes.len() == 1 {
+            binding.declaration = local.range.clone();
+        }
+    } else {
+        binding.reads.push(index);
+    }
+    if scope_id != local.lexical_scope {
+        binding.captured = true;
+    }
+}
+
+fn sort_bindings(facts: &mut RubyFacts) {
     for scope in &mut facts.scopes {
         for binding in scope.bindings.values_mut() {
             binding.writes.sort_unstable();
@@ -570,49 +681,45 @@ fn method_from_text(text: &str) -> String {
 fn nil_guards(condition: Node<'_>, map: &SourceMap) -> Vec<NilGuard> {
     let text = node_text(condition, map.source()).trim();
     let range = map.range(condition.start_byte(), condition.end_byte());
-    let mut out = Vec::new();
-    let (truthy_branch, expression) = if let Some(rest) = text.strip_prefix('!') {
-        (false, rest.trim())
-    } else {
-        (true, text)
-    };
-    if let Some(variable) = expression.strip_suffix(".nil?") {
-        let variable = variable.trim();
-        if is_identifier(variable) {
-            out.push(NilGuard {
-                variable: variable.to_string(),
-                state: if truthy_branch {
-                    NilState::Nil
-                } else {
-                    NilState::NotNil
-                },
-                range,
-                truthy_branch,
-            });
-        }
-    } else if let Some((left, right, equal)) = comparison(expression) {
-        let variable = if right == "nil" { left } else { right };
-        if is_identifier(variable) {
-            out.push(NilGuard {
-                variable: variable.to_string(),
-                state: if equal == "==" {
-                    NilState::Nil
-                } else {
-                    NilState::NotNil
-                },
-                range,
-                truthy_branch,
-            });
-        }
-    } else if is_identifier(expression) {
-        out.push(NilGuard {
-            variable: expression.to_string(),
-            state: NilState::NotNil,
+    let (truthy_branch, expression) = parse_guard_branch(text);
+    match nil_guard_candidate(expression, truthy_branch) {
+        Some((variable, state)) => vec![NilGuard {
+            variable: variable.to_string(),
+            state,
             range,
             truthy_branch,
-        });
+        }],
+        None => Vec::new(),
     }
-    out
+}
+
+fn parse_guard_branch(text: &str) -> (bool, &str) {
+    match text.strip_prefix('!') {
+        Some(rest) => (false, rest.trim()),
+        None => (true, text),
+    }
+}
+
+fn nil_guard_candidate(expression: &str, truthy_branch: bool) -> Option<(&str, NilState)> {
+    if let Some(variable) = expression.strip_suffix(".nil?") {
+        let variable = variable.trim();
+        let state = if truthy_branch {
+            NilState::Nil
+        } else {
+            NilState::NotNil
+        };
+        return is_identifier(variable).then_some((variable, state));
+    }
+    if let Some((left, right, equal)) = comparison(expression) {
+        let variable = if right == "nil" { left } else { right };
+        let state = if equal == "==" {
+            NilState::Nil
+        } else {
+            NilState::NotNil
+        };
+        return is_identifier(variable).then_some((variable, state));
+    }
+    is_identifier(expression).then_some((expression, NilState::NotNil))
 }
 
 fn comparison(text: &str) -> Option<(&str, &str, &str)> {
@@ -1737,30 +1844,41 @@ fn solve_initialized_locals(
             if !tick() {
                 return false;
             }
-            let mut incoming: Option<BTreeSet<ScopedLocal>> = None;
-            for predecessor in &node.predecessors {
-                incoming = Some(match incoming {
-                    Some(current) => current
-                        .intersection(&state.initialized_out[*predecessor])
-                        .cloned()
-                        .collect(),
-                    None => state.initialized_out[*predecessor].clone(),
-                });
-            }
-            let incoming = incoming.unwrap_or_default();
-            let mut outgoing = incoming.clone();
-            outgoing.extend(node.scoped_writes.iter().cloned());
-            if state.initialized_in[node.id] != incoming {
-                state.initialized_in[node.id] = incoming;
-                changed = true;
-            }
-            if state.initialized_out[node.id] != outgoing {
-                state.initialized_out[node.id] = outgoing;
+            if update_initialized_node(node, state) {
                 changed = true;
             }
         }
     }
     true
+}
+
+fn initialized_incoming(node: &CfgNode, state: &DataflowState) -> BTreeSet<ScopedLocal> {
+    let mut incoming: Option<BTreeSet<ScopedLocal>> = None;
+    for predecessor in &node.predecessors {
+        incoming = Some(match incoming {
+            Some(current) => current
+                .intersection(&state.initialized_out[*predecessor])
+                .cloned()
+                .collect(),
+            None => state.initialized_out[*predecessor].clone(),
+        });
+    }
+    incoming.unwrap_or_default()
+}
+
+fn update_initialized_node(node: &CfgNode, state: &mut DataflowState) -> bool {
+    let incoming = initialized_incoming(node, state);
+    let mut outgoing = incoming.clone();
+    outgoing.extend(node.scoped_writes.iter().cloned());
+    let incoming_changed = state.initialized_in[node.id] != incoming;
+    let outgoing_changed = state.initialized_out[node.id] != outgoing;
+    if incoming_changed {
+        state.initialized_in[node.id] = incoming;
+    }
+    if outgoing_changed {
+        state.initialized_out[node.id] = outgoing;
+    }
+    incoming_changed || outgoing_changed
 }
 
 fn solve_live_locals(

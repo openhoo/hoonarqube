@@ -138,52 +138,8 @@ impl<'source, 'index> Builder<'source, 'index> {
             return self.budget_node(node);
         }
         self.work_items = self.work_items.saturating_add(1);
-        let (start, end, range) =
-            node.map_or((0, 0, self.index.range(self.source, 0, 0)), |node| {
-                (
-                    node.start_byte(),
-                    node.end_byte(),
-                    range_of(node, self.source, self.index),
-                )
-            });
-        let mut reads = BTreeSet::new();
-        let mut writes = BTreeSet::new();
-        for reference in &self.semantics.references {
-            self.work_items = self.work_items.saturating_add(1);
-            if self.work_items >= MAX_CFG_WORK {
-                self.budget_exhausted = true;
-                break;
-            }
-            let position = reference.range.start;
-            let outer = self.index.range(self.source, start, end);
-            if position >= outer.start && position <= outer.end {
-                if reference.is_write {
-                    writes.insert(reference.name.clone());
-                } else {
-                    reads.insert(reference.name.clone());
-                }
-            }
-        }
-        if !self.budget_exhausted {
-            for symbol in &self.semantics.symbols {
-                self.work_items = self.work_items.saturating_add(1);
-                if self.work_items >= MAX_CFG_WORK {
-                    self.budget_exhausted = true;
-                    break;
-                }
-                if symbol.byte_start() >= start
-                    && symbol.byte_start() <= end
-                    && matches!(
-                        symbol.kind,
-                        crate::context::SymbolKind::Local
-                            | crate::context::SymbolKind::Parameter
-                            | crate::context::SymbolKind::Field
-                    )
-                {
-                    writes.insert(symbol.canonical_name.clone());
-                }
-            }
-        }
+        let (start, end, range) = self.node_details(node);
+        let (reads, writes) = self.node_facts(start, end);
         let id = self.nodes.len();
         self.nodes.push(CfgNode {
             id,
@@ -195,6 +151,100 @@ impl<'source, 'index> Builder<'source, 'index> {
             writes,
         });
         id
+    }
+
+    fn node_details(&self, node: Option<Node<'_>>) -> (usize, usize, Range) {
+        node.map_or((0, 0, self.index.range(self.source, 0, 0)), |node| {
+            (
+                node.start_byte(),
+                node.end_byte(),
+                range_of(node, self.source, self.index),
+            )
+        })
+    }
+
+    fn node_facts(&mut self, start: usize, end: usize) -> (BTreeSet<String>, BTreeSet<String>) {
+        let mut reads = BTreeSet::new();
+        let mut writes = BTreeSet::new();
+        let outer = self.index.range(self.source, start, end);
+        Self::collect_reference_facts(
+            &self.semantics.references,
+            &outer,
+            &mut self.work_items,
+            &mut self.budget_exhausted,
+            &mut reads,
+            &mut writes,
+        );
+        if !self.budget_exhausted {
+            Self::collect_symbol_writes(
+                &self.semantics.symbols,
+                start,
+                end,
+                &mut self.work_items,
+                &mut self.budget_exhausted,
+                &mut writes,
+            );
+        }
+        (reads, writes)
+    }
+
+    fn consume_work(work_items: &mut usize, budget_exhausted: &mut bool) -> bool {
+        *work_items = work_items.saturating_add(1);
+        if *work_items >= MAX_CFG_WORK {
+            *budget_exhausted = true;
+            false
+        } else {
+            true
+        }
+    }
+
+    fn collect_reference_facts(
+        references: &[crate::context::ReferenceFact],
+        outer: &Range,
+        work_items: &mut usize,
+        budget_exhausted: &mut bool,
+        reads: &mut BTreeSet<String>,
+        writes: &mut BTreeSet<String>,
+    ) {
+        for reference in references {
+            if !Self::consume_work(work_items, budget_exhausted) {
+                break;
+            }
+            let position = reference.range.start;
+            if position >= outer.start && position <= outer.end {
+                if reference.is_write {
+                    writes.insert(reference.name.clone());
+                } else {
+                    reads.insert(reference.name.clone());
+                }
+            }
+        }
+    }
+
+    fn collect_symbol_writes(
+        symbols: &[crate::context::Symbol],
+        start: usize,
+        end: usize,
+        work_items: &mut usize,
+        budget_exhausted: &mut bool,
+        writes: &mut BTreeSet<String>,
+    ) {
+        for symbol in symbols {
+            if !Self::consume_work(work_items, budget_exhausted) {
+                break;
+            }
+            if symbol.byte_start() >= start
+                && symbol.byte_start() <= end
+                && matches!(
+                    symbol.kind,
+                    crate::context::SymbolKind::Local
+                        | crate::context::SymbolKind::Parameter
+                        | crate::context::SymbolKind::Field
+                )
+            {
+                writes.insert(symbol.canonical_name.clone());
+            }
+        }
     }
 
     fn edge(&mut self, from: NodeId, to: NodeId) {
@@ -424,38 +474,8 @@ pub fn solve_dataflow(cfg: &ControlFlowGraph) -> DataflowSummary {
     let limit = count.saturating_mul(8).max(8);
     for iteration in 0..limit {
         iterations = iteration + 1;
-        let mut changed = false;
-        for node in &cfg.nodes {
-            let mut input = BTreeSet::new();
-            for &predecessor in &node.predecessors {
-                input.extend(reaching_out[predecessor].iter().cloned());
-            }
-            let mut output = input.clone();
-            output.retain(|definition: &Definition| !node.writes.contains(&definition.variable));
-            for variable in &node.writes {
-                output.insert(Definition {
-                    variable: variable.clone(),
-                    site: node.id,
-                });
-            }
-            changed |= input != reaching_in[node.id] || output != reaching_out[node.id];
-            reaching_in[node.id] = input;
-            reaching_out[node.id] = output;
-        }
-        for node in cfg.nodes.iter().rev() {
-            let mut output = BTreeSet::new();
-            for &successor in &node.successors {
-                output.extend(live_in[successor].iter().cloned());
-            }
-            let mut input = output.clone();
-            for variable in &node.writes {
-                input.remove(variable);
-            }
-            input.extend(node.reads.iter().cloned());
-            changed |= input != live_in[node.id] || output != live_out[node.id];
-            live_in[node.id] = input;
-            live_out[node.id] = output;
-        }
+        let changed = reaching_pass(cfg, &mut reaching_in, &mut reaching_out)
+            | liveness_pass(cfg, &mut live_in, &mut live_out);
         if !changed {
             break;
         }
@@ -467,6 +487,55 @@ pub fn solve_dataflow(cfg: &ControlFlowGraph) -> DataflowSummary {
         live_out,
         iterations,
     }
+}
+
+fn reaching_pass(
+    cfg: &ControlFlowGraph,
+    reaching_in: &mut [BTreeSet<Definition>],
+    reaching_out: &mut [BTreeSet<Definition>],
+) -> bool {
+    let mut changed = false;
+    for node in &cfg.nodes {
+        let mut input = BTreeSet::new();
+        for &predecessor in &node.predecessors {
+            input.extend(reaching_out[predecessor].iter().cloned());
+        }
+        let mut output = input.clone();
+        output.retain(|definition: &Definition| !node.writes.contains(&definition.variable));
+        for variable in &node.writes {
+            output.insert(Definition {
+                variable: variable.clone(),
+                site: node.id,
+            });
+        }
+        changed |= input != reaching_in[node.id] || output != reaching_out[node.id];
+        reaching_in[node.id] = input;
+        reaching_out[node.id] = output;
+    }
+    changed
+}
+
+fn liveness_pass(
+    cfg: &ControlFlowGraph,
+    live_in: &mut [BTreeSet<String>],
+    live_out: &mut [BTreeSet<String>],
+) -> bool {
+    let mut changed = false;
+    for node in cfg.nodes.iter().rev() {
+        let mut output = BTreeSet::new();
+        for &successor in &node.successors {
+            output.extend(live_in[successor].iter().cloned());
+        }
+        let mut input = output.clone();
+        for variable in &node.writes {
+            input.remove(variable);
+        }
+        input.extend(node.reads.iter().cloned());
+        changed |= input != live_in[node.id] || output != live_out[node.id];
+        live_in[node.id] = input;
+        live_out[node.id] = output;
+    }
+    changed
 }
 
 #[must_use]
@@ -540,38 +609,7 @@ pub fn github_quality_issues(root: Node<'_>, source: &str, index: &LineIndex) ->
     );
 
     for node in nodes.iter().copied() {
-        let kind = node.kind();
-        if kind == "class_declaration" {
-            class_issues(root, node, source, index, &semantics, &mut issues);
-        }
-        if kind == "object_creation_expression" {
-            object_creation_issues(node, source, index, &semantics, &mut issues);
-        }
-        if kind == "labeled_statement" {
-            label_issues(node, source, index, &mut issues);
-        }
-        if is_underscore_declaration(node, source) {
-            issues.push(issue(
-                "java/underscore-identifier",
-                "Use of underscore as a one-character identifier",
-                node,
-                source,
-                index,
-            ));
-        }
-        if kind == "string_literal" {
-            literal_issues(node, source, index, &mut issues);
-        }
-        if kind == "binary_expression" {
-            binary_issues(node, source, index, &mut issues);
-        }
-        if matches!(
-            kind,
-            "if_statement" | "while_statement" | "for_statement" | "enhanced_for_statement"
-        ) && misleading_indentation(node, source)
-        {
-            indentation_issue(node, source, index, &mut issues);
-        }
+        collect_node_issues(root, node, source, index, &semantics, &mut issues);
     }
 
     issues.extend(javadoc_issues(root, source, index));
@@ -580,6 +618,86 @@ pub fn github_quality_issues(root: Node<'_>, source: &str, index: &LineIndex) ->
     hoonarqube_ir::sort_issues(&mut issues);
     issues.dedup();
     issues
+}
+
+fn collect_node_issues(
+    root: Node<'_>,
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    collect_declaration_issues(root, node, source, index, semantics, issues);
+    collect_underscore_issue(node, source, index, issues);
+    collect_expression_issues(node, source, index, issues);
+    collect_indentation_issue(node, source, index, issues);
+}
+
+fn collect_declaration_issues(
+    root: Node<'_>,
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    match node.kind() {
+        "class_declaration" => class_issues(root, node, source, index, semantics, issues),
+        "object_creation_expression" => {
+            object_creation_issues(node, source, index, semantics, issues);
+        }
+        "labeled_statement" => label_issues(node, source, index, issues),
+        _ => {}
+    }
+}
+
+fn collect_underscore_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    issues: &mut Vec<Issue>,
+) {
+    if is_underscore_declaration(node, source) {
+        issues.push(issue(
+            "java/underscore-identifier",
+            "Use of underscore as a one-character identifier",
+            node,
+            source,
+            index,
+        ));
+    }
+}
+
+fn collect_expression_issues(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    issues: &mut Vec<Issue>,
+) {
+    match node.kind() {
+        "string_literal" => literal_issues(node, source, index, issues),
+        "binary_expression" => binary_issues(node, source, index, issues),
+        _ => {}
+    }
+}
+
+fn collect_indentation_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    issues: &mut Vec<Issue>,
+) {
+    if is_indentation_control(node.kind()) && misleading_indentation(node, source) {
+        indentation_issue(node, source, index, issues);
+    }
+}
+
+fn is_indentation_control(kind: &str) -> bool {
+    matches!(
+        kind,
+        "if_statement" | "while_statement" | "for_statement" | "enhanced_for_statement"
+    )
 }
 
 fn class_issues(

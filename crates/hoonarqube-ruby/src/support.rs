@@ -312,6 +312,99 @@ fn heredoc_opener(bytes: &[u8], index: usize) -> Option<(usize, HeredocState)> {
     ))
 }
 
+fn consume_percent_literal_byte(byte: u8, state: &mut LexicalState) {
+    let Some((opening, closing, mut depth)) = state.percent_literal else {
+        return;
+    };
+    if state.percent_escaped {
+        state.percent_escaped = false;
+    } else if byte == b'\\' {
+        state.percent_escaped = true;
+    } else if opening != closing && byte == opening {
+        depth = depth.saturating_add(1);
+        state.percent_literal = Some((opening, closing, depth));
+    } else if byte == closing {
+        state.percent_literal = if opening != closing && depth > 1 {
+            Some((opening, closing, depth - 1))
+        } else {
+            None
+        };
+    }
+}
+
+fn consume_escaped_or_quoted_byte(byte: u8, state: &mut LexicalState) -> bool {
+    if state.escaped {
+        state.escaped = false;
+        return true;
+    }
+    let Some(delimiter) = state.quote else {
+        return false;
+    };
+    if byte == b'\\' {
+        state.escaped = true;
+    } else if byte == delimiter {
+        state.quote = None;
+    }
+    true
+}
+
+fn percent_literal_opener(bytes: &[u8], index: usize, state: &mut LexicalState) -> Option<usize> {
+    let percent_type = matches!(
+        bytes.get(index + 1),
+        Some(b'q' | b'Q' | b'w' | b'W' | b'i' | b'I' | b'x' | b'r' | b's')
+    );
+    let delimiter_index = index + if percent_type { 2 } else { 1 };
+    let &delimiter = bytes.get(delimiter_index)?;
+    let paired = matches!(delimiter, b'{' | b'[' | b'(' | b'<');
+    let quoted = matches!(delimiter, b'\'' | b'"' | b'`');
+    let punctuation = !delimiter.is_ascii_alphanumeric()
+        && !delimiter.is_ascii_whitespace()
+        && delimiter != b'_'
+        && delimiter != b'\\';
+    if !(percent_type && punctuation || !percent_type && (paired || quoted)) {
+        return None;
+    }
+    let closing = match delimiter {
+        b'{' => b'}',
+        b'[' => b']',
+        b'(' => b')',
+        b'<' => b'>',
+        _ => delimiter,
+    };
+    state.percent_literal = Some((delimiter, closing, usize::from(paired)));
+    Some(delimiter_index + 1)
+}
+
+fn handle_lexical_opener(bytes: &[u8], index: usize, state: &mut LexicalState) -> Option<usize> {
+    match bytes[index] {
+        b'\'' | b'"' => {
+            state.quote = Some(bytes[index]);
+            Some(index + 1)
+        }
+        b'%' => percent_literal_opener(bytes, index, state),
+        b'<' => {
+            let (end, heredoc) = heredoc_opener(bytes, index)?;
+            state.heredocs.push_back(heredoc);
+            Some(end)
+        }
+        _ => None,
+    }
+}
+
+fn scan_ordinary_byte(byte: u8, has_code: &mut bool, has_comment: &mut bool) -> bool {
+    match byte {
+        b'#' => {
+            *has_comment = true;
+            true
+        }
+        b'\r' | b'\n' | b'\t' | b' ' => false,
+        _ => {
+            *has_code = true;
+            false
+        }
+    }
+}
+
 fn scan_lexical_bytes(line: &str, state: &mut LexicalState) -> (bool, bool) {
     let mut has_code = false;
     let mut has_comment = false;
@@ -319,94 +412,24 @@ fn scan_lexical_bytes(line: &str, state: &mut LexicalState) -> (bool, bool) {
     let mut index = 0;
     while index < bytes.len() {
         let byte = bytes[index];
-        if let Some((opening, closing, mut depth)) = state.percent_literal {
-            has_code = true;
-            if state.percent_escaped {
-                state.percent_escaped = false;
-            } else if byte == b'\\' {
-                state.percent_escaped = true;
-            } else if opening != closing && byte == opening {
-                depth = depth.saturating_add(1);
-                state.percent_literal = Some((opening, closing, depth));
-            } else if byte == closing {
-                state.percent_literal = if opening != closing && depth > 1 {
-                    Some((opening, closing, depth - 1))
-                } else {
-                    None
-                };
-            }
-            index += 1;
-            continue;
-        }
-        if state.escaped {
-            state.escaped = false;
+        if state.percent_literal.is_some() {
+            consume_percent_literal_byte(byte, state);
             has_code = true;
             index += 1;
             continue;
         }
-        if let Some(delimiter) = state.quote {
+        if consume_escaped_or_quoted_byte(byte, state) {
             has_code = true;
-            if byte == b'\\' {
-                state.escaped = true;
-            } else if byte == delimiter {
-                state.quote = None;
-            }
             index += 1;
             continue;
         }
-        match byte {
-            b'\'' | b'"' => {
-                state.quote = Some(byte);
-                has_code = true;
-            }
-            b'%' => {
-                let percent_type = matches!(
-                    bytes.get(index + 1),
-                    Some(b'q' | b'Q' | b'w' | b'W' | b'i' | b'I' | b'x' | b'r' | b's')
-                );
-                let delimiter_index = index + if percent_type { 2 } else { 1 };
-                let Some(&delimiter) = bytes.get(delimiter_index) else {
-                    has_code = true;
-                    index += 1;
-                    continue;
-                };
-                let paired = matches!(delimiter, b'{' | b'[' | b'(' | b'<');
-                let quoted = matches!(delimiter, b'\'' | b'"' | b'`');
-                let punctuation = !delimiter.is_ascii_alphanumeric()
-                    && !delimiter.is_ascii_whitespace()
-                    && delimiter != b'_'
-                    && delimiter != b'\\';
-                if !(percent_type && punctuation || !percent_type && (paired || quoted)) {
-                    has_code = true;
-                    index += 1;
-                    continue;
-                }
-                let closing = match delimiter {
-                    b'{' => b'}',
-                    b'[' => b']',
-                    b'(' => b')',
-                    b'<' => b'>',
-                    _ => delimiter,
-                };
-                state.percent_literal = Some((delimiter, closing, usize::from(paired)));
-                has_code = true;
-                index = delimiter_index;
-            }
-            b'<' if state.quote.is_none() && state.percent_literal.is_none() => {
-                if let Some((end, heredoc)) = heredoc_opener(bytes, index) {
-                    state.heredocs.push_back(heredoc);
-                    has_code = true;
-                    index = end;
-                    continue;
-                }
-                has_code = true;
-            }
-            b'#' => {
-                has_comment = true;
-                break;
-            }
-            b'\r' | b'\n' | b'\t' | b' ' => {}
-            _ => has_code = true,
+        if let Some(next_index) = handle_lexical_opener(bytes, index, state) {
+            has_code = true;
+            index = next_index;
+            continue;
+        }
+        if scan_ordinary_byte(byte, &mut has_code, &mut has_comment) {
+            break;
         }
         index += 1;
     }

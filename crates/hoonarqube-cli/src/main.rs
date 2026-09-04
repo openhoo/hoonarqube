@@ -1952,49 +1952,45 @@ fn sarif_value(
 ) -> Result<serde_json::Value, String> {
     let checkout_root = std::env::current_dir()
         .map_err(|error| format!("cannot determine checkout root for SARIF: {error}"))?;
+    let (definitions, findings) = sarif_collect_findings(reports, &checkout_root)?;
+    let rules: Vec<_> = definitions
+        .values()
+        .map(|definition| sarif_rule(definition))
+        .collect();
+    let results = sarif_results(&definitions, &checkout_root, findings)?;
+
+    Ok(serde_json::json!({
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {
+                "driver": {
+                    "name": "Hoonarqube",
+                    "informationUri": "https://github.com/openhoo/hoonarqube",
+                    "rules": rules,
+                },
+            },
+            "results": results,
+        }],
+    }))
+}
+
+type SarifDefinitions = std::collections::BTreeMap<
+    String,
+    &'static hoonarqube_catalog::github_quality::QueryDefinition,
+>;
+
+type SarifFinding<'a> = (String, &'a hoonarqube_ir::Issue, String);
+
+fn sarif_collect_findings<'a>(
+    reports: &'a [hoonarqube_ir::FileReport],
+    checkout_root: &std::path::Path,
+) -> Result<(SarifDefinitions, Vec<SarifFinding<'a>>), String> {
     let mut definitions = std::collections::BTreeMap::new();
     let mut findings = Vec::new();
 
     for report in reports {
-        let report_family = sarif_report_family(&report.language);
-        let file_path = sarif_artifact_uri(&report.path, &checkout_root, "primary report path")?;
-        for issue in &report.issues {
-            let report_family = report_family.ok_or_else(|| {
-                format!(
-                    "report language {:?} has no GitHub Code Quality family",
-                    report.language
-                )
-            })?;
-            let definition = hoonarqube_catalog::github_quality::query(&issue.rule_key)
-                .ok_or_else(|| {
-                    format!("unknown GitHub Code Quality query id: {}", issue.rule_key)
-                })?;
-            if definition.language != report_family {
-                return Err(format!(
-                    "GitHub Code Quality query {} belongs to {}, not report language {}",
-                    issue.rule_key,
-                    definition.language.as_str(),
-                    report.language
-                ));
-            }
-            sarif_validate_range(&issue.range, "primary location")?;
-            for flow in &issue.flows {
-                for location in &flow.locations {
-                    sarif_validate_range(&location.range, "related location")?;
-                    if let Some(path) = location.path.as_ref() {
-                        sarif_artifact_uri(path, &checkout_root, "related flow path")?;
-                    }
-                }
-            }
-            definitions.insert(issue.rule_key.clone(), definition);
-            let canonical_issue = serde_json::to_string(issue).map_err(|error| {
-                format!(
-                    "cannot canonicalize SARIF finding {}: {error}",
-                    issue.rule_key
-                )
-            })?;
-            findings.push((file_path.clone(), issue, canonical_issue));
-        }
+        sarif_collect_report(report, checkout_root, &mut definitions, &mut findings)?;
     }
 
     findings.sort_by(|(path_a, issue_a, key_a), (path_b, issue_b, key_b)| {
@@ -2020,26 +2016,88 @@ fn sarif_value(
             ))
     });
 
-    let rules: Vec<_> = definitions
-        .values()
-        .map(|definition| sarif_rule(definition))
-        .collect();
-    let results = sarif_results(&definitions, &checkout_root, findings)?;
+    Ok((definitions, findings))
+}
 
-    Ok(serde_json::json!({
-        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
-        "version": "2.1.0",
-        "runs": [{
-            "tool": {
-                "driver": {
-                    "name": "Hoonarqube",
-                    "informationUri": "https://github.com/openhoo/hoonarqube",
-                    "rules": rules,
-                },
-            },
-            "results": results,
-        }],
-    }))
+fn sarif_collect_report<'a>(
+    report: &'a hoonarqube_ir::FileReport,
+    checkout_root: &std::path::Path,
+    definitions: &mut std::collections::BTreeMap<
+        String,
+        &'static hoonarqube_catalog::github_quality::QueryDefinition,
+    >,
+    findings: &mut Vec<(String, &'a hoonarqube_ir::Issue, String)>,
+) -> Result<(), String> {
+    let report_family = sarif_report_family(&report.language);
+    let file_path = sarif_artifact_uri(&report.path, checkout_root, "primary report path")?;
+    for issue in &report.issues {
+        sarif_collect_issue(
+            report,
+            report_family,
+            checkout_root,
+            &file_path,
+            issue,
+            definitions,
+            findings,
+        )?;
+    }
+    Ok(())
+}
+
+fn sarif_collect_issue<'a>(
+    report: &'a hoonarqube_ir::FileReport,
+    report_family: Option<hoonarqube_catalog::github_quality::LanguageFamily>,
+    checkout_root: &std::path::Path,
+    file_path: &str,
+    issue: &'a hoonarqube_ir::Issue,
+    definitions: &mut std::collections::BTreeMap<
+        String,
+        &'static hoonarqube_catalog::github_quality::QueryDefinition,
+    >,
+    findings: &mut Vec<(String, &'a hoonarqube_ir::Issue, String)>,
+) -> Result<(), String> {
+    let report_family = report_family.ok_or_else(|| {
+        format!(
+            "report language {:?} has no GitHub Code Quality family",
+            report.language
+        )
+    })?;
+    let definition = hoonarqube_catalog::github_quality::query(&issue.rule_key)
+        .ok_or_else(|| format!("unknown GitHub Code Quality query id: {}", issue.rule_key))?;
+    if definition.language != report_family {
+        return Err(format!(
+            "GitHub Code Quality query {} belongs to {}, not report language {}",
+            issue.rule_key,
+            definition.language.as_str(),
+            report.language
+        ));
+    }
+    sarif_validate_range(&issue.range, "primary location")?;
+    sarif_validate_flow_locations(checkout_root, issue)?;
+    definitions.insert(issue.rule_key.clone(), definition);
+    let canonical_issue = serde_json::to_string(issue).map_err(|error| {
+        format!(
+            "cannot canonicalize SARIF finding {}: {error}",
+            issue.rule_key
+        )
+    })?;
+    findings.push((file_path.to_owned(), issue, canonical_issue));
+    Ok(())
+}
+
+fn sarif_validate_flow_locations(
+    checkout_root: &std::path::Path,
+    issue: &hoonarqube_ir::Issue,
+) -> Result<(), String> {
+    for flow in &issue.flows {
+        for location in &flow.locations {
+            sarif_validate_range(&location.range, "related location")?;
+            if let Some(path) = location.path.as_ref() {
+                sarif_artifact_uri(path, checkout_root, "related flow path")?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Validates input paths and the requested output format, then walks and

@@ -645,54 +645,76 @@ impl SemanticIndex {
 }
 
 fn pattern_visibility(node: Node<'_>, source: &str) -> Option<Vec<ByteSpan>> {
+    let Some((control, condition)) = enclosing_condition(node) else {
+        return switch_visibility(node);
+    };
+    let inverted = pattern_is_inverted(node, condition, source)?;
+    let mut ranges = Vec::new();
+    append_condition_visibility(node, condition, source, inverted, &mut ranges)?;
+    append_control_visibility(control, inverted, &mut ranges);
+    Some(ranges)
+}
+
+fn enclosing_condition(node: Node<'_>) -> Option<(Node<'_>, Node<'_>)> {
     let mut cursor = node;
-    let mut control = None;
     while let Some(parent) = cursor.parent() {
         if let Some(condition) = parent.child_by_field_name("condition")
             && condition.start_byte() <= node.start_byte()
             && condition.end_byte() >= node.end_byte()
         {
-            control = Some((parent, condition));
-            break;
+            return Some((parent, condition));
         }
         cursor = parent;
     }
-    let Some((control, condition)) = control else {
-        let mut current = node.parent()?;
-        loop {
-            if current.kind() == "switch_block_statement_group" {
-                return Some(vec![ByteSpan {
-                    start: node.end_byte(),
-                    end: current.end_byte(),
-                }]);
-            }
-            current = current.parent()?;
+    None
+}
+
+fn switch_visibility(node: Node<'_>) -> Option<Vec<ByteSpan>> {
+    let mut current = node.parent()?;
+    loop {
+        if current.kind() == "switch_block_statement_group" {
+            return Some(vec![ByteSpan {
+                start: node.end_byte(),
+                end: current.end_byte(),
+            }]);
         }
-    };
+        current = current.parent()?;
+    }
+}
+
+fn pattern_is_inverted(node: Node<'_>, condition: Node<'_>, source: &str) -> Option<bool> {
     let mut inverted = false;
     let mut current = node;
     while current.id() != condition.id() {
         let parent = current.parent()?;
-        if parent.kind() == "unary_expression"
-            && parent
-                .child_by_field_name("operator")
-                .is_some_and(|operator| node_text(operator, source) == "!")
-        {
+        if is_negation(parent, source) {
             inverted = !inverted;
         }
         current = parent;
     }
-    let mut ranges = Vec::new();
+    Some(inverted)
+}
+
+fn is_negation(node: Node<'_>, source: &str) -> bool {
+    node.kind() == "unary_expression"
+        && node
+            .child_by_field_name("operator")
+            .is_some_and(|operator| node_text(operator, source) == "!")
+}
+
+fn append_condition_visibility(
+    node: Node<'_>,
+    condition: Node<'_>,
+    source: &str,
+    inverted: bool,
+    ranges: &mut Vec<ByteSpan>,
+) -> Option<()> {
     if !inverted && condition.end_byte() > node.end_byte() {
         let mut current = node;
         let mut allowed = true;
         while current.id() != condition.id() {
             let parent = current.parent()?;
-            if parent.kind() == "binary_expression"
-                && parent
-                    .child_by_field_name("operator")
-                    .is_some_and(|operator| node_text(operator, source) == "||")
-            {
+            if is_or_expression(parent, source) {
                 allowed = false;
                 break;
             }
@@ -705,25 +727,38 @@ fn pattern_visibility(node: Node<'_>, source: &str) -> Option<Vec<ByteSpan>> {
             });
         }
     }
-    match control.kind() {
+    Some(())
+}
+
+fn is_or_expression(node: Node<'_>, source: &str) -> bool {
+    node.kind() == "binary_expression"
+        && node
+            .child_by_field_name("operator")
+            .is_some_and(|operator| node_text(operator, source) == "||")
+}
+
+fn append_control_visibility(control: Node<'_>, inverted: bool, ranges: &mut Vec<ByteSpan>) {
+    let branch = match control.kind() {
         "if_statement" => {
-            let branch = if inverted {
+            if inverted {
                 control.child_by_field_name("alternative")
             } else {
                 control.child_by_field_name("consequence")
-            };
-            if let Some(branch) = branch {
-                ranges.push(ByteSpan {
-                    start: branch.start_byte(),
-                    end: branch.end_byte(),
-                });
             }
         }
         "while_statement" | "for_statement" | "enhanced_for_statement" | "do_statement"
-            if !inverted => {}
-        _ => {}
+            if !inverted =>
+        {
+            None
+        }
+        _ => None,
+    };
+    if let Some(branch) = branch {
+        ranges.push(ByteSpan {
+            start: branch.start_byte(),
+            end: branch.end_byte(),
+        });
     }
-    Some(ranges)
 }
 
 fn declaration_tail(text: &str, keyword: &str) -> String {

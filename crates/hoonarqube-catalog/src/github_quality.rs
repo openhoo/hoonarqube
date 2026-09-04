@@ -207,6 +207,15 @@ fn parse_and_verify(json: &str) -> Result<Box<[QueryDefinition]>, String> {
     let catalog: EmbeddedCatalog = serde_json::from_str(json)
         .map_err(|error| format!("invalid GitHub Code Quality JSON: {error}"))?;
 
+    verify_catalog_metadata(&catalog)?;
+    verify_definitions(&catalog.queries)?;
+    verify_language_counts(&catalog.queries)?;
+    verify_query_order(&catalog.queries)?;
+
+    Ok(catalog.queries.into_boxed_slice())
+}
+
+fn verify_catalog_metadata(catalog: &EmbeddedCatalog) -> Result<(), String> {
     if catalog.source_revision != SOURCE_REVISION {
         return Err(format!(
             "source_revision must be {SOURCE_REVISION}, got {:?}",
@@ -219,45 +228,60 @@ fn parse_and_verify(json: &str) -> Result<Box<[QueryDefinition]>, String> {
             catalog.queries.len()
         ));
     }
+    Ok(())
+}
 
-    let mut seen_ids = BTreeSet::new();
-    for (index, definition) in catalog.queries.iter().enumerate() {
-        if definition.id.is_empty() {
-            return Err(format!("query {index} has an empty ID"));
-        }
-        if !valid_id(definition.id.as_str(), definition.language) {
-            return Err(format!(
-                "query {} has invalid {} ID {:?}",
-                index,
-                definition.language.as_str(),
-                definition.id
-            ));
-        }
-        if !seen_ids.insert(definition.id.as_str()) {
-            return Err(format!("duplicate query ID {:?}", definition.id));
-        }
-        if definition.title.trim().is_empty() {
-            return Err(format!("query {:?} has an empty title", definition.id));
-        }
-        if !valid_help_url(definition.help_url.as_str()) {
-            return Err(format!("query {:?} has an invalid help URL", definition.id));
-        }
-        if !valid_source_page(definition.source_page.as_str()) {
-            return Err(format!(
-                "query {:?} has an invalid source page",
-                definition.id
-            ));
-        }
-        if definition.implementation_status != ImplementationStatus::Unimplemented {
-            return Err(format!(
-                "query {:?} has an implementation claim in a definition catalog",
-                definition.id
-            ));
-        }
+fn verify_definitions<'a>(queries: &'a [QueryDefinition]) -> Result<(), String> {
+    let mut seen_ids: BTreeSet<&'a str> = BTreeSet::new();
+    for (index, definition) in queries.iter().enumerate() {
+        verify_definition(index, definition, &mut seen_ids)?;
     }
+    Ok(())
+}
 
+fn verify_definition<'a>(
+    index: usize,
+    definition: &'a QueryDefinition,
+    seen_ids: &mut BTreeSet<&'a str>,
+) -> Result<(), String> {
+    if definition.id.is_empty() {
+        return Err(format!("query {index} has an empty ID"));
+    }
+    if !valid_id(definition.id.as_str(), definition.language) {
+        return Err(format!(
+            "query {} has invalid {} ID {:?}",
+            index,
+            definition.language.as_str(),
+            definition.id
+        ));
+    }
+    if !seen_ids.insert(definition.id.as_str()) {
+        return Err(format!("duplicate query ID {:?}", definition.id));
+    }
+    if definition.title.trim().is_empty() {
+        return Err(format!("query {:?} has an empty title", definition.id));
+    }
+    if !valid_help_url(definition.help_url.as_str()) {
+        return Err(format!("query {:?} has an invalid help URL", definition.id));
+    }
+    if !valid_source_page(definition.source_page.as_str()) {
+        return Err(format!(
+            "query {:?} has an invalid source page",
+            definition.id
+        ));
+    }
+    if definition.implementation_status != ImplementationStatus::Unimplemented {
+        return Err(format!(
+            "query {:?} has an implementation claim in a definition catalog",
+            definition.id
+        ));
+    }
+    Ok(())
+}
+
+fn verify_language_counts(queries: &[QueryDefinition]) -> Result<(), String> {
     let mut counts = [0usize; 6];
-    for definition in &catalog.queries {
+    for definition in queries {
         counts[language_index(definition.language)] += 1;
     }
     let expected = [69, 22, 89, 98, 101, 3];
@@ -266,16 +290,18 @@ fn parse_and_verify(json: &str) -> Result<Box<[QueryDefinition]>, String> {
             "language counts must be C#/Go/Java/JS-TS/Python/Ruby = {expected:?}, got {counts:?}"
         ));
     }
+    Ok(())
+}
 
-    if !catalog.queries.windows(2).all(|pair| {
+fn verify_query_order(queries: &[QueryDefinition]) -> Result<(), String> {
+    if !queries.windows(2).all(|pair| {
         let left = (&pair[0].language, &pair[0].id);
         let right = (&pair[1].language, &pair[1].id);
         left < right
     }) {
         return Err("queries are not sorted by language family and ID".to_owned());
     }
-
-    Ok(catalog.queries.into_boxed_slice())
+    Ok(())
 }
 
 fn valid_id(id: &str, language: LanguageFamily) -> bool {

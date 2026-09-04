@@ -485,44 +485,73 @@ fn visit_explicit_del_scope(
 ) {
     let mut work = vec![(suite, in_del_method, self_name)];
     while let Some((scope, in_del_method, self_name)) = work.pop() {
-        for stmt in scope {
-            for expr in stmt_exprs(stmt) {
-                for_each_expr(expr, &mut |expr| {
-                    let Expr::Call(call) = expr else { return };
-                    let Expr::Attribute(attribute) = call.func.as_ref() else {
-                        return;
-                    };
-                    if attribute.attr.as_str() != "__del__"
-                        || is_super_del(call, in_del_method, self_name)
-                    {
-                        return;
-                    }
-                    push(
-                        issues,
-                        "py/explicit-call-to-delete",
-                        "The __del__ special method is called explicitly.",
-                        call.range(),
-                        index,
-                        source,
-                    );
-                });
-            }
+        report_explicit_del_calls(scope, in_del_method, self_name, index, source, issues);
+        schedule_explicit_del_scopes(scope, in_del_method, self_name, &mut work);
+    }
+}
+
+fn report_explicit_del_calls(
+    scope: &[Stmt],
+    in_del_method: bool,
+    self_name: Option<&str>,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    for stmt in scope {
+        for expr in stmt_exprs(stmt) {
+            for_each_expr(expr, &mut |expr| {
+                let Some(call) = explicit_del_call(expr, in_del_method, self_name) else {
+                    return;
+                };
+                push(
+                    issues,
+                    "py/explicit-call-to-delete",
+                    "The __del__ special method is called explicitly.",
+                    call.range(),
+                    index,
+                    source,
+                );
+            });
         }
-        for stmt in scope {
-            match stmt {
-                Stmt::FunctionDef(function) => {
-                    let first = function
-                        .parameters
-                        .iter()
-                        .next()
-                        .map(|parameter| parameter.name().as_str());
-                    work.push((&function.body, function.name.as_str() == "__del__", first));
-                }
-                Stmt::ClassDef(class) => work.push((&class.body, false, None)),
-                _ => {
-                    for body in child_bodies(stmt).into_iter().rev() {
-                        work.push((body, in_del_method, self_name));
-                    }
+    }
+}
+
+fn explicit_del_call<'a>(
+    expr: &'a Expr,
+    in_del_method: bool,
+    self_name: Option<&str>,
+) -> Option<&'a ruff_python_ast::ExprCall> {
+    let Expr::Call(call) = expr else {
+        return None;
+    };
+    let Expr::Attribute(attribute) = call.func.as_ref() else {
+        return None;
+    };
+    (attribute.attr.as_str() == "__del__" && !is_super_del(call, in_del_method, self_name))
+        .then_some(call)
+}
+
+fn schedule_explicit_del_scopes<'a>(
+    scope: &'a [Stmt],
+    in_del_method: bool,
+    self_name: Option<&'a str>,
+    work: &mut Vec<(&'a [Stmt], bool, Option<&'a str>)>,
+) {
+    for stmt in scope {
+        match stmt {
+            Stmt::FunctionDef(function) => {
+                let first = function
+                    .parameters
+                    .iter()
+                    .next()
+                    .map(|parameter| parameter.name().as_str());
+                work.push((&function.body, function.name.as_str() == "__del__", first));
+            }
+            Stmt::ClassDef(class) => work.push((&class.body, false, None)),
+            _ => {
+                for body in child_bodies(stmt).into_iter().rev() {
+                    work.push((body, in_del_method, self_name));
                 }
             }
         }
@@ -567,48 +596,7 @@ fn check_mixed_format_fields(
     let facts = BindingFacts::build(parsed);
     for expr in expressions_in_source(parsed) {
         let Expr::Call(call) = expr else { continue };
-        let format_literal = match call.func.as_ref() {
-            Expr::Attribute(attribute) if attribute.attr.as_str() == FORMAT_METHOD => {
-                if matches!(
-                    attribute.value.as_ref(),
-                    Expr::Name(name)
-                        if facts.resolve(name.id.as_str())
-                            == Some(BindingValue::BuiltinsModule)
-                ) {
-                    call.arguments.args.first().and_then(|arg| match arg {
-                        Expr::StringLiteral(literal) => {
-                            Some((string_value_text(&literal.value), literal.range()))
-                        }
-                        _ => None,
-                    })
-                } else {
-                    match attribute.value.as_ref() {
-                        Expr::StringLiteral(literal) => {
-                            Some((string_value_text(&literal.value), literal.range()))
-                        }
-                        Expr::Name(name) => match facts.resolve(name.id.as_str()) {
-                            Some(BindingValue::Template(text)) => {
-                                Some((text, attribute.value.range()))
-                            }
-                            _ => None,
-                        },
-                        _ => None,
-                    }
-                }
-            }
-            Expr::Name(name)
-                if facts.resolve(name.id.as_str()) == Some(BindingValue::FormatFunction) =>
-            {
-                call.arguments.args.first().and_then(|arg| match arg {
-                    Expr::StringLiteral(literal) => {
-                        Some((string_value_text(&literal.value), literal.range()))
-                    }
-                    _ => None,
-                })
-            }
-            _ => None,
-        };
-        let Some((text, range)) = format_literal else {
+        let Some((text, range)) = format_literal_for_call(call, &facts) else {
             continue;
         };
         let (implicit, explicit) = format_field_kinds(&text);
@@ -625,66 +613,158 @@ fn check_mixed_format_fields(
     }
 }
 
+fn format_literal_for_call(
+    call: &ruff_python_ast::ExprCall,
+    facts: &BindingFacts,
+) -> Option<(String, TextRange)> {
+    match call.func.as_ref() {
+        Expr::Attribute(attribute) if attribute.attr.as_str() == FORMAT_METHOD => {
+            format_method_literal(call, attribute.value.as_ref(), facts)
+        }
+        Expr::Name(name)
+            if facts.resolve(name.id.as_str()) == Some(BindingValue::FormatFunction) =>
+        {
+            first_string_literal(call)
+        }
+        _ => None,
+    }
+}
+
+fn format_method_literal(
+    call: &ruff_python_ast::ExprCall,
+    receiver: &Expr,
+    facts: &BindingFacts,
+) -> Option<(String, TextRange)> {
+    if is_builtin_format_receiver(receiver, facts) {
+        first_string_literal(call)
+    } else {
+        format_receiver_literal(receiver, facts)
+    }
+}
+
+fn is_builtin_format_receiver(receiver: &Expr, facts: &BindingFacts) -> bool {
+    matches!(
+        receiver,
+        Expr::Name(name)
+            if facts.resolve(name.id.as_str()) == Some(BindingValue::BuiltinsModule)
+    )
+}
+
+fn format_receiver_literal(receiver: &Expr, facts: &BindingFacts) -> Option<(String, TextRange)> {
+    match receiver {
+        Expr::StringLiteral(literal) => Some((string_value_text(&literal.value), literal.range())),
+        Expr::Name(name) => match facts.resolve(name.id.as_str()) {
+            Some(BindingValue::Template(text)) => Some((text, receiver.range())),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn first_string_literal(call: &ruff_python_ast::ExprCall) -> Option<(String, TextRange)> {
+    call.arguments.args.first().and_then(string_literal)
+}
+
+fn string_literal(expr: &Expr) -> Option<(String, TextRange)> {
+    match expr {
+        Expr::StringLiteral(literal) => Some((string_value_text(&literal.value), literal.range())),
+        _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// py/str-format/mixed-fields
+// ---------------------------------------------------------------------------
+
+#[derive(Default)]
+struct FormatFieldKinds {
+    implicit: bool,
+    explicit: bool,
+}
+
 fn format_field_kinds(text: &str) -> (bool, bool) {
     let chars: Vec<char> = text.chars().collect();
-    let mut implicit = false;
-    let mut explicit = false;
+    let mut kinds = FormatFieldKinds::default();
     let mut regions = vec![(0usize, chars.len())];
     while let Some((start, limit)) = regions.pop() {
-        let mut i = start;
-        while i < limit {
-            if chars[i] != '{' {
-                i += 1;
-                continue;
-            }
-            if i + 1 < limit && chars[i + 1] == '{' {
-                i += 2;
-                continue;
-            }
-            let field_start = i + 1;
-            let mut depth = 1usize;
-            let mut end = field_start;
-            while end < limit {
-                match chars[end] {
-                    '{' if end + 1 >= limit || chars[end + 1] != '{' => depth += 1,
-                    '}' if end + 1 < limit && chars[end + 1] == '}' => {
-                        end += 1;
-                    }
-                    '}' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-                end += 1;
-            }
-            if end >= limit {
-                break;
-            }
-            let field = &chars[field_start..end];
-            let split = field
-                .iter()
-                .position(|ch| matches!(ch, '!' | ':'))
-                .unwrap_or(field.len());
-            let field_name = &field[..split];
-            if field_name.is_empty() {
-                implicit = true;
-            } else if field_name
-                .split(|ch| *ch == '.')
-                .next()
-                .is_some_and(|part| !part.is_empty() && part.iter().all(char::is_ascii_digit))
-            {
-                explicit = true;
-            }
-            if let Some(colon) = field.iter().position(|ch| *ch == ':') {
-                regions.push((field_start + colon + 1, end));
-            }
-            i = end + 1;
-        }
+        scan_format_region(&chars, start, limit, &mut regions, &mut kinds);
     }
-    (implicit, explicit)
+    (kinds.implicit, kinds.explicit)
+}
+
+fn scan_format_region(
+    chars: &[char],
+    start: usize,
+    limit: usize,
+    regions: &mut Vec<(usize, usize)>,
+    kinds: &mut FormatFieldKinds,
+) {
+    let mut i = start;
+    while i < limit {
+        if chars[i] != '{' {
+            i += 1;
+            continue;
+        }
+        if i + 1 < limit && chars[i + 1] == '{' {
+            i += 2;
+            continue;
+        }
+        let Some(end) = find_format_field_end(chars, i + 1, limit) else {
+            break;
+        };
+        scan_format_field(chars, i + 1, end, regions, kinds);
+        i = end + 1;
+    }
+}
+
+fn find_format_field_end(chars: &[char], start: usize, limit: usize) -> Option<usize> {
+    let mut depth = 1usize;
+    let mut end = start;
+    while end < limit {
+        match chars[end] {
+            '{' if end + 1 >= limit || chars[end + 1] != '{' => depth += 1,
+            '}' if end + 1 < limit && chars[end + 1] == '}' => end += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(end);
+                }
+            }
+            _ => {}
+        }
+        end += 1;
+    }
+    None
+}
+
+fn scan_format_field(
+    chars: &[char],
+    field_start: usize,
+    end: usize,
+    regions: &mut Vec<(usize, usize)>,
+    kinds: &mut FormatFieldKinds,
+) {
+    let field = &chars[field_start..end];
+    let split = field
+        .iter()
+        .position(|ch| matches!(ch, '!' | ':'))
+        .unwrap_or(field.len());
+    let field_name = &field[..split];
+    if field_name.is_empty() {
+        kinds.implicit = true;
+    } else if is_explicit_field_name(field_name) {
+        kinds.explicit = true;
+    }
+    if let Some(colon) = field.iter().position(|ch| *ch == ':') {
+        regions.push((field_start + colon + 1, end));
+    }
+}
+
+fn is_explicit_field_name(field_name: &[char]) -> bool {
+    field_name
+        .split(|ch| *ch == '.')
+        .next()
+        .is_some_and(|part| !part.is_empty() && part.iter().all(char::is_ascii_digit))
 }
 
 #[cfg(test)]
