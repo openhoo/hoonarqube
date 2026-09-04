@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1 (2026-09-04)
+
+### Bug Fixes
+
+- **hoonarqube:** harden CodeQL parity and validation (#19) (50ca924)
+
 ## 0.4.0 (2026-09-04)
 
 ### Features
