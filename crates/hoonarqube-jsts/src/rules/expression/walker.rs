@@ -19,19 +19,21 @@ use crate::support::{
 };
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
-    ArrayExpression, ArrayExpressionElement, AssignmentExpression, BinaryExpression,
-    BinaryOperator, CallExpression, ConditionalExpression, Expression, IfStatement,
-    LogicalExpression, LogicalOperator, NewExpression, NumericLiteral, ParenthesizedExpression,
-    RegExpLiteral, SequenceExpression, StringLiteral, TemplateLiteral, UnaryExpression,
-    UnaryOperator,
+    ArrayExpression, ArrayExpressionElement, ArrowFunctionExpression, AssignmentExpression,
+    BinaryExpression, BinaryOperator, CallExpression, ConditionalExpression, DoWhileStatement,
+    Expression, ForStatement, Function, IfStatement, LogicalExpression, LogicalOperator,
+    NewExpression, NumericLiteral, ParenthesizedExpression, RegExpLiteral, SequenceExpression,
+    StaticBlock, StringLiteral, TemplateLiteral, UnaryExpression, UnaryOperator, WhileStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
-    walk_array_expression, walk_assignment_expression, walk_binary_expression,
-    walk_call_expression, walk_new_expression, walk_parenthesized_expression,
-    walk_sequence_expression, walk_template_literal, walk_unary_expression,
+    walk_array_expression, walk_arrow_function_expression, walk_assignment_expression,
+    walk_binary_expression, walk_call_expression, walk_function, walk_new_expression,
+    walk_parenthesized_expression, walk_sequence_expression, walk_static_block,
+    walk_template_literal, walk_unary_expression,
 };
 use oxc_span::GetSpan;
+use oxc_syntax::scope::ScopeFlags;
 use std::collections::HashSet;
 
 fn check_expression_rules(
@@ -70,16 +72,65 @@ struct ExpressionCollector<'index> {
     /// Nesting depth of template literals for `S4624`.
     template_depth: u32,
 }
+impl ExpressionCollector<'_> {
+    fn visit_condition(&mut self, expression: &Expression<'_>) {
+        self.contexts.push(ExpressionContext::Condition);
+        self.visit_expression(expression);
+        self.contexts.pop();
+    }
+    /// Calls and nested function bodies are value contexts, even when the
+    /// enclosing expression is used as a condition.
+    fn with_non_condition_context(&mut self, walk: impl FnOnce(&mut Self)) {
+        let contexts = std::mem::take(&mut self.contexts);
+        walk(self);
+        self.contexts = contexts;
+    }
+}
 
 impl<'a> Visit<'a> for ExpressionCollector<'_> {
+    fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
+        self.with_non_condition_context(|collector| walk_function(collector, it, flags));
+    }
+
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        self.with_non_condition_context(|collector| {
+            walk_arrow_function_expression(collector, it);
+        });
+    }
+
+    fn visit_static_block(&mut self, it: &StaticBlock<'a>) {
+        self.with_non_condition_context(|collector| walk_static_block(collector, it));
+    }
+
     fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
-        self.contexts.push(ExpressionContext::Condition);
-        self.visit_expression(&it.test);
-        self.contexts.pop();
+        self.visit_condition(&it.test);
         self.visit_statement(&it.consequent);
         if let Some(alternate) = &it.alternate {
             self.visit_statement(alternate);
         }
+    }
+
+    fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
+        if let Some(init) = &it.init {
+            self.visit_for_statement_init(init);
+        }
+        if let Some(test) = &it.test {
+            self.visit_condition(test);
+        }
+        if let Some(update) = &it.update {
+            self.visit_expression(update);
+        }
+        self.visit_statement(&it.body);
+    }
+
+    fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
+        self.visit_condition(&it.test);
+        self.visit_statement(&it.body);
+    }
+
+    fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
+        self.visit_statement(&it.body);
+        self.visit_condition(&it.test);
     }
 
     fn visit_conditional_expression(&mut self, it: &ConditionalExpression<'a>) {
@@ -89,9 +140,7 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
                 .emit_span(RuleScope::Both, "S1774", "Ternary operator used.", span);
         }
         check_redundant_ternary(&mut self.sink, it);
-        self.contexts.push(ExpressionContext::Condition);
-        self.visit_expression(&it.test);
-        self.contexts.pop();
+        self.visit_condition(&it.test);
         self.visit_expression(&it.consequent);
         self.visit_expression(&it.alternate);
     }
@@ -109,25 +158,74 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
                 it.span(),
             );
         }
-        let operand_is_condition = !self.contexts.is_empty();
+        let in_condition = self.contexts.contains(&ExpressionContext::Condition);
+        let in_logical_condition = self.contexts.contains(&ExpressionContext::LogicalOperand);
         for operand in [&it.left, &it.right] {
-            if let Expression::BinaryExpression(binary) = operand
-                && is_bitwise_operator(binary.operator)
-                && operand_is_condition
-            {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S1529",
-                    "Convert the result of this bitwise operation to a boolean explicitly.",
-                    binary.span(),
-                );
+            if in_condition || in_logical_condition {
+                self.contexts.push(ExpressionContext::LogicalOperand);
             }
-            self.contexts.push(ExpressionContext::Condition);
             self.visit_expression(operand);
-            self.contexts.pop();
+            if in_condition || in_logical_condition {
+                self.contexts.pop();
+            }
         }
     }
-
+    fn visit_binary_expression(&mut self, it: &BinaryExpression<'a>) {
+        let logical_operand_context = self.contexts.contains(&ExpressionContext::LogicalOperand);
+        if logical_operand_context && is_bitwise_operator(it.operator) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1529",
+                "Convert the result of this bitwise operation to a boolean explicitly.",
+                it.span(),
+            );
+        }
+        let boolean_context = self.contexts.iter().any(|context| {
+            matches!(
+                context,
+                ExpressionContext::Condition | ExpressionContext::LogicalOperand
+            )
+        });
+        if matches!(it.operator, BinaryOperator::In | BinaryOperator::Instanceof)
+            && matches!(
+                &it.left,
+                Expression::UnaryExpression(unary)
+                    if unary.operator == UnaryOperator::LogicalNot
+            )
+        {
+            let operator = if it.operator == BinaryOperator::In {
+                "in"
+            } else {
+                "instanceof"
+            };
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3812",
+                &format!("Unexpected negating the left operand of '{operator}' operator."),
+                it.left.span(),
+            );
+        }
+        check_binary_operators(&mut self.sink, self.source, it);
+        check_index_of_comparisons(&mut self.sink, it);
+        check_length_comparison(&mut self.sink, it);
+        check_relational_strings(&mut self.sink, it);
+        check_typeof_literal(&mut self.sink, it);
+        let comparison = is_equality_operator(it.operator)
+            || matches!(
+                it.operator,
+                BinaryOperator::LessThan
+                    | BinaryOperator::LessEqualThan
+                    | BinaryOperator::GreaterThan
+                    | BinaryOperator::GreaterEqualThan
+                    | BinaryOperator::In
+                    | BinaryOperator::Instanceof
+            );
+        if boolean_context && comparison {
+            self.with_non_condition_context(|collector| walk_binary_expression(collector, it));
+        } else {
+            walk_binary_expression(self, it);
+        }
+    }
     fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
         match it.operator {
             UnaryOperator::Void => {
@@ -180,34 +278,6 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
             _ => {}
         }
         walk_unary_expression(self, it);
-    }
-
-    fn visit_binary_expression(&mut self, it: &BinaryExpression<'a>) {
-        if matches!(it.operator, BinaryOperator::In | BinaryOperator::Instanceof)
-            && matches!(
-                &it.left,
-                Expression::UnaryExpression(unary)
-                    if unary.operator == UnaryOperator::LogicalNot
-            )
-        {
-            let operator = if it.operator == BinaryOperator::In {
-                "in"
-            } else {
-                "instanceof"
-            };
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S3812",
-                &format!("Unexpected negating the left operand of '{operator}' operator."),
-                it.left.span(),
-            );
-        }
-        check_binary_operators(&mut self.sink, self.source, it);
-        check_index_of_comparisons(&mut self.sink, it);
-        check_length_comparison(&mut self.sink, it);
-        check_relational_strings(&mut self.sink, it);
-        check_typeof_literal(&mut self.sink, it);
-        walk_binary_expression(self, it);
     }
 
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
@@ -264,12 +334,12 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
                 it.span(),
             );
         }
-        walk_call_expression(self, it);
+        self.with_non_condition_context(|collector| walk_call_expression(collector, it));
     }
 
     fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
         check_constructor_calls(&mut self.sink, it);
-        walk_new_expression(self, it);
+        self.with_non_condition_context(|collector| walk_new_expression(collector, it));
     }
 
     fn visit_template_literal(&mut self, it: &TemplateLiteral<'a>) {
@@ -306,15 +376,17 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
     }
 
     fn visit_array_expression(&mut self, it: &ArrayExpression<'a>) {
-        for element in &it.elements {
-            if matches!(element, ArrayExpressionElement::Elision(_)) {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S4140",
-                    "Unexpected comma in middle of array.",
-                    it.span(),
-                );
-            }
+        if it
+            .elements
+            .iter()
+            .any(|element| matches!(element, ArrayExpressionElement::Elision(_)))
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S4140",
+                "Unexpected comma in middle of array.",
+                it.span(),
+            );
         }
         walk_array_expression(self, it);
     }
@@ -338,8 +410,10 @@ fn opposite_comparison_operator(operator: BinaryOperator) -> &'static str {
 /// `S6509`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExpressionContext {
-    /// Directly in an `if`/ternary test or a logical operand.
+    /// Directly in an `if`/loop/ternary test.
     Condition,
+    /// Operand of a logical expression used as a condition.
+    LogicalOperand,
     /// Operand of a `!` operator.
     Negation,
 }
@@ -479,5 +553,45 @@ host = '10.0.0.1';
         // so neither may fire S1940.
         let clean = js_keys("if (!flag) { }\nlet inverted = !a === b;\n");
         assert_eq!(count_key(&clean, "javascript:S1940"), 0);
+    }
+
+    #[test]
+    fn direct_bitwise_conditions_match_the_oracle_clean_control() {
+        let source = concat!(
+            "if (flags & mask) {}\n",
+            "while (flags | mask) { break; }\n",
+            "for (; flags ^ mask; ) { break; }\n",
+            "const value = flags & mask ? left : right;\n",
+        );
+        assert_eq!(count_key(&js_keys(source), "javascript:S1529"), 0);
+    }
+
+    #[test]
+    fn s1529_does_not_leak_into_call_or_nested_function_bodies() {
+        let clean = js_keys(
+            "if (check(flags & mask)) {}\n\
+             if (new Checker(flags & mask)) {}\n\
+             if (() => flags & mask) {}\n\
+             if (function () { return flags & mask; }) {}\n\
+             if ((flags & mask) === 0) {}\n",
+        );
+        assert_eq!(count_key(&clean, "javascript:S1529"), 0);
+
+        let composed = js_keys("if (ready && (flags & mask)) {}\n");
+        assert_eq!(count_key(&composed, "javascript:S1529"), 1);
+    }
+
+    #[test]
+    fn multiple_array_elisions_emit_one_finding_at_the_array_span() {
+        let source = "const values = [one,, two,,, three];\n";
+        let report = js(source);
+        let findings: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S4140"))
+            .collect();
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].range.start.line, 1);
+        assert_eq!(findings[0].range.start.column, 15);
     }
 }

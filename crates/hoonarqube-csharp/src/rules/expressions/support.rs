@@ -212,12 +212,21 @@ pub(crate) fn enclosing_callable(node: Node<'_>) -> Option<Node<'_>> {
     ancestors_of(node).find(|ancestor| is_callable_kind(ancestor.kind()))
 }
 
-/// Type spelling of the visible declaration bound to a bare identifier.
-/// Local declarations and parameters win over fields and properties.
+/// Type spelling of the visible declaration bound to an identifier or an
+/// explicit `this.member` access. Local declarations and parameters win over
+/// fields for bare identifiers; explicit `this` always selects the member.
 pub(crate) fn resolved_identifier_type<'a>(
     identifier: Node<'_>,
     source: &'a str,
 ) -> Option<&'a str> {
+    if identifier.kind() == "member_access_expression"
+        && identifier
+            .child_by_field_name("expression")
+            .is_some_and(|expression| matches!(expression.kind(), "this" | "this_expression"))
+    {
+        let member_name = identifier.child_by_field_name("name")?;
+        return enclosing_type(identifier).and_then(|ty| member_type(ty, member_name, source));
+    }
     local_identifier_type(identifier, source)
         .or_else(|| enclosing_type(identifier).and_then(|ty| member_type(ty, identifier, source)))
 }

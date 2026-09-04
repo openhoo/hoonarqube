@@ -16,6 +16,7 @@ from parity import (
     validate_oracle_report,
     write_json_atomic,
 )
+from parity_suite import validate_artifact_evidence
 
 
 REPO = Path(__file__).resolve().parent.parent.parent
@@ -52,6 +53,12 @@ def main(lang, project_dir, sonar_json, ours_json, out_path=None):
     sonar = read_json(sonar_json)
     ours = read_json(ours_json)
     validate_oracle_report(sonar, expected_project=project_dir.name)
+    validate_artifact_evidence(
+        sonar, project_dir.name, "sq", project_dir=project_dir.resolve()
+    )
+    validate_artifact_evidence(
+        ours, project_dir.name, "ours", project_dir=project_dir.resolve()
+    )
     catalog = read_json(REPO / "catalog/rules" / f"{language}.json")
     if not isinstance(catalog, dict) or not isinstance(catalog.get("rules"), list):
         raise ValueError(f"{language} catalog must contain a rules list")

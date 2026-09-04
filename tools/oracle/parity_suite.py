@@ -144,8 +144,10 @@ def result_path(project, kind):
     return RESULTS / f"{project}{tag}.{kind}.json"
 
 
-def _artifact_input_paths(project, kind):
-    project_dir = ORACLE / "projects" / project
+def _artifact_input_paths(project, kind, *, project_dir=None):
+    project_dir = (
+        Path(project_dir) if project_dir is not None else ORACLE / "projects" / project
+    )
     language = CATALOG_LANGUAGE[EXT[project]]
     roots = [project_dir, REPO / "catalog/rules" / f"{language}.json"]
     if kind == "ours":
@@ -161,28 +163,30 @@ def _artifact_input_paths(project, kind):
     return sorted(set(paths), key=lambda path: path.as_posix())
 
 
-def artifact_input_sha256(project, kind):
-    return input_paths_sha256(REPO, _artifact_input_paths(project, kind))
+def artifact_input_sha256(project, kind, *, project_dir=None):
+    return input_paths_sha256(
+        REPO, _artifact_input_paths(project, kind, project_dir=project_dir)
+    )
 
 
-def attach_artifact_evidence(report, project, kind):
+def attach_artifact_evidence(report, project, kind, *, project_dir=None):
     if not isinstance(report, dict):
         raise ValueError(f"{kind} artifact must be an object")
     report["oracle_evidence"] = {
         "project": project,
         "kind": kind,
-        "input_sha256": artifact_input_sha256(project, kind),
+        "input_sha256": artifact_input_sha256(project, kind, project_dir=project_dir),
     }
 
 
-def validate_artifact_evidence(report, project, kind):
+def validate_artifact_evidence(report, project, kind, *, project_dir=None):
     evidence = report.get("oracle_evidence") if isinstance(report, dict) else None
     if not isinstance(evidence, dict):
         raise ValueError(f"{kind} artifact lacks oracle input fingerprint")
     expected = {
         "project": project,
         "kind": kind,
-        "input_sha256": artifact_input_sha256(project, kind),
+        "input_sha256": artifact_input_sha256(project, kind, project_dir=project_dir),
     }
     if evidence != expected:
         raise ValueError(f"stale or mismatched {kind} oracle artifact")

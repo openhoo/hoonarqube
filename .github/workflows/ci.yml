@@ -69,6 +69,7 @@ jobs:
         run: |
           python3 scripts/sync_release_version.py --check
           python3 -m unittest scripts/test_sync_release_version.py
+          python3 -m unittest scripts/test_shell_scripts.py
 
       - name: Source-only publication policy
         run: |

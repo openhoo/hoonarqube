@@ -76,6 +76,7 @@ pub struct Symbol {
     pub declared_at: Range,
     pub scope: ScopeId,
     pub type_fact: Option<TypeFact>,
+    declared_type: Option<String>,
     visibility: Option<Vec<ByteSpan>>,
     span: ByteSpan,
 }
@@ -126,6 +127,20 @@ pub struct SemanticIndex {
     package_name: Option<String>,
 }
 
+fn package_name_from_declaration(node: Node<'_>, source: &str) -> Option<String> {
+    let name = node.child_by_field_name("name").or_else(|| {
+        let mut cursor = node.walk();
+        node.named_children(&mut cursor).find(|child| {
+            matches!(
+                child.kind(),
+                "identifier" | "type_identifier" | "scoped_identifier" | "_reserved_identifier"
+            )
+        })
+    })?;
+    let value = canonical_identifier(node_text(name, source)).trim();
+    (!value.is_empty()).then(|| value.to_owned())
+}
+
 impl SemanticIndex {
     #[must_use]
     pub fn build(root: Node<'_>, source: &str, lines: &LineIndex) -> Self {
@@ -145,9 +160,8 @@ impl SemanticIndex {
             };
             match node.kind() {
                 "package_declaration" => {
-                    let value = declaration_tail(node_text(node, source), "package");
-                    if !value.is_empty() {
-                        package_name = Some(value);
+                    if let Some(name) = package_name_from_declaration(node, source) {
+                        package_name = Some(name);
                     }
                 }
                 "import_declaration" => {
@@ -160,6 +174,16 @@ impl SemanticIndex {
                 | "enum_declaration"
                 | "record_declaration"
                 | "annotation_type_declaration" => seeds.push((ScopeKind::Type, span)),
+                "class_body"
+                    if node
+                        .parent()
+                        .is_some_and(|parent| parent.kind() == "object_creation_expression") =>
+                {
+                    // Anonymous classes have no class_declaration node. Give
+                    // their body a type scope so fields cannot leak into the
+                    // enclosing method or capture a same-named local.
+                    seeds.push((ScopeKind::Type, span));
+                }
                 "method_declaration"
                 | "constructor_declaration"
                 | "compact_constructor_declaration" => seeds.push((ScopeKind::Method, span)),
@@ -206,6 +230,7 @@ impl SemanticIndex {
             package_name,
         };
         index.collect_declarations(root, source, lines);
+        index.resolve_symbol_types();
         index.collect_references(root, source, lines);
         index
     }
@@ -234,6 +259,12 @@ impl SemanticIndex {
             "method_declaration" | "constructor_declaration" | "compact_constructor_declaration"
         ) {
             self.collect_method_declaration(node, source, lines);
+            return;
+        }
+        if kind == "type_parameter" {
+            if let Some(name) = first_name_descendant(node) {
+                self.add_symbol(SymbolKind::Type, name, None, node, source, lines);
+            }
             return;
         }
         if matches!(kind, "formal_parameter" | "spread_parameter") {
@@ -303,8 +334,13 @@ impl SemanticIndex {
             .child_by_field_name("name")
             .or_else(|| last_name_descendant(node))
         {
+            let kind = node
+                .parent()
+                .and_then(|parameters| parameters.parent())
+                .filter(|record| record.kind() == "record_declaration")
+                .map_or(SymbolKind::Parameter, |_| SymbolKind::Field);
             self.add_symbol(
-                SymbolKind::Parameter,
+                kind,
                 name,
                 node.child_by_field_name("type"),
                 node,
@@ -338,19 +374,17 @@ impl SemanticIndex {
     }
 
     fn collect_local_declaration(&mut self, node: Node<'_>, source: &str, lines: &LineIndex) {
-        if let Some(name) = node
-            .child_by_field_name("name")
-            .or_else(|| last_name_descendant(node))
-        {
-            self.add_symbol(
-                SymbolKind::Local,
-                name,
-                node.child_by_field_name("type"),
-                node,
-                source,
-                lines,
-            );
-        }
+        let Some(name) = node.child_by_field_name("name") else {
+            return;
+        };
+        self.add_symbol(
+            SymbolKind::Local,
+            name,
+            node.child_by_field_name("type"),
+            node,
+            source,
+            lines,
+        );
     }
 
     fn collect_lambda_parameters(&mut self, node: Node<'_>, source: &str, lines: &LineIndex) {
@@ -370,11 +404,11 @@ impl SemanticIndex {
     fn collect_pattern_declaration(&mut self, node: Node<'_>, source: &str, lines: &LineIndex) {
         let (name, type_node) = if node.kind() == "instanceof_expression" {
             if let Some(pattern) = node.child_by_field_name("pattern") {
-                let pattern =
-                    crate::support::collect_kinds(pattern, &["type_pattern", "record_pattern"])
-                        .into_iter()
-                        .next()
-                        .unwrap_or(pattern);
+                if pattern.kind() == "record_pattern" {
+                    // Record components are visited independently; the
+                    // record_pattern itself is not a binding.
+                    return;
+                }
                 (
                     pattern
                         .child_by_field_name("name")
@@ -454,6 +488,9 @@ impl SemanticIndex {
             return;
         }
         let scope = match kind {
+            SymbolKind::Type if owner.kind() == "type_parameter" => {
+                self.scope_for(name_node.start_byte()).unwrap_or(ScopeId(0))
+            }
             SymbolKind::Type | SymbolKind::Method => self
                 .scope_for(owner.start_byte())
                 .and_then(|id| self.scopes.get(id.0).and_then(|scope| scope.parent))
@@ -464,7 +501,10 @@ impl SemanticIndex {
                 .unwrap_or(ScopeId(0)),
             _ => self.scope_for(name_node.start_byte()).unwrap_or(ScopeId(0)),
         };
-        let type_fact = type_node.and_then(|node| self.proven_type(node_text(node, source)));
+        let declared_type = type_node.map(|node| node_text(node, source).trim().to_owned());
+        let type_fact = declared_type
+            .as_deref()
+            .and_then(|text| self.proven_type(text, scope));
         let id = SymbolId(self.symbols.len());
         let symbol = Symbol {
             id,
@@ -474,6 +514,7 @@ impl SemanticIndex {
             declared_at: range_of(name_node, source, lines),
             scope,
             type_fact,
+            declared_type,
             visibility,
             span: ByteSpan {
                 start: name_node.start_byte(),
@@ -483,6 +524,21 @@ impl SemanticIndex {
         self.symbols.push(symbol);
         if let Some(scope) = self.scopes.get_mut(scope.0) {
             scope.symbols.entry(name).or_default().push(id);
+        }
+    }
+    fn resolve_symbol_types(&mut self) {
+        let facts: Vec<_> = self
+            .symbols
+            .iter()
+            .map(|symbol| {
+                symbol
+                    .declared_type
+                    .as_deref()
+                    .and_then(|text| self.proven_type(text, symbol.scope))
+            })
+            .collect();
+        for (symbol, fact) in self.symbols.iter_mut().zip(facts) {
+            symbol.type_fact = fact;
         }
     }
 
@@ -533,7 +589,7 @@ impl SemanticIndex {
         });
     }
 
-    fn proven_type(&self, text: &str) -> Option<TypeFact> {
+    fn proven_type(&self, text: &str, scope: ScopeId) -> Option<TypeFact> {
         let text = text.trim();
         if matches!(
             text,
@@ -542,12 +598,13 @@ impl SemanticIndex {
             return Some(TypeFact::Primitive(text.to_owned()));
         }
         let simple = simple_name(text);
-        if let Some(local) = self
-            .symbols
-            .iter()
-            .find(|symbol| symbol.kind == SymbolKind::Type && symbol.canonical_name == simple)
+        if let Some(id) = self.resolve_in_scope(simple, scope, self.source_len)
+            && self
+                .symbols
+                .get(id.0)
+                .is_some_and(|symbol| symbol.kind == SymbolKind::Type)
         {
-            return Some(TypeFact::LocalType(local.canonical_name.clone()));
+            return Some(TypeFact::LocalType(simple.to_owned()));
         }
         if self.imports.iter().any(|import| {
             !import.wildcard
@@ -556,10 +613,15 @@ impl SemanticIndex {
         }) {
             return None;
         }
+        let normalized = text.split_whitespace().collect::<String>();
+        let base = normalized
+            .split(['<', '['])
+            .next()
+            .unwrap_or(normalized.as_str());
         if matches!(
             simple,
             "String" | "StringBuffer" | "StringBuilder" | "Object"
-        ) && (text == simple || text == format!("java.lang.{simple}"))
+        ) && (base == simple || base == format!("java.lang.{simple}"))
         {
             return Some(TypeFact::JavaLang(simple.to_owned()));
         }
@@ -590,18 +652,21 @@ impl SemanticIndex {
                     let Some(symbol) = self.symbols.get(id.0) else {
                         return false;
                     };
-                    symbol
-                        .visibility
-                        .as_ref()
-                        .is_none_or(|ranges| ranges.iter().any(|range| range.contains(offset)))
-                        && (matches!(
-                            symbol.kind,
-                            SymbolKind::Type
-                                | SymbolKind::Method
-                                | SymbolKind::Field
-                                | SymbolKind::Label
-                                | SymbolKind::Import
-                        ) || symbol.span.start <= offset)
+                    (offset == self.source_len
+                        || symbol
+                            .visibility
+                            .as_ref()
+                            .is_none_or(|ranges| ranges.iter().any(|range| range.contains(offset))))
+                        && (offset == self.source_len
+                            || matches!(
+                                symbol.kind,
+                                SymbolKind::Type
+                                    | SymbolKind::Method
+                                    | SymbolKind::Field
+                                    | SymbolKind::Label
+                                    | SymbolKind::Import
+                            )
+                            || symbol.span.start <= offset)
                 })
             {
                 return Some(id);
@@ -657,6 +722,19 @@ impl SemanticIndex {
         self.scopes.get(scope.0).map(|scope| scope.kind.clone())
     }
 
+    /// Reports whether a type name is shadowed at a lexical source position.
+    pub(crate) fn type_name_is_shadowed_at(&self, name: &str, offset: usize) -> bool {
+        self.scope_for(offset)
+            .and_then(|scope| self.resolve_in_scope(name, scope, offset))
+            .and_then(|id| self.symbols.get(id.0))
+            .is_some_and(|symbol| symbol.kind == SymbolKind::Type)
+            || self.imports.iter().any(|import| {
+                !import.wildcard
+                    && import.simple_name == canonical_identifier(name)
+                    && import.path != format!("java.lang.{name}")
+            })
+    }
+
     #[must_use]
     pub fn package_name(&self) -> Option<&str> {
         self.package_name.as_deref()
@@ -691,7 +769,10 @@ fn enclosing_condition(node: Node<'_>) -> Option<(Node<'_>, Node<'_>)> {
 fn switch_visibility(node: Node<'_>) -> Option<Vec<ByteSpan>> {
     let mut current = node.parent()?;
     loop {
-        if current.kind() == "switch_block_statement_group" {
+        if matches!(
+            current.kind(),
+            "switch_block_statement_group" | "switch_rule"
+        ) {
             return Some(vec![ByteSpan {
                 start: node.end_byte(),
                 end: current.end_byte(),
@@ -768,7 +849,7 @@ fn append_control_visibility(control: Node<'_>, inverted: bool, ranges: &mut Vec
         "while_statement" | "for_statement" | "enhanced_for_statement" | "do_statement"
             if !inverted =>
         {
-            None
+            control.child_by_field_name("body")
         }
         _ => None,
     };
@@ -778,15 +859,6 @@ fn append_control_visibility(control: Node<'_>, inverted: bool, ranges: &mut Vec
             end: branch.end_byte(),
         });
     }
-}
-
-fn declaration_tail(text: &str, keyword: &str) -> String {
-    text.trim()
-        .trim_start_matches(keyword)
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_owned()
 }
 
 fn parse_import(node: Node<'_>, source: &str, lines: &LineIndex) -> Option<ImportFact> {
@@ -938,5 +1010,13 @@ mod tests {
                 .resolve_simple_name("anything", ScopeId(usize::MAX))
                 .is_none()
         );
+    }
+
+    #[test]
+    fn annotated_package_name_ignores_annotation_identifiers() {
+        let source = "@Deprecated package demo.pkg; class A {}";
+        let tree = parse(source).expect("valid annotated package fixture");
+        let index = SemanticIndex::build(tree.root_node(), source, &LineIndex::new(source));
+        assert_eq!(index.package_name(), Some("demo.pkg"));
     }
 }

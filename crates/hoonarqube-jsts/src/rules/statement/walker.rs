@@ -17,7 +17,7 @@ use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_block_statement, walk_expression_statement, walk_function_body, walk_if_statement,
     walk_import_declaration, walk_labeled_statement, walk_return_statement, walk_static_block,
-    walk_switch_case, walk_throw_statement, walk_variable_declaration,
+    walk_switch_case, walk_throw_statement, walk_variable_declaration, walk_with_statement,
 };
 use oxc_span::{GetSpan, Span};
 
@@ -81,6 +81,7 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
             "Unexpected use of 'with' statement.",
             it.span(),
         );
+        walk_with_statement(self, it);
     }
 
     fn visit_debugger_statement(&mut self, it: &DebuggerStatement) {
@@ -712,5 +713,26 @@ export { accumulate };
                 "unexpected {key}"
             );
         }
+    }
+
+    #[test]
+    fn with_statement_walks_nested_statements() {
+        let report = js("with (scope) {\n  debugger;\n}\n");
+        assert_eq!(
+            report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S1321"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S1525"))
+                .count(),
+            1
+        );
     }
 }

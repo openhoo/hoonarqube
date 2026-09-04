@@ -302,7 +302,7 @@ pub fn analyze_native(source: &str) -> Vec<hoonarqube_ir::Issue> {
             continue;
         }
         let type_evidence = NativeTypeEvidence::collect_for(root, receiver, source);
-        let is_known_stream = rules::expressions::resolved_identifier_type(receiver, source)
+        let is_known_stream = native_resolved_receiver_type(receiver, source)
             .is_some_and(|type_name| type_evidence.is_stream(type_name));
         if is_known_stream {
             issues.push(hoonarqube_ir::Issue::new(
@@ -334,7 +334,7 @@ fn native_end_of_stream_issues(
             continue;
         };
         let type_evidence = NativeTypeEvidence::collect_for(root, receiver, source);
-        if rules::expressions::resolved_identifier_type(receiver, source)
+        if native_resolved_receiver_type(receiver, source)
             .is_none_or(|type_name| !type_evidence.matches(type_name, &["System.IO.StreamReader"]))
         {
             continue;
@@ -406,6 +406,15 @@ struct NativeTypeEvidence {
     imported_namespaces: HashSet<String>,
     aliases: HashMap<String, String>,
     declared_types: HashSet<String>,
+}
+/// Resolves a native receiver through a `this.field` access as well as a
+/// bare identifier; bare lookup keeps local precedence, while explicit
+/// `this` selects the declared member.
+fn native_resolved_receiver_type<'a>(
+    receiver: tree_sitter::Node<'_>,
+    source: &'a str,
+) -> Option<&'a str> {
+    rules::expressions::resolved_identifier_type(receiver, source)
 }
 
 impl NativeTypeEvidence {
@@ -742,6 +751,50 @@ mod native_tests {
                 .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2026")
                 .count(),
             1,
+        );
+    }
+    #[test]
+    fn ca2022_resolves_this_qualified_stream_fields_without_custom_type_fps() {
+        let field_access = analyze_native(
+            "using System.IO;\nclass C\n{\n    private Stream stream;\n    void Read(byte[] buffer)\n    {\n        this.stream.Read(buffer, 0, buffer.Length);\n    }\n}\n",
+        );
+        assert_eq!(
+            field_access
+                .iter()
+                .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2022")
+                .count(),
+            1,
+        );
+        let flagged = field_access
+            .iter()
+            .find(|issue| issue.rule_key == "hoonarqube-csharp:CA2022")
+            .expect("this-qualified stream read is reported");
+        assert_eq!(flagged.range.start.line, 7);
+        assert_eq!(flagged.range.start.column, 20);
+        assert_eq!(
+            flagged.message,
+            "Inspect the returned byte count because a stream read can be partial."
+        );
+
+        let custom = analyze_native(
+            "class Reader\n{\n    public int Read(byte[] buffer, int offset, int count) => 0;\n}\nclass C\n{\n    private Reader reader;\n    void Read(byte[] buffer)\n    {\n        this.reader.Read(buffer, 0, buffer.Length);\n    }\n}\n",
+        );
+        assert!(
+            custom
+                .iter()
+                .all(|issue| issue.rule_key != "hoonarqube-csharp:CA2022"),
+            "custom this-qualified readers remain a negative near-miss",
+        );
+        let shadowed = analyze_native(
+            "using System.IO;\nclass Reader\n{\n    public int Read(byte[] buffer, int offset, int count) => 0;\n}\nclass C\n{\n    private Stream stream;\n    void Read(Reader stream, byte[] buffer)\n    {\n        this.stream.Read(buffer, 0, buffer.Length);\n    }\n}\n",
+        );
+        assert_eq!(
+            shadowed
+                .iter()
+                .filter(|issue| issue.rule_key == "hoonarqube-csharp:CA2022")
+                .count(),
+            1,
+            "explicit this must bypass a same-name parameter",
         );
     }
 }

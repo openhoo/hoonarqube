@@ -8,17 +8,19 @@ use crate::support::{
 };
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
-    AssignmentExpression, BinaryOperator, BreakStatement, CallExpression, ContinueStatement,
-    DoWhileStatement, Expression, ForInStatement, ForOfStatement, ForStatement, ForStatementInit,
-    ReturnStatement, Statement, SwitchCase, ThrowStatement, UpdateExpression, UpdateOperator,
-    WhileStatement,
+    ArrowFunctionExpression, AssignmentExpression, BinaryOperator, BreakStatement, CallExpression,
+    ContinueStatement, DoWhileStatement, Expression, ForInStatement, ForOfStatement, ForStatement,
+    ForStatementInit, Function, MethodDefinition, ReturnStatement, Statement, StaticBlock,
+    SwitchCase, ThrowStatement, UpdateExpression, UpdateOperator, WhileStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
-    walk_assignment_expression, walk_call_expression, walk_do_while_statement,
-    walk_for_in_statement, walk_for_of_statement, walk_switch_case, walk_while_statement,
+    walk_arrow_function_expression, walk_assignment_expression, walk_call_expression,
+    walk_do_while_statement, walk_for_in_statement, walk_for_of_statement, walk_function,
+    walk_static_block, walk_switch_case, walk_while_statement,
 };
 use oxc_span::{GetSpan, Span};
+use oxc_syntax::scope::ScopeFlags;
 
 fn check_loop_rules(
     program: &oxc_ast::ast::Program<'_>,
@@ -71,6 +73,19 @@ impl<'a> LoopFlowCollector<'a, '_> {
 
     fn pop_frame(&mut self) -> LoopFrame {
         self.frames.pop().unwrap_or_default()
+    }
+
+    /// Control-flow jumps in a nested function cannot terminate an enclosing
+    /// loop, but loops inside that function still need their own analysis.
+    fn with_function_boundary(&mut self, walk: impl FnOnce(&mut Self)) {
+        let frames = std::mem::take(&mut self.frames);
+        let case_depth = self.case_depth;
+        let break_targets = std::mem::take(&mut self.break_targets);
+        self.case_depth = 0;
+        walk(self);
+        self.frames = frames;
+        self.case_depth = case_depth;
+        self.break_targets = break_targets;
     }
 
     /// Whether any enclosing loop declares `name` as its counter.
@@ -265,6 +280,18 @@ fn identifier_tokens(source: &str) -> Vec<&str> {
 }
 
 impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
+    fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
+        self.with_function_boundary(|collector| walk_function(collector, it, flags));
+    }
+
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        self.with_function_boundary(|collector| walk_arrow_function_expression(collector, it));
+    }
+
+    fn visit_static_block(&mut self, it: &StaticBlock<'a>) {
+        self.with_function_boundary(|collector| walk_static_block(collector, it));
+    }
+
     fn visit_break_statement(&mut self, it: &BreakStatement) {
         if it.label.is_none() {
             // An unlabeled break exits the innermost enclosing breakable.
@@ -487,6 +514,11 @@ impl<'a> Visit<'a> for ContinueScanner {
     fn visit_continue_statement(&mut self, _it: &ContinueStatement<'a>) {
         self.found = true;
     }
+
+    fn visit_function(&mut self, _it: &Function<'a>, _flags: ScopeFlags) {}
+    fn visit_arrow_function_expression(&mut self, _it: &ArrowFunctionExpression<'a>) {}
+    fn visit_method_definition(&mut self, _it: &MethodDefinition<'a>) {}
+    fn visit_static_block(&mut self, _it: &StaticBlock<'a>) {}
 }
 
 /// Per-loop state collected while [`LoopFlowCollector`] walks one loop.
@@ -631,6 +663,12 @@ mod tests {
 
         let other_variable = js_keys("for (let i = 0; i < n; i++) {\n  j = 5;\n}\n");
         assert_eq!(count_key(&other_variable, "javascript:S2310"), 0);
+    }
+
+    #[test]
+    fn method_computed_keys_stay_in_outer_loop_context() {
+        let source = "for (let i = 0; i < n; i++) {\n  class C { [i = 1]() {} }\n}\n";
+        assert_eq!(count_key(&js_keys(source), "javascript:S2310"), 1);
     }
 
     #[test]
@@ -857,5 +895,16 @@ mod tests {
             "switch (x) {\n  case 1:\n    while (a) {\n      if (b) {\n        break;\n      }\n      if (c) {\n        break;\n      }\n    }\n    break;\n}\n",
         );
         assert_eq!(count_key(&two_breaks, "javascript:S135"), 1);
+    }
+
+    #[test]
+    fn nested_function_jumps_do_not_terminate_or_exempt_outer_loops() {
+        let endless = js_keys("while (true) {\n  const callback = () => { return; };\n}\n");
+        assert_eq!(count_key(&endless, "javascript:S2189"), 1);
+
+        let terminal = js_keys(
+            "while (true) {\n  const callback = () => { while (ready) { continue; } };\n  break;\n}\n",
+        );
+        assert_eq!(count_key(&terminal, "javascript:S1751"), 1);
     }
 }

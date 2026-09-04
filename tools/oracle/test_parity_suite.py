@@ -1,7 +1,10 @@
+import io
 import json
 import sys
 import tempfile
 import unittest
+import urllib.error
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -50,6 +53,87 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
             mock.patch.object(parity_suite.shutil, "which", return_value=None),
         ):
             self.assertFalse(parity_suite.scan_project("oracle-py"))
+
+    def test_search_page_retries_transient_errors_without_retrying_bad_json(self):
+        transient_http = urllib.error.HTTPError(
+            "https://sonar.test/issues", 503, "busy", {}, io.BytesIO(b"busy")
+        )
+        transient_network = urllib.error.URLError("offline")
+        with (
+            mock.patch.object(
+                parity_suite,
+                "request_json",
+                side_effect=[transient_http, transient_network, {"issues": []}],
+            ) as request,
+            mock.patch.object(parity_suite.time, "sleep") as sleep,
+        ):
+            self.assertEqual(
+                parity_suite._search_page(object(), "issues"), {"issues": []}
+            )
+
+        self.assertEqual(request.call_count, 3)
+        sleep.assert_has_calls([mock.call(5), mock.call(10)])
+
+        with (
+            mock.patch.object(
+                parity_suite,
+                "request_json",
+                side_effect=ValueError("invalid Sonar API JSON"),
+            ) as request,
+            mock.patch.object(parity_suite.time, "sleep") as sleep,
+            self.assertRaisesRegex(ValueError, "invalid Sonar API JSON"),
+        ):
+            parity_suite._search_page(object(), "issues")
+        request.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_search_page_decodes_final_http_error_body_and_does_not_retry(self):
+        error = urllib.error.HTTPError(
+            "https://sonar.test/issues",
+            401,
+            "unauthorized",
+            {},
+            io.BytesIO(b'{"errors":[{"msg":"bad component"}]}'),
+        )
+        output = io.StringIO()
+        with (
+            mock.patch.object(parity_suite, "request_json", side_effect=error),
+            mock.patch.object(parity_suite.time, "sleep") as sleep,
+            redirect_stdout(output),
+            self.assertRaises(urllib.error.HTTPError),
+        ):
+            parity_suite._search_page(object(), "issues")
+
+        self.assertIn('401: {"errors":[{"msg":"bad component"}]}', output.getvalue())
+        sleep.assert_not_called()
+
+    def test_artifact_evidence_round_trip_is_exact(self):
+        report = {"schema_version": 2, "project": "oracle-py", "issues": []}
+        with mock.patch.object(
+            parity_suite, "artifact_input_sha256", return_value="fingerprint"
+        ):
+            parity_suite.attach_artifact_evidence(report, "oracle-py", "sq")
+            parity_suite.validate_artifact_evidence(report, "oracle-py", "sq")
+
+        self.assertEqual(
+            report["oracle_evidence"],
+            {
+                "project": "oracle-py",
+                "kind": "sq",
+                "input_sha256": "fingerprint",
+            },
+        )
+
+    def test_fixture_inventory_rejects_nested_basename_collisions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "one").mkdir()
+            (root / "two").mkdir()
+            (root / "one" / "duplicate.py").touch()
+            (root / "two" / "duplicate.py").touch()
+
+            with self.assertRaisesRegex(ValueError, "basename collision"):
+                parity_suite.fixture_file_names("oracle-py", root)
 
     def test_csharp_native_workspace_is_scan_base_and_bypasses_gitignore(self):
         output = Path("/tmp/native-csharp-test")

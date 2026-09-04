@@ -1,4 +1,4 @@
-use crate::cst::{ancestors_of, collect_kinds, node_text, simple_name};
+use crate::cst::{ancestors_of, canonical_identifier, collect_kinds, node_text, simple_name};
 use crate::rules::expressions::resolved_identifier_type;
 use crate::rules::modifiers::type_parameter_list_of;
 use crate::rules::naming::TYPE_DECLARATION_KINDS;
@@ -107,7 +107,8 @@ fn callable_declares_name(
     .filter(|binding| enclosing_callable(*binding) == Some(callable))
     .filter_map(|binding| binding.child_by_field_name("name"))
     .any(|binding| {
-        node_text(binding, source) == name && binding.start_byte() <= reference.start_byte()
+        canonical_identifier(node_text(binding, source)) == name
+            && binding.start_byte() <= reference.start_byte()
     })
 }
 
@@ -131,8 +132,8 @@ fn reference_resolves_to_member(
         return holder == member.owner
             || receiver.kind() == "identifier"
                 && owner_name.is_some_and(|name| {
-                    let owner_name = node_text(name, source);
-                    owner_name == node_text(receiver, source)
+                    let owner_name = canonical_identifier(node_text(name, source));
+                    owner_name == canonical_identifier(node_text(receiver, source))
                         || resolved_identifier_type(receiver, source)
                             .is_some_and(|type_name| simple_name(type_name) == owner_name)
                 });
@@ -170,7 +171,9 @@ pub(crate) fn member_writes<'t>(
         .filter(|write| {
             collect_kinds(*write, &["identifier"])
                 .into_iter()
-                .find(|identifier| node_text(*identifier, source) == member.name)
+                .find(|identifier| {
+                    canonical_identifier(node_text(*identifier, source)) == member.name
+                })
                 .is_some_and(|identifier| {
                     reference_resolves_to_member(identifier, member, symbols, source)
                 })

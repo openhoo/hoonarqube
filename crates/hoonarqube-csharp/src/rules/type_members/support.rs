@@ -65,6 +65,11 @@ pub(crate) fn is_event_handler_shape(delegate: Node<'_>, source: &str) -> bool {
 pub(crate) fn assembly_attribute_names<'a>(root: Node<'_>, source: &'a str) -> Vec<&'a str> {
     collect_kinds(root, &["global_attribute"])
         .iter()
+        .filter(|global| {
+            global
+                .child(1)
+                .is_some_and(|target| node_text(target, source) == "assembly")
+        })
         .flat_map(|global| collect_kinds(*global, &["attribute"]))
         .filter_map(|attribute| attribute.child_by_field_name("name"))
         .map(|name| simple_name(node_text(name, source)))

@@ -143,15 +143,15 @@ impl SourceMap {
 }
 
 fn utf8_prefix_char_count(source: &str, start: usize, end: usize) -> usize {
+    let start = start.min(source.len());
+    let mut end = end.min(source.len()).max(start);
+    while end > start && !source.is_char_boundary(end) {
+        end -= 1;
+    }
     let Some(bytes) = source.as_bytes().get(start..end) else {
         return 0;
     };
-    match str::from_utf8(bytes) {
-        Ok(text) => text.chars().count(),
-        Err(error) => {
-            str::from_utf8(&bytes[..error.valid_up_to()]).map_or(0, |text| text.chars().count())
-        }
-    }
+    str::from_utf8(bytes).map_or(0, |text| text.chars().count())
 }
 
 /// Converts a tree-sitter node span to an IR range using a fresh source map.
@@ -493,5 +493,18 @@ mod tests {
         let metrics = lexical_metrics("sql = <<~SQL\n# payload\nSQL\nvalue = 1\n");
         assert_eq!(metrics.comment_lines, 0);
         assert_eq!(metrics.code_lines, 3);
+    }
+
+    #[test]
+    fn source_map_clamps_utf8_offsets_and_ignores_crlf_columns() {
+        let map = SourceMap::new("πé\r\nvalue\n");
+        assert_eq!(map.position(0).column, 0);
+        assert_eq!(map.position(1).column, 0, "middle of π uses its prefix");
+        assert_eq!(map.position(2).column, 1);
+        assert_eq!(map.position(3).column, 1, "middle of é uses its prefix");
+        assert_eq!(map.position(4).column, 2);
+        assert_eq!(map.position(5).column, 2, "CRLF is outside content");
+        assert_eq!(map.position(6).line, 2);
+        assert_eq!(map.position(6).column, 0);
     }
 }

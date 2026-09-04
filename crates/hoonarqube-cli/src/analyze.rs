@@ -379,11 +379,11 @@ pub(crate) fn collect_files(
                 Ok(metadata) if metadata.is_dir() && mode == InputMode::Fix => {
                     warnings.push(format!("skipping symlinked directory: {}", path.display()));
                 }
-                Err(error) if mode == InputMode::Fix => warnings.push(format!(
+                Err(error) => warnings.push(format!(
                     "cannot inspect symlink target: {}: {error}",
                     path.display()
                 )),
-                Ok(_) | Err(_) => {}
+                Ok(_) => {}
             }
         } else if file_type.is_file() && is_analyzable_file(&path) {
             files.push(path);
@@ -535,14 +535,126 @@ mod tests {
             &mut warnings,
         );
 
-        // `target/nested.py` appears once, via the real `target`
-        // directory; a duplicate would mean `linked-dir` was followed.
-        let mut names: Vec<_> = reports
-            .iter()
-            .map(|r| r.path.file_name().unwrap().to_string_lossy().into_owned())
-            .collect();
-        names.sort();
-        assert_eq!(names, vec!["alias.py", "nested.py", "real.py"]);
+        let paths: Vec<_> = reports.iter().map(|report| report.path.clone()).collect();
+        assert_eq!(
+            paths,
+            vec![fix.0.join("alias.py"), real, fix.0.join("target/nested.py"),]
+        );
+        assert!(warnings.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn warns_for_dangling_symlink_found_during_analyze_walk() {
+        let fix = TempDir::new("dangling-symlink");
+        let dangling = fix.0.join("dead.py");
+        std::os::unix::fs::symlink(fix.0.join("missing.py"), &dangling).expect("dangling symlink");
+
+        let mut warnings = Vec::new();
+        let files = collect_input_files(
+            std::slice::from_ref(&fix.0),
+            InputMode::Analyze,
+            &mut warnings,
+        );
+
+        assert!(files.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].starts_with("cannot inspect symlink target: "));
+        assert!(warnings[0].contains(&dangling.display().to_string()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn warns_for_explicit_dangling_symlink() {
+        let fix = TempDir::new("explicit-dangling-symlink");
+        let dangling = fix.0.join("dead.py");
+        std::os::unix::fs::symlink(fix.0.join("missing.py"), &dangling).expect("dangling symlink");
+
+        let mut warnings = Vec::new();
+        let files = collect_input_files(
+            std::slice::from_ref(&dangling),
+            InputMode::Analyze,
+            &mut warnings,
+        );
+
+        assert!(files.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].starts_with("cannot inspect symlink target: "));
+        assert!(warnings[0].contains(&dangling.display().to_string()));
+    }
+
+    #[test]
+    fn reports_invalid_utf8_source_as_a_warning() {
+        let fix = TempDir::new("invalid-utf8");
+        let source = fix.0.join("invalid.py");
+        fs::write(&source, [0xff, 0xfe, b'\n']).expect("write invalid source");
+
+        let mut warnings = Vec::new();
+        let reports = analyze_paths(
+            std::slice::from_ref(&source),
+            &AnalyzerOptionsBundle::default(),
+            &mut warnings,
+        );
+
+        assert!(reports.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].starts_with("skipping non-UTF-8 file: "));
+    }
+
+    #[test]
+    fn fix_mode_keeps_explicit_ordinary_files_for_newline_repairs() {
+        let fix = TempDir::new("fix-ordinary");
+        let readme = fix.write("README.md", "# notes");
+        let source = fix.write("source.py", "value = 1");
+
+        let mut warnings = Vec::new();
+        let files = collect_input_files(
+            &[readme.clone(), source.clone()],
+            InputMode::Fix,
+            &mut warnings,
+        );
+
+        assert_eq!(files, vec![readme, source]);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn lexical_normalization_falls_back_when_parent_is_missing() {
+        let fix = TempDir::new("lexical-fallback");
+        let path = fix.0.join("missing-parent").join("..").join("b.py");
+
+        assert_eq!(normalized_input_path(&path), fix.0.join("b.py"));
+    }
+
+    #[test]
+    fn warns_when_an_explicit_child_has_a_non_directory_parent() {
+        let fix = TempDir::new("non-directory-parent");
+        let parent = fix.write("file", "not a directory");
+        let child = parent.join("child.py");
+
+        let mut warnings = Vec::new();
+        let files = collect_input_files(&[child], InputMode::Analyze, &mut warnings);
+
+        assert!(files.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].starts_with("cannot inspect path: "));
+    }
+
+    #[test]
+    fn deduplicated_reports_retain_cross_file_order_and_paths() {
+        let fix = TempDir::new("ordered-inputs");
+        let first = fix.write("zeta.py", "z = 1\n");
+        let second = fix.write("alpha.py", "a = 1\n");
+
+        let mut warnings = Vec::new();
+        let reports = analyze_paths(
+            &[first.clone(), fix.0.clone(), second.clone(), first],
+            &AnalyzerOptionsBundle::default(),
+            &mut warnings,
+        );
+
+        let paths: Vec<_> = reports.iter().map(|report| report.path.clone()).collect();
+        assert_eq!(paths, vec![second, fix.0.join("zeta.py")]);
         assert!(warnings.is_empty());
     }
 
@@ -686,13 +798,63 @@ mod tests {
         let through_parent = linked.join("..").join("bar.py");
         let mut warnings = Vec::new();
         let reports = analyze_paths(
-            &[through_parent, local],
+            &[through_parent.clone(), local.clone()],
             &AnalyzerOptionsBundle::default(),
             &mut warnings,
         );
 
-        assert_eq!(reports.len(), 2);
+        let paths: Vec<_> = reports.iter().map(|report| report.path.clone()).collect();
+        assert_eq!(paths, vec![local, through_parent]);
         assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn catalog_python_line_length_threshold_changes_report_output() {
+        let fix = TempDir::new("line-length-threshold");
+        let exact = fix.write("exact.py", &format!("value = \"{}\"\n", "a".repeat(110)));
+        let over = fix.write("over.py", &format!("value = \"{}\"\n", "a".repeat(111)));
+
+        let mut warnings = Vec::new();
+        let reports = analyze_paths(
+            &[exact, over],
+            &analyzer_options_bundle(hoonarqube_catalog::embedded()),
+            &mut warnings,
+        );
+
+        assert!(warnings.is_empty());
+        let exact_report = reports
+            .iter()
+            .find(|report| report.path.ends_with("exact.py"))
+            .expect("exact threshold report");
+        let over_report = reports
+            .iter()
+            .find(|report| report.path.ends_with("over.py"))
+            .expect("over threshold report");
+        assert!(
+            !exact_report
+                .issues
+                .iter()
+                .any(|issue| issue.rule_key == "python:LineLength")
+        );
+        assert!(
+            over_report
+                .issues
+                .iter()
+                .any(|issue| issue.rule_key == "python:LineLength")
+        );
+    }
+
+    #[test]
+    fn catalog_thresholds_are_threaded_into_all_owned_option_groups() {
+        let options = analyzer_options_bundle(hoonarqube_catalog::embedded());
+
+        assert_eq!(options.csharp.maximum_file_loc_threshold, 1_000);
+        assert_eq!(options.go.maximum_lines_of_code, 750);
+        assert_eq!(options.go.maximum_expression_complexity, 3);
+        assert_eq!(options.go.maximum_function_parameters, 7);
+        assert_eq!(options.go.maximum_nesting_depth, 4);
+        assert_eq!(options.go.maximum_cognitive_complexity, 15);
+        assert_eq!(options.rust.maximum_cognitive_complexity, 15);
     }
 
     #[test]

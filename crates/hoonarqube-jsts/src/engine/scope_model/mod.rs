@@ -4,16 +4,17 @@ use crate::support::{
 };
 use oxc_ast::ast::{
     ArrowFunctionBody, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator,
-    AssignmentTarget, AssignmentTargetPropertyIdentifier, AssignmentTargetWithDefault,
-    BinaryExpression, BinaryOperator, BindingIdentifier, BindingPattern, BlockStatement,
-    BreakStatement, CallExpression, CatchClause, Class, ClassElement, ConditionalExpression,
-    ContinueStatement, Declaration, DoWhileStatement, ExportDefaultDeclarationKind,
-    ExportSpecifier, Expression, ForInStatement, ForOfStatement, ForStatement, FormalParameters,
-    Function, IfStatement, ImportDeclaration, ImportDeclarationSpecifier, LogicalExpression,
-    MemberExpression, MethodDefinition, MethodDefinitionKind, ModuleExportName, NewExpression,
-    ReturnStatement, SimpleAssignmentTarget, Statement, StaticBlock, SwitchStatement,
-    ThrowStatement, TryStatement, UnaryExpression, UnaryOperator, UpdateExpression,
-    VariableDeclaration, VariableDeclarationKind, VariableDeclarator, WhileStatement,
+    AssignmentTarget, AssignmentTargetPropertyIdentifier, AssignmentTargetPropertyProperty,
+    AssignmentTargetWithDefault, BinaryExpression, BinaryOperator, BindingIdentifier,
+    BindingPattern, BlockStatement, BreakStatement, CallExpression, CatchClause, Class,
+    ClassElement, ConditionalExpression, ContinueStatement, Declaration, DoWhileStatement,
+    ExportDefaultDeclarationKind, ExportSpecifier, Expression, ForInStatement, ForOfStatement,
+    ForStatement, FormalParameters, Function, IfStatement, ImportDeclaration,
+    ImportDeclarationSpecifier, LogicalExpression, MemberExpression, MethodDefinition,
+    MethodDefinitionKind, ModuleExportName, NewExpression, ReturnStatement, SimpleAssignmentTarget,
+    Statement, StaticBlock, SwitchStatement, ThrowStatement, TryStatement, UnaryExpression,
+    UnaryOperator, UpdateExpression, VariableDeclaration, VariableDeclarationKind,
+    VariableDeclarator, WhileStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
@@ -85,12 +86,123 @@ mod tests {
     }
 
     #[test]
+    fn destructured_loop_heads_record_per_iteration_writes() {
+        for (source, names) in [
+            (
+                "let xs = [{}];\nfor (let [value] of xs) {}\n",
+                &["value"][..],
+            ),
+            (
+                "let xs = [{}];\nfor (let {value} of xs) {}\n",
+                &["value"][..],
+            ),
+            (
+                "let xs = [{}];\nfor (let {value: other, ...rest} of xs) {}\n",
+                &["other", "rest"][..],
+            ),
+            (
+                "let xs = [{}];\nfor (let [value = fallback, ...rest] of xs) {}\n",
+                &["value", "rest"][..],
+            ),
+        ] {
+            with_model(source, |model| {
+                for name in names {
+                    let binding = binding(model, name, false);
+                    assert_eq!(binding.kind, TbKind::Let);
+                    assert_eq!(
+                        binding.writes.len(),
+                        1,
+                        "per-iteration write missing for `{name}`",
+                    );
+                    assert!(
+                        !model
+                            .implicit_globals
+                            .iter()
+                            .any(|(global, _)| global == name),
+                        "`{name}` must not become implicit",
+                    );
+                }
+            });
+        }
+    }
+    #[test]
     fn loop_head_var_write_still_lands_on_the_hoisted_binding() {
         with_model("let xs = [1];\nfor (var w of xs) {\n}\n", |model| {
             let binding = binding(model, "w", true);
             assert_eq!(binding.kind, TbKind::Var);
             assert_eq!(binding.writes.len(), 1);
             assert!(!model.implicit_globals.iter().any(|(name, _)| *name == "w"));
+        });
+    }
+
+    #[test]
+    fn non_declaration_loop_targets_write_declared_bindings() {
+        for source in [
+            "const value = 0;\nfor (value of values) {}\n",
+            "import { value } from 'module';\nfor (value in values) {}\n",
+        ] {
+            with_model(source, |model| {
+                let value = binding(model, "value", true);
+                assert_eq!(value.writes.len(), 1);
+                assert!(value.reads.is_empty());
+                assert_eq!(source_slice(source, value.writes[0]), "value");
+                assert!(model.implicit_globals.is_empty());
+            });
+        }
+    }
+
+    #[test]
+    fn non_declaration_loop_targets_write_undeclared_names() {
+        for source in ["for (value of values) {}\n", "for (value in values) {}\n"] {
+            with_model(source, |model| {
+                assert_eq!(model.implicit_globals.len(), 1);
+                let (name, span) = model.implicit_globals[0];
+                assert_eq!(name, "value");
+                assert_eq!(source_slice(source, span), "value");
+            });
+        }
+    }
+
+    #[test]
+    fn destructuring_non_declaration_loop_targets_write_bindings() {
+        for (declared, undeclared) in [
+            (
+                "const values = [[]];\nlet value;\nfor ([value] of values) {}\n",
+                "const values = [[]];\nfor ([value] of values) {}\n",
+            ),
+            (
+                "const values = [[]];\nlet value;\nfor ([value] in values) {}\n",
+                "const values = [[]];\nfor ([value] in values) {}\n",
+            ),
+        ] {
+            with_model(declared, |model| {
+                let value = binding(model, "value", true);
+                assert_eq!(value.writes.len(), 1);
+                assert_eq!(source_slice(declared, value.writes[0]), "value");
+                assert!(model.implicit_globals.is_empty());
+            });
+
+            with_model(undeclared, |model| {
+                assert_eq!(model.implicit_globals.len(), 1);
+                let (name, span) = model.implicit_globals[0];
+                assert_eq!(name, "value");
+                assert_eq!(source_slice(undeclared, span), "value");
+            });
+        }
+    }
+
+    #[test]
+    fn computed_destructuring_loop_keys_remain_reads() {
+        let source =
+            "const values = [{}];\nlet key;\nlet value;\nfor ({[key]: value} of values) {}\n";
+        with_model(source, |model| {
+            let key = binding(model, "key", true);
+            let value = binding(model, "value", true);
+            assert_eq!(source_slice(source, key.reads[0]), "key");
+            assert!(key.writes.is_empty());
+            assert_eq!(value.writes.len(), 1);
+            assert_eq!(source_slice(source, value.writes[0]), "value");
+            assert!(model.implicit_globals.is_empty());
         });
     }
 

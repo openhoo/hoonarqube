@@ -9,40 +9,66 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SEMVER = re.compile(
-    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$"
+SEMVER_IDENTIFIER = r"(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
+BUILD_IDENTIFIER = r"[0-9A-Za-z-]+"
+SEMVER_TEXT = (
+    rf"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+    rf"(?:-{SEMVER_IDENTIFIER}(?:\.{SEMVER_IDENTIFIER})*)?"
+    rf"(?:\+{BUILD_IDENTIFIER}(?:\.{BUILD_IDENTIFIER})*)?"
 )
+SEMVER = re.compile(rf"^{SEMVER_TEXT}$")
 WORKSPACE_VERSION = re.compile(
     r'(?ms)(^\[workspace\.package\]\s*$.*?^version\s*=\s*")[^"]+("\s*$)'
 )
 INTERNAL_DEPENDENCY = re.compile(
-    r'^(\s*hoonarqube(?:-[a-z0-9-]+)?\s*=\s*\{[^}\n]*\bversion\s*=\s*")[^"]+("[^}\n]*\bpath\s*=\s*"\.\./(?:crates/)?hoonarqube[^"\n]*"[^}\n]*\}\s*)$',
-    re.MULTILINE,
+    r"(?ms)^[ \t]*hoonarqube(?:-[a-z0-9-]+)?[ \t]*=[ \t]*\{"
+    r'(?=[^}]*\bpath\s*=\s*"\.\./(?:crates/)?hoonarqube[^"\n]*")'
+    r'(?=[^}]*\bversion\s*=\s*"[^"]+")[^}]*\}'
 )
-ACTION_DEFAULT = re.compile(r'(?m)^(    default: ")[0-9]+\.[0-9]+\.[0-9]+("\s*)$')
-ACTION_DOC_VERSION = re.compile(r"(?m)^(    version: )[0-9]+\.[0-9]+\.[0-9]+(\s*)$")
+ACTION_DEFAULT = re.compile(rf'(?m)^(    default: "){SEMVER_TEXT}("\s*)$')
+ACTION_DOC_VERSION = re.compile(rf"(?m)^(    version: ){SEMVER_TEXT}(\s*)$")
+
+
+def _replace_internal_dependency(match: re.Match[str], version: str) -> str:
+    updated, count = re.subn(
+        r'(\bversion\s*=\s*")[^"]+(")',
+        rf"\g<1>{version}\g<2>",
+        match.group(0),
+        count=1,
+    )
+    if count != 1:
+        raise RuntimeError("internal dependency version is missing or ambiguous")
+    return updated
+
+
+def _validate_version(version: str) -> None:
+    if not isinstance(version, str) or not SEMVER.fullmatch(version):
+        raise RuntimeError("release version must be a valid semantic version")
 
 
 def synchronized(path: Path, version: str) -> str:
+    _validate_version(version)
     text = path.read_text(encoding="utf-8")
     if path == ROOT / "Cargo.toml":
-        updated, count = WORKSPACE_VERSION.subn(rf"\g<1>{version}\g<2>", text, count=1)
+        updated, count = WORKSPACE_VERSION.subn(rf"\g<1>{version}\g<2>", text)
         if count != 1:
             raise RuntimeError(
                 "Cargo.toml must contain exactly one [workspace.package] version"
             )
         return updated
     if path.name == "action.yml":
-        updated, count = ACTION_DEFAULT.subn(rf"\g<1>{version}\g<2>", text, count=1)
+        updated, count = ACTION_DEFAULT.subn(rf"\g<1>{version}\g<2>", text)
         if count != 1:
             raise RuntimeError(f"{path}: action version default missing or ambiguous")
         return updated
     if path == ROOT / "actions" / "README.md":
-        updated, count = ACTION_DOC_VERSION.subn(rf"\g<1>{version}\g<2>", text, count=1)
-        if count != 1:
-            raise RuntimeError("actions/README.md version example missing or ambiguous")
+        updated, count = ACTION_DOC_VERSION.subn(rf"\g<1>{version}\g<2>", text)
+        if count == 0:
+            raise RuntimeError("actions/README.md has no version example")
         return updated
-    return INTERNAL_DEPENDENCY.sub(rf"\g<1>{version}\g<2>", text)
+    return INTERNAL_DEPENDENCY.sub(
+        lambda match: _replace_internal_dependency(match, version), text
+    )
 
 
 def main() -> int:

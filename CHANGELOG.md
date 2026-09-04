@@ -15,8 +15,9 @@
 
 ### Bug Fixes
 
-- **github-quality:** align conservative CodeQL detectors, registry coverage,
-  SARIF validation, path handling, and action gating
+- **github-quality:** align conservative CodeQL detectors, scope and dataflow
+  semantics, registry coverage, Sonar/SARIF locations, path handling, and
+  action gating; add adversarial regression coverage across every analyzer
 - **release:** synchronize `xtask` path dependencies during version bumps while
   keeping CI dogfood pinned to an already-published binary
 

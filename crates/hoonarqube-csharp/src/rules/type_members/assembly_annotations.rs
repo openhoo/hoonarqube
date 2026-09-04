@@ -41,3 +41,32 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{analyze_default, with_key};
+
+    #[test]
+    fn assembly_annotation_rules_ignore_module_only_attributes() {
+        let module_only = analyze_default(
+            "[module: System.ComVisible(false)]\n\n// This type is unrelated to assembly metadata.\nclass C { }\n",
+        );
+        for key in [
+            "csharpsquid:S3990",
+            "csharpsquid:S3992",
+            "csharpsquid:S4026",
+        ] {
+            assert!(
+                with_key(&module_only, key).is_empty(),
+                "module metadata must not satisfy or trigger {key}",
+            );
+        }
+
+        let mixed = analyze_default(
+            "[module: System.ComVisible(false)]\n[assembly: System.CLSCompliant(true)]\nclass C { }\n",
+        );
+        assert!(with_key(&mixed, "csharpsquid:S3990").is_empty());
+        assert_eq!(with_key(&mixed, "csharpsquid:S3992").len(), 1);
+        assert_eq!(with_key(&mixed, "csharpsquid:S4026").len(), 1);
+    }
+}

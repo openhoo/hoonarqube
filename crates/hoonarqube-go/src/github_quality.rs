@@ -113,7 +113,7 @@ impl SemanticFacts {
 
     fn collect_type_aliases(&mut self, root: Node<'_>, source: &str) {
         walk(root, &mut |node| {
-            if node.kind() != "type_spec" {
+            if !matches!(node.kind(), "type_spec" | "type_alias") {
                 return;
             }
             let (Some(name), Some(ty)) = (
@@ -1031,7 +1031,12 @@ fn expression_key(node: Node<'_>, source: &str, facts: &SemanticFacts) -> Option
         | "type_instantiation_expression" => {
             Some(format!("type:{}", compact_trivia(text(node, source))))
         }
-        "true" | "false" | "nil" => Some(format!("literal:{}", text(node, source))),
+        "true" | "false" => Some(format!("literal:{}", text(node, source))),
+        "nil" => {
+            // CodeQL gives each unanalyzable nil expression a distinct
+            // global value; spelling alone must not imply equality.
+            None
+        }
         "interpreted_string_literal" | "raw_string_literal" | "rune_literal" => {
             Some(format!("literal:{}", text(node, source)))
         }
@@ -1460,6 +1465,90 @@ func f(a, b, c, d bool) bool {
         );
     }
 
+    #[test]
+    fn nil_expressions_remain_distinct_unanalyzable_values() {
+        let duplicate_condition =
+            "package p\nfunc f(x any) { if x == nil {} else if x == nil {} }\n";
+        assert!(
+            keys(duplicate_condition)
+                .into_iter()
+                .all(|key| key != DUPLICATE_CONDITION),
+            "nil comparisons must not be equated by spelling"
+        );
+
+        let duplicate_switch = "package p\nfunc f(x any) { switch x { case nil: case nil: } }\n";
+        assert!(
+            keys(duplicate_switch)
+                .into_iter()
+                .all(|key| key != DUPLICATE_SWITCH_CASE),
+            "nil cases must remain distinct unanalyzable values"
+        );
+    }
+
+    #[test]
+    fn advanced_scopes_types_control_flow_and_trivia_stay_precise() {
+        let source = r"package p
+type Unsigned = uint
+type Box[T any] struct { Value T }
+func f(café Unsigned, ch <-chan int) {
+    closure := func() {
+        if café < 0 {}
+    }
+    _ = closure
+outer:
+    for {
+        for {
+            select {
+            case item := <-ch:
+                _ = item
+            default:
+                break outer
+            }
+        }
+    }
+    _ = Box[int]{Value: 1} // generic composite literal
+}
+";
+        let issues = analyze_github_quality(source);
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|issue| issue.rule_key == NEGATIVE_LENGTH_CHECK)
+                .count(),
+            1,
+            "the alias remains unsigned through a closure, while control-flow syntax stays clean"
+        );
+        assert!(
+            issues
+                .iter()
+                .all(|issue| issue.rule_key != DUPLICATE_CONDITION),
+            "labels, select, and generic literals must not create duplicate conditions"
+        );
+
+        let duplicate = r"package p
+func g(café int) {
+    check := func() {
+        if café == 1 {
+        } else if café == 1 {
+        }
+    }
+}
+";
+        let issue = analyze_github_quality(duplicate)
+            .into_iter()
+            .find(|issue| issue.rule_key == DUPLICATE_CONDITION)
+            .expect("captured Unicode condition should be detected");
+        assert_eq!(issue.range.start.line, 5);
+        assert_eq!(issue.flows.len(), 1);
+
+        let near_miss = "package p\nfunc h(x int) { if x == 1 {} else if x != 1 {} }\n";
+        assert!(
+            analyze_github_quality(near_miss)
+                .into_iter()
+                .all(|issue| issue.rule_key != DUPLICATE_CONDITION),
+            "opposite comparisons are not duplicates"
+        );
+    }
     #[test]
     fn implicit_constants_and_signed_int_boundaries_are_conservative() {
         let source = r"package p

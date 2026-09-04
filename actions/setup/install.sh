@@ -2,7 +2,8 @@
 set -euo pipefail
 
 version="$INPUT_VERSION"
-if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)([-+][0-9A-Za-z.-]+)?$ ]]; then
+semver_pattern='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*)|([0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))(\.((0|[1-9][0-9]*)|([0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)))*)?([+][0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+if [[ ! "$version" =~ $semver_pattern ]]; then
   echo "::error::Hoonarqube version must be an unprefixed semantic version."
   exit 2
 fi
@@ -35,7 +36,12 @@ cosign verify-blob "$archive" --bundle "$archive_bundle" \
 cosign verify-blob "$checksums" --bundle "$checksums_bundle" \
   --certificate-identity "$signature_identity" --certificate-oidc-issuer "$signature_issuer"
 
-expected="$(awk -v name="$archive_name" '$2 == name { print $1 }' "$checksums")"
+mapfile -t digests < <(awk -v name="$archive_name" '$2 == name { print $1 }' "$checksums")
+if (( ${#digests[@]} != 1 )); then
+  echo "::error::SHA256SUMS contains no unique digest for ${archive_name}."
+  exit 1
+fi
+expected="${digests[0]}"
 if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
   echo "::error::SHA256SUMS contains no unique digest for ${archive_name}."
   exit 1
@@ -57,6 +63,6 @@ fi
 bin_dir="$(mktemp -d "${RUNNER_TEMP}/hoonarqube-bin.XXXXXXXX")"
 cp "$source_binary" "${bin_dir}/hoonarqube"
 chmod +x "${bin_dir}/hoonarqube"
-"${bin_dir}/hoonarqube" --version | grep -F "hoonarqube ${version}"
+"${bin_dir}/hoonarqube" --version | grep -Fx "hoonarqube ${version}" >/dev/null
 echo "$bin_dir" >> "$GITHUB_PATH"
 echo "version=$version" >> "$GITHUB_OUTPUT"
