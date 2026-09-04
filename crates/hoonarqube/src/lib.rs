@@ -167,7 +167,7 @@ mod tests {
             ("fixture.js", "/*@cc_on @*/\n"),
             ("fixture.ts", "const n: number = 1; n = 2;\n"),
             ("fixture.py", "global value\n"),
-            ("fixture.rb", "def f\n  value\nend\n"),
+            ("fixture.rb", "def f\n  value.length\nend\n"),
         ];
         for (path, source) in fixtures {
             let report = analyze(Path::new(path), source, &options)
