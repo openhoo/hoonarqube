@@ -160,7 +160,7 @@ pub fn analyze(
 ) -> hoonarqube_ir::FileReport {
     let tree = parse(source);
     let root = tree.root_node();
-    let metrics = metrics::file_metrics(root, source);
+    let (metrics, code_line_count) = metrics::file_metrics(root, source);
     if root.has_error() {
         // tree-sitter-c-sharp currently recovers valid contextual-keyword
         // declarations such as `int await` with ERROR nodes. Its declaration
@@ -183,7 +183,12 @@ pub fn analyze(
     }
     let mut issues = Vec::new();
     issues.extend(rules::text_scans::text_issues(
-        root, &path, source, language, options,
+        root,
+        &path,
+        source,
+        language,
+        options,
+        code_line_count,
     ));
     issues.extend(rules::naming::naming_issues(
         root, source, language, options,

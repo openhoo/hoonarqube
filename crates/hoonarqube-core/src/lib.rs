@@ -12,6 +12,8 @@ use hoonarqube_csharp::CsLanguage;
 use hoonarqube_jsts::JstsLanguage;
 
 pub use hoonarqube_catalog::RuleProfile;
+#[doc(hidden)]
+pub use hoonarqube_jsts::spawn_analyzer_worker;
 
 /// Languages the registry can analyze.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

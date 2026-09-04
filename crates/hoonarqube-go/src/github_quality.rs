@@ -515,12 +515,16 @@ fn check_duplicate_conditions(
                 .child_by_field_name("alternative")
                 .filter(|alternative| alternative.kind() == "if_statement");
         }
-        for (index, condition) in conditions.iter().enumerate() {
-            let Some(key) = expression_key(*condition, source, facts) else {
+        let keys: Vec<_> = conditions
+            .iter()
+            .map(|condition| expression_key(*condition, source, facts))
+            .collect();
+        for (index, (condition, key)) in conditions.iter().zip(keys.iter()).enumerate() {
+            let Some(key) = key else {
                 continue;
             };
-            for earlier in conditions.iter().take(index) {
-                if expression_key(*earlier, source, facts).is_some_and(|old| old == key) {
+            for (earlier, old) in conditions.iter().zip(keys.iter()).take(index) {
+                if old.as_ref().is_some_and(|old| old == key) {
                     let mut issue = Issue::new(
                         DUPLICATE_CONDITION,
                         "This condition is a duplicate of an $@.",

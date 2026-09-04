@@ -23,10 +23,11 @@ pub(crate) fn text_issues(
     source: &str,
     language: CsLanguage,
     options: &AnalyzerOptions,
+    code_line_count: usize,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_line_length(source, language, options));
-    issues.extend(check_file_loc(root, source, language, options));
+    issues.extend(check_file_loc(code_line_count, language, options));
     issues.extend(check_tabs(source, language));
     issues.extend(check_final_newline(path, source, language));
     issues.extend(check_header(source, language, options));

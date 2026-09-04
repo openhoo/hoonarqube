@@ -5,8 +5,8 @@ use std::collections::HashMap;
 // Tier B — file-local scope/symbol table
 //
 // One traversal records declarations plus every identifier event together
-// with a snapshot of the active scope chain. Resolution is deferred until the
-// walk finishes: lexical scoping ignores textual order, so a reference that
+// with its innermost scope. Resolution follows parent links after the walk
+// finishes: lexical scoping ignores textual order, so a reference that
 // precedes its declaration must still resolve to it (use-before-definition
 // rules depend on exactly that).
 
@@ -79,7 +79,8 @@ pub(crate) struct TbEvent<'a> {
     pub(crate) write: bool,
     /// Compound assignments (`+=`) and updates read as well as write.
     pub(crate) compound: bool,
-    pub(crate) chain: Vec<usize>,
+    /// Innermost scope at the occurrence; parents preserve lexical lookup.
+    pub(crate) scope: usize,
 }
 
 /// A resolved callee position (`call`/`new` of a file-local binding).
@@ -88,7 +89,8 @@ pub(crate) struct TbCallee<'a> {
     pub(crate) span: Span,
     pub(crate) arity: usize,
     pub(crate) constructor: bool,
-    pub(crate) chain: Vec<usize>,
+    /// Innermost scope at the occurrence; parents preserve lexical lookup.
+    pub(crate) scope: usize,
     /// Argument positions spelled as bare `undefined` (`S4623`).
     pub(crate) explicit_undefined: Vec<(usize, Span)>,
     /// Any spread argument disables positional matching.
@@ -99,7 +101,8 @@ pub(crate) struct TbCallee<'a> {
 pub(crate) struct TbSite<'a> {
     pub(crate) name: &'a str,
     pub(crate) span: Span,
-    pub(crate) chain: Vec<usize>,
+    /// Innermost scope at the occurrence; parents preserve lexical lookup.
+    pub(crate) scope: usize,
 }
 
 pub(crate) struct TbCallSite {
@@ -140,11 +143,16 @@ impl TbModel<'_> {
             .find(|id| self.bindings[*id].name == name)
     }
 
-    pub(crate) fn resolve_chain(&self, chain: &[usize], name: &str) -> Option<usize> {
-        chain
-            .iter()
-            .rev()
-            .find_map(|scope| self.shallow(*scope, name))
+    /// Resolves from the occurrence's scope through its lexical parents.
+    /// Storing only the innermost scope avoids cloning the whole scope chain
+    /// into every identifier, call, and delete event.
+    pub(crate) fn resolve_scope(&self, mut scope: usize, name: &str) -> Option<usize> {
+        loop {
+            if let Some(id) = self.shallow(scope, name) {
+                return Some(id);
+            }
+            scope = self.scopes[scope].parent?;
+        }
     }
 }
 
@@ -160,7 +168,7 @@ pub(crate) fn finish_model(mut model: TbModel<'_>) -> TbModel<'_> {
 
 fn resolve_events(model: &mut TbModel<'_>) {
     for event in std::mem::take(&mut model.events) {
-        if let Some(id) = model.resolve_chain(&event.chain, event.name) {
+        if let Some(id) = model.resolve_scope(event.scope, event.name) {
             let binding = &mut model.bindings[id];
             if event.write {
                 binding.writes.push(event.span);
@@ -178,7 +186,7 @@ fn resolve_events(model: &mut TbModel<'_>) {
 
 fn resolve_callees(model: &mut TbModel<'_>) {
     for callee in std::mem::take(&mut model.callees) {
-        if let Some(id) = model.resolve_chain(&callee.chain, callee.name) {
+        if let Some(id) = model.resolve_scope(callee.scope, callee.name) {
             let site = TbCallSite {
                 binding: id,
                 span: callee.span,
@@ -197,7 +205,7 @@ fn resolve_callees(model: &mut TbModel<'_>) {
 
 fn resolve_delete_sites(model: &mut TbModel<'_>) {
     for site in std::mem::take(&mut model.delete_sites) {
-        if let Some(id) = model.resolve_chain(&site.chain, site.name)
+        if let Some(id) = model.resolve_scope(site.scope, site.name)
             && model.bindings[id].array_like
         {
             model.array_deletes.push((id, site.span));
@@ -207,9 +215,13 @@ fn resolve_delete_sites(model: &mut TbModel<'_>) {
 
 fn derive_scope_relationships(model: &mut TbModel<'_>) {
     for scope in 0..model.scopes.len() {
-        let ids = model.scopes[scope].bindings.clone();
+        // Move the IDs out instead of cloning each scope's binding list.
+        // Shadow lookup only walks parents, and duplicate detection consumes
+        // this local slice, so restoring it preserves the model exactly.
+        let ids = std::mem::take(&mut model.scopes[scope].bindings);
         record_shadows(model, scope, &ids);
         record_duplicates(model, &ids);
+        model.scopes[scope].bindings = ids;
     }
 }
 

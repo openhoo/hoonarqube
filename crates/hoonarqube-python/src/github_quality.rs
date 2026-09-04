@@ -588,12 +588,14 @@ pub(crate) fn analyze(source: &str) -> Vec<Issue> {
     }
 
     let index = LineIndex::from_source_text(source);
+    let file_ctx = FileContext::build(&parsed);
+    let facts = BindingFacts::build(&parsed);
     let mut issues = Vec::new();
-    check_regex_backspace(&parsed, &index, source, &mut issues);
-    check_implicit_string_in_list(&parsed, &index, source, &mut issues);
+    check_regex_backspace(&index, source, &file_ctx, &facts, &mut issues);
+    check_implicit_string_in_list(&parsed, &index, source, &file_ctx, &mut issues);
     check_redundant_globals(&parsed, &index, source, &mut issues);
     check_explicit_del(&parsed, &index, source, &mut issues);
-    check_mixed_format_fields(&parsed, &index, source, &mut issues);
+    check_mixed_format_fields(&index, source, &file_ctx, &facts, &mut issues);
     sort_issues(&mut issues);
     issues
 }
@@ -609,24 +611,20 @@ fn push(
     issues.push(issue_at(key, message, range, index, source));
 }
 
-fn expressions_in_source(parsed: &Parsed<ModModule>) -> impl Iterator<Item = &Expr> {
-    FileContext::build(parsed).exprs.into_iter()
-}
-
 // ---------------------------------------------------------------------------
 // py/regex/backspace-escape and py/implicit-string-concatenation-in-list
 // ---------------------------------------------------------------------------
 
 fn check_regex_backspace(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
+    facts: &BindingFacts,
     issues: &mut Vec<Issue>,
 ) {
-    let facts = BindingFacts::build(parsed);
-    for expr in expressions_in_source(parsed) {
+    for expr in file_ctx.exprs.iter().copied() {
         let Expr::Call(call) = expr else { continue };
-        if !is_regex_call(&call.func, &facts) {
+        if !is_regex_call(&call.func, facts) {
             continue;
         }
         let Some(pattern) = regex_pattern(call) else {
@@ -725,9 +723,10 @@ fn check_implicit_string_in_list(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
     issues: &mut Vec<Issue>,
 ) {
-    for expr in expressions_in_source(parsed) {
+    for expr in file_ctx.exprs.iter().copied() {
         let Expr::List(list) = expr else { continue };
         for (index_of_candidate, element) in list.elts.iter().enumerate() {
             let Expr::StringLiteral(literal) = element else {
@@ -946,15 +945,15 @@ fn is_super_del(
 // ---------------------------------------------------------------------------
 
 fn check_mixed_format_fields(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext,
+    facts: &BindingFacts,
     issues: &mut Vec<Issue>,
 ) {
-    let facts = BindingFacts::build(parsed);
-    for expr in expressions_in_source(parsed) {
+    for expr in file_ctx.exprs.iter().copied() {
         let Expr::Call(call) = expr else { continue };
-        let Some((text, range)) = format_literal_for_call(call, &facts) else {
+        let Some((text, range)) = format_literal_for_call(call, facts) else {
             continue;
         };
         let (implicit, explicit) = format_field_kinds(&text);
