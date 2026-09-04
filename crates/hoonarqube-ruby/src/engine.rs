@@ -1,6 +1,6 @@
 //! AST lowering and conservative semantic facts for Ruby.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 
 use tree_sitter::{Node, Parser, Tree};
 
@@ -1043,6 +1043,9 @@ enum CfgBuildTask<'tree> {
     CallAfterBlock {
         call: Flow,
     },
+    MethodAfterBody {
+        declaration: Flow,
+    },
     SpecialAfterBody {
         special: Flow,
     },
@@ -1184,6 +1187,15 @@ fn process_cfg_task<'tree>(task: CfgBuildTask<'tree>, processor: &mut CfgProcess
         CfgBuildTask::CallAfterBlock { call } => {
             process_cfg_call_after_block(call, processor);
         }
+        CfgBuildTask::MethodAfterBody { declaration } => {
+            let body = processor.result.take().unwrap_or_default();
+            if let Some(entry) = body.entry {
+                // Each method is an independent analysis root. Defining it
+                // does not execute its body or inherit its terminal jumps.
+                processor.cfg.link(processor.cfg.entry, entry);
+            }
+            *processor.result = Some(declaration);
+        }
         CfgBuildTask::SpecialAfterBody { special } => {
             process_cfg_special_after_body(special, processor);
         }
@@ -1213,7 +1225,14 @@ fn process_cfg_statement<'tree>(
         "block" | "do_block" => {
             process_cfg_block_statement(node, loop_header, child_path, processor);
         }
-        "method" | "singleton_method" | "class" | "module" => {
+        "method" | "singleton_method" => {
+            let declaration = processor.make_simple_flow(node, CfgNodeKind::Statement);
+            processor
+                .tasks
+                .push(CfgBuildTask::MethodAfterBody { declaration });
+            process_cfg_container_statement(node, None, child_path, processor);
+        }
+        "class" | "module" => {
             process_cfg_container_statement(node, loop_header, child_path, processor);
         }
         "call" => process_cfg_call_statement(node, loop_header, child_path, processor),
@@ -1967,27 +1986,41 @@ fn solve_dataflow_with_budget(
     budget: usize,
 ) -> (DataflowResults, bool) {
     let mut state = DataflowState::new(cfg.nodes.len());
+    let reachable = reachable_cfg_nodes(cfg);
     let mut work_items = 0;
     let mut tick = || {
         work_items += 1;
         work_items <= budget
     };
-    let complete = solve_reaching_definitions(cfg, defs, &mut state, &mut tick)
+    let complete = solve_reaching_definitions(cfg, defs, &reachable, &mut state, &mut tick)
         && solve_initialized_locals(cfg, &mut state, &mut tick)
-        && solve_live_locals(cfg, &mut state, &mut tick);
+        && solve_live_locals(cfg, &reachable, &mut state, &mut tick);
     (state.into_results(), complete)
+}
+
+fn reachable_cfg_nodes(cfg: &ControlFlowGraph) -> Vec<bool> {
+    let mut reachable = vec![false; cfg.nodes.len()];
+    let mut pending = vec![cfg.entry];
+    while let Some(id) = pending.pop() {
+        if reachable.get(id) == Some(&false) {
+            reachable[id] = true;
+            pending.extend(&cfg.nodes[id].successors);
+        }
+    }
+    reachable
 }
 
 fn solve_reaching_definitions(
     cfg: &ControlFlowGraph,
     defs: &[Definition],
+    reachable: &[bool],
     state: &mut DataflowState,
     tick: &mut impl FnMut() -> bool,
 ) -> bool {
     let mut changed = true;
     while changed {
         changed = false;
-        for node in &cfg.nodes {
+        for node in cfg.nodes.iter().filter(|node| reachable[node.id]) {
             if !tick() {
                 return false;
             }
@@ -2020,24 +2053,44 @@ fn solve_initialized_locals(
     state: &mut DataflowState,
     tick: &mut impl FnMut() -> bool,
 ) -> bool {
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for node in &cfg.nodes {
-            if !tick() {
-                return false;
-            }
-            if update_initialized_node(node, state) {
-                changed = true;
+    // Definite initialization is a must-analysis. An unvisited back edge is
+    // unknown, not an empty fact set: intersecting it with the entry path
+    // would erase assignments made before the loop permanently.
+    let mut visited = vec![false; cfg.nodes.len()];
+    let mut queued = vec![false; cfg.nodes.len()];
+    let mut pending = VecDeque::from([cfg.entry]);
+    queued[cfg.entry] = true;
+    while let Some(id) = pending.pop_front() {
+        if !tick() {
+            return false;
+        }
+        queued[id] = false;
+        let node = &cfg.nodes[id];
+        let changed = update_initialized_node(node, state, &visited);
+        let first_visit = !visited[id];
+        visited[id] = true;
+        if changed || first_visit {
+            for &successor in &node.successors {
+                if !queued[successor] {
+                    queued[successor] = true;
+                    pending.push_back(successor);
+                }
             }
         }
     }
     true
 }
 
-fn initialized_incoming(node: &CfgNode, state: &DataflowState) -> BTreeSet<ScopedLocal> {
+fn initialized_incoming(
+    node: &CfgNode,
+    state: &DataflowState,
+    visited: &[bool],
+) -> BTreeSet<ScopedLocal> {
     let mut incoming: Option<BTreeSet<ScopedLocal>> = None;
     for predecessor in &node.predecessors {
+        if !visited[*predecessor] {
+            continue;
+        }
         incoming = Some(match incoming {
             Some(current) => current
                 .intersection(&state.initialized_out[*predecessor])
@@ -2049,8 +2102,8 @@ fn initialized_incoming(node: &CfgNode, state: &DataflowState) -> BTreeSet<Scope
     incoming.unwrap_or_default()
 }
 
-fn update_initialized_node(node: &CfgNode, state: &mut DataflowState) -> bool {
-    let incoming = initialized_incoming(node, state);
+fn update_initialized_node(node: &CfgNode, state: &mut DataflowState, visited: &[bool]) -> bool {
+    let incoming = initialized_incoming(node, state, visited);
     let mut outgoing = incoming.clone();
     outgoing.extend(node.scoped_writes.iter().cloned());
     let incoming_changed = state.initialized_in[node.id] != incoming;
@@ -2066,13 +2119,14 @@ fn update_initialized_node(node: &CfgNode, state: &mut DataflowState) -> bool {
 
 fn solve_live_locals(
     cfg: &ControlFlowGraph,
+    reachable: &[bool],
     state: &mut DataflowState,
     tick: &mut impl FnMut() -> bool,
 ) -> bool {
     let mut changed = true;
     while changed {
         changed = false;
-        for node in cfg.nodes.iter().rev() {
+        for node in cfg.nodes.iter().rev().filter(|node| reachable[node.id]) {
             if !tick() {
                 return false;
             }
@@ -2177,6 +2231,7 @@ fn report_uninitialized(
     source: &str,
     issues: &mut Vec<hoonarqube_ir::Issue>,
 ) {
+    let reachable = reachable_cfg_nodes(&facts.cfg);
     for local in facts
         .locals
         .iter()
@@ -2235,6 +2290,9 @@ fn report_uninitialized(
             .iter()
             .filter(|node| local.byte_start >= node.byte_start && local.byte_end <= node.byte_end)
             .min_by_key(|node| node.byte_end.saturating_sub(node.byte_start));
+        if cfg_node.is_some_and(|node| !reachable[node.id]) {
+            continue;
+        }
         let initialized = cfg_node.is_some_and(|node| {
             let key = ScopedLocal {
                 scope_id: local.binding_scope.unwrap_or(local.lexical_scope),
@@ -2371,7 +2429,10 @@ fn report_useless_assignments(
         .iter()
         .filter(|local: &&LocalFact| local.kind == LocalFactKind::Write)
     {
-        if local.name.starts_with('_') || useless_assignment_excluded(facts, local) {
+        if local.name.starts_with('_')
+            || useless_assignment_excluded(facts, local)
+            || assignment_is_live_after(facts, local)
+        {
             continue;
         }
         let has_read_before_next_write = facts.locals.iter().any(|other: &LocalFact| {
@@ -2405,6 +2466,22 @@ fn report_useless_assignments(
         }
     }
     let _ = source;
+}
+
+fn assignment_is_live_after(facts: &RubyFacts, local: &LocalFact) -> bool {
+    let Some(definition) = local.definition.and_then(|id| facts.definitions.get(id)) else {
+        return false;
+    };
+    facts
+        .dataflow
+        .live_out
+        .get(definition.node)
+        .is_some_and(|live| {
+            live.contains(&ScopedLocal {
+                scope_id: definition.scope_id,
+                name: definition.name.clone(),
+            })
+        })
 }
 
 fn local_binding_range(facts: &RubyFacts, local: &LocalFact) -> Option<hoonarqube_ir::Range> {
@@ -3006,6 +3083,197 @@ def build_with_block(seed, callback = proc { seed.length })\n  callback\nend\n";
                 .iter()
                 .any(|issue| issue.rule_key == "rb/uninitialized-local-variable")
         );
+    }
+
+    #[test]
+    fn loop_back_edges_preserve_definitely_initialized_locals() {
+        for source in [
+            "def f(ready)\n  value = 'hello'\n  while ready\n    puts value.length\n  end\nend\n",
+            "def f(ready)\n  value = 'hello'\n  until ready\n    puts value.length\n  end\nend\n",
+            "def f(ready, inner)\n  value = 'hello'\n  while ready\n    while inner\n      puts value.length\n    end\n  end\nend\n",
+            "def f(ready, flag)\n  if flag\n    value = 'a'\n  else\n    value = 'b'\n  end\n  while ready\n    puts value.length\n  end\nend\n",
+        ] {
+            assert!(analyze_facts(source).analysis_complete);
+            assert!(
+                github_quality(source)
+                    .iter()
+                    .all(|issue| issue.rule_key != "rb/uninitialized-local-variable"),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn method_returns_do_not_make_later_method_bodies_unreachable() {
+        for source in [
+            "def f\n  return\nend\ndef g\n  value = 'ok'\n  puts value.length\nend\n",
+            "class C\n  def f\n    return\n  end\n  def g(ready)\n    value = 'ok'\n    while ready\n      puts value.length\n    end\n  end\nend\n",
+            "def self.f\n  return\nend\ndef self.g\n  value = 'ok'\n  puts value.length\nend\n",
+        ] {
+            assert!(analyze_facts(source).analysis_complete);
+            assert!(
+                github_quality(source)
+                    .iter()
+                    .all(|issue| issue.rule_key != "rb/uninitialized-local-variable"),
+                "{source}"
+            );
+        }
+        let bad = "def f\n  return\nend\ndef g(flag)\n  if flag\n    value = 'ok'\n  end\n  puts value.length\nend\n";
+        assert!(
+            github_quality(bad)
+                .iter()
+                .any(|issue| issue.rule_key == "rb/uninitialized-local-variable")
+        );
+    }
+
+    #[test]
+    fn unreachable_receiver_reads_do_not_report_uninitialized_locals() {
+        for source in [
+            "def f\n  value = 'ok'\n  return\n  puts value.length\nend\n",
+            "def f(ready)\n  while ready\n    break\n    puts value.length\n  end\nend\n",
+        ] {
+            assert!(
+                github_quality(source)
+                    .iter()
+                    .all(|issue| issue.rule_key != "rb/uninitialized-local-variable"),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn assignments_read_across_branches_and_back_edges_are_not_useless() {
+        for source in [
+            "def f(flag)\n  value = 'before'\n  if flag\n    value = 'after'\n  end\n  puts value.length\nend\n",
+            "def f(ready)\n  value = 'ok'\n  while ready\n    puts value.length\n    value = 'changed'\n  end\nend\n",
+        ] {
+            assert!(
+                github_quality(source)
+                    .iter()
+                    .all(|issue| issue.rule_key != "rb/useless-assignment-to-local"),
+                "{source}"
+            );
+        }
+        let bad = "def f\n  value = 'unused'\n  value = 'used'\n  puts value.length\nend\n";
+        let issues = github_quality(bad);
+        let useless: Vec<_> = issues
+            .iter()
+            .filter(|issue| issue.rule_key == "rb/useless-assignment-to-local")
+            .collect();
+        assert_eq!(useless.len(), 1);
+        assert_eq!(useless[0].range.start.line, 2);
+    }
+
+    #[test]
+    fn loop_assignments_do_not_initialize_skipped_paths_or_first_iteration_reads() {
+        for source in [
+            "def f(ready)\n  while ready\n    puts value.length\n    value = 'hello'\n  end\nend\n",
+            "def f(ready)\n  while ready\n    value = 'hello'\n  end\n  puts value.length\nend\n",
+            "def f(ready, flag)\n  if flag\n    value = 'hello'\n  end\n  while ready\n    puts value.length\n  end\nend\n",
+        ] {
+            assert!(
+                github_quality(source)
+                    .iter()
+                    .any(|issue| issue.rule_key == "rb/uninitialized-local-variable"),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn initialization_matches_greatest_fixed_point_on_small_cyclic_graphs() {
+        // Independent oracle: descend from the lattice top synchronously,
+        // unlike the production worklist's first-visit propagation.
+        for mask in 0..512 {
+            let cfg = initialization_graph(mask);
+            let expected = reference_initialized_out(&cfg);
+            let mut actual = DataflowState::new(cfg.nodes.len());
+            let mut work = 0;
+            assert!(solve_initialized_locals(&cfg, &mut actual, &mut || {
+                work += 1;
+                work <= 1000
+            }));
+            assert_eq!(actual.initialized_out, expected, "graph mask {mask}");
+        }
+    }
+
+    fn initialization_graph(mask: usize) -> ControlFlowGraph {
+        let mut cfg = ControlFlowGraph::default();
+        for id in 0..4 {
+            let kind = match id {
+                0 => CfgNodeKind::Entry,
+                1 => CfgNodeKind::Exit,
+                _ => CfgNodeKind::Statement,
+            };
+            let mut node = CfgNode::new(id, kind, hoonarqube_ir::Range::file_level());
+            if id >= 2 {
+                node.scoped_writes.push(ScopedLocal {
+                    scope_id: 0,
+                    name: format!("v{id}"),
+                });
+            }
+            cfg.add(node);
+        }
+        cfg.entry = 0;
+        cfg.exit = 1;
+        for (from_index, from) in [0, 2, 3].into_iter().enumerate() {
+            for (to_index, to) in [1, 2, 3].into_iter().enumerate() {
+                if mask & (1 << (from_index * 3 + to_index)) != 0 {
+                    cfg.link(from, to);
+                }
+            }
+        }
+        cfg
+    }
+
+    fn reference_initialized_out(cfg: &ControlFlowGraph) -> Vec<BTreeSet<ScopedLocal>> {
+        let mut reachable = BTreeSet::new();
+        let mut pending = vec![cfg.entry];
+        while let Some(id) = pending.pop() {
+            if reachable.insert(id) {
+                pending.extend(&cfg.nodes[id].successors);
+            }
+        }
+        let top: BTreeSet<_> = cfg
+            .nodes
+            .iter()
+            .flat_map(|node| node.scoped_writes.iter().cloned())
+            .collect();
+        let mut output: Vec<_> = cfg
+            .nodes
+            .iter()
+            .map(|node| {
+                if node.id != cfg.entry && reachable.contains(&node.id) {
+                    top.clone()
+                } else {
+                    BTreeSet::new()
+                }
+            })
+            .collect();
+        for _ in 0..32 {
+            let prior = output.clone();
+            for &id in &reachable {
+                let node = &cfg.nodes[id];
+                let mut input = if id == cfg.entry {
+                    BTreeSet::new()
+                } else {
+                    top.clone()
+                };
+                for pred in node
+                    .predecessors
+                    .iter()
+                    .filter(|pred| reachable.contains(pred))
+                {
+                    input = input.intersection(&prior[*pred]).cloned().collect();
+                }
+                input.extend(node.scoped_writes.iter().cloned());
+                output[id] = input;
+            }
+            if output == prior {
+                return output;
+            }
+        }
+        panic!("reference initialization analysis did not converge");
     }
 
     #[test]

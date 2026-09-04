@@ -1183,15 +1183,23 @@ fn parse_integer(value: &str) -> Option<i128> {
 
 fn type_is_unsigned(ty: &str, facts: &SemanticFacts, at: usize) -> bool {
     let mut current = ty.trim().to_owned();
+    let mut lookup_at = at;
     let mut seen = HashSet::new();
     loop {
         if current.starts_with('*') || current.contains('[') || current.contains('.') {
             return false;
         }
-        if !seen.insert(current.clone()) {
-            return false;
-        }
-        if let Some(binding) = facts.type_binding_for(&current, at) {
+        if let Some(binding) = facts.type_binding_for(&current, lookup_at) {
+            if !seen.insert((
+                binding.name.as_str(),
+                binding.scope_start,
+                binding.scope_end,
+            )) {
+                return false;
+            }
+            // An alias retains the meaning of its target at declaration;
+            // shadowing a predeclared type at the use site cannot change it.
+            lookup_at = binding.declaration_start;
             current = binding.ty.clone();
             continue;
         }
@@ -1594,6 +1602,25 @@ func f(x int, xs []int) {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn type_alias_targets_resolve_at_their_declaration() {
+        let signed = "package p\ntype Signed = int\nfunc f() { type int = uint; var value Signed; if value < 0 {} }\n";
+        assert!(!keys(signed).iter().any(|key| key == NEGATIVE_LENGTH_CHECK));
+        for unsigned in [
+            "package p\ntype Unsigned = uint\nfunc f() { type uint = int; var value Unsigned; if value < 0 {} }\n",
+            "package p\nfunc f() { type A = uint; { type uint = int; type B = A; var value B; if value < 0 {} } }\n",
+        ] {
+            assert_eq!(
+                keys(unsigned)
+                    .iter()
+                    .filter(|key| key.as_str() == NEGATIVE_LENGTH_CHECK)
+                    .count(),
+                1,
+                "{unsigned}"
+            );
+        }
     }
 
     #[test]

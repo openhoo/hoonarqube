@@ -73,6 +73,7 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
 
         self.assertEqual(request.call_count, 3)
         sleep.assert_has_calls([mock.call(5), mock.call(10)])
+        self.assertTrue(transient_http.closed)
 
         with (
             mock.patch.object(
@@ -106,6 +107,7 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
 
         self.assertIn('401: {"errors":[{"msg":"bad component"}]}', output.getvalue())
         sleep.assert_not_called()
+        self.assertTrue(error.closed)
 
     def test_artifact_evidence_round_trip_is_exact(self):
         report = {"schema_version": 2, "project": "oracle-py", "issues": []}
@@ -237,6 +239,7 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
             {
                 "issues": [
                     {
+                        "key": "first-issue",
                         "rule": "python:S1",
                         "component": "oracle-py:src/one.py",
                         "message": "one",
@@ -247,6 +250,7 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
             {
                 "issues": [
                     {
+                        "key": "second-issue",
                         "rule": "python:S2",
                         "component": "oracle-py:src/two.py",
                         "message": "two",
@@ -270,6 +274,29 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
             self.assertRaisesRegex(ValueError, "must contain a hotspots list"),
         ):
             parity_suite._fetch_hotspots("oracle-py")
+
+    def test_paginated_fetch_rejects_repeated_keys_with_stable_totals(self):
+        for item_key, hotspot in [("issues", False), ("hotspots", True)]:
+            item = {
+                "key": "repeated-key",
+                "ruleKey" if hotspot else "rule": "python:S1",
+                "message": "finding",
+                "component": "oracle-py:src/a.py",
+            }
+
+            def page_loader(page, *, key=item_key, record=item):
+                return {
+                    key: [record],
+                    "paging": {"pageIndex": page, "pageSize": 1, "total": 2},
+                }
+
+            with (
+                self.subTest(item_key=item_key),
+                self.assertRaisesRegex(ValueError, "duplicate.*key"),
+            ):
+                parity_suite._fetch_paginated(
+                    page_loader, item_key, hotspot=hotspot, expected_project="oracle-py"
+                )
 
     def test_invalid_remote_page_becomes_an_invalid_project_artifact(self):
         with (

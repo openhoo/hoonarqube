@@ -698,7 +698,8 @@ def _search_page(request, label):
         try:
             return request_json(request)
         except urllib.error.HTTPError as error:
-            body = error.read().decode(errors="replace")[:200]
+            with error:
+                body = error.read().decode(errors="replace")[:200]
             if error.code not in {400, 429, 502, 503, 504} or attempt == 4:
                 print(f"  {label} API {error.code}: {body}")
                 raise
@@ -738,6 +739,7 @@ def _hotspot_page(proj, page):
 def _fetch_paginated(page_loader, item_key, *, hotspot, expected_project):
     issues, page = [], 1
     expected_total = expected_page_size = None
+    seen_keys = set()
     while True:
         payload = page_loader(page)
         items, total, page_size, done = validate_search_page(
@@ -746,6 +748,7 @@ def _fetch_paginated(page_loader, item_key, *, hotspot, expected_project):
             page,
             expected_total=expected_total,
             expected_page_size=expected_page_size,
+            seen_keys=seen_keys,
         )
         if expected_total is None:
             expected_total, expected_page_size = total, page_size

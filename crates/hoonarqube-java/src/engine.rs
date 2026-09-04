@@ -83,7 +83,7 @@ struct Builder<'source, 'index> {
     semantics: &'index SemanticIndex,
     nodes: Vec<CfgNode>,
     break_targets: Vec<(Option<String>, NodeId)>,
-    continue_targets: Vec<NodeId>,
+    continue_targets: Vec<(Option<String>, NodeId)>,
     work_items: usize,
     budget_exhausted: bool,
     budget_node: Option<NodeId>,
@@ -311,7 +311,7 @@ impl<'source, 'index> Builder<'source, 'index> {
                 vec![join]
             }
             "while_statement" => self.while_loop(node, &incoming, depth),
-            "do_statement" => self.do_loop(node, incoming, depth),
+            "do_statement" => self.do_loop(node, &incoming, depth),
             "for_statement" | "enhanced_for_statement" => self.for_loop(node, incoming, depth),
             "labeled_statement" => {
                 let after = self.add("label_join", None);
@@ -338,7 +338,7 @@ impl<'source, 'index> Builder<'source, 'index> {
                     .break_targets
                     .iter()
                     .rev()
-                    .find(|(name, _)| label.is_none() || name.as_deref() == label)
+                    .find(|(name, _)| name.as_deref() == label)
                 {
                     self.edge(jump, *target);
                 }
@@ -347,8 +347,16 @@ impl<'source, 'index> Builder<'source, 'index> {
             "continue_statement" => {
                 let jump = self.add("continue", Some(node));
                 self.connect(&incoming, jump);
-                if let Some(target) = self.continue_targets.last().copied() {
-                    self.edge(jump, target);
+                let label = node
+                    .named_child(0)
+                    .map(|child| node_text(child, self.source));
+                if let Some((_, target)) = self
+                    .continue_targets
+                    .iter()
+                    .rev()
+                    .find(|(name, _)| label.is_none() || name.as_deref() == label)
+                {
+                    self.edge(jump, *target);
                 }
                 Vec::new()
             }
@@ -368,6 +376,13 @@ impl<'source, 'index> Builder<'source, 'index> {
         }
     }
 
+    fn loop_label(&self, node: Node<'_>) -> Option<String> {
+        node.parent()
+            .filter(|parent| parent.kind() == "labeled_statement")
+            .and_then(|parent| parent.named_child(0))
+            .map(|label| node_text(label, self.source).to_owned())
+    }
+
     fn while_loop(&mut self, node: Node<'_>, incoming: &[NodeId], depth: usize) -> Vec<NodeId> {
         let condition = node.child_by_field_name("condition").unwrap_or(node);
         let cond = self.add("condition", Some(condition));
@@ -375,7 +390,7 @@ impl<'source, 'index> Builder<'source, 'index> {
         let after = self.add("loop_join", None);
         self.edge(cond, after);
         self.break_targets.push((None, after));
-        self.continue_targets.push(cond);
+        self.continue_targets.push((self.loop_label(node), cond));
         if let Some(body) = node.child_by_field_name("body") {
             let ends = self.statement(body, vec![cond], depth + 1);
             self.connect(&ends, cond);
@@ -385,74 +400,79 @@ impl<'source, 'index> Builder<'source, 'index> {
         vec![after]
     }
 
-    fn do_loop(&mut self, node: Node<'_>, incoming: Vec<NodeId>, depth: usize) -> Vec<NodeId> {
+    fn do_loop(&mut self, node: Node<'_>, incoming: &[NodeId], depth: usize) -> Vec<NodeId> {
         let after = self.add("loop_join", None);
         self.break_targets.push((None, after));
         let condition = node.child_by_field_name("condition").unwrap_or(node);
         let cond = self.add("condition", Some(condition));
-        self.continue_targets.push(cond);
+        self.continue_targets.push((self.loop_label(node), cond));
+        // A separate entry works for empty blocks and nested control flow,
+        // whose first allocated node may be a join rather than its entry.
+        let body_start = self.add("loop_body", None);
+        self.connect(incoming, body_start);
         let ends = node
             .child_by_field_name("body")
-            .map_or(incoming.clone(), |body| {
-                self.statement(body, incoming, depth + 1)
+            .map_or(vec![body_start], |body| {
+                self.statement(body, vec![body_start], depth + 1)
             });
         self.connect(&ends, cond);
         self.edge(cond, after);
-        if let Some(body) = node.child_by_field_name("body") {
-            let body_start = self
-                .nodes
-                .iter()
-                .find(|candidate| {
-                    candidate.range.start == range_of(body, self.source, self.index).start
-                })
-                .map(|candidate| candidate.id);
-            if let Some(body_start) = body_start {
-                self.edge(cond, body_start);
-            }
-        }
+        self.edge(cond, body_start);
         self.continue_targets.pop();
         self.break_targets.pop();
         vec![after]
     }
 
     fn for_loop(&mut self, node: Node<'_>, incoming: Vec<NodeId>, depth: usize) -> Vec<NodeId> {
-        let mut frontier = incoming;
-        if let Some(init) = node.child_by_field_name("init") {
-            frontier = self.statement(init, frontier, depth + 1);
-        }
+        let (_, frontier) = self.statement_fields(node, "init", incoming, depth);
         let condition = node
             .child_by_field_name("condition")
             .or_else(|| node.child_by_field_name("value"));
         let cond = self.add("condition", condition);
         self.connect(&frontier, cond);
         let after = self.add("loop_join", None);
-        self.edge(cond, after);
+        if condition.is_some() {
+            self.edge(cond, after);
+        }
         self.break_targets.push((None, after));
 
-        // A Java `continue` in a for-loop executes the update expression
-        // before testing the condition again. Build that node first so both
-        // normal body completion and continue edges can target it.
-        let update_start = node.child_by_field_name("update").map_or(cond, |update| {
-            self.statement(update, Vec::new(), depth + 1)[0]
-        });
-        self.continue_targets.push(update_start);
+        // Both normal completion and continue execute the entire update list,
+        // left to right, before testing the condition again.
+        let (update_start, update_end) = self.statement_fields(node, "update", Vec::new(), depth);
+        let update_start = update_start.unwrap_or(cond);
+        self.connect(&update_end, cond);
+        self.continue_targets
+            .push((self.loop_label(node), update_start));
         let body_end = node.child_by_field_name("body").map_or(vec![cond], |body| {
             self.statement(body, vec![cond], depth + 1)
         });
-        if update_start == cond {
-            self.connect(&body_end, cond);
-        } else {
-            self.connect(&body_end, update_start);
-            let update_end = self
-                .nodes
-                .iter()
-                .find(|candidate| candidate.id == update_start)
-                .map_or(update_start, |candidate| candidate.id);
-            self.edge(update_end, cond);
-        }
+        self.connect(&body_end, update_start);
         self.continue_targets.pop();
         self.break_targets.pop();
         vec![after]
+    }
+
+    fn statement_fields(
+        &mut self,
+        node: Node<'_>,
+        field: &str,
+        mut frontier: Vec<NodeId>,
+        depth: usize,
+    ) -> (Option<NodeId>, Vec<NodeId>) {
+        let mut first = None;
+        let mut cursor = node.walk();
+        for statement in node.children_by_field_name(field, &mut cursor) {
+            let start = self.nodes.len();
+            frontier = self.statement(statement, frontier, depth + 1);
+            if first.is_none() {
+                first = self
+                    .nodes
+                    .get(start)
+                    .map(|node| node.id)
+                    .or_else(|| frontier.first().copied());
+            }
+        }
+        (first, frontier)
     }
 
     fn finish(self, entry: NodeId, exit: NodeId) -> ControlFlowGraph {
@@ -481,9 +501,13 @@ pub fn build_cfg(
     builder.finish(entry, exit)
 }
 
+/// Computes reaching definitions and liveness on entry-reachable nodes only.
+/// Unreachable nodes retain empty facts, including loop updates bypassed by
+/// unconditional exits from the body.
 #[must_use]
 pub fn solve_dataflow(cfg: &ControlFlowGraph) -> DataflowSummary {
     let count = cfg.nodes.len();
+    let reachable = cfg.reachable();
     let mut reaching_in = vec![BTreeSet::new(); count];
     let mut reaching_out = vec![BTreeSet::new(); count];
     let mut live_in = vec![BTreeSet::new(); count];
@@ -492,8 +516,8 @@ pub fn solve_dataflow(cfg: &ControlFlowGraph) -> DataflowSummary {
     let limit = count.saturating_mul(8).max(8);
     for iteration in 0..limit {
         iterations = iteration + 1;
-        let changed = reaching_pass(cfg, &mut reaching_in, &mut reaching_out)
-            | liveness_pass(cfg, &mut live_in, &mut live_out);
+        let changed = reaching_pass(cfg, &reachable, &mut reaching_in, &mut reaching_out)
+            | liveness_pass(cfg, &reachable, &mut live_in, &mut live_out);
         if !changed {
             break;
         }
@@ -509,11 +533,12 @@ pub fn solve_dataflow(cfg: &ControlFlowGraph) -> DataflowSummary {
 
 fn reaching_pass(
     cfg: &ControlFlowGraph,
+    reachable: &BTreeSet<NodeId>,
     reaching_in: &mut [BTreeSet<Definition>],
     reaching_out: &mut [BTreeSet<Definition>],
 ) -> bool {
     let mut changed = false;
-    for node in &cfg.nodes {
+    for node in cfg.nodes.iter().filter(|node| reachable.contains(&node.id)) {
         let mut input = BTreeSet::new();
         for &predecessor in &node.predecessors {
             input.extend(reaching_out[predecessor].iter().cloned());
@@ -535,11 +560,17 @@ fn reaching_pass(
 
 fn liveness_pass(
     cfg: &ControlFlowGraph,
+    reachable: &BTreeSet<NodeId>,
     live_in: &mut [BTreeSet<String>],
     live_out: &mut [BTreeSet<String>],
 ) -> bool {
     let mut changed = false;
-    for node in cfg.nodes.iter().rev() {
+    for node in cfg
+        .nodes
+        .iter()
+        .rev()
+        .filter(|node| reachable.contains(&node.id))
+    {
         let mut output = BTreeSet::new();
         for &successor in &node.successors {
             output.extend(live_in[successor].iter().cloned());

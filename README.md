@@ -17,6 +17,8 @@ Import JSON.
 | `hoonarqube-jsts` | JavaScript/TypeScript/JSX/TSX analyzer (oxc) |
 | `hoonarqube-csharp` | C# analyzer (tree-sitter-c-sharp) |
 | `hoonarqube-go` | Go analyzer (tree-sitter-go) |
+| `hoonarqube-java` | Java frontend, local control-flow facts, and GitHub Code Quality checks (tree-sitter-java) |
+| `hoonarqube-ruby` | Ruby frontend, local data-flow facts, and GitHub Code Quality checks (tree-sitter-ruby) |
 | `hoonarqube-rust` | Rust analyzer (tree-sitter-rust with Clippy-compatible contracts) |
 | `hoonarqube-dataflow` | Generic intra-procedural engine: CFG builder, worklist solvers, dominators; consumed by Go's native decompression-flow rule |
 | `hoonarqube-cli` | `analyze` (text / JSON / SonarQube generic-issue), `fix`, plus `rules`/`snapshot` catalog queries |
@@ -203,7 +205,10 @@ The SARIF driver is `Hoonarqube`. Query categories are `Maintainability` and
 `Reliability`. Query severities map to SARIF levels as follows: `Error` to
 `error`, `Warning` to `warning`, and `Recommendation` or `Info` to `note`.
 Hoonarqube converts its internal 0-based columns to SARIF's 1-based columns
-and retains flow evidence as `relatedLocations`. Coordinate-dependent partial
+and declares `columnKind: unicodeCodePoints` so non-BMP characters keep correct
+source locations. Artifact paths are percent-encoded relative URI references,
+including filenames containing colons. Flow evidence is retained as
+`relatedLocations` and `codeFlows`. Coordinate-dependent partial
 fingerprints are intentionally omitted unless a stable content fingerprint is
 available.
 

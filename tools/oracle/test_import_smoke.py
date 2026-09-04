@@ -1,11 +1,13 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from import_smoke import MESSAGE, RULE, verify_imported_issue
+import import_smoke
 
 
 def issue(**overrides):
@@ -24,6 +26,20 @@ def issue(**overrides):
 
 
 class ImportSmokeTests(unittest.TestCase):
+    def test_pagination_rejects_repeated_issue_keys(self):
+        pages = [
+            {
+                "issues": [issue(key="same")],
+                "paging": {"pageIndex": page, "pageSize": 1, "total": 2},
+            }
+            for page in (1, 2)
+        ]
+        with (
+            mock.patch.object(import_smoke, "request_json", side_effect=pages),
+            self.assertRaisesRegex(ValueError, "duplicate.*key"),
+        ):
+            import_smoke.fetch_all_issues("http://example.invalid", "unused", "project")
+
     def test_accepts_one_exact_external_issue(self):
         expected = issue()
         self.assertEqual(verify_imported_issue({"issues": [expected]}), expected)

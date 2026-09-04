@@ -154,6 +154,195 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
+    fn do_while_block_repeats_the_body_before_retesting() {
+        let flows = method_flows("class C { void f(int x) { do { x++; } while (x < 3); } }");
+        let cfg = &flows[0].cfg;
+        let body = cfg
+            .nodes
+            .iter()
+            .find(|node| node.kind == "expression_statement")
+            .unwrap();
+        let condition = cfg
+            .nodes
+            .iter()
+            .find(|node| node.kind == "condition")
+            .unwrap();
+        assert!(body.successors.contains(&condition.id));
+        let mut repeated = cfg.clone();
+        repeated.entry = condition.id;
+        assert!(
+            repeated.reachable().contains(&body.id),
+            "true branch must repeat the body"
+        );
+    }
+
+    #[test]
+    fn empty_do_while_body_retests_its_condition() {
+        let flows = method_flows("class C { void f(boolean ready) { do {} while (ready); } }");
+        let cfg = &flows[0].cfg;
+        let condition = cfg
+            .nodes
+            .iter()
+            .find(|node| node.kind == "condition")
+            .unwrap();
+        assert!(condition.successors.iter().any(|id| {
+            let mut repeated = cfg.clone();
+            repeated.entry = *id;
+            repeated.reachable().contains(&condition.id)
+        }));
+        assert!(cfg.reachable().contains(&condition.id));
+    }
+
+    #[test]
+    fn do_while_reenters_nested_loops_and_labelled_bodies() {
+        for source in [
+            "class C { void f(int x, boolean a, boolean b) { do { do { x++; } while (a); } while (b); } }",
+            "class C { void f(int x, boolean ready) { do { label: { x++; } } while (ready); } }",
+        ] {
+            let flows = method_flows(source);
+            let mut repeated = flows[0].cfg.clone();
+            repeated.entry = repeated
+                .nodes
+                .iter()
+                .find(|node| node.kind == "condition")
+                .unwrap()
+                .id;
+            let body = repeated
+                .nodes
+                .iter()
+                .find(|node| node.kind == "expression_statement")
+                .unwrap();
+            assert!(repeated.reachable().contains(&body.id), "{source}");
+        }
+    }
+
+    #[test]
+    fn for_continue_executes_every_update_in_order() {
+        let flows = method_flows(
+            "class C { void f() { for (int i = 0, j = 0; i < 3; i++, j++) { continue; } } }",
+        );
+        let cfg = &flows[0].cfg;
+        let updates: Vec<_> = cfg
+            .nodes
+            .iter()
+            .filter(|node| node.kind == "update_expression")
+            .collect();
+        assert_eq!(updates.len(), 2, "both loop updates must be modeled");
+        let jump = cfg
+            .nodes
+            .iter()
+            .find(|node| node.kind == "continue")
+            .unwrap();
+        let condition = cfg
+            .nodes
+            .iter()
+            .find(|node| node.kind == "condition")
+            .unwrap();
+        assert_eq!(jump.successors, vec![updates[0].id]);
+        assert_eq!(updates[0].successors, vec![updates[1].id]);
+        assert_eq!(updates[1].successors, vec![condition.id]);
+    }
+
+    #[test]
+    fn conditionless_for_does_not_fabricate_an_exit() {
+        let flows = method_flows("class C { void f() { for (;;) { continue; } } }");
+        let cfg = &flows[0].cfg;
+        let condition = cfg
+            .nodes
+            .iter()
+            .find(|node| node.kind == "condition")
+            .unwrap();
+        assert!(
+            !condition
+                .successors
+                .iter()
+                .any(|id| cfg.nodes[*id].kind == "loop_join")
+        );
+    }
+
+    #[test]
+    fn labelled_continue_targets_the_named_loop_update() {
+        let flows = method_flows(
+            "class C { void f(boolean ready) { outer: for (int i = 0; i < 3; i++) { while (ready) { continue outer; } } } }",
+        );
+        let cfg = &flows[0].cfg;
+        let update = cfg
+            .nodes
+            .iter()
+            .find(|node| node.kind == "update_expression")
+            .unwrap();
+        let jump = cfg
+            .nodes
+            .iter()
+            .find(|node| node.kind == "continue")
+            .unwrap();
+        assert_eq!(jump.successors, vec![update.id]);
+    }
+
+    #[test]
+    fn unlabelled_break_skips_labelled_block_targets() {
+        let flows = method_flows(
+            "class C { void f(boolean ready) { while (ready) { label: { break; } } } }",
+        );
+        let cfg = &flows[0].cfg;
+        let after_loop = cfg
+            .nodes
+            .iter()
+            .find(|node| node.kind == "loop_join")
+            .unwrap();
+        let jump = cfg.nodes.iter().find(|node| node.kind == "break").unwrap();
+        assert_eq!(jump.successors, vec![after_loop.id]);
+    }
+
+    #[test]
+    fn for_executes_every_initializer_in_order() {
+        let flows =
+            method_flows("class C { void f(int i, int j) { for (i = 0, j = 0; i < 3; i++) {} } }");
+        let cfg = &flows[0].cfg;
+        let init: Vec<_> = cfg
+            .nodes
+            .iter()
+            .filter(|node| node.kind == "assignment_expression")
+            .collect();
+        assert_eq!(init.len(), 2);
+        let condition = cfg
+            .nodes
+            .iter()
+            .find(|node| node.kind == "condition")
+            .unwrap();
+        assert_eq!(cfg.nodes[cfg.entry].successors, vec![init[0].id]);
+        assert_eq!(init[0].successors, vec![init[1].id]);
+        assert_eq!(init[1].successors, vec![condition.id]);
+    }
+
+    #[test]
+    fn unreachable_loop_updates_do_not_contribute_dataflow_facts() {
+        let flows = method_flows(
+            "class C { int f(int n) { int x = 0; for (; x < n; x++) { break; } return x; } }",
+        );
+        let flow = &flows[0];
+        let cfg = &flow.cfg;
+        let update = cfg
+            .nodes
+            .iter()
+            .find(|node| node.kind == "update_expression")
+            .unwrap();
+        assert!(!cfg.reachable().contains(&update.id));
+        assert!(flow.facts.reaching_out[update.id].is_empty());
+        assert!(flow.facts.live_in[update.id].is_empty());
+        let returned = cfg
+            .nodes
+            .iter()
+            .find(|node| node.kind == "return_statement")
+            .unwrap();
+        assert!(
+            !flow.facts.reaching_in[returned.id]
+                .iter()
+                .any(|definition| definition.site == update.id)
+        );
+    }
+
+    #[test]
     fn valid_java_reports_metrics_and_no_placeholder_findings() {
         let source = "package demo;\n// comment\nclass A { int x; }\n";
         let report = analyze(PathBuf::from("A.java"), source, &AnalyzerOptions::default());
