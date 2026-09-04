@@ -240,6 +240,11 @@ class Outer { class Inner { @Test void test() {} } }
         let source = r#"
 class A { void f(Object value) {} }
 class B { void f(String value) {} }
+abstract class ConstructedConstants {
+    static final int VALUE = 1;
+    ConstructedConstants() {}
+}
+class UsesConstructedConstants extends ConstructedConstants {}
 class Test {}
 class Outer {
     @Test void customAnnotation() {}
@@ -261,9 +266,73 @@ class Outer {
             "java/string-buffer-char-init",
             "java/whitespace-contradicts-precedence",
             "java/junit5-missing-nested-annotation",
+            "java/constants-only-interface",
         ] {
             assert!(!keys.contains(key), "unexpected {key}: {keys:?}");
         }
+    }
+    #[test]
+    fn github_quality_uses_proven_argument_types_and_literal_offsets() {
+        let source = r#"
+class C {
+    void f() {
+        String text = "x";
+        char ch = 'x';
+        new String(text);
+        new StringBuilder(ch);
+        String joined = "Hello," + "world";
+        String hidden = "a\u{200B}b";
+    }
+}
+"#
+        .replace(r"\u{200B}", "\u{200B}");
+        let findings = analyze_github_quality(&source);
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|issue| issue.rule_key == "java/inefficient-string-constructor")
+                .count(),
+            1
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|issue| issue.rule_key == "java/string-buffer-char-init")
+                .count(),
+            1
+        );
+        let literal = findings
+            .iter()
+            .find(|issue| {
+                issue.rule_key == "java/non-explicit-control-and-whitespace-chars-in-literals"
+            })
+            .expect("literal finding");
+        assert!(literal.message.contains("index 2"));
+        assert!(
+            findings
+                .iter()
+                .any(|issue| issue.rule_key == "java/missing-space-in-concatenation")
+        );
+    }
+
+    #[test]
+    fn github_quality_covers_package_underscore_and_abstract_constant_supers() {
+        let source = r"
+package _.internal;
+abstract class Constants { static final int VALUE = 1; }
+class Uses extends Constants {}
+interface OtherConstants { int OTHER = 2; }
+class UsesMany implements Runnable, OtherConstants { public void run() {} }
+class Values {
+    void f() { java.util.function.IntUnaryOperator op = _ -> _; }
+}
+";
+        let keys: std::collections::BTreeSet<_> = analyze_github_quality(source)
+            .into_iter()
+            .map(|issue| issue.rule_key)
+            .collect();
+        assert!(keys.contains("java/underscore-identifier"));
+        assert!(keys.contains("java/constants-only-interface"));
     }
 
     #[test]

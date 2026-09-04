@@ -106,12 +106,36 @@ pub use hoonarqube_core::RuleProfile;
 pub use hoonarqube_core::analyze;
 /// Maps a file path to its analyzed [`Language`], or `None` if unknown.
 pub use hoonarqube_core::language_for_path;
+/// Per-language analyzer knobs for field-by-field [`AnalyzerOptions`] construction.
+pub use hoonarqube_core::{
+    CSharpAnalyzerOptions, GoAnalyzerOptions, JavaAnalyzerOptions, JstsAnalyzerOptions,
+    PythonAnalyzerOptions, RubyAnalyzerOptions, RustAnalyzerOptions,
+};
 
 #[cfg(test)]
 mod tests {
-    use super::{AnalyzerOptions, RuleProfile, analyze};
+    use super::{
+        AnalyzerOptions, CSharpAnalyzerOptions, GoAnalyzerOptions, JavaAnalyzerOptions,
+        JstsAnalyzerOptions, PythonAnalyzerOptions, RubyAnalyzerOptions, RuleProfile,
+        RustAnalyzerOptions, analyze,
+    };
     use crate::catalog;
     use std::path::Path;
+
+    #[test]
+    fn language_option_types_are_available_through_the_facade() {
+        let options = AnalyzerOptions {
+            csharp: CSharpAnalyzerOptions::default(),
+            go: GoAnalyzerOptions::default(),
+            java: JavaAnalyzerOptions::default(),
+            jsts: JstsAnalyzerOptions::default(),
+            python: PythonAnalyzerOptions::default(),
+            ruby: RubyAnalyzerOptions::default(),
+            rust: RustAnalyzerOptions::default(),
+            ..AnalyzerOptions::default()
+        };
+        assert_eq!(options, AnalyzerOptions::default());
+    }
 
     /// Facade end-to-end contract: analyzing a Python fixture through this
     /// crate yields findings whose rule keys resolve in the re-exported

@@ -39,6 +39,7 @@ pub enum SymbolKind {
 pub enum TypeFact {
     Primitive(String),
     LocalType(String),
+    JavaLang(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -541,10 +542,28 @@ impl SemanticIndex {
             return Some(TypeFact::Primitive(text.to_owned()));
         }
         let simple = simple_name(text);
-        self.symbols
+        if let Some(local) = self
+            .symbols
             .iter()
             .find(|symbol| symbol.kind == SymbolKind::Type && symbol.canonical_name == simple)
-            .map(|symbol| TypeFact::LocalType(symbol.canonical_name.clone()))
+        {
+            return Some(TypeFact::LocalType(local.canonical_name.clone()));
+        }
+        if self.imports.iter().any(|import| {
+            !import.wildcard
+                && import.simple_name == simple
+                && import.path != format!("java.lang.{simple}")
+        }) {
+            return None;
+        }
+        if matches!(
+            simple,
+            "String" | "StringBuffer" | "StringBuilder" | "Object"
+        ) && (text == simple || text == format!("java.lang.{simple}"))
+        {
+            return Some(TypeFact::JavaLang(simple.to_owned()));
+        }
+        None
     }
 
     fn nearest_scope_of_kind(&self, offset: usize, kind: &ScopeKind) -> Option<ScopeId> {

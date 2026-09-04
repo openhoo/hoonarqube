@@ -1164,4 +1164,30 @@ class C : System.ICloneable
         assert_eq!(issue.range.start.line, 2);
         assert_eq!(issue.range.start.column, 0);
     }
+    #[test]
+    fn comment_only_locks_and_unused_labels_use_statement_ranges() {
+        let found = analyze_github_quality(
+            r"
+class C
+{
+    void M(object gate)
+    {
+        lock (gate) { /* synchronization is intentional */ }
+        Label: ;
+    }
+}
+",
+        );
+        let lock = found
+            .iter()
+            .find(|issue| issue.rule_key == "cs/empty-lock-statement")
+            .expect("comment-only lock");
+        assert_eq!(lock.range.start.line, 6);
+        let label = found
+            .iter()
+            .find(|issue| issue.rule_key == "cs/unused-label")
+            .expect("unused label");
+        assert_eq!(label.range.start.line, 7);
+        assert_eq!(label.range.start.column, 8);
+    }
 }

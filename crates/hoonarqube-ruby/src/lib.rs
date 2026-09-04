@@ -98,7 +98,7 @@ mod tests {
         );
 
         let query = analyze_github_quality(
-            "class User < ApplicationRecord; end\nitems.each { User.where(active: true) }\n",
+            "class User < ApplicationRecord; end\nitems.each { User.find(1) }\n",
         );
         assert!(
             query
@@ -108,7 +108,7 @@ mod tests {
         assert_eq!(
             query,
             analyze_github_quality(
-                "class User < ApplicationRecord; end\nitems.each { User.where(active: true) }\n"
+                "class User < ApplicationRecord; end\nitems.each { User.find(1) }\n"
             )
         );
     }

@@ -156,7 +156,7 @@ impl Default for AnalyzerOptions {
 /// # Panics
 ///
 /// Panics if a GitHub Code Quality analyzer violates its internal registry
-/// contract by emitting an unknown or wrong-language query ID.
+/// contract by emitting an unknown, wrong-language, or unregistered query ID.
 #[must_use]
 pub fn analyze(
     path: &Path,
@@ -197,15 +197,18 @@ pub fn analyze(
             Language::Rust => Vec::new(),
             Language::Ruby => hoonarqube_ruby::analyze_github_quality(source),
         };
-        // Never hide registry drift in release builds. An invalid or
-        // wrong-family ID is a production integrity failure, not a finding
+        // Never hide registry drift in release builds. An invalid, wrong-family,
+        // or unregistered ID is a production integrity failure, not a finding
         // to silently discard.
+        let registry = github_registry(language);
         assert!(
             github.iter().all(|issue| {
-                hoonarqube_catalog::github_quality::query(&issue.rule_key)
-                    .is_some_and(|query| family == Some(query.language))
+                hoonarqube_catalog::github_quality::query(&issue.rule_key).is_some_and(|query| {
+                    family == Some(query.language)
+                        && registry.is_some_and(|ids| ids.contains(&issue.rule_key.as_str()))
+                })
             }),
-            "GitHub Code Quality analyzer emitted an unknown or wrong-family rule ID"
+            "GitHub Code Quality analyzer emitted an unknown, wrong-family, or unregistered rule ID"
         );
         report.issues = github;
 
@@ -255,11 +258,19 @@ fn github_family(language: Language) -> Option<hoonarqube_catalog::github_qualit
     }
 }
 
+fn github_registry(language: Language) -> Option<&'static [&'static str]> {
+    let family = github_family(language)?;
+    GITHUB_QUALITY_RULES_BY_FAMILY
+        .iter()
+        .find(|(registered_family, _)| *registered_family == family)
+        .map(|(_, ids)| *ids)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         AnalyzerOptions, EXTENSIONS, GITHUB_QUALITY_RULES_BY_FAMILY, Language, RuleProfile,
-        analyze, language_for_path,
+        analyze, github_registry, language_for_path,
     };
     use std::collections::{BTreeSet, HashSet};
     use std::path::Path;
@@ -276,14 +287,32 @@ mod tests {
                 assert_eq!(definition.language, *family);
             }
         }
-        assert_eq!(all_ids.len(), 54);
+        let families = GITHUB_QUALITY_RULES_BY_FAMILY
+            .iter()
+            .map(|(family, _)| *family)
+            .collect::<Vec<_>>();
         assert_eq!(
-            GITHUB_QUALITY_RULES_BY_FAMILY
-                .iter()
-                .map(|(_, ids)| ids.len())
-                .collect::<Vec<_>>(),
-            vec![13, 5, 15, 13, 5, 3]
+            families,
+            hoonarqube_catalog::github_quality::LanguageFamily::ALL.to_vec()
         );
+        let registered = GITHUB_QUALITY_RULES_BY_FAMILY
+            .iter()
+            .map(|(_, ids)| ids.len())
+            .sum::<usize>();
+        assert_eq!(all_ids.len(), registered);
+    }
+
+    #[test]
+    fn github_registry_membership_is_exact_and_excludes_rust() {
+        assert!(
+            github_registry(Language::Go)
+                .is_some_and(|ids| ids.contains(&"go/duplicate-condition"))
+        );
+        assert!(
+            github_registry(Language::Go)
+                .is_some_and(|ids| !ids.contains(&"go/comparison-of-identical-expressions"))
+        );
+        assert!(github_registry(Language::Rust).is_none());
     }
     #[test]
     fn every_supported_extension_maps_to_its_language() {

@@ -988,6 +988,9 @@ fn direct_block(lock: Node<'_>) -> Option<Node<'_>> {
 }
 fn block_statements(block: Node<'_>) -> Vec<Node<'_>> {
     direct_named_children(block)
+        .into_iter()
+        .filter(|child| child.kind() != "comment")
+        .collect()
 }
 
 fn unsafe_sync_on_field(root: Node<'_>, source: &str) -> Vec<Issue> {
@@ -1197,7 +1200,7 @@ fn unused_labels(root: Node<'_>, source: &str) -> Vec<Issue> {
     labels
         .into_iter()
         .filter_map(|label| {
-            let (name_node, name) = label_name(label, source)?;
+            let (_, name) = label_name(label, source)?;
             let callable = enclosing_callable(label);
             let used = gotos.iter().any(|goto| {
                 enclosing_callable(*goto) == callable
@@ -1207,7 +1210,7 @@ fn unused_labels(root: Node<'_>, source: &str) -> Vec<Issue> {
                 Issue::new(
                     "cs/unused-label",
                     "This label is not used.",
-                    range_of(name_node, source),
+                    range_of(label, source),
                 )
             })
         })

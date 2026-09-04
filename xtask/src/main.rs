@@ -21,40 +21,7 @@ use sha2::{Digest as _, Sha256};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use url::{Host, Url};
 
-use crate::catalog::{canonical_json, hash_record, same_server_version, sha256};
-
-const LANGUAGE_QUERIES: [LanguageQuery; 6] = [
-    LanguageQuery {
-        name: "csharp",
-        language: "cs",
-        repository: "csharpsquid",
-    },
-    LanguageQuery {
-        name: "javascript",
-        language: "js",
-        repository: "javascript",
-    },
-    LanguageQuery {
-        name: "typescript",
-        language: "ts",
-        repository: "typescript",
-    },
-    LanguageQuery {
-        name: "python",
-        language: "py",
-        repository: "python",
-    },
-    LanguageQuery {
-        name: "go",
-        language: "go",
-        repository: "go",
-    },
-    LanguageQuery {
-        name: "rust",
-        language: "rust",
-        repository: "rust",
-    },
-];
+use crate::catalog::{LANGUAGES, canonical_json, hash_record, same_server_version, sha256};
 
 #[derive(Parser)]
 #[command(name = "xtask")]
@@ -109,7 +76,7 @@ enum CatalogCommand {
     },
     /// Audit implemented-rule coverage of the analyzer crates against the frozen catalogs.
     Coverage {
-        /// Restrict the audit to one catalog language (csharp, javascript, typescript, python).
+        /// Restrict the audit to one catalog language (csharp, javascript, typescript, python, go, rust).
         #[arg(long)]
         lang: Option<String>,
         /// Exit nonzero when any audited language has unimplemented rules.
@@ -849,27 +816,42 @@ fn ensure_loopback_origin(url: &Url) -> Result<()> {
 }
 
 fn selected_language_queries(names: &[String]) -> Result<Vec<LanguageQuery>> {
+    let all_queries = || {
+        LANGUAGES
+            .iter()
+            .map(|entry| LanguageQuery {
+                name: entry.0,
+                language: entry.1,
+                repository: entry.2,
+            })
+            .collect::<Vec<_>>()
+    };
     if names.is_empty() {
-        return Ok(LANGUAGE_QUERIES.to_vec());
+        return Ok(all_queries());
     }
     let mut selected = Vec::with_capacity(names.len());
     let mut seen = BTreeSet::new();
     for name in names {
         ensure!(seen.insert(name.as_str()), "duplicate language {name}");
-        let query = LANGUAGE_QUERIES
+        let query = LANGUAGES
             .iter()
-            .find(|query| query.name == name)
+            .find(|(candidate, _, _)| *candidate == name)
+            .map(|entry| LanguageQuery {
+                name: entry.0,
+                language: entry.1,
+                repository: entry.2,
+            })
             .with_context(|| {
                 format!(
                     "unknown language {name}; expected one of {}",
-                    LANGUAGE_QUERIES
+                    LANGUAGES
                         .iter()
-                        .map(|query| query.name)
+                        .map(|(name, _, _)| *name)
                         .collect::<Vec<_>>()
                         .join(", ")
                 )
             })?;
-        selected.push(*query);
+        selected.push(query);
     }
     selected.sort_by_key(|query| query.name);
     Ok(selected)

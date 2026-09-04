@@ -9,7 +9,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$")
+SEMVER = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$"
+)
 WORKSPACE_VERSION = re.compile(
     r'(?ms)(^\[workspace\.package\]\s*$.*?^version\s*=\s*")[^"]+("\s*$)'
 )
@@ -19,6 +21,7 @@ INTERNAL_DEPENDENCY = re.compile(
 )
 ACTION_DEFAULT = re.compile(r'(?m)^(    default: ")[0-9]+\.[0-9]+\.[0-9]+("\s*)$')
 ACTION_DOC_VERSION = re.compile(r"(?m)^(    version: )[0-9]+\.[0-9]+\.[0-9]+(\s*)$")
+DOGFOOD_VERSION = re.compile(r"(?m)^(  HOONARQUBE_DOGFOOD_VERSION: )[^\s]+(\s*)$")
 
 
 def synchronized(path: Path, version: str) -> str:
@@ -26,12 +29,19 @@ def synchronized(path: Path, version: str) -> str:
     if path == ROOT / "Cargo.toml":
         updated, count = WORKSPACE_VERSION.subn(rf"\g<1>{version}\g<2>", text, count=1)
         if count != 1:
-            raise RuntimeError("Cargo.toml must contain exactly one [workspace.package] version")
+            raise RuntimeError(
+                "Cargo.toml must contain exactly one [workspace.package] version"
+            )
         return updated
     if path.name == "action.yml":
         updated, count = ACTION_DEFAULT.subn(rf"\g<1>{version}\g<2>", text, count=1)
         if count != 1:
             raise RuntimeError(f"{path}: action version default missing or ambiguous")
+        return updated
+    if path == ROOT / ".github" / "workflows" / "ci.yml":
+        updated, count = DOGFOOD_VERSION.subn(rf"\g<1>{version}\g<2>", text, count=1)
+        if count != 1:
+            raise RuntimeError("CI dogfood version missing or ambiguous")
         return updated
     if path == ROOT / "actions" / "README.md":
         updated, count = ACTION_DOC_VERSION.subn(rf"\g<1>{version}\g<2>", text, count=1)
@@ -43,7 +53,9 @@ def synchronized(path: Path, version: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true", help="fail instead of rewriting drift")
+    parser.add_argument(
+        "--check", action="store_true", help="fail instead of rewriting drift"
+    )
     args = parser.parse_args()
 
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
@@ -56,6 +68,7 @@ def main() -> int:
         ROOT / "actions" / "setup" / "action.yml",
         ROOT / "actions" / "analyze" / "action.yml",
         ROOT / "actions" / "code-quality" / "action.yml",
+        ROOT / ".github" / "workflows" / "ci.yml",
         ROOT / "actions" / "README.md",
     ]
     drifted: list[Path] = []

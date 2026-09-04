@@ -35,7 +35,7 @@ class SyncReleaseVersionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "Cargo.toml"
             path.write_text(
-                '[dependencies]\n'
+                "[dependencies]\n"
                 'hoonarqube-core = { version = "0.2.0", path = "../hoonarqube-core" }\n'
                 'hoonarqube-remote = "0.2.0"\n'
                 'serde = { version = "1.0", path = "../serde" }\n',
@@ -75,6 +75,24 @@ class SyncReleaseVersionTest(unittest.TestCase):
                     SYNC.synchronized(code_quality, "0.2.3"),
                 )
                 self.assertIn("version: 0.2.3", SYNC.synchronized(readme, "0.2.3"))
+            finally:
+                SYNC.ROOT = original_root
+
+    def test_updates_pinned_ci_dogfood_version(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            original_root = SYNC.ROOT
+            try:
+                SYNC.ROOT = Path(directory)
+                workflow = SYNC.ROOT / ".github" / "workflows" / "ci.yml"
+                workflow.parent.mkdir(parents=True)
+                workflow.write_text(
+                    "env:\n  HOOVERSION_VERSION: 1.1.1\n"
+                    "  HOONARQUBE_DOGFOOD_VERSION: 0.3.1\n",
+                    encoding="utf-8",
+                )
+                updated = SYNC.synchronized(workflow, "0.3.2")
+                self.assertIn("HOONARQUBE_DOGFOOD_VERSION: 0.3.2", updated)
+                self.assertIn("HOOVERSION_VERSION: 1.1.1", updated)
             finally:
                 SYNC.ROOT = original_root
 

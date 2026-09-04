@@ -12,19 +12,21 @@ use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     ArrowFunctionExpression, AssignmentExpression, AssignmentTarget, BinaryExpression,
     BinaryOperator, BindingIdentifier, BindingPattern, BlockStatement, Class, Comment, Expression,
-    ForStatement, Function, FunctionBody, JSXOpeningElement, LabeledStatement, MemberExpression,
-    MethodDefinition, NewExpression, ObjectExpression, ObjectPropertyKind, PropertyKind,
-    SimpleAssignmentTarget, Statement, StaticBlock, SwitchCase, SwitchStatement, UpdateExpression,
-    UpdateOperator, VariableDeclarator, WithStatement, YieldExpression,
+    ForInStatement, ForOfStatement, ForStatement, ForStatementLeft, Function, FunctionBody,
+    JSXOpeningElement, LabeledStatement, MemberExpression, MethodDefinition, NewExpression,
+    ObjectExpression, ObjectPropertyKind, PropertyKind, SimpleAssignmentTarget, Statement,
+    StaticBlock, SwitchCase, SwitchStatement, UpdateExpression, UpdateOperator, VariableDeclarator,
+    WithStatement, YieldExpression,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_arrow_function_expression, walk_assignment_expression, walk_binary_expression,
-    walk_block_statement, walk_class, walk_expression_statement, walk_for_statement,
-    walk_formal_parameters, walk_function, walk_jsx_opening_element, walk_labeled_statement,
-    walk_member_expression, walk_method_definition, walk_new_expression, walk_object_expression,
-    walk_program, walk_static_block, walk_switch_case, walk_switch_statement,
-    walk_update_expression, walk_variable_declarator, walk_with_statement, walk_yield_expression,
+    walk_block_statement, walk_class, walk_expression_statement, walk_for_in_statement,
+    walk_for_of_statement, walk_for_statement, walk_formal_parameters, walk_function,
+    walk_jsx_opening_element, walk_labeled_statement, walk_member_expression,
+    walk_method_definition, walk_new_expression, walk_object_expression, walk_program,
+    walk_static_block, walk_switch_case, walk_switch_statement, walk_update_expression,
+    walk_variable_declarator, walk_with_statement, walk_yield_expression,
 };
 use oxc_parser::Parser;
 use oxc_span::{ContentEq, GetSpan, SourceType, Span};
@@ -121,10 +123,17 @@ impl FunctionKind {
     }
 }
 
+#[derive(Clone, Copy)]
+enum FunctionBodyState {
+    Ambient,
+    Empty,
+    NonEmpty,
+}
+
 struct FunctionContext {
     strict: bool,
     generator: FunctionKind,
-    body_nonempty: bool,
+    body: FunctionBodyState,
     underscore_accessed: bool,
 }
 
@@ -199,7 +208,7 @@ impl<'src, 'index, 'model> QualityCollector<'src, 'index, 'model> {
     fn push_function(
         &mut self,
         generator: FunctionKind,
-        body_nonempty: bool,
+        body: FunctionBodyState,
         directives_strict: bool,
         has_arguments_binding: bool,
     ) {
@@ -208,7 +217,7 @@ impl<'src, 'index, 'model> QualityCollector<'src, 'index, 'model> {
         self.functions.push(FunctionContext {
             strict,
             generator,
-            body_nonempty,
+            body,
             underscore_accessed: false,
         });
         self.arguments_scopes.push(ArgumentsScope::Function {
@@ -291,7 +300,7 @@ impl<'src, 'index, 'model> QualityCollector<'src, 'index, 'model> {
         let Some(function) = self.current_function() else {
             return;
         };
-        if function.strict || !function.body_nonempty {
+        if function.strict || !matches!(function.body, FunctionBodyState::NonEmpty) {
             return;
         }
         let underscore_accessed = function.underscore_accessed;
@@ -531,10 +540,11 @@ impl<'a> Visit<'a> for QualityCollector<'_, '_, '_> {
     }
 
     fn visit_function(&mut self, function: &Function<'a>, flags: ScopeFlags) {
-        let body_nonempty = function
-            .body
-            .as_ref()
-            .is_some_and(|body| !body.statements.is_empty());
+        let body = match &function.body {
+            None => FunctionBodyState::Ambient,
+            Some(body) if body.statements.is_empty() => FunctionBodyState::Empty,
+            Some(_) => FunctionBodyState::NonEmpty,
+        };
         let directives_strict = function
             .body
             .as_ref()
@@ -545,7 +555,7 @@ impl<'a> Visit<'a> for QualityCollector<'_, '_, '_> {
             .is_some_and(|body| body_references_name(body, "_"));
         self.push_function(
             FunctionKind::from_bool(function.generator),
-            body_nonempty,
+            body,
             directives_strict,
             true,
         );
@@ -557,10 +567,15 @@ impl<'a> Visit<'a> for QualityCollector<'_, '_, '_> {
     }
 
     fn visit_arrow_function_expression(&mut self, function: &ArrowFunctionExpression<'a>) {
-        let body_nonempty = function
+        let body = if function
             .body
             .as_function_body()
-            .is_none_or(|body| !body.statements.is_empty());
+            .is_some_and(|body| body.statements.is_empty())
+        {
+            FunctionBodyState::Empty
+        } else {
+            FunctionBodyState::NonEmpty
+        };
         let explicit_arguments = binding_identifiers_in_parameters(&function.params)
             .iter()
             .any(|(name, _)| *name == "arguments");
@@ -570,7 +585,7 @@ impl<'a> Visit<'a> for QualityCollector<'_, '_, '_> {
             .is_some_and(body_has_var_arguments);
         self.push_function(
             FunctionKind::Regular,
-            body_nonempty,
+            body,
             false,
             explicit_arguments || var_arguments,
         );
@@ -594,8 +609,11 @@ impl<'a> Visit<'a> for QualityCollector<'_, '_, '_> {
 
     fn visit_formal_parameters(&mut self, params: &oxc_ast::ast::FormalParameters<'a>) {
         self.check_parameters(params);
+        let ambient = self
+            .current_function()
+            .is_some_and(|function| matches!(function.body, FunctionBodyState::Ambient));
         for (name, span) in binding_identifiers_in_parameters(params) {
-            if name == "arguments" {
+            if name == "arguments" && !ambient {
                 self.emit_arguments_redefinition(span);
             }
         }
@@ -604,8 +622,8 @@ impl<'a> Visit<'a> for QualityCollector<'_, '_, '_> {
 
     fn visit_variable_declarator(&mut self, declarator: &VariableDeclarator<'a>) {
         for (name, span) in binding_identifiers(&declarator.id) {
-            if name == "arguments" {
-                self.emit_arguments_redefinition(span);
+            if name == "arguments" && !self.functions.is_empty() {
+                self.emit("arguments-redefinition", "Redefinition of arguments.", span);
             }
         }
         walk_variable_declarator(self, declarator);
@@ -645,10 +663,23 @@ impl<'a> Visit<'a> for QualityCollector<'_, '_, '_> {
         self.check_switch(statement);
         walk_switch_statement(self, statement);
     }
-
     fn visit_switch_case(&mut self, case: &SwitchCase<'a>) {
         self.check_case_labels(case);
         walk_switch_case(self, case);
+    }
+
+    fn visit_for_in_statement(&mut self, loop_: &ForInStatement<'a>) {
+        for span in for_head_assignment_arguments(&loop_.left) {
+            self.emit_arguments_redefinition(span);
+        }
+        walk_for_in_statement(self, loop_);
+    }
+
+    fn visit_for_of_statement(&mut self, loop_: &ForOfStatement<'a>) {
+        for span in for_head_assignment_arguments(&loop_.left) {
+            self.emit_arguments_redefinition(span);
+        }
+        walk_for_of_statement(self, loop_);
     }
 
     fn visit_for_statement(&mut self, loop_: &ForStatement<'a>) {
@@ -667,7 +698,7 @@ impl<'a> Visit<'a> for QualityCollector<'_, '_, '_> {
 
     fn visit_yield_expression(&mut self, expression: &YieldExpression<'a>) {
         if let Some(function) = self.current_function()
-            && function.body_nonempty
+            && matches!(function.body, FunctionBodyState::NonEmpty)
             && !matches!(function.generator, FunctionKind::Generator)
         {
             self.emit(
@@ -771,6 +802,10 @@ fn body_references_name(body: &FunctionBody<'_>, wanted: &str) -> bool {
         ) {
             self.found |= reference.name.as_str() == self.wanted;
         }
+
+        fn visit_function(&mut self, _: &Function<'a>, _: ScopeFlags) {}
+        fn visit_arrow_function_expression(&mut self, _: &ArrowFunctionExpression<'a>) {}
+        fn visit_method_definition(&mut self, _: &MethodDefinition<'a>) {}
     }
     let mut scanner = Scanner {
         wanted,
@@ -882,6 +917,10 @@ fn assignment_target_arguments<'a>(target: &'a AssignmentTarget<'a>) -> Vec<Span
             .collect(),
         _ => Vec::new(),
     }
+}
+fn for_head_assignment_arguments(left: &ForStatementLeft<'_>) -> Vec<Span> {
+    left.as_assignment_target()
+        .map_or_else(Vec::new, assignment_target_arguments)
 }
 
 fn assignment_target_maybe_default_arguments<'a>(
@@ -1273,6 +1312,36 @@ mod tests {
         let accessed_dummy = "function f(_, _) { return _; }";
         assert!(
             ids(accessed_dummy, JstsLanguage::JavaScript)
+                .iter()
+                .any(|id| id == "js/duplicate-parameter-name")
+        );
+        let arrow_local = "const f = () => { let arguments = 1; };";
+        assert!(
+            ids(arrow_local, JstsLanguage::JavaScript)
+                .iter()
+                .any(|id| id == "js/arguments-redefinition")
+        );
+        let for_of = "function f() { for ([arguments] of values) {} }";
+        assert!(
+            ids(for_of, JstsLanguage::JavaScript)
+                .iter()
+                .any(|id| id == "js/arguments-redefinition")
+        );
+        let for_in = "function f() { for ({arguments} in values) {} }";
+        assert!(
+            ids(for_in, JstsLanguage::JavaScript)
+                .iter()
+                .any(|id| id == "js/arguments-redefinition")
+        );
+        let ambient = "declare function f(arguments: string[]): string;";
+        assert!(
+            !ids(ambient, JstsLanguage::TypeScript)
+                .iter()
+                .any(|id| id == "js/arguments-redefinition")
+        );
+        let nested_dummy = "function f(_, _) { function g(_) { return _; } }";
+        assert!(
+            !ids(nested_dummy, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/duplicate-parameter-name")
         );
