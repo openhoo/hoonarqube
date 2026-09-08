@@ -14,9 +14,9 @@ doc = false
 
 [dependencies]
 clap = { version = "4.5.48", features = ["derive"] }
-hoonarqube-catalog = { version = "0.6.0", path = "../hoonarqube-catalog" }
-hoonarqube-core = { version = "0.6.0", path = "../hoonarqube-core" }
-hoonarqube-ir = { version = "0.6.0", path = "../hoonarqube-ir" }
+hoonarqube-catalog = { version = "0.7.0", path = "../hoonarqube-catalog" }
+hoonarqube-core = { version = "0.7.0", path = "../hoonarqube-core" }
+hoonarqube-ir = { version = "0.7.0", path = "../hoonarqube-ir" }
 ignore = "0.4.33"
 globset = "0.4.20"
 serde = { version = "1.0.225", features = ["derive"] }
