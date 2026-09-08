@@ -51,6 +51,14 @@
 
 ## Unreleased
 
+### Performance
+
+- Add opt-in `analyze --cache-dir` content-addressed caching of successful
+  per-file findings and source facts while rebuilding complete project metrics
+  and cross-file duplication on every run.
+- Add optional cache-directory inputs to both GitHub Actions integrations and
+  document trusted pipeline cache restore/save.
+
 ### Features
 
 - **analysis:** add versioned project reports with consistent source size,

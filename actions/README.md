@@ -18,10 +18,16 @@ checkout action and each Hoonarqube action to a full commit SHA.
 
 `actions/setup` verifies the Linux X64 release archive checksum and installed
 binary version. `actions/analyze` writes SonarQube Generic Issue Import JSON.
+
 Its `profile` input accepts `sonar-parity` (default), `recommended`, `extended`,
 or `strict`; native rules remain disabled unless a native profile is selected.
 Non-default profiles require a release containing the native catalog, or the
 `executable` input pointing at a compatible local build.
+`cache-dir` is optional on both analysis actions. When it is nonempty, the
+action passes the value as one literal `--cache-dir` argument; paths containing
+spaces or shell metacharacters are not re-parsed. Set it only when the selected
+`executable` or release supports that CLI flag. Leave it empty for older
+releases to preserve their uncached behavior.
 
 ## GitHub Code Quality SARIF
 
@@ -86,3 +92,69 @@ are retained, while drive/URI-like prefixes, backslashes, control characters,
 and invalid ranges fail closed. File-level findings are anchored at line 1; an
 empty report is `[]`. Incomplete scans still emit the report and exit 2, while
 serialization or path errors exit 1.
+
+## Optional caller-managed analysis cache
+
+The actions do not restore or save cache state themselves. A consuming workflow
+can opt in at its boundary when it runs a release or locally built CLI that
+supports `--cache-dir`. Keep the cache path outside the analyzed tree to avoid
+traversing cache artifacts. The CLI reserves an owned
+`.hoonarqube-cache-v1` child under that path; `--cache-dir .` does not exclude
+arbitrary source files. Cache failures are fail-open. Use a stable restore
+prefix plus a commit-specific key, and save only from the protected primary
+branch. Pull requests, including fork pull requests, should restore only; never
+let an untrusted branch save into the namespace used by primary-branch jobs.
+The cache actions below use the officially resolved `actions/cache` v6.1.0
+commit.
+
+```yaml
+permissions:
+  contents: read
+
+jobs:
+  code-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@<full-checkout-sha>
+
+      # Use a release and action revision that both support --cache-dir.
+      - uses: openhoo/hoonarqube/actions/setup@<full-action-sha>
+        with:
+          version: <release-with-cache-dir-support>
+
+      - name: Restore Hoonarqube analysis cache
+        id: hoonarqube-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.cache/hoonarqube
+          key: hoonarqube-code-quality-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: |
+            hoonarqube-code-quality-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      # Reuse exactly the CLI installed by setup; do not mix cache formats.
+      - id: hoonarqube
+        uses: openhoo/hoonarqube/actions/code-quality@<full-action-sha>
+        with:
+          executable: hoonarqube
+          cache-dir: ${{ github.workspace }}/.cache/hoonarqube
+          paths: |
+            src
+          upload: false
+
+      - name: Save Hoonarqube analysis cache
+        if: >-
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main' &&
+          steps.hoonarqube-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.cache/hoonarqube
+          key: hoonarqube-code-quality-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+```
+
+This repository's small `crates/hoonarqube-cli/src` self-analysis fixture
+exercises the cache wiring but is not expected to produce a material CI speedup
+because the corpus is tiny and cache contents change with binary and source
+revisions. Larger consuming repositories with repeated per-file analysis get
+the practical benefit; the caller should still treat a cache miss as normal and
+avoid granting extra permissions.

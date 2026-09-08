@@ -219,6 +219,7 @@ jobs:
         uses: ./actions/code-quality
         with:
           executable: ${{ github.workspace }}/target/debug/hoonarqube
+          cache-dir: ${{ github.workspace }}/.cache/hoonarqube
           working-directory: crates/hoonarqube-cli
           paths: |
             src

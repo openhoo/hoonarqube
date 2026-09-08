@@ -19,6 +19,7 @@ use hoonarqube_ir::{Range, TextEdit, apply_fixes};
 use sha2::{Digest as _, Sha256};
 
 mod analyze;
+mod cache;
 
 #[derive(Parser)]
 #[command(
@@ -47,6 +48,12 @@ enum Command {
         /// Files or directories to analyze.
         #[arg(required = true)]
         paths: Vec<std::path::PathBuf>,
+        /// Opt in to successful per-file result caching under this directory.
+        ///
+        /// Only the owned `.hoonarqube-cache-v1` child is reserved; the
+        /// directory argument itself remains ordinary project input.
+        #[arg(long = "cache-dir")]
+        cache_dir: Option<std::path::PathBuf>,
         /// Output format: `text` (default), `json`, `sonar`, `sarif`, or
         /// `gitlab-codequality` (GitLab Code Quality JSON).
         #[arg(long)]
@@ -188,6 +195,7 @@ fn main() -> ExitCode {
         Command::Rules { cmd } => run_rules(catalog, cmd, cli.json),
         Command::Analyze {
             paths,
+            cache_dir,
             format,
             go_header_format,
             profile,
@@ -200,7 +208,7 @@ fn main() -> ExitCode {
             duplication_min_lines,
             duplication_min_statements,
         } => {
-            let project_options = match analyze::project_analysis_options(
+            let mut project_options = match analyze::project_analysis_options(
                 analyze::ProjectPatternLists {
                     exclude,
                     test_include,
@@ -218,6 +226,7 @@ fn main() -> ExitCode {
                     return ExitCode::from(2);
                 }
             };
+            project_options.cache_dir.clone_from(cache_dir);
             run_analyze(
                 catalog,
                 paths,

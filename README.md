@@ -168,6 +168,42 @@ cargo run -p hoonarqube-bench -- --iterations N                # throughput tabl
 cargo run -p xtask -- catalog coverage                         # parity audit
 ```
 
+### Incremental analysis cache
+
+Repeated scans can opt in to a local per-file cache:
+
+```bash
+cargo run --release -p hoonarqube-cli -- analyze --cache-dir .cache/hoonarqube src
+```
+
+Unchanged files reuse successful findings and parsed source facts. Every run
+still reads and hashes current source contents, discovers added/deleted files,
+applies current scope settings, and recomputes full-project metrics and
+cross-file duplication. This is not a partial Git-diff scan: unchanged files
+remain represented in all results.
+
+Cache keys include the executable's SHA-256, effective analyzer options
+(including profile), working directory, exact file path and source bytes.
+Changing the executable invalidates reuse, including development builds with
+the same version. Cold runs pay cache-writing overhead; warm benefits depend
+on parsing/rule costs relative to file I/O, deserialization, and duplication.
+Use a release build for performance-sensitive pipelines.
+
+Entries live in an owned hidden `.hoonarqube-cache-v1` child beneath the supplied
+directory; `--cache-dir .` does not exclude your source tree. The ordinary
+directory walker skips hidden cache artifacts. Failed analyses are not cached.
+Corrupt, oversized, incompatible, or inaccessible entries fall back to fresh
+analysis without changing report completeness. Writes are best-effort and
+atomic. Omit the flag to disable caching; `fix` never uses it.
+
+Treat cache storage as trusted local state, not an authenticated report source.
+Checksums detect corruption, not deliberate cache forgery. Never restore
+untrusted cache archives into a privileged pipeline. See [the Actions cache
+example](actions/README.md#optional-caller-managed-analysis-cache) for
+restore-only pull requests and protected-branch saves. Old entries are not
+automatically pruned; remove the owned `.hoonarqube-cache-v1` child when you
+want to reclaim space or force a cold run.
+
 ### Project metrics and duplication
 
 `analyze` measures Python, JavaScript/JSX, TypeScript/TSX, C#, Go, Java, Rust,
