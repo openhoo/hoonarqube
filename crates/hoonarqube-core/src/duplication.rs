@@ -147,6 +147,7 @@ struct DiagonalKey {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct StartInterval {
     start: usize,
+    /// One past the last fixed-window start covered by this interval.
     end: usize,
 }
 
@@ -520,7 +521,7 @@ struct MatchEngine<'a> {
     powers_b: &'a [u64],
     options: &'a DuplicationOptions,
     budget: WorkBudget,
-    coverage: HashMap<DiagonalKey, Vec<StartInterval>>,
+    coverage: HashMap<DiagonalKey, BTreeMap<usize, usize>>,
     groups: Vec<GroupState>,
     groups_by_key: HashMap<WindowKey, Vec<usize>>,
     candidate_pairs: usize,
@@ -608,11 +609,18 @@ impl MatchEngine<'_> {
         };
         let left_occurrence = make_occurrence(left.file, left_start, length)?;
         let right_occurrence = make_occurrence(right.file, right_start, length)?;
+        let covered_window_count = length
+            .checked_sub(key.length)
+            .and_then(|extra| extra.checked_add(1))
+            .ok_or_else(|| "duplication coverage window count underflows".to_owned())?;
+        let interval_end = left_start
+            .checked_add(covered_window_count)
+            .ok_or_else(|| "duplication coverage interval overflows usize".to_owned())?;
         let interval = StartInterval {
             start: left_start,
-            end: left_start + length - key.length,
+            end: interval_end,
         };
-        self.coverage.entry(diagonal).or_default().push(interval);
+        insert_coverage(&mut self.coverage, diagonal, interval, &mut self.budget)?;
 
         let left_file = &self.files[left.file];
         let right_file = &self.files[right.file];
@@ -757,22 +765,90 @@ fn diagonal_key(left: WindowRef, right: WindowRef) -> Result<DiagonalKey, String
         delta: right_start - left_start,
     })
 }
+/// Charges a conservative ordered-map height proxy for bounded work.
+///
+/// The concrete `BTreeMap` implementation does not expose comparison counts;
+/// this logarithmic charge is an accounting model rather than an observation
+/// about its internal tree layout.
+fn ordered_map_work(entries: usize) -> usize {
+    let entries = entries.max(1);
+    usize::try_from(usize::BITS - entries.leading_zeros()).unwrap_or(usize::MAX)
+}
+
+fn insert_coverage(
+    coverage: &mut HashMap<DiagonalKey, BTreeMap<usize, usize>>,
+    diagonal: DiagonalKey,
+    interval: StartInterval,
+    budget: &mut WorkBudget,
+) -> Result<(), String> {
+    if interval.start >= interval.end {
+        return Err("duplication coverage interval is empty".to_owned());
+    }
+
+    // The outer hash lookup is charged as constant work; ordered operations
+    // charge a logarithmic tree-height bound plus each visited or removed
+    // interval.  Each touched interval is charged separately, so a merge is
+    // not incorrectly modeled as one logarithmic operation.
+    budget.charge(1)?;
+    let intervals = coverage.entry(diagonal).or_default();
+    if intervals.is_empty() {
+        budget.charge(1)?;
+        intervals.insert(interval.start, interval.end);
+        return Ok(());
+    }
+
+    budget.charge(ordered_map_work(intervals.len()))?;
+    let predecessor = intervals
+        .range(..=interval.start)
+        .next_back()
+        .map(|(&start, &end)| (start, end));
+    let mut merged_start = interval.start;
+    let mut merged_end = interval.end;
+    if let Some((start, end)) = predecessor
+        && end >= merged_start
+    {
+        merged_start = start;
+        merged_end = merged_end.max(end);
+    }
+
+    loop {
+        budget.charge(ordered_map_work(intervals.len()))?;
+        let next = intervals
+            .range(merged_start..)
+            .next()
+            .map(|(&start, &end)| (start, end));
+        let Some((start, end)) = next else {
+            break;
+        };
+        budget.charge(1)?;
+        if start > merged_end {
+            break;
+        }
+        merged_end = merged_end.max(end);
+        budget.charge(ordered_map_work(intervals.len()))?;
+        intervals.remove(&start);
+    }
+    let insertion_entries = intervals.len().saturating_add(1);
+    budget.charge(ordered_map_work(insertion_entries))?;
+    intervals.insert(merged_start, merged_end);
+    Ok(())
+}
+
 fn covered_start(
-    coverage: &HashMap<DiagonalKey, Vec<StartInterval>>,
+    coverage: &HashMap<DiagonalKey, BTreeMap<usize, usize>>,
     diagonal: DiagonalKey,
     left_start: usize,
     budget: &mut WorkBudget,
 ) -> Result<bool, String> {
+    budget.charge(1)?;
     let Some(intervals) = coverage.get(&diagonal) else {
         return Ok(false);
     };
-    for interval in intervals {
-        budget.charge(1)?;
-        if left_start >= interval.start && left_start <= interval.end {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+    budget.charge(ordered_map_work(intervals.len()))?;
+    let Some((_, &end)) = intervals.range(..=left_start).next_back() else {
+        return Ok(false);
+    };
+    Ok(left_start < end)
 }
 
 fn equal_ids(
@@ -1283,10 +1359,14 @@ fn u64_as_f64(value: u64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{DuplicationFile, DuplicationOptions, detect_duplications};
+    use super::{
+        DiagonalKey, DuplicationFile, DuplicationOptions, StartInterval, WorkBudget, covered_start,
+        detect_duplications, insert_coverage,
+    };
     use crate::Language;
     use crate::source_facts::{NormalizedToken, SourceFacts};
     use hoonarqube_ir::FileMetrics;
+    use std::collections::{BTreeMap, HashMap};
     use std::path::PathBuf;
 
     fn facts(
@@ -1472,6 +1552,145 @@ mod tests {
         assert_eq!(result.groups[0].occurrences.len(), 2);
         assert_eq!(result.metrics.duplicated_lines, 9);
         assert_eq!(result.metrics.duplicated_blocks, 2);
+    }
+
+    #[test]
+    fn coverage_intervals_merge_fragments_with_half_open_endpoints() {
+        let diagonal = DiagonalKey {
+            file_a: 0,
+            file_b: 1,
+            delta: 0,
+        };
+        let other_diagonal = DiagonalKey {
+            file_a: 0,
+            file_b: 1,
+            delta: 1,
+        };
+        let mut coverage = HashMap::new();
+        let mut budget = WorkBudget {
+            used: 0,
+            limit: usize::MAX,
+        };
+
+        for interval in [
+            StartInterval { start: 10, end: 12 },
+            StartInterval { start: 2, end: 4 },
+            StartInterval { start: 7, end: 9 },
+        ] {
+            insert_coverage(&mut coverage, diagonal, interval, &mut budget)
+                .expect("fragment insertion");
+        }
+        let fragmented = BTreeMap::from([(2, 4), (7, 9), (10, 12)]);
+        assert_eq!(coverage.get(&diagonal), Some(&fragmented));
+        for &(start, end) in &[(2_usize, 4_usize), (7, 9), (10, 12)] {
+            assert!(covered_start(&coverage, diagonal, start, &mut budget).expect("start"));
+            assert!(covered_start(&coverage, diagonal, end - 1, &mut budget).expect("end - 1"));
+            assert!(!covered_start(&coverage, diagonal, end, &mut budget).expect("end"));
+        }
+
+        insert_coverage(
+            &mut coverage,
+            diagonal,
+            StartInterval { start: 4, end: 7 },
+            &mut budget,
+        )
+        .expect("bridge insertion");
+        let bridged = BTreeMap::from([(2, 9), (10, 12)]);
+        assert_eq!(coverage.get(&diagonal), Some(&bridged));
+        assert!(covered_start(&coverage, diagonal, 2, &mut budget).expect("bridge start"));
+        assert!(covered_start(&coverage, diagonal, 8, &mut budget).expect("bridge end - 1"));
+        assert!(!covered_start(&coverage, diagonal, 9, &mut budget).expect("bridge end"));
+
+        insert_coverage(
+            &mut coverage,
+            other_diagonal,
+            StartInterval { start: 4, end: 6 },
+            &mut budget,
+        )
+        .expect("independent diagonal insertion");
+        assert!(covered_start(&coverage, other_diagonal, 4, &mut budget).expect("other start"));
+        assert!(covered_start(&coverage, other_diagonal, 5, &mut budget).expect("other end - 1"));
+        assert!(!covered_start(&coverage, other_diagonal, 6, &mut budget).expect("other end"));
+        assert_eq!(coverage.get(&diagonal), Some(&bridged));
+
+        let mut exhausted = WorkBudget { used: 0, limit: 0 };
+        assert!(
+            insert_coverage(
+                &mut coverage,
+                diagonal,
+                StartInterval { start: 0, end: 1 },
+                &mut exhausted,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn fragmented_same_diagonal_matches_many_runs_within_budget() {
+        const RUN_COUNT: usize = 100;
+        const RUN_LENGTH: usize = 5;
+
+        let mut symbols = Vec::with_capacity(RUN_COUNT * (RUN_LENGTH + 3));
+        let mut run_symbols = Vec::with_capacity(RUN_COUNT);
+        let mut separators = Vec::with_capacity(RUN_COUNT);
+        for run in 0..RUN_COUNT {
+            let mut current_run = Vec::with_capacity(RUN_LENGTH);
+            for token in 0..RUN_LENGTH {
+                current_run.push(symbols.len());
+                symbols.push(format!("run_{run}_{token}"));
+            }
+            let left_separator = symbols.len();
+            symbols.push(format!("left_separator_{run}"));
+            let right_separator = symbols.len();
+            symbols.push(format!("right_separator_{run}"));
+            run_symbols.push(current_run);
+            separators.push((left_separator, right_separator));
+        }
+        let symbol_refs: Vec<&str> = symbols.iter().map(std::string::String::as_str).collect();
+        let capacity = RUN_COUNT * (RUN_LENGTH + 1);
+        let mut left_units = Vec::with_capacity(capacity);
+        let mut right_units = Vec::with_capacity(capacity);
+        for run in 0..RUN_COUNT {
+            for &symbol in &run_symbols[run] {
+                let line = u32::try_from(left_units.len() + 1).expect("line");
+                left_units.push((symbol_refs[symbol], line, line));
+                right_units.push((symbol_refs[symbol], line, line));
+            }
+            let line = u32::try_from(left_units.len() + 1).expect("separator line");
+            let (left_separator, right_separator) = separators[run];
+            left_units.push((symbol_refs[left_separator], line, line));
+            right_units.push((symbol_refs[right_separator], line, line));
+        }
+        let lines = u32::try_from(left_units.len()).expect("fixture line count");
+        let mut config = options(3, 1);
+        config.max_candidate_pairs = 250;
+        let inputs = vec![
+            file(
+                "fragmented-a.py",
+                Language::Python,
+                &symbol_refs,
+                &left_units,
+                lines,
+            ),
+            file(
+                "fragmented-b.py",
+                Language::Python,
+                &symbol_refs,
+                &right_units,
+                lines,
+            ),
+        ];
+        let result = detect_duplications(&inputs, &config).expect("fragmented detection");
+        assert_eq!(result.groups.len(), RUN_COUNT);
+        assert_eq!(
+            result.metrics.duplicated_lines,
+            u64::try_from(RUN_COUNT * RUN_LENGTH * 2).expect("line total")
+        );
+        assert_eq!(
+            result.metrics.duplicated_blocks,
+            u64::try_from(RUN_COUNT * 2).expect("block total")
+        );
+        assert_eq!(result.metrics.duplicated_files, 2);
     }
 
     #[test]

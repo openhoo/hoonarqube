@@ -701,8 +701,10 @@ dependencies = [
 name = "hoonarqube-bench"
 version = "0.5.0"
 dependencies = [
+ "hoonarqube-core",
  "hoonarqube-csharp",
  "hoonarqube-go",
+ "hoonarqube-ir",
  "hoonarqube-jsts",
  "hoonarqube-python",
  "hoonarqube-rust",
