@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0 (2026-09-08)
+
+### Features
+
+- **cli:** cache unchanged file analysis (#33) (036baa2)
+
 ## 0.6.0 (2026-09-08)
 
 ### Features
