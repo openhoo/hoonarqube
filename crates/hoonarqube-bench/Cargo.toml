@@ -12,13 +12,13 @@ name = "hoonarqube-bench"
 path = "src/main.rs"
 
 [dependencies]
-hoonarqube-core = { version = "0.5.1", path = "../hoonarqube-core" }
-hoonarqube-csharp = { version = "0.5.1", path = "../hoonarqube-csharp" }
-hoonarqube-go = { version = "0.5.1", path = "../hoonarqube-go" }
-hoonarqube-ir = { version = "0.5.1", path = "../hoonarqube-ir" }
-hoonarqube-jsts = { version = "0.5.1", path = "../hoonarqube-jsts" }
-hoonarqube-python = { version = "0.5.1", path = "../hoonarqube-python" }
-hoonarqube-rust = { version = "0.5.1", path = "../hoonarqube-rust" }
+hoonarqube-core = { version = "0.6.0", path = "../hoonarqube-core" }
+hoonarqube-csharp = { version = "0.6.0", path = "../hoonarqube-csharp" }
+hoonarqube-go = { version = "0.6.0", path = "../hoonarqube-go" }
+hoonarqube-ir = { version = "0.6.0", path = "../hoonarqube-ir" }
+hoonarqube-jsts = { version = "0.6.0", path = "../hoonarqube-jsts" }
+hoonarqube-python = { version = "0.6.0", path = "../hoonarqube-python" }
+hoonarqube-rust = { version = "0.6.0", path = "../hoonarqube-rust" }
 
 [lints]
 workspace = true
