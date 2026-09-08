@@ -6,6 +6,18 @@
 //! hoonarqube-bench drives the per-language analyzer crates directly to
 //! isolate per-analyzer throughput.
 
+/// Deterministic intra- and cross-file duplication detection.
+pub mod duplication;
+/// Project-level orchestration and completeness reporting.
+pub mod project;
+/// Tree-sitter-backed source facts shared by project metrics and duplication.
+pub mod source_facts;
+pub use duplication::{
+    DuplicationFile, DuplicationOptions, DuplicationResult, detect_duplications,
+};
+pub use project::{ProjectFile, analyze_project_file, build_project_report};
+pub use source_facts::{NormalizedToken, SourceFacts, collect_source_facts};
+
 use std::path::Path;
 
 use hoonarqube_csharp::CsLanguage;

@@ -18,9 +18,9 @@ hoonarqube-catalog = { version = "0.4.2", path = "../hoonarqube-catalog" }
 hoonarqube-core = { version = "0.4.2", path = "../hoonarqube-core" }
 hoonarqube-ir = { version = "0.4.2", path = "../hoonarqube-ir" }
 ignore = "0.4.33"
+globset = "0.4.20"
 serde = { version = "1.0.225", features = ["derive"] }
 serde_json = "1.0.151"
-
 [target.'cfg(windows)'.dependencies]
 atomicwrites = "0.4.4"
 

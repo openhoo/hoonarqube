@@ -10,7 +10,7 @@ Import JSON.
 | Crate | Purpose |
 |---|---|
 | `hoonarqube` | Public facade crate: re-exports `analyze`, `Language`, `AnalyzerOptions`, catalog, IR |
-| `hoonarqube-core` | Language dispatch by extension and end-to-end `analyze()` orchestration |
+| `hoonarqube-core` | Language dispatch, per-file analysis, project measurements, and duplicate-block detection |
 | `hoonarqube-catalog` | Frozen Sonar catalog plus separate native metadata/provenance catalog and cumulative profiles |
 | `hoonarqube-ir` | Findings, execution/data-flow locations, and fix IR: `Issue`, `IssueFlow`, `Fix`, reports and metrics |
 | `hoonarqube-python` | Python analyzer (ruff parser) |
@@ -51,13 +51,14 @@ Invariants:
 - Sonar rule keys remain `<repository>:<key>` and resolve only through the frozen catalog.
   Native keys use `hoonarqube-<language>:<key>` and resolve only through the separate native catalog;
   analyzers never duplicate either metadata source.
-- Parsing is tolerant everywhere: partial syntax trees are analyzed, broken files never abort a run,
-  and parse errors emit no findings unless a catalog rule exists for them.
+- Per-file rule analysis remains tolerant: partial syntax trees can produce findings.
+  Project analysis separately reports parser/read failures as incomplete and exits nonzero;
+  it never presents an incomplete duplication scan as zero duplication.
 - Positions follow the SonarQube convention (1-based line, 0-based column); issues are sorted.
 - Flow-aware findings can carry ordered `IssueFlow` locations. Generic Issue Import output
   exports non-primary flow steps as `secondaryLocations` because that schema has no code-flow group.
-- Metrics (`lines`, `code_lines`, `comment_lines`) are computed per file and preserved through every
-  refactor.
+- Project reports normalize physical, code-bearing, and comment-only line counts across all
+  supported frontends. Test measurements remain separate from source aggregates.
 
 ## Coverage
 
@@ -165,6 +166,87 @@ cargo run -p hoonarqube-cli -- fix --apply <paths>             # write and verif
 cargo run -p hoonarqube-bench -- --iterations N                # throughput table
 cargo run -p xtask -- catalog coverage                         # parity audit
 ```
+
+### Project metrics and duplication
+
+`analyze` measures Python, JavaScript/JSX, TypeScript/TSX, C#, Go, Java, Rust,
+and Ruby. Measurement support is independent of each language's rule-catalog
+coverage. It detects repeated blocks within a file and across files of the
+same language; JavaScript and TypeScript are separate matching domains.
+
+```bash
+cargo run -p hoonarqube-cli -- analyze --format json \
+  --test-include '**/tests/**' \
+  --generated-include '**/generated/**' \
+  --vendor-include '**/vendor/**' \
+  --exclude '**/fixtures/**' \
+  --duplication-exclude '**/*.min.js' \
+  src tests
+```
+
+Each glob option is repeatable and accepts one complete, quoted glob.
+Brace alternatives such as `--exclude '**/*.{js,ts}'` are supported. Paths
+inside the current working directory are matched relative to that directory;
+paths outside it are matched as absolute paths. Existing ignore-file and
+hidden-entry walking rules still apply. No test/generated/vendor filename
+heuristics are enabled implicitly.
+
+Classification precedence is **excluded → vendor → generated → test → source**.
+Source files contribute to project size and duplication. Tests retain their
+findings and individual measurements, but do not contribute to those source
+aggregates. Generated, vendor, and excluded scopes are not analyzed.
+`--duplication-exclude` removes a source file only from duplication, preserving
+its findings and size measurements.
+Excluded directory roots remain visible as scope entries with no measurements;
+their contents are not enumerated. Recursive scope globs ending in `/**`
+support subtree pruning; other globs still apply to matching paths.
+
+The JSON report has `schema_version: 1` and retains the existing `files`
+array for findings. Its `project` object contains:
+
+- `roots`, scope inventory in `files`, `complete`, and `warnings`.
+- `metrics`: source file count, physical `lines`, `code_lines`, and
+  comment-only `comment_lines`, accumulated with 64-bit counters.
+- `duplications`: clone groups with every occurrence's path, inclusive
+  1-based line range, and half-open UTF-8 `start_byte`/`end_byte` offsets.
+  Byte offsets distinguish separate blocks on the same physical line.
+- `duplication`: duplicated line/block/file counts and
+  `duplicated_lines_density`, also available for eligible individual files.
+
+Duplicated lines are the union of matching line ranges within each file;
+overlapping groups cannot count a line twice. Blocks count distinct source
+byte spans, not groups. Project density uses the total physical lines of
+duplication-eligible source files, rather than averaging file percentages.
+An empty denominator produces `null`, not a fabricated percentage.
+
+Default detection thresholds are **100 normalized syntax tokens across
+10 physical lines**, or **10 statement units for Java**, irrespective of
+line count. Override them with `--duplication-min-tokens`,
+`--duplication-min-lines`, and `--duplication-min-statements`; all must be
+positive. Comments and layout are ignored, plain string contents are
+normalized, and identifiers, operators, numeric literals, and embedded
+interpolation expressions remain significant. Structural markers retain
+layout-sensitive boundaries. Java uses separate direct-statement streams
+for nested blocks, with control/declaration signatures and nonmatching
+boundaries between streams.
+
+These are native measurement semantics, **not an established SonarQube
+metric-equivalence claim**. In particular, syntax-token accounting and Java
+statement selection require separate oracle evidence. See [PARITY.md](PARITY.md).
+
+Failed reads/parses, unsupported explicit inputs, or exhausted resource
+budgets make `project.complete` false and duplication unavailable (`null`),
+while preserving available findings and scope diagnostics. The CLI emits the
+report and exits **2** on incomplete analysis; findings alone do not fail the
+scan. Facts collection limits individual inputs to 16 MiB. The default
+project matcher accepts up to 2,000,000 normalized units and 1,000,000
+candidate pairs, with an additional bounded comparison budget. Limit
+failures are explicit, never silently truncated results.
+
+Text output summarizes source/test measurements, scope, completeness, and
+matching locations. Detailed scope inventory is in JSON. SonarQube Generic
+Issue Import and SARIF remain issue-only formats: they do not transport these
+project measures or create artificial duplication issues.
 
 ## GitHub Code Quality action
 

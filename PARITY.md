@@ -27,6 +27,32 @@ The remaining rule records carry `community-base`. Development and Community
 oracle runs need no commercial license. Full SonarQube parity cannot be claimed
 without valid Enterprise oracle evidence for the 17 commercial rules.
 
+## Project-measurement scope
+
+Rule parity and project-measurement parity are separate contracts. The
+versioned project report provides source size, scope/completeness, and
+within-/cross-file duplication for Python, JavaScript, TypeScript, C#, Go,
+Java, Rust, and Ruby. Java/Ruby measurement support does not add either
+language to the frozen Sonar rule catalog.
+
+The native duplication defaults resemble SonarQube's documented thresholds:
+100 normalized syntax tokens across 10 physical lines for non-Java input,
+and 10 statement units for Java. This is not equivalent to an oracle pass.
+Structural tokens, normalized literal kinds, Java declaration/control units
+and nested statement streams, comment-only line accounting, and exclusion
+denominators have explicit native semantics. Exact SonarQube metric values,
+block grouping, and all-language lexical equivalence remain unverified.
+
+Clone occurrences use inclusive line ranges and half-open UTF-8 byte offsets.
+Line totals union overlaps; block totals identify distinct byte spans.
+Incomplete analysis has no duplication aggregate, and empty density
+denominators are null. Generic Issue Import and SARIF exports continue to
+carry issues only, not duplication measures.
+
+Coverage import, new-code baselines, metric-based quality gates, issue/hotspot
+review state, a persistent analysis service, and a dashboard are not included
+in this measurement milestone.
+
 ## GitHub Code Quality scope
 
 The separate `catalog/github-code-quality.json` is authoritative metadata for

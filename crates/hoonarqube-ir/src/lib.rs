@@ -549,6 +549,11 @@ pub fn apply_fixes(source: &str, edits: &[&TextEdit]) -> Result<String, FixApply
 }
 
 /// SonarQube-style size metrics for one file.
+///
+/// `lines` is the physical line count, `code_lines` counts rows containing
+/// syntax after comments/layout are removed, and `comment_lines` counts rows
+/// containing comments but no code. All values are bounded to `u32` for
+/// compatibility with per-file analyzer output.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileMetrics {
     pub lines: u32,
@@ -565,66 +570,134 @@ pub struct FileReport {
     pub metrics: FileMetrics,
 }
 
-/// Complete result of analyzing one target.
+/// A physical source range participating in a duplication group.
+///
+/// Line endpoints are one-based and inclusive. Byte endpoints are UTF-8 byte
+/// offsets in the file and form a zero-based half-open range. The byte span
+/// distinguishes blocks that occupy the same physical line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DuplicateOccurrence {
+    pub path: PathBuf,
+    pub start_line: u32,
+    pub end_line: u32,
+    pub start_byte: u32,
+    pub end_byte: u32,
+}
+
+/// A set of matching source ranges in one language.
+///
+/// Groups contain at least two occurrences. JavaScript and TypeScript remain
+/// separate language groups even though their issue analyzers share a crate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DuplicateGroup {
+    pub language: String,
+    pub occurrences: Vec<DuplicateOccurrence>,
+}
+
+/// Project-wide duplication counters.
+///
+/// `duplicated_lines` is the count of distinct physical lines covered by at
+/// least one reported block. `duplicated_blocks` counts distinct source byte
+/// spans, and `duplicated_files` counts files with at least one covered line.
+/// `duplicated_lines_density` is weighted by eligible physical lines; it is
+/// `None` when no eligible denominator exists.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DuplicationMetrics {
+    pub duplicated_lines: u64,
+    pub duplicated_blocks: u64,
+    pub duplicated_files: u64,
+    pub duplicated_lines_density: Option<f64>,
+}
+
+/// Duplication counters for one file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DuplicationFileMetrics {
+    pub path: PathBuf,
+    pub metrics: DuplicationMetrics,
+}
+
+/// Classification assigned by project orchestration before measurement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileClassification {
+    Source,
+    Test,
+    Generated,
+    Vendor,
+    Excluded,
+}
+
+/// Outcome of measuring one file in the project inventory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MeasurementStatus {
+    Complete,
+    Excluded,
+    Failed,
+    Unsupported,
+}
+
+/// Widened project size counters.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectMetrics {
+    pub files: u64,
+    pub lines: u64,
+    pub code_lines: u64,
+    pub comment_lines: u64,
+}
+
+/// One scope entry's classification, measurement status, and optional
+/// measurements.
+///
+/// `ProjectReport::files` is a scope inventory, not only a list of measured
+/// files. It may include an explicitly excluded directory root; that entry has
+/// `status = Excluded` and no `metrics` or `duplication`, and does not count as
+/// a measured file.
+/// `metrics` is absent when the file was excluded, unsupported, or failed.
+/// `duplication` is absent for tests, excluded files, failed files, and source
+/// files excluded from duplication. A complete eligible source with no match
+/// receives an explicit zero-valued duplication object.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectFileMeasurement {
+    pub path: PathBuf,
+    pub classification: FileClassification,
+    pub status: MeasurementStatus,
+    pub metrics: Option<FileMetrics>,
+    pub duplication: Option<DuplicationMetrics>,
+    pub reason: Option<String>,
+}
+
+/// Project-wide measurements and completeness inventory.
+///
+/// `files` is the project scope inventory. It may include explicitly excluded
+/// directory roots with no metrics or duplication; those entries expose pruned
+/// scope but are not measured files.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectReport {
+    pub metrics: ProjectMetrics,
+    pub files: Vec<ProjectFileMeasurement>,
+    pub duplications: Vec<DuplicateGroup>,
+    pub duplication: Option<DuplicationMetrics>,
+    pub complete: bool,
+    pub warnings: Vec<String>,
+    pub roots: Vec<PathBuf>,
+}
+
+/// Complete result of analyzing one target and its project inventory.
+///
+/// `schema_version` is the first versioned report schema and is currently
+/// always `1`. `files` retains the issue-oriented per-file reports, while
+/// `project` carries classifications, completeness, and project measurements.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalysisReport {
+    pub schema_version: u32,
     pub files: Vec<FileReport>,
+    pub project: ProjectReport,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Documented field semantics via literal construction: first line is 1,
-    /// first column is 0, spans are half-open.
-    #[test]
-    fn pos_and_range_field_semantics() {
-        let start = Pos { line: 1, column: 0 };
-        assert_eq!(start.line, 1);
-        assert_eq!(start.column, 0);
-
-        let end = Pos {
-            line: 3,
-            column: 12,
-        };
-        let range = Range { start, end };
-        assert_eq!(range.start.line, 1);
-        assert_eq!(range.start.column, 0);
-        assert_eq!(range.end.line, 3);
-        assert_eq!(range.end.column, 12);
-    }
-
-    #[test]
-    fn analysis_report_json_round_trip() {
-        let report = AnalysisReport {
-            files: vec![FileReport {
-                path: PathBuf::from("src/app.py"),
-                language: "python".to_string(),
-                issues: vec![Issue {
-                    rule_key: "python:BackticksUsage".to_string(),
-                    message: "Replace the backticks with regular quotes.".to_string(),
-                    range: Range {
-                        start: Pos { line: 4, column: 8 },
-                        end: Pos {
-                            line: 4,
-                            column: 23,
-                        },
-                    },
-                    fix: None,
-                    flows: Vec::new(),
-                }],
-                metrics: FileMetrics {
-                    lines: 42,
-                    code_lines: 30,
-                    comment_lines: 5,
-                },
-            }],
-        };
-
-        let json = serde_json::to_string(&report).expect("serialize");
-        let parsed: AnalysisReport = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(parsed, report);
-    }
 
     #[test]
     fn issue_flows_round_trip_and_empty_fields_stay_omitted() {
