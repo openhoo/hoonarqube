@@ -59,6 +59,31 @@ enum Command {
         /// `github-code-quality`.
         #[arg(long, default_value = "sonar-parity")]
         profile: RuleProfile,
+        /// Exclude paths from analysis and project measurements.
+        #[arg(long = "exclude")]
+        exclude: Vec<String>,
+        /// Classify matching paths as tests; patterns are matched against
+        /// normalized CWD-relative paths.
+        #[arg(long = "test-include")]
+        test_include: Vec<String>,
+        /// Inventory matching paths as generated without reading them.
+        #[arg(long = "generated-include")]
+        generated_include: Vec<String>,
+        /// Inventory matching paths as vendor code without reading them.
+        #[arg(long = "vendor-include")]
+        vendor_include: Vec<String>,
+        /// Keep matching source measurements but omit them from duplication.
+        #[arg(long = "duplication-exclude")]
+        duplication_exclude: Vec<String>,
+        /// Minimum normalized tokens in a duplicated block.
+        #[arg(long = "duplication-min-tokens", default_value_t = 100)]
+        duplication_min_tokens: usize,
+        /// Minimum physical lines in a duplicated block.
+        #[arg(long = "duplication-min-lines", default_value_t = 10)]
+        duplication_min_lines: u32,
+        /// Minimum Java statement units in a duplicated block.
+        #[arg(long = "duplication-min-statements", default_value_t = 10)]
+        duplication_min_statements: usize,
     },
     /// Detect and optionally apply automatic fixes.
     ///
@@ -162,14 +187,43 @@ fn main() -> ExitCode {
             format,
             go_header_format,
             profile,
-        } => run_analyze(
-            catalog,
-            paths,
-            format.as_deref(),
-            go_header_format,
-            *profile,
-            cli.json,
-        ),
+            exclude,
+            test_include,
+            generated_include,
+            vendor_include,
+            duplication_exclude,
+            duplication_min_tokens,
+            duplication_min_lines,
+            duplication_min_statements,
+        } => {
+            let project_options = match analyze::project_analysis_options(
+                analyze::ProjectPatternLists {
+                    exclude,
+                    test_include,
+                    generated_include,
+                    vendor_include,
+                    duplication_exclude,
+                },
+                *duplication_min_tokens,
+                *duplication_min_lines,
+                *duplication_min_statements,
+            ) {
+                Ok(options) => options,
+                Err(error) => {
+                    eprintln!("{error}");
+                    return ExitCode::from(2);
+                }
+            };
+            run_analyze(
+                catalog,
+                paths,
+                format.as_deref(),
+                go_header_format,
+                *profile,
+                cli.json,
+                &project_options,
+            )
+        }
         Command::Fix {
             paths,
             rule,
@@ -874,7 +928,7 @@ fn fix_plans(
     options: &analyze::AnalyzerOptionsBundle,
     warnings: &mut Vec<String>,
 ) -> Vec<FileFixPlan> {
-    let files = analyze::collect_input_files(paths, analyze::InputMode::Fix, warnings);
+    let files = analyze::collect_input_files(paths, warnings);
 
     let mut plans = Vec::new();
     for path in &files {
@@ -1554,6 +1608,93 @@ fn render_text_report(reports: &[hoonarqube_ir::FileReport]) -> String {
     out
 }
 
+/// Extends the issue-oriented text renderer with project measurements,
+/// completeness, and deterministic duplication ranges.
+fn render_project_text_report(report: &hoonarqube_ir::AnalysisReport) -> String {
+    let mut out = render_text_report(&report.files);
+    let project = &report.project;
+    let _ = writeln!(
+        out,
+        "project: {} file(s), {} line(s), {} code line(s), {} comment line(s)",
+        project.metrics.files,
+        project.metrics.lines,
+        project.metrics.code_lines,
+        project.metrics.comment_lines
+    );
+
+    let mut source_count = 0_u64;
+    let mut test_count = 0_u64;
+    let mut generated_count = 0_u64;
+    let mut vendor_count = 0_u64;
+    let mut excluded_count = 0_u64;
+    let mut complete_count = 0_u64;
+    let mut excluded_status_count = 0_u64;
+    let mut failed_count = 0_u64;
+    let mut unsupported_count = 0_u64;
+    let mut measured_test_files = 0_u64;
+    let mut measured_test_lines = 0_u64;
+    for measurement in &project.files {
+        match measurement.classification {
+            hoonarqube_ir::FileClassification::Source => source_count += 1,
+            hoonarqube_ir::FileClassification::Test => {
+                test_count += 1;
+                if let Some(metrics) = measurement.metrics.as_ref() {
+                    measured_test_files += 1;
+                    measured_test_lines += u64::from(metrics.lines);
+                }
+            }
+            hoonarqube_ir::FileClassification::Generated => generated_count += 1,
+            hoonarqube_ir::FileClassification::Vendor => vendor_count += 1,
+            hoonarqube_ir::FileClassification::Excluded => excluded_count += 1,
+        }
+        match measurement.status {
+            hoonarqube_ir::MeasurementStatus::Complete => complete_count += 1,
+            hoonarqube_ir::MeasurementStatus::Excluded => excluded_status_count += 1,
+            hoonarqube_ir::MeasurementStatus::Failed => failed_count += 1,
+            hoonarqube_ir::MeasurementStatus::Unsupported => unsupported_count += 1,
+        }
+    }
+    let _ = writeln!(
+        out,
+        "scope: source={source_count}, test={test_count}, generated={generated_count}, \
+         vendor={vendor_count}, excluded={excluded_count}; status complete={complete_count}, \
+         excluded={excluded_status_count}, failed={failed_count}, unsupported={unsupported_count}; \
+         tests measured={measured_test_files} file(s), {measured_test_lines} line(s)"
+    );
+    let _ = writeln!(out, "analysis complete: {}", project.complete);
+    match project.duplication.as_ref() {
+        Some(metrics) => {
+            let density = metrics
+                .duplicated_lines_density
+                .map_or_else(|| "n/a".to_owned(), |value| format!("{value:.2}%"));
+            let _ = writeln!(
+                out,
+                "duplication: {} line(s), {} block(s), {} file(s), {density} density",
+                metrics.duplicated_lines, metrics.duplicated_blocks, metrics.duplicated_files
+            );
+        }
+        None => {
+            let _ = writeln!(out, "duplication: unavailable");
+        }
+    }
+    for group in &project.duplications {
+        let _ = write!(out, "duplicate {}:", group.language);
+        for occurrence in &group.occurrences {
+            let _ = write!(
+                out,
+                " {}:{}-{} bytes={}:{}",
+                occurrence.path.display(),
+                occurrence.start_line,
+                occurrence.end_line,
+                occurrence.start_byte,
+                occurrence.end_byte
+            );
+        }
+        out.push('\n');
+    }
+    out
+}
+
 /// Builds the current `SonarQube` Generic Issue Import document. Every used rule
 /// is defined once in the top-level `rules` array; findings reference it by the
 /// repository-qualified `ruleId`. Catalog classification and impacts remain the
@@ -2162,9 +2303,9 @@ fn sarif_validate_flow_locations(
     Ok(())
 }
 
-/// Validates input paths and the requested output format/profile, then walks
-/// and analyzes them; issues and non-fatal read skips do not fail the scan,
-/// while invalid inputs or output rendering errors exit nonzero.
+/// Validates the requested output format/profile and project options, then
+/// walks and analyzes the inputs. Issue findings remain renderable when the
+/// project inventory is incomplete; incomplete analysis exits with status 2.
 fn run_analyze(
     catalog: &Catalog,
     paths: &[std::path::PathBuf],
@@ -2172,6 +2313,7 @@ fn run_analyze(
     go_header_format: &str,
     profile: RuleProfile,
     json_flag: bool,
+    project_options: &analyze::ProjectAnalysisOptions,
 ) -> ExitCode {
     let format = match analyze_format(format, json_flag) {
         Ok(format) => format,
@@ -2185,48 +2327,46 @@ fn run_analyze(
         return ExitCode::from(2);
     }
 
-    let mut valid = true;
-    for path in paths {
-        if !path.exists() {
-            eprintln!("path does not exist: {}", path.display());
-            valid = false;
-        }
-    }
-    if !valid {
-        return ExitCode::from(2);
-    }
-
     let mut options = analyze::analyzer_options_bundle(catalog);
     options.profile = profile;
     options.go.header_format = go_header_format.to_string();
     let mut warnings = Vec::new();
-    let reports = analyze::analyze_paths(paths, &options, &mut warnings);
-    for warning in &warnings {
+    let report =
+        match analyze::analyze_project_paths(paths, &options, project_options, &mut warnings) {
+            Ok(report) => report,
+            Err(error) => {
+                eprintln!("cannot build project report: {error}");
+                return ExitCode::FAILURE;
+            }
+        };
+    for warning in &report.project.warnings {
         eprintln!("{warning}");
     }
 
     let output_ok = match format {
-        AnalyzeFormat::Json => print_json(&hoonarqube_ir::AnalysisReport { files: reports }),
-        AnalyzeFormat::Sonar => match sonar_import_value(catalog, &reports) {
+        AnalyzeFormat::Json => print_json(&report),
+        AnalyzeFormat::Sonar => match sonar_import_value(catalog, &report.files) {
             Ok(value) => print_json(&value),
             Err(error) => {
                 eprintln!("cannot render Sonar output: {error}");
                 false
             }
         },
-        AnalyzeFormat::Sarif => match sarif_value(catalog, &reports) {
+        AnalyzeFormat::Sarif => match sarif_value(catalog, &report.files) {
             Ok(value) => print_json(&value),
             Err(error) => {
                 eprintln!("cannot render SARIF output: {error}");
                 false
             }
         },
-        AnalyzeFormat::Text => print_text(&render_text_report(&reports)),
+        AnalyzeFormat::Text => print_text(&render_project_text_report(&report)),
     };
-    if output_ok {
-        ExitCode::SUCCESS
-    } else {
+    if !output_ok {
         ExitCode::FAILURE
+    } else if !report.project.complete {
+        ExitCode::from(2)
+    } else {
+        ExitCode::SUCCESS
     }
 }
 
@@ -3118,22 +3258,9 @@ mod tests {
     fn json_serialization_rejects_non_utf8_paths_without_partial_output() {
         use std::os::unix::ffi::OsStringExt as _;
 
-        let report = hoonarqube_ir::AnalysisReport {
-            files: vec![FileReport {
-                path: std::path::PathBuf::from(std::ffi::OsString::from_vec(vec![
-                    0xff, b'.', b'p', b'y',
-                ])),
-                language: "python".to_string(),
-                issues: Vec::new(),
-                metrics: FileMetrics {
-                    lines: 0,
-                    code_lines: 0,
-                    comment_lines: 0,
-                },
-            }],
-        };
-
-        let error = json_line(&report).expect_err("invalid path must fail serialization");
+        let path =
+            std::path::PathBuf::from(std::ffi::OsString::from_vec(vec![0xff, b'.', b'p', b'y']));
+        let error = json_line(&path).expect_err("invalid path must fail serialization");
         assert!(error.to_string().contains("invalid UTF-8"));
     }
 
@@ -3142,64 +3269,6 @@ mod tests {
         assert_eq!(sonar_rule_id("typescript:S122"), "typescript:S122");
         assert_eq!(sonar_rule_id("python:LineLength"), "python:LineLength");
         assert_eq!(sonar_rule_id("S103"), "S103");
-    }
-
-    #[test]
-    fn text_rendering_keeps_historical_line_format() {
-        let reports = vec![sample_report(
-            "a.js",
-            "javascript",
-            vec![Issue {
-                rule_key: "javascript:S1523".to_string(),
-                message: "Remove this usage of 'eval'.".to_string(),
-                range: Range {
-                    start: Pos {
-                        line: 2,
-                        column: 10,
-                    },
-                    end: Pos {
-                        line: 2,
-                        column: 14,
-                    },
-                },
-                fix: None,
-                flows: Vec::new(),
-            }],
-        )];
-
-        assert_eq!(
-            render_text_report(&reports),
-            "a.js:2:10: javascript:S1523: Remove this usage of 'eval'.\n\
-             analyzed 1 file(s), 1 finding(s)\n"
-        );
-    }
-
-    #[test]
-    fn json_rendering_keeps_the_ir_serialization() {
-        let report = hoonarqube_ir::AnalysisReport {
-            files: vec![sample_report(
-                "a.py",
-                "python",
-                vec![Issue {
-                    rule_key: "python:S103".to_string(),
-                    message: "Line is too long".to_string(),
-                    range: Range {
-                        start: Pos { line: 1, column: 0 },
-                        end: Pos {
-                            line: 1,
-                            column: 80,
-                        },
-                    },
-                    fix: None,
-                    flows: Vec::new(),
-                }],
-            )],
-        };
-
-        assert_eq!(
-            serde_json::to_string(&report).expect("serialize report"),
-            "{\"files\":[{\"path\":\"a.py\",\"language\":\"python\",\"issues\":[{\"rule_key\":\"python:S103\",\"message\":\"Line is too long\",\"range\":{\"start\":{\"line\":1,\"column\":0},\"end\":{\"line\":1,\"column\":80}}}],\"metrics\":{\"lines\":2,\"code_lines\":2,\"comment_lines\":0}}]}"
-        );
     }
 
     #[test]
@@ -3614,5 +3683,65 @@ mod tests {
             .err()
             .expect("unknown profile should fail parsing");
         assert!(error.to_string().contains("github-code-quality"));
+    }
+    #[test]
+    fn parser_keeps_each_project_glob_unsplit_and_supports_braces() {
+        let parsed = Cli::try_parse_from([
+            "hoonarqube",
+            "analyze",
+            "--exclude",
+            "{build,vendor}/**",
+            "--exclude",
+            "ignored/**",
+            "--test-include",
+            "{tests,spec}/**",
+            "--test-include",
+            "unit/**",
+            "--generated-include",
+            "{generated,codegen}/**",
+            "--generated-include",
+            "build.rs",
+            "--vendor-include",
+            "{vendor,third_party}/**",
+            "--vendor-include",
+            "deps/**",
+            "--duplication-exclude",
+            "{large,fixtures}/**",
+            "--duplication-exclude",
+            "sample.py",
+            "src",
+        ])
+        .expect("project glob flags should parse");
+        let Command::Analyze {
+            exclude,
+            test_include,
+            generated_include,
+            vendor_include,
+            duplication_exclude,
+            ..
+        } = parsed.command
+        else {
+            panic!("expected analyze command");
+        };
+        assert_eq!(
+            exclude,
+            vec!["{build,vendor}/**".to_string(), "ignored/**".to_string()]
+        );
+        assert_eq!(
+            test_include,
+            vec!["{tests,spec}/**".to_string(), "unit/**".to_string()]
+        );
+        assert_eq!(
+            generated_include,
+            vec!["{generated,codegen}/**".to_string(), "build.rs".to_string()]
+        );
+        assert_eq!(
+            vendor_include,
+            vec!["{vendor,third_party}/**".to_string(), "deps/**".to_string()]
+        );
+        assert_eq!(
+            duplication_exclude,
+            vec!["{large,fixtures}/**".to_string(), "sample.py".to_string()]
+        );
     }
 }

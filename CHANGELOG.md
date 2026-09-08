@@ -29,6 +29,17 @@
 
 ## Unreleased
 
+### Features
+
+- **analysis:** add versioned project reports with consistent source size,
+  explicit source/test/generated/vendor/excluded scope, and incomplete-scan
+  diagnostics.
+- **duplication:** detect repeated code within and across files in all eight
+  supported language families; report exact byte/line locations, unique
+  duplicated lines and blocks, affected files, and weighted density.
+- **cli:** expose classification/exclusion globs and duplication thresholds;
+  keep Sonar/SARIF issue schemas unchanged and exit 2 for incomplete analysis.
+
 ### Bug Fixes
 
 - **github-quality:** align conservative CodeQL detectors, scope and dataflow
