@@ -50,3 +50,39 @@ configured threshold fails the job. Directory analysis honors repository
 ignore files. Repository self-tests may set `executable` to a freshly built
 local binary; normal consumers should omit it so the verified release installer
 runs.
+
+## GitLab Code Quality
+
+GitLab consumes a native Code Quality report from a CI artifact rather than
+the GitHub SARIF action. On a Linux x86_64 runner, install and verify the
+released `hoonarqube` binary using the repository's [release installer checks](setup/install.sh),
+then invoke the CLI directly:
+
+```yaml
+stages: [quality]
+
+gitlab-code-quality:
+  stage: quality
+  script:
+    - hoonarqube --version
+    - set +e
+    - hoonarqube analyze --format gitlab-codequality -- src tests > gl-code-quality-report.json
+    - status=$?
+    - set -e
+    - test -s gl-code-quality-report.json
+    - exit "$status"
+  artifacts:
+    when: always
+    reports:
+      codequality: gl-code-quality-report.json
+```
+
+The report is one deterministic JSON array. It contains `description`,
+`check_name`, and a stable SHA-256 `fingerprint` over the normalized primary
+path, rule, message, and primary range; nested flow/fix metadata is excluded.
+It also contains lowercase GitLab severity and raw repository-relative POSIX
+paths with positive inclusive line ranges. Ordinary colon filename components
+are retained, while drive/URI-like prefixes, backslashes, control characters,
+and invalid ranges fail closed. File-level findings are anchored at line 1; an
+empty report is `[]`. Incomplete scans still emit the report and exit 2, while
+serialization or path errors exit 1.

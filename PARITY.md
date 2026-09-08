@@ -46,12 +46,32 @@ block grouping, and all-language lexical equivalence remain unverified.
 Clone occurrences use inclusive line ranges and half-open UTF-8 byte offsets.
 Line totals union overlaps; block totals identify distinct byte spans.
 Incomplete analysis has no duplication aggregate, and empty density
-denominators are null. Generic Issue Import and SARIF exports continue to
-carry issues only, not duplication measures.
+denominators are null. Generic Issue Import, SARIF, and GitLab Code Quality
+exports continue to carry issues only, not duplication measures.
 
 Coverage import, new-code baselines, metric-based quality gates, issue/hotspot
 review state, a persistent analysis service, and a dashboard are not included
 in this measurement milestone.
+
+## GitLab Code Quality scope
+
+`analyze --format gitlab-codequality` emits GitLab's single-array Code Quality
+contract for the default `sonar-parity` profile and cumulative native profiles.
+Each finding carries its message as `description`, its rule key as `check_name`,
+a stable SHA-256 `fingerprint`, a lowercase GitLab severity, and a
+repository-relative `location.path` with inclusive positive `lines.begin` and
+`lines.end`. The fingerprint uses length-delimited normalized primary path, rule
+key, message, and primary range only; nested flow/fix metadata does not change
+identity. Paths are raw POSIX-style checkout paths without a `./` prefix;
+ordinary colon filename components are preserved, while drive- and URI-like
+prefixes, backslashes, and control characters fail closed. File-level findings
+use line 1 as their conventional anchor.
+
+Empty findings emit `[]`. Invalid non-file ranges, outside-checkout paths, and
+non-UTF-8 paths fail closed. The report remains issue-only: project metrics,
+scope inventory, duplication, and completeness stay in the versioned JSON
+report. A valid incomplete scan still emits its report and exits 2; findings
+alone do not fail the scan.
 
 ## GitHub Code Quality scope
 
