@@ -257,59 +257,21 @@ impl ProjectAggregation {
             duplication_excluded,
         } = input;
         let report_available = report.is_some();
-        let (report, facts) = match (report, facts) {
-            (Some(mut report), Some(facts)) => {
-                report.metrics = facts.metrics.clone();
-                (Some(report), Some(facts))
-            }
-            (report, facts) => (report, facts),
-        };
+        let (report, facts) = Self::normalize_report_metrics(report, facts);
         if let Some(report) = report {
             self.reports.push(report);
         }
 
-        let facts_error = facts
-            .as_ref()
-            .and_then(|facts| facts.error.clone())
-            .or(error);
-        let metrics = if facts_error.is_none() && report_available {
-            facts.as_ref().map(|facts| facts.metrics.clone())
-        } else {
-            None
-        };
-        let status = if metrics.is_some() {
-            MeasurementStatus::Complete
-        } else if facts.is_none() && facts_error.is_none() {
-            MeasurementStatus::Unsupported
-        } else {
-            MeasurementStatus::Failed
-        };
-        let mut reason = if metrics.is_some() {
-            None
-        } else if let Some(error) = facts_error {
-            Some(error)
-        } else if status == MeasurementStatus::Unsupported {
-            Some("language is unsupported".to_string())
-        } else {
-            Some("file analysis did not produce complete facts".to_string())
-        };
-
+        let (facts, metrics, status, mut reason) =
+            Self::prepare_measurement(report_available, facts, error);
         if classification == FileClassification::Source {
-            match (metrics.as_ref(), facts) {
-                (Some(metrics_for_project), Some(facts)) => {
-                    add_project_metrics(&mut self.project_metrics, metrics_for_project);
-                    if duplication_excluded {
-                        reason = Some("excluded from duplication".to_string());
-                    } else {
-                        let measurement_index = self.measurements.len();
-                        self.duplication
-                            .add_file(measurement_index, path.clone(), facts);
-                    }
-                }
-                _ => {
-                    self.duplication.has_failed_eligible_source = true;
-                }
-            }
+            self.add_source_measurement(
+                &path,
+                metrics.as_ref(),
+                facts,
+                duplication_excluded,
+                &mut reason,
+            );
         }
 
         if status != MeasurementStatus::Complete {
@@ -327,6 +289,83 @@ impl ProjectAggregation {
             duplication: None,
             reason,
         });
+    }
+
+    fn normalize_report_metrics(
+        report: Option<FileReport>,
+        facts: Option<SourceFacts>,
+    ) -> (Option<FileReport>, Option<SourceFacts>) {
+        match (report, facts) {
+            (Some(mut report), Some(facts)) => {
+                report.metrics = facts.metrics.clone();
+                (Some(report), Some(facts))
+            }
+            (report, facts) => (report, facts),
+        }
+    }
+
+    fn prepare_measurement(
+        report_available: bool,
+        facts: Option<SourceFacts>,
+        error: Option<String>,
+    ) -> (
+        Option<SourceFacts>,
+        Option<FileMetrics>,
+        MeasurementStatus,
+        Option<String>,
+    ) {
+        let facts_error = facts
+            .as_ref()
+            .and_then(|facts| facts.error.clone())
+            .or(error);
+        let metrics = if facts_error.is_none() && report_available {
+            facts.as_ref().map(|facts| facts.metrics.clone())
+        } else {
+            None
+        };
+        let status = if metrics.is_some() {
+            MeasurementStatus::Complete
+        } else if facts.is_none() && facts_error.is_none() {
+            MeasurementStatus::Unsupported
+        } else {
+            MeasurementStatus::Failed
+        };
+        let reason = if metrics.is_some() {
+            None
+        } else if let Some(error) = facts_error {
+            Some(error)
+        } else if status == MeasurementStatus::Unsupported {
+            Some("language is unsupported".to_string())
+        } else {
+            Some("file analysis did not produce complete facts".to_string())
+        };
+
+        (facts, metrics, status, reason)
+    }
+
+    fn add_source_measurement(
+        &mut self,
+        path: &Path,
+        metrics: Option<&FileMetrics>,
+        facts: Option<SourceFacts>,
+        duplication_excluded: bool,
+        reason: &mut Option<String>,
+    ) {
+        match (metrics, facts) {
+            (Some(metrics_for_project), Some(facts)) => {
+                add_project_metrics(&mut self.project_metrics, metrics_for_project);
+                if duplication_excluded {
+                    *reason = Some("excluded from duplication".to_string());
+                } else {
+                    let measurement_index = self.measurements.len();
+                    self.duplication
+                        .add_file(measurement_index, path.to_path_buf(), facts);
+                }
+            }
+            _ => {
+                self.duplication.has_failed_eligible_source = true;
+            }
+        }
     }
 
     fn attach_duplication(&mut self, options: &DuplicationOptions, warnings: &mut Vec<String>) {

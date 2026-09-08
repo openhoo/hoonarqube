@@ -205,6 +205,11 @@ struct FactCollector<'source> {
     error: Option<String>,
     stopped: bool,
 }
+struct JavaStream<'tree> {
+    id: usize,
+    start_byte: usize,
+    units: Vec<Node<'tree>>,
+}
 
 impl<'source> FactCollector<'source> {
     fn new(source: &'source str, language: Language, physical_lines: usize) -> Self {
@@ -237,86 +242,110 @@ impl<'source> FactCollector<'source> {
     }
 
     fn walk(&mut self, root: Node<'_>) {
-        if self.language == Language::Python {
-            self.walk_python(root);
-            return;
+        match self.language {
+            Language::Python => self.walk_python(root),
+            Language::Java => self.walk_java(root),
+            _ => self.walk_generic(root),
         }
-        if self.language == Language::Java {
-            self.walk_java(root);
-            return;
-        }
+    }
+
+    fn walk_generic(&mut self, root: Node<'_>) {
         // An explicit node stack avoids recursion on adversarially deep trees.
         let mut stack = vec![root];
         while let Some(node) = stack.pop() {
             if self.stopped {
                 break;
             }
-            self.visited_nodes = self.visited_nodes.saturating_add(1);
-            if self.visited_nodes > MAX_TREE_NODES {
-                self.fail("syntax tree exceeds bounded traversal size");
-                self.stopped = true;
+            if !self.visit_tree_node() {
                 break;
             }
             if node.is_missing() {
                 continue;
             }
-
-            let kind = node.kind();
-            if is_comment_kind(kind) {
-                self.mark_node(node, false);
+            if self.emit_special_node(node) {
                 continue;
             }
+            self.emit_generic_marker(node);
+            self.visit_generic_node(&mut stack, node);
+        }
+    }
 
-            if is_string_root_kind(kind) {
-                let interpolated = is_interpolated_kind(kind)
-                    || (kind == "string" && contains_interpolation(node));
-                if interpolated {
-                    self.emit_interpolated(node);
-                } else {
-                    self.mark_node(node, true);
-                    self.key_buffer.clear();
-                    append_part(&mut self.key_buffer, "string");
-                    append_part(&mut self.key_buffer, kind);
-                    append_part(&mut self.key_buffer, "normalized");
-                    self.emit_buffered_token(node);
-                }
-                continue;
-            }
+    fn visit_tree_node(&mut self) -> bool {
+        self.visited_nodes = self.visited_nodes.saturating_add(1);
+        if self.visited_nodes > MAX_TREE_NODES {
+            self.fail("syntax tree exceeds bounded traversal size");
+            self.stopped = true;
+            return false;
+        }
+        true
+    }
 
-            if is_atomic_literal_kind(kind) {
-                self.mark_node(node, true);
-                let text = node.utf8_text(self.source.as_bytes()).unwrap_or(kind);
-                self.key_buffer.clear();
-                append_part(&mut self.key_buffer, "literal");
-                append_part(&mut self.key_buffer, kind);
-                append_part(&mut self.key_buffer, text);
-                self.emit_buffered_token(node);
-                continue;
-            }
+    fn emit_special_node(&mut self, node: Node<'_>) -> bool {
+        let kind = node.kind();
+        if is_comment_kind(kind) {
+            self.mark_node(node, false);
+            return true;
+        }
+        if is_string_root_kind(kind) {
+            self.emit_string_token(node);
+            return true;
+        }
+        if is_atomic_literal_kind(kind) {
+            self.emit_atomic_literal(node);
+            return true;
+        }
+        false
+    }
 
-            if self.language == Language::Python {
-                if is_python_statement_kind(kind) {
-                    self.emit_marker("python:statement:", kind, node);
-                } else if is_python_structure_kind(kind) {
-                    self.emit_marker("python:structure:", kind, node);
-                }
-            } else if matches!(self.language, Language::JavaScript | Language::TypeScript)
-                && is_javascript_boundary_kind(kind)
-            {
+    fn emit_string_token(&mut self, node: Node<'_>) {
+        let kind = node.kind();
+        let interpolated =
+            is_interpolated_kind(kind) || (kind == "string" && contains_interpolation(node));
+        if interpolated {
+            self.emit_interpolated(node);
+        } else {
+            self.mark_node(node, true);
+            self.key_buffer.clear();
+            append_part(&mut self.key_buffer, "string");
+            append_part(&mut self.key_buffer, kind);
+            append_part(&mut self.key_buffer, "normalized");
+            self.emit_buffered_token(node);
+        }
+    }
+
+    fn emit_atomic_literal(&mut self, node: Node<'_>) {
+        let kind = node.kind();
+        self.mark_node(node, true);
+        let text = node.utf8_text(self.source.as_bytes()).unwrap_or(kind);
+        self.key_buffer.clear();
+        append_part(&mut self.key_buffer, "literal");
+        append_part(&mut self.key_buffer, kind);
+        append_part(&mut self.key_buffer, text);
+        self.emit_buffered_token(node);
+    }
+
+    fn emit_generic_marker(&mut self, node: Node<'_>) {
+        let kind = node.kind();
+        match self.language {
+            Language::JavaScript | Language::TypeScript if is_javascript_boundary_kind(kind) => {
                 // JavaScript and TypeScript omit many newlines from their
                 // CST.  Statement markers retain automatic-semicolon
                 // insertion semantics (notably `return\nvalue` versus
                 // `return value`) without preserving formatting whitespace.
                 self.emit_marker("javascript:boundary:", kind, node);
-            } else if self.language == Language::Ruby && is_ruby_boundary_kind(kind) {
+            }
+            Language::Ruby if is_ruby_boundary_kind(kind) => {
                 self.emit_marker("ruby:boundary:", kind, node);
             }
+            _ => {}
+        }
+    }
 
-            if node.child_count() == 0 {
-                self.emit_leaf(node);
-            } else {
-                push_children(&mut stack, node);
-            }
+    fn visit_generic_node<'tree>(&mut self, stack: &mut Vec<Node<'tree>>, node: Node<'tree>) {
+        if node.child_count() == 0 {
+            self.emit_leaf(node);
+        } else {
+            push_children(stack, node);
         }
     }
     fn walk_python(&mut self, root: Node<'_>) {
@@ -326,131 +355,150 @@ impl<'source> FactCollector<'source> {
                 return;
             }
             if exiting {
-                if is_python_structure_kind(node.kind()) {
-                    self.emit_marker_end("python:exit:", node.kind(), node);
-                }
+                self.emit_python_exit(node);
                 continue;
             }
-            self.visited_nodes = self.visited_nodes.saturating_add(1);
-            if self.visited_nodes > MAX_TREE_NODES {
-                self.fail("syntax tree exceeds bounded traversal size");
-                self.stopped = true;
+            if !self.visit_tree_node() {
                 return;
             }
             if node.is_missing() {
                 continue;
             }
-            let kind = node.kind();
-            if is_comment_kind(kind) {
-                self.mark_node(node, false);
+            if self.emit_special_node(node) {
                 continue;
             }
-            if is_string_root_kind(kind) {
-                let interpolated = is_interpolated_kind(kind)
-                    || (kind == "string" && contains_interpolation(node));
-                if interpolated {
-                    self.emit_interpolated(node);
-                } else {
-                    self.mark_node(node, true);
-                    self.key_buffer.clear();
-                    append_part(&mut self.key_buffer, "string");
-                    append_part(&mut self.key_buffer, kind);
-                    append_part(&mut self.key_buffer, "normalized");
-                    self.emit_buffered_token(node);
-                }
-                continue;
-            }
-            if is_atomic_literal_kind(kind) {
-                self.mark_node(node, true);
-                let text = node.utf8_text(self.source.as_bytes()).unwrap_or(kind);
-                self.key_buffer.clear();
-                append_part(&mut self.key_buffer, "literal");
-                append_part(&mut self.key_buffer, kind);
-                append_part(&mut self.key_buffer, text);
-                self.emit_buffered_token(node);
-                continue;
-            }
-            if is_python_statement_kind(kind) {
-                self.emit_marker("python:statement:", kind, node);
-            }
-            if is_python_structure_kind(kind) {
-                self.emit_marker("python:enter:", kind, node);
-                stack.push((node, true));
-            }
-            if node.child_count() == 0 {
-                self.emit_leaf(node);
-            } else {
-                let mut cursor = node.walk();
-                if cursor.goto_last_child() {
-                    loop {
-                        stack.push((cursor.node(), false));
-                        if !cursor.goto_previous_sibling() {
-                            break;
-                        }
-                    }
-                }
-            }
+            self.emit_python_start(node, &mut stack);
+            self.visit_python_node(&mut stack, node);
+        }
+    }
+
+    fn emit_python_exit(&mut self, node: Node<'_>) {
+        if is_python_structure_kind(node.kind()) {
+            self.emit_marker_end("python:exit:", node.kind(), node);
+        }
+    }
+
+    fn emit_python_start<'tree>(
+        &mut self,
+        node: Node<'tree>,
+        stack: &mut Vec<(Node<'tree>, bool)>,
+    ) {
+        let kind = node.kind();
+        if is_python_statement_kind(kind) {
+            self.emit_marker("python:statement:", kind, node);
+        }
+        if is_python_structure_kind(kind) {
+            self.emit_marker("python:enter:", kind, node);
+            stack.push((node, true));
+        }
+    }
+
+    fn visit_python_node<'tree>(
+        &mut self,
+        stack: &mut Vec<(Node<'tree>, bool)>,
+        node: Node<'tree>,
+    ) {
+        if node.child_count() == 0 {
+            self.emit_leaf(node);
+        } else {
+            push_children_with_root_flag(stack, node);
         }
     }
     fn walk_java(&mut self, root: Node<'_>) {
+        let mut streams = self.collect_java_streams(root);
+        streams.sort_by_key(|stream| (stream.start_byte, stream.id));
+        self.emit_java_streams(streams);
+    }
+
+    fn collect_java_streams<'tree>(&mut self, root: Node<'tree>) -> Vec<JavaStream<'tree>> {
         let mut stack = vec![root];
         let mut stream_indices: HashMap<usize, usize> = HashMap::new();
         let mut streams = Vec::new();
         while let Some(node) = stack.pop() {
             if self.stopped {
-                return;
+                return streams;
             }
-            self.visited_nodes = self.visited_nodes.saturating_add(1);
-            if self.visited_nodes > MAX_TREE_NODES {
-                self.fail("syntax tree exceeds bounded traversal size");
-                self.stopped = true;
-                return;
+            if !self.visit_tree_node() {
+                return streams;
             }
             if node.is_missing() {
                 continue;
             }
-            let kind = node.kind();
-            if is_comment_kind(kind) {
-                self.mark_node(node, false);
+            if self.collect_java_node(node, &mut stream_indices, &mut streams) {
                 continue;
-            }
-            if is_java_unit_kind(kind) {
-                let stream_id = java_stream_id(node);
-                let index = if let Some(index) = stream_indices.get(&stream_id) {
-                    *index
-                } else {
-                    let index = streams.len();
-                    stream_indices.insert(stream_id, index);
-                    streams.push((stream_id, node.start_byte(), Vec::new()));
-                    index
-                };
-                streams[index].2.push(node);
-            } else if node.child_count() == 0 && !node.is_extra() && !is_string_content_kind(kind) {
-                // Canonical statement signatures mark their own leaves; this
-                // covers declarations/wrappers that contain no statement
-                // unit while keeping physical metrics complete.
-                self.mark_node(node, true);
             }
             if node.child_count() > 0 {
                 push_children(&mut stack, node);
             }
         }
+        streams
+    }
 
-        streams.sort_by_key(|(stream_id, start, _)| (*start, *stream_id));
+    fn collect_java_node<'tree>(
+        &mut self,
+        node: Node<'tree>,
+        stream_indices: &mut HashMap<usize, usize>,
+        streams: &mut Vec<JavaStream<'tree>>,
+    ) -> bool {
+        let kind = node.kind();
+        if is_comment_kind(kind) {
+            self.mark_node(node, false);
+            return true;
+        }
+        if is_java_unit_kind(kind) {
+            Self::add_java_unit(node, stream_indices, streams);
+        } else if node.child_count() == 0 && !node.is_extra() && !is_string_content_kind(kind) {
+            // Canonical statement signatures mark their own leaves; this
+            // covers declarations/wrappers that contain no statement
+            // unit while keeping physical metrics complete.
+            self.mark_node(node, true);
+        }
+        false
+    }
+
+    fn add_java_unit<'tree>(
+        node: Node<'tree>,
+        stream_indices: &mut HashMap<usize, usize>,
+        streams: &mut Vec<JavaStream<'tree>>,
+    ) {
+        let stream_id = java_stream_id(node);
+        let index = if let Some(index) = stream_indices.get(&stream_id) {
+            *index
+        } else {
+            let index = streams.len();
+            stream_indices.insert(stream_id, index);
+            streams.push(JavaStream {
+                id: stream_id,
+                start_byte: node.start_byte(),
+                units: Vec::new(),
+            });
+            index
+        };
+        streams[index].units.push(node);
+    }
+
+    fn emit_java_streams(&mut self, streams: Vec<JavaStream<'_>>) {
         let mut first_stream = true;
-        for (_, _, units) in streams {
+        for stream in streams {
             if self.stopped {
                 return;
             }
-            if !first_stream && let Some(first_unit) = units.first() {
+            if !first_stream && let Some(first_unit) = stream.units.first() {
                 self.emit_java_stream_barrier(*first_unit);
             }
             first_stream = false;
-            for unit in units {
-                self.emit_java_unit_token(unit);
-                if self.stopped {
-                    return;
-                }
+            self.emit_java_units(stream.units);
+            if self.stopped {
+                return;
+            }
+        }
+    }
+
+    fn emit_java_units(&mut self, units: Vec<Node<'_>>) {
+        for unit in units {
+            self.emit_java_unit_token(unit);
+            if self.stopped {
+                return;
             }
         }
     }
@@ -493,75 +541,105 @@ impl<'source> FactCollector<'source> {
         self.key_buffer.push_str(kind);
         self.emit_buffered_token_start(node);
     }
-
     fn emit_interpolated(&mut self, node: Node<'_>) {
         self.key_buffer.clear();
         self.key_buffer.push_str("interp:");
         append_part(&mut self.key_buffer, node.kind());
         let mut stack = vec![(node, false, true)];
         while let Some((current, in_expression, is_root)) = stack.pop() {
-            if !self.visit_signature_node() || self.key_buffer.len() > MAX_SIGNATURE_BYTES {
-                if self.error.is_none() {
-                    self.fail("interpolated syntax exceeds bounded facts size");
-                }
-                self.stopped = true;
+            if !self.check_signature_budget("interpolated syntax exceeds bounded facts size") {
                 return;
             }
             if self.stopped {
                 return;
             }
-            let kind = current.kind();
-            if !is_root && is_comment_kind(kind) {
-                self.mark_node(current, false);
-                continue;
-            }
-            if !is_root && is_string_root_kind(kind) {
-                // A nested plain literal in an interpolation remains a
-                // literal, but its spelling must not erase the expression's
-                // surrounding structure.
-                append_part(&mut self.key_buffer, "<string-literal>");
-                self.mark_node(current, true);
-                continue;
-            }
-            let child_expression = in_expression || is_interpolation_boundary(kind);
-            if !is_root && is_interpolation_boundary(kind) {
-                append_part(&mut self.key_buffer, "<interpolation>");
-            }
-            if current.child_count() == 0 {
-                if is_string_content_kind(kind) {
-                    if !in_expression {
-                        self.mark_node(current, true);
-                        append_part(&mut self.key_buffer, "<text>");
-                    }
-                    continue;
-                }
-                let text = current.utf8_text(self.source.as_bytes()).unwrap_or(kind);
-                if is_interpolation_delimiter(current, text) {
-                    self.mark_node(current, true);
-                    continue;
-                }
-                self.mark_node(current, true);
-                append_part(&mut self.key_buffer, kind);
-                append_part(
-                    &mut self.key_buffer,
-                    if is_layout_kind(kind) {
-                        "<layout>"
-                    } else {
-                        text
-                    },
-                );
-            } else {
-                push_children_with_context(&mut stack, current, child_expression);
-            }
+            self.visit_interpolated_node(current, in_expression, is_root, &mut stack);
         }
-        if self.key_buffer.len() > MAX_SIGNATURE_BYTES {
-            self.fail("interpolated syntax exceeds bounded facts size");
-            self.stopped = true;
+        if !self.check_signature_size("interpolated syntax exceeds bounded facts size") {
             return;
         }
         self.emit_buffered_token(node);
     }
 
+    fn check_signature_budget(&mut self, message: &str) -> bool {
+        if self.visit_signature_node() && self.key_buffer.len() <= MAX_SIGNATURE_BYTES {
+            return true;
+        }
+        if self.error.is_none() {
+            self.fail(message);
+        }
+        self.stopped = true;
+        false
+    }
+
+    fn check_signature_size(&mut self, message: &str) -> bool {
+        if self.key_buffer.len() <= MAX_SIGNATURE_BYTES {
+            return true;
+        }
+        if self.error.is_none() {
+            self.fail(message);
+        }
+        self.stopped = true;
+        false
+    }
+
+    fn visit_interpolated_node<'tree>(
+        &mut self,
+        current: Node<'tree>,
+        in_expression: bool,
+        is_root: bool,
+        stack: &mut Vec<(Node<'tree>, bool, bool)>,
+    ) {
+        let kind = current.kind();
+        if !is_root && is_comment_kind(kind) {
+            self.mark_node(current, false);
+            return;
+        }
+        if !is_root && is_string_root_kind(kind) {
+            // A nested plain literal in an interpolation remains a
+            // literal, but its spelling must not erase the expression's
+            // surrounding structure.
+            append_part(&mut self.key_buffer, "<string-literal>");
+            self.mark_node(current, true);
+            return;
+        }
+        let boundary = is_interpolation_boundary(kind);
+        let child_expression = in_expression || boundary;
+        if !is_root && boundary {
+            append_part(&mut self.key_buffer, "<interpolation>");
+        }
+        if current.child_count() == 0 {
+            self.emit_interpolated_leaf(current, in_expression);
+        } else {
+            push_children_with_context(stack, current, child_expression);
+        }
+    }
+
+    fn emit_interpolated_leaf(&mut self, current: Node<'_>, in_expression: bool) {
+        let kind = current.kind();
+        if is_string_content_kind(kind) {
+            if !in_expression {
+                self.mark_node(current, true);
+                append_part(&mut self.key_buffer, "<text>");
+            }
+            return;
+        }
+        let text = current.utf8_text(self.source.as_bytes()).unwrap_or(kind);
+        if is_interpolation_delimiter(current, text) {
+            self.mark_node(current, true);
+            return;
+        }
+        self.mark_node(current, true);
+        append_part(&mut self.key_buffer, kind);
+        append_part(
+            &mut self.key_buffer,
+            if is_layout_kind(kind) {
+                "<layout>"
+            } else {
+                text
+            },
+        );
+    }
     fn emit_java_unit_token(&mut self, node: Node<'_>) {
         self.key_buffer.clear();
         self.key_buffer.push_str("java-unit");
@@ -569,73 +647,77 @@ impl<'source> FactCollector<'source> {
         let mut stack = vec![(node, true)];
         let mut saw_code = false;
         while let Some((current, is_root)) = stack.pop() {
-            if !self.visit_signature_node() || self.key_buffer.len() > MAX_SIGNATURE_BYTES {
-                self.fail("java statement exceeds bounded facts size");
-                self.stopped = true;
+            if !self.check_signature_budget("java statement exceeds bounded facts size") {
                 return;
             }
             if self.stopped {
                 return;
             }
-            let kind = current.kind();
-            if !is_root && is_comment_kind(kind) {
-                self.mark_node(current, false);
-                continue;
-            }
-            if !is_root && is_java_unit_kind(kind) {
-                append_part(&mut self.key_buffer, "<unit>");
-                append_part(&mut self.key_buffer, kind);
-            }
-            if !is_root && is_string_root_kind(kind) {
-                self.mark_node(current, true);
-                if is_interpolated_kind(kind)
-                    || (kind == "string" && contains_interpolation(current))
-                {
-                    append_part(&mut self.key_buffer, "<interpolated-string>");
-                } else {
-                    append_part(&mut self.key_buffer, "<string-literal>");
-                }
-                continue;
-            }
-            if !is_root && is_atomic_literal_kind(kind) {
-                self.mark_node(current, true);
-                let text = current.utf8_text(self.source.as_bytes()).unwrap_or(kind);
-                append_part(&mut self.key_buffer, kind);
-                append_part(&mut self.key_buffer, text);
-                continue;
-            }
-            if current.child_count() == 0 {
-                if current.is_extra() || is_comment_kind(kind) || is_string_content_kind(kind) {
-                    continue;
-                }
-                let text = current.utf8_text(self.source.as_bytes()).unwrap_or(kind);
-                if text.is_empty() && current.start_byte() == current.end_byte() {
-                    continue;
-                }
-                self.mark_node(current, true);
-                saw_code = true;
-                append_part(&mut self.key_buffer, kind);
-                append_part(
-                    &mut self.key_buffer,
-                    if is_layout_kind(kind) {
-                        "<layout>"
-                    } else {
-                        text
-                    },
-                );
-            } else {
-                push_children_with_root_flag(&mut stack, current);
-            }
+            self.visit_java_signature_node(current, is_root, &mut stack, &mut saw_code);
         }
-        if self.key_buffer.len() > MAX_SIGNATURE_BYTES {
-            self.fail("java statement exceeds bounded facts size");
-            self.stopped = true;
+        if !self.check_signature_size("java statement exceeds bounded facts size") {
             return;
         }
         if !saw_code {
             self.mark_start(node, true);
         }
         self.emit_buffered_token(node);
+    }
+
+    fn visit_java_signature_node<'tree>(
+        &mut self,
+        current: Node<'tree>,
+        is_root: bool,
+        stack: &mut Vec<(Node<'tree>, bool)>,
+        saw_code: &mut bool,
+    ) {
+        let kind = current.kind();
+        if !is_root && is_comment_kind(kind) {
+            self.mark_node(current, false);
+            return;
+        }
+        if !is_root && is_java_unit_kind(kind) {
+            append_part(&mut self.key_buffer, "<unit>");
+            append_part(&mut self.key_buffer, kind);
+        }
+        if !is_root && is_string_root_kind(kind) {
+            self.mark_node(current, true);
+            if is_interpolated_kind(kind) || (kind == "string" && contains_interpolation(current)) {
+                append_part(&mut self.key_buffer, "<interpolated-string>");
+            } else {
+                append_part(&mut self.key_buffer, "<string-literal>");
+            }
+            return;
+        }
+        if !is_root && is_atomic_literal_kind(kind) {
+            self.mark_node(current, true);
+            let text = current.utf8_text(self.source.as_bytes()).unwrap_or(kind);
+            append_part(&mut self.key_buffer, kind);
+            append_part(&mut self.key_buffer, text);
+            return;
+        }
+        if current.child_count() == 0 {
+            if current.is_extra() || is_comment_kind(kind) || is_string_content_kind(kind) {
+                return;
+            }
+            let text = current.utf8_text(self.source.as_bytes()).unwrap_or(kind);
+            if text.is_empty() && current.start_byte() == current.end_byte() {
+                return;
+            }
+            self.mark_node(current, true);
+            *saw_code = true;
+            append_part(&mut self.key_buffer, kind);
+            append_part(
+                &mut self.key_buffer,
+                if is_layout_kind(kind) {
+                    "<layout>"
+                } else {
+                    text
+                },
+            );
+        } else {
+            push_children_with_root_flag(stack, current);
+        }
     }
 
     fn emit_buffered_token(&mut self, node: Node<'_>) {
@@ -1053,39 +1135,11 @@ fn fallback_metrics(source: &str, language: Language) -> FileMetrics {
     let mut comment_lines = 0usize;
     let mut in_block_comment = false;
     for line in source.lines() {
-        let mut text = line.trim();
+        let text = line.trim();
         if text.is_empty() {
             continue;
         }
-        let mut has_code = false;
-        let mut has_comment = false;
-        while !text.is_empty() {
-            if in_block_comment {
-                has_comment = true;
-                if let Some(end) = text.find("*/") {
-                    text = text[end + 2..].trim_start();
-                    in_block_comment = false;
-                } else {
-                    text = "";
-                }
-                continue;
-            }
-            let line_comment = match language {
-                Language::Python | Language::Ruby => text.starts_with('#'),
-                _ => text.starts_with("//"),
-            };
-            if line_comment {
-                has_comment = true;
-                text = "";
-            } else if text.starts_with("/*") {
-                has_comment = true;
-                in_block_comment = true;
-                text = &text[2..];
-            } else {
-                has_code = true;
-                text = "";
-            }
-        }
+        let (has_code, has_comment) = fallback_line_flags(text, language, &mut in_block_comment);
         if has_code {
             code_lines = code_lines.saturating_add(1);
         } else if has_comment {
@@ -1097,6 +1151,51 @@ fn fallback_metrics(source: &str, language: Language) -> FileMetrics {
         code_lines: saturating_u32(code_lines),
         comment_lines: saturating_u32(comment_lines),
     }
+}
+
+fn fallback_line_flags(
+    mut text: &str,
+    language: Language,
+    in_block_comment: &mut bool,
+) -> (bool, bool) {
+    let mut has_code = false;
+    let mut has_comment = false;
+    while !text.is_empty() {
+        if let Some(rest) = consume_fallback_comment(text, language, in_block_comment) {
+            has_comment = true;
+            text = rest;
+            continue;
+        }
+        has_code = true;
+        text = "";
+    }
+    (has_code, has_comment)
+}
+
+fn consume_fallback_comment<'source>(
+    text: &'source str,
+    language: Language,
+    in_block_comment: &mut bool,
+) -> Option<&'source str> {
+    if *in_block_comment {
+        if let Some(end) = text.find("*/") {
+            *in_block_comment = false;
+            return Some(text[end + 2..].trim_start());
+        }
+        return Some("");
+    }
+    let line_comment = match language {
+        Language::Python | Language::Ruby => text.starts_with('#'),
+        _ => text.starts_with("//"),
+    };
+    if line_comment {
+        return Some("");
+    }
+    if let Some(rest) = text.strip_prefix("/*") {
+        *in_block_comment = true;
+        return Some(rest);
+    }
+    None
 }
 
 #[cfg(test)]

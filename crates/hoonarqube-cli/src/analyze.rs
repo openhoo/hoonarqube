@@ -516,6 +516,27 @@ fn classify_collected_path(patterns: &ProjectPatterns, path: &Path) -> FileClass
         Err(_) => patterns.classify_scope(path),
     }
 }
+fn should_visit_project_entry(
+    entry: &ignore::DirEntry,
+    patterns: &ProjectPatterns,
+    skipped: &std::sync::Mutex<Vec<PathBuf>>,
+) -> bool {
+    if entry.depth() == 0 {
+        return true;
+    }
+    let classification = match entry.file_type() {
+        Some(file_type) if file_type.is_dir() => patterns.classify_scope(entry.path()),
+        _ => patterns.classify(entry.path()),
+    };
+    if !is_inventory_class(classification) {
+        return true;
+    }
+    if let Ok(mut paths) = skipped.lock() {
+        paths.push(entry.path().to_path_buf());
+    }
+    false
+}
+
 fn collect_project_files(
     directory: &Path,
     patterns: &ProjectPatterns,
@@ -533,22 +554,7 @@ fn collect_project_files(
         .require_git(false)
         .sort_by_file_name(std::cmp::Ord::cmp)
         .filter_entry(move |entry| {
-            if entry.depth() == 0 {
-                return true;
-            }
-            let classification = match entry.file_type() {
-                Some(file_type) if file_type.is_dir() => {
-                    filter_patterns.classify_scope(entry.path())
-                }
-                _ => filter_patterns.classify(entry.path()),
-            };
-            if !is_inventory_class(classification) {
-                return true;
-            }
-            if let Ok(mut paths) = skipped_filter.lock() {
-                paths.push(entry.path().to_path_buf());
-            }
-            false
+            should_visit_project_entry(entry, &filter_patterns, skipped_filter.as_ref())
         });
 
     for result in builder.build() {
