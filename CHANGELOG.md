@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0 (2026-09-08)
+
+### Features
+
+- **hoonarqube:** add project metrics and duplicate-code detection (#27) (a515757)
+
+### Bug Fixes
+
+- correct analyzer data flow and oracle validation (#24) (d305104)
+
 ## 0.4.2 (2026-09-04)
 
 ### Performance
