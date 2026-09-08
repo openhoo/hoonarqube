@@ -32,6 +32,10 @@ inputs:
     description: Optional literal Go license header for go:S1451.
     required: false
     default: ""
+  cache-dir:
+    description: Optional analysis cache directory; the executable must support --cache-dir.
+    required: false
+    default: ""
 outputs:
   report:
     description: Configured report output path.
@@ -63,6 +67,7 @@ runs:
         INPUT_FAIL_ON: ${{ inputs.fail-on }}
         INPUT_EXECUTABLE: ${{ inputs.executable }}
         INPUT_GO_HEADER_FORMAT: ${{ inputs.go-header-format }}
+        INPUT_CACHE_DIR: ${{ inputs.cache-dir }}
         INPUT_OUTPUT: ${{ inputs.output }}
         INPUT_PATHS: ${{ inputs.paths }}
         INPUT_PROFILE: ${{ inputs.profile }}
@@ -109,6 +114,9 @@ runs:
         fi
         if [[ -n "$INPUT_GO_HEADER_FORMAT" ]]; then
           args+=(--go-header-format "$INPUT_GO_HEADER_FORMAT")
+        fi
+        if [[ -n "$INPUT_CACHE_DIR" ]]; then
+          args+=(--cache-dir "$INPUT_CACHE_DIR")
         fi
         "${hoonarqube_command[@]}" "${args[@]}" -- "${paths[@]}" > "$INPUT_OUTPUT"
         jq -e '.rules | type == "array"' "$INPUT_OUTPUT" >/dev/null

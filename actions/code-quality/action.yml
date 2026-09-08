@@ -28,6 +28,10 @@ inputs:
     description: "Minimum SARIF severity that fails the action: none, findings, note, warning, or error."
     required: false
     default: "none"
+  cache-dir:
+    description: Optional analysis cache directory; the executable must support --cache-dir.
+    required: false
+    default: ""
 outputs:
   report:
     description: Absolute path to the validated SARIF report.
@@ -61,6 +65,7 @@ runs:
       env:
         INPUT_EXECUTABLE: ${{ inputs.executable }}
         INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_CACHE_DIR: ${{ inputs.cache-dir }}
         INPUT_OUTPUT: ${{ inputs.output }}
         INPUT_PATHS: ${{ inputs.paths }}
         INPUT_UPLOAD: ${{ inputs.upload }}
@@ -116,7 +121,11 @@ runs:
         temporary_report="$(mktemp "$temp_root/hoonarqube-code-quality.XXXXXX.sarif")"
         trap 'rm -f -- "$temporary_report"' EXIT
 
-        if ! "${hoonarqube_command[@]}" analyze --profile github-code-quality --format sarif -- "${paths[@]}" > "$temporary_report"; then
+        analysis_args=(analyze --profile github-code-quality --format sarif)
+        if [[ -n "$INPUT_CACHE_DIR" ]]; then
+          analysis_args+=(--cache-dir "$INPUT_CACHE_DIR")
+        fi
+        if ! "${hoonarqube_command[@]}" "${analysis_args[@]}" -- "${paths[@]}" > "$temporary_report"; then
           echo "::error::Hoonarqube analysis failed; no SARIF report was published."
           exit 1
         fi

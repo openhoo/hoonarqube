@@ -19,11 +19,11 @@ use hoonarqube_catalog::Catalog;
 use hoonarqube_core::{AnalyzerOptions as CoreOptions, Language};
 use hoonarqube_ir::FileClassification;
 
-use hoonarqube_core::duplication::DuplicationOptions;
-use hoonarqube_core::project::{ProjectFile, analyze_project_file, build_project_report};
-
+use crate::cache::Cache;
 /// Per-language analyzer knobs shared by analyze and fix orchestration.
 pub(crate) use hoonarqube_core::AnalyzerOptions as AnalyzerOptionsBundle;
+use hoonarqube_core::duplication::DuplicationOptions;
+use hoonarqube_core::project::{ProjectFile, analyze_project_file, build_project_report};
 
 /// Raw glob lists supplied by the analyze command.
 #[derive(Clone, Copy)]
@@ -53,6 +53,7 @@ pub(crate) struct ProjectPatterns {
 pub(crate) struct ProjectAnalysisOptions {
     pub(crate) patterns: ProjectPatterns,
     pub(crate) duplication: DuplicationOptions,
+    pub(crate) cache_dir: Option<PathBuf>,
 }
 
 impl ProjectPatterns {
@@ -142,6 +143,7 @@ pub(crate) fn project_analysis_options(
     Ok(ProjectAnalysisOptions {
         patterns: ProjectPatterns::compile(lists)?,
         duplication,
+        cache_dir: None,
     })
 }
 
@@ -215,6 +217,7 @@ pub(crate) fn analyze_project_paths(
     project_options: &ProjectAnalysisOptions,
     warnings: &mut Vec<String>,
 ) -> Result<hoonarqube_ir::AnalysisReport, String> {
+    let cache = Cache::new(project_options.cache_dir.as_deref(), options);
     let (files, collection_failures) =
         collect_project_input_files(paths, &project_options.patterns, warnings);
     let mut project_files = Vec::with_capacity(files.len() + collection_failures.len());
@@ -268,7 +271,7 @@ pub(crate) fn analyze_project_paths(
         .map_or(1, std::num::NonZeroUsize::get)
         .min(pending.len());
     project_files.extend(
-        analyze_project_files(&pending, options, worker_count)
+        analyze_project_files(&pending, options, worker_count, cache.as_ref())
             .into_iter()
             .map(|(_, project_file)| project_file),
     );
@@ -308,12 +311,13 @@ fn analyze_project_files(
     files: &[ProjectInput],
     options: &AnalyzerOptionsBundle,
     worker_count: usize,
+    cache: Option<&Cache>,
 ) -> Vec<(usize, ProjectFile)> {
     if worker_count <= 1 {
         return files
             .iter()
             .enumerate()
-            .map(|(index, file)| (index, read_and_analyze_project(file, options)))
+            .map(|(index, file)| (index, read_and_analyze_project(file, options, cache)))
             .collect();
     }
 
@@ -336,11 +340,12 @@ fn analyze_project_files(
                 hoonarqube_core::spawn_analyzer_worker(
                     scope,
                     "hoonarqube-project-file-worker",
-                    || analyze_project_pending(files, options, &next),
+                    || analyze_project_pending(files, options, &next, cache),
                 )
             } else {
-                thread::Builder::new()
-                    .spawn_scoped(scope, || analyze_project_pending(files, options, &next))
+                thread::Builder::new().spawn_scoped(scope, || {
+                    analyze_project_pending(files, options, &next, cache)
+                })
             };
             let Ok(worker) = worker else {
                 break;
@@ -350,7 +355,7 @@ fn analyze_project_files(
         let mut outcomes = if requires_jsts_stack && !workers.is_empty() {
             Vec::new()
         } else {
-            analyze_project_pending(files, options, &next)
+            analyze_project_pending(files, options, &next, cache)
         };
         for worker in workers {
             outcomes.extend(
@@ -369,6 +374,7 @@ fn analyze_project_pending(
     files: &[ProjectInput],
     options: &AnalyzerOptionsBundle,
     next: &AtomicUsize,
+    cache: Option<&Cache>,
 ) -> Vec<(usize, ProjectFile)> {
     let mut outcomes = Vec::new();
     loop {
@@ -376,19 +382,43 @@ fn analyze_project_pending(
         let Some(file) = files.get(index) else {
             return outcomes;
         };
-        outcomes.push((index, read_and_analyze_project(file, options)));
+        outcomes.push((index, read_and_analyze_project(file, options, cache)));
     }
 }
 
-fn read_and_analyze_project(input: &ProjectInput, options: &AnalyzerOptionsBundle) -> ProjectFile {
+fn read_and_analyze_project(
+    input: &ProjectInput,
+    options: &AnalyzerOptionsBundle,
+    cache: Option<&Cache>,
+) -> ProjectFile {
     match fs::read_to_string(&input.path) {
-        Ok(source) => analyze_project_file(
-            &input.path,
-            &source,
-            options,
-            input.classification,
-            input.duplication_excluded,
-        ),
+        Ok(source) => {
+            let content_digest = cache.map(|_| Cache::source_digest(source.as_bytes()));
+            if let Some(entry) = cache
+                .zip(content_digest)
+                .and_then(|(cache, digest)| cache.load(&input.path, source.len(), digest))
+            {
+                return ProjectFile {
+                    path: input.path.clone(),
+                    classification: input.classification,
+                    report: Some(entry.report),
+                    facts: Some(entry.facts),
+                    error: None,
+                    duplication_excluded: input.duplication_excluded,
+                };
+            }
+            let result = analyze_project_file(
+                &input.path,
+                &source,
+                options,
+                input.classification,
+                input.duplication_excluded,
+            );
+            if let Some((cache, digest)) = cache.zip(content_digest) {
+                cache.store(&input.path, digest, &result);
+            }
+            result
+        }
         Err(error) if error.kind() == ErrorKind::InvalidData => ProjectFile {
             path: input.path.clone(),
             classification: input.classification,
