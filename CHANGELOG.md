@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0 (2026-09-08)
+
+### Features
+
+- **cli:** add native GitLab Code Quality reports (a47fcf7)
+
 ## 0.5.1 (2026-09-08)
 
 ### Performance
