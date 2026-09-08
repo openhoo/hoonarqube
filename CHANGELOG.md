@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1 (2026-09-08)
+
+### Performance
+
+- **hoonarqube:** optimize duplication coverage and benchmark scaling (3dd0d68)
+
 ## 0.5.0 (2026-09-08)
 
 ### Features
