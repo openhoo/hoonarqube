@@ -2,8 +2,8 @@
 
 Rust-native SonarQube-compatible static analyzer for Python, JavaScript/TypeScript,
 C#, Go, and Rust. It combines a frozen Sonar-parity catalog with a separate,
-provenance-rich native catalog and emits text, JSON, or SonarQube Generic Issue
-Import JSON.
+provenance-rich native catalog and emits text, JSON, SonarQube Generic Issue
+Import JSON, or GitLab Code Quality JSON.
 
 ## Workspace
 
@@ -21,7 +21,7 @@ Import JSON.
 | `hoonarqube-ruby` | Ruby frontend, local data-flow facts, and GitHub Code Quality checks (tree-sitter-ruby) |
 | `hoonarqube-rust` | Rust analyzer (tree-sitter-rust with Clippy-compatible contracts) |
 | `hoonarqube-dataflow` | Generic intra-procedural engine: CFG builder, worklist solvers, dominators; consumed by Go's native decompression-flow rule |
-| `hoonarqube-cli` | `analyze` (text / JSON / SonarQube generic-issue), `fix`, plus `rules`/`snapshot` catalog queries |
+| `hoonarqube-cli` | `analyze` (text / JSON / SonarQube generic-issue / GitLab Code Quality), `fix`, plus `rules`/`snapshot` catalog queries |
 | `hoonarqube-bench` | Multi-language throughput benchmark over seeded synthetic fixtures |
 | `xtask` | Catalog audit + implemented-rule coverage reporting |
 
@@ -157,6 +157,7 @@ cargo run -p hoonarqube-cli -- analyze <paths...>              # text report
 cargo run -p hoonarqube-cli -- analyze --profile recommended <paths>
 cargo run -p hoonarqube-cli -- analyze --profile extended <paths>
 cargo run -p hoonarqube-cli -- analyze --format sonar <paths>  # Generic Issue Import JSON
+cargo run -p hoonarqube-cli -- analyze --format gitlab-codequality <paths> # GitLab Code Quality JSON
 cargo run -p hoonarqube-cli -- rules native                    # native provenance catalog
 cargo run -p hoonarqube-cli -- rules native --profile recommended --lang go
 cargo run -p hoonarqube-cli -- rules info hoonarqube-go:G110
@@ -245,8 +246,8 @@ failures are explicit, never silently truncated results.
 
 Text output summarizes source/test measurements, scope, completeness, and
 matching locations. Detailed scope inventory is in JSON. SonarQube Generic
-Issue Import and SARIF remain issue-only formats: they do not transport these
-project measures or create artificial duplication issues.
+Issue Import, SARIF, and GitLab Code Quality remain issue-only formats: they do
+not transport these project measures or create artificial duplication issues.
 
 ## GitHub Code Quality action
 
@@ -366,6 +367,57 @@ Global `--json` keeps stdout as one JSON document, including requested diffs as
 per-file `diff` fields instead of mixing human text into machine output. Current
 finding-backed coverage starts with the syntax-checked `python:S1721` redundant-
 parentheses remedy. See [QUICKFIX.md](QUICKFIX.md) for the parity inventory.
+
+## GitLab Code Quality report
+
+The CLI emits GitLab's required single-array report with:
+
+- `description` from the finding message and `check_name` from its rule key.
+- A stable SHA-256 `fingerprint` over length-delimited normalized primary path,
+  rule key, message, and primary range; nested flow/fix metadata is excluded.
+- Lowercase `severity` (`info`, `minor`, `major`, `critical`, or `blocker`).
+- A raw repository-relative POSIX `location.path` without a `./` prefix and
+  inclusive positive `location.lines.begin`/`end` values. File-level findings
+  use line 1 as their conventional anchor.
+
+Ordinary colon filename components are preserved. Drive- and URI-like prefixes,
+backslashes, control characters, outside-checkout paths, non-UTF-8 paths, and
+invalid non-file ranges fail closed.
+
+Use `--format gitlab-codequality` with the default `sonar-parity` profile or a
+cumulative native profile. It is intentionally separate from the isolated
+`github-code-quality` SARIF profile. Empty findings emit `[]`; invalid
+non-file ranges, outside-checkout paths, and non-UTF-8 paths fail closed.
+The report carries findings only, not project metrics or completeness. A
+complete scan with findings exits 0; an incomplete scan still emits its valid
+report and exits 2, while report/serialization failures exit 1.
+
+GitLab consumes the report from a CI job's `codequality` report artifact. Use a
+Linux x86_64 runner with a release binary installed and verified using the
+repository's [release installer checks](actions/setup/install.sh):
+
+```yaml
+stages: [quality]
+
+gitlab-code-quality:
+  stage: quality
+  script:
+    - hoonarqube --version
+    - set +e
+    - hoonarqube analyze --format gitlab-codequality -- src tests > gl-code-quality-report.json
+    - status=$?
+    - set -e
+    - test -s gl-code-quality-report.json
+    - exit "$status"
+  artifacts:
+    when: always
+    reports:
+      codequality: gl-code-quality-report.json
+```
+
+The explicit status capture keeps an operational/incomplete exit 2 distinct
+from a policy failure chosen by the consuming job; `artifacts: when: always`
+keeps the report available for review.
 
 ## Releases
 
