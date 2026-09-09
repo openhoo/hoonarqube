@@ -1,3 +1,4 @@
+use super::s7059_s7059_await_expression::S7059State;
 use crate::rules::shared::argument_expression;
 use crate::rules::shared::duplicated_key_name;
 use crate::support::IssueSink;
@@ -9,6 +10,7 @@ use oxc_ast::ast::CallExpression;
 use oxc_ast::ast::Class;
 use oxc_ast::ast::Expression;
 use oxc_ast::ast::FormalParameter;
+use oxc_ast::ast::Function;
 use oxc_ast::ast::ImportDeclaration;
 use oxc_ast::ast::LogicalExpression;
 use oxc_ast::ast::MemberExpression;
@@ -41,16 +43,18 @@ use oxc_ast::ast::VariableDeclarator;
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_arrow_function_expression, walk_assignment_expression, walk_await_expression,
-    walk_call_expression, walk_class, walk_formal_parameter, walk_import_declaration,
-    walk_logical_expression, walk_member_expression, walk_method_definition, walk_new_expression,
-    walk_object_property, walk_property_definition, walk_return_statement, walk_statement,
-    walk_string_literal, walk_template_literal, walk_try_statement, walk_ts_any_keyword,
-    walk_ts_enum_declaration, walk_ts_interface_declaration, walk_ts_intersection_type,
-    walk_ts_namespace_declaration, walk_ts_non_null_expression, walk_ts_property_signature,
-    walk_ts_type_alias_declaration, walk_ts_type_assertion, walk_ts_type_literal,
-    walk_ts_type_parameter, walk_ts_union_type, walk_variable_declarator,
+    walk_call_expression, walk_class, walk_formal_parameter, walk_function,
+    walk_import_declaration, walk_logical_expression, walk_member_expression,
+    walk_method_definition, walk_new_expression, walk_object_property, walk_property_definition,
+    walk_return_statement, walk_statement, walk_string_literal, walk_template_literal,
+    walk_try_statement, walk_ts_any_keyword, walk_ts_enum_declaration,
+    walk_ts_interface_declaration, walk_ts_intersection_type, walk_ts_namespace_declaration,
+    walk_ts_non_null_expression, walk_ts_property_signature, walk_ts_type_alias_declaration,
+    walk_ts_type_assertion, walk_ts_type_literal, walk_ts_type_parameter, walk_ts_union_type,
+    walk_variable_declarator,
 };
 use oxc_span::GetSpan;
+use oxc_syntax::scope::ScopeFlags;
 
 pub(crate) fn type_is_primitive_keyword(ts_type: &TSType<'_>) -> bool {
     matches!(
@@ -73,6 +77,8 @@ pub(crate) struct TsTypeCollector<'s, 'index> {
     pub(crate) sink: IssueSink<'index>,
     /// Enclosing class names, innermost last (`S6565`).
     pub(crate) class_stack: Vec<String>,
+    /// Per-file state for `S7059` constructor execution tracking.
+    pub(crate) s7059: S7059State,
     /// Constructor nesting depth (`S7059`).
     pub(crate) constructor_depth: u32,
     /// Depth of enclosing try statements that have a catch or finally
@@ -146,7 +152,6 @@ impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
 
     fn visit_ts_interface_declaration(&mut self, it: &TSInterfaceDeclaration<'a>) {
         self.check_s4323_ts_interface_declaration(it);
-        self.check_s6759_ts_interface_declaration(it);
         walk_ts_interface_declaration(self, it);
     }
 
@@ -157,6 +162,7 @@ impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
     }
 
     fn visit_class(&mut self, it: &Class<'a>) {
+        self.s7059_enter_class(it);
         if let Some(id) = &it.id {
             self.class_stack.push(id.name.to_string());
         }
@@ -164,6 +170,14 @@ impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
         if it.id.is_some() {
             self.class_stack.pop();
         }
+        self.s7059_leave_class();
+    }
+
+    fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
+        let constructor = flags.contains(ScopeFlags::Constructor) && self.constructor_depth > 0;
+        self.s7059_enter_function(constructor);
+        walk_function(self, it, flags);
+        self.s7059_leave_function(constructor);
     }
 
     fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
@@ -178,15 +192,19 @@ impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
     }
 
     fn visit_statement(&mut self, it: &Statement<'a>) {
+        let previous = self.s7059_enter_statement(it.span());
         if let Statement::FunctionDeclaration(function) = it {
             self.check_return_type_annotations(&function.params, function.return_type.as_deref());
         }
         walk_statement(self, it);
+        self.s7059_leave_statement(previous);
     }
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
         self.check_return_type_annotations(&it.params, it.return_type.as_deref());
+        self.s7059_enter_function(false);
         walk_arrow_function_expression(self, it);
+        self.s7059_leave_function(false);
     }
 
     fn visit_logical_expression(&mut self, it: &LogicalExpression<'a>) {
@@ -197,6 +215,10 @@ impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
         self.check_s7059_call_expression(it);
         walk_call_expression(self, it);
+    }
+    fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
+        walk_assignment_expression(self, it);
+        self.check_s7059_assignment_expression(it);
     }
 
     fn visit_property_definition(&mut self, it: &PropertyDefinition<'a>) {

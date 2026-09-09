@@ -2,6 +2,8 @@
 use super::collectors::{SecurityHotspotCollector, TsTypeCollector};
 use super::collectors_hotspots::{MiscCollector, check_default_export_name, check_self_imports};
 use super::s2187_test_framework_rules::check_test_framework_rules;
+use super::s6759_s6759_ts_interface_declaration::check_s6759;
+use super::s7059_s7059_await_expression::S7059State;
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::support::{IssueSink, LineIndex};
@@ -47,10 +49,12 @@ fn check_ts_type_rules(
             issues: Vec::new(),
         },
         class_stack: Vec::new(),
+        s7059: S7059State::default(),
         constructor_depth: 0,
         try_guard_depth: 0,
     };
     collector.visit_program(program);
+    check_s6759(program, &mut collector.sink);
     collector.sink.issues
 }
 
@@ -120,6 +124,14 @@ pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
+    fn tsx_keys(source: &str) -> Vec<(String, u32)> {
+        report_keys(&analyze(
+            PathBuf::from("test.tsx"),
+            source,
+            JstsLanguage::TypeScript,
+            &AnalyzerOptions::default(),
+        ))
+    }
 
     #[test]
     fn computed_enum_members_are_flagged() {
@@ -400,14 +412,20 @@ mod tests {
 
     #[test]
     fn props_interfaces_require_readonly_fields() {
-        let violating = ts_keys("interface ButtonProps { label: string; size: number; }\n");
-        assert_eq!(count_key(&violating, "typescript:S6759"), 2);
+        let violating = tsx_keys(
+            "interface ButtonProps { label: string; size: number; }\n\
+             function Button(props: ButtonProps) { return <div>{props.label}</div>; }\n",
+        );
+        assert_eq!(count_key(&violating, "typescript:S6759"), 1);
 
-        let readonly = ts_keys("interface ButtonProps { readonly label: string; }\n");
+        let readonly = tsx_keys(
+            "interface ButtonProps { readonly label: string; }\n\
+             function Button(props: ButtonProps) { return <div>{props.label}</div>; }\n",
+        );
         assert_eq!(count_key(&readonly, "typescript:S6759"), 0);
 
-        let not_props = ts_keys("interface Config { label: string; }\n");
-        assert_eq!(count_key(&not_props, "typescript:S6759"), 0);
+        let not_component = ts_keys("interface Config { label: string; }\n");
+        assert_eq!(count_key(&not_component, "typescript:S6759"), 0);
     }
 
     #[test]

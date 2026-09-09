@@ -106,9 +106,8 @@ fn annotation_root_name(annotation: &Expr) -> Option<&str> {
 pub(crate) fn hint_accepts_literal(hint: HintKind, kind: &str) -> bool {
     match hint {
         HintKind::Int => matches!(kind, "int" | "boolean"),
-        HintKind::Float | HintKind::Complex => {
-            matches!(kind, "int" | "float" | "complex" | "boolean")
-        }
+        HintKind::Float => matches!(kind, "int" | "float" | "boolean"),
+        HintKind::Complex => matches!(kind, "int" | "float" | "complex" | "boolean"),
         HintKind::Str => kind == "string",
         HintKind::Bytes => kind == "bytes",
         HintKind::Bool => kind == "boolean",

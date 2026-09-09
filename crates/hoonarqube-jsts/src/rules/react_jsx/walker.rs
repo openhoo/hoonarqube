@@ -2,31 +2,43 @@
 use super::collectors::expression_returns_jsx;
 use crate::JstsLanguage;
 use crate::context::{AnalysisContext, RuleOptions};
+use crate::engine::scope_model::bound_names;
 use crate::rules::shared::argument_expression;
 use crate::rules::shared::call_property;
 use crate::rules::shared::duplicated_key_name;
 use crate::rules::shared::expression_through_this_link;
+use crate::rules::shared::jsx_element_tag;
+use crate::rules::shared::jsx_find_attribute;
 use crate::support::IssueSink;
 use crate::support::LineIndex;
 use crate::support::binding_identifier_name;
 use crate::support::identifier_name;
+use crate::support::property_key_name;
+use crate::support::unparenthesized;
 use hoonarqube_ir::Issue;
 use oxc_allocator::ArenaVec;
+use oxc_ast::ast::ArrowFunctionExpression;
 use oxc_ast::ast::AssignmentExpression;
 use oxc_ast::ast::AssignmentOperator;
 use oxc_ast::ast::BindingPattern;
+use oxc_ast::ast::BlockStatement;
 use oxc_ast::ast::CallExpression;
+use oxc_ast::ast::CatchClause;
 use oxc_ast::ast::Class;
 use oxc_ast::ast::ClassElement;
+use oxc_ast::ast::Declaration;
 use oxc_ast::ast::DoWhileStatement;
+use oxc_ast::ast::ExportDefaultDeclarationKind;
 use oxc_ast::ast::Expression;
 use oxc_ast::ast::ExpressionStatement;
 use oxc_ast::ast::ForInStatement;
 use oxc_ast::ast::ForOfStatement;
 use oxc_ast::ast::ForStatement;
+use oxc_ast::ast::Function;
 use oxc_ast::ast::FunctionBody;
 use oxc_ast::ast::IfStatement;
 use oxc_ast::ast::ImportDeclaration;
+use oxc_ast::ast::JSXAttributeValue;
 use oxc_ast::ast::JSXChild;
 use oxc_ast::ast::JSXElement;
 use oxc_ast::ast::JSXExpressionContainer;
@@ -34,24 +46,34 @@ use oxc_ast::ast::JSXFragment;
 use oxc_ast::ast::JSXText;
 use oxc_ast::ast::MethodDefinition;
 use oxc_ast::ast::MethodDefinitionKind;
+use oxc_ast::ast::ObjectExpression;
 use oxc_ast::ast::ObjectPropertyKind;
 use oxc_ast::ast::PropertyDefinition;
 use oxc_ast::ast::ReturnStatement;
 use oxc_ast::ast::SimpleAssignmentTarget;
 use oxc_ast::ast::Statement;
+use oxc_ast::ast::UpdateExpression;
 use oxc_ast::ast::VariableDeclarator;
 use oxc_ast::ast::WhileStatement;
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
-    walk_assignment_expression, walk_call_expression, walk_class, walk_do_while_statement,
-    walk_expression, walk_expression_statement, walk_for_in_statement, walk_for_of_statement,
-    walk_for_statement, walk_if_statement, walk_import_declaration, walk_jsx_children,
-    walk_jsx_element, walk_jsx_expression_container, walk_jsx_fragment, walk_jsx_text,
-    walk_method_definition, walk_property_definition, walk_statement, walk_this_expression,
-    walk_variable_declarator, walk_while_statement,
+    walk_arrow_function_expression, walk_assignment_expression, walk_block_statement,
+    walk_call_expression, walk_catch_clause, walk_class, walk_declaration, walk_do_while_statement,
+    walk_export_default_declaration_kind, walk_expression, walk_expression_statement,
+    walk_for_in_statement, walk_for_of_statement, walk_for_statement, walk_function,
+    walk_if_statement, walk_import_declaration, walk_jsx_children, walk_jsx_element,
+    walk_jsx_expression_container, walk_jsx_fragment, walk_jsx_text, walk_method_definition,
+    walk_object_expression, walk_property_definition, walk_statement, walk_this_expression,
+    walk_update_expression, walk_variable_declarator, walk_while_statement,
 };
 use oxc_span::{GetSpan, Span};
+use oxc_syntax::scope::ScopeFlags;
 use std::collections::BTreeMap;
+#[derive(Clone, Debug)]
+pub(crate) struct ContextBinding {
+    pub(crate) name: String,
+    pub(crate) fresh: bool,
+}
 
 /// All Batch4 React/JSX structural checks in one traversal (groups R1-R3):
 /// `S6748`, `S6761`, `S6749`, `S6750`, `S6754`, `S6443`, `S6788`, `S6789`,
@@ -79,6 +101,8 @@ fn check_react_jsx_rules(
         map_frames: Vec::new(),
         component_stack: Vec::new(),
         component_names: Vec::new(),
+        context_bindings: Vec::new(),
+        s6478_callback_objects: Vec::new(),
         class_depth: 0,
         method_guard: 0,
         prop_declarations: BTreeMap::new(),
@@ -104,6 +128,8 @@ pub(crate) struct ReactCollector<'index> {
     pub(crate) map_frames: Vec<MapFrame>,
     pub(crate) component_stack: Vec<bool>,
     pub(crate) component_names: Vec<Option<String>>,
+    pub(crate) context_bindings: Vec<ContextBinding>,
+    pub(crate) s6478_callback_objects: Vec<Span>,
     pub(crate) class_depth: usize,
     pub(crate) method_guard: usize,
     pub(crate) prop_declarations: BTreeMap<String, BTreeMap<String, PropKind>>,
@@ -125,12 +151,22 @@ impl<'a> Visit<'a> for ReactCollector<'_> {
         self.check_unknown_tag(it);
         self.check_context_provider_value(it);
         self.check_unknown_attributes(it);
+        let callback_objects_start = self.s6478_callback_objects.len();
+        if let Some(span) = s6478_jsx_callback_object(it) {
+            self.s6478_callback_objects.push(span);
+        }
         walk_jsx_element(self, it);
+        self.s6478_callback_objects.truncate(callback_objects_start);
     }
 
     fn visit_jsx_fragment(&mut self, it: &JSXFragment<'_>) {
         self.check_single_child_fragment(it);
         walk_jsx_fragment(self, it);
+    }
+
+    fn visit_expression(&mut self, it: &Expression<'_>) {
+        self.check_refs_access(it);
+        walk_expression(self, it);
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'_>) {
@@ -148,15 +184,47 @@ impl<'a> Visit<'a> for ReactCollector<'_> {
         };
         let argument_functions = call_argument_function_count(it);
         self.conditional_depth += argument_functions;
+        let callback_objects_start = self.s6478_callback_objects.len();
+        if let Some(span) = s6478_call_callback_object(it) {
+            self.s6478_callback_objects.push(span);
+        }
         walk_call_expression(self, it);
+        self.s6478_callback_objects.truncate(callback_objects_start);
         self.conditional_depth -= argument_functions;
         if pushed_map_frame {
             self.map_frames.pop();
         }
     }
+    fn visit_function(&mut self, it: &Function<'_>, flags: ScopeFlags) {
+        let saved_context_bindings = self.context_bindings.clone();
+        self.record_context_parameters(&it.params);
+        walk_function(self, it, flags);
+        self.context_bindings = saved_context_bindings;
+    }
+
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'_>) {
+        let saved_context_bindings = self.context_bindings.clone();
+        self.record_context_parameters(&it.params);
+        walk_arrow_function_expression(self, it);
+        self.context_bindings = saved_context_bindings;
+    }
+
+    fn visit_catch_clause(&mut self, it: &CatchClause<'_>) {
+        let context_bindings_start = self.context_bindings.len();
+        if let Some(parameter) = &it.param {
+            for name in bound_names(&parameter.pattern) {
+                self.push_context_binding(name, false);
+            }
+        }
+        walk_catch_clause(self, it);
+        self.context_bindings.truncate(context_bindings_start);
+    }
 
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'_>) {
         self.check_use_state_pair(it);
+        let context_bindings_start = self.context_bindings.len();
+        self.record_context_binding(it);
+        let context_bindings_after_declaration = self.context_bindings.len();
         let frame = declarator_component_frame(it);
         if let Some((returns_jsx, name_span)) = frame {
             self.check_nested_component(returns_jsx, Some(name_span), it.span());
@@ -169,21 +237,54 @@ impl<'a> Visit<'a> for ReactCollector<'_> {
         }
         walk_variable_declarator(self, it);
         if frame.is_some() {
+            self.context_bindings
+                .truncate(context_bindings_after_declaration);
             self.component_stack.pop();
             self.component_names.pop();
+        } else if self.context_bindings.len() < context_bindings_start {
+            self.context_bindings.truncate(context_bindings_start);
         }
     }
 
-    fn visit_expression(&mut self, it: &Expression<'_>) {
-        self.check_refs_access(it);
-        walk_expression(self, it);
+    fn visit_block_statement(&mut self, it: &BlockStatement<'_>) {
+        let context_bindings_start = self.context_bindings.len();
+        walk_block_statement(self, it);
+        self.context_bindings.truncate(context_bindings_start);
     }
-
+    fn visit_object_expression(&mut self, it: &ObjectExpression<'_>) {
+        if !self
+            .s6478_callback_objects
+            .iter()
+            .any(|outer| it.span().start == outer.start && it.span().end == outer.end)
+        {
+            for property_kind in &it.properties {
+                let ObjectPropertyKind::ObjectProperty(property) = property_kind else {
+                    continue;
+                };
+                if property_key_name(&property.key).is_some_and(|name| name.starts_with("render")) {
+                    continue;
+                }
+                let value = unparenthesized(&property.value);
+                if expression_returns_jsx(value) == Some(true) {
+                    self.check_nested_component(true, None, value.span());
+                }
+            }
+        }
+        walk_object_expression(self, it);
+    }
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'_>) {
         self.check_refs_write(it);
         self.check_state_mutation_assignment(it);
         self.collect_prop_metadata(it);
         walk_assignment_expression(self, it);
+        self.invalidate_context_target(&it.left);
+    }
+
+    fn visit_update_expression(&mut self, it: &UpdateExpression<'_>) {
+        walk_update_expression(self, it);
+        if let SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) = &it.argument {
+            self.invalidate_context_binding(identifier.name.as_str());
+        }
     }
 
     fn visit_method_definition(&mut self, it: &MethodDefinition<'_>) {
@@ -224,28 +325,71 @@ impl<'a> Visit<'a> for ReactCollector<'_> {
     }
 
     fn visit_statement(&mut self, it: &Statement<'_>) {
-        if let Statement::FunctionDeclaration(function) = it {
-            let returns_jsx = function
-                .body
-                .as_ref()
-                .is_some_and(|body| body_returns_jsx(body));
-            self.check_nested_component(
-                returns_jsx,
-                function.id.as_ref().map(GetSpan::span),
-                function.span(),
-            );
-            self.component_stack.push(returns_jsx);
-            self.component_names.push(
-                returns_jsx
-                    .then(|| function.id.as_ref().map(|id| id.name.to_string()))
-                    .flatten(),
-            );
-        }
         walk_statement(self, it);
-        if let Statement::FunctionDeclaration(_) = it {
-            self.component_stack.pop();
-            self.component_names.pop();
+    }
+    fn visit_declaration(&mut self, it: &Declaration<'_>) {
+        let Declaration::FunctionDeclaration(function) = it else {
+            walk_declaration(self, it);
+            return;
+        };
+        let context_bindings_start = self.context_bindings.len();
+        let function_binding_name = (self.component_stack.last() == Some(&true))
+            .then(|| function.id.as_ref().map(|id| id.name.as_str()))
+            .flatten();
+        if let Some(name) = function_binding_name {
+            self.push_context_binding(name, true);
         }
+        let returns_jsx = function
+            .body
+            .as_ref()
+            .is_some_and(|body| body_returns_jsx(body));
+        self.check_nested_component(
+            returns_jsx,
+            function.id.as_ref().map(GetSpan::span),
+            function.span(),
+        );
+        self.component_stack.push(returns_jsx);
+        self.component_names.push(
+            returns_jsx
+                .then(|| function.id.as_ref().map(|id| id.name.to_string()))
+                .flatten(),
+        );
+        walk_declaration(self, it);
+        self.context_bindings
+            .truncate(context_bindings_start + usize::from(function_binding_name.is_some()));
+        self.component_stack.pop();
+        self.component_names.pop();
+    }
+
+    fn visit_export_default_declaration_kind(&mut self, it: &ExportDefaultDeclarationKind<'_>) {
+        let (returns_jsx, name_span, name) =
+            if let ExportDefaultDeclarationKind::FunctionDeclaration(function) = it {
+                (
+                    function
+                        .body
+                        .as_ref()
+                        .is_some_and(|body| body_returns_jsx(body)),
+                    function.id.as_ref().map(GetSpan::span),
+                    function.id.as_ref().map(|id| id.name.as_str()),
+                )
+            } else {
+                let Some(expression) = it.as_expression().map(unparenthesized) else {
+                    walk_export_default_declaration_kind(self, it);
+                    return;
+                };
+                let Some(returns_jsx) = expression_returns_jsx(expression) else {
+                    walk_export_default_declaration_kind(self, it);
+                    return;
+                };
+                (returns_jsx, None, None)
+            };
+        self.check_nested_component(returns_jsx, name_span, it.span());
+        self.component_stack.push(returns_jsx);
+        self.component_names
+            .push(name.map(str::to_string).filter(|_| returns_jsx));
+        walk_export_default_declaration_kind(self, it);
+        self.component_stack.pop();
+        self.component_names.pop();
     }
 
     fn visit_this_expression(&mut self, it: &oxc_ast::ast::ThisExpression) {
@@ -305,6 +449,40 @@ impl<'a> Visit<'a> for ReactCollector<'_> {
         self.check_whitespace_only_gaps(it);
         walk_jsx_children(self, it);
         self.jsx_child_depth -= 1;
+    }
+}
+fn s6478_jsx_callback_object(element: &JSXElement<'_>) -> Option<Span> {
+    let tag = jsx_element_tag(&element.opening_element.name)?;
+    if !matches!(
+        tag,
+        "FormattedMessage" | "FormattedHTMLMessage" | "FormattedPlural" | "$t"
+    ) {
+        return None;
+    }
+    let attribute = jsx_find_attribute(&element.opening_element, "values")?;
+    let Some(JSXAttributeValue::ExpressionContainer(container)) = &attribute.value else {
+        return None;
+    };
+    let expression = container.expression.as_expression()?;
+    match unparenthesized(expression) {
+        Expression::ObjectExpression(object) => Some(object.span()),
+        _ => None,
+    }
+}
+
+fn s6478_call_callback_object(call: &CallExpression<'_>) -> Option<Span> {
+    let (property, _) = call_property(call)?;
+    if property != "formatMessage" {
+        return None;
+    }
+    let expression = call
+        .arguments
+        .get(1)
+        .and_then(argument_expression)
+        .map(unparenthesized)?;
+    match expression {
+        Expression::ObjectExpression(object) => Some(object.span()),
+        _ => None,
     }
 }
 
@@ -492,7 +670,7 @@ fn call_argument_function_count(call: &CallExpression<'_>) -> usize {
 /// Component frame for a declarator-initialized function or arrow:
 /// whether it returns JSX plus its binding span (`S6478`).
 fn declarator_component_frame(declarator: &VariableDeclarator<'_>) -> Option<(bool, Span)> {
-    let init = declarator.init.as_ref()?;
+    let init = unparenthesized(declarator.init.as_ref()?);
     if !matches!(
         init,
         Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)

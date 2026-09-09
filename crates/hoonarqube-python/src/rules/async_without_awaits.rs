@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::for_each_expr;
+use crate::support::child_exprs;
 use crate::support::for_each_stmt_in_scope;
 use crate::support::issue_at;
 use crate::support::stmt_exprs;
@@ -43,12 +43,25 @@ fn async_features_present(function: &ruff_python_ast::StmtFunctionDef) -> bool {
             _ => {}
         }
         for expr in stmt_exprs(stmt) {
-            for_each_expr(expr, &mut |expr| {
-                found |= matches!(expr, Expr::Await(_));
+            for_each_expr_for_async_scope(expr, &mut |expr| {
+                found |= matches!(expr, Expr::Await(_) | Expr::Yield(_));
             });
         }
     });
     found
+}
+fn for_each_expr_for_async_scope(expr: &Expr, visit: &mut impl FnMut(&Expr)) {
+    let mut pending = vec![expr];
+    while let Some(expr) = pending.pop() {
+        visit(expr);
+        let mut children = child_exprs(expr);
+        if matches!(expr, Expr::Lambda(_)) {
+            // A lambda body executes in its own function scope. Defaults and
+            // annotations are still evaluated while creating the lambda.
+            children.pop();
+        }
+        pending.extend(children.into_iter().rev());
+    }
 }
 
 #[cfg(test)]
@@ -64,8 +77,18 @@ mod tests {
             "async def real():\n",
             "    await asyncio.sleep(1)\n"
         ));
+        let nested_lambda_yield = scan("async def outer():\n    return lambda: (yield 1)\n");
+        assert_eq!(findings(&nested_lambda_yield, "python:S7503").len(), 1);
         let found = findings(&flagged, "python:S7503");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].range.start.line, 1);
+    }
+    #[test]
+    fn s7503_preserves_async_generator_contracts() {
+        let generator = scan("async def values():\n    yield 1\n");
+        assert!(findings(&generator, "python:S7503").is_empty());
+        let nested_yield =
+            scan("async def outer():\n    def values():\n        yield 1\n    return values\n");
+        assert_eq!(findings(&nested_yield, "python:S7503").len(), 1);
     }
 }

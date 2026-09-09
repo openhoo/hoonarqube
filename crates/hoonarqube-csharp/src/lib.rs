@@ -1123,6 +1123,19 @@ class Derived : Base { }
             1
         );
     }
+    #[test]
+    fn lock_this_reports_innermost_this_through_parentheses() {
+        let found = analyze_github_quality(
+            "class C\n{\n    void Run()\n    {\n        lock ((this))\n        {\n        }\n    }\n}\n",
+        );
+        let issue = found
+            .iter()
+            .find(|issue| issue.rule_key == "cs/lock-this")
+            .expect("parenthesized this is reported");
+        assert_eq!(issue.range.start.line, 5);
+        assert_eq!(issue.range.start.column, 15);
+        assert_eq!(issue.range.end.column, 19);
+    }
 
     #[test]
     fn nested_loop_analysis_reaches_past_an_unrelated_middle_loop() {

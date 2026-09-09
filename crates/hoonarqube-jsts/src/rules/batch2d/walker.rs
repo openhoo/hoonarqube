@@ -4,6 +4,7 @@ use super::collectors::{
     KeywordPlacementCollector, PromiseFlowCollector,
 };
 use super::s3512_es_idioms::check_es_idioms;
+use super::s3796_s3796_call_expression::collect_s3796_call_spans;
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::engine::scope_model::collect_array_binding_names;
@@ -43,6 +44,7 @@ fn check_function_metrics(
             language,
             issues: Vec::new(),
         },
+        array_call_spans: collect_s3796_call_spans(program),
     };
     collector.visit_program(program);
     collector.sink.issues
@@ -230,7 +232,7 @@ mod tests {
     }
 
     #[test]
-    fn array_callbacks_without_returns_flagged_javascript_only() {
+    fn array_callbacks_without_returns_are_flagged_in_both_languages() {
         let flagged = js_keys("[1].map(function f(x) {\n  g(x);\n});\n");
         assert_eq!(count_key(&flagged, "javascript:S3796"), 1);
 
@@ -254,7 +256,19 @@ mod tests {
             "[1].map(function f(x) {\n  g(x);\n});\n",
             JstsLanguage::TypeScript,
         );
-        assert_eq!(count_key(&typescript, "typescript:S3796"), 0);
+        assert_eq!(count_key(&typescript, "typescript:S3796"), 1);
+
+        let custom_array_type = findings(
+            "type Array<T> = { map(cb: () => void): void }; function f(xs: Array<number>) { xs.map(() => {}); }\n",
+            JstsLanguage::TypeScript,
+        );
+        assert_eq!(count_key(&custom_array_type, "typescript:S3796"), 0);
+
+        let wrapped_array = findings(
+            "const values = ([] as number[])!; values.map(() => {});\n",
+            JstsLanguage::TypeScript,
+        );
+        assert_eq!(count_key(&wrapped_array, "typescript:S3796"), 1);
     }
 
     #[test]

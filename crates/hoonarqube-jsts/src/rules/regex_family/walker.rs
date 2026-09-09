@@ -275,10 +275,11 @@ mod tests {
         // `(a+)` cannot match empty, so S5842 stays silent here.
         assert_eq!(count_key(&classic, "javascript:S5842"), 0);
 
-        // Zero-minimum repetition escapes S5842's consuming-quantifier subset.
+        // Empty-matchable bodies are reported regardless of the outer
+        // quantifier minimum.
         let zero_min = js_keys("const re = /(a*)*b/;\n");
         assert_eq!(count_key(&zero_min, "javascript:S5852"), 1);
-        assert_eq!(count_key(&zero_min, "javascript:S5842"), 0);
+        assert_eq!(count_key(&zero_min, "javascript:S5842"), 1);
 
         let flat = js_keys("const re = /a+b+c/;\n");
         assert_eq!(count_key(&flat, "javascript:S5852"), 0);

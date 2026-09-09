@@ -1711,11 +1711,95 @@ fn render_project_text_report(report: &hoonarqube_ir::AnalysisReport) -> String 
 /// Builds the current `SonarQube` Generic Issue Import document. Every used rule
 /// is defined once in the top-level `rules` array; findings reference it by the
 /// repository-qualified `ruleId`. Catalog classification and impacts remain the
-/// single metadata source. Positions reuse the IR convention (1-based lines,
-/// 0-based columns); optional fields are omitted rather than emitted as null.
+/// single metadata source. Native columns are converted at this export boundary
+/// to Sonar's zero-based UTF-16 units; native JSON and SARIF retain their own
+/// coordinate contracts.
 fn sonar_import_value(
     catalog: &Catalog,
     reports: &[hoonarqube_ir::FileReport],
+) -> Result<serde_json::Value, String> {
+    let mut source_cache = SonarSourceCache::default();
+    sonar_import_value_with_source_loader(
+        catalog,
+        reports,
+        &mut |path| {
+            std::fs::read_to_string(path)
+                .map_err(|error| format!("cannot read Sonar source {}: {error}", path.display()))
+        },
+        &mut source_cache,
+    )
+}
+
+#[derive(Default)]
+struct SonarSourceCache {
+    sources: std::collections::HashMap<std::path::PathBuf, SonarSource>,
+}
+
+struct SonarSource {
+    text: String,
+    line_starts: Vec<usize>,
+}
+
+impl SonarSource {
+    fn new(text: String) -> Self {
+        let mut line_starts = vec![0];
+        for (offset, byte) in text.bytes().enumerate() {
+            if byte == b'\n' {
+                line_starts.push(offset + 1);
+            }
+        }
+        Self { text, line_starts }
+    }
+
+    fn line(&self, line: u32) -> Result<&str, String> {
+        if line == 0 {
+            return Err("Sonar source positions use 1-based lines".to_owned());
+        }
+        let line_index =
+            usize::try_from(line - 1).map_err(|_| "Sonar line is too large".to_owned())?;
+        let start = *self
+            .line_starts
+            .get(line_index)
+            .ok_or_else(|| format!("Sonar source has no line {line}"))?;
+        let end = self
+            .line_starts
+            .get(line_index + 1)
+            .copied()
+            .unwrap_or(self.text.len());
+        let mut line_text = &self.text[start..end];
+        if line_text.ends_with('\n') {
+            line_text = &line_text[..line_text.len() - 1];
+        }
+        if line_text.ends_with('\r') {
+            line_text = &line_text[..line_text.len() - 1];
+        }
+        Ok(line_text)
+    }
+}
+
+impl SonarSourceCache {
+    fn load<'a>(
+        &'a mut self,
+        path: &std::path::Path,
+        loader: &mut dyn FnMut(&std::path::Path) -> Result<String, String>,
+    ) -> Result<&'a SonarSource, String> {
+        if !self.sources.contains_key(path) {
+            let source = loader(path)?;
+            self.sources
+                .insert(path.to_path_buf(), SonarSource::new(source));
+        }
+        Ok(self
+            .sources
+            .get(path)
+            .expect("source cache entry inserted above"))
+    }
+}
+
+fn sonar_import_value_with_source_loader(
+    catalog: &Catalog,
+    reports: &[hoonarqube_ir::FileReport],
+    source_loader: &mut dyn FnMut(&std::path::Path) -> Result<String, String>,
+    source_cache: &mut SonarSourceCache,
 ) -> Result<serde_json::Value, String> {
     let mut rules = std::collections::BTreeMap::new();
     let mut findings = Vec::new();
@@ -1731,12 +1815,12 @@ fn sonar_import_value(
             rules
                 .entry(rule_id.to_string())
                 .or_insert_with(|| sonar_import_rule(catalog, issue));
-            findings.push((file_path.to_owned(), issue));
+            findings.push((file_path, report.path.as_path(), issue));
         }
     }
-    findings.sort_by(|(path_a, issue_a), (path_b, issue_b)| {
+    findings.sort_by(|(path_a, _, issue_a), (path_b, _, issue_b)| {
         (
-            path_a.as_str(),
+            *path_a,
             issue_a.range.start.line,
             issue_a.range.start.column,
             issue_a.range.end.line,
@@ -1745,7 +1829,7 @@ fn sonar_import_value(
             issue_a.message.as_str(),
         )
             .cmp(&(
-                path_b.as_str(),
+                *path_b,
                 issue_b.range.start.line,
                 issue_b.range.start.column,
                 issue_b.range.end.line,
@@ -1756,7 +1840,9 @@ fn sonar_import_value(
     });
     let issues = findings
         .into_iter()
-        .map(|(file_path, issue)| sonar_import_issue(&file_path, issue))
+        .map(|(file_path, source_path, issue)| {
+            sonar_import_issue(file_path, source_path, issue, source_loader, source_cache)
+        })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(serde_json::json!({
         "rules": rules.into_values().collect::<Vec<_>>(),
@@ -1813,7 +1899,10 @@ fn sonar_import_rule(catalog: &Catalog, issue: &hoonarqube_ir::Issue) -> serde_j
 
 fn sonar_import_issue(
     file_path: &str,
+    source_path: &std::path::Path,
     issue: &hoonarqube_ir::Issue,
+    source_loader: &mut dyn FnMut(&std::path::Path) -> Result<String, String>,
+    source_cache: &mut SonarSourceCache,
 ) -> Result<serde_json::Value, String> {
     sonar_validate_range(&issue.range, "primary location")?;
     let mut primary_location = serde_json::json!({
@@ -1821,7 +1910,8 @@ fn sonar_import_issue(
         "filePath": file_path,
     });
     if !issue.range.is_file_level() {
-        primary_location["textRange"] = sonar_text_range(&issue.range);
+        let source = source_cache.load(source_path, source_loader)?;
+        primary_location["textRange"] = sonar_text_range(&issue.range, source)?;
     }
     let mut imported = serde_json::json!({
         "ruleId": sonar_rule_id(&issue.rule_key),
@@ -1840,12 +1930,14 @@ fn sonar_import_issue(
                 })?,
                 None => file_path,
             };
+            let secondary_source_path = location.path.as_deref().unwrap_or(source_path);
             let mut value = serde_json::json!({
                 "message": location.message,
                 "filePath": secondary_file_path,
             });
             if !location.range.is_file_level() {
-                value["textRange"] = sonar_text_range(&location.range);
+                let source = source_cache.load(secondary_source_path, source_loader)?;
+                value["textRange"] = sonar_text_range(&location.range, source)?;
             }
             Ok(value)
         })
@@ -1856,7 +1948,6 @@ fn sonar_import_issue(
     }
     Ok(imported)
 }
-
 fn sonar_validate_range(range: &hoonarqube_ir::Range, context: &str) -> Result<(), String> {
     if !range.is_file_level()
         && (range.start.line == 0
@@ -1870,13 +1961,40 @@ fn sonar_validate_range(range: &hoonarqube_ir::Range, context: &str) -> Result<(
     Ok(())
 }
 
-fn sonar_text_range(range: &hoonarqube_ir::Range) -> serde_json::Value {
-    serde_json::json!({
+fn sonar_text_range(
+    range: &hoonarqube_ir::Range,
+    source: &SonarSource,
+) -> Result<serde_json::Value, String> {
+    let start_column = sonar_utf16_column(source, range.start.line, range.start.column)?;
+    let end_column = sonar_utf16_column(source, range.end.line, range.end.column)?;
+    Ok(serde_json::json!({
         "startLine": range.start.line,
-        "startColumn": range.start.column.saturating_add(1),
+        "startColumn": start_column,
         "endLine": range.end.line,
-        "endColumn": range.end.column.saturating_add(1),
-    })
+        "endColumn": end_column,
+    }))
+}
+
+fn sonar_utf16_column(source: &SonarSource, line: u32, column: u32) -> Result<u32, String> {
+    let line_text = source.line(line)?;
+    let target = usize::try_from(column).map_err(|_| "Sonar column is too large".to_owned())?;
+    let mut scalar_count = 0_usize;
+    let mut utf16_count = 0_usize;
+    for character in line_text.chars() {
+        if scalar_count == target {
+            break;
+        }
+        utf16_count = utf16_count
+            .checked_add(character.len_utf16())
+            .ok_or_else(|| "Sonar UTF-16 column overflow".to_owned())?;
+        scalar_count += 1;
+    }
+    if scalar_count != target {
+        return Err(format!(
+            "Sonar source line {line} has no Unicode scalar column {column}"
+        ));
+    }
+    u32::try_from(utf16_count).map_err(|_| "Sonar UTF-16 column overflow".to_owned())
 }
 
 fn sarif_level(severity: hoonarqube_catalog::github_quality::Severity) -> &'static str {
@@ -2683,6 +2801,71 @@ mod tests {
             },
         }
     }
+    /// Existing schema tests use synthetic reports rather than files on disk.
+    /// Give those tests deterministic ASCII source snapshots while production
+    /// export remains strict about loading the analyzed source.
+    fn sonar_import_value_for_test(
+        catalog: &Catalog,
+        reports: &[FileReport],
+    ) -> Result<serde_json::Value, String> {
+        let mut source_lines = std::collections::HashMap::<std::path::PathBuf, Vec<usize>>::new();
+        let mut add_range = |path: &std::path::Path, range: &Range| {
+            if range.is_file_level()
+                || range.start.column == u32::MAX
+                || range.end.column == u32::MAX
+                || range.start.line == 0
+                || range.end.line == 0
+            {
+                return;
+            }
+            let max_line = range.start.line.max(range.end.line) as usize;
+            let lines = source_lines.entry(path.to_path_buf()).or_default();
+            lines.resize(lines.len().max(max_line), 0);
+            lines[range.start.line as usize - 1] =
+                lines[range.start.line as usize - 1].max(range.start.column as usize);
+            lines[range.end.line as usize - 1] =
+                lines[range.end.line as usize - 1].max(range.end.column as usize);
+        };
+        for report in reports {
+            for issue in &report.issues {
+                add_range(&report.path, &issue.range);
+                for location in issue.flows.iter().flat_map(|flow| &flow.locations) {
+                    add_range(
+                        location.path.as_deref().unwrap_or(&report.path),
+                        &location.range,
+                    );
+                }
+            }
+        }
+        let sources = source_lines
+            .into_iter()
+            .map(|(path, mut lines)| {
+                if lines.is_empty() {
+                    lines.push(0);
+                }
+                (
+                    path,
+                    lines
+                        .into_iter()
+                        .map(|length| "x".repeat(length))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                )
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        let mut source_cache = SonarSourceCache::default();
+        sonar_import_value_with_source_loader(
+            catalog,
+            reports,
+            &mut |path| {
+                sources
+                    .get(path)
+                    .cloned()
+                    .ok_or_else(|| format!("missing synthetic Sonar source {}", path.display()))
+            },
+            &mut source_cache,
+        )
+    }
 
     #[test]
     fn sonar_import_maps_findings_to_generic_schema() {
@@ -2721,7 +2904,7 @@ mod tests {
             ),
         ];
 
-        let value = sonar_import_value(embedded(), &reports).unwrap();
+        let value = sonar_import_value_for_test(embedded(), &reports).unwrap();
         let rules = value["rules"].as_array().expect("rules array");
         let issues = value["issues"].as_array().expect("issues array");
         assert_eq!(rules.len(), 2);
@@ -2746,9 +2929,9 @@ mod tests {
         );
         assert_eq!(first["primaryLocation"]["filePath"], "src/bad.js");
         assert_eq!(first["primaryLocation"]["textRange"]["startLine"], 1);
-        assert_eq!(first["primaryLocation"]["textRange"]["startColumn"], 1);
+        assert_eq!(first["primaryLocation"]["textRange"]["startColumn"], 0);
         assert_eq!(first["primaryLocation"]["textRange"]["endLine"], 1);
-        assert_eq!(first["primaryLocation"]["textRange"]["endColumn"], 5);
+        assert_eq!(first["primaryLocation"]["textRange"]["endColumn"], 4);
 
         assert_eq!(issues[1]["ruleId"], "python:LineLength");
         assert_eq!(issues[1]["primaryLocation"]["filePath"], "src/long.py");
@@ -2759,7 +2942,7 @@ mod tests {
 
     #[test]
     fn sonar_import_of_clean_report_has_empty_issue_list() {
-        let value = sonar_import_value(embedded(), &[]).unwrap();
+        let value = sonar_import_value_for_test(embedded(), &[]).unwrap();
         assert_eq!(value["rules"].as_array().map(Vec::len), Some(0));
         assert_eq!(value["issues"].as_array().map(Vec::len), Some(0));
     }
@@ -2796,7 +2979,7 @@ mod tests {
             ),
             FlowLocation::in_primary_file("Unbounded copy occurs here.", sink_range),
         ]);
-        let value = sonar_import_value(
+        let value = sonar_import_value_for_test(
             embedded(),
             &[sample_report("src/archive.go", "go", vec![issue])],
         )
@@ -2814,10 +2997,10 @@ mod tests {
         assert_eq!(secondary.len(), 2, "primary sink is not duplicated");
         assert_eq!(secondary[0]["filePath"], "src/archive.go");
         assert_eq!(secondary[0]["textRange"]["startLine"], 2);
-        assert_eq!(secondary[0]["textRange"]["startColumn"], 5);
-        assert_eq!(secondary[0]["textRange"]["endColumn"], 25);
-        assert_eq!(secondary[1]["textRange"]["startColumn"], 1);
-        assert_eq!(secondary[1]["textRange"]["endColumn"], 2);
+        assert_eq!(secondary[0]["textRange"]["startColumn"], 4);
+        assert_eq!(secondary[0]["textRange"]["endColumn"], 24);
+        assert_eq!(secondary[1]["textRange"]["startColumn"], 0);
+        assert_eq!(secondary[1]["textRange"]["endColumn"], 1);
     }
 
     #[test]
@@ -2830,14 +3013,14 @@ mod tests {
                 end: Pos { line: 1, column: 2 },
             },
         );
-        let value = sonar_import_value(
+        let value = sonar_import_value_for_test(
             embedded(),
             &[sample_report("src/é.py", "python", vec![issue])],
         )
         .expect("Unicode Generic Issue output");
         let range = &value["issues"][0]["primaryLocation"]["textRange"];
-        assert_eq!(range["startColumn"], 2);
-        assert_eq!(range["endColumn"], 3);
+        assert_eq!(range["startColumn"], 1);
+        assert_eq!(range["endColumn"], 2);
         assert_eq!(
             value["issues"][0]["primaryLocation"]["filePath"],
             "src/é.py"
@@ -2853,10 +3036,10 @@ mod tests {
                 column: u32::MAX,
             },
         };
-        let converted = sonar_text_range(&boundary);
-        assert_eq!(converted["startColumn"], u32::MAX);
-        assert_eq!(converted["endColumn"], u32::MAX);
-        let error = sonar_import_value(
+        let source = SonarSource::new("x".to_owned());
+        let converted = sonar_text_range(&boundary, &source);
+        assert!(converted.is_err());
+        let error = sonar_import_value_for_test(
             embedded(),
             &[sample_report(
                 "src/boundary.py",
@@ -2866,6 +3049,132 @@ mod tests {
         )
         .expect_err("maximum columns must be rejected");
         assert!(error.contains("invalid primary location range"));
+    }
+
+    #[test]
+    fn sonar_columns_are_zero_based_utf16_for_six_source_variants() {
+        let cases = [
+            ("ascii-lf", "const value=1; value=2;\n", 15, 23, 15, 23),
+            ("ascii-crlf", "const value=1; value=2;\r\n", 15, 23, 15, 23),
+            (
+                "ascii-no-newline",
+                "const value=1; value=2;",
+                15,
+                23,
+                15,
+                23,
+            ),
+            (
+                "unicode-bmp",
+                "/*ü*/ const value=1; value=2;\n",
+                21,
+                29,
+                21,
+                29,
+            ),
+            (
+                "unicode-astral",
+                "/*😀*/ const value=1; value=2;\n",
+                21,
+                29,
+                22,
+                30,
+            ),
+            (
+                "unicode-two-astral",
+                "/*😀😀*/ const value=1; value=2;\n",
+                22,
+                30,
+                24,
+                32,
+            ),
+        ];
+        let options = analyze::analyzer_options_bundle(embedded());
+        for (label, source, native_start, native_end, expected_start, expected_end) in cases {
+            let directory = temp_fix_path(label);
+            std::fs::create_dir_all(&directory).expect("create Sonar fixture directory");
+            let path = directory.join("source.js");
+            std::fs::write(&path, source).expect("write Sonar fixture");
+            let report =
+                hoonarqube_core::analyze(&path, source, &options).expect("JavaScript report");
+            let native_issue = report
+                .issues
+                .iter()
+                .find(|issue| issue.rule_key == "javascript:S122")
+                .expect("S122 finding");
+            assert_eq!(
+                native_issue.range.start.column, native_start,
+                "{label} native start"
+            );
+            assert_eq!(
+                native_issue.range.end.column, native_end,
+                "{label} native end"
+            );
+            let native = serde_json::to_value(&report).expect("native JSON report");
+            let native_json_issue = native["issues"]
+                .as_array()
+                .expect("native issues")
+                .iter()
+                .find(|issue| issue["rule_key"] == "javascript:S122")
+                .expect("native S122");
+            assert_eq!(native_json_issue["range"]["start"]["column"], native_start);
+            assert_eq!(native_json_issue["range"]["end"]["column"], native_end);
+            let value = sonar_import_value(embedded(), &[report]).expect("Sonar output");
+            let finding = value["issues"]
+                .as_array()
+                .expect("Sonar issues")
+                .iter()
+                .find(|issue| issue["ruleId"] == "javascript:S122")
+                .expect("Sonar S122");
+            let range = &finding["primaryLocation"]["textRange"];
+            assert_eq!(range["startColumn"], expected_start, "{label} start");
+            assert_eq!(range["endColumn"], expected_end, "{label} end");
+            let _ = std::fs::remove_dir_all(directory);
+        }
+    }
+
+    #[test]
+    fn sonar_columns_convert_multiline_end_and_cross_file_secondary_ranges() {
+        let directory = temp_fix_path("multiline-secondary");
+        std::fs::create_dir_all(&directory).expect("create Sonar fixture directory");
+        let primary_path = directory.join("primary.js");
+        let secondary_path = directory.join("secondary.js");
+        std::fs::write(&primary_path, "header\n😀value\nfinish😀\n")
+            .expect("write primary Sonar fixture");
+        std::fs::write(&secondary_path, "é😀x\n").expect("write secondary Sonar fixture");
+        let issue = Issue::new(
+            "javascript:S999999",
+            "Multiline position finding",
+            Range {
+                start: Pos { line: 2, column: 0 },
+                end: Pos { line: 3, column: 7 },
+            },
+        )
+        .with_flow(vec![FlowLocation {
+            path: Some(secondary_path.clone()),
+            message: "Cross-file secondary location.".to_owned(),
+            range: Range {
+                start: Pos { line: 1, column: 0 },
+                end: Pos { line: 1, column: 3 },
+            },
+        }]);
+        let report = sample_report(
+            primary_path.to_str().expect("primary fixture path"),
+            "javascript",
+            vec![issue],
+        );
+        let value = sonar_import_value(embedded(), &[report]).expect("Sonar output");
+        let primary = &value["issues"][0]["primaryLocation"]["textRange"];
+        assert_eq!(primary["startLine"], 2);
+        assert_eq!(primary["startColumn"], 0);
+        assert_eq!(primary["endLine"], 3);
+        assert_eq!(primary["endColumn"], 8);
+        let secondary = &value["issues"][0]["secondaryLocations"][0]["textRange"];
+        assert_eq!(secondary["startLine"], 1);
+        assert_eq!(secondary["startColumn"], 0);
+        assert_eq!(secondary["endLine"], 1);
+        assert_eq!(secondary["endColumn"], 4);
+        let _ = std::fs::remove_dir_all(directory);
     }
 
     #[test]
@@ -2881,7 +3190,7 @@ mod tests {
                 flows: Vec::new(),
             }],
         )];
-        let value = sonar_import_value(embedded(), &reports).unwrap();
+        let value = sonar_import_value_for_test(embedded(), &reports).unwrap();
         let primary = &value["issues"][0]["primaryLocation"];
         assert_eq!(primary["filePath"], "src/no-newline.py");
         assert!(primary.get("textRange").is_none());
@@ -2904,7 +3213,7 @@ mod tests {
             }],
         )];
 
-        let value = sonar_import_value(embedded(), &reports).unwrap();
+        let value = sonar_import_value_for_test(embedded(), &reports).unwrap();
         let rule = &value["rules"][0];
         assert_eq!(rule["id"], "python:S999999");
         assert_eq!(rule["severity"], "INFO");
@@ -2931,7 +3240,7 @@ mod tests {
             sample_report("src/a.cs", "csharp", vec![issue("csharpsquid:S112")]),
         ];
 
-        let value = sonar_import_value(embedded(), &reports).unwrap();
+        let value = sonar_import_value_for_test(embedded(), &reports).unwrap();
         let ids = value["rules"]
             .as_array()
             .expect("rules")
@@ -2958,9 +3267,10 @@ mod tests {
         let first = sample_report("zeta.py", "python", vec![make_issue("python:S112", 2)]);
         let second = sample_report("alpha.py", "python", vec![make_issue("python:S113", 1)]);
 
-        let left =
-            sonar_import_value(embedded(), &[first.clone(), second.clone()]).expect("Sonar output");
-        let right = sonar_import_value(embedded(), &[second, first]).expect("Sonar output");
+        let left = sonar_import_value_for_test(embedded(), &[first.clone(), second.clone()])
+            .expect("Sonar output");
+        let right =
+            sonar_import_value_for_test(embedded(), &[second, first]).expect("Sonar output");
 
         assert_eq!(left["issues"], right["issues"]);
     }
@@ -2976,7 +3286,7 @@ mod tests {
             b's', b'r', b'c', b'/', 0xff, b'.', b'p', b'y',
         ]));
 
-        let error = sonar_import_value(embedded(), &[report]).expect_err("invalid path");
+        let error = sonar_import_value_for_test(embedded(), &[report]).expect_err("invalid path");
         assert!(error.contains("primary report path is not valid UTF-8"));
     }
 
@@ -3006,7 +3316,7 @@ mod tests {
         }]);
         let report = sample_report("src/valid.py", "python", vec![issue]);
 
-        let error = sonar_import_value(embedded(), &[report]).expect_err("invalid path");
+        let error = sonar_import_value_for_test(embedded(), &[report]).expect_err("invalid path");
         assert!(error.contains("secondary flow path is not valid UTF-8"));
     }
 
@@ -3020,7 +3330,7 @@ mod tests {
                 end: Pos { line: 2, column: 0 },
             },
         );
-        let primary_error = sonar_import_value(
+        let primary_error = sonar_import_value_for_test(
             embedded(),
             &[sample_report(
                 "src/bad.py",
@@ -3046,7 +3356,7 @@ mod tests {
                 end: Pos { line: 1, column: 1 },
             },
         )]);
-        let flow_error = sonar_import_value(
+        let flow_error = sonar_import_value_for_test(
             embedded(),
             &[sample_report("src/bad.py", "python", vec![malformed_flow])],
         )

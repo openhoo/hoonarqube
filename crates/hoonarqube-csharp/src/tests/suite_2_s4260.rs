@@ -72,12 +72,27 @@ fn s3216_requires_configure_await_false() {
 #[test]
 fn s4462_flags_all_blocking_shapes() {
     let report = analyze_default(
-        "class C\n{\n    void Block(Task task)\n    {\n        var v = task.Result;\n        task.Wait();\n        task.GetAwaiter().GetResult();\n    }\n}\n",
+        "using System.Threading.Tasks;\n\
+         class C\n\
+         {\n\
+             void Block(Task<int> task)\n\
+             {\n\
+                 var v = task.Result;\n\
+                 task.Wait();\n\
+                 task.GetAwaiter().GetResult();\n\
+             }\n\
+         }\n",
     );
-    assert_eq!(with_key(&report, "csharpsquid:S4462").len(), 2);
+    assert_eq!(with_key(&report, "csharpsquid:S4462").len(), 3);
 
     let clean = analyze_default(
-        "class C\n{\n    async System.Threading.Tasks.Task Await(Task task)\n    {\n        await task;\n    }\n}\n",
+        "class C\n\
+         {\n\
+             async System.Threading.Tasks.Task Await(System.Threading.Tasks.Task task)\n\
+             {\n\
+                 await task;\n\
+             }\n\
+         }\n",
     );
     assert!(with_key(&clean, "csharpsquid:S4462").is_empty());
 }

@@ -273,6 +273,7 @@ impl ComplexityWalker {
 /// descent reaches them.
 pub(crate) struct FunctionMetricsCollector<'index> {
     pub(crate) sink: IssueSink<'index>,
+    pub(crate) array_call_spans: BTreeSet<u32>,
 }
 
 impl<'a> Visit<'a> for FunctionMetricsCollector<'_> {

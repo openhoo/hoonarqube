@@ -1,8 +1,8 @@
 // Rule module s5856_constant_regex_site (generated).
 use crate::engine::pattern_parser::{
     AnchorKind, ClassItem, GraphemeComponentKind, ParsedRegex, PatternNode, RegexSite,
-    contains_unbounded_quantifier, grapheme_component_kind, node_can_match_empty,
-    parse_regex_pattern, pattern_complexity, sequence_can_match_empty, walk_pattern_nodes,
+    ShorthandClass, contains_unbounded_quantifier, grapheme_component_kind, node_can_match_empty,
+    parse_regex_pattern, pattern_complexity, walk_pattern_nodes,
 };
 use crate::rules::regex_family::collectors::{
     REGEX_COMPLEXITY_THRESHOLD, emit_concise_class_rewrite, emit_space_runs_in_sequence,
@@ -158,42 +158,205 @@ fn check_empty_groups(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedReg
     }
 }
 
-/// `S5869`: repeated characters inside `[...]`. Case-insensitive folding is
-/// out of subset scope.
+/// `S5869`: overlapping members inside `[...]`. Character ranges,
+/// shorthands, and ASCII case folding are represented as small unions of
+/// code-point ranges so each later member can be compared with prior ones.
 fn check_duplicate_class_members(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+    let unicode_mode = site.has_flag('u') || site.has_flag('v');
+    let ignore_case = site.has_flag('i');
     for alternative in &parsed.alternatives {
         walk_pattern_nodes(alternative, &mut |node| {
-            let PatternNode::Class { items, .. } = node else {
+            let PatternNode::Class { items, end, .. } = node else {
                 return;
             };
-            let mut seen: Vec<(char, usize)> = Vec::new();
-            for item in items {
-                if let ClassItem::Char { ch, pos } = item {
-                    if let Some((_, first_pos)) = seen.iter().find(|(seen, _)| seen == ch) {
-                        sink.emit_span(
-                            RuleScope::Both,
-                            "S5869",
-                            "Remove duplicates in this character class.",
-                            site.sub_span(*first_pos, first_pos + ch.len_utf8()),
-                        );
-                    } else {
-                        seen.push((*ch, *pos));
-                    }
+            let mut seen: Vec<(RegexCharacterSet, usize, usize)> = Vec::new();
+            for (index, item) in items.iter().enumerate() {
+                let Some(set) = class_item_set(item, unicode_mode, ignore_case) else {
+                    continue;
+                };
+                let next = items.get(index + 1);
+                let (start, end) = class_item_span(site, item, next, *end);
+                let overlap = seen
+                    .iter()
+                    .find(|(previous, _, _)| previous.intersects(&set))
+                    .map(|(_, start, end)| (*start, *end));
+                if let Some((start, end)) = overlap {
+                    sink.emit_span(
+                        RuleScope::Both,
+                        "S5869",
+                        "Remove duplicates in this character class.",
+                        site.sub_span(start, end),
+                    );
                 }
+                seen.push((set, start, end));
             }
         });
     }
 }
 
-/// `S6397`: `[a]` asserts no more than `a`.
+const MAX_REGEX_CODE_POINT: u32 = 0x10_FFFF;
+
+#[derive(Debug)]
+struct RegexCharacterSet {
+    ranges: Vec<(u32, u32)>,
+}
+
+impl RegexCharacterSet {
+    fn intersects(&self, other: &Self) -> bool {
+        self.ranges.iter().any(|&(left, left_end)| {
+            other
+                .ranges
+                .iter()
+                .any(|&(right, right_end)| left <= right_end && right <= left_end)
+        })
+    }
+
+    fn add_ascii_case_variants(&mut self) {
+        let original = self.ranges.clone();
+        for (low, high) in original {
+            let high = high.min(0x7F);
+            if low > high {
+                continue;
+            }
+            for code_point in low..=high {
+                let Some(ch) = char::from_u32(code_point) else {
+                    continue;
+                };
+                if ch.is_ascii_alphabetic() {
+                    let lower = u32::from(ch.to_ascii_lowercase());
+                    let upper = u32::from(ch.to_ascii_uppercase());
+                    self.ranges.push((lower, lower));
+                    self.ranges.push((upper, upper));
+                }
+            }
+        }
+    }
+}
+
+fn class_item_set(
+    item: &ClassItem,
+    unicode_mode: bool,
+    ignore_case: bool,
+) -> Option<RegexCharacterSet> {
+    let mut set = match item {
+        ClassItem::Char { ch, .. } => RegexCharacterSet {
+            ranges: vec![(u32::from(*ch), u32::from(*ch))],
+        },
+        ClassItem::Range { low, high, .. } => RegexCharacterSet {
+            ranges: vec![(u32::from(*low), u32::from(*high))],
+        },
+        ClassItem::Shorthand { negated, kind, .. } => RegexCharacterSet {
+            ranges: shorthand_ranges(*kind, *negated, unicode_mode, ignore_case),
+        },
+        ClassItem::Property { .. } => return None,
+    };
+    if ignore_case {
+        set.add_ascii_case_variants();
+    }
+    Some(set)
+}
+
+fn shorthand_ranges(
+    kind: ShorthandClass,
+    negated: bool,
+    unicode_mode: bool,
+    ignore_case: bool,
+) -> Vec<(u32, u32)> {
+    let mut ranges = match kind {
+        ShorthandClass::Digit => vec![(u32::from(b'0'), u32::from(b'9'))],
+        ShorthandClass::Word => vec![
+            (u32::from(b'0'), u32::from(b'9')),
+            (u32::from(b'A'), u32::from(b'Z')),
+            (u32::from(b'_'), u32::from(b'_')),
+            (u32::from(b'a'), u32::from(b'z')),
+        ],
+        ShorthandClass::Space => vec![(0x09, 0x0D), (0x20, 0x20)],
+    };
+    if matches!(kind, ShorthandClass::Space) {
+        ranges.extend([
+            (0xA0, 0xA0),
+            (0x1680, 0x1680),
+            (0x2000, 0x200A),
+            (0x2028, 0x2029),
+            (0x202F, 0x202F),
+            (0x205F, 0x205F),
+            (0x3000, 0x3000),
+            (0xFEFF, 0xFEFF),
+        ]);
+    }
+    if unicode_mode && ignore_case && matches!(kind, ShorthandClass::Word) {
+        ranges.extend([(0x017F, 0x017F), (0x212A, 0x212A)]);
+    }
+    if negated {
+        complement_ranges(&ranges)
+    } else {
+        ranges
+    }
+}
+
+fn complement_ranges(ranges: &[(u32, u32)]) -> Vec<(u32, u32)> {
+    let mut complement = Vec::new();
+    let mut next = 0;
+    for &(low, high) in ranges {
+        if next < low {
+            complement.push((next, low - 1));
+        }
+        next = high.saturating_add(1);
+    }
+    if next <= MAX_REGEX_CODE_POINT {
+        complement.push((next, MAX_REGEX_CODE_POINT));
+    }
+    complement
+}
+
+fn class_item_start(site: &RegexSite, item: &ClassItem) -> usize {
+    let position = match item {
+        ClassItem::Char { pos, .. }
+        | ClassItem::Shorthand { pos, .. }
+        | ClassItem::Property { pos, .. } => *pos,
+        ClassItem::Range { start, .. } => *start,
+    };
+    if position > 0 && site.pattern.as_bytes().get(position - 1) == Some(&b'\\') {
+        position - 1
+    } else {
+        position
+    }
+}
+
+fn class_item_span(
+    site: &RegexSite,
+    item: &ClassItem,
+    next: Option<&ClassItem>,
+    class_end: usize,
+) -> (usize, usize) {
+    if let ClassItem::Char { ch, pos } = item {
+        // Preserve the historical duplicate span for literal characters.
+        (*pos, *pos + ch.len_utf8())
+    } else {
+        let start = class_item_start(site, item);
+        let end = next.map_or(class_end.saturating_sub(1), |next_item| {
+            class_item_start(site, next_item)
+        });
+        (start, end)
+    }
+}
+
+/// `S6397`: a safe singleton class (`[a]`, `[\d]`, or `[\p{L}]`) asserts no
+/// more than the same atom. Negated classes, ranges, and regex metacharacters
+/// must stay classes because replacing them would change the pattern.
 fn check_single_member_class(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     for alternative in &parsed.alternatives {
         walk_pattern_nodes(alternative, &mut |node| {
             if let PatternNode::Class {
-                items, start, end, ..
+                negated,
+                items,
+                start,
+                end,
+                ..
             } = node
+                && !*negated
                 && items.len() == 1
-                && matches!(items[0], ClassItem::Char { .. })
+                && singleton_class_item_is_safe(site, &items[0])
             {
                 sink.emit_span(
                     RuleScope::Both,
@@ -204,6 +367,33 @@ fn check_single_member_class(sink: &mut IssueSink, site: &RegexSite, parsed: &Pa
             }
         });
     }
+}
+
+fn singleton_class_item_is_safe(site: &RegexSite, item: &ClassItem) -> bool {
+    match item {
+        ClassItem::Char { ch, pos } => singleton_char_is_safe(site, *ch, *pos),
+        ClassItem::Shorthand { .. } => true,
+        ClassItem::Property { .. } => site.has_flag('u') || site.has_flag('v'),
+        ClassItem::Range { .. } => false,
+    }
+}
+
+fn singleton_char_is_safe(site: &RegexSite, ch: char, pos: usize) -> bool {
+    // Without `u`/`v`, a non-BMP class member is matched as UTF-16 code
+    // units, while the replacement atom would match the full scalar.
+    if !site.has_flag('u') && !site.has_flag('v') && ch.len_utf16() > 1 {
+        return false;
+    }
+    if "[{(.?+*$^\\|)]}/".contains(ch) {
+        return false;
+    }
+    if pos == 0 || site.pattern.as_bytes().get(pos - 1) != Some(&b'\\') {
+        return true;
+    }
+    site.pattern
+        .as_bytes()
+        .get(pos)
+        .is_none_or(|byte| !matches!(*byte, b'b' | b'B' | b'k' | b'1'..=b'9'))
 }
 
 /// `S6353`: `{1}` / `{1,1}` quantifiers and duplicate-only classes with a
@@ -245,75 +435,106 @@ fn check_space_runs(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex
     }
 }
 
-/// `S5842`: a consuming quantifier over an empty-matchable group loops
-/// forever (`(a*)+`). Subset: `min >= 1` over non-lookaround groups.
+/// `S5842`: a quantified body that can match the empty string can be
+/// repeated without consuming input. The body's nullability is independent
+/// of the outer quantifier minimum (`(a?)*` and `(a?)+` are both reported).
 fn check_empty_string_repetition(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     for alternative in &parsed.alternatives {
         walk_pattern_nodes(alternative, &mut |node| {
             if let PatternNode::Quantified {
-                min,
-                node: target,
-                pos,
-                ..
+                node: target, pos, ..
             } = node
-                && *min >= 1
-                && let PatternNode::Group {
-                    kind,
-                    alternatives,
-                    start,
-                    end: _,
-                } = target.as_ref()
-                && !kind.is_lookaround()
-                && alternatives
-                    .iter()
-                    .any(|branch| sequence_can_match_empty(branch))
+                && node_can_match_empty(target)
             {
+                let start = node_start(target).unwrap_or(*pos);
                 sink.emit_span(
                     RuleScope::Both,
                     "S5842",
                     "Rework this part of the regex to not match the empty string.",
-                    site.sub_span(*start, *pos),
+                    site.sub_span(start, *pos),
                 );
             }
         });
     }
 }
 
-/// `S6019`: a reluctant quantifier directly followed by something that can
-/// match empty renders the laziness pointless.
+fn emit_pointless_reluctant_quantifier(
+    sink: &mut IssueSink,
+    site: &RegexSite,
+    quantifier: &PatternNode,
+) {
+    let PatternNode::Quantified {
+        node,
+        min,
+        pos,
+        verbose,
+        ..
+    } = quantifier
+    else {
+        return;
+    };
+    let plural = if *min == 1 { "" } else { "s" };
+    sink.emit_span(
+        RuleScope::Both,
+        "S6019",
+        &format!(
+            "Fix this reluctant quantifier that will only ever match {min} repetition{plural}."
+        ),
+        site.sub_span(node_start(node).unwrap_or(*pos), *pos + verbose.len()),
+    );
+}
+
+/// `S6019`: a reluctant quantifier at the end of a sequence is pointless.
+/// A required suffix keeps laziness meaningful; an optional suffix or an end
+/// assertion does not.
 fn check_pointless_reluctant_quantifier(
     sink: &mut IssueSink,
     site: &RegexSite,
     parsed: &ParsedRegex,
 ) {
     for alternative in &parsed.alternatives {
-        for_every_sequence(alternative, &mut |sequence| {
-            for pair in sequence.windows(2) {
-                if let PatternNode::Quantified {
-                    greedy: false,
-                    node,
-                    min,
-                    pos,
-                    verbose,
-                    ..
-                } = &pair[0]
-                    && node_can_match_empty(&pair[1])
-                {
-                    let plural = if *min == 1 { "" } else { "s" };
-                    sink.emit_span(
-                        RuleScope::Both,
-                        "S6019",
-                        &format!(
-                            "Fix this reluctant quantifier that will only ever match {min} repetition{plural}."
-                        ),
-                        site.sub_span(
-                            node_start(node).unwrap_or(*pos),
-                            *pos + verbose.len(),
-                        ),
-                    );
-                }
-            }
-        });
+        check_reluctant_sequence(sink, site, alternative);
+    }
+}
+
+fn check_reluctant_sequence(sink: &mut IssueSink, site: &RegexSite, sequence: &[PatternNode]) {
+    let Some(last) = sequence.last() else {
+        return;
+    };
+    if matches!(last, PatternNode::Quantified { greedy: false, .. }) {
+        emit_pointless_reluctant_quantifier(sink, site, last);
+        return;
+    }
+    if sequence.len() < 2 {
+        return;
+    }
+    let previous = &sequence[sequence.len() - 2];
+    let PatternNode::Quantified {
+        greedy: false,
+        node,
+        pos,
+        verbose,
+        ..
+    } = previous
+    else {
+        return;
+    };
+    match last {
+        PatternNode::Anchor {
+            kind: AnchorKind::End,
+            ..
+        } => {
+            sink.emit_span(
+                RuleScope::Both,
+                "S6019",
+                "Remove the '?' from this unnecessarily reluctant quantifier.",
+                site.sub_span(node_start(node).unwrap_or(*pos), *pos + verbose.len()),
+            );
+        }
+        PatternNode::Quantified { min: 0, .. } => {
+            emit_pointless_reluctant_quantifier(sink, site, previous);
+        }
+        _ => {}
     }
 }
 
@@ -541,17 +762,48 @@ mod tests {
     }
 
     #[test]
-    fn single_member_classes_are_flagged() {
+    fn single_member_classes_are_flagged_only_when_safe() {
         let single = js_keys("const re = /[a]/;\n");
         assert_eq!(count_key(&single, "javascript:S6397"), 1);
 
-        // Shorthand escapes are not literal characters and stay out of the
-        // rewrite scope.
-        let escape = js_keys("const re = /[\\d]/;\n");
-        assert_eq!(count_key(&escape, "javascript:S6397"), 0);
+        // Shorthand and Unicode property escapes are single safe atoms too.
+        let shorthand = js_keys("const re = /[\\d]/;\n");
+        assert_eq!(count_key(&shorthand, "javascript:S6397"), 1);
+        let property = js_keys("const re = /[\\p{L}]/u;\n");
+        assert_eq!(count_key(&property, "javascript:S6397"), 1);
+        // Without Unicode mode, `\p{L}` is a sequence of class literals.
+        let legacy_property = js_keys("const re = /[\\p{L}]/;\n");
+        assert_eq!(count_key(&legacy_property, "javascript:S6397"), 0);
 
-        let clean = js_keys("const re = /[ab]/;\n");
-        assert_eq!(count_key(&clean, "javascript:S6397"), 0);
+        // Negation, ranges, and metacharacters cannot be replaced safely.
+        let negated = js_keys("const re = /[^a]/;\n");
+        assert_eq!(count_key(&negated, "javascript:S6397"), 0);
+        let range = js_keys("const re = /[a-z]/;\n");
+        assert_eq!(count_key(&range, "javascript:S6397"), 0);
+        for source in [
+            "const re = /[.]/;\n",
+            "const re = /[|]/;\n",
+            "const re = /[)]/;\n",
+            "const re = /[\\]]/;\n",
+            "const re = /[}]/;\n",
+            "const re = /[\\.]/;\n",
+        ] {
+            assert_eq!(count_key(&js_keys(source), "javascript:S6397"), 0);
+        }
+        let constructor_slash = js_keys("const re = new RegExp('[/]');\n");
+        assert_eq!(count_key(&constructor_slash, "javascript:S6397"), 0);
+
+        // A non-BMP literal is not a safely replaceable singleton without
+        // Unicode mode because the class and bare atom use UTF-16 differently.
+        let legacy_emoji = js_keys("const re = /[😀]/;\n");
+        assert_eq!(count_key(&legacy_emoji, "javascript:S6397"), 0);
+        let unicode_emoji = js_keys("const re = /[😀]/u;\n");
+        assert_eq!(count_key(&unicode_emoji, "javascript:S6397"), 1);
+
+        let constructor = js_keys("const re = new RegExp('[a]');\n");
+        assert_eq!(count_key(&constructor, "javascript:S6397"), 1);
+        let typescript = findings("const re = /[\\d]/;\n", JstsLanguage::TypeScript);
+        assert_eq!(count_key(&typescript, "typescript:S6397"), 1);
     }
 
     #[test]
@@ -577,12 +829,36 @@ mod tests {
     }
 
     #[test]
-    fn pointless_reluctant_quantifiers_are_flagged() {
-        let reluctant = js_keys("const re = /a*?b*/;\n");
-        assert_eq!(count_key(&reluctant, "javascript:S6019"), 1);
+    fn reluctant_quantifiers_follow_trailing_suffix_rules() {
+        let ending_star = js_keys("const re = /a*?/;\n");
+        assert_eq!(count_key(&ending_star, "javascript:S6019"), 1);
+        let ending_plus = js_keys("const re = /a+?/;\n");
+        assert_eq!(count_key(&ending_plus, "javascript:S6019"), 1);
 
-        let clean = js_keys("const re = /a*?b/;\n");
-        assert_eq!(count_key(&clean, "javascript:S6019"), 0);
+        let required_suffix = js_keys("const re = /a*?b/;\n");
+        assert_eq!(count_key(&required_suffix, "javascript:S6019"), 0);
+        let optional_suffix = js_keys("const re = /a*?b*/;\n");
+        assert_eq!(count_key(&optional_suffix, "javascript:S6019"), 1);
+        let optional_group = js_keys("const re = /a*?(?:b)?/;\n");
+        assert_eq!(count_key(&optional_group, "javascript:S6019"), 1);
+        let end_anchor = js_keys("const re = /a*?$/;\n");
+        assert_eq!(count_key(&end_anchor, "javascript:S6019"), 1);
+        let top_level_alternation = js_keys("const re = /a*?|b/;\n");
+        assert_eq!(count_key(&top_level_alternation, "javascript:S6019"), 1);
+
+        // Group internals are not candidates on their own; the containing
+        // pattern must end at the reluctant quantifier.
+        let grouped = js_keys("const re = /(?:a*?)/;\n");
+        assert_eq!(count_key(&grouped, "javascript:S6019"), 0);
+        let alternation = js_keys("const re = /(?:a*?|b)/;\n");
+        assert_eq!(count_key(&alternation, "javascript:S6019"), 0);
+        let required_group = js_keys("const re = /(a*?)b/;\n");
+        assert_eq!(count_key(&required_group, "javascript:S6019"), 0);
+
+        let constructor = js_keys("const re = new RegExp('a+?');\n");
+        assert_eq!(count_key(&constructor, "javascript:S6019"), 1);
+        let typescript = findings("const re = /a+?/;\n", JstsLanguage::TypeScript);
+        assert_eq!(count_key(&typescript, "typescript:S6019"), 1);
     }
 
     #[test]
@@ -639,5 +915,65 @@ mod tests {
 
         let under = js_keys("const re = /\\d{4}-\\d{2}-\\d{2}/;\n");
         assert_eq!(count_key(&under, "javascript:S5843"), 0);
+    }
+
+    #[test]
+    fn overlapping_character_class_members_are_flagged() {
+        let range_and_character = js_keys("const re = /[a-zb]/;\n");
+        assert_eq!(count_key(&range_and_character, "javascript:S5869"), 1);
+        let overlapping_ranges = js_keys("const re = /[a-ca-f]/;\n");
+        assert_eq!(count_key(&overlapping_ranges, "javascript:S5869"), 1);
+        let digit_shorthand = js_keys("const re = /[\\d0]/;\n");
+        assert_eq!(count_key(&digit_shorthand, "javascript:S5869"), 1);
+        let word_shorthand = js_keys("const re = /[\\w_]/;\n");
+        assert_eq!(count_key(&word_shorthand, "javascript:S5869"), 1);
+        let space_shorthand = js_keys("const re = /[\\s ]/;\n");
+        assert_eq!(count_key(&space_shorthand, "javascript:S5869"), 1);
+        let insensitive = js_keys("const re = /[aA]/i;\n");
+        assert_eq!(count_key(&insensitive, "javascript:S5869"), 1);
+
+        let bom = js_keys("const re = /[\\s\u{FEFF}]/;\n");
+        assert_eq!(count_key(&bom, "javascript:S5869"), 1);
+        let nel = js_keys("const re = /[\\s\u{0085}]/u;\n");
+        assert_eq!(count_key(&nel, "javascript:S5869"), 0);
+        let non_space = js_keys("const re = /[\\S\u{00A0}]/;\n");
+        assert_eq!(count_key(&non_space, "javascript:S5869"), 0);
+        let non_bom_space = js_keys("const re = /[\\S\u{FEFF}]/u;\n");
+        assert_eq!(count_key(&non_bom_space, "javascript:S5869"), 0);
+        let long_s = js_keys("const re = /[\\Wſ]/iu;\n");
+        assert_eq!(count_key(&long_s, "javascript:S5869"), 0);
+        let kelvin = js_keys("const re = /[\\WK]/iu;\n");
+        assert_eq!(count_key(&kelvin, "javascript:S5869"), 0);
+
+        // Existing direct duplicates still produce one finding per
+        // duplicate occurrence.
+        let direct = js_keys("const re = /[aaa]/;\n");
+        assert_eq!(count_key(&direct, "javascript:S5869"), 2);
+        let clean = js_keys("const re = /[ab]/;\n");
+        assert_eq!(count_key(&clean, "javascript:S5869"), 0);
+
+        let constructor = js_keys("const re = new RegExp('[a-zb]');\n");
+        assert_eq!(count_key(&constructor, "javascript:S5869"), 1);
+        let typescript = findings("const re = /[a-zb]/;\n", JstsLanguage::TypeScript);
+        assert_eq!(count_key(&typescript, "typescript:S5869"), 1);
+    }
+
+    #[test]
+    fn empty_matchable_repetitions_ignore_outer_minimum() {
+        let star = js_keys("const re = /(a?)*/;\n");
+        assert_eq!(count_key(&star, "javascript:S5842"), 1);
+        let plus = js_keys("const re = /(a?)+/;\n");
+        assert_eq!(count_key(&plus, "javascript:S5842"), 1);
+        let bounded = js_keys("const re = /(a?){2}/;\n");
+        assert_eq!(count_key(&bounded, "javascript:S5842"), 1);
+        let zero_bounded = js_keys("const re = /(a?){0,2}/;\n");
+        assert_eq!(count_key(&zero_bounded, "javascript:S5842"), 1);
+
+        let clean = js_keys("const re = /(a+)*/;\n");
+        assert_eq!(count_key(&clean, "javascript:S5842"), 0);
+        let constructor = js_keys("const re = new RegExp('(a?)*');\n");
+        assert_eq!(count_key(&constructor, "javascript:S5842"), 1);
+        let typescript = findings("const re = /(a?)*/;\n", JstsLanguage::TypeScript);
+        assert_eq!(count_key(&typescript, "typescript:S5842"), 1);
     }
 }

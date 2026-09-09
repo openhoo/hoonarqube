@@ -83,10 +83,16 @@ fn source_declares_type_name(
     declared_type_named(root, wanted, use_site, source).is_some()
 }
 
-fn using_directive_applies(using: Node<'_>, use_site: Node<'_>, source: &str) -> bool {
-    let using_namespace = containing_namespace(using, source);
-    let use_namespace = containing_namespace(use_site, source);
-    using_namespace.is_empty() || using_namespace == use_namespace
+fn using_directive_applies(using: Node<'_>, use_site: Node<'_>, _source: &str) -> bool {
+    let Some(using_namespace) = ancestors_of(using).find(|ancestor| {
+        matches!(
+            ancestor.kind(),
+            "namespace_declaration" | "file_scoped_namespace_declaration"
+        )
+    }) else {
+        return true;
+    };
+    ancestors_of(use_site).any(|ancestor| ancestor.id() == using_namespace.id())
 }
 
 fn using_directive_text(using: Node<'_>, source: &str) -> String {
@@ -117,6 +123,28 @@ fn has_using_alias(root: Node<'_>, use_site: Node<'_>, alias: &str, source: &str
             using_directive_text(using, source)
                 .split_once('=')
                 .is_some_and(|(left, _)| left.trim() == alias)
+        })
+}
+fn using_alias_targets(
+    root: Node<'_>,
+    use_site: Node<'_>,
+    alias: &str,
+    target: &str,
+    source: &str,
+) -> bool {
+    let target = normalized_type_name(target);
+    let target = target.strip_prefix("global::").unwrap_or(&target);
+    collect_kinds(root, &["using_directive"])
+        .into_iter()
+        .filter(|using| using_directive_applies(*using, use_site, source))
+        .any(|using| {
+            let text = using_directive_text(using, source);
+            let Some((left, right)) = text.split_once('=') else {
+                return false;
+            };
+            let actual = normalized_type_name(right.trim());
+            let actual = actual.strip_prefix("global::").unwrap_or(&actual);
+            canonical_identifier(left.trim()) == canonical_identifier(alias) && actual == target
         })
 }
 
@@ -686,6 +714,30 @@ fn static_field_written_by_instance(root: Node<'_>, source: &str) -> Vec<Issue> 
 
 fn receiver_is_known_gc(root: Node<'_>, call: Node<'_>, receiver: Node<'_>, source: &str) -> bool {
     let raw = normalized_type_name(node_text(receiver, source));
+    if receiver.kind() == "identifier" {
+        let alias = canonical_identifier(node_text(receiver, source));
+        let member_shadow = enclosing_type(receiver).is_some_and(|owner| {
+            type_members(owner).into_iter().any(|member| {
+                matches!(
+                    member.kind(),
+                    "field_declaration"
+                        | "event_field_declaration"
+                        | "property_declaration"
+                        | "event_declaration"
+                ) && member_name_node(member, source)
+                    .is_some_and(|name| canonical_identifier(node_text(name, source)) == alias)
+            })
+        });
+        if has_local_binding_before(receiver, alias, source) || member_shadow {
+            return false;
+        }
+        if using_alias_targets(root, call, alias, "System.GC", source) {
+            if declared_type_named(root, alias, call, source).is_some() {
+                return false;
+            }
+            return !source_declares_type_identity(root, "System.GC", source);
+        }
+    }
     if raw == "global::System.GC" {
         return !source_declares_type_identity(root, "System.GC", source);
     }
@@ -872,8 +924,26 @@ fn derives_from(root: Node<'_>, derived: Node<'_>, base: &str, source: &str) -> 
     false
 }
 
+fn first_this_expression_child(node: Node<'_>) -> Option<Node<'_>> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .find(|child| child.kind() != "comment" && (child.is_named() || child.kind() == "this"))
+}
+
+fn this_expression_node(mut node: Node<'_>) -> Option<Node<'_>> {
+    loop {
+        match node.kind() {
+            "this" | "this_expression" => return Some(node),
+            "parenthesized_expression" | "lvalue_expression" => {
+                node = first_this_expression_child(node)?;
+            }
+            _ => return None,
+        }
+    }
+}
+
 fn is_this_node(node: Node<'_>) -> bool {
-    matches!(node.kind(), "this" | "this_expression")
+    this_expression_node(node).is_some()
 }
 fn type_pattern_node(pattern: Node<'_>) -> Option<Node<'_>> {
     (pattern.kind() == "type_pattern").then_some(pattern)
@@ -1065,7 +1135,6 @@ fn catch_type_and_name<'a>(
         canonical_identifier(node_text(name, source)),
     ))
 }
-
 fn catch_nullreferenceexception(root: Node<'_>, source: &str) -> Vec<Issue> {
     collect_kinds(root, &["catch_clause"])
         .into_iter()
@@ -1098,10 +1167,9 @@ fn rethrown_exception_variable(root: Node<'_>, source: &str) -> Vec<Issue> {
         };
         let catch_callable = enclosing_callable(catch);
         for throw in collect_kinds(body, &["throw_statement"]) {
-            if enclosing_callable(throw) != catch_callable
-                || ancestors_of(throw)
-                    .any(|ancestor| ancestor != catch && ancestor.kind() == "catch_clause")
-            {
+            let nearest_catch =
+                ancestors_of(throw).find(|ancestor| ancestor.kind() == "catch_clause");
+            if enclosing_callable(throw) != catch_callable || nearest_catch != Some(catch) {
                 continue;
             }
             let Some(expression) = first_named_child(throw) else {
@@ -1142,10 +1210,24 @@ fn type_implements_icloneable(root: Node<'_>, type_node: Node<'_>, source: &str)
     false
 }
 
+fn is_implicitly_sealed_type(type_node: Node<'_>, _source: &str) -> bool {
+    if type_node.kind() == "struct_declaration" {
+        return true;
+    }
+    if type_node.kind() != "record_declaration" {
+        return false;
+    }
+    let mut cursor = type_node.walk();
+    type_node
+        .children(&mut cursor)
+        .any(|child| child.kind() == "struct")
+}
+
 fn class_implements_icloneable(root: Node<'_>, source: &str) -> Vec<Issue> {
     let mut issues = Vec::new();
     for type_node in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
         if has_modifier(&modifiers_of(type_node, source), "sealed")
+            || is_implicitly_sealed_type(type_node, source)
             || !type_implements_icloneable(root, type_node, source)
         {
             continue;
@@ -1236,13 +1318,12 @@ fn lock_this(root: Node<'_>, source: &str) -> Vec<Issue> {
         .into_iter()
         .filter_map(|lock| {
             let guard = lock_guard_expression(lock)?;
-            is_this_node(guard).then(|| {
-                Issue::new(
-                    "cs/lock-this",
-                    "'this' used in lock statement.",
-                    range_of(guard, source),
-                )
-            })
+            let this = this_expression_node(guard)?;
+            Some(Issue::new(
+                "cs/lock-this",
+                "'this' used in lock statement.",
+                range_of(this, source),
+            ))
         })
         .collect()
 }

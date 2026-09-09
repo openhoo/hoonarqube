@@ -8,6 +8,7 @@
 //! [`child_bodies`]/[`child_exprs`] primitives — iteration order, and
 //! therefore issue emission order before the final sort, is identical by
 //! construction.
+use crate::engine::bindings::KnownBindings;
 
 use crate::support::child_bodies;
 use crate::support::child_exprs;
@@ -33,7 +34,6 @@ pub(crate) enum AnyImport<'a> {
     Plain(&'a StmtImport),
     From(&'a StmtImportFrom),
 }
-
 /// Shared per-file inventories, computed once instead of once per rule.
 pub(crate) struct FileContext<'a> {
     /// Every statement in pre-order — the exact `for_each_stmt` sequence.
@@ -53,8 +53,10 @@ pub(crate) struct FileContext<'a> {
     /// Whether the file imports AWS CDK. Computed once so cloud rules can
     /// require the same library provenance as `SonarPython`.
     pub(crate) has_aws_cdk_import: bool,
+    /// Lexical identities for standard-library APIs whose rule semantics
+    /// depend on binding provenance rather than a method's final spelling.
+    pub(crate) known_bindings: KnownBindings,
 }
-
 impl<'a> FileContext<'a> {
     /// Builds every inventory in one combined pass over the module.
     pub(crate) fn build(parsed: &'a Parsed<ModModule>) -> Self {
@@ -67,6 +69,7 @@ impl<'a> FileContext<'a> {
             classes: Vec::new(),
             imports: Vec::new(),
             has_aws_cdk_import: false,
+            known_bindings: KnownBindings::build(parsed),
         };
         collect_all(parsed.syntax().body.as_slice(), &mut ctx);
         ctx.has_aws_cdk_import = ctx.imports.iter().any(|entry| match entry {
