@@ -171,6 +171,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "base64"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
+
+[[package]]
 name = "bitflags"
 version = "2.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -690,7 +696,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hoonarqube"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "hoonarqube-catalog",
  "hoonarqube-core",
@@ -699,7 +705,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-bench"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "hoonarqube-core",
  "hoonarqube-csharp",
@@ -712,7 +718,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-catalog"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "hex",
  "serde",
@@ -723,7 +729,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-cli"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "atomicwrites",
  "clap",
@@ -739,7 +745,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-core"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "hoonarqube-catalog",
  "hoonarqube-csharp",
@@ -763,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-csharp"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "hoonarqube-core",
  "hoonarqube-ir",
@@ -773,11 +779,11 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-dataflow"
-version = "0.7.0"
+version = "0.7.1"
 
 [[package]]
 name = "hoonarqube-go"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "hoonarqube-dataflow",
  "hoonarqube-ir",
@@ -787,7 +793,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-ir"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -795,7 +801,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-java"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "hoonarqube-ir",
  "tree-sitter",
@@ -804,7 +810,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-jsts"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "hoonarqube-core",
  "hoonarqube-ir",
@@ -818,7 +824,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-python"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "hoonarqube-ir",
  "ruff_python_ast",
@@ -829,7 +835,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-ruby"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "hoonarqube-ir",
  "tree-sitter",
@@ -838,7 +844,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-rust"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "hoonarqube-ir",
  "regex",
@@ -926,7 +932,7 @@ version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a6bdfa0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "bytes",
  "futures-channel",
  "futures-util",
@@ -1897,11 +1903,11 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "reqwest"
-version = "0.13.4"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
+checksum = "16a1cfa75cc186dd73d5818e510e042e40927bccc9c236b061cea97e1eb08029"
 dependencies = [
- "base64",
+ "base64 0.23.1",
  "bytes",
  "futures-channel",
  "futures-core",
@@ -3103,7 +3109,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -3147,18 +3153,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.56"
+version = "0.8.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "556764e583adb45a9f8d413c2a147fa7e8d821e48e12b14fd560b607998b75eb"
+checksum = "d35102a9f36d089ccae9e4c6802bc118be4487b80aaffc0ab4e0cf5ce92d2873"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.56"
+version = "0.8.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2ab42fc20575779bd240faa45f94a74256f755c0fa9e89f0ede20d91d0cdfc1"
+checksum = "146c01f5ab44258da43cf276c74a2763db2ff3969c9c652c3f2de07041d0b2bc"
 dependencies = [
  "proc-macro2",
  "quote",

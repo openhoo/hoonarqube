@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.1 (2026-09-09)
+
+### Bug Fixes
+
+- **hoonarqube:** correct real-project analyzer findings (#84) (cf6a668)
+
 ## 0.7.0 (2026-09-08)
 
 ### Features
