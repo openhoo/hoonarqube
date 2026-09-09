@@ -31,7 +31,7 @@
 {"key": "typescript:S6583", "bad": "s6583_bad.ts", "expect_lines_min": 1}
 {"key": "typescript:S6590", "bad": "s6590_bad.ts", "expect_lines_min": 1}
 {"key": "typescript:S6598", "bad": "s6598_bad.ts", "expect_lines_min": 1}
-{"key": "typescript:S6759", "bad": "s6759_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S6759", "bad": "s6759_bad.tsx", "expect_lines_min": 1}
 {"key": "typescript:S7059", "bad": "s7059_bad.ts", "expect_lines_min": 1}
 {"key": "typescript:S4798", "bad": "s4798_bad.ts", "expect_lines_min": 1}
 {"key":"typescript:S1438","infra":"exact semicolon detection requires token-preserving automatic-semicolon-insertion boundaries"}

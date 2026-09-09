@@ -14,9 +14,9 @@ use oxc_ast::ast::{
     BinaryOperator, BindingIdentifier, BindingPattern, BlockStatement, Class, Comment, Expression,
     ForInStatement, ForOfStatement, ForStatement, ForStatementLeft, Function, FunctionBody,
     JSXOpeningElement, LabeledStatement, MemberExpression, MethodDefinition, NewExpression,
-    ObjectExpression, ObjectPropertyKind, PropertyKind, SimpleAssignmentTarget, Statement,
-    StaticBlock, SwitchCase, SwitchStatement, UpdateExpression, UpdateOperator, VariableDeclarator,
-    WithStatement, YieldExpression,
+    ObjectExpression, ObjectProperty, ObjectPropertyKind, PropertyKey, PropertyKind,
+    SimpleAssignmentTarget, Statement, StaticBlock, SwitchCase, SwitchStatement, UpdateExpression,
+    UpdateOperator, VariableDeclarator, WithStatement, YieldExpression,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
@@ -335,15 +335,25 @@ impl<'src, 'index, 'model> QualityCollector<'src, 'index, 'model> {
         }
     }
 
+    fn duplicate_property_name<'a>(property: &ObjectProperty<'a>) -> Option<&'a str> {
+        if property.computed {
+            if let PropertyKey::StringLiteral(literal) = &property.key {
+                return Some(literal.value.as_str());
+            }
+            return None;
+        }
+        duplicated_key_name(&property.key)
+    }
+
     fn check_object_properties(&mut self, object: &ObjectExpression<'_>) {
         for (index, property_kind) in object.properties.iter().enumerate() {
             let ObjectPropertyKind::ObjectProperty(property) = property_kind else {
                 continue;
             };
-            if property.kind != PropertyKind::Init || property.computed {
+            if property.kind != PropertyKind::Init {
                 continue;
             }
-            let Some(name) = duplicated_key_name(&property.key) else {
+            let Some(name) = Self::duplicate_property_name(property) else {
                 continue;
             };
             let duplicate = object.properties[..index].iter().rev().find_map(|prior| {
@@ -351,8 +361,7 @@ impl<'src, 'index, 'model> QualityCollector<'src, 'index, 'model> {
                     return None;
                 };
                 (prior.kind == PropertyKind::Init
-                    && !prior.computed
-                    && duplicated_key_name(&prior.key) == Some(name)
+                    && Self::duplicate_property_name(prior) == Some(name)
                     && prior.value.content_eq(&property.value))
                 .then_some(prior)
             });
@@ -1267,11 +1276,78 @@ mod tests {
                 .any(|id| id == "js/duplicate-property")
         );
 
+        let computed_same = "const object = { [\"key\"]: value, key: value };";
+        assert!(
+            ids(computed_same, JstsLanguage::JavaScript)
+                .iter()
+                .any(|id| id == "js/duplicate-property")
+        );
+
         let cases = "switch (value) { case 'a b': break; case 'ab': break; }";
         assert!(
             !ids(cases, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/duplicate-switch-case")
+        );
+    }
+
+    #[test]
+    fn duplicate_properties_normalize_static_computed_keys_without_guessing_dynamic_ones() {
+        let duplicate_count = |source: &str, language: JstsLanguage| {
+            ids(source, language)
+                .into_iter()
+                .filter(|id| id == "js/duplicate-property")
+                .count()
+        };
+
+        assert_eq!(
+            duplicate_count(
+                r#"const computedStatic = { ["item"]: 1, item: 1 };"#,
+                JstsLanguage::JavaScript,
+            ),
+            1
+        );
+        assert_eq!(
+            duplicate_count(
+                r#"const typedComputed = { ["item"]: 1, item: 1 };"#,
+                JstsLanguage::TypeScript,
+            ),
+            1
+        );
+        assert_eq!(
+            duplicate_count(
+                r#"const unicodeKey = { ["café"]: 1, café: 1 };"#,
+                JstsLanguage::TypeScript,
+            ),
+            1
+        );
+        assert_eq!(
+            duplicate_count(
+                "const literalDuplicate = { item: 1, item: 1 };",
+                JstsLanguage::JavaScript,
+            ),
+            1
+        );
+        assert_eq!(
+            duplicate_count(
+                "const differentInitializer = { item: 1, item: 2 };",
+                JstsLanguage::JavaScript,
+            ),
+            0
+        );
+        assert_eq!(
+            duplicate_count(
+                "const getterSetter = { get item() { return 1; }, set item(value) { void value; } };",
+                JstsLanguage::JavaScript,
+            ),
+            0
+        );
+        assert_eq!(
+            duplicate_count(
+                "const dynamicKey = { [keyFromSomewhere]: 1, item: 1 };",
+                JstsLanguage::JavaScript,
+            ),
+            0
         );
     }
 

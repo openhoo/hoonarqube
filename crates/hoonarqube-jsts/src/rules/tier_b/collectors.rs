@@ -8,7 +8,6 @@ use crate::rules::shared::expression_through_this_link;
 use crate::rules::shared::is_unpinned_npm_install;
 use crate::rules::shared::regex_pattern_text;
 use crate::rules::shared::static_command_text;
-use crate::rules::tier_b::s2077_tb_sql_injection::SqlInjectionCollector;
 use crate::rules::tier_b::s2259_tb_null_accesses::NullAccessCollector;
 use crate::rules::tier_b::s2589_tb_constant_conditions::ConstantConditionCollector;
 use crate::rules::tier_b::s2933_tb_readonly_candidate_fields::ReadonlyFieldCollector;
@@ -207,9 +206,6 @@ impl<'a> Visit<'a> for ClassRuleCollector<'a, '_> {
     }
 }
 
-/// All Tier-B checks that run over the scope model.
-const SQL_SINK_METHODS: [&str; 3] = ["query", "execute", "exec"];
-
 const WRITE_ONLY_METHODS: [&str; 4] = ["push", "unshift", "set", "add"];
 
 const IN_PLACE_ARRAY_METHODS: [&str; 4] = ["sort", "reverse", "splice", "fill"];
@@ -223,23 +219,6 @@ const FS_WRITE_FUNCTIONS: [&str; 7] = [
     "appendFileSync",
     "mkdir",
 ];
-
-fn is_dynamic_sql(expression: &Expression<'_>) -> bool {
-    match expression {
-        Expression::TemplateLiteral(template) => !template.expressions.is_empty(),
-        Expression::BinaryExpression(binary) if binary.operator == BinaryOperator::Addition => {
-            sql_operand_is_untrusted(&binary.left) || sql_operand_is_untrusted(&binary.right)
-        }
-        _ => false,
-    }
-}
-
-fn sql_operand_is_untrusted(expression: &Expression<'_>) -> bool {
-    !matches!(
-        unparenthesized(expression),
-        Expression::StringLiteral(_) | Expression::NumericLiteral(_)
-    )
-}
 
 fn is_empty_collection_init(init: &Expression<'_>) -> bool {
     match init {
@@ -708,20 +687,6 @@ impl<'a> Visit<'a> for LetToConstCollector<'a> {
         }
         walk_declaration(self, &declaration.declaration);
         self.in_export = saved;
-    }
-}
-
-impl<'p> Visit<'p> for SqlInjectionCollector {
-    fn visit_call_expression(&mut self, call: &CallExpression<'p>) {
-        if let Some(name) = callee_member_name(call)
-            && SQL_SINK_METHODS.contains(&name)
-            && let Some(argument) = call.arguments.first()
-            && let Some(expression) = argument.as_expression()
-            && is_dynamic_sql(unparenthesized(expression))
-        {
-            self.sites.push(expression.span());
-        }
-        walk_call_expression(self, call);
     }
 }
 

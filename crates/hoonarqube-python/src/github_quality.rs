@@ -1160,7 +1160,7 @@ fn find_format_field_end(chars: &[char], start: usize, limit: usize) -> Option<u
     while end < limit {
         match chars[end] {
             '{' if end + 1 >= limit || chars[end + 1] != '{' => depth += 1,
-            '}' if end + 1 < limit && chars[end + 1] == '}' => end += 1,
+            '}' if depth == 1 && end + 1 < limit && chars[end + 1] == '}' => end += 1,
             '}' => {
                 depth -= 1;
                 if depth == 0 {
@@ -1429,6 +1429,36 @@ mod tests {
         );
         assert_clean("def format(value, *args): pass\nformat('{} {1}', a, b)\n");
         assert_clean("template = '{} {}'\ntemplate.format(a, b)\n");
+    }
+    #[test]
+    fn mixed_format_handles_nested_field_closers() {
+        let nested = analyze("text = \"{0:{}}\".format(7, 3)\n");
+        assert_eq!(
+            nested
+                .iter()
+                .filter(|issue| issue.rule_key == "py/str-format/mixed-fields")
+                .count(),
+            1
+        );
+        for source in [
+            "\"{0:{1}}\".format(7, 3)\n",
+            "\"{:{}}\".format(7, 3)\n",
+            "\"{0} {0}\".format(7)\n",
+            "\"{{}} {0}\".format(7)\n",
+            "\"{0:.{1}f}\".format(7.5, 2)\n",
+        ] {
+            assert_clean(source);
+        }
+        for source in ["\"{} {0}\".format(7)\n", "\"{0:.{}f}\".format(7.5, 2)\n"] {
+            let issues = analyze(source);
+            assert_eq!(
+                issues
+                    .iter()
+                    .filter(|issue| issue.rule_key == "py/str-format/mixed-fields")
+                    .count(),
+                1
+            );
+        }
     }
     #[test]
     fn binding_facts_keep_nested_imports_and_assignments_in_their_scope() {

@@ -1120,7 +1120,7 @@ fn s6982_requires_eval_before_loaded_model_inference() {
 }
 
 #[test]
-fn s7502_flags_discarded_asyncio_tasks() {
+fn s7502_flags_discarded_asyncio_tasks_but_not_task_groups() {
     let flagged = scan(
         "import asyncio\n\n\nasync def worker():\n    pass\n\n\nasyncio.create_task(worker())\n",
     );
@@ -1129,6 +1129,14 @@ fn s7502_flags_discarded_asyncio_tasks() {
         "import asyncio\n\n\nasync def worker():\n    pass\n\n\ntask_handle = asyncio.create_task(worker())\n",
     );
     assert!(findings(&retained, "python:S7502").is_empty());
+    let task_group = scan(
+        "import asyncio\n\n\nasync def worker():\n    pass\n\n\nasync def run():\n    async with asyncio.TaskGroup() as group:\n        group.create_task(worker())\n",
+    );
+    assert!(findings(&task_group, "python:S7502").is_empty());
+    let custom = scan(
+        "class Group:\n    def create_task(self, worker):\n        return worker\n\nGroup().create_task(worker())\n",
+    );
+    assert!(findings(&custom, "python:S7502").is_empty());
 }
 
 #[test]
@@ -1176,11 +1184,69 @@ fn s7497_requires_reraise_of_cancellation_exceptions() {
     );
     assert!(findings(&reraised, "python:S7497").is_empty());
 }
+#[test]
+fn s7497_requires_reachable_reraise_of_cancellation_exceptions() {
+    let flagged = scan(
+        "async def shielded():\n    try:\n        await work()\n    except CancelledError:\n        release_lock()\n",
+    );
+    assert_eq!(findings(&flagged, "python:S7497").len(), 1);
+    let unreachable = scan(
+        "async def shielded():\n    try:\n        await work()\n    except CancelledError:\n        if False:\n            raise\n",
+    );
+    assert_eq!(findings(&unreachable, "python:S7497").len(), 1);
+    let reraised = scan(
+        "async def shielded():\n    try:\n        await work()\n    except CancelledError:\n        release_lock()\n        raise\n",
+    );
+    assert!(findings(&reraised, "python:S7497").is_empty());
+    let intentional = scan(
+        "async def shielded():\n    try:\n        await work()\n    except CancelledError:\n        task.uncancel()\n",
+    );
+    assert!(findings(&intentional, "python:S7497").is_empty());
+    let unreachable_uncancel = scan(
+        "async def shielded():\n    try:\n        await work()\n    except CancelledError:\n        if False:\n            task.uncancel()\n",
+    );
+    assert_eq!(findings(&unreachable_uncancel, "python:S7497").len(), 1);
+}
 
-// ------------------------------------------------------------------
-// Tier B — option knobs.
-// ------------------------------------------------------------------
+#[test]
+fn s7497_rejects_unreachable_and_partial_propagation() {
+    for body in [
+        "        if True:\n            pass\n        else:\n            raise\n",
+        "        return\n        raise\n",
+        "        if should_stop:\n            raise\n",
+        "        False and task.uncancel()\n",
+        "        for item in items:\n            raise\n        else:\n            pass\n",
+        "        [task.uncancel() for item in []]\n",
+        "        (task.uncancel() for item in items)\n",
+        "        0 > 1 > task.uncancel()\n",
+    ] {
+        let source = format!(
+            "import asyncio\nasync def work():\n    try:\n        await wait()\n    except asyncio.CancelledError:\n{body}"
+        );
+        assert_eq!(findings(&scan(&source), "python:S7497").len(), 1, "{body}");
+    }
+}
 
+#[test]
+fn s7497_preserves_guaranteed_propagation_through_cleanup() {
+    for body in [
+        "        if stop:\n            raise\n        else:\n            task.uncancel()\n",
+        "        try:\n            cleanup()\n        finally:\n            raise\n",
+        "        try:\n            return\n        finally:\n            raise\n",
+        "        for item in items:\n            break\n        raise\n",
+        "        for item in items:\n            pass\n        else:\n            raise\n",
+        "        while True:\n            if stop:\n                break\n        raise\n",
+        "        task.uncancel() if stop else task.uncancel()\n",
+    ] {
+        let source = format!(
+            "import asyncio\nasync def work():\n    try:\n        await wait()\n    except asyncio.CancelledError:\n{body}"
+        );
+        assert!(
+            findings(&scan(&source), "python:S7497").is_empty(),
+            "{body}"
+        );
+    }
+}
 #[test]
 fn s1481_honors_the_ignore_pattern_option() {
     let defaults = scan("def run():\n    dummy = 1\n    return 1\n\n\nrun()\n");
@@ -2223,6 +2289,22 @@ fn s930_uses_python_c3_order_for_diamond_inheritance() {
 }
 
 #[test]
+fn s5655_rejects_complex_literals_for_float_parameters() {
+    let source = concat!(
+        "def accept(value: float):\n",
+        "    return value\n",
+        "accept(1j)\n",
+        "accept(1)\n",
+        "accept(1.0)\n",
+        "accept(True)\n",
+        "def complex_accept(value: complex):\n",
+        "    return value\n",
+        "complex_accept(1j)\n",
+        "complex_accept(1.0)\n",
+    );
+    assert_eq!(findings_of(source, "python:S5655").len(), 1);
+}
+#[test]
 fn s5655_flags_arguments_contradicting_parameter_annotations() {
     let flagged = concat!(
         "def repeat(text: str, times: int) -> str:\n",
@@ -2356,6 +2438,44 @@ fn s5713_flags_subclass_and_parent_sharing_an_except_clause() {
         "try:\n    pass\nexcept NotFound:\n    pass\n"
     );
     assert!(findings_of(clean, "python:S5713").is_empty());
+    let builtin_hierarchy = concat!(
+        "try:\n    work()\n",
+        "except (NotImplementedError, RuntimeError):\n    recover()\n",
+        "try:\n    work()\n",
+        "except (TypeError, TypeError):\n    recover()\n",
+    );
+    assert_eq!(findings_of(builtin_hierarchy, "python:S5713").len(), 2);
+
+    let imported_hierarchy = concat!(
+        "import json\n",
+        "import urllib.error\n",
+        "try:\n    work()\n",
+        "except (ValueError, json.JSONDecodeError):\n    recover()\n",
+        "try:\n    work()\n",
+        "except (urllib.error.URLError, OSError):\n    recover()\n",
+    );
+    assert_eq!(findings_of(imported_hierarchy, "python:S5713").len(), 2);
+
+    let local_shadowing = concat!(
+        "class RuntimeError(Exception):\n    pass\n",
+        "class NotImplementedError(Exception):\n    pass\n",
+        "try:\n    work()\n",
+        "except (NotImplementedError, RuntimeError):\n    recover()\n",
+    );
+    assert!(findings_of(local_shadowing, "python:S5713").is_empty());
+    let scoped_shadowing = concat!(
+        "def check(RuntimeError):\n",
+        "    try:\n        work()\n",
+        "    except (NotImplementedError, RuntimeError):\n        recover()\n",
+    );
+    assert!(findings_of(scoped_shadowing, "python:S5713").is_empty());
+
+    let source_order = concat!(
+        "RuntimeError = ValueError\n",
+        "try:\n    work()\n",
+        "except (NotImplementedError, RuntimeError):\n    recover()\n",
+    );
+    assert!(findings_of(source_order, "python:S5713").is_empty());
 }
 #[test]
 fn s100_and_s1542_partition_functions_by_class_nesting() {

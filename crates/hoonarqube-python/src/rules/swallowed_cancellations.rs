@@ -1,7 +1,7 @@
 use crate::engine::file_context::FileContext;
 use crate::support::exception_type_names;
 use crate::support::issue_at;
-use crate::support::suite_contains_raise;
+use crate::support::suite_propagates_cancellation;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ExceptHandler;
 use ruff_python_ast::Stmt;
@@ -22,7 +22,7 @@ pub(crate) fn check_swallowed_cancellations(
             let cancellation = caught
                 .iter()
                 .any(|name| matches!(name.as_str(), "CancelledError" | "Cancelled"));
-            if cancellation && !suite_contains_raise(&inner.body) {
+            if cancellation && !suite_propagates_cancellation(&inner.body) {
                 issues.push(issue_at(
                     "python:S7497",
                     "Re-raise the cancellation exception after cleanup.",
