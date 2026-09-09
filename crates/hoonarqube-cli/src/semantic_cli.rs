@@ -196,9 +196,19 @@ fn load_jsts_context(
                     .to_owned(),
             );
         }
+        if !semantic.typescript_dependency_whitelist.is_empty() {
+            diagnostics.push(
+                "typescript project configuration is required when --typescript-dependency-whitelist is supplied"
+                    .to_owned(),
+            );
+        }
         return None;
     };
-    let config = match typescript_config(project, semantic.typescript_module.as_deref()) {
+    let config = match typescript_config(
+        project,
+        semantic.typescript_module.as_deref(),
+        &semantic.typescript_dependency_whitelist,
+    ) {
         Ok(config) => config,
         Err(error) => {
             diagnostics.push(error);
@@ -290,6 +300,24 @@ fn load_csharp_context(
                     .to_owned(),
             );
         }
+        if semantic.csharp_s110_max.is_some() {
+            diagnostics.push(
+                "csharp project configuration is required when --csharp-s110-max is supplied"
+                    .to_owned(),
+            );
+        }
+        if !semantic.csharp_s110_filtered_class.is_empty() {
+            diagnostics.push(
+                "csharp project configuration is required when --csharp-s110-filtered-class is supplied"
+                    .to_owned(),
+            );
+        }
+        if semantic.csharp_s1200_max.is_some() {
+            diagnostics.push(
+                "csharp project configuration is required when --csharp-s1200-max is supplied"
+                    .to_owned(),
+            );
+        }
         return None;
     };
     if !project.exists() {
@@ -307,6 +335,7 @@ fn load_csharp_context(
         }
         config.timeout_ms = timeout_ms;
     }
+    apply_csharp_rule_options(&mut config, semantic);
     config.project.clone_from(project);
     // A single explicit CLI trust flag gates both evaluation and
     // any build/Razor generation.  The owner loader checks this
@@ -332,6 +361,16 @@ fn load_csharp_context(
         })
         .collect::<Vec<_>>();
     let context = hoonarqube_csharp::semantic::ProjectSemanticContext::load(&config, &snapshots);
+    record_csharp_context(&config, &context, diagnostics, fingerprints);
+    Some(context)
+}
+
+fn record_csharp_context(
+    config: &hoonarqube_csharp::semantic::ProjectSemanticConfig,
+    context: &hoonarqube_csharp::semantic::ProjectSemanticContext,
+    diagnostics: &mut Vec<String>,
+    fingerprints: &mut SemanticFingerprintParts,
+) {
     diagnostics.extend(
         context
             .diagnostics
@@ -364,7 +403,23 @@ fn load_csharp_context(
     fingerprints
         .dependency
         .push(context.dependency_fingerprint.clone());
-    Some(context)
+}
+
+fn apply_csharp_rule_options(
+    config: &mut hoonarqube_csharp::semantic::ProjectSemanticConfig,
+    semantic: &SemanticOptions,
+) {
+    if let Some(max) = semantic.csharp_s110_max {
+        config.rules.s110_max = max;
+    }
+    config
+        .rules
+        .s110_filtered_classes
+        .clone_from(&semantic.csharp_s110_filtered_class);
+    if let Some(max) = semantic.csharp_s1200_max {
+        config.rules.s1200_max = max;
+        config.rules.s1200_enabled = true;
+    }
 }
 
 fn load_python_context(
@@ -601,6 +656,7 @@ impl FixAnalysisContext {
 fn typescript_config(
     project: &Path,
     module: Option<&Path>,
+    dependency_whitelist: &[String],
 ) -> Result<hoonarqube_jsts::project_context::TypeScriptProjectConfig, String> {
     if !project.exists() {
         return Err(format!(
@@ -636,6 +692,7 @@ fn typescript_config(
     if let Some(module) = module {
         config = config.with_typescript_package(module);
     }
+    config = config.with_dependency_whitelist(dependency_whitelist.to_vec());
     Ok(config)
 }
 

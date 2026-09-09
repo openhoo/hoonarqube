@@ -966,7 +966,7 @@ internal static class QuickFixPlanner
             var replacement = ConditionalReplacement(ifStatement);
             if (replacement is null) continue;
             AddFact(facts, tree, "csharpsquid:S3240", new TextSpan(ifStatement.SpanStart, 2),
-                Action("csharp.s3240.simplify-condition", "Simplify condition", Edit(tree, ifStatement.Span, replacement.WithoutLeadingTrivia().ToFullString())));
+                Action("csharp.s3240.simplify-condition", "Simplify condition", Edit(tree, ifStatement.Span, replacement.WithoutLeadingTrivia().WithoutTrailingTrivia().ToFullString())));
         }
     }
 

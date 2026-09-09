@@ -402,10 +402,14 @@ fn semantic_options_value(
     semantics: &crate::project_features::SemanticOptions,
 ) -> serde_json::Value {
     serde_json::json!([
-        "semantics-v1",
+        "semantics-v2",
         path_identity(semantics.typescript_project.as_deref()),
         path_identity(semantics.typescript_module.as_deref()),
+        &semantics.typescript_dependency_whitelist,
         path_identity(semantics.csharp_project.as_deref()),
+        semantics.csharp_s110_max,
+        &semantics.csharp_s110_filtered_class,
+        semantics.csharp_s1200_max,
         semantics.csharp_timeout_ms,
         semantics.allow_project_build,
         path_identity(semantics.python_project.as_deref()),

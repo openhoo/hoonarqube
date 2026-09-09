@@ -53,6 +53,197 @@ Coverage import, new-code baselines, metric-based quality gates, issue/hotspot
 review state, a persistent analysis service, and a dashboard are not included
 in this measurement milestone.
 
+Project measurement itself is controlled by `--exclude`, `--test-include`,
+`--generated-include`, `--vendor-include`, `--duplication-exclude`, and the
+`--duplication-min-tokens`, `--duplication-min-lines`, and
+`--duplication-min-statements` thresholds. `--cache-dir` is a separate
+opt-in per-file cache and does not change this semantic boundary.
+
+## Focused evidence — 2026-09-09 (not whole-corpus parity)
+
+The repository manifests below preserve focused reference captures and
+worktree qualification state. They do not replace the historical whole-corpus
+baseline or establish release-binary parity. Temporary filesystem paths are
+intentionally omitted, and blocked or pending drafts are not final evidence.
+
+### Opt-in semantic context boundary
+
+The ordinary `analyze` route is native and syntax-oriented; it does not retain
+source snapshots or load compiler contexts. Current project-context options
+are `--typescript-project` (optionally `--typescript-module`),
+`--csharp-project`, `--allow-project-build`, and `--python-project`.
+Semantic options opt into the bounded source-snapshot path. Assessment,
+coverage, baseline, and quality-gate options use that same retained-source
+path for their artifacts but do not themselves establish semantic parity.
+`--allow-project-build` is a C# trust gate for a supplied project; it is not a
+standalone analyzer switch.
+
+Explicitly requested contexts are loaded for JavaScript/TypeScript, C#, and
+Python. Missing files, runtimes, helpers, references, compiler diagnostics, or
+incomplete owner contexts remain diagnostics and make the context incomplete;
+they must never become a successful zero-finding semantic result. Razor is
+registered with the C# family, but ordinary native dispatch rejects `.razor`;
+trusted compiler-generated and mapped facts require a complete C# project
+context.
+
+### Current configured worktree qualifications
+
+- The configured C# proof establishes exactly 21 canonical target findings
+  (`reference=21`, `native=21`). All other context findings remain retained in
+  the comparison/report but are outside that target-only exactness claim. The
+  portable reference manifest is
+  [`tools/oracle/roadmap-focused-reference-20260909.json`](tools/oracle/roadmap-focused-reference-20260909.json).
+- The configured issue36 JavaScript/TypeScript proof covers six cases and 30
+  exact target findings in total, including one whitelist finding. This is
+  worktree qualification, not final published-binary evidence. Its portable
+  reference manifest is
+  [`tools/oracle/roadmap-jsts-python-reference-20260909.json`](tools/oracle/roadmap-jsts-python-reference-20260909.json).
+- Valid JSX reserved-attribute syntax and valid C# contextual-keyword
+  identifiers named `async`/`await` remain `SourceFacts` limitations. Missing
+  or incomplete facts stay non-pass evidence; they are not safe negatives.
+- C# `S3005` and `S3169` diagnostics may lack a quick-fix attachment; that gap
+  remains unfixed. The exact `S1116` reference edit is correctly refused when
+  its projected result introduces `S1186`; that refusal is not completed fix
+  parity.
+
+Full-corpus comparisons intentionally include malformed-input rows. An
+incomplete malformed-input result remains fail-closed and non-pass (normally
+with exit `2`); it is never counted as a clean or exact parity result.
+Reference captures and their recorded identities remain unchanged. The
+security wrapper
+[`tools/oracle/security-qualification-20260909.json`](tools/oracle/security-qualification-20260909.json)
+remains `SECURITY_PARITY_UNVERIFIED` and explicitly preserves Enterprise,
+flow, and secondary-location `UNVERIFIED` states. Its recorded native identity
+`444c56f682998e7e638bd230104bfa1a3628cf57` is historical implementation
+evidence only, not the current checkout `HEAD` or a release identity.
+
+These focused results prove only the listed contexts and fixtures. They do not
+equate native syntax support, compiler-context support, or a target-only
+finding comparison with whole-corpus SonarQube parity.
+
+### Native project metrics versus the captured Sonar reference
+
+`tools/oracle/fixtures/metrics/corpus.json` defines seven aggregate metrics:
+`lines`, `ncloc`, `comment_lines`, `duplicated_lines`,
+`duplicated_blocks`, `duplicated_files`, and `duplicated_lines_density`.
+The corrected comparison uses the captured SonarQube 26.8.0.126808 reference
+in `tools/oracle/metrics-reference-20260909.json`. Cells below are
+`native/reference` project aggregate values; `=` is an `EXACT` comparison and
+`≠` is `DIFFERENT`. This is an explicit difference table, not a similarity
+score.
+
+[`tools/oracle/metrics-qualification-20260909.json`](tools/oracle/metrics-qualification-20260909.json)
+publishes all 17 executed scenarios: 16 exit `0` and one intentional
+malformed-input case exits `2`. The malformed row is deliberately included in
+the full scenario comparison, remains incomplete/non-pass, and is never treated
+as a clean or exact parity result. Every row records uncached/cold/warm byte
+equality. It includes portable replay commands, input/capture hashes,
+per-file and project comparisons, and explicit unavailable provenance.
+The historical native commit and executable hash were not recorded and are
+not inferred from the current checkout. Native determinism is not reference
+parity: 15 scenarios are `DIFFERENT` and two remain `UNVERIFIED`.
+
+| case (language) | lines | ncloc | comment_lines | duplicated_lines | duplicated_blocks | duplicated_files | duplicated_lines_density |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `baseline-python` (python) | 140/147 ≠ | 133/133 = | 7/9 ≠ | 64/62 ≠ | 2/2 = | 2/2 = | 84.21052631578947/42.2 ≠ |
+| `baseline-javascript` (javascript) | 146/153 ≠ | 139/139 = | 7/4 ≠ | 66/64 ≠ | 2/2 = | 2/2 = | 82.5/41.8 ≠ |
+| `baseline-typescript` (typescript) | 146/153 ≠ | 139/139 = | 7/4 ≠ | 66/64 ≠ | 2/2 = | 2/2 = | 82.5/41.8 ≠ |
+| `baseline-csharp` (csharp) | 177/188 ≠ | 170/172 ≠ | 7/4 ≠ | 72/72 = | 2/2 = | 2/2 = | 71.28712871287128/38.3 ≠ |
+| `baseline-go` (go) | 160/167 ≠ | 146/146 = | 7/9 ≠ | 66/64 ≠ | 2/2 = | 2/2 = | 73.33333333333333/38.3 ≠ |
+| `baseline-java` (java) | 156/163 ≠ | 151/151 = | 5/4 ≠ | 62/64 ≠ | 2/2 = | 2/2 = | 72.09302325581395/39.3 ≠ |
+| `baseline-rust` (rust) | 152/159 ≠ | 145/145 = | 7/10 ≠ | 66/64 ≠ | 2/2 = | 2/2 = | 78.57142857142857/40.3 ≠ |
+| `baseline-ruby` (ruby) | 146/153 ≠ | 139/139 = | 7/4 ≠ | 66/64 ≠ | 2/2 = | 2/2 = | 82.5/41.8 ≠ |
+| `threshold-python-99` (python) | 40/42 ≠ | 40/40 = | 0/0 = | 40/40 = | 2/2 = | 2/2 = | 100.0/95.2 ≠ |
+| `threshold-python-100` (python) | 40/42 ≠ | 40/40 = | 0/0 = | 40/40 = | 2/2 = | 2/2 = | 100.0/95.2 ≠ |
+| `threshold-python-101` (python) | 40/42 ≠ | 40/40 = | 0/0 = | 40/40 = | 2/2 = | 2/2 = | 100.0/95.2 ≠ |
+| `java-statements-9` (java) | 20/22 ≠ | 20/20 = | 0/0 = | 0/18 ≠ | 0/2 ≠ | 0/2 ≠ | 0.0/81.8 ≠ |
+| `java-statements-10` (java) | 22/24 ≠ | 22/22 = | 0/0 = | 20/20 = | 2/2 = | 2/2 = | 90.9090909090909/83.3 ≠ |
+| `java-statements-11` (java) | 24/26 ≠ | 24/24 = | 0/0 = | 22/22 = | 2/2 = | 2/2 = | 91.66666666666666/84.6 ≠ |
+| `java-structure-ranges` (java) | 67/73 ≠ | 67/67 = | 0/0 = | 50/52 ≠ | 6/8 ≠ | 6/6 = | 74.6268656716418/71.2 ≠ |
+
+The complete comparison rows show `lines` and density differing in every
+case; C# also differs on `ncloc`, and the Java nine-statement boundary differs
+on every duplication aggregate. Duplication occurrence identity remains
+`UNVERIFIED` because the Sonar API exposes line ranges while native reports
+half-open UTF-8 byte offsets.
+
+Unavailable or deliberately unverified reference cases are separate from the
+table:
+
+- `no-denominator-empty` has native zero size counters while the reference
+  marks those size metrics absent; both sides have zero duplication counters
+  and no density denominator. Its absent-reference comparisons are
+  `UNVERIFIED`, not equality.
+- `invalid-input-unverified` exits `2` with an incomplete native report while
+  the reference state is `UNVERIFIED`; all seven metric comparisons remain
+  unverified. Malformed-input recovery is not represented as complete parity.
+- `unsupported-kotlin` and `unsupported-php` are reference-only manifest
+  cases. Sonar has analyzers for them, but the native language registry does
+  not; every metric is `UNVERIFIED` and no equality is claimed.
+
+### Captured CSS/HTML/Docker inventory versus native support
+
+`catalog/reference/issue-52-language-inventory.json` captures CSS, HTML/Web,
+and Docker reference/profile observations, but its implementation matrix
+marks each as `missing/planned only`, `local_dispatch_supported=false`, and
+measurement support is not in the current eight-language native dispatch. The
+planned package matrices do not add rules to the frozen catalog. Reference
+server/profile counts are observations, not shipped detector counts, and
+embedded HTML JavaScript behavior remains reference-only.
+
+For provenance, the Community 26.8.0.126808 capture (image
+`sha256:9026624a61cd25542a402a9e7213dd7dbb39724ac9597e331e6b85362558c079`)
+records these default Sonar Way profile observations:
+
+| reference language | active default profile | all server rules | profile key |
+|---|---:|---:|---|
+| CSS | 40 | 43 | `9ec5a3be-d6b6-40e2-81ef-99285a7cb0c9` |
+| Web/HTML | 61 | 104 | `f222b12d-0a35-4dac-9327-6e40c54fb0ad` |
+| Docker | 25 | 28 | `83c3ad5e-5f4c-48e6-acf8-0225808e4a92` |
+
+These active/all values are server inventory only. They are distinct from
+the planned local implementation-matrix records, which remain unimplemented
+and do not imply native dispatch.
+
+Native directory inventory behavior is part of the current CLI contract:
+recognized unsupported names and suffixes (`style.CSS`, `style.css`,
+`index.HTML`, `index.html`, `Dockerfile`, and `dockerfile`) appear as
+`classification=excluded`, `status=unsupported` inventory entries with no file
+metrics or duplication. The ordinary `main.py` measurement remains
+`files=1`, `lines=1`, `code_lines=1`, `comment_lines=0`, zero duplication, and
+`complete=true`. An explicitly supplied unsupported file remains
+`classification=source`, `status=unsupported`, with no metrics or duplication,
+`complete=false`, and exit `2`. This inventory behavior does not provide CSS,
+HTML, or Docker syntax support.
+
+Native metric support, native language syntax support, Sonar server reference
+evidence, and optional IDE actions are separate contracts. Java and Ruby add
+measurement support only; they do not add frozen Sonar rule families.
+Reference plugins or profiles do not create local analyzers. Optional rule
+quick fixes are tracked in `QUICKFIX.md`, not inferred from semantic-context
+or metric evidence.
+
+### Evidence publication status
+
+Portable repository-relative manifests preserve the captured inputs and
+qualification boundaries:
+
+- [`tools/oracle/roadmap-focused-reference-20260909.json`](tools/oracle/roadmap-focused-reference-20260909.json)
+  preserves the C# reference corpus and marks native qualification as pending.
+- [`tools/oracle/roadmap-jsts-python-reference-20260909.json`](tools/oracle/roadmap-jsts-python-reference-20260909.json)
+  preserves the focused JavaScript/TypeScript reference cases and pending
+  native replay contract.
+- [`tools/oracle/security-qualification-20260909.json`](tools/oracle/security-qualification-20260909.json)
+  preserves the security wrapper's explicit unverified boundaries.
+- [`tools/oracle/metrics-qualification-20260909.json`](tools/oracle/metrics-qualification-20260909.json)
+  records the native metric comparison and its incomplete malformed-input row.
+
+The configured C# and JavaScript/TypeScript results described above remain
+worktree qualification, not final published-binary evidence. Captured JSON
+findings, source hashes, and reference identities are not rewritten, and no
+pending or blocked draft is represented as a final release result.
+
+
 ## GitLab Code Quality scope
 
 `analyze --format gitlab-codequality` emits GitLab's single-array Code Quality
@@ -188,9 +379,13 @@ missing or repeated keys are rejected even when page counts and totals match.
 Legacy line-only artifacts are rejected. `--quick` validates cached artifacts;
 a full run refreshes scanner results.
 
-## Current evidence — 2026-08-29
+## Historical whole-corpus baseline — 2026-08-29
 
-Current state is **not full parity**.
+The following counts describe a captured qualification baseline; they do not
+identify the current checkout `HEAD` or a release artifact. Current state is
+**not full parity**. Full-corpus comparisons include intentional malformed-input
+rows, and incomplete rows remain fail-closed/non-pass rather than being counted
+as clean results.
 
 - Coverage audit finds direct repository tests for all 1,724 actionable
   implementations: 460 C#, 403 JavaScript, 406 TypeScript, 334 Python,

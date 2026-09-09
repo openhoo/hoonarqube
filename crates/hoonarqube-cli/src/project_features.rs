@@ -32,9 +32,24 @@ pub(crate) struct SemanticOptions {
     /// Explicit TypeScript package/compiler location.
     #[arg(long = "typescript-module")]
     pub(crate) typescript_module: Option<PathBuf>,
+    /// S4328 package name or scope allowed by project policy. Repeat for more.
+    #[arg(
+        long = "typescript-dependency-whitelist",
+        requires = "typescript_project"
+    )]
+    pub(crate) typescript_dependency_whitelist: Vec<String>,
     /// C# project or solution to load for compiler-backed rules.
     #[arg(long = "csharp-project")]
     pub(crate) csharp_project: Option<PathBuf>,
+    /// Maximum parent-type depth for C# S110. The default remains five.
+    #[arg(long = "csharp-s110-max", requires = "csharp_project")]
+    pub(crate) csharp_s110_max: Option<u32>,
+    /// C# S110 filtered-class wildcard pattern. Repeat for multiple patterns.
+    #[arg(long = "csharp-s110-filtered-class", requires = "csharp_project")]
+    pub(crate) csharp_s110_filtered_class: Vec<String>,
+    /// Maximum dependency count for C# S1200. Supplying this enables S1200.
+    #[arg(long = "csharp-s1200-max", requires = "csharp_project")]
+    pub(crate) csharp_s1200_max: Option<u32>,
     /// Maximum wall-clock time for the C# semantic helper, in milliseconds.
     /// The default remains 30,000 ms; this bounded override requires a
     /// C# project and must be positive and finite.
@@ -71,7 +86,11 @@ impl SemanticOptions {
     pub(crate) const fn requested(&self) -> bool {
         self.typescript_project.is_some()
             || self.typescript_module.is_some()
+            || !self.typescript_dependency_whitelist.is_empty()
             || self.csharp_project.is_some()
+            || self.csharp_s110_max.is_some()
+            || !self.csharp_s110_filtered_class.is_empty()
+            || self.csharp_s1200_max.is_some()
             || self.csharp_timeout_ms.is_some()
             || self.python_project.is_some()
     }

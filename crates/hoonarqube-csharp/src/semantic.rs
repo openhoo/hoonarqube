@@ -145,6 +145,13 @@ pub const BUNDLED_HELPER_NUGET_CONFIG: &str = r#"<?xml version="1.0" encoding="u
   </packageSources>
 </configuration>
 "#;
+/// Cache namespace for the lock-and-marker lifecycle below.  Older binaries
+/// use `csharp-semantic` directly and do not understand this protocol, so a
+/// new namespace keeps them from rewriting bundles prepared by this code.
+const BUNDLED_HELPER_CACHE_NAMESPACE: &str = "csharp-semantic-v2";
+const BUNDLED_HELPER_BUILD_LOCK: &str = ".build.lock";
+const BUNDLED_HELPER_READY_MARKER: &str = ".complete";
+const BUNDLED_HELPER_READY_MARKER_TEMP: &str = ".complete.tmp";
 
 /// Prepares the checked-in helper in an owned content-addressed cache using an
 /// already installed `dotnet` SDK.  Callers may pass the returned
@@ -159,8 +166,32 @@ pub fn prepare_bundled_helper(cache_root: &Path) -> Result<HelperCommand, Semant
     let dotnet = std::env::var_os("HOONARQUBE_DOTNET")
         .map_or_else(|| PathBuf::from("dotnet"), PathBuf::from);
     let directory = bundled_helper_directory(cache_root, &dotnet)?;
+    if bundled_helper_ready(&directory) {
+        return Ok(HelperCommand {
+            program: dotnet.clone(),
+            args: vec![
+                bundled_helper_dll(&directory)
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
+        });
+    }
+
+    let _build_lock = lock_bundled_helper(&directory)?;
+    if bundled_helper_ready(&directory) {
+        return Ok(HelperCommand {
+            program: dotnet.clone(),
+            args: vec![
+                bundled_helper_dll(&directory)
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
+        });
+    }
+
     let (project, nuget_config) = write_bundled_helper_sources(&directory)?;
     let dll = build_bundled_helper(&dotnet, &directory, &project, &nuget_config)?;
+    publish_bundled_helper(&directory)?;
     Ok(HelperCommand {
         program: dotnet,
         args: vec![dll.to_string_lossy().into_owned()],
@@ -197,7 +228,7 @@ fn bundled_helper_directory(
         BUNDLED_HELPER_RAZOR_SOURCE_FACTS,
         BUNDLED_HELPER_NUGET_CONFIG,
     ));
-    let directory = cache_root.join("csharp-semantic").join(key);
+    let directory = cache_root.join(BUNDLED_HELPER_CACHE_NAMESPACE).join(key);
     std::fs::create_dir_all(&directory).map_err(|error| {
         diag(
             "helper_cache",
@@ -206,6 +237,62 @@ fn bundled_helper_directory(
         )
     })?;
     Ok(directory)
+}
+
+fn bundled_helper_ready(directory: &Path) -> bool {
+    directory.join(BUNDLED_HELPER_READY_MARKER).is_file() && bundled_helper_dll(directory).is_file()
+}
+
+fn lock_bundled_helper(directory: &Path) -> Result<std::fs::File, SemanticDiagnostic> {
+    let path = directory.join(BUNDLED_HELPER_BUILD_LOCK);
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&path)
+        .map_err(|error| {
+            diag(
+                "helper_cache",
+                format!("could not open bundled helper build lock: {error}"),
+                Some(path.clone()),
+            )
+        })?;
+    lock.lock().map_err(|error| {
+        diag(
+            "helper_cache",
+            format!("could not lock bundled helper cache: {error}"),
+            Some(path),
+        )
+    })?;
+    Ok(lock)
+}
+
+fn publish_bundled_helper(directory: &Path) -> Result<(), SemanticDiagnostic> {
+    let marker = directory.join(BUNDLED_HELPER_READY_MARKER);
+    let temporary = directory.join(BUNDLED_HELPER_READY_MARKER_TEMP);
+    std::fs::write(&temporary, b"ready\n").map_err(|error| {
+        diag(
+            "helper_cache",
+            format!("could not stage bundled helper readiness: {error}"),
+            Some(temporary.clone()),
+        )
+    })?;
+    std::fs::rename(&temporary, &marker).map_err(|error| {
+        diag(
+            "helper_cache",
+            format!("could not publish bundled helper readiness: {error}"),
+            Some(marker),
+        )
+    })
+}
+
+fn bundled_helper_dll(directory: &Path) -> PathBuf {
+    directory
+        .join("bin")
+        .join("Release")
+        .join("net10.0")
+        .join("CSharpSemanticHelper.dll")
 }
 
 fn write_bundled_helper_sources(
@@ -291,11 +378,7 @@ fn build_bundled_helper(
             Some(project.to_path_buf()),
         ));
     }
-    let dll = directory
-        .join("bin")
-        .join("Release")
-        .join("net10.0")
-        .join("CSharpSemanticHelper.dll");
+    let dll = bundled_helper_dll(directory);
     if !dll.is_file() {
         return Err(diag(
             "helper_build",
