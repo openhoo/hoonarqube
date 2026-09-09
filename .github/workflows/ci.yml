@@ -65,6 +65,15 @@ jobs:
       - name: Rust format
         run: cargo fmt --all --check
 
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.111
+
+      - name: Compiler helper build and syntax
+        run: |
+          dotnet build tools/semantic/csharp/CSharpSemanticHelper.csproj --configuration Release --nologo
+          node --check tools/semantic/typescript/semantic-helper.cjs
+
       - name: Release version synchronization
         run: |
           python3 scripts/sync_release_version.py --check

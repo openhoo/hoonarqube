@@ -28,6 +28,129 @@ pub(crate) fn parse_regex_pattern(pattern: &str, unicode_mode: bool) -> Result<P
         empty_branch_positions: parser.empty_branch_positions,
     })
 }
+/// Result of decoding a `\u` escape. Fixed-width escapes can denote an exact
+/// lone UTF-16 code unit, which has no Rust `char` representation. Brace
+/// escapes are recognized only in Unicode mode and use the same exact
+/// representation for surrogate code points.
+enum UnicodeEscape {
+    Scalar(char),
+    CodeUnit(u16),
+}
+
+/// One valid UTF-16 lead/trail-surrogate pair found inside a character class.
+///
+/// The regex source can spell the pair with adjacent `\uHHHH` escapes or
+/// contain the corresponding non-BMP scalar directly.  Keeping the source
+/// offsets here lets both the detector and its quickfix use the same
+/// semantic predicate for literal and constructor forms.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct UnicodeSurrogatePair {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) high: u16,
+    pub(crate) low: u16,
+}
+
+pub(crate) fn for_each_unicode_surrogate_pair_in_class(
+    pattern: &str,
+    mut visit: impl FnMut(UnicodeSurrogatePair),
+) {
+    let bytes = pattern.as_bytes();
+    let mut in_class = false;
+    let mut offset = 0;
+    while offset < bytes.len() {
+        if bytes[offset] == b'\\' {
+            offset = visit_escaped_unicode_surrogate_pair(bytes, in_class, offset, &mut visit)
+                .unwrap_or_else(|| escaped_source_end(pattern, offset));
+            continue;
+        }
+        let Some(ch) = pattern[offset..].chars().next() else {
+            break;
+        };
+        let end = offset + ch.len_utf8();
+        in_class = advance_class_state(in_class, ch, offset, end, &mut visit);
+        offset = end;
+    }
+}
+
+fn visit_escaped_unicode_surrogate_pair(
+    bytes: &[u8],
+    in_class: bool,
+    offset: usize,
+    visit: &mut impl FnMut(UnicodeSurrogatePair),
+) -> Option<usize> {
+    if !in_class {
+        return None;
+    }
+    let (high, high_end) = fixed_unicode_escape(bytes, offset)?;
+    if !(0xD800..=0xDBFF).contains(&high) {
+        return None;
+    }
+    let (low, end) = fixed_unicode_escape(bytes, high_end)?;
+    if !(0xDC00..=0xDFFF).contains(&low) {
+        return None;
+    }
+    visit(UnicodeSurrogatePair {
+        start: offset,
+        end,
+        high,
+        low,
+    });
+    Some(end)
+}
+
+fn advance_class_state(
+    in_class: bool,
+    ch: char,
+    start: usize,
+    end: usize,
+    visit: &mut impl FnMut(UnicodeSurrogatePair),
+) -> bool {
+    if !in_class {
+        return ch == '[';
+    }
+    if ch == ']' {
+        return false;
+    }
+    if ch.len_utf16() > 1 {
+        let mut units = [0_u16; 2];
+        ch.encode_utf16(&mut units);
+        visit(UnicodeSurrogatePair {
+            start,
+            end,
+            high: units[0],
+            low: units[1],
+        });
+    }
+    true
+}
+
+pub(crate) fn has_unicode_surrogate_pair_in_class(pattern: &str) -> bool {
+    let mut found = false;
+    for_each_unicode_surrogate_pair_in_class(pattern, |_| found = true);
+    found
+}
+
+fn fixed_unicode_escape(bytes: &[u8], start: usize) -> Option<(u16, usize)> {
+    let digits = bytes.get(start..start + 6)?;
+    if digits.first() != Some(&b'\\')
+        || digits.get(1) != Some(&b'u')
+        || !digits[2..].iter().all(u8::is_ascii_hexdigit)
+    {
+        return None;
+    }
+    let text = std::str::from_utf8(&digits[2..]).ok()?;
+    let value = u16::from_str_radix(text, 16).ok()?;
+    Some((value, start + 6))
+}
+
+fn escaped_source_end(pattern: &str, start: usize) -> usize {
+    let next = start.saturating_add(1);
+    pattern
+        .get(next..)
+        .and_then(|tail| tail.chars().next())
+        .map_or(pattern.len(), |ch| next + ch.len_utf8())
+}
 
 struct PatternParser<'p> {
     /// The raw pattern text, for verbatim quantifier slices.
@@ -401,8 +524,8 @@ impl PatternParser<'_> {
         }
     }
 
-    /// Control-character escapes, unicode-mode `\u`/`\x`/`\c`, and the
-    /// identity fallback for every other escaped character.
+    /// Control-character escapes, fixed-width `\u` escapes in every mode,
+    /// unicode-mode `\x`/`\c`, and identity fallback for other escapes.
     fn simple_escape_node(&mut self, char_pos: usize, ch: char) -> Result<PatternNode, ()> {
         if let Some(escaped) = Self::simple_escape_char(ch) {
             return Ok(PatternNode::Literal {
@@ -411,10 +534,21 @@ impl PatternParser<'_> {
             });
         }
         match ch {
-            'u' if self.unicode_mode => Ok(PatternNode::Literal {
-                ch: self.parse_unicode_escape()?,
-                pos: char_pos,
-            }),
+            'u' => {
+                let save = self.pos;
+                match self.parse_unicode_escape() {
+                    Ok(UnicodeEscape::Scalar(ch)) => Ok(PatternNode::Literal { ch, pos: char_pos }),
+                    Ok(UnicodeEscape::CodeUnit(unit)) => Ok(PatternNode::CodeUnit {
+                        unit,
+                        pos: char_pos,
+                    }),
+                    Err(()) if !self.unicode_mode => {
+                        self.pos = save;
+                        Ok(PatternNode::Literal { ch, pos: char_pos })
+                    }
+                    Err(()) => Err(()),
+                }
+            }
             'x' if self.unicode_mode => Ok(PatternNode::Literal {
                 ch: self.parse_hex_escape(2)?,
                 pos: char_pos,
@@ -438,9 +572,18 @@ impl PatternParser<'_> {
         }
     }
 
-    /// `\u{HexDigits}` or `\uHHHH` in unicode mode; `u` already consumed.
-    fn parse_unicode_escape(&mut self) -> Result<char, ()> {
+    /// `\u{HexDigits}` in Unicode mode or fixed-width `\uHHHH` in every mode;
+    /// `u` itself has already been consumed.
+    ///
+    /// ECMAScript's fixed-width form is UTF-16 based: adjacent lead/trail
+    /// escapes denote one scalar in Unicode mode, while a lone code unit
+    /// remains an exact (opaque) regex atom. Brace escapes are code-point
+    /// based, except that ECMAScript also permits surrogate code points.
+    fn parse_unicode_escape(&mut self) -> Result<UnicodeEscape, ()> {
         if self.peek() == Some('{') {
+            if !self.unicode_mode {
+                return Err(());
+            }
             self.pos += 1;
             let mut value: u32 = 0;
             let mut digits = 0;
@@ -457,21 +600,62 @@ impl PatternParser<'_> {
             if digits == 0 || digits > 6 || self.bump() != Some('}') {
                 return Err(());
             }
-            char::from_u32(value).ok_or(())
-        } else {
-            self.parse_hex_escape(4)
+            return if (0xD800..=0xDFFF).contains(&value) {
+                Ok(UnicodeEscape::CodeUnit(
+                    u16::try_from(value).map_err(|_| ())?,
+                ))
+            } else {
+                char::from_u32(value).map(UnicodeEscape::Scalar).ok_or(())
+            };
         }
+
+        let high = self.parse_hex_value(4)?;
+        if self.unicode_mode && (0xD800..=0xDBFF).contains(&high) {
+            let save = self.pos;
+            if self.bump() == Some('\\')
+                && self.bump() == Some('u')
+                && let Some(low) = self.try_parse_hex_value(4)
+                && (0xDC00..=0xDFFF).contains(&low)
+            {
+                let scalar = 0x1_0000 + ((high - 0xD800) << 10) + (low - 0xDC00);
+                return char::from_u32(scalar).map(UnicodeEscape::Scalar).ok_or(());
+            }
+            self.pos = save;
+        }
+        if (0xD800..=0xDFFF).contains(&high) {
+            Ok(UnicodeEscape::CodeUnit(
+                u16::try_from(high).map_err(|_| ())?,
+            ))
+        } else {
+            char::from_u32(high).map(UnicodeEscape::Scalar).ok_or(())
+        }
+    }
+
+    /// Parses a fixed-width escape only when all digits are present.  A
+    /// failed lookahead must not consume the following escape: the caller
+    /// still needs to report its own syntax error or parse it independently.
+    fn try_parse_hex_value(&mut self, count: usize) -> Option<u32> {
+        let save = self.pos;
+        let value = self.parse_hex_value(count).ok();
+        if value.is_none() {
+            self.pos = save;
+        }
+        value
     }
 
     /// Exactly `count` hex digits in unicode mode; `x`/`u` already consumed.
     fn parse_hex_escape(&mut self, count: usize) -> Result<char, ()> {
+        char::from_u32(self.parse_hex_value(count)?).ok_or(())
+    }
+
+    fn parse_hex_value(&mut self, count: usize) -> Result<u32, ()> {
         let mut value: u32 = 0;
         for _ in 0..count {
             let nibble = self.peek().and_then(|next| next.to_digit(16)).ok_or(())?;
             value = value.saturating_mul(16).saturating_add(nibble);
             self.pos += 1;
         }
-        char::from_u32(value).ok_or(())
+        Ok(value)
     }
 
     fn skip_property_body(&mut self) -> Result<(), ()> {
@@ -502,12 +686,18 @@ impl PatternParser<'_> {
                 break;
             }
             let item = self.parse_class_item(item_pos, ch)?;
-            if let ClassItem::Char {
-                ch: low,
-                pos: low_pos,
-            } = item
-                && let Some(range) = self.try_parse_class_range(low, low_pos)?
-            {
+            let range = match &item {
+                ClassItem::Char {
+                    ch: low,
+                    pos: low_pos,
+                } => self.try_parse_class_range(*low, *low_pos)?,
+                ClassItem::CodeUnit {
+                    unit: low,
+                    pos: low_pos,
+                } => self.try_parse_code_unit_range(*low, *low_pos)?,
+                _ => None,
+            };
+            if let Some(range) = range {
                 items.push(range);
             } else {
                 items.push(item);
@@ -551,6 +741,41 @@ impl PatternParser<'_> {
             return Err(()); // reversed range
         }
         Ok(Some(ClassItem::Range {
+            low,
+            high,
+            start: low_pos,
+        }))
+    }
+
+    /// Surrogate endpoints cannot be represented by `char`, but JavaScript
+    /// still applies class-range ordering to their exact UTF-16 code units.
+    fn try_parse_code_unit_range(
+        &mut self,
+        low: u16,
+        low_pos: usize,
+    ) -> Result<Option<ClassItem>, ()> {
+        if self.peek() != Some('-') {
+            return Ok(None);
+        }
+        let save = self.pos;
+        self.pos += 1; // `-`
+        let Some(&(high_pos, high_ch)) = self.chars.get(self.pos) else {
+            self.pos = save;
+            return Ok(None);
+        };
+        if high_ch == ']' {
+            self.pos = save;
+            return Ok(None);
+        }
+        let ClassItem::CodeUnit { unit: high, .. } = self.parse_class_item(high_pos, high_ch)?
+        else {
+            self.pos = save;
+            return Ok(None);
+        };
+        if high < low {
+            return Err(()); // reversed range
+        }
+        Ok(Some(ClassItem::CodeUnitRange {
             low,
             high,
             start: low_pos,
@@ -607,8 +832,9 @@ impl PatternParser<'_> {
         }
     }
 
-    /// Control-character escapes and, in unicode mode, `\u`/`\x`; every
-    /// other escape keeps the escaped character itself.
+    /// Control-character escapes and fixed-width `\u` escapes in every mode;
+    /// Unicode-mode `\x` is also decoded, while malformed non-Unicode `\u`
+    /// escapes retain the parser's identity fallback.
     fn class_mapped_item(&mut self, char_pos: usize, esc: char) -> Result<ClassItem, ()> {
         if let Some(mapped) = Self::simple_escape_char(esc) {
             return Ok(ClassItem::Char {
@@ -616,11 +842,33 @@ impl PatternParser<'_> {
                 pos: char_pos,
             });
         }
-        let ch = match esc {
-            'u' if self.unicode_mode => self.parse_unicode_escape()?,
-            'x' if self.unicode_mode => self.parse_hex_escape(2)?,
-            _ => esc,
-        };
-        Ok(ClassItem::Char { ch, pos: char_pos })
+        match esc {
+            'u' => {
+                let save = self.pos;
+                match self.parse_unicode_escape() {
+                    Ok(UnicodeEscape::Scalar(ch)) => Ok(ClassItem::Char { ch, pos: char_pos }),
+                    Ok(UnicodeEscape::CodeUnit(unit)) => Ok(ClassItem::CodeUnit {
+                        unit,
+                        pos: char_pos,
+                    }),
+                    Err(()) if !self.unicode_mode => {
+                        self.pos = save;
+                        Ok(ClassItem::Char {
+                            ch: esc,
+                            pos: char_pos,
+                        })
+                    }
+                    Err(()) => Err(()),
+                }
+            }
+            'x' if self.unicode_mode => Ok(ClassItem::Char {
+                ch: self.parse_hex_escape(2)?,
+                pos: char_pos,
+            }),
+            _ => Ok(ClassItem::Char {
+                ch: esc,
+                pos: char_pos,
+            }),
+        }
     }
 }

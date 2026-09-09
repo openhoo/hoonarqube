@@ -35,6 +35,9 @@ impl TbKind {
 pub(crate) struct TbBinding<'a> {
     pub(crate) name: &'a str,
     pub(crate) kind: TbKind,
+    /// Whether S1172 may report this parameter. Ambient/overload signatures
+    /// have no body evidence and must not produce unused-parameter findings.
+    pub(crate) s1172_eligible: bool,
     /// Span of the declared name (declarator id, parameter, import local).
     pub(crate) decl: Span,
     pub(crate) reads: Vec<Span>,

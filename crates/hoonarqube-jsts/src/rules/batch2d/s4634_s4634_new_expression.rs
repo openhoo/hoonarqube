@@ -10,54 +10,83 @@ use oxc_ast::ast::FunctionBody;
 use oxc_ast::ast::NewExpression;
 use oxc_span::GetSpan;
 
-/// Whether every top-level statement of the executor immediately calls its
-/// own resolve/reject parameter.
-fn settles_immediately(body: &FunctionBody<'_>, param: &str) -> bool {
-    !body.statements.is_empty()
-        && body.statements.iter().all(|statement| {
-            statement_as_expression(statement).is_some_and(|expression| {
-                matches!(unparenthesized(expression), Expression::CallExpression(call)
-                    if identifier_name(&call.callee) == Some(param))
-            })
-        })
+/// Whether the executor's one expression statement settles through one of its
+/// first two parameters. Position, not parameter spelling, selects the action.
+fn settles_immediately(
+    body: &FunctionBody<'_>,
+    resolve: Option<&str>,
+    reject: Option<&str>,
+) -> Option<&'static str> {
+    if body.statements.len() != 1 {
+        return None;
+    }
+    let expression = statement_as_expression(&body.statements[0])?;
+    let Expression::CallExpression(call) = unparenthesized(expression) else {
+        return None;
+    };
+    if call.arguments.len() != 1 {
+        return None;
+    }
+    let callee = identifier_name(unparenthesized(&call.callee))?;
+    if resolve == Some(callee) {
+        Some("resolve")
+    } else if reject == Some(callee) {
+        Some("reject")
+    } else {
+        None
+    }
 }
 
-/// Whether a `new Promise` executor argument settles the promise without
-/// doing any asynchronous work: every block statement is an immediate call
-/// of its own resolve/reject parameter, or (for expression-bodied arrows)
-/// the whole body is that call.
-fn promise_executor_settles_immediately(argument: &Expression<'_>) -> bool {
-    match argument {
+/// Whether a `new Promise` executor settles immediately. The first parameter
+/// is always resolve and the second parameter is always reject.
+fn promise_executor_settles_immediately(argument: &Expression<'_>) -> Option<&'static str> {
+    match unparenthesized(argument) {
         Expression::FunctionExpression(function) => {
-            let Some(body) = function.body.as_deref() else {
-                return false;
-            };
-            let Some(param) = function
+            let body = function.body.as_deref()?;
+            let resolve = function
                 .params
                 .items
                 .first()
-                .and_then(|item| binding_identifier_name(&item.pattern))
-            else {
-                return false;
-            };
-            settles_immediately(body, param)
+                .and_then(|item| binding_identifier_name(&item.pattern));
+            let reject = function
+                .params
+                .items
+                .get(1)
+                .and_then(|item| binding_identifier_name(&item.pattern));
+            settles_immediately(body, resolve, reject)
         }
         Expression::ArrowFunctionExpression(arrow) => {
-            let Some(param) = arrow
+            let resolve = arrow
                 .params
                 .items
                 .first()
-                .and_then(|item| binding_identifier_name(&item.pattern))
-            else {
-                return false;
-            };
-            match arrow.body.as_function_body() {
-                Some(body) => settles_immediately(body, param),
-                None => matches!(arrow.body.to_expression(), Expression::CallExpression(call)
-                    if identifier_name(&call.callee) == Some(param)),
+                .and_then(|item| binding_identifier_name(&item.pattern));
+            let reject = arrow
+                .params
+                .items
+                .get(1)
+                .and_then(|item| binding_identifier_name(&item.pattern));
+            if let Some(body) = arrow.body.as_function_body() {
+                settles_immediately(body, resolve, reject)
+            } else {
+                let Expression::CallExpression(call) = unparenthesized(arrow.body.to_expression())
+                else {
+                    return None;
+                };
+                if call.arguments.len() != 1 {
+                    return None;
+                }
+                let callee = identifier_name(unparenthesized(&call.callee))?;
+                if resolve == Some(callee) {
+                    Some("resolve")
+                } else if reject == Some(callee) {
+                    Some("reject")
+                } else {
+                    None
+                }
             }
         }
-        _ => false,
+        _ => None,
     }
 }
 
@@ -66,15 +95,17 @@ impl PromiseFlowCollector<'_> {
     /// `S4634` logic extracted from `visit_new_expression`.
     pub(crate) fn check_s4634_new_expression(&mut self, it: &NewExpression<'_>) {
         if identifier_name(&it.callee) == Some("Promise")
+            && it.arguments.len() == 1
             && let Some(argument) = it.arguments.first().and_then(argument_expression)
-            && promise_executor_settles_immediately(argument)
+            && let Some(action) = promise_executor_settles_immediately(argument)
         {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S4634",
-                "Replace this trivial promise with \"Promise.resolve\".",
-                it.callee.span(),
-            );
+            let message = match action {
+                "resolve" => "Replace this trivial promise with \"Promise.resolve\".",
+                "reject" => "Replace this trivial promise with \"Promise.reject\".",
+                _ => return,
+            };
+            self.sink
+                .emit_span(RuleScope::Both, "S4634", message, it.callee.span());
         }
     }
 }

@@ -513,8 +513,7 @@ impl<'p> Visit<'p> for TrailingCommaListCollector<'p> {
     }
 }
 
-/// The `S1438` skip note above explains why no semicolon findings are emitted;
-/// this collector only feeds the trailing-comma checks.
+/// Collects array and object elements for trailing-comma checks.
 impl<'p> TrailingCommaListCollector<'p> {
     /// Constructs a collector over raw source bytes.
     pub(crate) fn new(source: &'p str) -> Self {

@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::cst::issue;
 use crate::{AnalyzerOptions, CsLanguage};
 use hoonarqube_ir::Issue;
@@ -24,16 +26,22 @@ pub(crate) fn check(source: &str, language: CsLanguage, options: &AnalyzerOption
 }
 
 fn matches_literal_header(source: &str, header: &str) -> bool {
+    let source = normalize_line_endings(source.strip_prefix('\u{feff}').unwrap_or(source));
+    let header = normalize_line_endings(header);
     if header.ends_with('\n') {
-        let without_terminator = header
-            .strip_suffix('\n')
-            .and_then(|value| value.strip_suffix('\r').or(Some(value)))
-            .unwrap_or(header);
-        return source.starts_with(header) || source == without_terminator;
+        let without_terminator = header.strip_suffix('\n').unwrap_or(header.as_ref());
+        return source.starts_with(header.as_ref()) || source == without_terminator;
     }
-    source.strip_prefix(header).is_some_and(|remainder| {
-        remainder.is_empty() || remainder.starts_with('\n') || remainder.starts_with("\r\n")
-    })
+    source
+        .strip_prefix(header.as_ref())
+        .is_some_and(|remainder| remainder.is_empty() || remainder.starts_with('\n'))
+}
+
+fn normalize_line_endings(text: &str) -> Cow<'_, str> {
+    if !text.as_bytes().contains(&b'\r') {
+        return Cow::Borrowed(text);
+    }
+    Cow::Owned(text.replace("\r\n", "\n").replace('\r', "\n"))
 }
 
 #[cfg(test)]
@@ -62,5 +70,15 @@ mod tests {
             &no_newline_option,
         );
         assert_eq!(with_key(&longer, "csharpsquid:S1451").len(), 1);
+    }
+
+    #[test]
+    fn s1451_matches_bom_and_source_line_endings() {
+        let options = AnalyzerOptions {
+            header_format: "// Copyright\n".to_owned(),
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze_options("\u{feff}// Copyright\r\nclass C {}\r\n", &options);
+        assert!(with_key(&report, "csharpsquid:S1451").is_empty());
     }
 }

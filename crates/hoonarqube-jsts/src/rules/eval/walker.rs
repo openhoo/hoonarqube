@@ -58,6 +58,7 @@ impl EvalUsageCollector<'_> {
             range: self.index.range(span),
             fix: None,
             flows: Vec::new(),
+            alternatives: Vec::new(),
         });
     }
 }

@@ -50,6 +50,7 @@ pub(crate) fn check_hardcoded_credentials(
                     range: to_range(statement_range, index, source),
                     fix: None,
                     flows: Vec::new(),
+                    alternatives: Vec::new(),
                 });
             }
         }
@@ -62,6 +63,7 @@ pub(crate) fn check_hardcoded_credentials(
                 range: to_range(range, index, source),
                 fix: None,
                 flows: Vec::new(),
+                alternatives: Vec::new(),
             });
         }
     }

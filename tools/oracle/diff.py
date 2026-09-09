@@ -16,7 +16,12 @@ from parity import (
     validate_oracle_report,
     write_json_atomic,
 )
-from parity_suite import validate_artifact_evidence
+from parity_suite import (
+    fixture_file_names,
+    validate_artifact_evidence,
+    validate_artifact_provenance,
+)
+from reference_provenance import validate_compatible_manifests
 
 
 REPO = Path(__file__).resolve().parent.parent.parent
@@ -43,7 +48,9 @@ SOURCE_SUFFIX = {
 }
 
 
-def main(lang, project_dir, sonar_json, ours_json, out_path=None):
+def main(
+    lang, project_dir, sonar_json, ours_json, out_path=None, *, require_provenance=True
+):
     try:
         language = CATALOG_LANGUAGE[lang]
     except KeyError as error:
@@ -59,6 +66,14 @@ def main(lang, project_dir, sonar_json, ours_json, out_path=None):
     validate_artifact_evidence(
         ours, project_dir.name, "ours", project_dir=project_dir.resolve()
     )
+    if require_provenance:
+        validate_artifact_provenance(
+            sonar, project_dir.name, "sq", project_dir=project_dir.resolve()
+        )
+        validate_artifact_provenance(
+            ours, project_dir.name, "ours", project_dir=project_dir.resolve()
+        )
+        validate_compatible_manifests(sonar, ours)
     catalog = read_json(REPO / "catalog/rules" / f"{language}.json")
     if not isinstance(catalog, dict) or not isinstance(catalog.get("rules"), list):
         raise ValueError(f"{language} catalog must contain a rules list")
@@ -77,10 +92,13 @@ def main(lang, project_dir, sonar_json, ours_json, out_path=None):
         if classification == "enterprise-unverified":
             enterprise_unverified.append(key)
     fixture_dir = project_dir if language == "csharp" else project_dir / "src"
-    suffix = SOURCE_SUFFIX[language]
-    available_files = [
-        path.name for path in fixture_dir.rglob(f"*{suffix}") if path.is_file()
-    ]
+    if language in {"javascript", "typescript"}:
+        available_files = fixture_file_names(project_dir.name, fixture_dir)
+    else:
+        suffix = SOURCE_SUFFIX[language]
+        available_files = [
+            path.name for path in fixture_dir.rglob(f"*{suffix}") if path.is_file()
+        ]
     rows = compare_reports(
         expected,
         sonar,
@@ -114,5 +132,6 @@ if __name__ == "__main__":
         args.sonar_json,
         args.ours_json,
         args.output,
+        require_provenance=True,
     )
     sys.exit(0 if failures == 0 else 1)

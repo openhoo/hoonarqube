@@ -18,12 +18,3 @@ pub(crate) fn static_literal_payload_len(expr: &Expr, source: &str) -> Option<us
     let closing = raw.rfind(['"', '\''])?;
     Some(closing.saturating_sub(quote).saturating_sub(1))
 }
-
-/// Whether the lowercase text carries an SQL statement shape.
-pub(crate) fn sql_statement_shape(lowercased: &str) -> bool {
-    (lowercased.contains("select") && lowercased.contains(" from "))
-        || lowercased.contains("insert into")
-        || (lowercased.contains("update ") && lowercased.contains(" set "))
-        || lowercased.contains("delete from")
-        || lowercased.contains("drop table")
-}

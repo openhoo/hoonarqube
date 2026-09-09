@@ -1,0 +1,34 @@
+@namespace Roadmap.Blazor
+
+<div>
+    @for (var index = 0; index < Items.Length; index++)
+    {
+        <button @onclick="() => Select(Items[index])">direct @index</button>
+    }
+
+    @for (var index = 0; index < Items.Length; index++)
+    {
+        var copy = index;
+        <button @onclick="() => Select(Items[copy])">copied @copy</button>
+    }
+
+    @foreach (var item in Items)
+    {
+        <button @onclick="() => Select(item)">foreach @item</button>
+    }
+</div>
+
+@code {
+    private readonly int[] Items = [1, 2, 3];
+
+    private void Select(int value) => _ = value;
+
+    private static void NonBlazorControl()
+    {
+        for (var index = 0; index < 3; index++)
+        {
+            Action callback = () => Console.WriteLine(index);
+            callback();
+        }
+    }
+}

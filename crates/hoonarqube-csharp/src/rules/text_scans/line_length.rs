@@ -28,6 +28,7 @@ pub(crate) fn check(source: &str, language: CsLanguage, options: &AnalyzerOption
                 },
                 fix: None,
                 flows: Vec::new(),
+                alternatives: Vec::new(),
             });
         }
     }

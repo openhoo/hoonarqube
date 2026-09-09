@@ -10,6 +10,7 @@ use crate::rules::expressions::{
     invocation_arguments, operator_of,
 };
 use crate::rules::literals::declarator_initializer;
+use crate::{NativeTypeEvidence, native_resolved_receiver_type};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -25,7 +26,15 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             let mut tainted = std::collections::HashSet::new();
             let mut clean = std::collections::HashSet::new();
             for statement in block_statements(block) {
-                scan_sql_usages(statement, source, language, &tainted, &clean, &mut issues);
+                scan_sql_usages(
+                    statement,
+                    root,
+                    source,
+                    language,
+                    &tainted,
+                    &clean,
+                    &mut issues,
+                );
                 update_sql_taint(statement, source, &mut tainted, &mut clean);
             }
         }
@@ -50,6 +59,32 @@ const SQL_COMMAND_TYPES: [&str; 6] = [
     "SqliteCommand",
     "NpgsqlCommand",
 ];
+
+/// Framework command types that own the `CommandText` member.
+///
+/// Keep this separate from [`SQL_COMMAND_TYPES`]: the latter is the
+/// historical constructor heuristic, while member assignments require
+/// resolved framework ownership.  `NativeTypeEvidence` resolves imports,
+/// aliases, explicit `global::` qualification, and source shadowing.
+const SQL_COMMAND_MEMBER_TYPES: [&str; 9] = [
+    "System.Data.Common.DbCommand",
+    "System.Data.SqlClient.SqlCommand",
+    "Microsoft.Data.SqlClient.SqlCommand",
+    "System.Data.OleDb.OleDbCommand",
+    "System.Data.Odbc.OdbcCommand",
+    "MySql.Data.MySqlClient.MySqlCommand",
+    "Microsoft.Data.Sqlite.SqliteCommand",
+    "System.Data.SQLite.SQLiteCommand",
+    "Npgsql.NpgsqlCommand",
+];
+
+fn is_known_sql_command_receiver(root: Node<'_>, receiver: Node<'_>, source: &str) -> bool {
+    let Some(type_name) = native_resolved_receiver_type(receiver, source) else {
+        return false;
+    };
+    let evidence = NativeTypeEvidence::collect_for(root, receiver, source);
+    evidence.matches(type_name, &SQL_COMMAND_MEMBER_TYPES)
+}
 
 /// Whether an expression builds its text from non-literal parts:
 /// string interpolation, a concatenation with such a part, or an
@@ -89,6 +124,7 @@ fn is_dynamic_sql_text(
 /// interpolated first argument, plus dynamic `CommandText` assignments.
 fn scan_sql_usages<'t>(
     statement: Node<'t>,
+    root: Node<'t>,
     source: &str,
     language: CsLanguage,
     tainted: &std::collections::HashSet<String>,
@@ -99,7 +135,7 @@ fn scan_sql_usages<'t>(
         issues.push(issue(
             language,
             "S2077",
-            "Use a parameterized query or stored procedure for this SQL statement.",
+            "Use a parameterized query instead of string formatting.",
             range_of(anchor, source),
         ));
     };
@@ -124,16 +160,23 @@ fn scan_sql_usages<'t>(
             }
         }
         "assignment_expression" => {
+            let Some(left) = node.child_by_field_name("left") else {
+                return;
+            };
             let targets_command_text = operator_of(node) == Some("=")
-                && node.child_by_field_name("left").is_some_and(|left| {
-                    expression_name(left, source) == Some("CommandText")
-                        && left.kind() == "member_access_expression"
-                });
+                && expression_name(left, source) == Some("CommandText")
+                && left.kind() == "member_access_expression";
             let dynamic = node
                 .child_by_field_name("right")
                 .is_some_and(|right| is_dynamic_sql_text(right, source, tainted, clean));
-            if targets_command_text && dynamic {
-                report(node);
+            if !targets_command_text || !dynamic {
+                return;
+            }
+            let Some(receiver) = left.child_by_field_name("expression") else {
+                return;
+            };
+            if is_known_sql_command_receiver(root, receiver, source) {
+                report(left);
             }
         }
         _ => {}
@@ -221,11 +264,50 @@ mod tests {
     }
 
     #[test]
-    fn s2077_dynamic_command_text_assignment_flags() {
+    fn s2077_dynamic_command_text_assignment_flags_known_db_command() {
         let report = analyze_default(
-            "class C {\n    void M(string name) {\n        c.CommandText = $\"DELETE FROM t WHERE n = {name}\";\n    }\n}\n",
+            "using System.Data.Common;\npublic static class SqlAttack { public static void Run(DbCommand command, string input) { command.CommandText = \"SELECT * FROM records WHERE name = '\" + input + \"'\"; } }\n",
         );
-        assert_eq!(with_key(&report, KEY).len(), 1);
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            found[0].message,
+            "Use a parameterized query instead of string formatting."
+        );
+        assert_eq!(found[0].range.start.line, 2);
+        assert_eq!(found[0].range.start.column, 90);
+        assert_eq!(found[0].range.end.column, 109);
+    }
+
+    #[test]
+    fn s2077_command_text_requires_db_command_receiver() {
+        let report = analyze_default(concat!(
+            "using System.Data.Common;\n",
+            "public sealed class CustomCommand { public string CommandText { get; set; } = \"\"; }\n",
+            "public static class C {\n",
+            "    public static void Actual(DbCommand command, string input) { command.CommandText = \"SELECT * FROM records WHERE name = '\" + input + \"'\"; }\n",
+            "    public static void Custom(CustomCommand command, string input) { command.CommandText = \"SELECT * FROM records WHERE name = '\" + input + \"'\"; }\n",
+            "    public static void Unknown(object command, string input) { command.CommandText = \"SELECT * FROM records WHERE name = '\" + input + \"'\"; }\n",
+            "}\n",
+        ));
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 4);
+        assert_eq!(found[0].range.start.column, 65);
+        assert_eq!(found[0].range.end.column, 84);
+    }
+
+    #[test]
+    fn s2077_command_text_binding_honors_aliases_and_shadowing() {
+        let aliased = analyze_default(
+            "using Db = System.Data.Common.DbCommand;\nclass C { void M(Db command, string input) { command.CommandText = \"SELECT '\" + input + \"'\"; } }\n",
+        );
+        assert_eq!(with_key(&aliased, KEY).len(), 1);
+
+        let shadowed = analyze_default(
+            "using System.Data.Common;\nclass DbCommand { public string CommandText { get; set; } = \"\"; }\nclass C { void M(DbCommand command, string input) { command.CommandText = \"SELECT '\" + input + \"'\"; } }\n",
+        );
+        assert!(with_key(&shadowed, KEY).is_empty());
     }
 
     #[test]

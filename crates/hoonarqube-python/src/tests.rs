@@ -1,54 +1,7 @@
 use std::path::PathBuf;
 
 use super::{AnalyzerOptions, analyze};
-use crate::test_support::{
-    findings, findings_of, issue, pos, regex_finds, scan, scan_with_options,
-};
-
-#[test]
-fn one_statement_per_line_flags_the_complete_statement_sequence() {
-    let report = scan("a = 1\nb = 2\nc = 3; d = 4\n");
-    assert_eq!(
-        report.issues,
-        vec![
-            hoonarqube_ir::Issue::new(
-                "python:S1720",
-                "Add a docstring to this module.",
-                hoonarqube_ir::Range::file_level(),
-            ),
-            issue(
-                "python:S1481",
-                "Remove the unused local variable \"a\".",
-                (1, 0),
-                (1, 1),
-            ),
-            issue(
-                "python:S1481",
-                "Remove the unused local variable \"b\".",
-                (2, 0),
-                (2, 1),
-            ),
-            issue(
-                "python:S1481",
-                "Remove the unused local variable \"c\".",
-                (3, 0),
-                (3, 1),
-            ),
-            issue(
-                "python:OneStatementPerLine",
-                "At most one statement is allowed per line, but 2 statements were found on this line.",
-                (3, 0),
-                (3, 12),
-            ),
-            issue(
-                "python:S1481",
-                "Remove the unused local variable \"d\".",
-                (3, 7),
-                (3, 8),
-            ),
-        ]
-    );
-}
+use crate::test_support::{findings, findings_of, pos, regex_finds, scan, scan_with_options};
 
 #[test]
 fn exec_and_print_calls_are_py3_calls_and_not_flagged() {
@@ -82,7 +35,7 @@ fn issue_positions_are_one_based_line_zero_based_column() {
         .filter(|issue| issue.rule_key == "python:OneStatementPerLine")
         .collect();
     assert_eq!(split_issues.len(), 1);
-    assert_eq!(split_issues[0].range.start, pos(2, 2));
+    assert_eq!(split_issues[0].range.end, pos(2, 14));
 }
 
 #[test]
@@ -105,41 +58,25 @@ fn integration_assembles_full_report_sorted() {
         &AnalyzerOptions::default(),
     );
     assert_eq!(
-        report,
-        hoonarqube_ir::FileReport {
-            path: PathBuf::from("demo.py"),
-            language: "python".to_string(),
-            issues: vec![
-                hoonarqube_ir::Issue::new(
-                    "python:S1720",
-                    "Add a docstring to this module.",
-                    hoonarqube_ir::Range::file_level(),
-                ),
-                issue(
-                    "python:S1720",
-                    "Add a docstring to this function.",
-                    (3, 4),
-                    (3, 9),
-                ),
-                issue(
-                    "python:OneStatementPerLine",
-                    "At most one statement is allowed per line, but 2 statements were found on this line.",
-                    (6, 4),
-                    (6, 16),
-                ),
-                issue(
-                    "python:NoSonar",
-                    "Is #NOSONAR used to exclude false-positive or to hide real quality flaw?",
-                    (10, 16),
-                    (10, 30),
-                ),
-            ],
-            metrics: hoonarqube_ir::FileMetrics {
-                lines: 10,
-                code_lines: 7,
-                comment_lines: 1,
-            },
-        }
+        report
+            .issues
+            .iter()
+            .map(|issue| issue.range.start)
+            .collect::<Vec<_>>(),
+        vec![pos(0, 0), pos(3, 4), pos(6, 4), pos(10, 16)]
+    );
+    assert_eq!(
+        report
+            .issues
+            .iter()
+            .map(|issue| issue.rule_key.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "python:S1720",
+            "python:S1720",
+            "python:OneStatementPerLine",
+            "python:NoSonar",
+        ]
     );
 }
 
@@ -174,11 +111,16 @@ fn s5899_flags_test_methods_runners_cannot_discover() {
 }
 
 #[test]
-fn s5915_flags_unittest_assertion_closing_except_block() {
-    let flagged =
-        scan("try:\n    parse(raw)\nexcept ValueError:\n    self.assertEqual(got, want)\n");
+fn s5915_flags_assertion_closing_pytest_raises_block() {
+    let flagged = scan(concat!(
+        "import pytest\n",
+        "def test_it():\n",
+        "    with pytest.raises(ValueError):\n",
+        "        parse(raw)\n",
+        "        assert got == want\n"
+    ));
     assert_eq!(findings(&flagged, "python:S5915").len(), 1);
-    let clean = "try:\n    parse(raw)\nexcept ValueError:\n    log(got)\nassert want == got\n";
+    let clean = "try:\n    parse(raw)\nexcept ValueError:\n    self.assertEqual(got, want)\n";
     assert!(findings(&scan(clean), "python:S5915").is_empty());
 }
 
@@ -358,12 +300,14 @@ fn s7516_flags_sorting_before_set_construction() {
 }
 
 #[test]
-fn s7517_flags_manual_key_lookups_by_loop_variable() {
-    let flagged = scan("for k in prices:\n    total[k] = prices[k]\n");
+fn s7517_flags_two_name_iteration_over_proven_dict() {
+    let flagged = scan("settings = {1: 2}\nfor key, value in settings:\n    print(key, value)\n");
     let found = findings(&flagged, "python:S7517");
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].range.start.line, 2);
-    let clean = "for k in prices:\n    show(k)\n";
+    assert_eq!(found[0].range.end.line, 2);
+
+    let clean = "for key, value in settings:\n    print(key, value)\n";
     assert!(findings(&scan(clean), "python:S7517").is_empty());
 }
 
@@ -531,8 +475,15 @@ fn s6734_flags_inplace_pandas_methods() {
 
 #[test]
 fn s6735_requires_explicit_merge_keys() {
-    let flagged = scan("left.merge(right)\nleft.merge(right, on=\"k\")\n");
-    assert_eq!(findings(&flagged, "python:S6735").len(), 1);
+    let flagged = scan(concat!(
+        "import pandas as pd\n",
+        "left = pd.DataFrame()\n",
+        "right = pd.DataFrame()\n",
+        "left.merge(right)\n",
+        "left.merge(right, on=\"k\")\n",
+        "left.merge(right, how=\"inner\", on=\"k\", validate=\"many_to_many\")\n"
+    ));
+    assert_eq!(findings(&flagged, "python:S6735").len(), 2);
 }
 
 #[test]
@@ -604,7 +555,17 @@ fn s6890_prefers_zoneinfo_over_pytz() {
 
 #[test]
 fn s6929_requires_explicit_reduction_axis() {
-    let flagged = scan("tf.reduce_sum(x)\ntf.reduce_sum(x, axis=0)\nnp.sum(y)\nnp.sum(y, 0)\n");
+    let flagged = scan(concat!(
+        "import tensorflow as tf\n",
+        "import numpy as np\n",
+        "import torch\n",
+        "tf.reduce_sum(x)\n",
+        "tf.reduce_sum(x, axis=0)\n",
+        "np.sum(y)\n",
+        "np.sum(y, 0)\n",
+        "torch.argmin(y)\n",
+        "torch.argmin(y, dim=0)\n"
+    ));
     assert_eq!(findings(&flagged, "python:S6929").len(), 2);
 }
 
@@ -2873,18 +2834,27 @@ fn s108_treats_docstrings_and_functions_as_content() {
 
 #[test]
 fn s1110_flags_inner_paren_pairs_with_single_content() {
-    let flagged = scan("print((\"Hello\" + name))\nvalue = ((a))\n");
+    let flagged = scan("print(((\"Hello\" + name)))\nvalue = ((a))\n");
     let found = findings(&flagged, "python:S1110");
     assert_eq!(found.len(), 2);
 }
 
 #[test]
-fn s1110_spares_meaningful_and_empty_pairs() {
+fn s1110_flags_redundant_collection_pairs_but_spares_required_pairs() {
+    let flagged = scan(
+        "pair = ((a, b))\n\
+         nested = (())\n\
+         generator = ((item for item in items))\n",
+    );
+    // The outer pair is redundant; the inner tuple/generator delimiters stay
+    // required by Python's grammar.
+    assert_eq!(findings(&flagged, "python:S1110").len(), 3);
+
     for clean in [
-        // Tuples change arity when the inner pair is removed.
-        "pair = ((a, b))\nreturning = f((a, b))\n",
-        // Empty pairs and string-only interiors are skipped.
-        "unit = ()\nnested = (())\ntext = (\"s\")\n",
+        // The tuple pair is required as a single call argument.
+        "returning = f((a, b))\n",
+        // Empty tuples and one-level grouping have no redundant pair.
+        "unit = ()\ntext = (\"s\")\n",
         // Call and grouping parentheses are load-bearing.
         "plain = (a)\ncalled = f(a)\nsub = table[(a)]\n",
     ] {

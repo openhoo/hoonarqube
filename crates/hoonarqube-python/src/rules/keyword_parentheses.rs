@@ -57,6 +57,7 @@ pub(crate) fn check_keyword_parentheses(
             message: format!("Remove the parentheses after this \"{keyword}\" keyword."),
             range: to_range(issue_range, index, source),
             fix: None,
+            alternatives: Vec::new(),
             flows: Vec::new(),
         };
         // `open` is the keyword's index, so the opening paren sits at

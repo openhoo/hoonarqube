@@ -1,8 +1,9 @@
 // Rule module s5856_constant_regex_site (generated).
 use crate::engine::pattern_parser::{
     AnchorKind, ClassItem, GraphemeComponentKind, ParsedRegex, PatternNode, RegexSite,
-    ShorthandClass, contains_unbounded_quantifier, grapheme_component_kind, node_can_match_empty,
-    parse_regex_pattern, pattern_complexity, walk_pattern_nodes,
+    ShorthandClass, contains_unbounded_quantifier, for_each_unicode_surrogate_pair_in_class,
+    grapheme_component_kind, node_can_match_empty, parse_regex_pattern, pattern_complexity,
+    walk_pattern_nodes,
 };
 use crate::rules::regex_family::collectors::{
     REGEX_COMPLEXITY_THRESHOLD, emit_concise_class_rewrite, emit_space_runs_in_sequence,
@@ -12,9 +13,9 @@ use crate::support::{IssueSink, RuleScope};
 
 // ----- Shared-walker rule drivers -----
 
-/// Runs every pattern-text rule over one constant regex site. The raw-text
-/// scans also run on patterns the mini parser rejects; everything
-/// structure-based needs a successful parse.
+/// Runs every pattern-text rule over one constant regex site. The
+/// representation-level scans also run on patterns the mini parser rejects;
+/// everything structure-based needs a successful parse.
 pub(crate) fn check_constant_regex_site(sink: &mut IssueSink, site: &RegexSite) {
     if !valid_flags(&site.flags) {
         sink.emit_span(
@@ -27,6 +28,7 @@ pub(crate) fn check_constant_regex_site(sink: &mut IssueSink, site: &RegexSite) 
     }
     check_control_characters(sink, site);
     check_unicode_constructs_without_u_flag(sink, site);
+    check_surrogate_pairs_without_u_flag(sink, site);
     let unicode_mode = site.has_flag('u') || site.has_flag('v');
     let Ok(parsed) = parse_regex_pattern(&site.pattern, unicode_mode) else {
         // Upstream embeds the validator's detail text; the subset reports
@@ -97,6 +99,25 @@ fn check_unicode_constructs_without_u_flag(sink: &mut IssueSink, site: &RegexSit
             search_from = end;
         }
     }
+}
+/// `S5868`: a valid UTF-16 surrogate pair in a character class needs
+/// Unicode mode so it is interpreted as one scalar value.
+fn check_surrogate_pairs_without_u_flag(sink: &mut IssueSink, site: &RegexSite) {
+    if site.has_flag('u') || site.has_flag('v') {
+        return;
+    }
+    for_each_unicode_surrogate_pair_in_class(&site.pattern, |pair| {
+        sink.emit_span(
+            RuleScope::Both,
+            "S5868",
+            &format!(
+                "Move this Unicode surrogate pair '\\u{high:04X}\\u{low:04X}' outside of the character class or use 'u' flag",
+                high = pair.high,
+                low = pair.low,
+            ),
+            site.sub_span(pair.start, pair.end),
+        );
+    });
 }
 
 /// `S2639`: `[]` never matches anything and `[^]` matches everything —
@@ -239,8 +260,24 @@ fn class_item_set(
     ignore_case: bool,
 ) -> Option<RegexCharacterSet> {
     let mut set = match item {
+        ClassItem::Char { ch, .. } if !unicode_mode && (*ch).len_utf16() > 1 => {
+            let mut units = [0_u16; 2];
+            (*ch).encode_utf16(&mut units);
+            RegexCharacterSet {
+                ranges: vec![
+                    (u32::from(units[0]), u32::from(units[0])),
+                    (u32::from(units[1]), u32::from(units[1])),
+                ],
+            }
+        }
         ClassItem::Char { ch, .. } => RegexCharacterSet {
             ranges: vec![(u32::from(*ch), u32::from(*ch))],
+        },
+        ClassItem::CodeUnit { unit, .. } => RegexCharacterSet {
+            ranges: vec![(u32::from(*unit), u32::from(*unit))],
+        },
+        ClassItem::CodeUnitRange { low, high, .. } => RegexCharacterSet {
+            ranges: vec![(u32::from(*low), u32::from(*high))],
         },
         ClassItem::Range { low, high, .. } => RegexCharacterSet {
             ranges: vec![(u32::from(*low), u32::from(*high))],
@@ -312,9 +349,10 @@ fn complement_ranges(ranges: &[(u32, u32)]) -> Vec<(u32, u32)> {
 fn class_item_start(site: &RegexSite, item: &ClassItem) -> usize {
     let position = match item {
         ClassItem::Char { pos, .. }
+        | ClassItem::CodeUnit { pos, .. }
         | ClassItem::Shorthand { pos, .. }
         | ClassItem::Property { pos, .. } => *pos,
-        ClassItem::Range { start, .. } => *start,
+        ClassItem::Range { start, .. } | ClassItem::CodeUnitRange { start, .. } => *start,
     };
     if position > 0 && site.pattern.as_bytes().get(position - 1) == Some(&b'\\') {
         position - 1
@@ -372,9 +410,11 @@ fn check_single_member_class(sink: &mut IssueSink, site: &RegexSite, parsed: &Pa
 fn singleton_class_item_is_safe(site: &RegexSite, item: &ClassItem) -> bool {
     match item {
         ClassItem::Char { ch, pos } => singleton_char_is_safe(site, *ch, *pos),
+        ClassItem::CodeUnit { .. } | ClassItem::CodeUnitRange { .. } | ClassItem::Range { .. } => {
+            false
+        }
         ClassItem::Shorthand { .. } => true,
         ClassItem::Property { .. } => site.has_flag('u') || site.has_flag('v'),
-        ClassItem::Range { .. } => false,
     }
 }
 
@@ -591,6 +631,7 @@ fn check_anchor_precedence(sink: &mut IssueSink, site: &RegexSite, parsed: &Pars
 fn node_start(node: &PatternNode) -> Option<usize> {
     match node {
         PatternNode::Literal { pos, .. }
+        | PatternNode::CodeUnit { pos, .. }
         | PatternNode::ClassEscape { pos, .. }
         | PatternNode::PropertyEscape { pos, .. }
         | PatternNode::Anchor { pos, .. }
@@ -602,9 +643,10 @@ fn node_start(node: &PatternNode) -> Option<usize> {
 }
 
 /// `S5868`: combining marks, ZWJ sequences, variation selectors, skin-tone
-/// modifiers, and regional indicators inside `[...]` match one scalar, not
-/// the grapheme the pattern author sees. Subset: UTF-16 surrogate pairs
-/// cannot appear as `char`s and stay out of scope.
+/// modifiers, regional indicators, and non-BMP scalars inside `[...]` match
+/// one scalar or code unit, not the grapheme the pattern author sees.
+/// Fixed-width UTF-16 surrogate pairs are handled by the semantic pass
+/// above so this character walker only needs valid Rust scalar values.
 fn check_misleading_class_characters(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     for alternative in &parsed.alternatives {
         walk_pattern_nodes(alternative, &mut |node| {
@@ -907,6 +949,160 @@ mod tests {
     }
 
     #[test]
+    fn surrogate_pairs_have_safe_unicode_flag_suggestions() {
+        let literal_source = "const pattern = /[\\uD83D\\uDE00]/;\n";
+        let literal = js(literal_source);
+        assert_eq!(
+            literal
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "javascript:S5868")
+                .count(),
+            1
+        );
+        let literal_issue = literal
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "javascript:S5868")
+            .expect("literal surrogate pair should report S5868");
+        let literal_action = literal_issue
+            .alternatives
+            .iter()
+            .find(|alternative| alternative.id == "s5868-add-unicode-flag")
+            .expect("literal surrogate pair should offer the unicode flag");
+        let [literal_edit] = literal_action.fix.edits.as_slice() else {
+            panic!("literal unicode action should contain one edit");
+        };
+        assert_eq!(literal_edit.replacement, "u");
+        assert_eq!(literal_edit.range.start, literal_edit.range.end);
+
+        let constructor_source = "const pattern = new RegExp(\"[\\\\uD83D\\\\uDE00]\");\n";
+        let constructor = js(constructor_source);
+        assert_eq!(
+            constructor
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "javascript:S5868")
+                .count(),
+            1
+        );
+        let constructor_issue = constructor
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "javascript:S5868")
+            .expect("constructor surrogate pair should report S5868");
+        let constructor_action = constructor_issue
+            .alternatives
+            .iter()
+            .find(|alternative| alternative.id == "s5868-add-unicode-flag")
+            .expect("constructor surrogate pair should offer the unicode flag");
+        let [constructor_edit] = constructor_action.fix.edits.as_slice() else {
+            panic!("constructor unicode action should contain one edit");
+        };
+        assert_eq!(constructor_edit.replacement, ", \"u\"");
+        assert_eq!(constructor_edit.range.start, constructor_edit.range.end);
+        assert_eq!(
+            literal_edit.range.start.column as usize,
+            literal_source.find("/;").expect("literal terminator") + 1
+        );
+        assert_eq!(
+            constructor_edit.range.start.column as usize,
+            constructor_source
+                .find(");")
+                .expect("constructor terminator")
+        );
+    }
+
+    #[test]
+    fn unicode_flag_suggestions_respect_pattern_semantics() {
+        let isolated = js("const pattern = /[\\uD83D]/;\n");
+        assert_eq!(
+            isolated
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "javascript:S5868")
+                .count(),
+            0
+        );
+        let isolated_low = js_keys("const pattern = /[\\uDE00]/;\n");
+        assert_eq!(count_key(&isolated_low, "javascript:S5868"), 0);
+        let outside = js_keys("const pattern = /\\uD83D\\uDE00/;\n");
+        assert_eq!(count_key(&outside, "javascript:S5868"), 0);
+
+        let grapheme = js("const pattern = /[e\u{0301}]/;\n");
+        let grapheme_issue = grapheme
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "javascript:S5868")
+            .expect("grapheme component should still report S5868");
+        assert!(
+            grapheme_issue
+                .alternatives
+                .iter()
+                .all(|alternative| alternative.id != "s5868-add-unicode-flag"),
+            "adding u must not be offered for grapheme-component findings"
+        );
+
+        let invalid = js("const pattern = new RegExp(\"[\\\\u{110000}]\", \"u\");\n");
+        assert_eq!(
+            invalid
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "javascript:S5856")
+                .count(),
+            1
+        );
+
+        let invalid_flags = js("const pattern = new RegExp(\"[\\\\uD83D\\\\uDE00]\", \"uu\");\n");
+        assert_eq!(
+            invalid_flags
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "javascript:S5856")
+                .count(),
+            1
+        );
+        assert!(
+            invalid_flags
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "javascript:S5868"),
+            "invalid flags must not receive a surrogate-pair finding"
+        );
+
+        let dynamic = js("const pattern = getPattern();\nnew RegExp(pattern);\n");
+
+        for source in [
+            "const pattern = /[\\uD83D\\uDE00]/u;\n",
+            "const pattern = new RegExp(\"[\\\\uD83D\\\\uDE00]\", \"u\");\n",
+        ] {
+            let projection = js(source);
+            assert!(
+                projection
+                    .issues
+                    .iter()
+                    .all(|issue| issue.rule_key != "javascript:S5856"),
+                "valid Unicode projection must not report S5856"
+            );
+            assert!(
+                projection
+                    .issues
+                    .iter()
+                    .all(|issue| issue.rule_key != "javascript:S5868"),
+                "valid Unicode projection must remove S5868"
+            );
+        }
+
+        assert!(
+            dynamic
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "javascript:S5868"),
+            "dynamic constructors must not receive a surrogate-pair finding"
+        );
+    }
+
+    #[test]
     fn regex_complexity_budget_is_enforced() {
         // Scores 29 against the budget of 20: three alternation branches
         // of quantified shorthands and classes.
@@ -924,6 +1120,10 @@ mod tests {
         let overlapping_ranges = js_keys("const re = /[a-ca-f]/;\n");
         assert_eq!(count_key(&overlapping_ranges, "javascript:S5869"), 1);
         let digit_shorthand = js_keys("const re = /[\\d0]/;\n");
+        let no_u_pair = js_keys("const re = /[\\uD83D\\uDE00]/;\n");
+        assert_eq!(count_key(&no_u_pair, "javascript:S5869"), 0);
+        let astral_and_unit = js_keys("const re = /[\u{1F600}\\uD83D]/;\n");
+        assert_eq!(count_key(&astral_and_unit, "javascript:S5869"), 1);
         assert_eq!(count_key(&digit_shorthand, "javascript:S5869"), 1);
         let word_shorthand = js_keys("const re = /[\\w_]/;\n");
         assert_eq!(count_key(&word_shorthand, "javascript:S5869"), 1);

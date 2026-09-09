@@ -1,0 +1,33 @@
+function cpd_excluded(value) {
+  const item_001 = value + 1;
+  const item_002 = value + 2;
+  const item_003 = value + 3;
+  const item_004 = value + 4;
+  const item_005 = value + 5;
+  const item_006 = value + 6;
+  const item_007 = value + 7;
+  const item_008 = value + 8;
+  const item_009 = value + 9;
+  const item_010 = value + 10;
+  const item_011 = value + 11;
+  const item_012 = value + 12;
+  const item_013 = value + 13;
+  const item_014 = value + 14;
+  const item_015 = value + 15;
+  const item_016 = value + 16;
+  const item_017 = value + 17;
+  const item_018 = value + 18;
+  const item_019 = value + 19;
+  const item_020 = value + 20;
+  const item_021 = value + 21;
+  const item_022 = value + 22;
+  const item_023 = value + 23;
+  const item_024 = value + 24;
+  const item_025 = value + 25;
+  const item_026 = value + 26;
+  const item_027 = value + 27;
+  const item_028 = value + 28;
+  const item_029 = value + 29;
+  const item_030 = value + 30;
+  return value;
+}

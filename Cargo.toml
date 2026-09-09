@@ -14,8 +14,10 @@ members = [
     "crates/hoonarqube-go",
     "crates/hoonarqube-rust",
     "crates/hoonarqube-bench",
+    "crates/hoonarqube-service",
     "xtask",
 ]
+exclude = ["vendor/tree-sitter-typescript"]
 resolver = "3"
 
 [workspace.package]

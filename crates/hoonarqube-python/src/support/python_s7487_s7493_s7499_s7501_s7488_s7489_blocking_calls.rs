@@ -1,17 +1,5 @@
 // --- python:S7487 / S7493 / S7499 / S7501 / S7488 / S7489 — blocking calls
 
-pub(crate) const SYNC_OS_CALLS: [&str; 9] = [
-    "os.system",
-    "os.popen",
-    "os.fork",
-    "os.forkpty",
-    "os.execv",
-    "os.execve",
-    "os.execvp",
-    "os.execvpe",
-    "os.posix_spawn",
-];
-
 pub(crate) const SYNC_FILE_CALLS: [&str; 10] = [
     "open",
     "io.open",

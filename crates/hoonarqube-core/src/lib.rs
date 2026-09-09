@@ -6,6 +6,8 @@
 //! hoonarqube-bench drives the per-language analyzer crates directly to
 //! isolate per-analyzer throughput.
 
+/// Optional coverage, reference-baseline, and quality-gate assessment.
+pub mod assessment;
 /// Deterministic intra- and cross-file duplication detection.
 pub mod duplication;
 /// Project-level orchestration and completeness reporting.
@@ -16,7 +18,7 @@ pub use duplication::{
     DuplicationFile, DuplicationOptions, DuplicationResult, detect_duplications,
 };
 pub use project::{ProjectFile, analyze_project_file, build_project_report};
-pub use source_facts::{NormalizedToken, SourceFacts, collect_source_facts};
+pub use source_facts::{NormalizedToken, SourceFacts, collect_source_facts, compiler_razor_facts};
 
 use std::path::Path;
 
@@ -87,6 +89,7 @@ const EXTENSIONS: &[(&str, Language)] = &[
     ("mts", Language::TypeScript),
     ("cts", Language::TypeScript),
     ("cs", Language::CSharp),
+    ("razor", Language::CSharp),
     ("go", Language::Go),
     ("java", Language::Java),
     ("rs", Language::Rust),
@@ -112,6 +115,18 @@ pub fn language_for_extension(ext: &str) -> Option<Language> {
 pub fn language_for_path(path: &Path) -> Option<Language> {
     let ext = path.extension()?.to_str()?;
     language_for_extension(ext)
+}
+
+/// Returns whether a path is a Razor source document.
+///
+/// Razor documents use the C# analyzer family only after a trusted compiler
+/// context has generated and mapped their C# representation.  Native callers
+/// must not send the mixed markup through the ordinary C# parser.
+#[must_use]
+pub fn is_razor_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("razor"))
 }
 
 /// C# analyzer knobs, re-exported for consumers constructing [`AnalyzerOptions`] field-by-field.
@@ -162,10 +177,9 @@ impl Default for AnalyzerOptions {
 
 /// Analyzes one source file with the analyzer registered for its extension.
 ///
-/// Returns `None` when no analyzer claims the file's extension (see
-/// [`language_for_path`]); otherwise every analyzer returns a complete
-/// [`hoonarqube_ir::FileReport`] whose `language` field carries the catalog
-/// repository prefix.
+/// Returns `None` when no analyzer claims the file's extension or when the
+/// path is a Razor document that requires a complete trusted compiler context.
+/// Razor markup must never be passed through the ordinary C# parser.
 ///
 /// # Panics
 ///
@@ -178,6 +192,9 @@ pub fn analyze(
     options: &AnalyzerOptions,
 ) -> Option<hoonarqube_ir::FileReport> {
     let language = language_for_path(path)?;
+    if is_razor_path(path) {
+        return None;
+    }
     let path = path.to_path_buf();
     let mut report = match language {
         Language::Python => hoonarqube_python::analyze(path, source, &options.python),

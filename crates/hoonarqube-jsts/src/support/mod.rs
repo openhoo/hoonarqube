@@ -395,6 +395,7 @@ pub(crate) fn span_issue(
         range: index.range(span),
         fix: None,
         flows: Vec::new(),
+        alternatives: Vec::new(),
     }
 }
 
@@ -445,6 +446,7 @@ impl IssueSink<'_> {
             },
             fix: None,
             flows: Vec::new(),
+            alternatives: Vec::new(),
         });
     }
 }

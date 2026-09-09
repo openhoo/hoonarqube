@@ -317,7 +317,9 @@ pub(crate) fn check_tier_a_battery(
     issues.extend(check_doubled_prefix_operators(index, source, file_ctx));
     issues.extend(check_confusing_walrus_placement(index, source, file_ctx));
     issues.extend(check_constant_none_comparisons(index, source, file_ctx));
-    issues.extend(check_fresh_object_identity_checks(index, source, file_ctx));
+    issues.extend(check_fresh_object_identity_checks(
+        parsed, index, source, file_ctx,
+    ));
     issues.extend(check_tuple_assertions(index, source, file_ctx));
     issues.extend(check_type_equality_comparisons(index, source, file_ctx));
     issues.extend(check_lambda_assignments(index, source, file_ctx));
@@ -344,7 +346,9 @@ pub(crate) fn check_tier_a_battery(
     issues.extend(check_yield_return_outside_function(parsed, index, source));
     issues.extend(check_generator_return_values(index, source, file_ctx));
     issues.extend(check_unreachable_test_methods(index, source, file_ctx));
-    issues.extend(check_assertion_at_end_of_except(index, source, file_ctx));
+    issues.extend(check_assertion_at_end_of_except(
+        parsed, index, source, file_ctx,
+    ));
     issues.extend(check_duplicate_dict_keys(index, source, file_ctx));
     issues.extend(check_duplicate_set_elements(index, source, file_ctx));
     issues.extend(check_empty_collection_constructors(index, source, file_ctx));
@@ -445,7 +449,7 @@ fn tier_a2_data_science_checks(
     issues.extend(check_dataloader_workers(index, source, file_ctx));
     issues.extend(check_torch_load_weights_only(index, source, file_ctx));
     issues.extend(check_einops_patterns(index, source, file_ctx));
-    issues.extend(check_named_steps_bypass(parsed, index, source));
+    issues.extend(check_named_steps_bypass(parsed, index, source, file_ctx));
 }
 
 /// Tier-A battery 2: Django/web, async hygiene, typing, and quality checks.
@@ -467,7 +471,9 @@ fn tier_a2_web_async_typing_checks(
     issues.extend(check_sleep_in_async_loop(parsed, index, source));
     issues.extend(check_long_sleeps(index, source, file_ctx));
     issues.extend(check_sync_subprocess_in_async(parsed, index, source));
-    issues.extend(check_blocking_sleep_in_async(parsed, index, source));
+    issues.extend(check_blocking_sleep_in_async(
+        parsed, index, source, file_ctx,
+    ));
     issues.extend(check_sleep_zero_checkpoint(parsed, index, source));
     issues.extend(check_any_all_list_comprehension(index, source, file_ctx));
     issues.extend(check_sync_file_ops_in_async(parsed, index, source));
@@ -508,7 +514,9 @@ fn tier_a2_web_async_typing_checks(
     issues.extend(check_imprecise_assertions(index, source, file_ctx));
     issues.extend(check_unconditional_assertions(index, source, file_ctx));
     issues.extend(check_unseeded_randomness(index, source, file_ctx));
-    issues.extend(check_sync_os_calls_in_async(parsed, index, source));
+    issues.extend(check_sync_os_calls_in_async(
+        parsed, index, source, file_ctx,
+    ));
 }
 
 /// Aggregates every regex-family check over one file.
@@ -581,10 +589,12 @@ pub(crate) fn check_tier_b_battery(
         issues.extend(check_unused_imports(&table, &facts, index, source));
         issues.extend(check_unused_parameters(&table, &facts, index, source));
         issues.extend(check_unused_locals(
-            &table, &facts, options, &exports, index, source,
+            parsed, &table, &facts, options, &exports, index, source,
         ));
         issues.extend(check_use_before_definition(&table, &facts, index, source));
-        issues.extend(check_dead_stores(&table, &facts, options, index, source));
+        issues.extend(check_dead_stores(
+            parsed, &table, &facts, options, index, source,
+        ));
         issues.extend(check_overwritten_parameters(&table, &facts, index, source));
         issues.extend(check_known_value_comparisons(index, source, file_ctx));
         issues.extend(check_static_candidates(&table, index, source));
@@ -596,7 +606,9 @@ pub(crate) fn check_tier_b_battery(
     issues.extend(check_unused_nested_definitions(
         &table, &facts, index, source,
     ));
-    issues.extend(check_shadowed_builtins(&table, index, source));
+    issues.extend(check_shadowed_builtins(
+        parsed, &table, &facts, index, source,
+    ));
     issues.extend(check_all_exports_exist(
         parsed, &table, &facts, index, source,
     ));
@@ -757,7 +769,9 @@ fn tier_c_cloud_data_checks(
     ));
     issues.extend(check_s6463_unrestricted_egress(index, source, file_ctx));
     issues.extend(check_s3752_route_methods(index, source, file_ctx));
-    issues.extend(check_s5795_identity_cached_types(index, source, file_ctx));
+    issues.extend(check_s5795_identity_cached_types(
+        parsed, index, source, file_ctx,
+    ));
     issues.extend(check_s3403_identity_dissimilar_types(
         index, source, file_ctx,
     ));
@@ -776,7 +790,7 @@ fn tier_c_cloud_data_checks(
     ));
     issues.extend(check_s5632_raising_non_exceptions(index, source, file_ctx));
     issues.extend(check_s5708_excepting_non_exceptions(
-        index, source, file_ctx,
+        parsed, index, source, file_ctx,
     ));
 }
 
@@ -1199,7 +1213,8 @@ mod random_state_usage;
 mod read_without_dtype;
 
 mod reduction_axis_missing;
-mod redundant_parentheses;
+pub(crate) mod redundant_parentheses;
+pub(crate) use redundant_parentheses::redundant_parentheses_range;
 
 mod redundant_jump_statements;
 
@@ -1381,6 +1396,7 @@ mod s6662_unhashable_collection_literals;
 mod s6663_sequence_index_type;
 
 mod s6785_graphql_depth_limiting;
+pub(crate) mod s6786_graphql_introspection;
 
 mod s930_arity_mismatches;
 

@@ -311,6 +311,98 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
         self.assertIsNone(issues)
         self.assertEqual(error, "truncated page")
 
+    def test_native_exit2_keeps_incomplete_report_and_exact_execution(self):
+        report = {
+            "schema_version": 1,
+            "files": [
+                {
+                    "path": "/fixture/s112_bad.py",
+                    "issues": [
+                        {
+                            "rule_key": "python:S112",
+                            "message": "generic exception",
+                            "range": {
+                                "start": {"line": 1, "column": 0},
+                                "end": {"line": 1, "column": 4},
+                            },
+                        }
+                    ],
+                }
+            ],
+            "project": {
+                "complete": False,
+                "warnings": ["assessment: parser failed"],
+                "files": [
+                    {
+                        "path": "src/s112_bad.py",
+                        "status": "failed",
+                    }
+                ],
+            },
+        }
+        completed = mock.Mock(
+            returncode=2,
+            stdout=json.dumps(report, separators=(",", ":")),
+            stderr="parser failed\n",
+        )
+        context = {"status": "SYNTAX_ONLY", "kind": "python"}
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(parity_suite.subprocess, "run", return_value=completed),
+            mock.patch.object(parity_suite, "attach_artifact_evidence"),
+            mock.patch.object(parity_suite, "attach_artifact_provenance"),
+            mock.patch.object(parity_suite, "validate_artifact_provenance"),
+        ):
+            output = Path(directory) / "ours.json"
+            self.assertEqual(
+                parity_suite._execute_ours(
+                    "oracle-py",
+                    ["/scanner", "analyze", "--format", "json"],
+                    output,
+                    context,
+                ),
+                output,
+            )
+            self.assertEqual(json.loads(output.read_text()), report)
+
+        execution = context["execution"]
+        self.assertEqual(execution["status"], "INCOMPLETE")
+        self.assertEqual(execution["exit_code"], 2)
+        self.assertEqual(execution["stdout"], completed.stdout)
+        self.assertEqual(execution["stderr"], completed.stderr)
+        self.assertEqual(execution["argv"], ["/scanner", "analyze", "--format", "json"])
+        self.assertIs(execution["project_complete"], False)
+        self.assertEqual(
+            execution["reason"],
+            "native project analysis is incomplete: assessment: parser failed",
+        )
+
+    def test_failed_empty_native_report_clears_stale_output(self):
+        completed = mock.Mock(returncode=1, stdout="", stderr="fatal\n")
+        context = {"status": "SYNTAX_ONLY", "kind": "python"}
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(parity_suite.subprocess, "run", return_value=completed),
+        ):
+            output = Path(directory) / "ours.json"
+            output.write_text("stale")
+            self.assertIsNone(
+                parity_suite._execute_ours(
+                    "oracle-py",
+                    ["/scanner", "analyze", "--format", "json"],
+                    output,
+                    context,
+                )
+            )
+            self.assertFalse(output.exists())
+
+        execution = context["execution"]
+        self.assertEqual(execution["status"], "INVALID")
+        self.assertEqual(execution["exit_code"], 1)
+        self.assertEqual(execution["stdout"], "")
+        self.assertEqual(execution["stderr"], "fatal\n")
+        self.assertIn("invalid report", execution["reason"])
+
     def test_failed_oracle_scan_fails_gate_without_using_stale_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:
             results = Path(directory)

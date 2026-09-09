@@ -85,18 +85,30 @@ impl From<&AnalyzerOptions> for RuleOptions {
     }
 }
 
+use crate::project_context::SemanticFileFacts;
 use crate::support::{LineIndex, ScannedComment};
 use crate::{AnalyzerOptions, JstsLanguage};
-
+use oxc_semantic::Semantic;
 /// Everything a rule check needs: parsed program plus source state.
 pub(crate) struct AnalysisContext<'a> {
     pub(crate) path: &'a std::path::Path,
     pub(crate) source: &'a str,
     pub(crate) program: &'a oxc_ast::ast::Program<'a>,
+    /// Semantic proof for this program when parsing and semantic analysis succeeded.
+    pub(crate) semantic: Option<&'a Semantic<'a>>,
+    /// Compiler-backed project facts for this exact source snapshot, when supplied.
+    pub(crate) semantic_facts: Option<&'a SemanticFileFacts>,
+    pub(crate) tokens: &'a [oxc_parser::Token],
     pub(crate) index: &'a LineIndex<'a>,
     pub(crate) language: JstsLanguage,
     pub(crate) options: &'a AnalyzerOptions,
     pub(crate) rules: &'a RuleOptions,
+    /// Whether OXC reported a recoverable syntax error for this parse.
+    ///
+    /// Token-exact rules must not infer source boundaries from a recovered AST:
+    /// recovery can manufacture node spans that do not correspond to source
+    /// statements.
+    pub(crate) has_parse_errors: bool,
     /// One scanner pass over `source`, run in `analyze_with_rules`; shared by
     /// every comment-consuming check instead of re-scanning per rule.
     pub(crate) comments: Vec<ScannedComment>,

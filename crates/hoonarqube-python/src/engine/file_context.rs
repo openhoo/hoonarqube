@@ -36,6 +36,10 @@ pub(crate) enum AnyImport<'a> {
 }
 /// Shared per-file inventories, computed once instead of once per rule.
 pub(crate) struct FileContext<'a> {
+    /// The module's direct statement suite. Rules that need control-flow
+    /// provenance must retain the original hierarchy rather than reconstructing
+    /// it from the flattened inventories below.
+    pub(crate) module_body: &'a [Stmt],
     /// Every statement in pre-order — the exact `for_each_stmt` sequence.
     pub(crate) stmts: Vec<&'a Stmt>,
     /// Every expression in pre-order — the exact `for_each_stmt_expr` sequence.
@@ -61,6 +65,7 @@ impl<'a> FileContext<'a> {
     /// Builds every inventory in one combined pass over the module.
     pub(crate) fn build(parsed: &'a Parsed<ModModule>) -> Self {
         let mut ctx = FileContext {
+            module_body: parsed.syntax().body.as_slice(),
             stmts: Vec::new(),
             exprs: Vec::new(),
             calls: Vec::new(),

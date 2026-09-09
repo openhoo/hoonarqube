@@ -8,12 +8,15 @@ use crate::engine::scope::scope_has_dynamic_declaration;
 use crate::support::issue_at;
 use crate::support::unused_name_matches_pattern;
 use hoonarqube_ir::Issue;
+use ruff_python_ast::ModModule;
+use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::TextRange;
 
 // --- python:S1481 — unused local variables -----------------------------------
 
 pub(crate) fn check_unused_locals(
+    parsed: &Parsed<ModModule>,
     table: &SymbolTable,
     facts: &FileFacts,
     options: &AnalyzerOptions,
@@ -49,13 +52,24 @@ pub(crate) fn check_unused_locals(
                 .any(|load| load.target == Some(scope_idx) && load.name == *name)
                 || name_used_in_tokens(facts, name, &ranges);
             if !used {
-                issues.push(issue_at(
+                let issue = issue_at(
                     "python:S1481",
                     &format!("Remove the unused local variable \"{name}\"."),
                     ranges[0],
                     index,
                     source,
-                ));
+                );
+                let alternatives = crate::quickfix::bindings::alternatives_s1481(
+                    parsed, index, source, table, &issue,
+                );
+                let issue = alternatives.into_iter().fold(issue, |issue, alternative| {
+                    issue.with_alternative(
+                        alternative.id,
+                        alternative.fix.message,
+                        alternative.fix.edits,
+                    )
+                });
+                issues.push(issue);
             }
         }
     }

@@ -1,7 +1,6 @@
 // Rule module s1528_constructor_calls (generated).
-use crate::rules::shared::argument_expression;
 use crate::support::{IssueSink, RuleScope, constructor_name};
-use oxc_ast::ast::{Expression, NewExpression};
+use oxc_ast::ast::{NewExpression, TSType, TSTypeName};
 use oxc_span::GetSpan;
 
 /// Constructor-call rules: `S1528`, `S1533`, `S2428`, and `S3834`.
@@ -9,13 +8,7 @@ pub(crate) fn check_constructor_calls(sink: &mut IssueSink, it: &NewExpression<'
     let Some(name) = constructor_name(it) else {
         return;
     };
-    if name == "Array"
-        && (it.arguments.len() >= 2
-            || it.arguments.first().is_none_or(|argument| {
-                argument_expression(argument)
-                    .is_none_or(|expression| !matches!(expression, Expression::NumericLiteral(_)))
-            }))
-    {
+    if name == "Array" {
         sink.emit_span(
             RuleScope::Both,
             "S1528",
@@ -49,6 +42,33 @@ pub(crate) fn check_constructor_calls(sink: &mut IssueSink, it: &NewExpression<'
     }
 }
 
+/// TypeScript counterpart of `S1533`: primitive wrapper references are not
+/// useful as types and should be replaced by their primitive counterparts.
+pub(crate) fn check_type_wrapper(sink: &mut IssueSink, it: &TSType<'_>) {
+    let TSType::TSTypeReference(reference) = it else {
+        return;
+    };
+    if reference.type_arguments.is_some() {
+        return;
+    }
+    let TSTypeName::IdentifierReference(identifier) = &reference.type_name else {
+        return;
+    };
+    let name = identifier.name.as_str();
+    let primitive = match name {
+        "Boolean" => "boolean",
+        "Number" => "number",
+        "String" => "string",
+        _ => return,
+    };
+    sink.emit_span(
+        RuleScope::TsOnly,
+        "S1533",
+        &format!("Replace this \"{name}\" wrapper object with primitive type \"{primitive}\"."),
+        reference.span,
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
@@ -64,9 +84,9 @@ mod tests {
     }
 
     #[test]
-    fn s1528_allows_length_constructor_and_user_classes() {
+    fn s1528_flags_length_constructor_and_allows_user_classes() {
         let findings = js_keys("new Array(3);\nnew Foo();\n[];\n");
-        assert_eq!(count_key(&findings, "javascript:S1528"), 0);
+        assert_eq!(count_key(&findings, "javascript:S1528"), 1);
         assert_eq!(count_key(&findings, "javascript:S1533"), 0);
     }
 

@@ -2,5 +2,5 @@
 package oracle
 
 func executeAll() {
-...
+	println(1)
 }

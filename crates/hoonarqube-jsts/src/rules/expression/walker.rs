@@ -1,11 +1,13 @@
 // Family walker for 'expression' (generated).
 use super::collectors::{check_collection_and_object_calls, check_logging_and_binding_calls};
-use super::s1125_binary_operators::check_binary_operators;
+use super::s1125_binary_operators::{
+    check_binary_operators, check_logical_operators, check_unary_boolean,
+};
 use super::s1313_string_literal_raw::check_string_literal_raw;
 use super::s1314_numeric_literal::check_numeric_literal;
 use super::s1442_plain_calls::check_plain_calls;
-use super::s1528_constructor_calls::check_constructor_calls;
-use super::s2424_assignment_rules::check_assignment_rules;
+use super::s1528_constructor_calls::{check_constructor_calls, check_type_wrapper};
+use super::s2424_assignment_rules::{check_assignment_rules, check_sign_swap};
 use super::s2692_index_of_comparisons::check_index_of_comparisons;
 use super::s3003_relational_strings::check_relational_strings;
 use super::s3981_length_comparison::check_length_comparison;
@@ -21,18 +23,21 @@ use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     ArrayExpression, ArrayExpressionElement, ArrowFunctionExpression, AssignmentExpression,
     BinaryExpression, BinaryOperator, CallExpression, ConditionalExpression, DoWhileStatement,
-    Expression, ForStatement, Function, IfStatement, LogicalExpression, LogicalOperator,
-    NewExpression, NumericLiteral, ParenthesizedExpression, RegExpLiteral, SequenceExpression,
-    StaticBlock, StringLiteral, TemplateLiteral, UnaryExpression, UnaryOperator, WhileStatement,
+    Expression, ForStatement, Function, IfStatement, ImportExpression, LogicalExpression,
+    LogicalOperator, MemberExpression, NewExpression, NumericLiteral, ParenthesizedExpression,
+    RegExpLiteral, SequenceExpression, StaticBlock, StringLiteral, TSType, TemplateLiteral,
+    UnaryExpression, UnaryOperator, VariableDeclarator, WhileStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_array_expression, walk_arrow_function_expression, walk_assignment_expression,
-    walk_binary_expression, walk_call_expression, walk_function, walk_new_expression,
-    walk_parenthesized_expression, walk_sequence_expression, walk_static_block,
-    walk_template_literal, walk_unary_expression,
+    walk_binary_expression, walk_call_expression, walk_function, walk_import_expression,
+    walk_member_expression, walk_new_expression, walk_parenthesized_expression,
+    walk_sequence_expression, walk_static_block, walk_template_literal, walk_ts_type,
+    walk_unary_expression, walk_variable_declarator,
 };
 use oxc_span::GetSpan;
+use oxc_syntax::precedence::{GetPrecedence, Precedence};
 use oxc_syntax::scope::ScopeFlags;
 use std::collections::HashSet;
 
@@ -51,6 +56,9 @@ fn check_expression_rules(
         source,
         contexts: Vec::new(),
         ternary_spans: HashSet::new(),
+        grammar_parenthesized_depth: 0,
+        required_parenthesized_depth: 0,
+        required_parenthesized_spans: HashSet::new(),
         template_depth: 0,
     };
     collector.visit_program(program);
@@ -69,13 +77,21 @@ struct ExpressionCollector<'index> {
     source: &'index str,
     contexts: Vec<ExpressionContext>,
     ternary_spans: HashSet<(u32, u32)>,
+    grammar_parenthesized_depth: usize,
+    required_parenthesized_depth: usize,
+    required_parenthesized_spans: HashSet<(u32, u32)>,
     /// Nesting depth of template literals for `S4624`.
     template_depth: u32,
 }
 impl ExpressionCollector<'_> {
     fn visit_condition(&mut self, expression: &Expression<'_>) {
         self.contexts.push(ExpressionContext::Condition);
+        // The surrounding `if`/loop test parentheses are consumed by OXC's
+        // parser. Any remaining parenthesized expression at this level is
+        // therefore an explicit redundant pair.
+        self.grammar_parenthesized_depth += 1;
         self.visit_expression(expression);
+        self.grammar_parenthesized_depth -= 1;
         self.contexts.pop();
     }
     /// Calls and nested function bodies are value contexts, even when the
@@ -85,6 +101,97 @@ impl ExpressionCollector<'_> {
         walk(self);
         self.contexts = contexts;
     }
+    fn mark_required_parentheses(
+        &mut self,
+        expression: &Expression<'_>,
+        outer: Precedence,
+        right: bool,
+    ) {
+        let Expression::ParenthesizedExpression(parenthesized) = expression else {
+            return;
+        };
+        let Some(inner) = expression_precedence(&parenthesized.expression) else {
+            return;
+        };
+        let nullish_logical_mix = matches!(
+            (outer, inner),
+            (
+                Precedence::NullishCoalescing,
+                Precedence::LogicalOr | Precedence::LogicalAnd
+            ) | (
+                Precedence::LogicalOr | Precedence::LogicalAnd,
+                Precedence::NullishCoalescing
+            )
+        );
+        let equal_precedence_requires_parens =
+            (right && outer.is_left_associative()) || (!right && outer.is_right_associative());
+        if nullish_logical_mix
+            || inner < outer
+            || (inner == outer && equal_precedence_requires_parens)
+        {
+            // If several explicit pairs wrap the same expression, retain the
+            // innermost pair: removing an outer pair still leaves the
+            // precedence-preserving pair in place.
+            let mut required = parenthesized;
+            while let Expression::ParenthesizedExpression(inner) = &required.expression {
+                required = inner;
+            }
+            let span = required.span();
+            self.required_parenthesized_spans
+                .insert((span.start, span.end));
+        }
+    }
+
+    fn mark_required_argument(&mut self, argument: &oxc_ast::ast::Argument<'_>) {
+        let Some(Expression::ParenthesizedExpression(parenthesized)) = argument.as_expression()
+        else {
+            return;
+        };
+        let mut parenthesized = parenthesized.as_ref();
+        while let Expression::ParenthesizedExpression(inner) = &parenthesized.expression {
+            parenthesized = inner.as_ref();
+        }
+        if matches!(&parenthesized.expression, Expression::SequenceExpression(_)) {
+            let span = parenthesized.span();
+            self.required_parenthesized_spans
+                .insert((span.start, span.end));
+        }
+    }
+
+    fn mark_required_arrow_body_parentheses(&mut self, expression: &Expression<'_>) {
+        let Expression::ParenthesizedExpression(parenthesized) = expression else {
+            return;
+        };
+        let mut parenthesized = parenthesized.as_ref();
+        while let Expression::ParenthesizedExpression(inner) = &parenthesized.expression {
+            parenthesized = inner.as_ref();
+        }
+        if matches!(&parenthesized.expression, Expression::ObjectExpression(_)) {
+            let span = parenthesized.span();
+            self.required_parenthesized_spans
+                .insert((span.start, span.end));
+        }
+    }
+}
+
+fn expression_precedence(expression: &Expression<'_>) -> Option<Precedence> {
+    match expression {
+        Expression::BinaryExpression(binary) => Some(binary.operator.precedence()),
+        Expression::LogicalExpression(logical) => Some(logical.operator.precedence()),
+        Expression::ObjectExpression(_)
+        | Expression::ClassExpression(_)
+        | Expression::FunctionExpression(_)
+        | Expression::ArrowFunctionExpression(_) => Some(Precedence::Lowest),
+        Expression::AssignmentExpression(_) => Some(Precedence::Assign),
+        Expression::ConditionalExpression(_) => Some(Precedence::Conditional),
+        Expression::SequenceExpression(_) => Some(Precedence::Comma),
+        Expression::UnaryExpression(_) | Expression::AwaitExpression(_) => Some(Precedence::Prefix),
+        Expression::UpdateExpression(_) => Some(Precedence::Postfix),
+        Expression::ParenthesizedExpression(parenthesized) => {
+            expression_precedence(&parenthesized.expression)
+        }
+        _ => Some(Precedence::Member),
+    }
 }
 
 impl<'a> Visit<'a> for ExpressionCollector<'_> {
@@ -93,6 +200,9 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
     }
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        if let Some(body) = it.body.as_expression() {
+            self.mark_required_arrow_body_parentheses(body);
+        }
         self.with_non_condition_context(|collector| {
             walk_arrow_function_expression(collector, it);
         });
@@ -133,6 +243,22 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
         self.visit_condition(&it.test);
     }
 
+    fn visit_import_expression(&mut self, it: &ImportExpression<'a>) {
+        self.grammar_parenthesized_depth += 1;
+        walk_import_expression(self, it);
+        self.grammar_parenthesized_depth -= 1;
+    }
+
+    fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
+        let object = match it {
+            MemberExpression::ComputedMemberExpression(member) => &member.object,
+            MemberExpression::StaticMemberExpression(member) => &member.object,
+            MemberExpression::PrivateFieldExpression(member) => &member.object,
+        };
+        self.mark_required_parentheses(object, Precedence::Member, false);
+        walk_member_expression(self, it);
+    }
+
     fn visit_conditional_expression(&mut self, it: &ConditionalExpression<'a>) {
         let span = it.span();
         if self.ternary_spans.insert((span.start, span.end)) {
@@ -146,6 +272,8 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
     }
 
     fn visit_logical_expression(&mut self, it: &LogicalExpression<'a>) {
+        self.mark_required_parentheses(&it.left, it.operator.precedence(), false);
+        self.mark_required_parentheses(&it.right, it.operator.precedence(), true);
         if matches!(it.operator, LogicalOperator::And | LogicalOperator::Or)
             && let (Some(left_name), Some(right_name)) =
                 (identifier_name(&it.left), identifier_name(&it.right))
@@ -160,6 +288,7 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
         }
         let in_condition = self.contexts.contains(&ExpressionContext::Condition);
         let in_logical_condition = self.contexts.contains(&ExpressionContext::LogicalOperand);
+        check_logical_operators(&mut self.sink, it, in_condition && !in_logical_condition);
         for operand in [&it.left, &it.right] {
             if in_condition || in_logical_condition {
                 self.contexts.push(ExpressionContext::LogicalOperand);
@@ -171,6 +300,8 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
         }
     }
     fn visit_binary_expression(&mut self, it: &BinaryExpression<'a>) {
+        self.mark_required_parentheses(&it.left, it.operator.precedence(), false);
+        self.mark_required_parentheses(&it.right, it.operator.precedence(), true);
         let logical_operand_context = self.contexts.contains(&ExpressionContext::LogicalOperand);
         if logical_operand_context && is_bitwise_operator(it.operator) {
             self.sink.emit_span(
@@ -227,6 +358,8 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
         }
     }
     fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
+        check_unary_boolean(&mut self.sink, it);
+        self.mark_required_parentheses(&it.argument, Precedence::Prefix, true);
         match it.operator {
             UnaryOperator::Void => {
                 self.sink.emit_span(
@@ -279,6 +412,12 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
         }
         walk_unary_expression(self, it);
     }
+    fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+        if let Some(Expression::UnaryExpression(unary)) = it.init.as_ref() {
+            check_sign_swap(&mut self.sink, self.source, unary);
+        }
+        walk_variable_declarator(self, it);
+    }
 
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
         check_assignment_rules(&mut self.sink, self.source, it);
@@ -286,13 +425,33 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
     }
 
     fn visit_parenthesized_expression(&mut self, it: &ParenthesizedExpression<'a>) {
-        self.sink.emit_span(
-            RuleScope::Both,
-            "S1110",
-            "Remove these redundant parentheses.",
-            it.span(),
-        );
+        let span = it.span();
+        let required = self
+            .required_parenthesized_spans
+            .contains(&(span.start, span.end));
+        let nested = matches!(&it.expression, Expression::ParenthesizedExpression(_));
+        // OXC consumes the delimiter belonging to a condition/import. Any
+        // explicit pair remaining in that grammar position is redundant,
+        // unless precedence/argument syntax marked it as required.
+        if !required
+            && (nested
+                || self.grammar_parenthesized_depth > 0
+                || self.required_parenthesized_depth > 0)
+        {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1110",
+                "Remove these redundant parentheses.",
+                span,
+            );
+        }
+        if required {
+            self.required_parenthesized_depth += 1;
+        }
         walk_parenthesized_expression(self, it);
+        if required {
+            self.required_parenthesized_depth -= 1;
+        }
     }
 
     fn visit_sequence_expression(&mut self, it: &SequenceExpression<'a>) {
@@ -318,6 +477,7 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        self.mark_required_parentheses(&it.callee, Precedence::Call, false);
         check_member_calls(&mut self.sink, it);
         check_plain_calls(&mut self.sink, it);
         if callee_name(it).is_some_and(|name| name == "Boolean")
@@ -334,12 +494,23 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
                 it.span(),
             );
         }
+        for argument in &it.arguments {
+            self.mark_required_argument(argument);
+        }
         self.with_non_condition_context(|collector| walk_call_expression(collector, it));
     }
 
     fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
+        self.mark_required_parentheses(&it.callee, Precedence::Call, true);
         check_constructor_calls(&mut self.sink, it);
+        for argument in &it.arguments {
+            self.mark_required_argument(argument);
+        }
         self.with_non_condition_context(|collector| walk_new_expression(collector, it));
+    }
+    fn visit_ts_type(&mut self, it: &TSType<'a>) {
+        check_type_wrapper(&mut self.sink, it);
+        walk_ts_type(self, it);
     }
 
     fn visit_template_literal(&mut self, it: &TemplateLiteral<'a>) {

@@ -34,6 +34,23 @@ pub struct SourceFacts {
     pub language: Language,
 }
 
+/// Adapts complete compiler-backed Razor measurements to the project facts
+/// shape without pretending that Razor has a tree-sitter token stream.
+///
+/// The returned facts are intentionally not suitable for duplication on their
+/// own.  Callers must mark the owning project input as duplication-excluded;
+/// Razor is a compiler-only dialect rather than a ninth CPD grammar.
+#[must_use]
+pub fn compiler_razor_facts(path: &Path, metrics: FileMetrics) -> Option<SourceFacts> {
+    crate::is_razor_path(path).then_some(SourceFacts {
+        metrics,
+        tokens: Vec::new(),
+        symbols: Vec::new(),
+        error: None,
+        language: Language::CSharp,
+    })
+}
+
 // Parsing is deliberately bounded before handing input to a grammar.  The
 // limit is large enough for ordinary repositories and makes a hostile single
 // file fail closed instead of reserving unbounded parser/tree memory.
@@ -46,9 +63,11 @@ const MAX_SIGNATURE_BYTES: usize = 32 * 1024 * 1024;
 
 /// Collect syntax facts for a supported source path.
 ///
-/// `None` means that the extension is not one of the eight registered
-/// language families.  A supported file always returns facts; parser,
-/// grammar, input-limit, and traversal failures are represented in
+/// `None` means that the extension is not one of the registered language
+/// families.  Razor is registered with the C# family but is deliberately
+/// represented as an incomplete fact set here: only a complete trusted
+/// compiler context can provide its source classification and metrics.
+/// Parser, grammar, input-limit, and traversal failures are represented in
 /// [`SourceFacts::error`] so callers cannot mistake a partial stream for a
 /// complete measurement.
 #[must_use]
@@ -58,6 +77,21 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
         .extension()
         .and_then(|extension| extension.to_str())
         .unwrap_or_default();
+    if crate::is_razor_path(path) {
+        return Some(SourceFacts {
+            metrics: FileMetrics {
+                lines: 0,
+                code_lines: 0,
+                comment_lines: 0,
+            },
+            tokens: Vec::new(),
+            symbols: Vec::new(),
+            error: Some(
+                "Razor source facts require a complete trusted C# compiler context".to_owned(),
+            ),
+            language,
+        });
+    }
 
     let physical_lines = if source.is_empty() {
         0
@@ -1232,6 +1266,30 @@ mod tests {
             assert!(!facts.tokens.is_empty(), "{path}");
             assert!(facts.error.is_none(), "{path}: {:?}", facts.error);
         }
+    }
+
+    #[test]
+    fn typescript_import_types_are_complete() {
+        let source = r#"type Options = Parameters<import("@playwright/test").Browser["newContext"]>[0];
+type ImportedMember = import("./module").Widget["value"];
+type GenericImported = import("./module").Widget<Argument>;
+type ImportedKeys = keyof import("./module").Widget;
+"#;
+        for path in ["sample.ts", "sample.tsx"] {
+            let facts = facts(path, source);
+            assert!(!facts.tokens.is_empty(), "{path}");
+            assert!(facts.error.is_none(), "{path}: {:?}", facts.error);
+        }
+    }
+
+    #[test]
+    fn malformed_typescript_import_type_is_incomplete() {
+        let facts = facts(
+            "sample.ts",
+            r#"type Options = Parameters<import("@playwright/test").Browser["newContext"]>[0;
+"#,
+        );
+        assert!(facts.error.is_some());
     }
 
     #[test]

@@ -6,9 +6,8 @@
 //! in-memory source snapshot shared by issue and source-facts analysis.
 //! Non-fatal collection/read/parser problems are retained as warnings and
 //! make the project report incomplete instead of being silently skipped.
-
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -16,14 +15,23 @@ use std::thread;
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use hoonarqube_catalog::Catalog;
+use hoonarqube_core::source_facts::{collect_source_facts, compiler_razor_facts};
 use hoonarqube_core::{AnalyzerOptions as CoreOptions, Language};
-use hoonarqube_ir::FileClassification;
+use hoonarqube_ir::{FileClassification, MeasurementStatus, ProjectFileMeasurement};
+use sha2::{Digest as _, Sha256};
 
-use crate::cache::Cache;
-/// Per-language analyzer knobs shared by analyze and fix orchestration.
-pub(crate) use hoonarqube_core::AnalyzerOptions as AnalyzerOptionsBundle;
 use hoonarqube_core::duplication::DuplicationOptions;
 use hoonarqube_core::project::{ProjectFile, analyze_project_file, build_project_report};
+
+use crate::cache::{Cache, CacheFingerprints};
+use crate::project_features::{AnalyzedSource, ProjectFeatureOptions};
+use crate::semantic_cli::ProjectSemanticContext;
+/// Per-language analyzer knobs shared by analyze and fix orchestration.
+pub(crate) use hoonarqube_core::AnalyzerOptions as AnalyzerOptionsBundle;
+
+pub(crate) const MAX_RETAINED_SOURCE_BYTES: usize = 256 * 1024 * 1024;
+const PROJECT_INVENTORY_RECORD_OVERHEAD: usize =
+    std::mem::size_of::<PathBuf>() * 2 + std::mem::size_of::<FileClassification>();
 
 /// Raw glob lists supplied by the analyze command.
 #[derive(Clone, Copy)]
@@ -33,6 +41,69 @@ pub(crate) struct ProjectPatternLists<'a> {
     pub(crate) generated_include: &'a [String],
     pub(crate) vendor_include: &'a [String],
     pub(crate) duplication_exclude: &'a [String],
+}
+
+#[derive(Clone)]
+struct OwnedProjectPatternLists {
+    exclude: Vec<String>,
+    test_include: Vec<String>,
+    generated_include: Vec<String>,
+    vendor_include: Vec<String>,
+    duplication_exclude: Vec<String>,
+}
+
+impl OwnedProjectPatternLists {
+    fn from_lists(lists: ProjectPatternLists<'_>) -> Self {
+        Self {
+            exclude: lists.exclude.to_vec(),
+            test_include: lists.test_include.to_vec(),
+            generated_include: lists.generated_include.to_vec(),
+            vendor_include: lists.vendor_include.to_vec(),
+            duplication_exclude: lists.duplication_exclude.to_vec(),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct ScopeEncoder {
+    bytes: Vec<u8>,
+}
+
+impl ScopeEncoder {
+    fn new() -> Self {
+        Self {
+            bytes: b"hoonarqube-assessment-scope-v1".to_vec(),
+        }
+    }
+
+    fn field(&mut self, tag: &[u8], value: &[u8]) {
+        self.bytes
+            .extend((u64::try_from(tag.len()).unwrap_or(u64::MAX)).to_le_bytes());
+        self.bytes.extend_from_slice(tag);
+        self.bytes
+            .extend((u64::try_from(value.len()).unwrap_or(u64::MAX)).to_le_bytes());
+        self.bytes.extend_from_slice(value);
+    }
+
+    fn list(&mut self, tag: &[u8], values: &[String]) {
+        self.field(
+            tag,
+            &(u64::try_from(values.len()).unwrap_or(u64::MAX)).to_le_bytes(),
+        );
+        for value in values {
+            self.field(b"value", value.as_bytes());
+        }
+    }
+
+    fn finish(self) -> String {
+        let digest = Sha256::digest(self.bytes);
+        let mut output = String::with_capacity(digest.len() * 2);
+        for byte in digest {
+            use std::fmt::Write as _;
+            write!(&mut output, "{byte:02x}").expect("writing to String cannot fail");
+        }
+        output
+    }
 }
 
 /// Validated project classification and duplication patterns.
@@ -54,6 +125,8 @@ pub(crate) struct ProjectAnalysisOptions {
     pub(crate) patterns: ProjectPatterns,
     pub(crate) duplication: DuplicationOptions,
     pub(crate) cache_dir: Option<PathBuf>,
+    pub(crate) features: ProjectFeatureOptions,
+    raw_patterns: OwnedProjectPatternLists,
 }
 
 impl ProjectPatterns {
@@ -140,11 +213,69 @@ pub(crate) fn project_analysis_options(
         ..DuplicationOptions::default()
     };
     duplication.validate()?;
+    let patterns = ProjectPatterns::compile(lists)?;
     Ok(ProjectAnalysisOptions {
-        patterns: ProjectPatterns::compile(lists)?,
+        patterns,
         duplication,
         cache_dir: None,
+        features: ProjectFeatureOptions::default(),
+        raw_patterns: OwnedProjectPatternLists::from_lists(lists),
     })
+}
+
+impl ProjectAnalysisOptions {
+    fn append_scope_fields(&self, encoder: &mut ScopeEncoder) {
+        encoder.list(b"exclude", &self.raw_patterns.exclude);
+        encoder.list(b"test-include", &self.raw_patterns.test_include);
+        encoder.list(b"generated-include", &self.raw_patterns.generated_include);
+        encoder.list(b"vendor-include", &self.raw_patterns.vendor_include);
+        encoder.list(
+            b"duplication-exclude",
+            &self.raw_patterns.duplication_exclude,
+        );
+        for (tag, value) in [
+            (b"min-tokens".as_slice(), self.duplication.min_tokens),
+            (b"min-lines".as_slice(), self.duplication.min_lines as usize),
+            (
+                b"min-statements".as_slice(),
+                self.duplication.min_statements,
+            ),
+            (b"max-tokens".as_slice(), self.duplication.max_tokens),
+            (
+                b"max-candidate-pairs".as_slice(),
+                self.duplication.max_candidate_pairs,
+            ),
+        ] {
+            encoder.field(tag, &u64::try_from(value).unwrap_or(u64::MAX).to_le_bytes());
+        }
+    }
+
+    /// Computes the stable assessment scope identity for one invocation.
+    ///
+    /// This is deliberately based on the effective raw CLI values rather than
+    /// `GlobSet`'s implementation/debug representation. Length-delimited
+    /// fields keep adjacent values unambiguous and a versioned domain makes
+    /// future identity changes explicit.
+    pub(crate) fn assessment_scope_digest(&self, roots: &[PathBuf]) -> String {
+        let mut encoder = ScopeEncoder::new();
+        let mut normalized_roots = roots
+            .iter()
+            .map(|root| normalized_match_path(root))
+            .collect::<Vec<_>>();
+        normalized_roots.sort();
+        normalized_roots.dedup();
+        encoder.field(
+            b"roots-count",
+            &u64::try_from(normalized_roots.len())
+                .unwrap_or(u64::MAX)
+                .to_le_bytes(),
+        );
+        for root in normalized_roots {
+            encoder.field(b"root", root.as_os_str().as_encoded_bytes());
+        }
+        self.append_scope_fields(&mut encoder);
+        encoder.finish()
+    }
 }
 
 fn compile_globset(label: &str, patterns: &[String]) -> Result<GlobSet, String> {
@@ -217,65 +348,349 @@ pub(crate) fn analyze_project_paths(
     project_options: &ProjectAnalysisOptions,
     warnings: &mut Vec<String>,
 ) -> Result<hoonarqube_ir::AnalysisReport, String> {
-    let cache = Cache::new(project_options.cache_dir.as_deref(), options);
-    let (files, collection_failures) =
+    let mut collected = collect_project_inputs(paths, project_options, warnings);
+    let semantic = load_project_semantic_context(
+        project_options,
+        options,
+        &collected.source_inventory,
+        collected.semantic_input_complete,
+        warnings,
+    );
+    let cache = project_cache(
+        paths,
+        options,
+        project_options,
+        collected.semantic_input_complete,
+        semantic.as_ref(),
+    );
+    let worker_count = thread::available_parallelism()
+        .map_or(1, std::num::NonZeroUsize::get)
+        .min(collected.pending.len());
+    collected.project_files.extend(
+        analyze_project_files(
+            &collected.pending,
+            &collected.source_inventory,
+            options,
+            semantic.as_ref(),
+            worker_count,
+            cache.as_ref(),
+        )
+        .into_iter()
+        .map(|(_, project_file)| project_file),
+    );
+    append_project_warnings(&collected.project_files, warnings);
+    let unsupported_inventory = std::mem::take(&mut collected.unsupported_inventory);
+    let mut report = build_project_report(
+        collected.project_files,
+        paths.to_vec(),
+        warnings.clone(),
+        &project_options.duplication,
+    )?;
+    append_unsupported_inventory(&mut report, unsupported_inventory);
+    attach_project_assessment(
+        &mut report,
+        &collected.source_inventory,
+        options,
+        project_options,
+    );
+    Ok(report)
+}
+
+fn append_unsupported_inventory(
+    report: &mut hoonarqube_ir::AnalysisReport,
+    unsupported_inventory: Vec<(PathBuf, FileClassification)>,
+) {
+    let mut existing = std::collections::BTreeSet::new();
+    for file in &report.project.files {
+        existing.insert(normalized_input_path(&file.path));
+    }
+    let mut unique = std::collections::BTreeMap::new();
+    for (path, classification) in unsupported_inventory {
+        let key = normalized_input_path(&path);
+        if existing.contains(&key) {
+            continue;
+        }
+        match unique.entry(key) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert((path, classification));
+            }
+            std::collections::btree_map::Entry::Occupied(mut entry) => {
+                if path.as_path() < entry.get().0.as_path() {
+                    entry.insert((path, classification));
+                }
+            }
+        }
+    }
+    for (path, _classification) in unique.into_values() {
+        report.project.files.push(ProjectFileMeasurement {
+            path,
+            classification: FileClassification::Excluded,
+            status: MeasurementStatus::Unsupported,
+            metrics: None,
+            duplication: None,
+            reason: Some("language is unsupported".to_owned()),
+        });
+    }
+    report
+        .project
+        .files
+        .sort_by(|left, right| left.path.cmp(&right.path));
+}
+
+struct CollectedProjectInputs {
+    project_files: Vec<ProjectFile>,
+    source_inventory: Vec<AnalyzedSource>,
+    pending: Vec<ProjectInput>,
+    unsupported_inventory: Vec<(PathBuf, FileClassification)>,
+    retained_bytes: usize,
+    semantic_input_complete: bool,
+}
+pub(crate) type ProjectInputCollection = (
+    Vec<PathBuf>,
+    Vec<(PathBuf, String)>,
+    Vec<(PathBuf, FileClassification)>,
+    usize,
+);
+
+struct ProjectInputCollector<'a> {
+    files: &'a mut Vec<PathBuf>,
+    unsupported_inventory: &'a mut Vec<(PathBuf, FileClassification)>,
+    unsupported_inventory_bytes: &'a mut usize,
+    unsupported_inventory_overflowed: &'a mut bool,
+    warnings: &'a mut Vec<String>,
+}
+
+fn collect_project_inputs(
+    paths: &[PathBuf],
+    project_options: &ProjectAnalysisOptions,
+    warnings: &mut Vec<String>,
+) -> CollectedProjectInputs {
+    let retain_sources = project_options.features.assessment_requested()
+        || project_options.features.semantics_requested();
+    let (files, collection_failures, mut unsupported_inventory, unsupported_inventory_bytes) =
         collect_project_input_files(paths, &project_options.patterns, warnings);
-    let mut project_files = Vec::with_capacity(files.len() + collection_failures.len());
+    let explicit_paths: std::collections::BTreeSet<_> = files
+        .iter()
+        .map(|path| normalized_input_path(path))
+        .collect();
+    unsupported_inventory
+        .retain(|(path, _)| !explicit_paths.contains(&normalized_input_path(path)));
+    let mut collected = CollectedProjectInputs {
+        project_files: Vec::with_capacity(files.len() + collection_failures.len()),
+        source_inventory: Vec::new(),
+        pending: Vec::new(),
+        unsupported_inventory,
+        retained_bytes: unsupported_inventory_bytes,
+        semantic_input_complete: true,
+    };
+    let semantics_requested = project_options.features.semantics_requested();
     for (path, reason) in collection_failures {
-        let classification = project_options.patterns.classify_scope(&path);
-        project_files.push(ProjectFile {
+        record_collection_failure(
+            &mut collected,
+            path,
+            reason,
+            &project_options.patterns,
+            semantics_requested,
+        );
+    }
+    for path in files {
+        collect_project_input(
+            path,
+            &project_options.patterns,
+            retain_sources,
+            &mut collected,
+        );
+    }
+    collected
+}
+
+fn record_collection_failure(
+    collected: &mut CollectedProjectInputs,
+    path: PathBuf,
+    reason: String,
+    patterns: &ProjectPatterns,
+    semantics_requested: bool,
+) {
+    let classification = patterns.classify_scope(&path);
+    if semantics_requested
+        && !is_inventory_class(classification)
+        && hoonarqube_core::language_for_path(&path).is_some()
+    {
+        collected.semantic_input_complete = false;
+    }
+    collected.project_files.push(ProjectFile {
+        path,
+        classification,
+        report: None,
+        facts: None,
+        error: (!is_inventory_class(classification)).then_some(reason),
+        duplication_excluded: false,
+    });
+}
+
+fn collect_project_input(
+    path: PathBuf,
+    patterns: &ProjectPatterns,
+    retain_sources: bool,
+    collected: &mut CollectedProjectInputs,
+) {
+    let classification = classify_collected_path(patterns, &path);
+    let duplication_excluded = patterns.duplication_excluded(&path);
+    if is_inventory_class(classification) {
+        collected.project_files.push(ProjectFile {
             path,
             classification,
             report: None,
             facts: None,
-            error: (!is_inventory_class(classification)).then_some(reason),
-            duplication_excluded: false,
+            error: None,
+            duplication_excluded,
+        });
+        return;
+    }
+    if hoonarqube_core::language_for_path(&path).is_none() {
+        // Explicit unsupported files are retained in the inventory. The
+        // core builder distinguishes this no-error/no-measurement case
+        // from a source read or parser failure.
+        collected.project_files.push(ProjectFile {
+            path,
+            classification,
+            report: None,
+            facts: None,
+            error: None,
+            duplication_excluded,
+        });
+        return;
+    }
+    if retain_sources {
+        collect_retained_project_input(path, classification, duplication_excluded, collected);
+    } else {
+        collected.pending.push(ProjectInput {
+            path,
+            classification,
+            duplication_excluded,
+            source_index: None,
         });
     }
+}
 
-    let mut pending = Vec::new();
-    for path in files {
-        let classification = classify_collected_path(&project_options.patterns, &path);
-        let duplication_excluded = project_options.patterns.duplication_excluded(&path);
-        if is_inventory_class(classification) {
-            project_files.push(ProjectFile {
-                path,
+fn collect_retained_project_input(
+    path: PathBuf,
+    classification: FileClassification,
+    duplication_excluded: bool,
+    collected: &mut CollectedProjectInputs,
+) {
+    match fs::read_to_string(&path) {
+        Ok(source)
+            if collected
+                .retained_bytes
+                .checked_add(source.len())
+                .is_some_and(|bytes| bytes <= MAX_RETAINED_SOURCE_BYTES) =>
+        {
+            collected.retained_bytes += source.len();
+            let source_index = collected.source_inventory.len();
+            collected.source_inventory.push(AnalyzedSource {
+                path: path.clone(),
+                source,
                 classification,
-                report: None,
-                facts: None,
-                error: None,
-                duplication_excluded,
             });
-        } else if hoonarqube_core::language_for_path(&path).is_none() {
-            // Explicit unsupported files are retained in the inventory. The
-            // core builder distinguishes this no-error/no-measurement case
-            // from a source read or parser failure.
-            project_files.push(ProjectFile {
-                path,
-                classification,
-                report: None,
-                facts: None,
-                error: None,
-                duplication_excluded,
-            });
-        } else {
-            pending.push(ProjectInput {
+            collected.pending.push(ProjectInput {
                 path,
                 classification,
                 duplication_excluded,
+                source_index: Some(source_index),
             });
         }
+        Ok(source) => {
+            collected.semantic_input_complete = false;
+            collected.project_files.push(ProjectFile {
+                path,
+                classification,
+                report: None,
+                facts: None,
+                error: Some(format!(
+                    "retained source snapshots exceed the {MAX_RETAINED_SOURCE_BYTES} byte project limit"
+                )),
+                duplication_excluded,
+            });
+            drop(source);
+        }
+        Err(error) => {
+            collected.semantic_input_complete = false;
+            collected.project_files.push(read_failure(
+                path,
+                classification,
+                duplication_excluded,
+                &error,
+            ));
+        }
     }
+}
 
-    let worker_count = thread::available_parallelism()
-        .map_or(1, std::num::NonZeroUsize::get)
-        .min(pending.len());
-    project_files.extend(
-        analyze_project_files(&pending, options, worker_count, cache.as_ref())
-            .into_iter()
-            .map(|(_, project_file)| project_file),
-    );
-    for project_file in &project_files {
+fn load_project_semantic_context(
+    project_options: &ProjectAnalysisOptions,
+    options: &AnalyzerOptionsBundle,
+    source_inventory: &[AnalyzedSource],
+    semantic_input_complete: bool,
+    warnings: &mut Vec<String>,
+) -> Option<ProjectSemanticContext> {
+    if !project_options.features.semantics_requested() {
+        return None;
+    }
+    if !semantic_input_complete {
+        warnings.push(
+            "semantic context: analyzed source inventory is incomplete; compiler facts are unavailable"
+                .to_owned(),
+        );
+        return None;
+    }
+    match ProjectSemanticContext::load(
+        source_inventory,
+        &project_options.features.semantics,
+        options,
+    ) {
+        Ok(context) => {
+            for diagnostic in context.diagnostics() {
+                let warning = format!("semantic context: {diagnostic}");
+                if !warnings.contains(&warning) {
+                    warnings.push(warning);
+                }
+            }
+            Some(context)
+        }
+        Err(error) => {
+            warnings.push(format!("semantic context: {error}"));
+            None
+        }
+    }
+}
+
+fn project_cache(
+    paths: &[PathBuf],
+    options: &AnalyzerOptionsBundle,
+    project_options: &ProjectAnalysisOptions,
+    semantic_input_complete: bool,
+    semantic: Option<&ProjectSemanticContext>,
+) -> Option<Cache> {
+    let mut fingerprints = semantic.map_or_else(CacheFingerprints::default, |context| {
+        context.cache_fingerprints().clone()
+    });
+    if project_options.features.assessment_requested()
+        || project_options.features.semantics_requested()
+    {
+        fingerprints = augment_assessment_fingerprints(fingerprints, project_options, paths);
+    }
+    if semantic_input_complete
+        && (!project_options.features.semantics_requested()
+            || semantic.is_some_and(ProjectSemanticContext::is_complete))
+    {
+        Cache::new_with_fingerprints(project_options.cache_dir.as_deref(), options, &fingerprints)
+    } else {
+        None
+    }
+}
+
+fn append_project_warnings(project_files: &[ProjectFile], warnings: &mut Vec<String>) {
+    for project_file in project_files {
         if let Some(error) = project_file.error.as_deref()
             && !warnings.iter().any(|warning| warning.contains(error))
         {
@@ -293,23 +708,180 @@ pub(crate) fn analyze_project_paths(
             ));
         }
     }
-    build_project_report(
-        project_files,
-        paths.to_vec(),
-        warnings.clone(),
-        &project_options.duplication,
+}
+
+fn attach_project_assessment(
+    report: &mut hoonarqube_ir::AnalysisReport,
+    source_inventory: &[AnalyzedSource],
+    options: &AnalyzerOptionsBundle,
+    project_options: &ProjectAnalysisOptions,
+) {
+    if project_options.features.assessment_requested() {
+        crate::assessment_cli::attach_assessment(
+            report,
+            source_inventory,
+            options,
+            project_options,
+        );
+    }
+}
+
+fn augment_assessment_fingerprints(
+    fingerprints: CacheFingerprints,
+    project_options: &ProjectAnalysisOptions,
+    roots: &[PathBuf],
+) -> CacheFingerprints {
+    let scope = project_options.assessment_scope_digest(roots);
+    let assessment = if project_options.features.assessment {
+        b"1".as_slice()
+    } else {
+        b"0".as_slice()
+    };
+    let gate = artifact_fingerprint(
+        "assessment-quality-gate-v1",
+        project_options.features.quality_gate.as_deref(),
+    );
+    let write_baseline = artifact_fingerprint(
+        "assessment-write-baseline-v1",
+        project_options.features.write_baseline.as_deref(),
+    );
+    let reference = artifact_fingerprint(
+        "assessment-baseline-v1",
+        project_options.features.baseline.as_deref(),
+    );
+    let mut coverage_parts = vec![assessment];
+    let mut coverage_fingerprints = Vec::with_capacity(
+        project_options.features.coverage_lcov.len()
+            + project_options.features.coverage_opencover.len(),
+    );
+    for path in project_options
+        .features
+        .coverage_lcov
+        .iter()
+        .chain(&project_options.features.coverage_opencover)
+    {
+        coverage_fingerprints.push(artifact_fingerprint("assessment-coverage-v1", Some(path)));
+    }
+    coverage_parts.extend(coverage_fingerprints.iter().map(String::as_bytes));
+    let coverage_set = digest_feature_values("assessment-coverage-set-v1", &coverage_parts);
+    CacheFingerprints {
+        context: digest_feature_values(
+            "cache-context-v2",
+            &[fingerprints.context.as_bytes(), scope.as_bytes()],
+        ),
+        helper: fingerprints.helper,
+        config: digest_feature_values(
+            "cache-config-v2",
+            &[
+                fingerprints.config.as_bytes(),
+                assessment,
+                gate.as_bytes(),
+                write_baseline.as_bytes(),
+            ],
+        ),
+        reference: digest_feature_values(
+            "cache-reference-v2",
+            &[fingerprints.reference.as_bytes(), reference.as_bytes()],
+        ),
+        dependency: digest_feature_values(
+            "cache-dependency-v2",
+            &[fingerprints.dependency.as_bytes(), coverage_set.as_bytes()],
+        ),
+    }
+}
+
+fn artifact_fingerprint(domain: &str, path: Option<&Path>) -> String {
+    let Some(path) = path else {
+        return digest_feature_values(domain, &[]);
+    };
+    let (state, total, content_digest) = artifact_content_fingerprint(path);
+    let total_bytes = total.to_le_bytes();
+    digest_feature_values(
+        domain,
+        &[
+            path.as_os_str().as_encoded_bytes(),
+            state,
+            &total_bytes,
+            &content_digest,
+        ],
     )
+}
+
+fn artifact_content_fingerprint(path: &Path) -> (&'static [u8], u64, [u8; 32]) {
+    let status = if path.is_file() {
+        b"present".as_slice()
+    } else {
+        b"missing".as_slice()
+    };
+    let (unreadable, total, content_digest) = read_artifact_content(path);
+    let state = if unreadable {
+        b"unreadable".as_slice()
+    } else {
+        status
+    };
+    (state, total, content_digest)
+}
+
+fn read_artifact_content(path: &Path) -> (bool, u64, [u8; 32]) {
+    let mut content_hasher = Sha256::new();
+    let mut total = 0_u64;
+    let mut unreadable = false;
+    if path.is_file() {
+        match fs::File::open(path) {
+            Ok(mut file) => {
+                let mut buffer = [0_u8; 16 * 1024];
+                loop {
+                    let Ok(count) = file.read(&mut buffer) else {
+                        unreadable = true;
+                        break;
+                    };
+                    if count == 0 {
+                        break;
+                    }
+                    content_hasher.update(&buffer[..count]);
+                    total = total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX));
+                }
+            }
+            Err(_) => unreadable = true,
+        }
+    }
+    let content_digest: [u8; 32] = content_hasher.finalize().into();
+    (unreadable, total, content_digest)
+}
+
+fn digest_feature_values(domain: &str, values: &[&[u8]]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(
+        u64::try_from(domain.len())
+            .unwrap_or(u64::MAX)
+            .to_le_bytes(),
+    );
+    hasher.update(domain.as_bytes());
+    for value in values {
+        hasher.update(u64::try_from(value.len()).unwrap_or(u64::MAX).to_le_bytes());
+        hasher.update(value);
+    }
+    let digest = hasher.finalize();
+    let mut result = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write as _;
+        write!(&mut result, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    result
 }
 
 struct ProjectInput {
     path: PathBuf,
     classification: FileClassification,
     duplication_excluded: bool,
+    source_index: Option<usize>,
 }
 
 fn analyze_project_files(
     files: &[ProjectInput],
+    sources: &[AnalyzedSource],
     options: &AnalyzerOptionsBundle,
+    semantic: Option<&ProjectSemanticContext>,
     worker_count: usize,
     cache: Option<&Cache>,
 ) -> Vec<(usize, ProjectFile)> {
@@ -317,7 +889,12 @@ fn analyze_project_files(
         return files
             .iter()
             .enumerate()
-            .map(|(index, file)| (index, read_and_analyze_project(file, options, cache)))
+            .map(|(index, file)| {
+                (
+                    index,
+                    read_and_analyze_project(file, sources, options, semantic, cache),
+                )
+            })
             .collect();
     }
 
@@ -340,11 +917,11 @@ fn analyze_project_files(
                 hoonarqube_core::spawn_analyzer_worker(
                     scope,
                     "hoonarqube-project-file-worker",
-                    || analyze_project_pending(files, options, &next, cache),
+                    || analyze_project_pending(files, sources, options, semantic, &next, cache),
                 )
             } else {
                 thread::Builder::new().spawn_scoped(scope, || {
-                    analyze_project_pending(files, options, &next, cache)
+                    analyze_project_pending(files, sources, options, semantic, &next, cache)
                 })
             };
             let Ok(worker) = worker else {
@@ -355,7 +932,7 @@ fn analyze_project_files(
         let mut outcomes = if requires_jsts_stack && !workers.is_empty() {
             Vec::new()
         } else {
-            analyze_project_pending(files, options, &next, cache)
+            analyze_project_pending(files, sources, options, semantic, &next, cache)
         };
         for worker in workers {
             outcomes.extend(
@@ -372,7 +949,9 @@ fn analyze_project_files(
 
 fn analyze_project_pending(
     files: &[ProjectInput],
+    sources: &[AnalyzedSource],
     options: &AnalyzerOptionsBundle,
+    semantic: Option<&ProjectSemanticContext>,
     next: &AtomicUsize,
     cache: Option<&Cache>,
 ) -> Vec<(usize, ProjectFile)> {
@@ -382,59 +961,179 @@ fn analyze_project_pending(
         let Some(file) = files.get(index) else {
             return outcomes;
         };
-        outcomes.push((index, read_and_analyze_project(file, options, cache)));
+        outcomes.push((
+            index,
+            read_and_analyze_project(file, sources, options, semantic, cache),
+        ));
     }
 }
 
 fn read_and_analyze_project(
     input: &ProjectInput,
+    sources: &[AnalyzedSource],
     options: &AnalyzerOptionsBundle,
+    semantic: Option<&ProjectSemanticContext>,
     cache: Option<&Cache>,
 ) -> ProjectFile {
+    if let Some(source_index) = input.source_index {
+        let Some(snapshot) = sources.get(source_index) else {
+            return ProjectFile {
+                path: input.path.clone(),
+                classification: input.classification,
+                report: None,
+                facts: None,
+                error: Some("source snapshot inventory index is invalid".to_owned()),
+                duplication_excluded: input.duplication_excluded,
+            };
+        };
+        return analyze_project_source(input, &snapshot.source, options, semantic, cache);
+    }
     match fs::read_to_string(&input.path) {
-        Ok(source) => {
-            let content_digest = cache.map(|_| Cache::source_digest(source.as_bytes()));
-            if let Some(entry) = cache
-                .zip(content_digest)
-                .and_then(|(cache, digest)| cache.load(&input.path, source.len(), digest))
-            {
-                return ProjectFile {
-                    path: input.path.clone(),
-                    classification: input.classification,
-                    report: Some(entry.report),
-                    facts: Some(entry.facts),
-                    error: None,
-                    duplication_excluded: input.duplication_excluded,
-                };
+        Ok(source) => analyze_project_source(input, &source, options, semantic, cache),
+        Err(error) => read_failure(
+            input.path.clone(),
+            input.classification,
+            input.duplication_excluded,
+            &error,
+        ),
+    }
+}
+
+fn analyze_project_source(
+    input: &ProjectInput,
+    source: &str,
+    options: &AnalyzerOptionsBundle,
+    semantic: Option<&ProjectSemanticContext>,
+    cache: Option<&Cache>,
+) -> ProjectFile {
+    let content_digest = cache.map(|_| Cache::source_digest(source.as_bytes()));
+    if let Some(entry) = cache
+        .zip(content_digest)
+        .and_then(|(cache, digest)| cache.load(&input.path, source.len(), digest))
+    {
+        return ProjectFile {
+            path: input.path.clone(),
+            classification: input.classification,
+            report: Some(entry.report),
+            facts: Some(entry.facts),
+            error: None,
+            duplication_excluded: input.duplication_excluded
+                || hoonarqube_core::is_razor_path(&input.path),
+        };
+    }
+
+    let (result, semantic_failed) = match semantic {
+        Some(context) => match context.analyze(&input.path, source, options) {
+            Ok(Some(report)) => (
+                project_file_from_report(input, source, report, options, Some(context)),
+                false,
+            ),
+            Ok(None) => (
+                analyze_project_file(
+                    &input.path,
+                    source,
+                    options,
+                    input.classification,
+                    input.duplication_excluded,
+                ),
+                false,
+            ),
+            Err(error) => {
+                let mut result = analyze_project_file(
+                    &input.path,
+                    source,
+                    options,
+                    input.classification,
+                    input.duplication_excluded,
+                );
+                result.error = Some(format!("semantic analysis unavailable: {error}"));
+                (result, true)
             }
-            let result = analyze_project_file(
+        },
+        None => (
+            analyze_project_file(
                 &input.path,
-                &source,
+                source,
                 options,
                 input.classification,
                 input.duplication_excluded,
-            );
-            if let Some((cache, digest)) = cache.zip(content_digest) {
-                cache.store(&input.path, digest, &result);
-            }
-            result
+            ),
+            false,
+        ),
+    };
+    if !semantic_failed && let Some((cache, digest)) = cache.zip(content_digest) {
+        cache.store(&input.path, digest, &result);
+    }
+    result
+}
+
+fn project_file_from_report(
+    input: &ProjectInput,
+    source: &str,
+    mut report: hoonarqube_ir::FileReport,
+    _options: &AnalyzerOptionsBundle,
+    semantic: Option<&ProjectSemanticContext>,
+) -> ProjectFile {
+    let is_razor = hoonarqube_core::is_razor_path(&input.path);
+    let (facts, mut error) = if is_razor {
+        let compiler_facts = semantic
+            .and_then(|context| context.razor_source_facts(&input.path, source))
+            .and_then(|facts| compiler_razor_facts(&input.path, facts.metrics.clone()));
+        if let Some(facts) = compiler_facts {
+            (Some(facts), None)
+        } else {
+            let facts = collect_source_facts(&input.path, source);
+            let error = facts
+                .as_ref()
+                .and_then(|facts| facts.error.clone())
+                .or_else(|| {
+                    Some("complete compiler-backed Razor source facts are unavailable".to_owned())
+                });
+            (facts, error)
         }
-        Err(error) if error.kind() == ErrorKind::InvalidData => ProjectFile {
-            path: input.path.clone(),
-            classification: input.classification,
-            report: None,
-            facts: None,
-            error: Some("source is not valid UTF-8".to_owned()),
-            duplication_excluded: input.duplication_excluded,
-        },
-        Err(error) => ProjectFile {
-            path: input.path.clone(),
-            classification: input.classification,
-            report: None,
-            facts: None,
-            error: Some(format!("cannot read file: {error}")),
-            duplication_excluded: input.duplication_excluded,
-        },
+    } else {
+        let facts = collect_source_facts(&input.path, source);
+        let error = facts.as_ref().and_then(|facts| facts.error.clone());
+        (facts, error)
+    };
+    if let Some(facts) = facts.as_ref() {
+        report.metrics = facts.metrics.clone();
+    } else if error.is_none() {
+        error = Some("source facts unavailable for analyzed file".to_owned());
+    }
+    let report = if is_razor && error.is_some() {
+        None
+    } else {
+        Some(report)
+    };
+    ProjectFile {
+        path: input.path.clone(),
+        classification: input.classification,
+        report,
+        facts,
+        error,
+        duplication_excluded: input.duplication_excluded || is_razor,
+    }
+}
+
+fn read_failure(
+    path: PathBuf,
+    classification: FileClassification,
+    duplication_excluded: bool,
+    error: &std::io::Error,
+) -> ProjectFile {
+    let error = if error.kind() == ErrorKind::InvalidData {
+        "source is not valid UTF-8".to_owned()
+    } else {
+        format!("cannot read file: {error}")
+    };
+    ProjectFile {
+        path,
+        classification,
+        report: None,
+        facts: None,
+        error: Some(error),
+        duplication_excluded,
     }
 }
 
@@ -456,11 +1155,23 @@ pub(crate) fn collect_project_input_files(
     paths: &[PathBuf],
     patterns: &ProjectPatterns,
     warnings: &mut Vec<String>,
-) -> (Vec<PathBuf>, Vec<(PathBuf, String)>) {
+) -> ProjectInputCollection {
     let mut files = Vec::new();
     let mut failures = Vec::new();
-    for path in paths {
-        collect_project_input_path(path, patterns, &mut files, warnings, &mut failures);
+    let mut unsupported_inventory = Vec::new();
+    let mut unsupported_inventory_bytes = 0;
+    let mut unsupported_inventory_overflowed = false;
+    {
+        let mut state = ProjectInputCollector {
+            files: &mut files,
+            unsupported_inventory: &mut unsupported_inventory,
+            unsupported_inventory_bytes: &mut unsupported_inventory_bytes,
+            unsupported_inventory_overflowed: &mut unsupported_inventory_overflowed,
+            warnings,
+        };
+        for path in paths {
+            collect_project_input_path(path, patterns, &mut state, &mut failures);
+        }
     }
     let files = deduplicate_input_files(files);
     let mut unique_failures = std::collections::BTreeMap::new();
@@ -469,21 +1180,39 @@ pub(crate) fn collect_project_input_files(
             .entry(normalized_input_path(&path))
             .or_insert((path, reason));
     }
-    (files, unique_failures.into_values().collect())
+    let mut unique_unsupported = std::collections::BTreeMap::new();
+    for (path, classification) in unsupported_inventory {
+        let key = normalized_input_path(&path);
+        match unique_unsupported.entry(key) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert((path, classification));
+            }
+            std::collections::btree_map::Entry::Occupied(mut entry) => {
+                if path.as_path() < entry.get().0.as_path() {
+                    entry.insert((path, classification));
+                }
+            }
+        }
+    }
+    (
+        files,
+        unique_failures.into_values().collect(),
+        unique_unsupported.into_values().collect(),
+        unsupported_inventory_bytes,
+    )
 }
 
 fn collect_project_input_path(
     path: &Path,
     patterns: &ProjectPatterns,
-    files: &mut Vec<PathBuf>,
-    warnings: &mut Vec<String>,
+    state: &mut ProjectInputCollector<'_>,
     failures: &mut Vec<(PathBuf, String)>,
 ) {
     let classification = patterns.classify_scope(path);
     if is_inventory_class(classification) {
         // The scope root is itself the complete inventory entry. Do not
         // inspect or enumerate an excluded/generated/vendor subtree.
-        files.push(path.to_path_buf());
+        state.files.push(path.to_path_buf());
         return;
     }
 
@@ -491,42 +1220,83 @@ fn collect_project_input_path(
         Ok(metadata) => metadata,
         Err(error) if error.kind() == ErrorKind::NotFound => {
             let warning = format!("path does not exist: {}", path.display());
-            warnings.push(warning.clone());
+            state.warnings.push(warning.clone());
             failures.push((path.to_path_buf(), warning));
             return;
         }
         Err(error) => {
             let warning = format!("cannot inspect path: {}: {error}", path.display());
-            warnings.push(warning.clone());
+            state.warnings.push(warning.clone());
             failures.push((path.to_path_buf(), warning));
             return;
         }
     };
     if metadata.file_type().is_symlink() {
         match fs::metadata(path) {
-            Ok(target) if target.is_file() => files.push(path.to_path_buf()),
+            Ok(target) if target.is_file() => state.files.push(path.to_path_buf()),
             Ok(target) if target.is_dir() => {
                 let warning = format!("skipping symlinked directory: {}", path.display());
-                warnings.push(warning);
+                state.warnings.push(warning);
             }
             Ok(_) => {
                 let warning = format!("skipping unsupported path: {}", path.display());
-                warnings.push(warning);
+                state.warnings.push(warning);
             }
             Err(error) => {
                 let warning = format!("cannot inspect symlink target: {}: {error}", path.display());
-                warnings.push(warning.clone());
+                state.warnings.push(warning.clone());
                 failures.push((path.to_path_buf(), warning));
             }
         }
     } else if metadata.is_dir() {
-        collect_project_files(path, patterns, files, warnings);
+        collect_project_files(path, patterns, state);
     } else if metadata.is_file() {
-        files.push(path.to_path_buf());
+        state.files.push(path.to_path_buf());
     } else {
         let warning = format!("skipping unsupported path: {}", path.display());
-        warnings.push(warning);
+        state.warnings.push(warning);
     }
+}
+
+fn retain_unsupported_project_inventory(
+    path: PathBuf,
+    classification: FileClassification,
+    state: &mut ProjectInputCollector<'_>,
+) {
+    let Some(cost) = path
+        .as_os_str()
+        .as_encoded_bytes()
+        .len()
+        .checked_add(PROJECT_INVENTORY_RECORD_OVERHEAD)
+    else {
+        if !*state.unsupported_inventory_overflowed {
+            state.warnings.push(format!(
+                "retained project input inventory exceeds the {MAX_RETAINED_SOURCE_BYTES} byte project limit"
+            ));
+            *state.unsupported_inventory_overflowed = true;
+        }
+        return;
+    };
+    let Some(total) = state.unsupported_inventory_bytes.checked_add(cost) else {
+        if !*state.unsupported_inventory_overflowed {
+            state.warnings.push(format!(
+                "retained project input inventory exceeds the {MAX_RETAINED_SOURCE_BYTES} byte project limit"
+            ));
+            *state.unsupported_inventory_overflowed = true;
+        }
+        return;
+    };
+    if total > MAX_RETAINED_SOURCE_BYTES {
+        if !*state.unsupported_inventory_overflowed {
+            state.warnings.push(format!(
+                "retained project input inventory exceeds the {MAX_RETAINED_SOURCE_BYTES} byte project limit"
+            ));
+            *state.unsupported_inventory_overflowed = true;
+        }
+        return;
+    }
+    *state.unsupported_inventory_bytes = total;
+    state.unsupported_inventory.push((path, classification));
 }
 
 fn is_inventory_class(classification: FileClassification) -> bool {
@@ -535,6 +1305,7 @@ fn is_inventory_class(classification: FileClassification) -> bool {
         FileClassification::Excluded | FileClassification::Generated | FileClassification::Vendor
     )
 }
+
 fn classify_collected_path(patterns: &ProjectPatterns, path: &Path) -> FileClassification {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_dir() => patterns.classify_scope(path),
@@ -570,8 +1341,7 @@ fn should_visit_project_entry(
 fn collect_project_files(
     directory: &Path,
     patterns: &ProjectPatterns,
-    files: &mut Vec<PathBuf>,
-    warnings: &mut Vec<String>,
+    state: &mut ProjectInputCollector<'_>,
 ) {
     let skipped = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let skipped_filter = std::sync::Arc::clone(&skipped);
@@ -591,7 +1361,7 @@ fn collect_project_files(
         let entry = match result {
             Ok(entry) => entry,
             Err(error) => {
-                warnings.push(format!(
+                state.warnings.push(format!(
                     "cannot walk directory: {}: {error}",
                     directory.display()
                 ));
@@ -605,34 +1375,68 @@ fn collect_project_files(
         let Some(file_type) = fs::symlink_metadata(&path)
             .map(|metadata| metadata.file_type())
             .map_err(|error| {
-                warnings.push(format!("cannot inspect path: {}: {error}", path.display()));
+                state
+                    .warnings
+                    .push(format!("cannot inspect path: {}: {error}", path.display()));
             })
             .ok()
         else {
             continue;
         };
-        if file_type.is_symlink() {
-            match fs::metadata(&path) {
-                Ok(metadata) if metadata.is_file() && is_analyzable_file(&path) => {
-                    files.push(path);
-                }
-                Ok(metadata) if metadata.is_dir() => {}
-                Ok(_) => {}
-                Err(error) => warnings.push(format!(
-                    "cannot inspect symlink target: {}: {error}",
-                    path.display()
-                )),
-            }
-        } else if file_type.is_file() && is_analyzable_file(&path) {
-            files.push(path);
-        }
+        collect_project_walk_entry(path, file_type, patterns, state);
     }
 
     match skipped.lock() {
-        Ok(mut skipped_paths) => files.extend(skipped_paths.drain(..)),
-        Err(_) => warnings.push(format!(
+        Ok(mut skipped_paths) => state.files.extend(skipped_paths.drain(..)),
+        Err(_) => state.warnings.push(format!(
             "cannot retain excluded project paths under {}",
             directory.display()
+        )),
+    }
+}
+
+fn collect_project_walk_entry(
+    path: PathBuf,
+    file_type: std::fs::FileType,
+    patterns: &ProjectPatterns,
+    state: &mut ProjectInputCollector<'_>,
+) {
+    if file_type.is_symlink() {
+        collect_project_symlink(path, patterns, state);
+        return;
+    }
+    if !file_type.is_file() {
+        return;
+    }
+    if is_analyzable_file(&path) {
+        state.files.push(path);
+        return;
+    }
+    if is_recognized_unsupported_file(&path) {
+        let classification = patterns.classify(&path);
+        retain_unsupported_project_inventory(path, classification, state);
+    }
+}
+
+fn collect_project_symlink(
+    path: PathBuf,
+    patterns: &ProjectPatterns,
+    state: &mut ProjectInputCollector<'_>,
+) {
+    match fs::metadata(&path) {
+        Ok(metadata) if metadata.is_file() => {
+            if is_analyzable_file(&path) {
+                state.files.push(path);
+            } else if is_recognized_unsupported_file(&path) {
+                let classification = patterns.classify(&path);
+                retain_unsupported_project_inventory(path, classification, state);
+            }
+        }
+        Ok(metadata) if metadata.is_dir() => {}
+        Ok(_) => {}
+        Err(error) => state.warnings.push(format!(
+            "cannot inspect symlink target: {}: {error}",
+            path.display()
         )),
     }
 }
@@ -925,6 +1729,32 @@ pub(crate) fn collect_files(
 /// [`hoonarqube_core::language_for_path`] covers all supported languages.
 fn is_analyzable_file(path: &Path) -> bool {
     hoonarqube_core::language_for_path(path).is_some()
+}
+
+/// Recognizes Sonar-shaped CSS, web-template, and Docker paths that have no
+/// native analyzer yet. Native dispatch wins first so a future or overlapping
+/// extension can never be reclassified as unsupported.
+fn is_recognized_unsupported_file(path: &Path) -> bool {
+    if is_analyzable_file(path) {
+        return false;
+    }
+    let extension = path.extension().and_then(|extension| extension.to_str());
+    if extension.is_some_and(|extension| {
+        [
+            "css", "less", "scss", "sass", "html", "xhtml", "cshtml", "vbhtml", "aspx", "ascx",
+            "rhtml", "erb", "shtm", "shtml", "cmp", "twig", "htm",
+        ]
+        .iter()
+        .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+    }) {
+        return true;
+    }
+    path.file_name()
+        .and_then(|file_name| file_name.to_str())
+        .is_some_and(|file_name| {
+            file_name.eq_ignore_ascii_case("dockerfile")
+                || file_name.to_ascii_lowercase().ends_with(".dockerfile")
+        })
 }
 #[cfg(test)]
 mod tests {
@@ -1388,6 +2218,87 @@ mod tests {
             hoonarqube_ir::MeasurementStatus::Unsupported
         );
         assert!(measurement.metrics.is_none());
+    }
+
+    #[test]
+    fn directory_scope_inventories_recognized_unsupported_without_affecting_metrics() {
+        let fix = TempDir::new("unsupported-scope");
+        let main = fix.write("main.py", "value = 1\n");
+        let style_upper = fix.write("style.CSS", "body { color: red; }\n");
+        fix.write("style.css", "body { color: blue; }\n");
+        fix.write("index.HTML", "<p>unsupported</p>\n");
+        fix.write("index.html", "<p>unsupported</p>\n");
+        fix.write("Dockerfile", "FROM scratch\n");
+        fix.write("dockerfile", "FROM scratch\n");
+        fix.write("notes.txt", "ordinary notes\n");
+
+        let mut baseline_warnings = Vec::new();
+        let baseline = run_project(
+            std::slice::from_ref(&main),
+            &project_options(),
+            &mut baseline_warnings,
+        );
+        assert!(baseline_warnings.is_empty());
+
+        let mut mixed_warnings = Vec::new();
+        let mixed = run_project(
+            std::slice::from_ref(&fix.0),
+            &project_options(),
+            &mut mixed_warnings,
+        );
+        assert!(mixed_warnings.is_empty());
+        assert!(mixed.project.complete);
+        assert_eq!(mixed.project.metrics, baseline.project.metrics);
+        assert_eq!(mixed.project.duplication, baseline.project.duplication);
+        assert!(mixed.files.iter().any(|file| file.path == main));
+        assert!(
+            !mixed
+                .project
+                .files
+                .iter()
+                .any(|file| file.path.ends_with("notes.txt"))
+        );
+
+        for name in [
+            "style.CSS",
+            "style.css",
+            "index.HTML",
+            "index.html",
+            "Dockerfile",
+            "dockerfile",
+        ] {
+            let path = fix.0.join(name);
+            let measurement = mixed
+                .project
+                .files
+                .iter()
+                .find(|file| file.path == path)
+                .expect("recognized unsupported inventory entry");
+            assert_eq!(measurement.status, MeasurementStatus::Unsupported);
+            assert_eq!(measurement.classification, FileClassification::Excluded);
+            assert_eq!(
+                measurement.reason.as_deref(),
+                Some("language is unsupported")
+            );
+            assert!(measurement.metrics.is_none());
+        }
+
+        let mut explicit_warnings = Vec::new();
+        let explicit = run_project(
+            std::slice::from_ref(&style_upper),
+            &project_options(),
+            &mut explicit_warnings,
+        );
+        assert!(!explicit.project.complete);
+        assert_eq!(
+            explicit
+                .project
+                .files
+                .iter()
+                .find(|file| file.path == style_upper)
+                .map(|file| file.status),
+            Some(MeasurementStatus::Unsupported)
+        );
     }
     #[test]
     fn scope_globs_only_prune_explicit_recursive_roots() {

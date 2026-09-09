@@ -35,6 +35,7 @@ pub(crate) fn check_suite(
                 range: index.range(stmt.span()),
                 fix: None,
                 flows: Vec::new(),
+                alternatives: Vec::new(),
             });
         }
         for stmt in &body[start..end] {

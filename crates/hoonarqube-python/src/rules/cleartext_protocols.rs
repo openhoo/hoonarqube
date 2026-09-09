@@ -55,6 +55,7 @@ pub(crate) fn check_cleartext_protocols(
                 range: to_range(range, index, source),
                 fix: None,
                 flows: Vec::new(),
+                alternatives: Vec::new(),
             });
         }
     }

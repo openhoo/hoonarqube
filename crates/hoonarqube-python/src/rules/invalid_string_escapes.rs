@@ -34,6 +34,7 @@ pub(crate) fn check_invalid_string_escapes(
                         range: to_range(part_range, index, source),
                         fix: None,
                         flows: Vec::new(),
+                        alternatives: Vec::new(),
                     });
                 }
             }

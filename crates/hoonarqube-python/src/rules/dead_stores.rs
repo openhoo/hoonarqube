@@ -8,12 +8,14 @@ use crate::engine::scope::scope_has_dynamic_declaration;
 use crate::support::issue_at;
 use crate::support::unused_name_matches_pattern;
 use hoonarqube_ir::Issue;
+use ruff_python_ast::ModModule;
+use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::TextRange;
 
 // --- python:S1854 — dead stores ----------------------------------------------
-
 pub(crate) fn check_dead_stores(
+    parsed: &Parsed<ModModule>,
     table: &SymbolTable,
     facts: &FileFacts,
     options: &AnalyzerOptions,
@@ -58,13 +60,24 @@ pub(crate) fn check_dead_stores(
                     && !store_ranges.contains(range)
             });
             if earlier_loads > 0 && !loaded_after && last.loop_depth == 0 {
-                issues.push(issue_at(
+                let issue = issue_at(
                     "python:S1854",
                     &format!("Remove this useless assignment to local variable '{name}'."),
                     last.range,
                     index,
                     source,
-                ));
+                );
+                let alternatives = crate::quickfix::bindings::alternatives_s1854(
+                    parsed, index, source, table, facts, &issue,
+                );
+                let issue = alternatives.into_iter().fold(issue, |issue, alternative| {
+                    issue.with_alternative(
+                        alternative.id,
+                        alternative.fix.message,
+                        alternative.fix.edits,
+                    )
+                });
+                issues.push(issue);
             }
         }
     }

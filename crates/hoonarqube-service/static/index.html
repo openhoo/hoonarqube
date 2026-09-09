@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Hoonarqube analysis dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <div>
+        <p class="eyebrow">Hoonarqube</p>
+        <h1>Analysis dashboard</h1>
+      </div>
+      <p id="session-status" class="session-status" role="status">Not connected</p>
+    </div>
+  </header>
+
+  <main class="wrap" id="main-content">
+    <section class="panel" aria-labelledby="connection-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Session</p>
+          <h2 id="connection-heading">Connect to the analysis service</h2>
+        </div>
+        <span class="badge badge-muted" id="auth-badge">No credentials</span>
+      </div>
+      <form id="connection-form" class="form-grid" novalidate>
+        <div class="field field-wide">
+          <label for="token">Bearer token</label>
+          <input id="token" name="token" type="password" autocomplete="off" spellcheck="false" placeholder="Enter a token for this session" aria-describedby="token-help">
+          <p id="token-help" class="help">The token stays in this tab's memory and is cleared when you disconnect or close the tab.</p>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="button button-primary">Connect</button>
+          <button type="button" class="button button-secondary" id="disconnect-button">Disconnect</button>
+        </div>
+      </form>
+      <div id="connection-error" class="notice notice-error" role="alert" hidden></div>
+    </section>
+
+    <section class="panel" aria-labelledby="scope-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Scope</p>
+          <h2 id="scope-heading">Choose a project and branch</h2>
+        </div>
+        <span class="badge badge-muted" id="scope-badge">No project selected</span>
+      </div>
+      <form id="scope-form" class="scope-grid">
+        <div class="field">
+          <label for="project">Project</label>
+          <select id="project" name="project" required disabled>
+            <option value="">Connect to load projects</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="branch">Branch</label>
+          <select id="branch" name="branch" required disabled>
+            <option value="">Select a project first</option>
+          </select>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="button button-primary" disabled id="load-scope-button">Load analyses</button>
+        </div>
+      </form>
+      <div id="scope-error" class="notice notice-error" role="alert" hidden></div>
+    </section>
+
+    <section class="panel" aria-labelledby="history-heading" hidden id="history-panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Immutable records</p>
+          <h2 id="history-heading">Analysis history</h2>
+        </div>
+        <span class="badge badge-muted" id="history-count">0 analyses</span>
+      </div>
+      <p class="muted">Each row is a stored report for one commit. Selecting a row never changes the recorded result.</p>
+      <div class="table-wrap">
+        <table>
+          <caption class="sr-only">Analysis history for the selected project and branch</caption>
+          <thead>
+            <tr>
+              <th scope="col">Commit</th>
+              <th scope="col">Analyzed</th>
+              <th scope="col">Analysis id</th>
+              <th scope="col">Completeness</th>
+              <th scope="col">Report version</th>
+            </tr>
+          </thead>
+          <tbody id="history-body"></tbody>
+        </table>
+      </div>
+      <div id="history-empty" class="empty-state" hidden>No analyses are stored for this branch.</div>
+      <div id="history-error" class="notice notice-error" role="alert" hidden></div>
+    </section>
+
+    <section class="panel" aria-labelledby="detail-heading" hidden id="detail-panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Selected analysis</p>
+          <h2 id="detail-heading">Analysis details</h2>
+        </div>
+        <span class="badge badge-muted" id="detail-completeness">Unknown completeness</span>
+      </div>
+      <div id="detail-warning" class="notice notice-warning" role="status" hidden></div>
+      <dl class="metadata-grid" id="analysis-metadata"></dl>
+
+      <div class="detail-grid">
+        <section class="subpanel" aria-labelledby="metrics-heading">
+          <div class="subsection-heading">
+            <h3 id="metrics-heading">Metrics</h3>
+          </div>
+          <div id="metrics-grid" class="metric-grid"></div>
+          <div id="metrics-empty" class="empty-state" hidden>No metrics were reported for this analysis.</div>
+        </section>
+        <section class="subpanel" aria-labelledby="gates-heading">
+          <div class="subsection-heading">
+            <h3 id="gates-heading">Quality gates</h3>
+            <span class="badge badge-muted" id="gate-summary">Unavailable</span>
+          </div>
+          <ul id="gates-list" class="stack-list"></ul>
+          <div id="gates-empty" class="empty-state" hidden>No gate conditions were configured.</div>
+        </section>
+      </div>
+
+      <section class="subpanel" aria-labelledby="findings-heading">
+        <div class="subsection-heading finding-heading">
+          <div>
+            <h3 id="findings-heading">Findings</h3>
+            <p class="muted">Ordinary findings and hotspots have separate review states and audit trails.</p>
+          </div>
+          <span class="badge badge-muted" id="findings-count">0 findings</span>
+        </div>
+        <div id="findings-incomplete" class="notice notice-warning" role="status" hidden></div>
+        <div id="findings-error" class="notice notice-error" role="alert" hidden></div>
+        <div id="findings-empty" class="empty-state" hidden>No findings were reported for this analysis.</div>
+        <div id="findings-list" class="finding-list"></div>
+      </section>
+    </section>
+
+    <section class="panel" aria-labelledby="review-heading" hidden id="review-panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Review activity</p>
+          <h2 id="review-heading">Finding review</h2>
+        </div>
+        <span class="badge badge-muted" id="review-target"></span>
+      </div>
+      <p id="review-context" class="muted"></p>
+      <div id="review-message" class="notice" role="status" hidden></div>
+      <div id="review-error" class="notice notice-error" role="alert" hidden></div>
+      <div class="review-grid">
+        <form id="ordinary-review-form" class="review-form" hidden>
+          <input type="hidden" name="identity">
+          <input type="hidden" name="expected_version">
+          <h3>Ordinary finding disposition</h3>
+          <p class="help">Choose what should happen to this finding. A reason is required and becomes part of the audit history.</p>
+          <div class="field">
+            <label for="ordinary-state">Disposition</label>
+            <select id="ordinary-state" name="state" required>
+              <option value="open">Open</option>
+              <option value="accepted">Accepted</option>
+              <option value="resolved">Resolved</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="ordinary-reason">Reason</label>
+            <textarea id="ordinary-reason" name="reason" rows="3" required maxlength="4000"></textarea>
+          </div>
+          <button type="submit" class="button button-primary">Save ordinary review</button>
+        </form>
+        <form id="hotspot-review-form" class="review-form" hidden>
+          <input type="hidden" name="identity">
+          <input type="hidden" name="expected_version">
+          <h3>Hotspot security review</h3>
+          <p class="help">Record the security decision separately from ordinary code-quality disposition.</p>
+          <div class="field">
+            <label for="hotspot-state">Security state</label>
+            <select id="hotspot-state" name="state" required>
+              <option value="to_review">To review</option>
+              <option value="safe">Safe</option>
+              <option value="confirmed_risk">Confirmed risk</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="hotspot-reason">Reason</label>
+            <textarea id="hotspot-reason" name="reason" rows="3" required maxlength="4000"></textarea>
+          </div>
+          <button type="submit" class="button button-primary">Save hotspot review</button>
+        </form>
+      </div>
+      <section class="audit-section" aria-labelledby="audit-heading">
+        <div class="subsection-heading">
+          <h3 id="audit-heading">Audit history</h3>
+          <button type="button" class="button button-secondary button-small" id="refresh-history-button">Refresh history</button>
+        </div>
+        <div id="audit-empty" class="empty-state" hidden>No review history is available for this finding.</div>
+        <ol id="audit-list" class="audit-list"></ol>
+      </section>
+    </section>
+
+    <div id="global-error" class="notice notice-error" role="alert" hidden></div>
+    <div id="loading" class="loading" role="status" aria-live="polite" hidden>Loading…</div>
+  </main>
+
+  <footer class="site-footer wrap">
+    <p>Optional local analysis service. Reports are immutable and shown with their recorded completeness.</p>
+  </footer>
+</body>
+</html>

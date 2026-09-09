@@ -57,11 +57,7 @@ fn collect_trailing_comma_lists(
     collector.lists
 }
 
-/// `S1438` (skipped): automatic semicolon insertion cannot be reconstructed
-/// from a tolerant parse — hazard continuations merge into one statement, so
-/// any sibling-gap heuristic only fires on legitimate semicolon-free style.
 /// Last non-whitespace byte inside `source[start..end]`, ignoring comment text.
-/// (The skipped `S1438` rule is why no semicolon findings exist.)
 fn last_significant_char(
     source: &str,
     start: u32,

@@ -80,6 +80,7 @@ fn check_keyword_placement(
         },
         source,
         index,
+        suppress_else_if_chain: false,
     };
     collector.visit_program(program);
     collector.sink.issues
@@ -324,7 +325,14 @@ mod tests {
     }
 
     #[test]
-    fn else_catch_finally_keywords_must_sit_on_their_own_line() {
+    fn adjacent_if_statements_must_not_share_a_line() {
+        let same_line_siblings = js_keys("if (a) {\n  b();\n} if (b) {\n  c();\n}\n");
+        assert_eq!(count_key(&same_line_siblings, "javascript:S3972"), 1);
+        let function_body_siblings = js_keys(
+            "function work() {}\nfunction stop() {}\nfunction f(a, b) {\n  if (a) {\n    work();\n  } if (b) {\n    stop();\n  }\n}\n",
+        );
+        assert_eq!(count_key(&function_body_siblings, "javascript:S3972"), 1);
+
         let same_line_else = js_keys("if (a) {\n  b();\n} else {\n  c();\n}\n");
         assert_eq!(count_key(&same_line_else, "javascript:S3972"), 1);
 
@@ -332,10 +340,8 @@ mod tests {
             js_keys("try {\n  a();\n} catch (e) {\n  b(e);\n} finally {\n  c();\n}\n");
         assert_eq!(count_key(&same_line_catch, "javascript:S3972"), 2);
 
-        let separated = js_keys(
-            "if (a) {\n  b();\n}\nelse\n{\n  c();\n}\ntry {\n  a();\n}\ncatch (e) {\n  b(e);\n}\nfinally {\n  c();\n}\n",
-        );
-        assert_eq!(count_key(&separated, "javascript:S3972"), 0);
+        let ordinary_else_if = js_keys("if (a) {\n  b();\n} else if (b) {\n  c();\n}\n");
+        assert_eq!(count_key(&ordinary_else_if, "javascript:S3972"), 0);
     }
 
     #[test]
@@ -540,11 +546,11 @@ mod tests {
     }
 
     #[test]
-    fn match_with_global_regex_prefers_match_all() {
-        let flagged = js_keys("const hits = text.match(/ab/g);\n");
+    fn match_with_non_global_regex_prefers_exec() {
+        let flagged = js_keys("const one = text.match(/ab/);\n");
         assert_eq!(count_key(&flagged, "javascript:S6594"), 1);
 
-        let no_global = js_keys("const one = text.match(/ab/);\n");
-        assert_eq!(count_key(&no_global, "javascript:S6594"), 0);
+        let global = js_keys("const hits = text.match(/ab/g);\n");
+        assert_eq!(count_key(&global, "javascript:S6594"), 0);
     }
 }

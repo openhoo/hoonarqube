@@ -63,6 +63,7 @@ impl<'a> TbBuilder<'a, '_> {
             name,
             kind,
             decl,
+            s1172_eligible: true,
             reads: Vec::new(),
             writes: Vec::new(),
             home_block,
@@ -352,7 +353,13 @@ impl<'a> Visit<'a> for TbBuilder<'a, '_> {
         if !declaration && let Some(id) = &function.id {
             self.declare(id.name.as_str(), TbKind::Function, id.span);
         }
+        let parameter_start = self.model.bindings.len();
         self.declare_parameters(&function.params);
+        for binding in &mut self.model.bindings[parameter_start..] {
+            if binding.kind == TbKind::Param {
+                binding.s1172_eligible = function.body.is_some();
+            }
+        }
         self.skip_parameters = false;
         let arity = signature_arity(&function.params);
         if let Some(binding) = name_binding {

@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "strictNullChecks": true,
+    "baseUrl": ".",
+    "paths": { "@fixture/*": ["src/*"] },
+    "allowJs": true,
+    "checkJs": true,
+    "jsx": "react-jsx",
+    "composite": true,
+    "declaration": true,
+    "noEmit": true
+  }
+}
