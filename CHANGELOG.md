@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.0 (2026-09-10)
+
+### Features
+
+- **hoonarqube:** complete analysis capabilities and evidence boundaries (d6048e6)
+
 ## 0.7.1 (2026-09-09)
 
 ### Bug Fixes
