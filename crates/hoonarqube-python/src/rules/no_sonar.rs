@@ -22,6 +22,7 @@ pub(crate) fn check_no_sonar(
             range: to_range(token.range(), index, source),
             fix: None,
             flows: Vec::new(),
+            alternatives: Vec::new(),
         })
         .collect()
 }

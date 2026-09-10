@@ -1,0 +1,232 @@
+{
+  "schema_version": 1,
+  "corpus_id": "sonar-metrics-26.8.0-20260909",
+  "metric_keys": [
+    "lines",
+    "ncloc",
+    "comment_lines",
+    "duplicated_lines",
+    "duplicated_blocks",
+    "duplicated_files",
+    "duplicated_lines_density"
+  ],
+  "reference_environment": {
+    "server_url_env": "SONAR_ORACLE_URL",
+    "server_version_expected": "26.8.0.126808",
+    "server_image_digest_expected": "sha256:9026624a61cd25542a402a9e7213dd7dbb39724ac9597e331e6b85362558c079",
+    "scanner_image": "docker.io/sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9"
+  },
+  "scope_contract": {
+    "sources": "src,generated,vendor,excluded,cpd-excluded",
+    "tests": "tests",
+    "excluded": "generated/**,vendor/**,excluded/**",
+    "duplication_excluded": "cpd-excluded/**"
+  },
+  "cases": [
+    {
+      "id": "baseline-python",
+      "language": "python",
+      "source_dir": "python",
+      "sources": "src,generated,vendor,excluded,cpd-excluded",
+      "tests": "tests",
+      "properties": {
+        "sonar.cpd.python.minimumLines": "10",
+        "sonar.cpd.python.minimumTokens": "100",
+        "sonar.cpd.exclusions": "cpd-excluded/**",
+        "sonar.exclusions": "generated/**,vendor/**,excluded/**"
+      },
+      "features": ["physical-lines", "code-lines", "comment-lines", "cross-file-duplicates", "unicode", "crlf", "scopes"]
+    },
+    {
+      "id": "baseline-javascript",
+      "language": "javascript",
+      "source_dir": "javascript",
+      "sources": "src,generated,vendor,excluded,cpd-excluded",
+      "tests": "tests",
+      "properties": {
+        "sonar.cpd.javascript.minimumLines": "10",
+        "sonar.cpd.javascript.minimumTokens": "100",
+        "sonar.cpd.exclusions": "cpd-excluded/**",
+        "sonar.exclusions": "generated/**,vendor/**,excluded/**"
+      },
+      "features": ["physical-lines", "code-lines", "comment-lines", "cross-file-duplicates", "unicode", "scopes"]
+    },
+    {
+      "id": "baseline-typescript",
+      "language": "typescript",
+      "source_dir": "typescript",
+      "sources": "src,generated,vendor,excluded,cpd-excluded",
+      "tests": "tests",
+      "properties": {
+        "sonar.cpd.typescript.minimumLines": "10",
+        "sonar.cpd.typescript.minimumTokens": "100",
+        "sonar.cpd.exclusions": "cpd-excluded/**",
+        "sonar.exclusions": "generated/**,vendor/**,excluded/**"
+      },
+      "features": ["physical-lines", "code-lines", "comment-lines", "cross-file-duplicates", "unicode", "scopes"]
+    },
+    {
+      "id": "baseline-csharp",
+      "language": "csharp",
+      "source_dir": "csharp",
+      "project_file": "Metrics.csproj",
+      "solution_file": "Metrics.sln",
+      "sources": "src,generated,vendor,excluded,cpd-excluded",
+      "tests": "tests",
+      "properties": {
+        "sonar.cpd.csharp.minimumLines": "10",
+        "sonar.cpd.csharp.minimumTokens": "100",
+        "sonar.cpd.exclusions": "cpd-excluded/**",
+        "sonar.exclusions": "generated/**,vendor/**,excluded/**"
+      },
+      "features": ["physical-lines", "code-lines", "comment-lines", "cross-file-duplicates", "unicode", "scopes"]
+    },
+    {
+      "id": "baseline-go",
+      "language": "go",
+      "source_dir": "go",
+      "sources": "src,generated,vendor,excluded,cpd-excluded",
+      "tests": "tests",
+      "properties": {
+        "sonar.cpd.go.minimumLines": "10",
+        "sonar.cpd.go.minimumTokens": "100",
+        "sonar.cpd.exclusions": "cpd-excluded/**",
+        "sonar.exclusions": "generated/**,vendor/**,excluded/**"
+      },
+      "features": ["physical-lines", "code-lines", "comment-lines", "cross-file-duplicates", "unicode", "scopes"]
+    },
+    {
+      "id": "baseline-java",
+      "language": "java",
+      "source_dir": "java",
+      "sources": "src,generated,vendor,excluded,cpd-excluded",
+      "tests": "tests",
+      "properties": {
+        "sonar.cpd.java.minimumLines": "10",
+        "sonar.cpd.java.minimumTokens": "100",
+        "sonar.cpd.exclusions": "cpd-excluded/**",
+        "sonar.exclusions": "generated/**,vendor/**,excluded/**"
+      },
+      "features": ["physical-lines", "code-lines", "comment-lines", "cross-file-duplicates", "unicode", "same-line", "nested", "overlap", "scopes"]
+    },
+    {
+      "id": "baseline-rust",
+      "language": "rust",
+      "source_dir": "rust",
+      "sources": "src,generated,vendor,excluded,cpd-excluded",
+      "tests": "tests",
+      "properties": {
+        "sonar.cpd.rust.minimumLines": "10",
+        "sonar.cpd.rust.minimumTokens": "100",
+        "sonar.cpd.exclusions": "cpd-excluded/**",
+        "sonar.exclusions": "generated/**,vendor/**,excluded/**"
+      },
+      "features": ["physical-lines", "code-lines", "comment-lines", "cross-file-duplicates", "unicode", "scopes"]
+    },
+    {
+      "id": "baseline-ruby",
+      "language": "ruby",
+      "source_dir": "ruby",
+      "sources": "src,generated,vendor,excluded,cpd-excluded",
+      "tests": "tests",
+      "properties": {
+        "sonar.cpd.ruby.minimumLines": "10",
+        "sonar.cpd.ruby.minimumTokens": "100",
+        "sonar.cpd.exclusions": "cpd-excluded/**",
+        "sonar.exclusions": "generated/**,vendor/**,excluded/**"
+      },
+      "features": ["physical-lines", "code-lines", "comment-lines", "cross-file-duplicates", "unicode", "scopes"]
+    },
+    {
+      "id": "threshold-python-99",
+      "language": "python",
+      "source_dir": "python-threshold-99",
+      "sources": "src",
+      "properties": {
+        "sonar.cpd.py.minimumLines": "1",
+        "sonar.cpd.py.minimumTokens": "99"
+      },
+      "features": ["threshold-99-tokens"]
+    },
+    {
+      "id": "threshold-python-100",
+      "language": "python",
+      "source_dir": "python-threshold-100",
+      "sources": "src",
+      "properties": {
+        "sonar.cpd.py.minimumLines": "1",
+        "sonar.cpd.py.minimumTokens": "100"
+      },
+      "features": ["threshold-100-tokens"]
+    },
+    {
+      "id": "threshold-python-101",
+      "language": "python",
+      "source_dir": "python-threshold-101",
+      "sources": "src",
+      "properties": {
+        "sonar.cpd.py.minimumLines": "1",
+        "sonar.cpd.py.minimumTokens": "101"
+      },
+      "features": ["threshold-101-tokens"]
+    },
+    {
+      "id": "java-statements-9",
+      "language": "java",
+      "source_dir": "java-statements-9",
+      "sources": "src",
+      "features": ["java-9-statements", "fixed-java-cpd-threshold", "threshold-9-lines"]
+    },
+    {
+      "id": "java-statements-10",
+      "language": "java",
+      "source_dir": "java-statements-10",
+      "sources": "src",
+      "features": ["java-10-statements", "fixed-java-cpd-threshold", "threshold-10-lines"]
+    },
+    {
+      "id": "java-statements-11",
+      "language": "java",
+      "source_dir": "java-statements-11",
+      "sources": "src",
+      "features": ["java-11-statements", "fixed-java-cpd-threshold", "threshold-11-lines"]
+    },
+    {
+      "id": "java-structure-ranges",
+      "language": "java",
+      "source_dir": "java-structure",
+      "sources": "src",
+      "features": ["same-line", "nested", "overlap", "duplicate-occurrences", "fixed-java-cpd-threshold"]
+    },
+    {
+      "id": "no-denominator-empty",
+      "language": "python",
+      "source_dir": "empty",
+      "sources": "src",
+      "features": ["no-denominator", "empty-source"]
+    },
+    {
+      "id": "invalid-input-unverified",
+      "language": "python",
+      "source_dir": "invalid-input",
+      "sources": "src",
+      "scan": false,
+      "reason": "Malformed syntax is retained as an explicit unverified reference state; Sonar recovery must not be represented as complete native parity.",
+      "features": ["invalid-input", "unverified"]
+    }
+  ],
+  "unsupported": [
+    {
+      "id": "unsupported-kotlin",
+      "language": "kotlin",
+      "status": "UNVERIFIED",
+      "reason": "The Sonar server has a Kotlin analyzer, but Kotlin is outside Hoonarqube's supported native language families; no equality is claimed."
+    },
+    {
+      "id": "unsupported-php",
+      "language": "php",
+      "status": "UNVERIFIED",
+      "reason": "The Sonar server has a PHP analyzer, but PHP is outside Hoonarqube's supported native language families; no equality is claimed."
+    }
+  ]
+}

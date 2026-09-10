@@ -1,8 +1,2 @@
-public class Sample
-{
-    public void Query(System.Data.SqlClient.SqlCommand command, string user)
-    {
-        var sql = "SELECT * FROM users WHERE name = '" + user + "'";
-        command.ExecuteReader(sql);
-    }
-}
+using System.Data.Common;
+public static class SqlAttack { public static void Run(DbCommand command, string input) { command.CommandText = "SELECT * FROM records WHERE name = '" + input + "'"; } }

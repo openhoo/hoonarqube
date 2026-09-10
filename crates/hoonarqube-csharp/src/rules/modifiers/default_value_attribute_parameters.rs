@@ -9,7 +9,8 @@ use tree_sitter::Node;
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for parameter in collect_kinds(root, &["parameter"]) {
-        if has_attribute(&attributes_of(parameter, source), "DefaultValue") {
+        let attributes = attributes_of(parameter, source);
+        if has_attribute(&attributes, "DefaultValue") && has_attribute(&attributes, "Optional") {
             let anchor = attribute_named(parameter, source, "DefaultValue").unwrap_or(parameter);
             issues.push(issue(
                 language,

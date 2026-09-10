@@ -25,6 +25,7 @@ pub(crate) fn check_py2_inequality(
                     range: to_range(TextRange::new(at, at + TextSize::new(2)), index, source),
                     fix: None,
                     flows: Vec::new(),
+                    alternatives: Vec::new(),
                 });
             }
         }

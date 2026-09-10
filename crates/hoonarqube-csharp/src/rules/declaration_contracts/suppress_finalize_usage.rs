@@ -1,8 +1,9 @@
 use crate::CsLanguage;
-use crate::cst::{issue, range_of};
+use crate::cst::{issue, modifiers_of, range_of};
 use crate::rules::expressions::{
     banned_member_accesses, enclosing_type, member_declarations_of_kind,
 };
+use crate::rules::modifiers::has_modifier;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -18,7 +19,11 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             "Do not call 'GC.SuppressFinalize'.",
             range_of(access.child_by_field_name("name").unwrap_or(access), source),
         ));
-        if enclosing_type(access).is_none_or(|type_node| !has_destructor(type_node)) {
+        if enclosing_type(access).is_some_and(|type_node| {
+            type_node.kind() == "class_declaration"
+                && has_modifier(&modifiers_of(type_node, source), "sealed")
+                && !has_destructor(type_node)
+        }) {
             let invocation = access
                 .parent()
                 .filter(|parent| parent.kind() == "invocation_expression")
@@ -54,13 +59,13 @@ mod tests {
     #[test]
     fn s3234_flags_finalizerless_types_once_per_call() {
         let once = analyze_default(
-            "class T\n{\n    void Release()\n    {\n        GC.SuppressFinalize(this);\n    }\n}\n",
+            "sealed class T\n{\n    void Release()\n    {\n        GC.SuppressFinalize(this);\n    }\n}\n",
         );
         assert_eq!(with_key(&once, "csharpsquid:S3971").len(), 1);
         assert_eq!(with_key(&once, "csharpsquid:S3234").len(), 1);
 
         let twice = analyze_default(
-            "class T\n{\n    void Release(bool again)\n    {\n        GC.SuppressFinalize(this);\n        if (again)\n        {\n            GC.SuppressFinalize(this);\n        }\n    }\n}\n",
+            "sealed class T\n{\n    void Release(bool again)\n    {\n        GC.SuppressFinalize(this);\n        if (again)\n        {\n            GC.SuppressFinalize(this);\n        }\n    }\n}\n",
         );
         assert_eq!(with_key(&twice, "csharpsquid:S3971").len(), 2);
         assert_eq!(with_key(&twice, "csharpsquid:S3234").len(), 2);

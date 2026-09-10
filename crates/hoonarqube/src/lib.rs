@@ -89,6 +89,8 @@ pub mod ir {
     pub use hoonarqube_ir::FileReport;
     /// A human-readable machine-applicable remedy and its edits.
     pub use hoonarqube_ir::Fix;
+    /// One named alternative machine-applicable remedy.
+    pub use hoonarqube_ir::FixAlternative;
     /// Validation failure returned while applying edits.
     pub use hoonarqube_ir::FixApplyError;
     /// One secondary location in an execution or data-flow trace.

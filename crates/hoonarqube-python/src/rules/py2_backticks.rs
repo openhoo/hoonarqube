@@ -94,6 +94,34 @@ mod tests {
     }
 
     #[test]
+    fn backtick_suggestion_preserves_tuple_repr_semantics() {
+        let source = "value = `a, b`\n";
+        let report = scan(source);
+        let issue = findings(&report, "python:BackticksUsage")[0];
+        let alternative = issue
+            .alternatives
+            .iter()
+            .find(|alternative| alternative.id == "backticks-use-repr")
+            .expect("repr suggestion");
+        let edits = alternative.fix.edits.iter().collect::<Vec<_>>();
+        let fixed = hoonarqube_ir::apply_fixes(source, &edits).expect("fix applies");
+        assert_eq!(fixed, "value = repr((a, b))\n");
+    }
+
+    #[test]
+    fn backtick_suggestion_is_withheld_when_repr_is_shadowed() {
+        let source = "repr = custom\nvalue = `expr`\n";
+        let report = scan(source);
+        let issue = findings(&report, "python:BackticksUsage")[0];
+        assert!(
+            issue
+                .alternatives
+                .iter()
+                .all(|alternative| alternative.id != "backticks-use-repr")
+        );
+    }
+
+    #[test]
     fn multiline_and_multiple_backtick_pairs_stay_distinct() {
         let report = scan("a = `1\n + 2`\nb = `x`\n");
         let issues = findings(&report, "python:BackticksUsage");

@@ -38,6 +38,7 @@ pub(crate) fn check_assign_plus_minus(
                 ),
                 fix: None,
                 flows: Vec::new(),
+                alternatives: Vec::new(),
             }
         })
         .collect()

@@ -46,6 +46,7 @@ pub(crate) fn check_parsing_errors(
         },
         fix: None,
         flows: Vec::new(),
+        alternatives: Vec::new(),
     }]
 }
 

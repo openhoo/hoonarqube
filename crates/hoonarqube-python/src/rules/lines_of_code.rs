@@ -26,5 +26,6 @@ pub(crate) fn check_lines_of_code(
         },
         fix: None,
         flows: Vec::new(),
+        alternatives: Vec::new(),
     }]
 }

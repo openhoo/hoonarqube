@@ -1,0 +1,2 @@
+# generated
+value = 1

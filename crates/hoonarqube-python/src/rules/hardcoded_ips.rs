@@ -26,6 +26,7 @@ pub(crate) fn check_hardcoded_ips(
                 range: to_range(range, index, source),
                 fix: None,
                 flows: Vec::new(),
+                alternatives: Vec::new(),
             });
         }
     }

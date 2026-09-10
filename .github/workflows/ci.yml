@@ -65,6 +65,15 @@ jobs:
       - name: Rust format
         run: cargo fmt --all --check
 
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.111
+
+      - name: Compiler helper build and syntax
+        run: |
+          dotnet build tools/semantic/csharp/CSharpSemanticHelper.csproj --configuration Release --nologo
+          node --check tools/semantic/typescript/semantic-helper.cjs
+
       - name: Release version synchronization
         run: |
           python3 scripts/sync_release_version.py --check
@@ -102,6 +111,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - if: matrix.package == 'hoonarqube-csharp'
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.111
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:

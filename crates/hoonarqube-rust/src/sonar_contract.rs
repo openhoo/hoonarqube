@@ -517,7 +517,7 @@ pub(super) const FINDINGS: &[FindingContract] = &[
     FindingContract {
         key: "rust:S3776",
         message: "Refactor this function to reduce its Cognitive Complexity from 21 to the 15 allowed.",
-        anchor: "fn complex(a:bool,b:bool,c:bool,d:bool,e:bool,f:bool){ if a { if b { if c { if d { if e { if f {} } } } } } } }",
+        anchor: "fn complex(a:bool,b:bool,c:bool,d:bool,e:bool,f:bool){ if a { if b { if c { if d { if e { if f {} } } } } } }",
         occurrence: 0,
         start_column: 3,
         end_line_delta: 0,

@@ -29,12 +29,12 @@ pub(crate) fn check_tb_sql_injection(
 ) {
     let mut collector = SqlInjectionCollector::default();
     collector.collect(program);
-    for span in collector.sites {
+    for span in &collector.sites {
         sink.emit_span(
             RuleScope::Both,
             "S2077",
-            "Use parameterized queries instead of building SQL with interpolation.",
-            span,
+            "Make sure that executing SQL queries is safe here.",
+            *span,
         );
     }
 }
@@ -178,7 +178,7 @@ impl<'a> SqlInjectionCollector<'a> {
                 continue;
             };
             if is_dynamic_sql(argument) {
-                self.sites.push(argument.span());
+                self.sites.push(call.call.callee.span());
             }
         }
     }

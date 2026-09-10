@@ -12,28 +12,12 @@
 //! `{javascript|typescript}:S2260` issues while the partial AST below is
 //! still analyzed tolerantly.
 //!
-//! # Documented coverage gaps (INFRA skips)
+//! # Project context
 //!
-//! Nine rule keys of the frozen js/ts catalogs are intentionally not
-//! implemented because the analysis infrastructure they require does not
-//! exist in this crate; the coverage audit gaps are explained here in code:
-//!
-//! - `javascript:S1874` / `typescript:S1874` (usage of deprecated APIs):
-//!   detection needs TypeScript program diagnostics backed by semantic symbol
-//!   resolution and dependency declaration metadata. Without that context,
-//!   any single-file approximation would be guesswork.
-//! - `javascript:S6627` / `typescript:S4328` / `typescript:S6627` (imports
-//!   of internal APIs and unresolvable imports): detection needs cross-file
-//!   module resolution to prove whether an imported `_`-prefixed internal
-//!   module path exists; file-local analysis cannot decide this without
-//!   false positives.
-//! - `typescript:S4325` / `typescript:S6606` (checker-grade type checks):
-//!   detection needs TypeScript-checker-grade type semantics, which the
-//!   embedded oxc-based single-file analysis does not provide.
-//! - `javascript:S1438` / `typescript:S1438` (semicolons): automatic
-//!   semicolon insertion cannot be reconstructed from oxc's tolerant parse —
-//!   hazard continuations merge into one statement, so any sibling-gap
-//!   heuristic only fires on legitimate semicolon-free style.
+//! Single-file analysis does not resolve imported symbols or checker-dependent
+//! types. [`project_context`] supplies an explicit compiler-backed context for
+//! deprecated APIs, internal/unresolved imports, and type-dependent rules.
+//! Semicolon checks use parser token boundaries rather than sibling-gap guesses.
 use crate::context::{AnalysisContext, RuleOptions};
 use crate::support::{
     LineIndex, file_metrics, scan_comments, sort_issues, source_type_for, span_issue,
@@ -43,6 +27,7 @@ mod context;
 mod engine;
 mod github_quality;
 mod native;
+pub mod project_context;
 pub use github_quality::analyze_github_quality;
 
 /// Exact `CodeQL` query IDs emitted by [`analyze_github_quality`], in sorted order.
@@ -68,7 +53,8 @@ use std::path::PathBuf;
 
 use hoonarqube_ir::Issue;
 use oxc_allocator::Allocator;
-use oxc_parser::Parser;
+use oxc_parser::{Parser, config::TokensParserConfig};
+use oxc_semantic::SemanticBuilder;
 
 // Oxc's generated visitors recurse once per AST level. Keep that recursion off
 // the caller's usually small test/runtime stack to reduce stack-overflow risk
@@ -236,12 +222,20 @@ pub fn analyze(
     language: JstsLanguage,
     options: &AnalyzerOptions,
 ) -> hoonarqube_ir::FileReport {
-    // Catalog parameters surfaced through `AnalyzerOptions` are exactly the
-    // fields listed on the struct; all remaining frozen-catalog parameters
-    // (structural thresholds, hotspot knobs) are pinned to their catalog
-    // defaults inside the rule modules.
+    analyze_with_facts(path, source, language, options, None)
+}
+
+/// Runs one file with an optional compiler-backed semantic fact set.
+#[must_use]
+pub(crate) fn analyze_with_facts(
+    path: PathBuf,
+    source: &str,
+    language: JstsLanguage,
+    options: &AnalyzerOptions,
+    semantic_facts: Option<&project_context::SemanticFileFacts>,
+) -> hoonarqube_ir::FileReport {
     let rules = RuleOptions::from(options);
-    analyze_on_scoped_stack(path, source, language, options, &rules)
+    analyze_on_scoped_stack(path, source, language, options, &rules, semantic_facts)
 }
 
 /// Runs independently implemented non-Sonar JS/TS rules on a bounded worker
@@ -269,17 +263,21 @@ fn analyze_on_scoped_stack(
     language: JstsLanguage,
     options: &AnalyzerOptions,
     rules: &RuleOptions,
+    semantic_facts: Option<&project_context::SemanticFileFacts>,
 ) -> hoonarqube_ir::FileReport {
     std::thread::scope(|scope| {
         run_on_analyzer_stack(
             scope,
             "hoonarqube-jsts",
             "failed to start JS/TS analyzer worker",
-            move || analyze_with_rules(path, source, language, options, rules),
+            move || {
+                analyze_with_rules_and_facts(path, source, language, options, rules, semantic_facts)
+            },
         )
     })
 }
 
+#[cfg(test)]
 fn analyze_with_rules(
     path: PathBuf,
     source: &str,
@@ -287,8 +285,34 @@ fn analyze_with_rules(
     options: &AnalyzerOptions,
     rules: &RuleOptions,
 ) -> hoonarqube_ir::FileReport {
+    analyze_with_rules_and_facts(path, source, language, options, rules, None)
+}
+
+fn analyze_with_rules_and_facts(
+    path: PathBuf,
+    source: &str,
+    language: JstsLanguage,
+    options: &AnalyzerOptions,
+    rules: &RuleOptions,
+    semantic_facts: Option<&project_context::SemanticFileFacts>,
+) -> hoonarqube_ir::FileReport {
     let allocator = Allocator::default();
-    let parsed = Parser::new(&allocator, source, source_type_for(language, &path)).parse();
+    let parsed = Parser::new(&allocator, source, source_type_for(language, &path))
+        .with_config(TokensParserConfig)
+        .parse();
+    let has_parse_errors = parsed.diagnostics.errors().next().is_some();
+    let semantic = if has_parse_errors {
+        None
+    } else {
+        let built = SemanticBuilder::new()
+            .with_build_nodes(true)
+            .build(&parsed.program);
+        if built.diagnostics.has_errors() {
+            None
+        } else {
+            Some(built.semantic)
+        }
+    };
     let index = LineIndex::new(source);
     // One comment-scan pass shared by every comment-consuming check and by
     // `file_metrics` (previously up to seven identical scans per file).
@@ -298,10 +322,14 @@ fn analyze_with_rules(
         path: &path,
         source,
         program: &parsed.program,
+        semantic: semantic.as_ref(),
+        semantic_facts,
+        tokens: parsed.tokens.as_slice(),
         index: &index,
         language,
         options,
         rules,
+        has_parse_errors,
         comments,
     };
     let mut issues = Vec::new();
@@ -342,6 +370,17 @@ fn analyze_with_rules(
         ));
     }
     issues.extend(rules::run_all(&ctx));
+    if let Some(file) = semantic_facts {
+        for fallback in rules::semantic_context::run_checker_fallbacks(file, source, language) {
+            let duplicate = issues.iter().any(|existing| {
+                existing.rule_key == fallback.rule_key && existing.range == fallback.range
+            });
+            if !duplicate {
+                issues.push(fallback);
+            }
+        }
+    }
+    rules::quickfix::attach(&ctx, &mut issues);
     sort_issues(&mut issues);
     let metrics = file_metrics(body, source, &index, &ctx.comments);
 

@@ -12,7 +12,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use hoonarqube_core::project::ProjectFile;
 use hoonarqube_core::source_facts::{NormalizedToken, SourceFacts};
-use hoonarqube_core::{AnalyzerOptions, Language, language_for_path};
+use hoonarqube_core::{
+    AnalyzerOptions, CSharpAnalyzerOptions, GoAnalyzerOptions, JavaAnalyzerOptions,
+    JstsAnalyzerOptions, Language, PythonAnalyzerOptions, RubyAnalyzerOptions, RustAnalyzerOptions,
+    language_for_path,
+};
 use hoonarqube_ir::{FileMetrics, FileReport};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -38,6 +42,23 @@ pub(crate) struct Cache {
     cwd_key: String,
     executable_fingerprint: String,
     options_fingerprint: String,
+    context_fingerprint: String,
+    helper_fingerprint: String,
+    config_fingerprint: String,
+    reference_fingerprint: String,
+    dependency_fingerprint: String,
+}
+
+/// Fingerprints of all external state that can change a feature-aware
+/// analysis.  Each component remains a separate cache-key field so a future
+/// reader can diagnose which dependency invalidated an entry.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct CacheFingerprints {
+    pub(crate) context: String,
+    pub(crate) helper: String,
+    pub(crate) config: String,
+    pub(crate) reference: String,
+    pub(crate) dependency: String,
 }
 
 /// A successful cached analysis, ready to become a current `ProjectFile`.
@@ -51,6 +72,11 @@ struct CacheKey {
     executable: String,
     options: String,
     cwd: String,
+    context: String,
+    helper: String,
+    config: String,
+    reference: String,
+    dependency: String,
     path: String,
     content: String,
 }
@@ -108,11 +134,12 @@ impl Serialize for CachedTokens<'_> {
 }
 
 impl Cache {
-    /// Builds a cache context without touching the cache directory.
-    ///
-    /// An empty `--cache-dir`, missing current directory, or unreadable
-    /// executable disables caching rather than changing analysis semantics.
-    pub(crate) fn new(cache_dir: Option<&Path>, options: &AnalyzerOptions) -> Option<Self> {
+    /// Builds a cache context with feature/compiler identity fields.
+    pub(crate) fn new_with_fingerprints(
+        cache_dir: Option<&Path>,
+        options: &AnalyzerOptions,
+        fingerprints: &CacheFingerprints,
+    ) -> Option<Self> {
         let cache_dir = cache_dir.filter(|path| !path.as_os_str().is_empty())?;
         let cwd = std::env::current_dir().ok()?;
         let executable_path = std::env::current_exe().ok()?;
@@ -120,13 +147,17 @@ impl Cache {
             digest_file(&executable_path).map(|digest| digest_hex(&digest))?;
         let owned_root = cwd.join(cache_dir).join(CACHE_NAMESPACE);
         let cwd_key = path_key(&cwd);
-        let options_fingerprint =
-            digest_hex(&digest(format!("cache-options-v1:{options:?}").as_bytes()));
+        let options_fingerprint = analyzer_options_fingerprint(options);
         Some(Self {
             owned_root,
             cwd_key,
             executable_fingerprint,
             options_fingerprint,
+            context_fingerprint: fingerprints.context.clone(),
+            helper_fingerprint: fingerprints.helper.clone(),
+            config_fingerprint: fingerprints.config.clone(),
+            reference_fingerprint: fingerprints.reference.clone(),
+            dependency_fingerprint: fingerprints.dependency.clone(),
         })
     }
 
@@ -246,6 +277,11 @@ impl Cache {
             executable: self.executable_fingerprint.clone(),
             options: self.options_fingerprint.clone(),
             cwd: self.cwd_key.clone(),
+            context: self.context_fingerprint.clone(),
+            helper: self.helper_fingerprint.clone(),
+            config: self.config_fingerprint.clone(),
+            reference: self.reference_fingerprint.clone(),
+            dependency: self.dependency_fingerprint.clone(),
             path: path_key(path),
             content: digest_hex(&content_digest),
         }
@@ -453,6 +489,11 @@ fn key_digest(key: &CacheKey) -> [u8; 32] {
         &key.executable,
         &key.options,
         &key.cwd,
+        &key.context,
+        &key.helper,
+        &key.config,
+        &key.reference,
+        &key.dependency,
         &key.path,
         &key.content,
     ] {
@@ -462,6 +503,7 @@ fn key_digest(key: &CacheKey) -> [u8; 32] {
     }
     hasher.finalize().into()
 }
+
 fn digest_file(path: &Path) -> Option<[u8; 32]> {
     let mut file = OpenOptions::new().read(true).open(path).ok()?;
     let mut hasher = Sha256::new();
@@ -494,6 +536,145 @@ fn path_key(path: &Path) -> String {
     digest_hex(path.as_os_str().as_encoded_bytes())
 }
 
+fn analyzer_options_fingerprint(options: &AnalyzerOptions) -> String {
+    let profile = match options.profile {
+        hoonarqube_catalog::RuleProfile::SonarParity => "sonar-parity",
+        hoonarqube_catalog::RuleProfile::Recommended => "recommended",
+        hoonarqube_catalog::RuleProfile::Extended => "extended",
+        hoonarqube_catalog::RuleProfile::Strict => "strict",
+        hoonarqube_catalog::RuleProfile::GithubCodeQuality => "github-code-quality",
+    };
+    let value = serde_json::json!([
+        "analyzer-options-v2",
+        profile,
+        python_options_value(&options.python),
+        jsts_options_value(&options.jsts),
+        csharp_options_value(&options.csharp),
+        go_options_value(&options.go),
+        java_options_value(&options.java),
+        rust_options_value(&options.rust),
+        ruby_options_value(&options.ruby),
+    ]);
+    let bytes = serde_json::to_vec(&value).unwrap_or_default();
+    digest_hex(&digest(&bytes))
+}
+
+fn python_options_value(options: &PythonAnalyzerOptions) -> serde_json::Value {
+    serde_json::json!([
+        options.maximum_line_length,
+        options.maximum_lines_of_code,
+        options.maximum_function_parameters,
+        options.maximum_return_statements,
+        options.maximum_function_length,
+        options.maximum_nesting_depth,
+        options.maximum_cognitive_complexity,
+        options.maximum_class_complexity,
+        options.maximum_file_complexity,
+        options.maximum_function_complexity,
+        &options.copyright_header_format,
+        options.duplicate_literal_threshold,
+        &options.duplicate_literal_exclusion_regex,
+        &options.legal_trailing_comment_pattern,
+        options.require_type_hints,
+        &options.unused_local_ignore_pattern,
+        options.enable_single_underscore_attribute_issues,
+        options.regex_maximum_complexity,
+    ])
+}
+
+fn jsts_options_value(options: &JstsAnalyzerOptions) -> serde_json::Value {
+    serde_json::json!([
+        options.maximum_line_length,
+        options.maximum_lines_of_code,
+        options.maximum_function_lines,
+        &options.header_format,
+        options.header_is_regular_expression,
+        &options.comment_pattern,
+        &options.password_words,
+        &options.secret_words,
+        &options.format_functions,
+        &options.format_classes,
+        &options.format_variables,
+        options.duplicate_string_threshold,
+        &options.ignored_strings,
+        options.single_quotes,
+        &options.jsx_attribute_whitelist,
+    ])
+}
+
+fn csharp_options_value(options: &CSharpAnalyzerOptions) -> serde_json::Value {
+    serde_json::json!([
+        options.maximum_line_length,
+        options.maximum_file_loc_threshold,
+        &options.header_format,
+        options.header_is_regular_expression,
+        &options.enum_naming_format,
+        &options.flags_enum_naming_format,
+        &options.logger_name_format,
+        options.maximum_generic_parameters_for_types,
+        options.maximum_generic_parameters_for_methods,
+        options.maximum_switch_section_statements,
+        options.maximum_switch_section_lines,
+        options.maximum_nesting_level,
+        options.maximum_function_lines,
+        options.maximum_method_parameters,
+        options.maximum_function_complexity_threshold,
+        options.maximum_cognitive_complexity_threshold,
+        options.maximum_accessor_complexity_threshold,
+        options.maximum_logical_operators,
+        options.duplicate_string_threshold,
+        &options.credential_words,
+        &options.secret_words,
+        options.secret_randomness_sensibility,
+    ])
+}
+
+fn go_options_value(options: &GoAnalyzerOptions) -> serde_json::Value {
+    serde_json::json!([
+        options.maximum_line_length,
+        options.maximum_lines_of_code,
+        options.maximum_expression_complexity,
+        options.maximum_function_parameters,
+        options.maximum_case_lines,
+        options.duplicate_string_threshold,
+        options.maximum_nesting_depth,
+        options.maximum_function_lines,
+        options.maximum_switch_cases,
+        options.maximum_cognitive_complexity,
+        &options.header_format,
+    ])
+}
+
+fn java_options_value(options: &JavaAnalyzerOptions) -> serde_json::Value {
+    serde_json::json!([
+        options.maximum_line_length,
+        options.maximum_file_loc_threshold,
+        options.maximum_function_parameters,
+        options.maximum_function_lines,
+        options.maximum_nesting_level,
+        options.maximum_cognitive_complexity,
+        options.maximum_expression_complexity,
+    ])
+}
+
+fn rust_options_value(options: &RustAnalyzerOptions) -> serde_json::Value {
+    serde_json::json!([
+        options.maximum_function_parameters,
+        options.maximum_cognitive_complexity,
+    ])
+}
+
+fn ruby_options_value(options: &RubyAnalyzerOptions) -> serde_json::Value {
+    serde_json::json!([
+        options.maximum_line_length,
+        options.maximum_lines_of_code,
+        options.maximum_function_parameters,
+        options.maximum_function_lines,
+        options.maximum_nesting_depth,
+        options.maximum_cognitive_complexity,
+        options.duplicate_string_threshold,
+    ])
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -535,7 +716,9 @@ mod tests {
     fn cached_results_invalidate_on_content_path_options_and_binary_changes() {
         let fixture = Fixture::new();
         let options = AnalyzerOptions::default();
-        let mut cache = Cache::new(Some(&fixture.0), &options).expect("cache context");
+        let mut cache =
+            Cache::new_with_fingerprints(Some(&fixture.0), &options, &CacheFingerprints::default())
+                .expect("cache context");
         let path = Path::new("sample.py");
         let source = "def greet(name):\n    return name\n";
         let digest = Cache::source_digest(source.as_bytes());
@@ -569,7 +752,9 @@ mod tests {
     fn corrupt_entries_and_failed_analysis_are_never_reused() {
         let fixture = Fixture::new();
         let options = AnalyzerOptions::default();
-        let cache = Cache::new(Some(&fixture.0), &options).expect("cache context");
+        let cache =
+            Cache::new_with_fingerprints(Some(&fixture.0), &options, &CacheFingerprints::default())
+                .expect("cache context");
         let path = Path::new("sample.py");
         let source = "answer = 42\n";
         let digest = Cache::source_digest(source.as_bytes());

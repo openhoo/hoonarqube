@@ -5,6 +5,67 @@ use oxc_ast::ast::{AssignmentExpression, AssignmentOperator, Expression, UnaryOp
 use oxc_span::{GetSpan, Span};
 
 /// `S2757` (the `x =+ 1` typo), `S6643`/`S2424` (writes into built-ins).
+/// Emits the S2757 sign-swap finding for an assignment or variable
+/// initializer. The assignment token must touch the unary operator, while
+/// the unary operator must be separated from its operand; otherwise `=+1`
+/// is a legitimate assignment of a positive value rather than a typo.
+pub(crate) fn check_sign_swap(
+    sink: &mut IssueSink,
+    source: &str,
+    unary: &oxc_ast::ast::UnaryExpression<'_>,
+) {
+    if !matches!(
+        unary.operator,
+        UnaryOperator::UnaryPlus | UnaryOperator::UnaryNegation | UnaryOperator::LogicalNot
+    ) {
+        return;
+    }
+    let unary_start = unary.span.start as usize;
+    let Some(equal_before) = unary_start.checked_sub(1) else {
+        return;
+    };
+    if source.as_bytes().get(equal_before) != Some(&b'=') {
+        return;
+    }
+    if equal_before > 0
+        && matches!(
+            source.as_bytes()[equal_before - 1],
+            b'=' | b'!'
+                | b'<'
+                | b'>'
+                | b'+'
+                | b'-'
+                | b'*'
+                | b'/'
+                | b'%'
+                | b'&'
+                | b'|'
+                | b'^'
+                | b'?'
+        )
+    {
+        return;
+    }
+    let argument_start = unary.argument.span().start as usize;
+    if argument_start <= unary_start.saturating_add(1) {
+        return;
+    }
+    sink.emit_span(
+        RuleScope::Both,
+        "S2757",
+        &format!(
+            "Was \"{}=\" meant instead?",
+            match unary.operator {
+                UnaryOperator::UnaryPlus => "+",
+                UnaryOperator::UnaryNegation => "-",
+                UnaryOperator::LogicalNot => "!",
+                _ => unreachable!(),
+            }
+        ),
+        Span::new(unary.span.start.saturating_sub(1), unary.span.start + 1),
+    );
+}
+
 pub(crate) fn check_assignment_rules(
     sink: &mut IssueSink,
     source: &str,
@@ -12,29 +73,8 @@ pub(crate) fn check_assignment_rules(
 ) {
     if it.operator == AssignmentOperator::Assign
         && let Expression::UnaryExpression(unary) = &it.right
-        && matches!(
-            unary.operator,
-            UnaryOperator::UnaryPlus | UnaryOperator::UnaryNegation
-        )
-        && usize::try_from(unary.span.start)
-            .ok()
-            .and_then(|start| start.checked_sub(1))
-            .and_then(|before| source.as_bytes().get(before))
-            == Some(&b'=')
     {
-        sink.emit_span(
-            RuleScope::Both,
-            "S2757",
-            &format!(
-                "Was \"{}=\" meant instead?",
-                if unary.operator == UnaryOperator::UnaryPlus {
-                    "+"
-                } else {
-                    "-"
-                }
-            ),
-            Span::new(unary.span.start.saturating_sub(1), unary.span.start + 1),
-        );
+        check_sign_swap(sink, source, unary);
     }
     // Member assignment targets only; `(builtin root, prototype link)`.
     let (builtin_root, prototype_link) = match it.left.as_simple_assignment_target() {
@@ -104,11 +144,11 @@ mod tests {
     }
 
     #[test]
-    fn s2757_requires_adjacent_assignment_and_unary_operators() {
-        let clean = js_keys("x =\u{00a0}+1;\n");
+    fn s2757_requires_adjacent_assignment_and_separated_unary_operators() {
+        let clean = js_keys("x =\u{00a0}+1;\nx =+1;\n");
         assert_eq!(count_key(&clean, "javascript:S2757"), 0);
 
-        let report = js("x =+1;\n");
+        let report = js("x =+ 1;\n");
         let finding = report
             .issues
             .iter()
@@ -116,6 +156,12 @@ mod tests {
             .expect("sign-swap finding");
         assert_eq!(finding.range.start.column, 2);
         assert_eq!(finding.range.end.column, 4);
+    }
+
+    #[test]
+    fn s2757_ignores_comparison_and_compound_assignment_unaries() {
+        let findings = js_keys("let comparison = x ==+ 1;\nlet compound = x +=+ 1;\n");
+        assert_eq!(count_key(&findings, "javascript:S2757"), 0);
     }
 
     #[test]

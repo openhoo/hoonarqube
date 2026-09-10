@@ -21,6 +21,7 @@ pub(crate) fn check_trailing_whitespace(source: &str) -> Vec<Issue> {
                 },
                 fix: None,
                 flows: Vec::new(),
+                alternatives: Vec::new(),
             });
         }
     });

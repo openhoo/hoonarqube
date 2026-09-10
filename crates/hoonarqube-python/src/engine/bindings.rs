@@ -11,6 +11,7 @@ use std::collections::HashMap;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum KnownBinding {
     Unknown,
+    BuiltinRepr,
     BuiltinsModule,
     BuiltinEval,
     BuiltinExec,
@@ -29,8 +30,18 @@ pub(crate) enum KnownBinding {
     AsyncioCreateTask,
     AsyncioEnsureFuture,
     AsyncioTaskGroup,
+    AsyncioSleep,
+    TrioModule,
+    AnyioModule,
+    TimeModule,
+    TimeSleep,
+    DjangoModule,
+    DjangoDbModule,
+    DjangoDbConnection,
+    DjangoConnectionCursor,
+    DjangoCursor,
+    DjangoCursorExecute,
 }
-
 #[derive(Clone, Copy)]
 struct Binding {
     value: KnownBinding,
@@ -73,6 +84,12 @@ impl KnownBindings {
         facts
     }
 
+    /// Resolves a local name at a source position using the same lexical
+    /// scopes and shadowing rules as call resolution.
+    pub(crate) fn resolve_name_at(&self, name: &str, at: TextRange) -> KnownBinding {
+        let scope = self.scope_for(at);
+        self.resolve_name(scope, name, at.start())
+    }
     /// Resolves a call's target identity at the call's source position.
     pub(crate) fn resolve_call(&self, call: &ExprCall) -> KnownBinding {
         self.resolve_expr(&call.func, call.range())
@@ -91,7 +108,7 @@ impl KnownBindings {
             Stmt::FunctionDef(function) => self.record_function(scope, statement, function),
             Stmt::ClassDef(class) => self.record_class(scope, statement, class),
             Stmt::Assign(assign) => {
-                let value = self.resolve_expr_in_scope(scope, &assign.value);
+                let value = self.resolve_value_in_scope(scope, &assign.value);
                 for target in &assign.targets {
                     self.bind_assignment_targets(scope, target, value, statement.range());
                 }
@@ -102,7 +119,7 @@ impl KnownBindings {
                     .value
                     .as_deref()
                     .map_or(KnownBinding::Unknown, |value| {
-                        self.resolve_expr_in_scope(scope, value)
+                        self.resolve_value_in_scope(scope, value)
                     });
                 self.bind_assignment_targets(scope, &assign.target, value, statement.range());
                 self.record_nested_bodies(scope, statement);
@@ -110,6 +127,15 @@ impl KnownBindings {
             Stmt::AugAssign(assign) => {
                 let activation = self.activation_range(scope, statement.range());
                 self.bind_targets(scope, &assign.target, KnownBinding::Unknown, activation);
+                self.record_nested_bodies(scope, statement);
+            }
+            Stmt::With(with_stmt) => {
+                for item in &with_stmt.items {
+                    let value = self.resolve_value_in_scope(scope, &item.context_expr);
+                    if let Some(target) = item.optional_vars.as_deref() {
+                        self.bind_assignment_targets(scope, target, value, target.range());
+                    }
+                }
                 self.record_nested_bodies(scope, statement);
             }
             _ => {
@@ -122,6 +148,12 @@ impl KnownBindings {
         }
     }
 
+    fn resolve_value_in_scope(&self, scope: usize, expr: &Expr) -> KnownBinding {
+        match expr {
+            Expr::Named(named) => self.resolve_value_in_scope(scope, &named.value),
+            _ => self.resolve_expr_in_scope(scope, expr),
+        }
+    }
     fn record_import(&mut self, scope: usize, import: &ruff_python_ast::StmtImport) {
         for alias in &import.names {
             let local = alias.asname.as_deref().map_or_else(
@@ -136,7 +168,11 @@ impl KnownBindings {
                 },
                 str::to_string,
             );
-            let value = module_binding(alias.name.as_str());
+            let value = if alias.asname.is_none() && alias.name.as_str().starts_with("django.") {
+                module_binding("django")
+            } else {
+                module_binding(alias.name.as_str())
+            };
             self.bind(scope, &local, value, alias.range());
         }
     }
@@ -284,6 +320,10 @@ impl KnownBindings {
     fn resolve_expr_in_scope(&self, scope: usize, expr: &Expr) -> KnownBinding {
         match expr {
             Expr::Name(name) => self.resolve_name(scope, name.id.as_str(), expr.range().start()),
+            Expr::Call(call) => match self.resolve_expr_in_scope(scope, &call.func) {
+                KnownBinding::DjangoConnectionCursor => KnownBinding::DjangoCursor,
+                _ => KnownBinding::Unknown,
+            },
             Expr::Attribute(attribute) => {
                 let base = self.resolve_expr_in_scope(scope, attribute.value.as_ref());
                 attribute_binding(base, attribute.attr.as_str())
@@ -377,13 +417,17 @@ fn scope_body_range(body: &[Stmt], fallback: TextRange) -> TextRange {
             TextRange::new(first.range().start(), last.range().end())
         })
 }
-
 fn module_binding(module: &str) -> KnownBinding {
     match module {
         "builtins" => KnownBinding::BuiltinsModule,
         "os" => KnownBinding::OsModule,
         "subprocess" => KnownBinding::SubprocessModule,
         "asyncio" => KnownBinding::AsyncioModule,
+        "trio" => KnownBinding::TrioModule,
+        "anyio" => KnownBinding::AnyioModule,
+        "time" => KnownBinding::TimeModule,
+        "django" => KnownBinding::DjangoModule,
+        "django.db" => KnownBinding::DjangoDbModule,
         _ => KnownBinding::Unknown,
     }
 }
@@ -392,10 +436,11 @@ fn from_import_binding(module: Option<&str>, name: &str) -> KnownBinding {
     match (module, name) {
         (Some("builtins"), "eval") => KnownBinding::BuiltinEval,
         (Some("builtins"), "exec") => KnownBinding::BuiltinExec,
+        (Some("builtins"), "repr") => KnownBinding::BuiltinRepr,
         (Some("os"), "system") => KnownBinding::OsSystem,
         (Some("os"), "popen") => KnownBinding::OsPopen,
-        (Some("subprocess"), "run") => KnownBinding::SubprocessRun,
         (Some("subprocess"), "Popen") => KnownBinding::SubprocessPopen,
+        (Some("subprocess"), "run") => KnownBinding::SubprocessRun,
         (Some("subprocess"), "call") => KnownBinding::SubprocessCall,
         (Some("subprocess"), "check_call") => KnownBinding::SubprocessCheckCall,
         (Some("subprocess"), "check_output") => KnownBinding::SubprocessCheckOutput,
@@ -404,6 +449,10 @@ fn from_import_binding(module: Option<&str>, name: &str) -> KnownBinding {
         (Some("asyncio"), "create_task") => KnownBinding::AsyncioCreateTask,
         (Some("asyncio"), "ensure_future") => KnownBinding::AsyncioEnsureFuture,
         (Some("asyncio"), "TaskGroup") => KnownBinding::AsyncioTaskGroup,
+        (Some("asyncio"), "sleep") => KnownBinding::AsyncioSleep,
+        (Some("time"), "sleep") => KnownBinding::TimeSleep,
+        (Some("django"), "db") => KnownBinding::DjangoDbModule,
+        (Some("django.db"), "connection") => KnownBinding::DjangoDbConnection,
         _ => KnownBinding::Unknown,
     }
 }
@@ -416,12 +465,14 @@ fn fallback_binding(name: &str) -> KnownBinding {
         "asyncio" => KnownBinding::AsyncioModule,
         "eval" => KnownBinding::BuiltinEval,
         "exec" => KnownBinding::BuiltinExec,
+        "repr" => KnownBinding::BuiltinRepr,
         _ => KnownBinding::Unknown,
     }
 }
 
 fn attribute_binding(base: KnownBinding, attribute: &str) -> KnownBinding {
     match (base, attribute) {
+        (KnownBinding::BuiltinsModule, "repr") => KnownBinding::BuiltinRepr,
         (KnownBinding::BuiltinsModule, "eval") => KnownBinding::BuiltinEval,
         (KnownBinding::BuiltinsModule, "exec") => KnownBinding::BuiltinExec,
         (KnownBinding::OsModule, "system") => KnownBinding::OsSystem,
@@ -438,6 +489,12 @@ fn attribute_binding(base: KnownBinding, attribute: &str) -> KnownBinding {
         (KnownBinding::AsyncioModule, "create_task") => KnownBinding::AsyncioCreateTask,
         (KnownBinding::AsyncioModule, "ensure_future") => KnownBinding::AsyncioEnsureFuture,
         (KnownBinding::AsyncioModule, "TaskGroup") => KnownBinding::AsyncioTaskGroup,
+        (KnownBinding::AsyncioModule, "sleep") => KnownBinding::AsyncioSleep,
+        (KnownBinding::TimeModule, "sleep") => KnownBinding::TimeSleep,
+        (KnownBinding::DjangoModule, "db") => KnownBinding::DjangoDbModule,
+        (KnownBinding::DjangoDbModule, "connection") => KnownBinding::DjangoDbConnection,
+        (KnownBinding::DjangoDbConnection, "cursor") => KnownBinding::DjangoConnectionCursor,
+        (KnownBinding::DjangoCursor, "execute") => KnownBinding::DjangoCursorExecute,
         _ => KnownBinding::Unknown,
     }
 }

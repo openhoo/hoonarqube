@@ -1,7 +1,10 @@
 // Rule module s1125_binary_operators (generated).
 use crate::rules::shared::is_equality_operator;
-use crate::support::{IssueSink, RuleScope, identifier_name};
-use oxc_ast::ast::{BinaryExpression, BinaryOperator, Expression};
+use crate::support::{IssueSink, RuleScope, identifier_name, unparenthesized};
+use oxc_ast::ast::{
+    BinaryExpression, BinaryOperator, Expression, LogicalExpression, LogicalOperator,
+    UnaryExpression, UnaryOperator,
+};
 use oxc_span::{GetSpan, Span};
 
 /// Shared checks over one binary expression.
@@ -36,7 +39,12 @@ pub(crate) fn check_binary_operators(
         );
     }
     for operand in [&it.left, &it.right] {
-        if matches!(operand, Expression::BooleanLiteral(_)) && is_equality_operator(it.operator) {
+        if matches!(operand, Expression::BooleanLiteral(_))
+            && matches!(
+                it.operator,
+                BinaryOperator::Equality | BinaryOperator::Inequality
+            )
+        {
             sink.emit_span(
                 RuleScope::Both,
                 "S1125",
@@ -68,10 +76,63 @@ pub(crate) fn check_binary_operators(
         );
     }
 }
+/// Reports the logical-expression cases covered by pinned S1125.
+///
+/// `allow_right_or` is true only when the caller is visiting a logical
+/// expression that is the direct test of an `if` or conditional expression.
+pub(crate) fn check_logical_operators(
+    sink: &mut IssueSink,
+    it: &LogicalExpression<'_>,
+    allow_right_or: bool,
+) {
+    if let Expression::BooleanLiteral(literal) = unparenthesized(&it.left) {
+        sink.emit_span(
+            RuleScope::Both,
+            "S1125",
+            "Refactor the code to avoid using this boolean literal.",
+            literal.span(),
+        );
+    }
+    let report_right = it.operator == LogicalOperator::And
+        || (it.operator == LogicalOperator::Or && allow_right_or);
+    if report_right && let Expression::BooleanLiteral(literal) = unparenthesized(&it.right) {
+        sink.emit_span(
+            RuleScope::Both,
+            "S1125",
+            "Refactor the code to avoid using this boolean literal.",
+            literal.span(),
+        );
+    }
+}
 
+/// Reports the unary `!true` / `!false` S1125 cases.
+pub(crate) fn check_unary_boolean(sink: &mut IssueSink, it: &UnaryExpression<'_>) {
+    if it.operator == UnaryOperator::LogicalNot
+        && let Expression::BooleanLiteral(literal) = unparenthesized(&it.argument)
+    {
+        sink.emit_span(
+            RuleScope::Both,
+            "S1125",
+            "Refactor the code to avoid using this boolean literal.",
+            literal.span(),
+        );
+    }
+}
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
+
+    #[test]
+    fn s1125_flags_negated_boolean_literals() {
+        let findings = js_keys("const a = !true;\nconst b = !false;\n");
+        assert_eq!(count_key(&findings, "javascript:S1125"), 2);
+    }
+
+    #[test]
+    fn s1125_ignores_nonliteral_negation() {
+        let findings = js_keys("const a = !flag;\n");
+        assert_eq!(count_key(&findings, "javascript:S1125"), 0);
+    }
 
     #[test]
     fn s1125_flags_boolean_literal_equality_operands() {

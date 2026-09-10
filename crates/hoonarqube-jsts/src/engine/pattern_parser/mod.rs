@@ -62,6 +62,85 @@ mod tests {
     }
 
     #[test]
+    fn unicode_surrogate_pairs_follow_utf16_boundaries() {
+        let pair = parse_regex_pattern(r"[\uD83D\uDE00]", true).expect("valid surrogate pair");
+        let PatternNode::Class { items, .. } = &pair.alternatives[0][0] else {
+            panic!("expected one character class");
+        };
+        assert!(matches!(
+            items.as_slice(),
+            [ClassItem::Char { ch: '😀', .. }]
+        ));
+        assert!(has_unicode_surrogate_pair_in_class(r"[\uD83D\uDE00]"));
+        assert!(has_unicode_surrogate_pair_in_class("[😀]"));
+        assert!(has_unicode_surrogate_pair_in_class(r"[^\uD83D\uDE00]"));
+        assert!(has_unicode_surrogate_pair_in_class(r"[][\uD83D\uDE00]"));
+        assert!(!has_unicode_surrogate_pair_in_class(r"[]\uD83D\uDE00"));
+
+        // A class boundary must prevent an isolated lead/trail pair from
+        // being synthesized across unrelated regex atoms.
+        assert!(!has_unicode_surrogate_pair_in_class(r"[\uD83D]\uDE00"));
+        assert!(!has_unicode_surrogate_pair_in_class(r"[\uD83D]"));
+        assert!(parse_regex_pattern(r"[\uD83D]", true).is_ok());
+        assert!(parse_regex_pattern(r"[\uDE00]", true).is_ok());
+        let isolated = parse_regex_pattern(r"[\uD83D]", true).expect("valid lone surrogate");
+        let PatternNode::Class { items, .. } = &isolated.alternatives[0][0] else {
+            panic!("expected one character class");
+        };
+        assert!(matches!(
+            items.as_slice(),
+            [ClassItem::CodeUnit { unit: 0xD83D, .. }]
+        ));
+        let escaped = parse_regex_pattern(r"\uD83D", true).expect("valid lone surrogate atom");
+        assert!(matches!(
+            escaped.alternatives[0].as_slice(),
+            [PatternNode::CodeUnit { unit: 0xD83D, .. }]
+        ));
+
+        // Brace escapes are code-point syntax in Unicode mode; surrogate
+        // code points remain exact code units, while out-of-range values fail.
+        let brace_surrogate =
+            parse_regex_pattern(r"\u{D83D}", true).expect("valid surrogate code point");
+        assert!(matches!(
+            brace_surrogate.alternatives[0].as_slice(),
+            [PatternNode::CodeUnit { unit: 0xD83D, .. }]
+        ));
+        assert!(parse_regex_pattern(r"\u{110000}", true).is_err());
+
+        // Fixed-width escapes are meaningful without `u`, but pairs do not
+        // combine there: each escape denotes one UTF-16 code unit.
+        let no_u_pair =
+            parse_regex_pattern(r"[\uD83D\uDE00]", false).expect("valid fixed-width escapes");
+        let PatternNode::Class { items, .. } = &no_u_pair.alternatives[0][0] else {
+            panic!("expected one character class");
+        };
+        assert!(matches!(
+            items.as_slice(),
+            [
+                ClassItem::CodeUnit { unit: 0xD83D, .. },
+                ClassItem::CodeUnit { unit: 0xDE00, .. }
+            ]
+        ));
+        assert!(parse_regex_pattern(r"\u1234", false).is_ok());
+        assert!(parse_regex_pattern(r"\u12G4", false).is_ok());
+        assert!(parse_regex_pattern(r"\u{D83D}", false).is_ok());
+        let ordered_range =
+            parse_regex_pattern(r"[\uD800-\uDFFF]", true).expect("valid surrogate range");
+        let PatternNode::Class { items, .. } = &ordered_range.alternatives[0][0] else {
+            panic!("expected one character class");
+        };
+        assert!(matches!(
+            items.as_slice(),
+            [ClassItem::CodeUnitRange {
+                low: 0xD800,
+                high: 0xDFFF,
+                ..
+            }]
+        ));
+        assert!(parse_regex_pattern(r"[\uDFFF-\uD800]", true).is_err());
+    }
+
+    #[test]
     fn runaway_group_nesting_bails_out_without_crashing() {
         // ~10k nested groups: far past the depth cap for both parsers, and
         // exactly the shape that previously recursed without any bound.

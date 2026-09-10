@@ -1,3 +1,4 @@
+use super::s4036_s4721_shell_exec::ProcessBindingResolver;
 use super::s7059_s7059_await_expression::S7059State;
 use crate::rules::shared::argument_expression;
 use crate::rules::shared::duplicated_key_name;
@@ -188,20 +189,32 @@ impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
         } else {
             walk_method_definition(self, it);
         }
-        self.check_return_type_annotations(&it.value.params, it.value.return_type.as_deref());
+        self.check_return_type_annotations(
+            &it.value.params,
+            it.value.return_type.as_deref(),
+            it.value.this_param.as_deref(),
+            it.value.body.as_deref(),
+            it.value.id.as_ref(),
+        );
     }
 
     fn visit_statement(&mut self, it: &Statement<'a>) {
         let previous = self.s7059_enter_statement(it.span());
         if let Statement::FunctionDeclaration(function) = it {
-            self.check_return_type_annotations(&function.params, function.return_type.as_deref());
+            self.check_return_type_annotations(
+                &function.params,
+                function.return_type.as_deref(),
+                function.this_param.as_deref(),
+                function.body.as_deref(),
+                function.id.as_ref(),
+            );
         }
         walk_statement(self, it);
         self.s7059_leave_statement(previous);
     }
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
-        self.check_return_type_annotations(&it.params, it.return_type.as_deref());
+        self.check_return_type_annotations(&it.params, it.return_type.as_deref(), None, None, None);
         self.s7059_enter_function(false);
         walk_arrow_function_expression(self, it);
         self.s7059_leave_function(false);
@@ -285,19 +298,6 @@ pub(crate) const WEAK_EC_CURVES: [&str; 8] = [
 
 /// Cipher families `S5547` considers broken.
 pub(crate) const WEAK_CIPHER_FAMILIES: [&str; 6] = ["des", "rc2", "rc4", "bf", "blowfish", "idea"];
-
-/// Shell-interpreter child-process sinks `S4721` flags.
-pub(crate) const SHELL_EXEC_NAMES: [&str; 2] = ["exec", "execSync"];
-
-/// Process-launching APIs whose bare executable name `S4036` flags.
-pub(crate) const PATH_LOOKUP_APIS: [&str; 6] = [
-    "exec",
-    "execSync",
-    "execFile",
-    "execFileSync",
-    "spawn",
-    "spawnSync",
-];
 
 /// JWT algorithms `S5659` rejects for signing and verification.
 pub(crate) const WEAK_JWT_ALGORITHMS: [&str; 1] = ["none"];
@@ -410,6 +410,7 @@ pub(crate) fn number_property(object: &ObjectExpression<'_>, key: &str) -> Optio
 pub(crate) struct SecurityHotspotCollector<'s, 'index> {
     pub(crate) source: &'s str,
     pub(crate) sink: IssueSink<'index>,
+    pub(crate) process_bindings: ProcessBindingResolver,
 }
 
 /// Modules whose imports `S4818` flags as raw socket surfaces.

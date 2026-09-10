@@ -13,7 +13,9 @@ pub(crate) fn check_pipeline_memory_missing(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if called_name(&call.func) == Some("Pipeline") && !has_keyword(&call.arguments, "memory") {
+        if matches!(called_name(&call.func), Some("Pipeline" | "make_pipeline"))
+            && !has_keyword(&call.arguments, "memory")
+        {
             issues.push(issue_at(
                 "python:S6969",
                 "Pass a memory directory to enable Pipeline caching.",
@@ -35,7 +37,11 @@ mod tests {
 
     #[test]
     fn s6969_requires_memory_on_pipelines() {
-        let flagged = scan("Pipeline(steps)\nPipeline(steps, memory=\"./cache\")\n");
+        let flagged = scan(concat!(
+            "from sklearn.pipeline import Pipeline\n",
+            "Pipeline(steps)\n",
+            "Pipeline(steps, memory=\"./cache\")\n"
+        ));
         assert_eq!(findings(&flagged, "python:S6969").len(), 1);
     }
 }

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<AnalysisInput>
+  <Settings>
+    <Setting><Key>sonar.cs.analyzeGeneratedCode</Key><Value>true</Value></Setting>
+  </Settings>
+  <Rules>
+    <Rule><Key>S110</Key><Parameters><Parameter><Key>max</Key><Value>5</Value></Parameter></Parameters></Rule>
+    <Rule><Key>S1200</Key><Parameters><Parameter><Key>max</Key><Value>30</Value></Parameter></Parameters></Rule>
+    <Rule><Key>S1944</Key></Rule>
+    <Rule><Key>S3242</Key></Rule>
+    <Rule><Key>S3246</Key></Rule>
+    <Rule><Key>S4047</Key></Rule>
+    <Rule><Key>S6802</Key></Rule>
+  </Rules>
+</AnalysisInput>

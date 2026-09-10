@@ -1000,3 +1000,55 @@ fn deeply_nested_valid_program_does_not_overflow_the_process_stack() {
         "valid deeply nested source must still parse"
     );
 }
+
+#[test]
+fn s4322_quickfix_refuses_rest_and_inserts_missing_annotation_after_parameters() {
+    let rest_source = "\
+type Foo = { kind?: string };
+function isFoo(...values: Foo[]): boolean {
+  return (values[0] as Foo).kind !== undefined;
+}
+export { isFoo };
+";
+    let rest_report = ts(rest_source);
+    let rest_issue = rest_report
+        .issues
+        .iter()
+        .find(|issue| issue.rule_key == "typescript:S4322")
+        .expect("rest predicate should still report S4322");
+    assert!(
+        rest_issue
+            .alternatives
+            .iter()
+            .all(|alternative| alternative.id != "s4322-use-type-predicate"),
+        "rest predicates must not receive an invalid values[0] predicate"
+    );
+
+    let source = "\
+type Foo = { kind?: string };
+function isFoo(x: Foo) {
+  return (x as Foo).kind !== undefined;
+}
+export { isFoo };
+";
+    let report = ts(source);
+    let issue = report
+        .issues
+        .iter()
+        .find(|issue| issue.rule_key == "typescript:S4322")
+        .expect("missing return annotation should report S4322");
+    let alternative = issue
+        .alternatives
+        .iter()
+        .find(|alternative| alternative.id == "s4322-use-type-predicate")
+        .expect("missing return annotation should offer a type predicate");
+    let [edit] = alternative.fix.edits.as_slice() else {
+        panic!("S4322 type-predicate action should contain one edit");
+    };
+    assert_eq!(edit.range.start, edit.range.end);
+    assert_eq!(edit.replacement, ": x is Foo");
+    let signature = source.lines().nth(1).expect("function signature");
+    let expected_column = signature.find(") {").expect("closing parameter list") + 1;
+    assert_eq!(edit.range.start.line, 2);
+    assert_eq!(edit.range.start.column as usize, expected_column);
+}

@@ -34,7 +34,6 @@ fn check_function_structures(
             issues: Vec::new(),
         },
         source,
-        next_block_is_bare: false,
     };
     collector.visit_program(program);
     collector.sink.issues
@@ -44,14 +43,10 @@ fn check_function_structures(
 struct FunctionStructureCollector<'a, 'index> {
     sink: IssueSink<'index>,
     source: &'a str,
-    /// Set while visiting a block that sits directly in a statement list
-    /// (`S3626` bare-block case).
-    next_block_is_bare: bool,
 }
 
 impl<'a> FunctionStructureCollector<'a, '_> {
-    /// Enters a function-like node: checks its generator body (`S3531`) and
-    /// resets bare-block tracking for the subtree.
+    /// Enters a function-like node and checks its generator body (`S3531`).
     fn enter_function(&mut self, function: &Function<'_>, walk_children: impl FnOnce(&mut Self)) {
         if function.generator {
             let mut scanner = YieldScanner::default();
@@ -67,45 +62,93 @@ impl<'a> FunctionStructureCollector<'a, '_> {
                 );
             }
         }
-        let saved_bare = self.next_block_is_bare;
-        self.next_block_is_bare = false;
         walk_children(self);
-        self.next_block_is_bare = saved_bare;
     }
 
-    /// Flags the last statement of a statement list when it is an
-    /// unconditional jump (`S3626`).
-    fn flag_trailing_jump(&mut self, statements: &[Statement<'_>]) {
+    fn is_redundant_jump(statement: &Statement<'_>, continue_jump: bool) -> bool {
+        match statement {
+            Statement::ContinueStatement(continue_statement) if continue_jump => {
+                continue_statement.label.is_none()
+            }
+            Statement::ReturnStatement(return_statement) if !continue_jump => {
+                return_statement.argument.is_none()
+            }
+            _ => false,
+        }
+    }
+
+    fn flag_trailing_jump(&mut self, statements: &[Statement<'_>], continue_jump: bool) {
+        if statements.len() <= 1 {
+            return;
+        }
         let Some(last) = statements.last() else {
             return;
         };
-        if matches!(
-            last,
-            Statement::BreakStatement(_)
-                | Statement::ContinueStatement(_)
-                | Statement::ReturnStatement(_)
-                | Statement::ThrowStatement(_)
-        ) {
+        if Self::is_redundant_jump(last, continue_jump) {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S3626",
-                "Remove this redundant jump statement.",
+                "Remove this redundant jump.",
                 last.span(),
             );
         }
     }
 
-    /// Walks a loop body: trailing-jump check plus non-bare traversal of its
-    /// block statements.
+    fn flag_trailing_if_jump(&mut self, statements: &[Statement<'_>], continue_jump: bool) {
+        let Some(Statement::IfStatement(if_statement)) = statements.last() else {
+            return;
+        };
+        let branch_spans = [
+            &if_statement.consequent,
+            if_statement
+                .alternate
+                .as_ref()
+                .unwrap_or(&if_statement.consequent),
+        ]
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, branch)| {
+            if index == 1 && if_statement.alternate.is_none() {
+                return None;
+            }
+            let Statement::BlockStatement(block) = branch else {
+                return None;
+            };
+            (block.body.len() > 1)
+                .then(|| block.body.last())
+                .flatten()
+                .filter(|statement| Self::is_redundant_jump(statement, continue_jump))
+                .map(GetSpan::span)
+        })
+        .collect::<Vec<_>>();
+        for span in branch_spans {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3626",
+                "Remove this redundant jump.",
+                span,
+            );
+        }
+    }
+
+    fn flag_function_tail(&mut self, statements: &[Statement<'_>]) {
+        self.flag_trailing_jump(statements, false);
+        self.flag_trailing_if_jump(statements, false);
+    }
+
+    fn flag_loop_tail(&mut self, statements: &[Statement<'_>]) {
+        self.flag_trailing_jump(statements, true);
+        self.flag_trailing_if_jump(statements, true);
+    }
+
+    /// Walks a loop body and applies the loop-specific trailing-jump checks.
     fn visit_loop_body(&mut self, body: &Statement<'a>) {
         if let Statement::BlockStatement(block) = body {
-            self.flag_trailing_jump(&block.body);
+            self.flag_loop_tail(&block.body);
             for statement in &block.body {
-                self.next_block_is_bare = true;
                 self.visit_statement(statement);
             }
         } else {
-            self.next_block_is_bare = false;
             self.visit_statement(body);
         }
     }
@@ -161,18 +204,11 @@ impl<'a> Visit<'a> for FunctionStructureCollector<'a, '_> {
     }
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
-        // Arrows cannot be generators; only reset bare-block tracking.
-        let saved_bare = self.next_block_is_bare;
-        self.next_block_is_bare = false;
         walk_arrow_function_expression(self, it);
-        self.next_block_is_bare = saved_bare;
     }
 
     fn visit_static_block(&mut self, it: &StaticBlock<'a>) {
-        let saved_bare = self.next_block_is_bare;
-        self.next_block_is_bare = false;
         walk_static_block(self, it);
-        self.next_block_is_bare = saved_bare;
     }
 
     fn visit_declaration(&mut self, it: &Declaration<'a>) {
@@ -232,39 +268,31 @@ impl<'a> Visit<'a> for FunctionStructureCollector<'a, '_> {
     }
 
     fn visit_function_body(&mut self, it: &FunctionBody<'a>) {
+        self.flag_function_tail(&it.statements);
         for statement in &it.statements {
-            self.next_block_is_bare = true;
             self.visit_statement(statement);
         }
     }
     fn visit_program(&mut self, it: &oxc_ast::ast::Program<'a>) {
         for statement in &it.body {
-            self.next_block_is_bare = true;
             self.visit_statement(statement);
         }
     }
 
     fn visit_block_statement(&mut self, it: &BlockStatement<'a>) {
-        if self.next_block_is_bare {
-            self.flag_trailing_jump(&it.body);
-        }
         for statement in &it.body {
-            self.next_block_is_bare = true;
             self.visit_statement(statement);
         }
     }
 
     fn visit_labeled_statement(&mut self, it: &LabeledStatement<'a>) {
-        self.next_block_is_bare = false;
         walk_labeled_statement(self, it);
     }
 
     fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
         self.visit_expression(&it.test);
-        self.next_block_is_bare = false;
         self.visit_statement(&it.consequent);
         if let Some(alternate) = &it.alternate {
-            self.next_block_is_bare = false;
             self.visit_statement(alternate);
         }
     }
@@ -293,30 +321,22 @@ impl<'a> Visit<'a> for FunctionStructureCollector<'a, '_> {
     }
 
     fn visit_switch_case(&mut self, it: &SwitchCase<'a>) {
-        // Case bodies end conventionally with `break`; not an `S3626` case.
         for statement in &it.consequent {
-            self.next_block_is_bare = true;
             self.visit_statement(statement);
         }
     }
 
     fn visit_try_statement(&mut self, it: &TryStatement<'a>) {
-        self.flag_trailing_jump(&it.block.body);
         for statement in &it.block.body {
-            self.next_block_is_bare = true;
             self.visit_statement(statement);
         }
         if let Some(handler) = &it.handler {
-            self.flag_trailing_jump(&handler.body.body);
             for statement in &handler.body.body {
-                self.next_block_is_bare = true;
                 self.visit_statement(statement);
             }
         }
         if let Some(finalizer) = &it.finalizer {
-            self.flag_trailing_jump(&finalizer.body);
             for statement in &finalizer.body {
-                self.next_block_is_bare = true;
                 self.visit_statement(statement);
             }
         }
@@ -384,24 +404,21 @@ mod tests {
     }
 
     #[test]
-    fn trailing_jumps_flagged_only_in_redundant_positions() {
+    fn trailing_jumps_match_upstream_redundant_positions() {
         let loop_break = js_keys("while (a) {\n  break;\n}\n");
-        assert_eq!(count_key(&loop_break, "javascript:S3626"), 1);
+        assert_eq!(count_key(&loop_break, "javascript:S3626"), 0);
 
-        let bare_block = js("function f() {\n  {\n    return 1;\n  }\n}\n");
-        let s3626_lines: Vec<u32> = bare_block
-            .issues
-            .iter()
-            .filter(|issue| issue.rule_key.ends_with(":S3626"))
-            .map(|issue| issue.range.start.line)
-            .collect();
-        assert_eq!(s3626_lines, vec![3]);
+        let bare_block = js_keys("function f() {\n  {\n    return 1;\n  }\n}\n");
+        assert_eq!(count_key(&bare_block, "javascript:S3626"), 0);
 
         // Function bodies and case bodies end with jumps conventionally.
         let conventional = js_keys("switch (x) {\n  case 1:\n    break;\n}\n");
         assert_eq!(count_key(&conventional, "javascript:S3626"), 0);
         let fn_tail = js_keys("function f() {\n  return 1;\n}\n");
         assert_eq!(count_key(&fn_tail, "javascript:S3626"), 0);
+
+        let bare_return = js_keys("function f() {\n  work();\n  return;\n}\n");
+        assert_eq!(count_key(&bare_return, "javascript:S3626"), 1);
     }
 
     #[test]
@@ -425,11 +442,11 @@ mod tests {
     }
 
     #[test]
-    fn s3626_flags_trailing_jumps_in_try_and_loop_bodies() {
+    fn s3626_flags_only_unlabelled_continue_in_loop_bodies() {
         let try_tail = js_keys(
             "function f() {\n  try {\n    a();\n    return 1;\n  } finally {\n    b();\n  }\n}\n",
         );
-        assert_eq!(count_key(&try_tail, "javascript:S3626"), 1);
+        assert_eq!(count_key(&try_tail, "javascript:S3626"), 0);
 
         assert_eq!(
             count_key(
@@ -443,7 +460,7 @@ mod tests {
                 &js_keys("function f() {\n  for (;;) {\n    g();\n    return 1;\n  }\n}\n"),
                 "javascript:S3626"
             ),
-            1
+            0
         );
     }
 

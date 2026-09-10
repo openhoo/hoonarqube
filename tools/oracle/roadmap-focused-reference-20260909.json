@@ -1,0 +1,1090 @@
+{
+  "schema_version": 1,
+  "manifest_id": "roadmap-focused-csharp-reference-20260909",
+  "status": "reference_published_final_native_qualification_pending",
+  "scope": {
+    "roadmap_issues": [
+      "#39-#45",
+      "#53"
+    ],
+    "reference_matrix_capture_scope": [
+      "#39",
+      "#40",
+      "#41"
+    ],
+    "languages": [
+      "csharp",
+      "razor"
+    ],
+    "rules": [
+      "S110",
+      "S1200",
+      "S1944",
+      "S3242",
+      "S3246",
+      "S4047",
+      "S6802"
+    ],
+    "claim_boundary": "Pinned SonarAnalyzer.CSharp reference evidence for this synthetic corpus only; not whole-catalog parity and not native qualification."
+  },
+  "publication": {
+    "fixture_root": "tools/oracle/fixtures/roadmap-csharp",
+    "canonical_root": "reference-39-41",
+    "valid_mapped_root": "valid-mapped-41-20260909",
+    "captured_bundle_labels": {
+      "canonical": "csharp-reference-39-41",
+      "valid_mapped": "csharp-valid-map-41-20260909"
+    },
+    "path_mapping": {
+      "canonical": "captured relative path -> reference-39-41/<captured relative path>",
+      "valid_mapped": "captured relative path under src/MappedBlazor -> valid-mapped-41-20260909/<captured relative path>",
+      "absolute_paths": "intentionally omitted; replay uses the published checkout-relative paths"
+    },
+    "generated_outputs": "No bin/, obj/, .sonarqube/, package cache, runtime DLL, SARIF log, token, or credential file is published."
+  },
+  "repository_identity": {
+    "status": "not_recorded",
+    "repository": "not_recorded_in_captured_provenance",
+    "commit": "not_recorded_in_captured_provenance",
+    "note": "Do not substitute the current checkout HEAD; final native replay must record its own committed identity."
+  },
+  "analyzer": {
+    "package": "SonarAnalyzer.CSharp",
+    "version": "10.33.0.1635",
+    "assembly_sha256": "461b82be21a9e8f57c1312ff877f8276789eeec5e64678344e961a0a3edfd957",
+    "nupkg_sha256": "164449741635d2c4ca82dc7e096b95cc325fc695cae4c364d5355d5c57070527",
+    "dotnet_sdk": "10.0.111",
+    "msbuild": "18.0.11",
+    "target_framework": "net10.0",
+    "compiler_sarif_tool_version": "42.42.42.42",
+    "kind": "direct Roslyn analyzer via MSBuild/Csc errorlog SARIF",
+    "parameterization": {
+      "S110": {
+        "max": 5,
+        "filteredClasses": "Roadmap.Contracts.Depth3"
+      },
+      "S1200": {
+        "max": 3
+      },
+      "others": "default rule parameters"
+    },
+    "rule_activation": "SemanticFixtures/.editorconfig raises all seven target IDs to warning; SonarLint.xml activates the seven IDs and sets the S110/S1200 parameters shown above.",
+    "pin_note": "The captured 10.33.0.61365 string was a transcription error; the verified package is 10.33.0.1635."
+  },
+  "fixtures": {
+    "canonical_projects": {
+      "contracts": "reference-39-41/src/Contracts/Contracts.csproj",
+      "semantic": "reference-39-41/src/SemanticFixtures/SemanticFixtures.csproj",
+      "razor": "reference-39-41/src/BlazorFixture/BlazorFixture.csproj",
+      "mapped": "reference-39-41/src/MappedBlazor/MappedBlazor.csproj",
+      "server_razor_supporting_only": "reference-39-41/server-blazor/ServerBlazor.csproj",
+      "server_mapped_supporting_only": "reference-39-41/server-mapped/ServerMapped.csproj"
+    },
+    "canonical_source_files": [
+      {
+        "bytes": 363,
+        "path": "server-blazor/.editorconfig",
+        "sha256": "24571ae8abda9fadf3826db607724683477ef238771086e7b6c3d8c97c5b6675",
+        "published_path": "reference-39-41/server-blazor/.editorconfig"
+      },
+      {
+        "bytes": 787,
+        "path": "server-blazor/LoopComponent.razor",
+        "sha256": "4ea6a94d57234f24b947e3965caed45c8bea680b8ea20c232c01e3b0f6665ccf",
+        "published_path": "reference-39-41/server-blazor/LoopComponent.razor"
+      },
+      {
+        "bytes": 407,
+        "path": "server-blazor/ServerBlazor.csproj",
+        "sha256": "a141e2ff450d396dd36b1fbf48c5565f0cd02f8bf76c5c7614c8fe4dbd9f8bee",
+        "published_path": "reference-39-41/server-blazor/ServerBlazor.csproj"
+      },
+      {
+        "bytes": 79,
+        "path": "server-blazor/_Imports.razor",
+        "sha256": "01cd19aaddcc0572ff9085da3865d1e1cdd43a020310ba79cde8c7377d9b6eb7",
+        "published_path": "reference-39-41/server-blazor/_Imports.razor"
+      },
+      {
+        "bytes": 520,
+        "path": "server-mapped/GeneratedLoop.cs",
+        "sha256": "dfd84555ba5f6c97da83d234427c769dd6badf0aab337b9748dcd8537b93b434",
+        "published_path": "reference-39-41/server-mapped/GeneratedLoop.cs"
+      },
+      {
+        "bytes": 787,
+        "path": "server-mapped/LoopComponent.razor",
+        "sha256": "4ea6a94d57234f24b947e3965caed45c8bea680b8ea20c232c01e3b0f6665ccf",
+        "published_path": "reference-39-41/server-mapped/LoopComponent.razor"
+      },
+      {
+        "bytes": 353,
+        "path": "server-mapped/ServerMapped.csproj",
+        "sha256": "917037092cf3931f629f1204afc4e7fe5ee40895abafa36fb14ade4d3469ab63",
+        "published_path": "reference-39-41/server-mapped/ServerMapped.csproj"
+      },
+      {
+        "bytes": 363,
+        "path": "src/BlazorFixture/.editorconfig",
+        "sha256": "24571ae8abda9fadf3826db607724683477ef238771086e7b6c3d8c97c5b6675",
+        "published_path": "reference-39-41/src/BlazorFixture/.editorconfig"
+      },
+      {
+        "bytes": 712,
+        "path": "src/BlazorFixture/BlazorFixture.csproj",
+        "sha256": "3834b1fb67ccbb86c3d98419bfd9f577ff1e4a225dcbc057fb982b2f6bb77751",
+        "published_path": "reference-39-41/src/BlazorFixture/BlazorFixture.csproj"
+      },
+      {
+        "bytes": 787,
+        "path": "src/BlazorFixture/LoopComponent.razor",
+        "sha256": "4ea6a94d57234f24b947e3965caed45c8bea680b8ea20c232c01e3b0f6665ccf",
+        "published_path": "reference-39-41/src/BlazorFixture/LoopComponent.razor"
+      },
+      {
+        "bytes": 597,
+        "path": "src/BlazorFixture/SonarLint.xml",
+        "sha256": "d3a934822d9dfaf5bf0a9761db0bc23601aa7a5d074a9c84fbbab19b08c5c842",
+        "published_path": "reference-39-41/src/BlazorFixture/SonarLint.xml"
+      },
+      {
+        "bytes": 79,
+        "path": "src/BlazorFixture/_Imports.razor",
+        "sha256": "01cd19aaddcc0572ff9085da3865d1e1cdd43a020310ba79cde8c7377d9b6eb7",
+        "published_path": "reference-39-41/src/BlazorFixture/_Imports.razor"
+      },
+      {
+        "bytes": 2430,
+        "path": "src/Contracts/Contracts.cs",
+        "sha256": "b026d74dae1fca7809fcb83d9ed44bbc2793a27949aedf491bd51e1d397298e5",
+        "published_path": "reference-39-41/src/Contracts/Contracts.cs"
+      },
+      {
+        "bytes": 255,
+        "path": "src/Contracts/Contracts.csproj",
+        "sha256": "49c1c6a04ee10c1c3199bc252d7f9ef2543531192782589f1424759813df38d5",
+        "published_path": "reference-39-41/src/Contracts/Contracts.csproj"
+      },
+      {
+        "bytes": 106,
+        "path": "src/MappedBlazor/.editorconfig",
+        "sha256": "936fe72f8471445307d54edfa0b5a0cd8f60627b8590c4104b576aa94b42345b",
+        "published_path": "reference-39-41/src/MappedBlazor/.editorconfig"
+      },
+      {
+        "bytes": 520,
+        "path": "src/MappedBlazor/GeneratedLoop.cs",
+        "sha256": "dfd84555ba5f6c97da83d234427c769dd6badf0aab337b9748dcd8537b93b434",
+        "published_path": "reference-39-41/src/MappedBlazor/GeneratedLoop.cs"
+      },
+      {
+        "bytes": 787,
+        "path": "src/MappedBlazor/LoopComponent.razor",
+        "sha256": "4ea6a94d57234f24b947e3965caed45c8bea680b8ea20c232c01e3b0f6665ccf",
+        "published_path": "reference-39-41/src/MappedBlazor/LoopComponent.razor"
+      },
+      {
+        "bytes": 614,
+        "path": "src/MappedBlazor/MappedBlazor.csproj",
+        "sha256": "f689e32d51da21a3c8d4104b262eb66ee8b2ff23d973b509b0158acaefe08cbb",
+        "published_path": "reference-39-41/src/MappedBlazor/MappedBlazor.csproj"
+      },
+      {
+        "bytes": 119,
+        "path": "src/MappedBlazor/SonarLint.xml",
+        "sha256": "0ea28eda5bf2c391f1657b621e49c03b52ec8a5075523e04ba920cf2c33ecce6",
+        "published_path": "reference-39-41/src/MappedBlazor/SonarLint.xml"
+      },
+      {
+        "bytes": 363,
+        "path": "src/SemanticFixtures/.editorconfig",
+        "sha256": "24571ae8abda9fadf3826db607724683477ef238771086e7b6c3d8c97c5b6675",
+        "published_path": "reference-39-41/src/SemanticFixtures/.editorconfig"
+      },
+      {
+        "bytes": 1130,
+        "path": "src/SemanticFixtures/BlazorInvocationCases.cs",
+        "sha256": "4c20c8d0051e67ef30b26effeba86b4e6c339f48cfe1fe1b6ab30f3ec4198aba",
+        "published_path": "reference-39-41/src/SemanticFixtures/BlazorInvocationCases.cs"
+      },
+      {
+        "bytes": 3511,
+        "path": "src/SemanticFixtures/SemanticCases.cs",
+        "sha256": "79fc22568c0fa7c31802679ed82842fe32cb6a054fa3a59af69dbc9b93299533",
+        "published_path": "reference-39-41/src/SemanticFixtures/SemanticCases.cs"
+      },
+      {
+        "bytes": 775,
+        "path": "src/SemanticFixtures/SemanticFixtures.csproj",
+        "sha256": "403fa488f1e7fc37dd096921d99c3e452ce986361ebdc17aa40eedf1b3a71ad4",
+        "published_path": "reference-39-41/src/SemanticFixtures/SemanticFixtures.csproj"
+      },
+      {
+        "bytes": 653,
+        "path": "src/SemanticFixtures/SonarLint.xml",
+        "sha256": "12d9f899ea6fa55bb41bb69a8909eb3ea9e6bcccacccdd8c46c4c90ed4603237",
+        "published_path": "reference-39-41/src/SemanticFixtures/SonarLint.xml"
+      }
+    ],
+    "valid_mapped_source_files": [
+      {
+        "path": "src/MappedBlazor/.editorconfig",
+        "bytes": 106,
+        "sha256": "936fe72f8471445307d54edfa0b5a0cd8f60627b8590c4104b576aa94b42345b",
+        "published_path": "valid-mapped-41-20260909/src/MappedBlazor/.editorconfig"
+      },
+      {
+        "path": "src/MappedBlazor/GeneratedLoop.cs",
+        "bytes": 744,
+        "sha256": "196c609ca66837f0441806816bccea0d9c20477de123243d14a3964ea44dc03b",
+        "published_path": "valid-mapped-41-20260909/src/MappedBlazor/GeneratedLoop.cs"
+      },
+      {
+        "path": "src/MappedBlazor/LoopComponent.razor",
+        "bytes": 690,
+        "sha256": "e481893c8d612e59c6c4e8a15d3bf69159001eec4cd65264a81743276455ff31",
+        "published_path": "valid-mapped-41-20260909/src/MappedBlazor/LoopComponent.razor"
+      },
+      {
+        "path": "src/MappedBlazor/MappedBlazor.csproj",
+        "bytes": 614,
+        "sha256": "f689e32d51da21a3c8d4104b262eb66ee8b2ff23d973b509b0158acaefe08cbb",
+        "published_path": "valid-mapped-41-20260909/src/MappedBlazor/MappedBlazor.csproj"
+      },
+      {
+        "path": "src/MappedBlazor/SonarLint.xml",
+        "bytes": 119,
+        "sha256": "0ea28eda5bf2c391f1657b621e49c03b52ec8a5075523e04ba920cf2c33ecce6",
+        "published_path": "valid-mapped-41-20260909/src/MappedBlazor/SonarLint.xml"
+      }
+    ],
+    "valid_mapped_project": "valid-mapped-41-20260909/src/MappedBlazor/MappedBlazor.csproj"
+  },
+  "reference_results": {
+    "canonical_counts": {
+      "S110": 3,
+      "S1200": 4,
+      "S1944": 1,
+      "S3242": 2,
+      "S3246": 7,
+      "S4047": 3,
+      "S6802": 1
+    },
+    "canonical_total": 21,
+    "canonical_findings": [
+      {
+        "case": "LocalDepth6 (above default max)",
+        "external_key": "csharpsquid:S110",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "This class has 6 parents which is greater than 5 authorized.",
+        "range": {
+          "endColumn": 25,
+          "endLine": 14,
+          "startColumn": 14,
+          "startLine": 14
+        },
+        "related_locations": [],
+        "rule": "S110",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "DeepAbove (above default max)",
+        "external_key": "csharpsquid:S110",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "This class has 7 parents which is greater than 5 authorized.",
+        "range": {
+          "endColumn": 23,
+          "endLine": 16,
+          "startColumn": 14,
+          "startLine": 16
+        },
+        "related_locations": [],
+        "rule": "S110",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "DeepAt (above default max)",
+        "external_key": "csharpsquid:S110",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "This class has 6 parents which is greater than 5 authorized.",
+        "range": {
+          "endColumn": 20,
+          "endLine": 17,
+          "startColumn": 14,
+          "startLine": 17
+        },
+        "related_locations": [],
+        "rule": "S110",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "BlazorInvocationCases (framework dependency count)",
+        "external_key": "csharpsquid:S1200",
+        "file": "src/SemanticFixtures/BlazorInvocationCases.cs",
+        "message": "Split this class into smaller and more specialized ones to reduce its dependencies on other types from 5 to the maximum authorized 3 or less.",
+        "range": {
+          "endColumn": 42,
+          "endLine": 6,
+          "startColumn": 21,
+          "startLine": 6
+        },
+        "related_locations": [],
+        "rule": "S1200",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "CoupledAbove (5 distinct external dependency symbols)",
+        "external_key": "csharpsquid:S1200",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "Split this class into smaller and more specialized ones to reduce its dependencies on other types from 5 to the maximum authorized 3 or less.",
+        "range": {
+          "endColumn": 33,
+          "endLine": 20,
+          "startColumn": 21,
+          "startLine": 20
+        },
+        "related_locations": [],
+        "rule": "S1200",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "ImpossibleCastCases (cross-rule dependency count)",
+        "external_key": "csharpsquid:S1200",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "Split this class into smaller and more specialized ones to reduce its dependencies on other types from 6 to the maximum authorized 3 or less.",
+        "range": {
+          "endColumn": 40,
+          "endLine": 53,
+          "startColumn": 21,
+          "startLine": 53
+        },
+        "related_locations": [],
+        "rule": "S1200",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "BaseParameterCases (cross-assembly dependency count)",
+        "external_key": "csharpsquid:S1200",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "Split this class into smaller and more specialized ones to reduce its dependencies on other types from 4 to the maximum authorized 3 or less.",
+        "range": {
+          "endColumn": 39,
+          "endLine": 64,
+          "startColumn": 21,
+          "startLine": 64
+        },
+        "related_locations": [],
+        "rule": "S1200",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "ImpossibleCastCases.Bad (impossible interface cast)",
+        "external_key": "csharpsquid:S1944",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "Review this cast; in this project there's no type that extends 'OpenUnrelated' and implements 'IOther'.",
+        "range": {
+          "endColumn": 61,
+          "endLine": 55,
+          "startColumn": 55,
+          "startLine": 55
+        },
+        "related_locations": [],
+        "rule": "S1944",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "BaseParameterCases.Bad (external derived parameter, base member only)",
+        "external_key": "csharpsquid:S3242",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "Consider using more general type 'Roadmap.Contracts.BaseRecord' instead of 'Roadmap.Contracts.DerivedRecord'.",
+        "range": {
+          "endColumn": 46,
+          "endLine": 66,
+          "startColumn": 41,
+          "startLine": 66
+        },
+        "related_locations": [],
+        "rule": "S3242",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "BaseParameterCases.BadLocal (derived parameter, base member only)",
+        "external_key": "csharpsquid:S3242",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "Consider using more general type 'Roadmap.Semantic.BaseParameter' instead of 'Roadmap.Semantic.DerivedParameter'.",
+        "range": {
+          "endColumn": 54,
+          "endLine": 72,
+          "startColumn": 49,
+          "startLine": 72
+        },
+        "related_locations": [],
+        "rule": "S3242",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "OutputNeedsOut<T> (output position)",
+        "external_key": "csharpsquid:S3246",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "Add the 'out' keyword to parameter 'T' to make it 'covariant'.",
+        "range": {
+          "endColumn": 34,
+          "endLine": 87,
+          "startColumn": 33,
+          "startLine": 87
+        },
+        "related_locations": [],
+        "rule": "S3246",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "InputNeedsIn<T> (input position)",
+        "external_key": "csharpsquid:S3246",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "Add the 'in' keyword to parameter 'T' to make it 'contravariant'.",
+        "range": {
+          "endColumn": 32,
+          "endLine": 92,
+          "startColumn": 31,
+          "startLine": 92
+        },
+        "related_locations": [],
+        "rule": "S3246",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "NestedOutputNeedsOut<T> (nested output)",
+        "external_key": "csharpsquid:S3246",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "Add the 'out' keyword to parameter 'T' to make it 'covariant'.",
+        "range": {
+          "endColumn": 40,
+          "endLine": 97,
+          "startColumn": 39,
+          "startLine": 97
+        },
+        "related_locations": [],
+        "rule": "S3246",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "NestedInputInvariant<T> (nested input)",
+        "external_key": "csharpsquid:S3246",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "Add the 'in' keyword to parameter 'T' to make it 'contravariant'.",
+        "range": {
+          "endColumn": 40,
+          "endLine": 102,
+          "startColumn": 39,
+          "startLine": 102
+        },
+        "related_locations": [],
+        "rule": "S3246",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "ConstrainedOutput<T> (constraint plus output)",
+        "external_key": "csharpsquid:S3246",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "Add the 'out' keyword to parameter 'T' to make it 'covariant'.",
+        "range": {
+          "endColumn": 37,
+          "endLine": 112,
+          "startColumn": 36,
+          "startLine": 112
+        },
+        "related_locations": [],
+        "rule": "S3246",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "OutputDelegate<T> (delegate output)",
+        "external_key": "csharpsquid:S3246",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "Add the 'out' keyword to parameter 'T' to make it 'covariant'.",
+        "range": {
+          "endColumn": 35,
+          "endLine": 117,
+          "startColumn": 34,
+          "startLine": 117
+        },
+        "related_locations": [],
+        "rule": "S3246",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "InputDelegate<T> (delegate input)",
+        "external_key": "csharpsquid:S3246",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "Add the 'in' keyword to parameter 'T' to make it 'contravariant'.",
+        "range": {
+          "endColumn": 37,
+          "endLine": 118,
+          "startColumn": 36,
+          "startLine": 118
+        },
+        "related_locations": [],
+        "rule": "S3246",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "RefObject(ref object)",
+        "external_key": "csharpsquid:S4047",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "Make this method generic and replace the 'object' parameter with a type parameter.",
+        "range": {
+          "endColumn": 33,
+          "endLine": 122,
+          "startColumn": 24,
+          "startLine": 122
+        },
+        "related_locations": [
+          {
+            "file": "src/SemanticFixtures/SemanticCases.cs",
+            "message": null,
+            "range": {
+              "endColumn": 50,
+              "endLine": 122,
+              "startColumn": 45,
+              "startLine": 122
+            }
+          }
+        ],
+        "rule": "S4047",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "RefAlias(ref ObjectAlias)",
+        "external_key": "csharpsquid:S4047",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "Make this method generic and replace the 'object' parameter with a type parameter.",
+        "range": {
+          "endColumn": 32,
+          "endLine": 124,
+          "startColumn": 24,
+          "startLine": 124
+        },
+        "related_locations": [
+          {
+            "file": "src/SemanticFixtures/SemanticCases.cs",
+            "message": null,
+            "range": {
+              "endColumn": 54,
+              "endLine": 124,
+              "startColumn": 49,
+              "startLine": 124
+            }
+          }
+        ],
+        "rule": "S4047",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "RefTwo(ref object, ref object)",
+        "external_key": "csharpsquid:S4047",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "message": "Make this method generic and replace the 'object' parameter with a type parameter.",
+        "range": {
+          "endColumn": 30,
+          "endLine": 126,
+          "startColumn": 24,
+          "startLine": 126
+        },
+        "related_locations": [
+          {
+            "file": "src/SemanticFixtures/SemanticCases.cs",
+            "message": null,
+            "range": {
+              "endColumn": 47,
+              "endLine": 126,
+              "startColumn": 42,
+              "startLine": 126
+            }
+          },
+          {
+            "file": "src/SemanticFixtures/SemanticCases.cs",
+            "message": null,
+            "range": {
+              "endColumn": 66,
+              "endLine": 126,
+              "startColumn": 60,
+              "startLine": 126
+            }
+          }
+        ],
+        "rule": "S4047",
+        "source_sarif": "semantic.sarif"
+      },
+      {
+        "case": "BlazorInvocationCases.BuildRenderTree (real RenderTreeBuilder.AddAttribute)",
+        "external_key": "csharpsquid:S6802",
+        "file": "src/SemanticFixtures/BlazorInvocationCases.cs",
+        "message": "Avoid using lambda expressions in loops in Blazor markup.",
+        "range": {
+          "endColumn": 102,
+          "endLine": 12,
+          "startColumn": 83,
+          "startLine": 12
+        },
+        "related_locations": [],
+        "rule": "S6802",
+        "source_sarif": "semantic.sarif"
+      }
+    ],
+    "mapped_s6802_reference": [
+      {
+        "case": "Mapped Razor source location (generated-style #line mapping)",
+        "external_key": "csharpsquid:S6802",
+        "file": "src/MappedBlazor/LoopComponent.razor",
+        "message": "Avoid using lambda expressions in loops in Blazor markup.",
+        "range": {
+          "endColumn": 102,
+          "endLine": 12,
+          "startColumn": 83,
+          "startLine": 12
+        },
+        "related_locations": [],
+        "rule": "S6802",
+        "source_sarif": "mapped-blazor.sarif"
+      }
+    ],
+    "artifact_digests": {
+      "semantic.sarif": {
+        "result_count": 21,
+        "rule_counts": {
+          "S110": 3,
+          "S1200": 4,
+          "S1944": 1,
+          "S3242": 2,
+          "S3246": 7,
+          "S4047": 3,
+          "S6802": 1
+        },
+        "sha256": "b4fc147155baf1c74466b5ca662ab7558aad9c6271e5fe46a3b4b3f96a0ed5bb",
+        "published": false
+      },
+      "mapped-blazor.sarif": {
+        "result_count": 1,
+        "rule_counts": {
+          "S6802": 1
+        },
+        "sha256": "a71ed80117ac3623ff4f2c585cda4211943b6060c6f48be4c17971010ef9ccd5",
+        "published": false
+      }
+    },
+    "path_normalization": "The published multiset preserves case, external_key, repository-relative file, message, range, related_locations, rule, and source_sarif. Captured sarif_uri values are intentionally omitted (the canonical values include private file:// paths) to keep the manifest portable.",
+    "path_scope": {
+      "canonical_findings": "file values are relative to reference-39-41",
+      "mapped_s6802_reference": "file values are relative to the valid-mapped-41-20260909 source variant"
+    }
+  },
+  "negative_controls": {
+    "canonical_checks": [
+      {
+        "case": "LocalDepth4 (below max=5)",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "line": 12,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S110"
+      },
+      {
+        "case": "LocalDepth5 (exact max=5)",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "line": 13,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S110"
+      },
+      {
+        "case": "FilteredExternalDepth (filtered at Roadmap.Contracts.Depth3)",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "line": 18,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S110"
+      },
+      {
+        "case": "CoupledAt (exactly 3 distinct dependency symbols)",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "line": 34,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S1200"
+      },
+      {
+        "case": "CoupledRepeated (repeated symbols)",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "line": 41,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S1200"
+      },
+      {
+        "case": "ImpossibleCastCases.Possible (implementer descendant exists)",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "line": 56,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S1944"
+      },
+      {
+        "case": "ImpossibleCastCases.Known (source already implements interface)",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "line": 58,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S1944"
+      },
+      {
+        "case": "ImpossibleCastCases.SealedControl (sealed source excluded upstream)",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "line": 60,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S1944"
+      },
+      {
+        "case": "BaseParameterCases.Good (base parameter)",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "line": 67,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S3242"
+      },
+      {
+        "case": "BaseParameterCases.NeedsDerived (derived member used)",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "line": 69,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S3242"
+      },
+      {
+        "case": "BaseParameterCases.GoodLocal (base parameter)",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "line": 73,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S3242"
+      },
+      {
+        "case": "InvariantControl<T> (input and output require invariance)",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "line": 107,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S3246"
+      },
+      {
+        "case": "OutObject(out object)",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "line": 130,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S4047"
+      },
+      {
+        "case": "InObject(in object)",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "line": 132,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S4047"
+      },
+      {
+        "case": "ByValueObject(object)",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "line": 134,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S4047"
+      },
+      {
+        "case": "RefString(ref string)",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "line": 137,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S4047"
+      },
+      {
+        "case": "RefGeneric<T>(ref T)",
+        "file": "src/SemanticFixtures/SemanticCases.cs",
+        "line": 139,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S4047"
+      },
+      {
+        "case": "NonBlazorLikeLoop (no RenderTreeBuilder)",
+        "file": "src/SemanticFixtures/BlazorInvocationCases.cs",
+        "line": 22,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S6802"
+      },
+      {
+        "case": "UserNamedBuilderLoop (user-defined AddAttribute)",
+        "file": "src/SemanticFixtures/BlazorInvocationCases.cs",
+        "line": 32,
+        "observed_target_finding_count": 0,
+        "pass": true,
+        "rule": "S6802"
+      }
+    ],
+    "original_invalid_mapping": {
+      "fixture": "reference-39-41/src/MappedBlazor",
+      "generated_source": "reference-39-41/src/MappedBlazor/GeneratedLoop.cs",
+      "razor_source": "reference-39-41/src/MappedBlazor/LoopComponent.razor",
+      "expected_diagnostic_code": "fact_span_invalid",
+      "status": "preserved_negative_control",
+      "note": "This is the captured invalid mapping. It is not converted into a native success or reference finding."
+    },
+    "valid_mapped_variant": {
+      "fixture": "valid-mapped-41-20260909/src/MappedBlazor",
+      "source_span_text": "() => Handle(index)",
+      "source_mapping": {
+        "directive": "#line 1 \"LoopComponent.razor\"",
+        "generated_line": 13,
+        "source_line": 12,
+        "start_column": 83,
+        "end_column": 102,
+        "mapped_text": "() => Handle(index)",
+        "source_line_text_matches_generated": true
+      },
+      "reference_finding": {
+        "case": "Mapped Razor source location (generated-style #line mapping)",
+        "external_key": "csharpsquid:S6802",
+        "file": "src/MappedBlazor/LoopComponent.razor",
+        "message": "Avoid using lambda expressions in loops in Blazor markup.",
+        "range": {
+          "endColumn": 102,
+          "endLine": 12,
+          "startColumn": 83,
+          "startLine": 12
+        },
+        "related_locations": [],
+        "rule": "S6802",
+        "source_sarif": "mapped-blazor.sarif"
+      },
+      "status": "reference_input_published_native_qualification_pending"
+    }
+  },
+  "reference_build": {
+    "environment_placeholders": {
+      "FIXTURE_ROOT": "tools/oracle/fixtures/roadmap-csharp/reference-39-41",
+      "VALID_FIXTURE_ROOT": "tools/oracle/fixtures/roadmap-csharp/valid-mapped-41-20260909",
+      "NUGET_PACKAGES_DIR": "<owned temporary NuGet package directory>",
+      "ARTIFACT_ROOT": "<owned temporary output directory>"
+    },
+    "canonical_commands": [
+      "NUGET_PACKAGES=\"$NUGET_PACKAGES_DIR\" dotnet restore \"$FIXTURE_ROOT/src/SemanticFixtures/SemanticFixtures.csproj\" --disable-parallel --force --verbosity:minimal",
+      "NUGET_PACKAGES=\"$NUGET_PACKAGES_DIR\" dotnet restore \"$FIXTURE_ROOT/src/BlazorFixture/BlazorFixture.csproj\" --disable-parallel --force --verbosity:minimal",
+      "NUGET_PACKAGES=\"$NUGET_PACKAGES_DIR\" dotnet restore \"$FIXTURE_ROOT/src/MappedBlazor/MappedBlazor.csproj\" --disable-parallel --force --verbosity:minimal",
+      "NUGET_PACKAGES=\"$NUGET_PACKAGES_DIR\" dotnet build \"$FIXTURE_ROOT/src/Contracts/Contracts.csproj\" --no-incremental --disable-build-servers --verbosity:minimal",
+      "NUGET_PACKAGES=\"$NUGET_PACKAGES_DIR\" dotnet build \"$FIXTURE_ROOT/src/SemanticFixtures/SemanticFixtures.csproj\" --no-restore --no-incremental --disable-build-servers -p:BuildProjectReferences=false -p:ErrorLog=\"$ARTIFACT_ROOT/semantic.sarif\" --verbosity:minimal",
+      "NUGET_PACKAGES=\"$NUGET_PACKAGES_DIR\" dotnet build \"$FIXTURE_ROOT/src/BlazorFixture/BlazorFixture.csproj\" --no-incremental --disable-build-servers -p:ErrorLog=\"$ARTIFACT_ROOT/blazor.sarif\" --verbosity:minimal",
+      "NUGET_PACKAGES=\"$NUGET_PACKAGES_DIR\" dotnet build \"$FIXTURE_ROOT/src/MappedBlazor/MappedBlazor.csproj\" --no-incremental --disable-build-servers -p:ErrorLog=\"$ARTIFACT_ROOT/mapped-blazor.sarif\" --verbosity:minimal"
+    ],
+    "valid_mapped_commands": [
+      "NUGET_PACKAGES=\"$NUGET_PACKAGES_DIR\" dotnet restore \"$VALID_FIXTURE_ROOT/src/MappedBlazor/MappedBlazor.csproj\" --disable-parallel --force --verbosity:minimal",
+      "NUGET_PACKAGES=\"$NUGET_PACKAGES_DIR\" dotnet build \"$VALID_FIXTURE_ROOT/src/MappedBlazor/MappedBlazor.csproj\" --no-restore --no-incremental --disable-build-servers -p:ErrorLog=\"$ARTIFACT_ROOT/valid-mapped-blazor.sarif\" --verbosity:minimal"
+    ],
+    "portable_override": "BlazorFixture.csproj retains its captured ErrorLog bytes; the command-line -p:ErrorLog override prevents any captured absolute path from being required.",
+    "server_scan": "Supporting SonarQube server commands are intentionally not replay commands: they require a private endpoint/token and are not canonical 10.33 reference evidence.",
+    "setup": "Set FIXTURE_ROOT, VALID_FIXTURE_ROOT, NUGET_PACKAGES_DIR, and ARTIFACT_ROOT to the repository-relative/owned temporary locations shown before running the command arrays."
+  },
+  "native_probe": {
+    "status": "pending_final_native_qualification",
+    "claim_boundary": "No native result is included or treated as reference evidence. Main must rerun the native path from a committed checkout and record that identity.",
+    "transport": "Use the existing CSharp semantic loader and bundled helper; send one schema-2 HelperRequest on helper stdin. No new production harness is introduced.",
+    "helper": {
+      "protocol_schema_version": 2,
+      "helper_version": "hoonarqube-csharp-roslyn-v1",
+      "input_fields": [
+        "schema_version",
+        "project",
+        "target_framework",
+        "defines",
+        "language_version",
+        "nullable",
+        "trusted_evaluation",
+        "trusted_build",
+        "include_razor_generated",
+        "rules",
+        "project_manifest_digest",
+        "sources"
+      ],
+      "source_contract": "Each source entry supplies exact UTF-8 text read from the published path, its SHA-256 content_digest, and its owning project path.",
+      "manifest_digest_contract": "project_manifest_digest frames canonical source/project paths and content digests; recompute it at the checkout path instead of reusing a path-dependent captured value.",
+      "rule_options": {
+        "s110_max": 5,
+        "s110_filtered_classes": [
+          "Roadmap.Contracts.Depth3"
+        ],
+        "s1200_max": 3,
+        "s1200_enabled": true
+      }
+    },
+    "captured_requests": [
+      {
+        "name": "semantic-canonical",
+        "project": "reference-39-41/src/SemanticFixtures/SemanticFixtures.csproj",
+        "schema_version": 2,
+        "target_framework": null,
+        "defines": [],
+        "language_version": null,
+        "nullable": "enable",
+        "trusted_evaluation": true,
+        "trusted_build": true,
+        "include_razor_generated": false,
+        "rules": {
+          "s110_max": 5,
+          "s110_filtered_classes": [
+            "Roadmap.Contracts.Depth3"
+          ],
+          "s1200_max": 3,
+          "s1200_enabled": true
+        },
+        "sources": [
+          {
+            "path": "reference-39-41/src/Contracts/Contracts.cs",
+            "project": "reference-39-41/src/SemanticFixtures/SemanticFixtures.csproj",
+            "content_digest": "b026d74dae1fca7809fcb83d9ed44bbc2793a27949aedf491bd51e1d397298e5"
+          },
+          {
+            "path": "reference-39-41/src/SemanticFixtures/BlazorInvocationCases.cs",
+            "project": "reference-39-41/src/SemanticFixtures/SemanticFixtures.csproj",
+            "content_digest": "4c20c8d0051e67ef30b26effeba86b4e6c339f48cfe1fe1b6ab30f3ec4198aba"
+          },
+          {
+            "path": "reference-39-41/src/SemanticFixtures/SemanticCases.cs",
+            "project": "reference-39-41/src/SemanticFixtures/SemanticFixtures.csproj",
+            "content_digest": "79fc22568c0fa7c31802679ed82842fe32cb6a054fa3a59af69dbc9b93299533"
+          }
+        ],
+        "captured_project_manifest_digest": "d0edf42752ba8fe1099b0b70b2db3e1441f13e89666f9a27b6ef2f2e997e696a",
+        "replay_project_manifest_digest": "recompute_from_published_paths"
+      },
+      {
+        "name": "razor-canonical",
+        "project": "reference-39-41/src/BlazorFixture/BlazorFixture.csproj",
+        "schema_version": 2,
+        "target_framework": null,
+        "defines": [],
+        "language_version": null,
+        "nullable": "enable",
+        "trusted_evaluation": true,
+        "trusted_build": true,
+        "include_razor_generated": true,
+        "rules": {
+          "s110_max": 5,
+          "s110_filtered_classes": [
+            "Roadmap.Contracts.Depth3"
+          ],
+          "s1200_max": 3,
+          "s1200_enabled": true
+        },
+        "sources": [
+          {
+            "path": "reference-39-41/src/BlazorFixture/LoopComponent.razor",
+            "project": "reference-39-41/src/BlazorFixture/BlazorFixture.csproj",
+            "content_digest": "4ea6a94d57234f24b947e3965caed45c8bea680b8ea20c232c01e3b0f6665ccf"
+          },
+          {
+            "path": "reference-39-41/src/BlazorFixture/_Imports.razor",
+            "project": "reference-39-41/src/BlazorFixture/BlazorFixture.csproj",
+            "content_digest": "01cd19aaddcc0572ff9085da3865d1e1cdd43a020310ba79cde8c7377d9b6eb7"
+          }
+        ],
+        "captured_project_manifest_digest": "57ba7c7e468ad44b4871f1444d5e30acb0a89bfc68423e6d09c8181adf48bcd5",
+        "replay_project_manifest_digest": "recompute_from_published_paths"
+      },
+      {
+        "name": "mapped-invalid-negative-control",
+        "project": "reference-39-41/src/MappedBlazor/MappedBlazor.csproj",
+        "schema_version": 2,
+        "target_framework": null,
+        "defines": [],
+        "language_version": null,
+        "nullable": "enable",
+        "trusted_evaluation": true,
+        "trusted_build": true,
+        "include_razor_generated": true,
+        "rules": {
+          "s110_max": 5,
+          "s110_filtered_classes": [
+            "Roadmap.Contracts.Depth3"
+          ],
+          "s1200_max": 3,
+          "s1200_enabled": true
+        },
+        "sources": [
+          {
+            "path": "reference-39-41/src/MappedBlazor/GeneratedLoop.cs",
+            "project": "reference-39-41/src/MappedBlazor/MappedBlazor.csproj",
+            "content_digest": "dfd84555ba5f6c97da83d234427c769dd6badf0aab337b9748dcd8537b93b434"
+          },
+          {
+            "path": "reference-39-41/src/MappedBlazor/LoopComponent.razor",
+            "project": "reference-39-41/src/MappedBlazor/MappedBlazor.csproj",
+            "content_digest": "4ea6a94d57234f24b947e3965caed45c8bea680b8ea20c232c01e3b0f6665ccf"
+          }
+        ],
+        "captured_project_manifest_digest": "c7af8c01b11c5a1cee7e36b52bc4577ee504277b619cd8c6a776acc1557bbe5f",
+        "replay_project_manifest_digest": "recompute_from_published_paths"
+      },
+      {
+        "name": "mapped-valid-source",
+        "project": "valid-mapped-41-20260909/src/MappedBlazor/MappedBlazor.csproj",
+        "schema_version": 2,
+        "target_framework": null,
+        "defines": [],
+        "language_version": null,
+        "nullable": "enable",
+        "trusted_evaluation": true,
+        "trusted_build": true,
+        "include_razor_generated": true,
+        "rules": {
+          "s110_max": 5,
+          "s110_filtered_classes": [
+            "Roadmap.Contracts.Depth3"
+          ],
+          "s1200_max": 3,
+          "s1200_enabled": true
+        },
+        "sources": [
+          {
+            "path": "valid-mapped-41-20260909/src/MappedBlazor/GeneratedLoop.cs",
+            "project": "valid-mapped-41-20260909/src/MappedBlazor/MappedBlazor.csproj",
+            "content_digest": "196c609ca66837f0441806816bccea0d9c20477de123243d14a3964ea44dc03b"
+          },
+          {
+            "path": "valid-mapped-41-20260909/src/MappedBlazor/LoopComponent.razor",
+            "project": "valid-mapped-41-20260909/src/MappedBlazor/MappedBlazor.csproj",
+            "content_digest": "e481893c8d612e59c6c4e8a15d3bf69159001eec4cd65264a81743276455ff31"
+          }
+        ],
+        "captured_project_manifest_digest": "not_recorded",
+        "replay_project_manifest_digest": "recompute_from_published_paths"
+      }
+    ],
+    "repository_smoke_commands": [
+      "cargo run --release -p hoonarqube-cli -- --json analyze --format json --profile sonar-parity --csharp-project \"$FIXTURE_ROOT/src/SemanticFixtures/SemanticFixtures.csproj\" --allow-project-build \"$FIXTURE_ROOT/src/Contracts/Contracts.cs\" \"$FIXTURE_ROOT/src/SemanticFixtures/BlazorInvocationCases.cs\" \"$FIXTURE_ROOT/src/SemanticFixtures/SemanticCases.cs\"",
+      "cargo run --release -p hoonarqube-cli -- --json analyze --format json --profile sonar-parity --csharp-project \"$FIXTURE_ROOT/src/BlazorFixture/BlazorFixture.csproj\" --allow-project-build \"$FIXTURE_ROOT/src/BlazorFixture/LoopComponent.razor\" \"$FIXTURE_ROOT/src/BlazorFixture/_Imports.razor\"",
+      "cargo run --release -p hoonarqube-cli -- --json analyze --format json --profile sonar-parity --csharp-project \"$VALID_FIXTURE_ROOT/src/MappedBlazor/MappedBlazor.csproj\" --allow-project-build \"$VALID_FIXTURE_ROOT/src/MappedBlazor/GeneratedLoop.cs\" \"$VALID_FIXTURE_ROOT/src/MappedBlazor/LoopComponent.razor\""
+    ],
+    "smoke_command_note": "These existing CLI commands are repository smoke inputs only; they are not the exact 21-finding reference probe because CLI ProjectSemanticConfig defaults do not apply the captured explicit S110/S1200 helper options.",
+    "legacy_capture_note": "The captured semantic-input.json was a wrapper record, not a schema-2 HelperRequest. The semantic schema-2 request above is reconstructed from the published source snapshots and captured response digest; helper validation must recompute its path-dependent manifest digest at replay."
+  },
+  "historical_capture": {
+    "capture_date": "2026-09-09",
+    "reference_artifact_labels": [
+      "provenance.json",
+      "reference-matrix.json",
+      "exact-multiset.json"
+    ],
+    "native_artifacts": "Temporary native outputs were not copied; their final qualification remains pending."
+  }
+}

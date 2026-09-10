@@ -2,6 +2,7 @@
 use super::collectors::{SecurityHotspotCollector, TsTypeCollector};
 use super::collectors_hotspots::{MiscCollector, check_default_export_name, check_self_imports};
 use super::s2187_test_framework_rules::check_test_framework_rules;
+use super::s4036_s4721_shell_exec::ProcessBindingResolver;
 use super::s6759_s6759_ts_interface_declaration::check_s6759;
 use super::s7059_s7059_await_expression::S7059State;
 use crate::JstsLanguage;
@@ -9,6 +10,7 @@ use crate::context::AnalysisContext;
 use crate::support::{IssueSink, LineIndex};
 use hoonarqube_ir::Issue;
 use oxc_ast_visit::Visit;
+use oxc_semantic::Semantic;
 use std::path::Path;
 
 // --- Batch5: TypeScript-only AST rules, security hotspots, test-framework
@@ -21,11 +23,12 @@ fn check_batch5_rules<'a>(
     source: &'a str,
     index: &'a LineIndex,
     language: JstsLanguage,
+    semantic: Option<&Semantic<'_>>,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_ts_type_rules(program, source, index, language));
     issues.extend(check_security_hotspot_rules(
-        program, source, index, language,
+        program, source, index, language, semantic,
     ));
     if is_test_file(path) {
         issues.extend(check_test_framework_rules(program, source, index, language));
@@ -64,6 +67,7 @@ fn check_security_hotspot_rules(
     source: &str,
     index: &LineIndex,
     language: JstsLanguage,
+    semantic: Option<&Semantic<'_>>,
 ) -> Vec<Issue> {
     let mut collector = SecurityHotspotCollector {
         source,
@@ -72,6 +76,7 @@ fn check_security_hotspot_rules(
             language,
             issues: Vec::new(),
         },
+        process_bindings: ProcessBindingResolver::new(semantic),
     };
     collector.visit_program(program);
     collector.sink.issues
@@ -118,7 +123,14 @@ fn check_misc_rules(
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_batch5_rules(ctx.path, ctx.program, ctx.source, ctx.index, ctx.language)
+    check_batch5_rules(
+        ctx.path,
+        ctx.program,
+        ctx.source,
+        ctx.index,
+        ctx.language,
+        ctx.semantic,
+    )
 }
 
 #[cfg(test)]

@@ -22,7 +22,7 @@ use crate::duplication::{
 };
 
 use crate::source_facts::{SourceFacts, collect_source_facts};
-use crate::{AnalyzerOptions, analyze};
+use crate::{AnalyzerOptions, analyze, is_razor_path};
 
 /// One input file and the facts gathered from its single source snapshot.
 ///
@@ -68,10 +68,16 @@ pub fn analyze_project_file(
         };
     }
 
-    let mut report = analyze(path, source, options);
+    let mut report = if is_razor_path(path) {
+        // Razor markup is a mixed-language source document.  It has no safe
+        // syntax-only fallback; a trusted compiler context must supply the
+        // generated-source report and source classification.
+        None
+    } else {
+        analyze(path, source, options)
+    };
     let facts = collect_source_facts(path, source);
     let mut error = None;
-
     if let Some(facts) = facts.as_ref() {
         if let Some(facts_error) = facts.error.as_ref() {
             error = Some(facts_error.clone());
@@ -177,6 +183,7 @@ pub fn build_project_report(
             warnings,
             roots,
         },
+        assessment: None,
     })
 }
 
@@ -354,7 +361,9 @@ impl ProjectAggregation {
         match (metrics, facts) {
             (Some(metrics_for_project), Some(facts)) => {
                 add_project_metrics(&mut self.project_metrics, metrics_for_project);
-                if duplication_excluded {
+                if duplication_excluded || is_razor_path(path) {
+                    // Razor compiler facts carry truthful source metrics but
+                    // no native token stream; never feed them to CPD.
                     *reason = Some("excluded from duplication".to_string());
                 } else {
                     let measurement_index = self.measurements.len();

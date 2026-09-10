@@ -28,6 +28,7 @@ fn check_file_header(source: &str, language: JstsLanguage, rules: &RuleOptions) 
         },
         fix: None,
         flows: Vec::new(),
+        alternatives: Vec::new(),
     }]
 }
 

@@ -10,7 +10,6 @@ use ruff_python_ast::Stmt;
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
-
 pub(crate) fn check_base_estimator_underscore_attributes(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
@@ -32,13 +31,24 @@ pub(crate) fn check_base_estimator_underscore_attributes(
             };
             for target in targets {
                 if is_self_attribute(target, |attr| attr.ends_with('_')) {
-                    issues.push(issue_at(
+                    let issue = issue_at(
                         "python:S6974",
                         "Trailing-underscore attribute names are reserved for fitted state.",
                         target.range(),
                         index,
                         source,
-                    ));
+                    );
+                    let alternatives = crate::quickfix::bindings::alternatives_s6974(
+                        parsed, index, source, &issue,
+                    );
+                    let issue = alternatives.into_iter().fold(issue, |issue, alternative| {
+                        issue.with_alternative(
+                            alternative.id,
+                            alternative.fix.message,
+                            alternative.fix.edits,
+                        )
+                    });
+                    issues.push(issue);
                 }
             }
         });

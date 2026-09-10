@@ -28,6 +28,7 @@ pub(crate) fn check_noqa_comments(
             range: to_range(comment.range(), index, source),
             fix: None,
             flows: Vec::new(),
+            alternatives: Vec::new(),
         });
         if !noqa_format_valid(text) {
             issues.push(Issue {
@@ -37,6 +38,7 @@ pub(crate) fn check_noqa_comments(
                 range: to_range(comment.range(), index, source),
                 fix: None,
                 flows: Vec::new(),
+                alternatives: Vec::new(),
             });
         }
     }

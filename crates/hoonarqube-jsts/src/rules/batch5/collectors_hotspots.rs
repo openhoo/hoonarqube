@@ -122,6 +122,7 @@ pub(crate) fn check_default_export_name(
             range: hoonarqube_ir::Range::file_level(),
             fix: None,
             flows: Vec::new(),
+            alternatives: Vec::new(),
         });
     }
     issues

@@ -15,7 +15,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 issue(
                     language,
                     "S1313",
-                    format!("Make sure using this hardcoded IP address '{address}' is safe here."),
+                    format!("Do not hardcode IP address '{address}'."),
                     range_of(literal, source),
                 )
             })

@@ -19,6 +19,7 @@ mod label_usage;
 mod loops;
 mod naming;
 pub(crate) mod one_stmt;
+pub(crate) mod quickfix;
 mod react_jsx;
 mod regex_family;
 mod s103_line_length;
@@ -30,8 +31,10 @@ mod s113_newline_at_eof;
 mod s125_commented_out_code;
 mod s1291_nosonar;
 mod s139_disallowed_comment_pattern;
+mod s1438_semicolon;
 mod s1451_file_header;
 mod self_assignments;
+pub(crate) mod semantic_context;
 pub(crate) mod shared;
 mod statement;
 mod statement_sequences;
@@ -85,6 +88,7 @@ pub(crate) fn run_all(ctx: &AnalysisContext) -> Vec<Issue> {
     issues.extend(s1134_s1135_task_tags::check(ctx));
     issues.extend(s1291_nosonar::check(ctx));
     issues.extend(s139_disallowed_comment_pattern::check(ctx));
+    issues.extend(s1438_semicolon::check(ctx));
     issues.extend(s125_commented_out_code::check(ctx));
     issues
 }

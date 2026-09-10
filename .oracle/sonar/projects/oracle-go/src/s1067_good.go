@@ -1,4 +1,8 @@
 // Hoonarqube oracle fixture: go:S1067 good
 package oracle
 
-if ( (myFirstCondition() || mySecondCondition()) && myLastCondition()) { ... }
+func checkConditions() {
+	if (myFirstCondition() || mySecondCondition()) && myLastCondition() {
+		println("conditions met")
+	}
+}

@@ -5,7 +5,11 @@ use crate::support::{IssueSink, RuleScope};
 /// S1172 — function parameters that are never read.
 pub(crate) fn check_tb_unused_parameters(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
     for binding in &model.bindings {
-        if binding.kind == TbKind::Param && binding.reads.is_empty() {
+        if binding.kind == TbKind::Param
+            && binding.s1172_eligible
+            && binding.reads.is_empty()
+            && !binding.name.starts_with('_')
+        {
             let name = binding.name;
             sink.emit_span(
                 RuleScope::Both,

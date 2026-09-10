@@ -2,6 +2,6 @@
 package oracle
 
 func doSomething(myParam int) {
-  var local int;
-  ...
+	local := myParam
+	println(local)
 }

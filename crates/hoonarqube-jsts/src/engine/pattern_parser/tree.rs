@@ -41,6 +41,20 @@ pub(crate) enum ClassItem {
         ch: char,
         pos: usize,
     },
+    /// An exact UTF-16 code unit from a fixed-width Unicode escape.  Lone
+    /// surrogates are valid JavaScript regex atoms but cannot be represented
+    /// as Rust `char`s, so downstream analyses must keep them opaque.
+    CodeUnit {
+        unit: u16,
+        pos: usize,
+    },
+    /// A character-class range whose endpoints are exact UTF-16 code units.
+    /// This is needed for surrogate ranges, which cannot inhabit `char`.
+    CodeUnitRange {
+        low: u16,
+        high: u16,
+        start: usize,
+    },
     Range {
         low: char,
         high: char,
@@ -63,6 +77,11 @@ pub(crate) enum ClassItem {
 pub(crate) enum PatternNode {
     Literal {
         ch: char,
+        pos: usize,
+    },
+    /// An exact UTF-16 code unit from a fixed-width Unicode escape.
+    CodeUnit {
+        unit: u16,
         pos: usize,
     },
     Dot,
@@ -171,7 +190,10 @@ pub(crate) fn pattern_complexity(alternatives: &[Vec<PatternNode>]) -> u32 {
 
 pub(crate) fn node_complexity(node: &PatternNode) -> u32 {
     match node {
-        PatternNode::Literal { .. } | PatternNode::Dot | PatternNode::Anchor { .. } => 1,
+        PatternNode::Literal { .. }
+        | PatternNode::CodeUnit { .. }
+        | PatternNode::Dot
+        | PatternNode::Anchor { .. } => 1,
         PatternNode::BackReference { .. } | PatternNode::ClassEscape { .. } => 2,
         PatternNode::PropertyEscape { .. } => 3,
         PatternNode::Class { items, .. } => 2u32.saturating_add(to_u32(items.len())),

@@ -63,7 +63,7 @@ pub(crate) fn child_bodies(stmt: &Stmt) -> Vec<&[Stmt]> {
 }
 
 /// Depth-first visit of every statement in the tree.
-pub(crate) fn for_each_stmt(stmts: &[Stmt], visit: &mut impl FnMut(&Stmt)) {
+pub(crate) fn for_each_stmt<'a>(stmts: &'a [Stmt], visit: &mut impl FnMut(&'a Stmt)) {
     let mut pending: Vec<&Stmt> = stmts.iter().rev().collect();
     while let Some(stmt) = pending.pop() {
         visit(stmt);
@@ -168,7 +168,7 @@ fn push_generator_exprs<'a>(
     }
 }
 
-pub(crate) fn for_each_expr(expr: &Expr, visit: &mut impl FnMut(&Expr)) {
+pub(crate) fn for_each_expr<'a>(expr: &'a Expr, visit: &mut impl FnMut(&'a Expr)) {
     let mut pending = vec![expr];
     while let Some(expr) = pending.pop() {
         visit(expr);
@@ -177,7 +177,7 @@ pub(crate) fn for_each_expr(expr: &Expr, visit: &mut impl FnMut(&Expr)) {
 }
 
 /// Visits every expression reachable from a statement tree.
-pub(crate) fn for_each_stmt_expr(stmts: &[Stmt], visit: &mut impl FnMut(&Expr)) {
+pub(crate) fn for_each_stmt_expr<'a>(stmts: &'a [Stmt], visit: &mut impl FnMut(&'a Expr)) {
     for_each_stmt(stmts, &mut |stmt| {
         for expr in stmt_exprs(stmt) {
             for_each_expr(expr, visit);
@@ -187,7 +187,7 @@ pub(crate) fn for_each_stmt_expr(stmts: &[Stmt], visit: &mut impl FnMut(&Expr)) 
 
 /// Like [`for_each_stmt_expr`] but does not descend into nested function or
 /// class scopes.
-pub(crate) fn for_each_stmt_expr_in_scope(stmts: &[Stmt], visit: &mut impl FnMut(&Expr)) {
+pub(crate) fn for_each_stmt_expr_in_scope<'a>(stmts: &'a [Stmt], visit: &mut impl FnMut(&'a Expr)) {
     let mut pending: Vec<&Stmt> = stmts.iter().rev().collect();
     while let Some(stmt) = pending.pop() {
         if matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {

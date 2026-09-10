@@ -38,6 +38,7 @@ fn check_too_many_lines_of_code(
         },
         fix: None,
         flows: Vec::new(),
+        alternatives: Vec::new(),
     }]
 }
 

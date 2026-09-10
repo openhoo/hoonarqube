@@ -3,26 +3,18 @@
   "boundaries": {
     "csharpsquid:S110": {
       "reason": "inheritance depth requires a resolved semantic base-type graph",
-      "implementation_gap": true
+      "implementation_gap": false
     },
     "csharpsquid:S1200": {
       "reason": "class coupling requires semantic type binding and distinct dependency symbols",
-      "implementation_gap": true
-    },
-    "csharpsquid:S1313": {
-      "reason": "direct analyzer excludes security hotspots",
       "implementation_gap": false
     },
     "csharpsquid:S1944": {
       "reason": "impossible interface casts require a compilation-wide implementer graph",
-      "implementation_gap": true
+      "implementation_gap": false
     },
     "csharpsquid:S2068": {
       "reason": "direct analyzer excludes security hotspots",
-      "implementation_gap": false
-    },
-    "csharpsquid:S2077": {
-      "reason": "direct analyzer excludes taint analysis",
       "implementation_gap": false
     },
     "csharpsquid:S2092": {
@@ -47,11 +39,11 @@
     },
     "csharpsquid:S3242": {
       "reason": "base-type parameter suggestions require semantic member and usage binding",
-      "implementation_gap": true
+      "implementation_gap": false
     },
     "csharpsquid:S3246": {
       "reason": "generic variance suggestions require semantic type-parameter usage analysis",
-      "implementation_gap": true
+      "implementation_gap": false
     },
     "csharpsquid:S3330": {
       "reason": "direct analyzer excludes security hotspots and server-side security sensors",
@@ -83,7 +75,7 @@
     },
     "csharpsquid:S4047": {
       "reason": "generic ref-parameter suggestions require resolved parameter type symbols",
-      "implementation_gap": true
+      "implementation_gap": false
     },
     "csharpsquid:S4210": {
       "reason": "requires executable WinForms project context",
@@ -155,7 +147,7 @@
     },
     "csharpsquid:S6802": {
       "reason": "Blazor loop lambdas require RenderTreeBuilder compilation and semantic invocation binding",
-      "implementation_gap": true
+      "implementation_gap": false
     },
     "csharpsquid:S6960": {
       "reason": "requires ASP.NET controller dependency graph context",
@@ -202,7 +194,7 @@
       "implementation_gap": true
     },
     "typescript:S6606": {
-      "reason": "type alias simplification requires TypeScript checker type semantics",
+      "reason": "nullish-coalescing suggestions require TypeScript checker value and nullability semantics; falsy values such as 0, false, and empty strings must remain distinguishable from null and undefined",
       "implementation_gap": true
     },
     "typescript:S6627": {

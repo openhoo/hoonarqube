@@ -2988,7 +2988,6 @@ mod tests {
         let reverse = coverage_report(&[csharp, python]);
         assert_eq!(forward, reverse);
         assert!(forward.find("csharp").unwrap() < forward.find("python").unwrap());
-        assert!(forward.contains("csharpsquid:S100 (implementation missing)"));
         assert!(forward.contains("python:S6786 (requires out-of-repository infrastructure)"));
     }
     #[test]

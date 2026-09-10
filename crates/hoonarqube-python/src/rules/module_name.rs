@@ -26,6 +26,7 @@ pub(crate) fn check_module_name(
         },
         fix: None,
         flows: Vec::new(),
+        alternatives: Vec::new(),
     }]
 }
 

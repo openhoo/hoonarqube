@@ -29,6 +29,7 @@ pub(crate) fn check_license_header(options: &AnalyzerOptions, source: &str) -> V
         },
         fix: None,
         flows: Vec::new(),
+        alternatives: Vec::new(),
     }]
 }
 

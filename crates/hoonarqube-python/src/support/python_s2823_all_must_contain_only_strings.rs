@@ -113,24 +113,6 @@ pub(crate) fn flag_comprehension_walrus(
     }
 }
 
-pub(crate) fn is_freshly_created(expr: &Expr) -> bool {
-    match expr {
-        Expr::List(_)
-        | Expr::Set(_)
-        | Expr::Tuple(_)
-        | Expr::Dict(_)
-        | Expr::ListComp(_)
-        | Expr::SetComp(_)
-        | Expr::DictComp(_)
-        | Expr::Generator(_) => true,
-        Expr::Call(call) => matches!(
-            called_name(&call.func),
-            Some("list" | "dict" | "set" | "tuple" | "frozenset")
-        ),
-        _ => false,
-    }
-}
-
 pub(crate) fn is_type_call(expr: &Expr) -> bool {
     matches!(expr, Expr::Call(call)
         if called_name(&call.func) == Some("type")
