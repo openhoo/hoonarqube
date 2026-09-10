@@ -129,16 +129,26 @@ Local coverage therefore does not imply analyzer parity.
   and 30 exact target findings in total, including one whitelist finding. It
   is worktree qualification, not final published-binary evidence. See the
   [portable JS/TS reference manifest](tools/oracle/roadmap-jsts-python-reference-20260909.json).
-- Valid JSX reserved-attribute syntax and valid C# contextual-keyword
-  identifiers named `async`/`await` remain `SourceFacts` limitations.
-- C# `S3005` and `S3169` diagnostics may lack a quick-fix attachment; that gap
-  remains unfixed. The exact `S1116` reference edit is correctly refused when
-  its projected result introduces `S1186`; this is not completed fix parity.
+- The parsers accept valid JSX `IdentifierName` element, attribute, member, and
+  namespace names, plus valid C# declarations using contextual `async`/`await`
+  (including `static`/`async` local functions). `S2306` remains
+  declaration-only: valid `async`/`await` references are not reported.
+- Malformed JavaScript/TypeScript/JSX/C# input, and TypeScript-only JSX syntax
+  supplied through a `.jsx` input, remain fail-closed: project analysis exits
+  `2`, marks the report incomplete, and does not expose duplication.
+- A bounded working-tree CLI proof covers guarded C# `S3005` and `S3169`
+  actions: safe diff/apply/reanalysis goes from target count `1` to `0`, while
+  comment-bearing attribute trivia and custom `ThenBy` selected actions exit
+  `1`, leave source unchanged, and retain the diagnostic. The exact `S1116`
+  reference edit remains refused when its projected result introduces `S1186`;
+  these results are not a full quick-fix parity claim.
 - The [security qualification wrapper](tools/oracle/security-qualification-20260909.json)
   remains `SECURITY_PARITY_UNVERIFIED` and preserves explicit Enterprise,
   flow, and secondary-location `UNVERIFIED` states. Its recorded native
   identity `444c56f682998e7e638bd230104bfa1a3628cf57` is historical
   implementation evidence only, not the current `HEAD` or a release identity.
+- The separate `#43`/`#44` evidence comparisons remain open; these focused
+  qualifications do not close them.
 
 Reference captures and their recorded identities are not rewritten, and
 pending or blocked drafts are not presented as final release evidence.
@@ -233,6 +243,15 @@ Project/compiler contexts are explicit and use these existing flags:
   default **30,000 ms**. It requires `--csharp-project` and accepts only a
   positive finite `u64` millisecond value; for example, `180000` allows a
   larger trusted workspace without introducing retries or an unbounded wait.
+- TypeScript config resolution delegates to the pinned compiler: relative and
+  package-based `extends`, directory or file-form project `references`, and
+  `include` globs are resolved against the project root plus supplied source
+  snapshots. Config files and package manifests actually read are recorded as
+  digest-bearing context dependencies.
+- Each invocation validates the root `tsconfig.json` bytes against its captured
+  digest before helper analysis and caches that validated root config locally for
+  the invocation. A later on-disk mutation cannot change its options; missing
+  or invalid config/reference input remains an incomplete diagnostic.
 - `--csharp-s110-max N` overrides S110's maximum parent-type depth (default
   **5**). It requires `--csharp-project`.
 - `--csharp-s110-filtered-class PATTERN` supplies a repeatable S110 wildcard
@@ -569,8 +588,9 @@ files, but never follows symlinked directories.
 
 Global `--json` keeps stdout as one JSON document, including requested diffs as
 per-file `diff` fields instead of mixing human text into machine output. Current
-finding-backed coverage starts with the syntax-checked `python:S1721` redundant-
-parentheses remedy. See [QUICKFIX.md](QUICKFIX.md) for the parity inventory.
+finding-backed coverage includes the syntax-checked `python:S1721` redundant-
+parentheses remedy and guarded C# `csharpsquid:S3005`/`S3169` actions. See
+[QUICKFIX.md](QUICKFIX.md) for the parity inventory and bounded proof.
 
 ## GitLab Code Quality report
 

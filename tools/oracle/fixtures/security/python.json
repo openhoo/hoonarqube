@@ -1,0 +1,3136 @@
+{
+  "schema_version": 1,
+  "language": "python",
+  "rules": [
+    {
+      "key": "python:S1313",
+      "rationale": "Hard-coded non-loopback IP address can bind deployment behavior to an unsafe network endpoint.",
+      "cases": {
+        "attack": {
+          "description": "Uses a hard-coded non-loopback address in a socket bind, matching the live IP-address example.",
+          "files": {
+            "s1313_bad.py": "import socket\n\nip = \"192.168.12.42\"\nsock = socket.socket()\nsock.bind((ip, 9090))\n"
+          },
+          "sources": [
+            "s1313_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Obtains the bind address from configuration instead of hard-coding an IP literal.",
+          "files": {
+            "s1313_good.py": "import socket\n\nip = config.get(\"network\", \"ipAddress\")\nsock = socket.socket()\nsock.bind((ip, 9090))\n"
+          },
+          "sources": [
+            "s1313_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same socket bind API with a runtime settings value, so no literal address is embedded.",
+          "files": {
+            "s1313_near_miss.py": "import socket\n\nip = settings[\"bind_host\"]\nsock = socket.socket()\nsock.bind((ip, 9090))\n"
+          },
+          "sources": [
+            "s1313_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S1523",
+      "rationale": "User-controlled text reaches Python eval/exec, enabling dynamic code execution.",
+      "cases": {
+        "attack": {
+          "description": "Uses the existing eval and exec calls on a payload.",
+          "files": {
+            "s1523_bad.py": "payload = get_payload()\nresult = eval(payload)\nexec(payload)\n"
+          },
+          "sources": [
+            "s1523_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Parses a numeric string with int and never evaluates code.",
+          "files": {
+            "s1523_good.py": "def parse_number(text):\n    return int(text)\n"
+          },
+          "sources": [
+            "s1523_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same eval API only with a compile-time arithmetic constant.",
+          "files": {
+            "s1523_near_miss.py": "from builtins import eval as evaluate\n\nconstant = evaluate(\"2 + 2\")\n"
+          },
+          "sources": [
+            "s1523_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      },
+      "flow_cases": [
+        {
+          "name": "aliased_builtin_with_input",
+          "description": "The built-in eval is imported under an alias and receives process input; alias resolution should preserve the dynamic-execution finding.",
+          "files": {
+            "entry.py": "from builtins import eval as evaluate\n\npayload = input()\nresult = evaluate(payload)\n"
+          },
+          "sources": [
+            "entry.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        }
+      ],
+      "unavailable_prerequisites": [
+        "Live Community metadata probe for /api/rules/show?key=python:S1523 returned HTTP 404; no owning execution contract was available."
+      ]
+    },
+    {
+      "key": "python:S2053",
+      "rationale": "Password hashing uses fixed salt material, allowing precomputation and weakening password isolation.",
+      "cases": {
+        "attack": {
+          "description": "Uses hashlib.scrypt with the fixed salt from the live noncompliant example.",
+          "files": {
+            "s2053_bad.py": "import hashlib\n\npassword = b\"secret\"\ndigest = hashlib.scrypt(\n    password,\n    salt=b\"F3MdWpeHeeSjlUxvKBnzzA\",\n    n=2**17,\n    r=8,\n    p=1,\n)\n"
+          },
+          "sources": [
+            "s2053_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses a fresh secrets-generated salt with the same hashlib.scrypt API.",
+          "files": {
+            "s2053_good.py": "import hashlib\nimport secrets\n\npassword = b\"secret\"\nsalt = secrets.token_bytes(16)\ndigest = hashlib.scrypt(password, salt=salt, n=2**17, r=8, p=1)\n"
+          },
+          "sources": [
+            "s2053_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same scrypt API with a caller-provided salt rather than a fixed literal.",
+          "files": {
+            "s2053_near_miss.py": "import hashlib\n\ndef derive(password, salt):\n    return hashlib.scrypt(password, salt=salt, n=2**17, r=8, p=1)\n"
+          },
+          "sources": [
+            "s2053_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      },
+      "flow_cases": [
+        {
+          "name": "random_salt_helper_across_files",
+          "description": "A helper in one file creates a fresh 16-byte salt before pbkdf2_hmac and a caller consumes it from another file; the source-to-hash flow remains safe.",
+          "files": {
+            "hashing.py": "import hashlib\nimport os\n\ndef derive(password):\n    salt = os.urandom(16)\n    return hashlib.pbkdf2_hmac(\"sha256\", password, salt, 200000)\n",
+            "caller.py": "from hashing import derive\n\ndigest = derive(password)\n"
+          },
+          "sources": [
+            "hashing.py",
+            "caller.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      ]
+    },
+    {
+      "key": "python:S2068",
+      "rationale": "A credential-named variable contains a hard-coded secret instead of a managed lookup.",
+      "cases": {
+        "attack": {
+          "description": "Uses credential-named literals, including the live username/password examples.",
+          "files": {
+            "s2068_bad.py": "username = \"admin\"\npassword = \"admin\"\nusernamePassword = \"user=admin&password=admin\"\n"
+          },
+          "sources": [
+            "s2068_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Reads credential values from the environment and formats only those managed values.",
+          "files": {
+            "s2068_good.py": "import os\n\nusername = os.getenv(\"username\")\npassword = os.getenv(\"password\")\nusernamePassword = \"user=%s&password=%s\" % (username, password)\n"
+          },
+          "sources": [
+            "s2068_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Keeps a credential-like label but obtains the hint through a provider helper instead of a string literal.",
+          "files": {
+            "s2068_near_miss.py": "def load_hint(credentials):\n    return credentials.load(\"hint\")\n\npassword_hint = load_hint(credentials)\n"
+          },
+          "sources": [
+            "s2068_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S2077",
+      "rationale": "String formatting places values into SQL text before execution, creating an injection-sensitive query.",
+      "cases": {
+        "attack": {
+          "description": "Retains the existing formatted query assignments and cursor.execute(query) trigger.",
+          "files": {
+            "s2077_attack.py": "from django.db import connection\nvalue = input()\nwith connection.cursor() as cursor:\n    cursor.execute(\"{0}\".format(value))\n"
+          },
+          "sources": [
+            "s2077_attack.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Retains the existing non-SQL formatting and parameterized execute controls.",
+          "files": {
+            "s2077_safe.py": "from django.db import connection\nvalue = input()\nwith connection.cursor() as cursor:\n    cursor.execute(\"SELECT * FROM users WHERE id=%s\", (value,))\n"
+          },
+          "sources": [
+            "s2077_safe.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same Django cursor API through a helper with a parameter tuple.",
+          "files": {
+            "s2077_near_miss.py": "from django.db import connection\nvalue = input()\ndef run(cursor, value):\n    query = \"SELECT * FROM users WHERE id=%s\"\n    cursor.execute(query, (value,))\nwith connection.cursor() as cursor:\n    run(cursor, value)\n"
+          },
+          "sources": [
+            "s2077_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      },
+      "flow_cases": [
+        {
+          "name": "parameterized_query_helper_across_files",
+          "description": "A Django cursor is passed to a helper in another module and receives a parameter tuple, exercising a safe same-API flow.",
+          "files": {
+            "queries.py": "def fetch(cursor, user_id):\n    statement = \"SELECT * FROM users WHERE id=%s\"\n    cursor.execute(statement, (user_id,))\n",
+            "views.py": "from django.db import connection\nfrom queries import fetch\n\ndef view(value):\n    with connection.cursor() as cursor:\n        fetch(cursor, value)\n"
+          },
+          "sources": [
+            "queries.py",
+            "views.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        {
+          "name": "formatted_query_through_connection_alias",
+          "description": "A connection module alias carries a formatted value into cursor.execute, preserving the SQL-formatting attack across a method and file boundary.",
+          "files": {
+            "db.py": "from django.db import connection as db\n\ndef load(value):\n    with db.cursor() as cursor:\n        statement = \"SELECT * FROM users WHERE name = {}\".format(value)\n        cursor.execute(statement)\n",
+            "views.py": "from db import load\n\nresult = load(input())\n"
+          },
+          "sources": [
+            "db.py",
+            "views.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        }
+      ]
+    },
+    {
+      "key": "python:S2092",
+      "rationale": "A session cookie omits the Secure flag and can be sent over an unencrypted connection.",
+      "cases": {
+        "attack": {
+          "description": "Sets a Flask cookie without secure=True, matching the live framework example.",
+          "files": {
+            "s2092_bad.py": "from flask import Flask, Response\n\napp = Flask(__name__)\n\n@app.route(\"/\")\ndef index():\n    response = Response()\n    response.set_cookie(\"key\", \"value\")\n    return response\n"
+          },
+          "sources": [
+            "s2092_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Sets the same Flask cookie with secure=True.",
+          "files": {
+            "s2092_good.py": "from flask import Flask, Response\n\napp = Flask(__name__)\n\n@app.route(\"/\")\ndef index():\n    response = Response()\n    response.set_cookie(\"key\", \"value\", secure=True)\n    return response\n"
+          },
+          "sources": [
+            "s2092_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the FastAPI cookie API with secure=True on a different cookie.",
+          "files": {
+            "s2092_near_miss.py": "from fastapi import FastAPI, Response\n\napp = FastAPI()\n\n@app.get(\"/\")\nasync def theme(response: Response):\n    response.set_cookie(\"theme\", \"light\", secure=True)\n    return {\"message\": \"Hello world!\"}\n"
+          },
+          "sources": [
+            "s2092_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S2115",
+      "rationale": "An empty database password leaves authentication disabled or ambiguous.",
+      "cases": {
+        "attack": {
+          "description": "Uses an empty database password in the live Flask URI and MySQL connector examples.",
+          "files": {
+            "s2115_bad.py": "from flask import Flask\nfrom mysql.connector import connection\n\napp = Flask(__name__)\napp.config[\"SQLALCHEMY_DATABASE_URI\"] = \"postgresql://user:@domain.com\"\nconnection.MySQLConnection(host=\"localhost\", user=\"sonarsource\", password=\"\")\n"
+          },
+          "sources": [
+            "s2115_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Loads the database password from the environment before connecting.",
+          "files": {
+            "s2115_good.py": "from mysql.connector import connection\nimport os\n\ndb_password = os.getenv(\"DB_PASSWORD\")\nconnection.MySQLConnection(host=\"localhost\", user=\"sonarsource\", password=db_password)\n"
+          },
+          "sources": [
+            "s2115_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same connector API with a provider-returned password rather than an empty literal.",
+          "files": {
+            "s2115_near_miss.py": "from mysql.connector import connection\n\ndef load_password():\n    return credentials.load(\"database\")\n\nconnection.MySQLConnection(host=\"localhost\", user=\"sonarsource\", password=load_password())\n"
+          },
+          "sources": [
+            "s2115_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S2245",
+      "rationale": "A security-sensitive token or password context uses a predictable pseudorandom generator.",
+      "cases": {
+        "attack": {
+          "description": "Uses the live security-sensitive random functions for token material.",
+          "files": {
+            "s2245_bad.py": "import random\n\nrandom.getrandbits(1)\nrandom.randint(0, 9)\nrandom.random()\nrandom.choice([\"a\", \"b\"])\n"
+          },
+          "sources": [
+            "s2245_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses secrets or SystemRandom for security-sensitive values.",
+          "files": {
+            "s2245_good.py": "import random\nimport secrets\n\nsecrets.randbits(1)\nsecrets.randbelow(10)\nsecrets.token_hex(16)\nrandom.SystemRandom().choice([\"a\", \"b\"])\n"
+          },
+          "sources": [
+            "s2245_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same choice shape through the cryptographically secure SystemRandom implementation.",
+          "files": {
+            "s2245_near_miss.py": "import random\n\nrng = random.SystemRandom()\nchoice = rng.choice((\"red\", \"blue\"))\n"
+          },
+          "sources": [
+            "s2245_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S2257",
+      "rationale": "Custom cryptographic algorithms should not replace reviewed standard cryptographic implementations.",
+      "cases": {
+        "attack": {
+          "description": "Defines a custom password hasher by subclassing the framework base, matching the live custom-cryptography hotspot example.",
+          "files": {
+            "s2257_bad.py": "from django.contrib.auth.hashers import BasePasswordHasher\n\nclass CustomPasswordHasher(BasePasswordHasher):\n    pass\n"
+          },
+          "sources": [
+            "s2257_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses the reviewed Argon2 password hasher instead of defining a custom algorithm.",
+          "files": {
+            "s2257_good.py": "from django.contrib.auth.hashers import Argon2PasswordHasher\n\nhasher = Argon2PasswordHasher()\n"
+          },
+          "sources": [
+            "s2257_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses a same-named local utility class that is not a cryptographic framework hasher subclass.",
+          "files": {
+            "s2257_near_miss.py": "class CustomPasswordHasher(object):\n    pass\n\nhasher = CustomPasswordHasher()\n"
+          },
+          "sources": [
+            "s2257_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S2612",
+      "rationale": "World-writable file permissions allow unintended users to modify the file.",
+      "cases": {
+        "attack": {
+          "description": "Includes the live unsafe os.umask(0) form and a world-writable os.chmod mode.",
+          "files": {
+            "s2612_bad.py": "import os\n\nos.umask(0)\nos.chmod(\"script.sh\", 0o777)\n"
+          },
+          "sources": [
+            "s2612_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses a restrictive umask and owner-only chmod mode.",
+          "files": {
+            "s2612_good.py": "import os\n\nos.umask(0o777)\nos.chmod(\"script.sh\", 0o600)\n"
+          },
+          "sources": [
+            "s2612_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same os.umask API with a caller-supplied policy rather than an unsafe literal.",
+          "files": {
+            "s2612_near_miss.py": "import os\n\ndef configure(mask):\n    os.umask(mask)\n"
+          },
+          "sources": [
+            "s2612_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S2755",
+      "rationale": "General XML parsing can resolve external entities and expose local or remote data.",
+      "cases": {
+        "attack": {
+          "description": "Parses with lxml entity resolution enabled, matching the live XXE example.",
+          "files": {
+            "s2755_bad.py": "from lxml import etree\n\nparser = etree.XMLParser(resolve_entities=True)\ntree = etree.parse(\"xxe.xml\", parser)\nroot = tree.getroot()\n"
+          },
+          "sources": [
+            "s2755_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Disables entity resolution and network access in the lxml parser.",
+          "files": {
+            "s2755_good.py": "from lxml import etree\n\nparser = etree.XMLParser(resolve_entities=False, no_network=True)\ntree = etree.parse(\"xxe.xml\", parser)\nroot = tree.getroot()\n"
+          },
+          "sources": [
+            "s2755_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same lxml parser and parse API with entity resolution disabled.",
+          "files": {
+            "s2755_near_miss.py": "from lxml import etree\n\ndef parse_document(path):\n    parser = etree.XMLParser(resolve_entities=False)\n    return etree.parse(path, parser)\n"
+          },
+          "sources": [
+            "s2755_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S3329",
+      "rationale": "A static CBC initialization vector makes ciphertext relationships predictable.",
+      "cases": {
+        "attack": {
+          "description": "Uses a fixed CBC initialization vector from the live noncompliant example.",
+          "files": {
+            "s3329_bad.py": "from Crypto.Cipher import AES\n\niv = b\"exampleIV1234567\"\ncipher = AES.new(key, AES.MODE_CBC, iv)\ncipher.encrypt(data)\n"
+          },
+          "sources": [
+            "s3329_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Generates a fresh random IV for the same CBC cipher API.",
+          "files": {
+            "s3329_good.py": "from Crypto.Cipher import AES\nfrom Crypto.Random import get_random_bytes\n\niv = get_random_bytes(AES.block_size)\ncipher = AES.new(key, AES.MODE_CBC, iv)\ncipher.encrypt(data)\n"
+          },
+          "sources": [
+            "s3329_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same CBC concept with an IV supplied by a runtime provider.",
+          "files": {
+            "s3329_near_miss.py": "from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes\n\ndef encrypt(data, key, iv_provider):\n    iv = iv_provider()\n    cipher = Cipher(algorithms.AES(key), modes.CBC(iv))\n    return cipher.encryptor()\n"
+          },
+          "sources": [
+            "s3329_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S3330",
+      "rationale": "A browser cookie without HttpOnly is exposed to script access after an XSS compromise.",
+      "cases": {
+        "attack": {
+          "description": "Sets a Flask cookie without httponly=True, matching the live example.",
+          "files": {
+            "s3330_bad.py": "from flask import Flask, Response\n\napp = Flask(__name__)\n\n@app.route(\"/\")\ndef index():\n    response = Response()\n    response.set_cookie(\"key\", \"value\")\n    return response\n"
+          },
+          "sources": [
+            "s3330_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Sets the same Flask cookie with httponly=True.",
+          "files": {
+            "s3330_good.py": "from flask import Flask, Response\n\napp = Flask(__name__)\n\n@app.route(\"/\")\ndef index():\n    response = Response()\n    response.set_cookie(\"key\", \"value\", httponly=True)\n    return response\n"
+          },
+          "sources": [
+            "s3330_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the FastAPI cookie API with httponly=True on a different cookie.",
+          "files": {
+            "s3330_near_miss.py": "from fastapi import FastAPI, Response\n\napp = FastAPI()\n\n@app.get(\"/\")\nasync def theme(response: Response):\n    response.set_cookie(\"theme\", \"light\", httponly=True)\n    return {\"message\": \"Hello world!\"}\n"
+          },
+          "sources": [
+            "s3330_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S3752",
+      "rationale": "Wildcard or all-method routes expose more application surface than intended.",
+      "cases": {
+        "attack": {
+          "description": "Defines a Django view without restricting its allowed HTTP methods.",
+          "files": {
+            "s3752_bad.py": "from django.http import HttpResponse\n\ndef view(request):\n    return HttpResponse(\"...\")\n"
+          },
+          "sources": [
+            "s3752_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Restricts the Django view to the required HTTP method.",
+          "files": {
+            "s3752_good.py": "from django.http import HttpResponse\nfrom django.views.decorators.http import require_http_methods\n\n@require_http_methods([\"POST\"])\ndef view(request):\n    return HttpResponse(\"...\")\n"
+          },
+          "sources": [
+            "s3752_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same method-restriction decorator with a different explicit method.",
+          "files": {
+            "s3752_near_miss.py": "from django.http import HttpResponse\nfrom django.views.decorators.http import require_http_methods\n\n@require_http_methods([\"GET\"])\ndef view(request):\n    return HttpResponse(\"...\")\n"
+          },
+          "sources": [
+            "s3752_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S4423",
+      "rationale": "Obsolete SSL/TLS protocol versions provide weak transport security.",
+      "cases": {
+        "attack": {
+          "description": "Creates SSL contexts for SSLv2/3 and obsolete TLS versions.",
+          "files": {
+            "s4423_bad.py": "import ssl\n\nlegacy = ssl.SSLContext(ssl.PROTOCOL_SSLv3)\noutdated = ssl.SSLContext(ssl.PROTOCOL_TLSv1)\nancient = ssl.SSLContext(ssl.PROTOCOL_SSLv2)\nolder = ssl.SSLContext(ssl.PROTOCOL_TLSv1_1)\n"
+          },
+          "sources": [
+            "s4423_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses TLS client/server contexts or TLS 1.2.",
+          "files": {
+            "s4423_good.py": "import ssl\n\nmodern = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)\ncompatible = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)\nsecure = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)\n"
+          },
+          "sources": [
+            "s4423_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the default context, which negotiates a modern protocol.",
+          "files": {
+            "s4423_near_miss.py": "import ssl\n\nmodern = ssl.create_default_context()\n"
+          },
+          "sources": [
+            "s4423_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S4426",
+      "rationale": "Small cryptographic key sizes are vulnerable to practical brute-force attacks.",
+      "cases": {
+        "attack": {
+          "description": "Generates RSA, DSA, and elliptic-curve keys below the live strong-parameter thresholds.",
+          "files": {
+            "s4426_bad.py": "from Crypto.PublicKey import RSA, DSA\nfrom Crypto.PublicKey import ECC\n\nkey_rsa = RSA.generate(1024)\nkey_dsa = DSA.generate(1024)\nkey_ec = ECC.generate(curve=\"secp192r1\")\n"
+          },
+          "sources": [
+            "s4426_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses RSA and DSA sizes from the live compliant examples and an Ed25519 curve.",
+          "files": {
+            "s4426_good.py": "from Crypto.PublicKey import RSA, DSA\nfrom Crypto.PublicKey import ECC\n\nkey_rsa = RSA.generate(3072)\nkey_dsa = DSA.generate(3072)\nkey_ec = ECC.generate(curve=\"ed25519\")\n"
+          },
+          "sources": [
+            "s4426_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same key-generation family with a runtime-selected curve rather than a weak literal.",
+          "files": {
+            "s4426_near_miss.py": "from cryptography.hazmat.primitives.asymmetric import ec\n\ndef generate_curve_key():\n    return ec.generate_private_key(curve_provider())\n"
+          },
+          "sources": [
+            "s4426_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S4433",
+      "rationale": "LDAP searches without an authenticated bind can expose directory data.",
+      "cases": {
+        "attack": {
+          "description": "Searches after the live unauthenticated LDAP bind forms, including missing and None passwords.",
+          "files": {
+            "s4433_bad.py": "import ldap\n\ndef init_ldap():\n    connect = ldap.initialize(\"ldap://example:1389\")\n    connect.simple_bind(\"cn=root\")\n    connect.simple_bind_s(\"cn=root\")\n    connect.bind_s(\"cn=root\", None)\n    connect.bind(\"cn=root\", None)\n    return connect.search_s(base_dn, ldap.SCOPE_SUBTREE)\n"
+          },
+          "sources": [
+            "s4433_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Authenticates each LDAP bind with an environment-backed password before searching.",
+          "files": {
+            "s4433_good.py": "import ldap\nimport os\n\ndef init_ldap():\n    connect = ldap.initialize(\"ldap://example:1389\")\n    password = os.environ.get(\"LDAP_PASSWORD\")\n    connect.simple_bind(\"cn=root\", password)\n    connect.simple_bind_s(\"cn=root\", password)\n    connect.bind_s(\"cn=root\", password)\n    connect.bind(\"cn=root\", password)\n    return connect.search_s(base_dn, ldap.SCOPE_SUBTREE)\n"
+          },
+          "sources": [
+            "s4433_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same LDAP bind/search API with explicit non-empty credentials over LDAPS.",
+          "files": {
+            "s4433_near_miss.py": "import ldap\n\ndef init_ldap():\n    connect = ldap.initialize(\"ldaps://directory.example\")\n    connect.simple_bind(\"cn=reader\", \"secret\")\n    return connect.search_s(base_dn, ldap.SCOPE_SUBTREE)\n"
+          },
+          "sources": [
+            "s4433_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      },
+      "flow_cases": [
+        {
+          "name": "authenticated_ldap_helper_alias",
+          "description": "An aliased LDAP module initializes a connection, binds it, and only then performs the search in a helper.",
+          "files": {
+            "directory.py": "import ldap as directory\n\ndef lookup(server_url, base_dn):\n    connection = directory.initialize(server_url)\n    connection.simple_bind_s(\"reader\", \"secret\")\n    return connection.search_s(base_dn, directory.SCOPE_SUBTREE)\n",
+            "service.py": "from directory import lookup\n\nrecords = lookup(server_url, base_dn)\n"
+          },
+          "sources": [
+            "directory.py",
+            "service.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      ]
+    },
+    {
+      "key": "python:S4502",
+      "rationale": "Disabling CSRF protection on a web view permits cross-site state-changing requests.",
+      "cases": {
+        "attack": {
+          "description": "Disables Flask CSRF protection through configuration and an exempt view, matching live examples.",
+          "files": {
+            "s4502_bad.py": "from flask import Flask\nfrom flask_wtf.csrf import csrf_exempt\n\napp = Flask(__name__)\napp.config[\"WTF_CSRF_ENABLED\"] = False\n\n@app.route(\"/example\", methods=[\"POST\"])\n@csrf_exempt\ndef example():\n    return \"example\"\n"
+          },
+          "sources": [
+            "s4502_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Initializes Flask CSRFProtect and leaves the route protected.",
+          "files": {
+            "s4502_good.py": "from flask import Flask\nfrom flask_wtf.csrf import CSRFProtect\n\napp = Flask(__name__)\ncsrf = CSRFProtect()\ncsrf.init_app(app)\n\n@app.route(\"/example\", methods=[\"POST\"])\ndef example():\n    return \"example\"\n"
+          },
+          "sources": [
+            "s4502_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same Flask route shape with CSRFProtect attached at construction time.",
+          "files": {
+            "s4502_near_miss.py": "from flask import Flask\nfrom flask_wtf.csrf import CSRFProtect\n\napp = Flask(__name__)\ncsrf = CSRFProtect(app)\n\n@app.route(\"/example\", methods=[\"POST\"])\ndef example():\n    return \"example\"\n"
+          },
+          "sources": [
+            "s4502_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S4507",
+      "rationale": "Debug mode can expose diagnostics, secrets, or interactive behavior in production.",
+      "cases": {
+        "attack": {
+          "description": "Enables Django debug settings with the live noncompliant forms.",
+          "files": {
+            "s4507_bad.py": "from django.conf import settings\n\nsettings.configure(DEBUG=True)\nsettings.configure(DEBUG_PROPAGATE_EXCEPTIONS=True)\nDEBUG = True\nDEBUG_PROPAGATE_EXCEPTIONS = True\n"
+          },
+          "sources": [
+            "s4507_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Keeps Django debug settings disabled.",
+          "files": {
+            "s4507_good.py": "from django.conf import settings\n\nsettings.configure(DEBUG=False)\nsettings.configure(DEBUG_PROPAGATE_EXCEPTIONS=False)\nDEBUG = False\nDEBUG_PROPAGATE_EXCEPTIONS = False\n"
+          },
+          "sources": [
+            "s4507_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Passes a runtime deployment setting to the same configure API instead of enabling debug literally.",
+          "files": {
+            "s4507_near_miss.py": "from django.conf import settings\n\ndef configure_for_environment(debug_mode):\n    settings.configure(DEBUG=debug_mode)\n"
+          },
+          "sources": [
+            "s4507_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S4721",
+      "rationale": "Shell execution with a command string can interpret attacker-controlled metacharacters.",
+      "cases": {
+        "attack": {
+          "description": "Uses os.system, os.popen, subprocess.getoutput, and shell=True.",
+          "files": {
+            "s4721_bad.py": "import os\nimport subprocess\n\nos.system(\"ls -la\")\nos.popen(\"id\")\nsubprocess.getoutput(\"whoami\")\nsubprocess.run(\"ls\", shell=True)\n"
+          },
+          "sources": [
+            "s4721_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Does not execute a shell command in the benign fixture.",
+          "files": {
+            "s4721_good.py": "def command_name(value):\n    return value.strip()\n"
+          },
+          "sources": [
+            "s4721_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses subprocess.run with an argument list and shell=False.",
+          "files": {
+            "s4721_near_miss.py": "import subprocess\n\nsubprocess.run([\"ls\", \"-la\"], shell=False, check=True)\n"
+          },
+          "sources": [
+            "s4721_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      },
+      "flow_cases": [
+        {
+          "name": "argv_list_subprocess_sanitizer",
+          "description": "A subprocess alias receives a fixed argument vector and shell=False, demonstrating the supported non-shell sanitizer path.",
+          "files": {
+            "commands.py": "from subprocess import run as execute\n\ndef list_dir():\n    return execute([\"ls\", \"-la\"], shell=False, check=True)\n"
+          },
+          "sources": [
+            "commands.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      ],
+      "unavailable_prerequisites": [
+        "Live Community metadata probe for /api/rules/show?key=python:S4721 returned HTTP 404; no owning execution contract was available."
+      ]
+    },
+    {
+      "key": "python:S4784",
+      "rationale": "Regular-expression processing is security-sensitive when patterns can be expensive or attacker-controlled.",
+      "cases": {
+        "attack": {
+          "description": "Uses a regular-expression search entry point.",
+          "files": {
+            "s4784_bad.py": "import re\nre.search(r'x', text)\n"
+          },
+          "sources": [
+            "s4784_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Contains only a literal value and no regex evaluation.",
+          "files": {
+            "s4784_good.py": "value = 'x'\n"
+          },
+          "sources": [
+            "s4784_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Escapes text with re.escape without compiling or matching a pattern.",
+          "files": {
+            "s4784_near_miss.py": "import re\n\nescaped = re.escape(text)\n"
+          },
+          "sources": [
+            "s4784_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      },
+      "unavailable_prerequisites": [
+        "Live Community metadata probe for /api/rules/show?key=python:S4784 returned HTTP 404; no owning execution contract was available."
+      ]
+    },
+    {
+      "key": "python:S4787",
+      "rationale": "Custom or weak encryption construction can fail to protect confidential data.",
+      "cases": {
+        "attack": {
+          "description": "Instantiates several low-level/custom cipher constructions without a safe contract.",
+          "files": {
+            "s4787_bad.py": "from Crypto.Cipher import AES\n\naes = AES.new(key)\nf = Fernet(secret)\ncipher = cryptography.hazmat.primitives.ciphers.Cipher(a, b)\nbox = nacl.secret.SecretBox(key)\n"
+          },
+          "sources": [
+            "s4787_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses reviewed hashing and HMAC primitives rather than custom encryption.",
+          "files": {
+            "s4787_good.py": "import hashlib\nimport hmac\n\ndigest = hashlib.sha256(b\"data\").hexdigest()\nmac = hmac.new(b\"k\", b\"d\", \"sha256\")\nprint(digest, mac)\n"
+          },
+          "sources": [
+            "s4787_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the authenticated AESGCM API, a reviewed construction.",
+          "files": {
+            "s4787_near_miss.py": "from cryptography.hazmat.primitives.ciphers.aead import AESGCM\n\ncipher = AESGCM(key)\n"
+          },
+          "sources": [
+            "s4787_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      },
+      "unavailable_prerequisites": [
+        "Live Community metadata probe for /api/rules/show?key=python:S4787 returned HTTP 404; no owning execution contract was available."
+      ]
+    },
+    {
+      "key": "python:S4790",
+      "rationale": "MD5 is not suitable for security-sensitive hashing.",
+      "cases": {
+        "attack": {
+          "description": "Computes an MD5 digest.",
+          "files": {
+            "s4790_bad.py": "import hashlib\n\npayload = b\"data\"\ndigest = hashlib.md5(payload)\n"
+          },
+          "sources": [
+            "s4790_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses a non-hashing label operation in the safe fixture.",
+          "files": {
+            "s4790_good.py": "def checksum_label(data):\n    return f\"bytes:{len(data)}\"\n"
+          },
+          "sources": [
+            "s4790_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Computes a SHA-256 digest through the same hashlib API.",
+          "files": {
+            "s4790_near_miss.py": "import hashlib\n\ndigest = hashlib.sha256(payload)\n"
+          },
+          "sources": [
+            "s4790_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S4792",
+      "rationale": "Unreviewed logger configuration can disclose sensitive data or route it insecurely.",
+      "cases": {
+        "attack": {
+          "description": "Loads logging configuration from a dictionary/file and resets handlers.",
+          "files": {
+            "s4792_bad.py": "import logging\nimport logging.config\n\nlogging.config.dictConfig({\"version\": 1})\nlogging.config.fileConfig(\"logging.ini\")\nlogging.basicConfig(handlers=[])\n"
+          },
+          "sources": [
+            "s4792_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Only derives a logger name and does not configure handlers.",
+          "files": {
+            "s4792_good.py": "def logger_name(name):\n    return name.lower()\n"
+          },
+          "sources": [
+            "s4792_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Obtains a logger and writes an informational message without reconfiguration.",
+          "files": {
+            "s4792_near_miss.py": "import logging\n\nlogger = logging.getLogger(__name__)\nlogger.info(\"ready\")\n"
+          },
+          "sources": [
+            "s4792_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      },
+      "unavailable_prerequisites": [
+        "Live Community metadata probe for /api/rules/show?key=python:S4792 returned HTTP 404; no owning execution contract was available."
+      ]
+    },
+    {
+      "key": "python:S4823",
+      "rationale": "Raw command-line arguments are attacker-controlled input at process boundaries.",
+      "cases": {
+        "attack": {
+          "description": "Reads sys.argv and an imported argv value directly.",
+          "files": {
+            "s4823_bad.py": "import sys\nfrom sys import argv\n\nscript = sys.argv[0]\nfirst = argv[1]\n"
+          },
+          "sources": [
+            "s4823_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Reads platform/version metadata and exits without arguments.",
+          "files": {
+            "s4823_good.py": "import sys\n\nprint(sys.version)\nprint(sys.platform)\nraise SystemExit(0)\n"
+          },
+          "sources": [
+            "s4823_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same sys module only for filesystem encoding metadata.",
+          "files": {
+            "s4823_near_miss.py": "import sys\n\nencoding = sys.getfilesystemencoding()\n"
+          },
+          "sources": [
+            "s4823_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      },
+      "unavailable_prerequisites": [
+        "Live Community metadata probe for /api/rules/show?key=python:S4823 returned HTTP 404; no owning execution contract was available."
+      ]
+    },
+    {
+      "key": "python:S4828",
+      "rationale": "Raw numeric signal values can terminate or interfere with unrelated processes.",
+      "cases": {
+        "attack": {
+          "description": "Sends literal numeric signals through signal and os.kill calls.",
+          "files": {
+            "s4828_bad.py": "import os\nimport signal\n\nsignal.signal(9, handler)\nos.kill(pid, 15)\n"
+          },
+          "sources": [
+            "s4828_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Validates both process identifiers and uses named signal constants before sending them.",
+          "files": {
+            "s4828_good.py": "import os\nimport signal\n\nif is_valid_pid(pid):\n    os.kill(pid, signal.SIGTERM)\n\nif is_valid_pgid(pgid):\n    os.killpg(pgid, signal.SIGTERM)\n"
+          },
+          "sources": [
+            "s4828_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same os.kill API with a narrowly scoped PID validation helper.",
+          "files": {
+            "s4828_near_miss.py": "import os\nimport signal\n\ndef terminate(pid):\n    if is_valid_pid(pid):\n        os.kill(pid, signal.SIGTERM)\n"
+          },
+          "sources": [
+            "s4828_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S4829",
+      "rationale": "Standard input is an untrusted process boundary and must be handled safely.",
+      "cases": {
+        "attack": {
+          "description": "Reads input through input and sys.stdin reader methods.",
+          "files": {
+            "s4829_bad.py": "import sys\n\nname = input()\ndata = sys.stdin.read()\nlines = sys.stdin.readlines()\nraw = sys.stdin.buffer.read()\n"
+          },
+          "sources": [
+            "s4829_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Writes output and flushes stderr instead of reading input.",
+          "files": {
+            "s4829_good.py": "import sys\n\nsys.stdout.write(\"x\")\nsys.stderr.flush()\n"
+          },
+          "sources": [
+            "s4829_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Checks stdin interactivity without consuming input.",
+          "files": {
+            "s4829_near_miss.py": "import sys\n\nif sys.stdin.isatty():\n    print(\"interactive\")\n"
+          },
+          "sources": [
+            "s4829_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      },
+      "unavailable_prerequisites": [
+        "Live Community metadata probe for /api/rules/show?key=python:S4829 returned HTTP 404; no owning execution contract was available."
+      ]
+    },
+    {
+      "key": "python:S4830",
+      "rationale": "Disabling certificate verification permits man-in-the-middle attacks.",
+      "cases": {
+        "attack": {
+          "description": "Disables certificate verification through requests and stdlib SSL contexts.",
+          "files": {
+            "s4830_bad.py": "import requests\nimport ssl\n\nrequests.get(url, verify=False)\nctx = ssl._create_unverified_context()\nctx.verify_mode = ssl.CERT_NONE\n"
+          },
+          "sources": [
+            "s4830_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses requests and a default SSL context with certificate verification enabled.",
+          "files": {
+            "s4830_good.py": "import requests\nimport ssl\n\nrequests.get(url)\nctx = ssl.create_default_context()\nctx.verify_mode = ssl.CERT_REQUIRED\n"
+          },
+          "sources": [
+            "s4830_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same requests API while leaving verification at its secure default.",
+          "files": {
+            "s4830_near_miss.py": "import requests\n\nrequests.get(url, timeout=3)\n"
+          },
+          "sources": [
+            "s4830_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S5042",
+      "rationale": "Extracting an archive without validating member paths can write outside the destination.",
+      "cases": {
+        "attack": {
+          "description": "Calls tarfile.extractall without a bounded extraction policy.",
+          "files": {
+            "s5042_bad.py": "import tarfile\n\narchive = tarfile.open(\"bundle.tar\")\narchive.extractall()\n"
+          },
+          "sources": [
+            "s5042_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Contains only an archive-name helper and does not extract files.",
+          "files": {
+            "s5042_good.py": "def archive_name(path):\n    return path.name\n"
+          },
+          "sources": [
+            "s5042_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Reads one archive member with extractfile instead of extracting the archive.",
+          "files": {
+            "s5042_near_miss.py": "import tarfile\n\narchive = tarfile.open(\"bundle.tar\")\nmember = archive.extractfile(\"README\")\n"
+          },
+          "sources": [
+            "s5042_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S5122",
+      "rationale": "Wildcard CORS origins allow any website to read cross-origin responses.",
+      "cases": {
+        "attack": {
+          "description": "Allows every origin through Flask-CORS and reflects the request Origin header.",
+          "files": {
+            "s5122_bad.py": "from flask import Flask, Response, request\nfrom flask_cors import CORS\n\napp = Flask(__name__)\nCORS(app, resources={r\"/*\": {\"origins\": \"*\"}})\norigin = request.headers[\"ORIGIN\"]\nresp = Response()\nresp.headers[\"Access-Control-Allow-Origin\"] = origin\n"
+          },
+          "sources": [
+            "s5122_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Restricts Flask-CORS and reflected response headers to an approved origin list.",
+          "files": {
+            "s5122_good.py": "from flask import Flask, Response, request\nfrom flask_cors import CORS\n\napp = Flask(__name__)\nTRUSTED_ORIGINS = [\"https://example.com\"]\nCORS(app, resources={r\"/*\": {\"origins\": TRUSTED_ORIGINS}})\norigin = request.headers[\"ORIGIN\"]\nresp = Response()\nif origin in TRUSTED_ORIGINS:\n    resp.headers[\"Access-Control-Allow-Origin\"] = origin\n"
+          },
+          "sources": [
+            "s5122_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same CORS API with a route-scoped explicit origin list.",
+          "files": {
+            "s5122_near_miss.py": "from flask import Flask\nfrom flask_cors import CORS\n\napp = Flask(__name__)\nCORS(app, resources={r\"/public\": {\"origins\": [\"https://example.com\"]}})\n"
+          },
+          "sources": [
+            "s5122_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S5247",
+      "rationale": "Disabling template autoescaping allows untrusted values to become executable markup.",
+      "cases": {
+        "attack": {
+          "description": "Creates Jinja environments with autoescaping disabled by default and explicitly.",
+          "files": {
+            "s5247_bad.py": "from jinja2 import Environment\n\nenv = Environment()\nenv = Environment(autoescape=False)\n"
+          },
+          "sources": [
+            "s5247_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Creates a Jinja environment with autoescape=True.",
+          "files": {
+            "s5247_good.py": "from jinja2 import Environment\n\nenv = Environment(autoescape=True)\n"
+          },
+          "sources": [
+            "s5247_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses select_autoescape on the same Environment API.",
+          "files": {
+            "s5247_near_miss.py": "from jinja2 import Environment, select_autoescape\n\nenv = Environment(loader=loader, autoescape=select_autoescape())\n"
+          },
+          "sources": [
+            "s5247_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      },
+      "flow_cases": [
+        {
+          "name": "autoescape_factory_across_files",
+          "description": "A template factory in one module uses select_autoescape and a view imports that factory, preserving the safe sanitizer through a call flow.",
+          "files": {
+            "templates.py": "from jinja2 import Environment, select_autoescape\n\ndef build_environment():\n    return Environment(autoescape=select_autoescape([\"html\", \"xml\"]))\n",
+            "views.py": "from templates import build_environment\n\nenv = build_environment()\n"
+          },
+          "sources": [
+            "templates.py",
+            "views.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      ]
+    },
+    {
+      "key": "python:S5300",
+      "rationale": "Sending email content is security-sensitive because headers and recipients can be attacker-controlled.",
+      "cases": {
+        "attack": {
+          "description": "Calls the SMTP client sendmail API directly.",
+          "files": {
+            "s5300_bad.py": "client.sendmail(sender, recipient, message)\n"
+          },
+          "sources": [
+            "s5300_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Sends bytes on a socket and does not invoke an email client.",
+          "files": {
+            "s5300_good.py": "socket.sendall(b'data')\n"
+          },
+          "sources": [
+            "s5300_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Builds an EmailMessage without sending it.",
+          "files": {
+            "s5300_near_miss.py": "from email.message import EmailMessage\n\nmessage = EmailMessage()\nmessage[\"To\"] = recipient\n"
+          },
+          "sources": [
+            "s5300_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      },
+      "unavailable_prerequisites": [
+        "Live Community metadata probe for /api/rules/show?key=python:S5300 returned HTTP 404; no owning execution contract was available."
+      ]
+    },
+    {
+      "key": "python:S5332",
+      "rationale": "Clear-text HTTP transmits data without transport confidentiality or integrity.",
+      "cases": {
+        "attack": {
+          "description": "Uses an HTTP endpoint literal.",
+          "files": {
+            "s5332_bad.py": "endpoint = \"http://api.internal.example/v1\"\n"
+          },
+          "sources": [
+            "s5332_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses an HTTPS endpoint literal.",
+          "files": {
+            "s5332_good.py": "endpoint = \"https://api.internal.example/v1\"\n"
+          },
+          "sources": [
+            "s5332_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses HTTP only for a loopback health check, not a remote endpoint.",
+          "files": {
+            "s5332_near_miss.py": "endpoint = \"http://localhost:8000/health\"\n"
+          },
+          "sources": [
+            "s5332_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S5344",
+      "rationale": "Plaintext passwords in source can be recovered by anyone who reads the repository.",
+      "cases": {
+        "attack": {
+          "description": "Stores a plaintext password and uses the live fast bcrypt cost example.",
+          "files": {
+            "s5344_bad.py": "import bcrypt\n\npassword = \"hunter2\"\n\ndef hash_password(password):\n    return bcrypt.hashpw(password, bcrypt.gensalt(2))\n"
+          },
+          "sources": [
+            "s5344_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses bcrypt with its reviewed default cost rather than plaintext or a deliberately fast setting.",
+          "files": {
+            "s5344_good.py": "import bcrypt\n\ndef hash_password(password):\n    return bcrypt.hashpw(password, bcrypt.gensalt())\n"
+          },
+          "sources": [
+            "s5344_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same bcrypt family with a non-literal password and a high KDF round count.",
+          "files": {
+            "s5344_near_miss.py": "import bcrypt\n\ndef derive_key(password, salt):\n    return bcrypt.kdf(\n        password=password,\n        salt=salt,\n        desired_key_bytes=32,\n        rounds=4096)\n"
+          },
+          "sources": [
+            "s5344_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S5439",
+      "rationale": "Disabling template autoescape globally weakens every rendered response.",
+      "cases": {
+        "attack": {
+          "description": "Creates a module-level Jinja environment with global autoescaping disabled.",
+          "files": {
+            "s5439_bad.py": "from jinja2 import Environment\n\nenv = Environment(autoescape=False)\n"
+          },
+          "sources": [
+            "s5439_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Builds an autoescaping environment and does not disable the global default.",
+          "files": {
+            "s5439_good.py": "from jinja2 import Environment\n\ndef build():\n    return Environment(autoescape=True)\n"
+          },
+          "sources": [
+            "s5439_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses select_autoescape in a local builder rather than a globally disabled environment.",
+          "files": {
+            "s5439_near_miss.py": "from jinja2 import Environment, select_autoescape\n\ndef build():\n    return Environment(autoescape=select_autoescape([\"html\"]))\n"
+          },
+          "sources": [
+            "s5439_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S5443",
+      "rationale": "Writing a predictable file in a public temporary directory permits tampering or disclosure.",
+      "cases": {
+        "attack": {
+          "description": "Opens a /tmp log with ordinary write permissions.",
+          "files": {
+            "s5443_bad.py": "open('/tmp/app.log', 'w')\n"
+          },
+          "sources": [
+            "s5443_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses the operating system temporary-file helper without choosing a public directory.",
+          "files": {
+            "s5443_good.py": "import tempfile\n\nfile = tempfile.TemporaryFile()\n"
+          },
+          "sources": [
+            "s5443_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Writes a private application path with an explicit encoding.",
+          "files": {
+            "s5443_near_miss.py": "from pathlib import Path\n\npath = Path(\"/var/lib/app/app.log\")\nwith open(path, \"w\", encoding=\"utf-8\") as handle:\n    handle.write(\"ready\")\n"
+          },
+          "sources": [
+            "s5443_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S5445",
+      "rationale": "Deprecated temporary-name generation can race with another process before the file is opened.",
+      "cases": {
+        "attack": {
+          "description": "Calls tempfile.mktemp before opening a file, matching the live race-prone example.",
+          "files": {
+            "s5445_bad.py": "import tempfile\n\nfilename = tempfile.mktemp()\ntmp_file = open(filename, \"w+\")\n"
+          },
+          "sources": [
+            "s5445_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses NamedTemporaryFile, which creates temporary files safely.",
+          "files": {
+            "s5445_good.py": "import tempfile\n\ntmp_file = tempfile.NamedTemporaryFile(delete=False)\nother_tmp_file = tempfile.NamedTemporaryFile()\n"
+          },
+          "sources": [
+            "s5445_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses tempfile.mkdtemp, which creates a directory atomically.",
+          "files": {
+            "s5445_near_miss.py": "import tempfile\n\ndirectory = tempfile.mkdtemp(prefix=\"app-\")\n"
+          },
+          "sources": [
+            "s5445_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S5527",
+      "rationale": "Disabling TLS hostname verification defeats endpoint identity checks.",
+      "cases": {
+        "attack": {
+          "description": "Disables hostname verification on an SSL context, matching the live example.",
+          "files": {
+            "s5527_bad.py": "import ssl\n\ncontext = ssl.create_default_context()\ncontext.check_hostname = False\n"
+          },
+          "sources": [
+            "s5527_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Keeps hostname verification enabled on the same SSL context.",
+          "files": {
+            "s5527_good.py": "import ssl\n\ncontext = ssl.create_default_context()\ncontext.check_hostname = True\n"
+          },
+          "sources": [
+            "s5527_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same default-context API without disabling hostname verification.",
+          "files": {
+            "s5527_near_miss.py": "import ssl\n\ndef make_context():\n    return ssl.create_default_context()\n"
+          },
+          "sources": [
+            "s5527_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S5542",
+      "rationale": "ECB or weak block modes reveal structure and provide inadequate confidentiality.",
+      "cases": {
+        "attack": {
+          "description": "Creates the live noncompliant AES ECB cipher.",
+          "files": {
+            "s5542_bad.py": "from Crypto.Cipher import AES\n\ncipher = AES.new(key, AES.MODE_ECB)\n"
+          },
+          "sources": [
+            "s5542_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses authenticated AES-GCM through the same Crypto.Cipher API.",
+          "files": {
+            "s5542_good.py": "from Crypto.Cipher import AES\n\ncipher = AES.new(key, AES.MODE_GCM)\n"
+          },
+          "sources": [
+            "s5542_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses a distinct stream mode with a runtime nonce instead of ECB.",
+          "files": {
+            "s5542_near_miss.py": "from Crypto.Cipher import AES\n\ndef make_cipher(key, nonce):\n    return AES.new(key, AES.MODE_CTR, nonce=nonce)\n"
+          },
+          "sources": [
+            "s5542_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S5547",
+      "rationale": "Legacy DES cipher usage is no longer considered a robust encryption choice.",
+      "cases": {
+        "attack": {
+          "description": "Instantiates the weak DES cipher through the live Crypto.Cipher example.",
+          "files": {
+            "s5547_bad.py": "from Crypto.Cipher import DES\n\ncipher = DES.new(key, DES.MODE_OFB)\n"
+          },
+          "sources": [
+            "s5547_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses authenticated AES-CCM rather than a legacy cipher.",
+          "files": {
+            "s5547_good.py": "from Crypto.Cipher import AES\n\ncipher = AES.new(key, AES.MODE_CCM)\n"
+          },
+          "sources": [
+            "s5547_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same cipher family with AES-CTR and a runtime nonce.",
+          "files": {
+            "s5547_near_miss.py": "from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes\n\ndef make_cipher(key, nonce):\n    return Cipher(algorithms.AES(key), modes.CTR(nonce))\n"
+          },
+          "sources": [
+            "s5547_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S5659",
+      "rationale": "JWT signing with algorithm none permits unsigned token forgery.",
+      "cases": {
+        "attack": {
+          "description": "Disables JWT signature verification and also encodes with algorithm none, covering the live noncompliant forms.",
+          "files": {
+            "s5659_bad.py": "import jwt\n\njwt.decode(token, options={\"verify_signature\": False})\njwt.encode(payload, key, algorithm=\"none\")\n"
+          },
+          "sources": [
+            "s5659_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Decodes and encodes JWTs with an explicit verified HS256 algorithm.",
+          "files": {
+            "s5659_good.py": "import jwt\n\ntoken = jwt.decode(token_text, key, algorithms=[\"HS256\"])\nencoded = jwt.encode(payload, key, algorithm=\"HS256\")\n"
+          },
+          "sources": [
+            "s5659_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same decode API with an explicit asymmetric algorithm and signature verification.",
+          "files": {
+            "s5659_near_miss.py": "import jwt\n\ndef decode_token(token_text, key):\n    return jwt.decode(token_text, key, algorithms=[\"RS256\"], options={\"verify_signature\": True})\n"
+          },
+          "sources": [
+            "s5659_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      },
+      "flow_cases": [
+        {
+          "name": "loaded_jwt_key_helper",
+          "description": "JWT signing receives a key from a loader helper and an explicit approved algorithm instead of a literal or none algorithm.",
+          "files": {
+            "keys.py": "def load_signing_key():\n    return key_store.fetch(\"jwt\")\n",
+            "tokens.py": "import jwt\nfrom keys import load_signing_key\n\ntoken = jwt.encode(claims, load_signing_key(), algorithm=\"HS256\")\n"
+          },
+          "sources": [
+            "keys.py",
+            "tokens.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      ]
+    },
+    {
+      "key": "python:S5852",
+      "rationale": "Overlapping unbounded regex repetitions can cause catastrophic backtracking and denial of service.",
+      "cases": {
+        "attack": {
+          "description": "Runs the live nested repeated expression against attacker-sized input.",
+          "files": {
+            "s5852_bad.py": "import re\n\npayload = \"a\" * 200 + \"!\"\nre.search(r\"(a+)+$\", payload)\n"
+          },
+          "sources": [
+            "s5852_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses an atomic group to prevent overlapping catastrophic backtracking.",
+          "files": {
+            "s5852_good.py": "import re\n\npayload = \"a\" * 200 + \"!\"\nre.search(r\"(?>a+)+$\", payload)\n"
+          },
+          "sources": [
+            "s5852_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses a bounded-shape repeated group without nested overlapping quantifiers.",
+          "files": {
+            "s5852_near_miss.py": "import re\n\npayload = \"ab\" * 100\nre.search(r\"(?:ab)+$\", payload)\n"
+          },
+          "sources": [
+            "s5852_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6245",
+      "rationale": "An S3 bucket without default server-side encryption may store data at rest unprotected.",
+      "cases": {
+        "attack": {
+          "description": "Creates an S3 bucket without an encryption configuration.",
+          "files": {
+            "s6245_bad.py": "s3.create_bucket(Bucket='b')\n"
+          },
+          "sources": [
+            "s6245_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Supplies the existing server-side encryption configuration.",
+          "files": {
+            "s6245_good.py": "s3.create_bucket(Bucket='b', ServerSideEncryptionConfiguration={'Rules': []})\n"
+          },
+          "sources": [
+            "s6245_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same API with an explicit AES256 default encryption rule.",
+          "files": {
+            "s6245_near_miss.py": "s3.create_bucket(Bucket=\"logs\", ServerSideEncryptionConfiguration={\"Rules\": [{\"ApplyServerSideEncryptionByDefault\": {\"SSEAlgorithm\": \"AES256\"}}]})\n"
+          },
+          "sources": [
+            "s6245_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      },
+      "unavailable_prerequisites": [
+        "Live Community metadata probe for /api/rules/show?key=python:S6245 returned HTTP 404; no owning execution contract was available."
+      ]
+    },
+    {
+      "key": "python:S6252",
+      "rationale": "An S3 bucket without versioning cannot recover overwritten or deleted object versions.",
+      "cases": {
+        "attack": {
+          "description": "Creates an AWS CDK S3 bucket with versioning explicitly disabled, matching the live example.",
+          "files": {
+            "s6252_bad.py": "from aws_cdk import aws_s3 as s3\n\nbucket = s3.Bucket(self, \"bucket\", versioned=False)\n"
+          },
+          "sources": [
+            "s6252_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Creates the same CDK bucket with versioning enabled.",
+          "files": {
+            "s6252_good.py": "from aws_cdk import aws_s3 as s3\n\nbucket = s3.Bucket(self, \"bucket\", versioned=True)\n"
+          },
+          "sources": [
+            "s6252_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same bucket API with a runtime versioning policy rather than a disabled literal.",
+          "files": {
+            "s6252_near_miss.py": "from aws_cdk import aws_s3 as s3\n\ndef configured_bucket(versioning):\n    return s3.Bucket(self, \"logs\", versioned=versioning)\n"
+          },
+          "sources": [
+            "s6252_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6265",
+      "rationale": "A public S3 object ACL exposes stored objects to unauthenticated readers.",
+      "cases": {
+        "attack": {
+          "description": "Grants public-read-write access through the live CDK bucket and deployment APIs.",
+          "files": {
+            "s6265_bad.py": "import aws_cdk.aws_s3 as s3\nimport aws_cdk.aws_s3_deployment as s3deploy\n\nbucket = s3.Bucket(\n    self,\n    \"bucket\",\n    access_control=s3.BucketAccessControl.PUBLIC_READ_WRITE,\n)\ns3deploy.BucketDeployment(\n    self,\n    \"DeployWebsite\",\n    access_control=s3.BucketAccessControl.PUBLIC_READ_WRITE,\n)\n"
+          },
+          "sources": [
+            "s6265_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses private access control for both the CDK bucket and deployment.",
+          "files": {
+            "s6265_good.py": "import aws_cdk.aws_s3 as s3\nimport aws_cdk.aws_s3_deployment as s3deploy\n\nbucket = s3.Bucket(\n    self,\n    \"bucket\",\n    access_control=s3.BucketAccessControl.PRIVATE,\n)\ns3deploy.BucketDeployment(\n    self,\n    \"DeployWebsite\",\n    access_control=s3.BucketAccessControl.PRIVATE,\n)\n"
+          },
+          "sources": [
+            "s6265_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same bucket API with a provider/configured access-control value.",
+          "files": {
+            "s6265_near_miss.py": "import aws_cdk.aws_s3 as s3\n\naccess_policy = s3.BucketAccessControl.PRIVATE\nbucket = s3.Bucket(self, \"logs\", access_control=access_policy)\n"
+          },
+          "sources": [
+            "s6265_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6270",
+      "rationale": "A resource policy granting Principal * permits unintended public access.",
+      "cases": {
+        "attack": {
+          "description": "Adds an AWS CDK resource policy for AnyPrincipal, matching the live public-access example.",
+          "files": {
+            "s6270_bad.py": "from aws_cdk.aws_iam import AnyPrincipal, Effect, PolicyStatement\nfrom aws_cdk.aws_s3 import Bucket\n\nbucket = Bucket(self, \"ExampleBucket\")\nbucket.add_to_resource_policy(PolicyStatement(\n    effect=Effect.ALLOW,\n    actions=[\"s3:*\"],\n    resources=[bucket.arn_for_objects(\"*\")],\n    principals=[AnyPrincipal()],\n))\n"
+          },
+          "sources": [
+            "s6270_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Scopes the same resource policy to AccountRootPrincipal rather than a public principal.",
+          "files": {
+            "s6270_good.py": "from aws_cdk.aws_iam import AccountRootPrincipal, Effect, PolicyStatement\nfrom aws_cdk.aws_s3 import Bucket\n\nbucket = Bucket(self, \"ExampleBucket\")\nbucket.add_to_resource_policy(PolicyStatement(\n    effect=Effect.ALLOW,\n    actions=[\"s3:*\"],\n    resources=[bucket.arn_for_objects(\"*\")],\n    principals=[AccountRootPrincipal()],\n))\n"
+          },
+          "sources": [
+            "s6270_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same policy attachment API with a named role principal and scoped object resource.",
+          "files": {
+            "s6270_near_miss.py": "from aws_cdk.aws_iam import Effect, PolicyStatement\nfrom aws_cdk.aws_s3 import Bucket\n\nbucket = Bucket(self, \"ExampleBucket\")\nprincipal = role_principal\nbucket.add_to_resource_policy(PolicyStatement(\n    effect=Effect.ALLOW,\n    actions=[\"s3:GetObject\"],\n    resources=[bucket.arn_for_objects(\"reports/*\")],\n    principals=[principal],\n))\n"
+          },
+          "sources": [
+            "s6270_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6275",
+      "rationale": "An unencrypted EBS volume can expose data at rest if the storage is accessed.",
+      "cases": {
+        "attack": {
+          "description": "Creates the live AWS CDK EBS Volume without encrypted=True.",
+          "files": {
+            "s6275_bad.py": "from aws_cdk.aws_ec2 import Volume\n\nclass EBSVolumeStack(Stack):\n    def __init__(self, scope, construct_id, **kwargs):\n        super().__init__(scope, construct_id, **kwargs)\n        Volume(\n            self,\n            \"example-volume\",\n            availability_zone=\"eu-west-1a\",\n            size=Size.gibibytes(1),\n        )\n"
+          },
+          "sources": [
+            "s6275_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Creates the same CDK EBS Volume with encryption enabled.",
+          "files": {
+            "s6275_good.py": "from aws_cdk.aws_ec2 import Volume\n\nclass EBSVolumeStack(Stack):\n    def __init__(self, scope, construct_id, **kwargs):\n        super().__init__(scope, construct_id, **kwargs)\n        Volume(\n            self,\n            \"example-volume\",\n            availability_zone=\"eu-west-1a\",\n            size=Size.gibibytes(1),\n            encrypted=True,\n        )\n"
+          },
+          "sources": [
+            "s6275_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same Volume API with encryption controlled by a runtime policy.",
+          "files": {
+            "s6275_near_miss.py": "from aws_cdk.aws_ec2 import Volume\n\ndef make_volume(encrypted):\n    return Volume(\n        self,\n        \"runtime-volume\",\n        availability_zone=\"eu-west-1a\",\n        size=Size.gibibytes(1),\n        encrypted=encrypted,\n    )\n"
+          },
+          "sources": [
+            "s6275_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6281",
+      "rationale": "An S3 bucket without a public-access block can be exposed by later ACL or policy changes.",
+      "cases": {
+        "attack": {
+          "description": "Leaves one public-access block disabled in the live CDK BlockPublicAccess configuration.",
+          "files": {
+            "s6281_bad.py": "from aws_cdk import aws_s3 as s3\n\nbucket = s3.Bucket(\n    self,\n    \"bucket\",\n    block_public_access=s3.BlockPublicAccess(\n        block_public_acls=False,\n        ignore_public_acls=True,\n        block_public_policy=True,\n        restrict_public_buckets=True,\n    ),\n)\n"
+          },
+          "sources": [
+            "s6281_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Enables all four public-access blocking controls.",
+          "files": {
+            "s6281_good.py": "from aws_cdk import aws_s3 as s3\n\nbucket = s3.Bucket(\n    self,\n    \"bucket\",\n    block_public_access=s3.BlockPublicAccess(\n        block_public_acls=True,\n        ignore_public_acls=True,\n        block_public_policy=True,\n        restrict_public_buckets=True,\n    ),\n)\n"
+          },
+          "sources": [
+            "s6281_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same bucket API with a runtime BlockPublicAccess policy rather than a partial literal.",
+          "files": {
+            "s6281_near_miss.py": "from aws_cdk import aws_s3 as s3\n\ndef make_bucket(blocker):\n    return s3.Bucket(self, \"configured\", block_public_access=blocker)\n"
+          },
+          "sources": [
+            "s6281_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      },
+      "flow_cases": [
+        {
+          "name": "cdk_bucket_alias_with_blocker",
+          "description": "An aliased CDK S3 import constructs a private bucket with BLOCK_ALL public-access settings.",
+          "files": {
+            "storage.py": "from aws_cdk import aws_s3 as storage\n\nassets = storage.Bucket(scope, \"assets\", block_public_access=storage.BlockPublicAccess.BLOCK_ALL)\n"
+          },
+          "sources": [
+            "storage.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      ]
+    },
+    {
+      "key": "python:S6302",
+      "rationale": "An IAM policy granting every action violates least privilege.",
+      "cases": {
+        "attack": {
+          "description": "Grants every action in an AWS CDK policy statement, matching the live wildcard-action example.",
+          "files": {
+            "s6302_bad.py": "from aws_cdk.aws_iam import Effect, PolicyStatement\n\npolicy = PolicyStatement(\n    effect=Effect.ALLOW,\n    actions=[\"*\"],\n    resources=[\"arn:aws:iam:::user/*\"],\n)\n"
+          },
+          "sources": [
+            "s6302_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Limits the same policy statement to the required IAM action.",
+          "files": {
+            "s6302_good.py": "from aws_cdk.aws_iam import Effect, PolicyStatement\n\npolicy = PolicyStatement(\n    effect=Effect.ALLOW,\n    actions=[\"iam:GetAccountSummary\"],\n    resources=[\"arn:aws:iam:::user/*\"],\n)\n"
+          },
+          "sources": [
+            "s6302_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same policy API with one named action and a scoped resource.",
+          "files": {
+            "s6302_near_miss.py": "from aws_cdk.aws_iam import Effect, PolicyStatement\n\npolicy = PolicyStatement(\n    effect=Effect.ALLOW,\n    actions=[\"s3:GetObject\"],\n    resources=[\"arn:aws:s3:::app/*\"],\n)\n"
+          },
+          "sources": [
+            "s6302_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6303",
+      "rationale": "An RDS cluster without storage encryption exposes database data at rest.",
+      "cases": {
+        "attack": {
+          "description": "Creates the live AWS CDK DatabaseCluster with its default unencrypted storage.",
+          "files": {
+            "s6303_bad.py": "from aws_cdk import aws_rds as rds\n\nclass DatabaseStack(Stack):\n    def __init__(self, scope, construct_id, **kwargs):\n        super().__init__(scope, construct_id, **kwargs)\n        rds.DatabaseCluster(self, \"example\")\n"
+          },
+          "sources": [
+            "s6303_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Enables storage encryption on the same CDK DatabaseCluster.",
+          "files": {
+            "s6303_good.py": "from aws_cdk import aws_rds as rds\n\nclass DatabaseStack(Stack):\n    def __init__(self, scope, construct_id, **kwargs):\n        super().__init__(scope, construct_id, **kwargs)\n        rds.DatabaseCluster(self, \"example\", storage_encrypted=True)\n"
+          },
+          "sources": [
+            "s6303_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same DatabaseCluster API with an environment-controlled encryption value.",
+          "files": {
+            "s6303_near_miss.py": "from aws_cdk import aws_rds as rds\n\ndef make_cluster(encrypted):\n    return rds.DatabaseCluster(self, \"analytics\", storage_encrypted=encrypted)\n"
+          },
+          "sources": [
+            "s6303_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6304",
+      "rationale": "An IAM policy granting actions on every resource is overly broad.",
+      "cases": {
+        "attack": {
+          "description": "Grants an IAM policy-version action on every resource through the live PolicyDocument example.",
+          "files": {
+            "s6304_bad.py": "from aws_cdk.aws_iam import Effect, PolicyDocument, PolicyStatement\n\nPolicyDocument(\n    statements=[\n        PolicyStatement(\n            effect=Effect.ALLOW,\n            actions=\"iam:CreatePolicyVersion\",\n            resources=[\"*\"],\n        )\n    ]\n)\n"
+          },
+          "sources": [
+            "s6304_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Scopes the IAM action to the team policy ARN.",
+          "files": {
+            "s6304_good.py": "from aws_cdk import Aws\nfrom aws_cdk.aws_iam import Effect, PolicyDocument, PolicyStatement\n\nPolicyDocument(\n    statements=[\n        PolicyStatement(\n            effect=Effect.ALLOW,\n            actions=\"iam:CreatePolicyVersion\",\n            resources=[f\"arn:aws:iam::{Aws.ACCOUNT_ID}:policy/team1/*\"],\n        )\n    ]\n)\n"
+          },
+          "sources": [
+            "s6304_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same PolicyDocument and action with a caller-supplied scoped resource.",
+          "files": {
+            "s6304_near_miss.py": "from aws_cdk.aws_iam import Effect, PolicyDocument, PolicyStatement\n\ndef team_policy(resource_arn):\n    return PolicyDocument(statements=[PolicyStatement(\n        effect=Effect.ALLOW,\n        actions=\"iam:CreatePolicyVersion\",\n        resources=[resource_arn],\n    )])\n"
+          },
+          "sources": [
+            "s6304_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6308",
+      "rationale": "An OpenSearch domain without encryption at rest can expose indexed data.",
+      "cases": {
+        "attack": {
+          "description": "Creates the live OpenSearch Domain without encryption_at_rest.",
+          "files": {
+            "s6308_bad.py": "from aws_cdk.aws_opensearchservice import Domain, EngineVersion\n\nclass DomainStack(Stack):\n    def __init__(self, scope, construct_id, **kwargs):\n        super().__init__(scope, construct_id, **kwargs)\n        Domain(self, \"ExampleDomain\", version=EngineVersion.OPENSEARCH_1_3)\n"
+          },
+          "sources": [
+            "s6308_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Enables encryption at rest on the same OpenSearch Domain.",
+          "files": {
+            "s6308_good.py": "from aws_cdk.aws_opensearchservice import Domain, EncryptionAtRestOptions, EngineVersion\n\nclass DomainStack(Stack):\n    def __init__(self, scope, construct_id, **kwargs):\n        super().__init__(scope, construct_id, **kwargs)\n        Domain(\n            self,\n            \"ExampleDomain\",\n            version=EngineVersion.OPENSEARCH_1_3,\n            encryption_at_rest=EncryptionAtRestOptions(enabled=True),\n        )\n"
+          },
+          "sources": [
+            "s6308_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same Domain API with encryption supplied by deployment configuration.",
+          "files": {
+            "s6308_near_miss.py": "from aws_cdk.aws_opensearchservice import Domain, EncryptionAtRestOptions\n\ndef make_domain(encrypted):\n    return Domain(\n        self,\n        \"private-logs\",\n        encryption_at_rest=EncryptionAtRestOptions(enabled=encrypted),\n    )\n"
+          },
+          "sources": [
+            "s6308_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6317",
+      "rationale": "An IAM action wildcard resource permits code updates outside the intended function.",
+      "cases": {
+        "attack": {
+          "description": "Allows a Lambda update action against every resource in a PolicyDocument.",
+          "files": {
+            "s6317_bad.py": "from aws_cdk.aws_iam import Effect, PolicyDocument, PolicyStatement\n\nPolicyDocument(\n    statements=[\n        PolicyStatement(\n            effect=Effect.ALLOW,\n            actions=[\"lambda:UpdateFunctionCode\"],\n            resources=[\"*\"],\n        )\n    ]\n)\n"
+          },
+          "sources": [
+            "s6317_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Scopes the Lambda update action to a single function ARN.",
+          "files": {
+            "s6317_good.py": "from aws_cdk.aws_iam import Effect, PolicyDocument, PolicyStatement\n\nPolicyDocument(\n    statements=[\n        PolicyStatement(\n            effect=Effect.ALLOW,\n            actions=[\"lambda:UpdateFunctionCode\"],\n            resources=[\"arn:aws:lambda:us-east-2:123456789012:function:my-function:1\"],\n        )\n    ]\n)\n"
+          },
+          "sources": [
+            "s6317_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same policy API with a runtime function ARN rather than a wildcard resource.",
+          "files": {
+            "s6317_near_miss.py": "from aws_cdk.aws_iam import Effect, PolicyDocument, PolicyStatement\n\ndef worker_policy(function_arn):\n    return PolicyDocument(statements=[PolicyStatement(\n        effect=Effect.ALLOW,\n        actions=[\"lambda:UpdateFunctionCode\"],\n        resources=[function_arn],\n    )])\n"
+          },
+          "sources": [
+            "s6317_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6319",
+      "rationale": "A SageMaker notebook without a KMS key may store notebooks unencrypted.",
+      "cases": {
+        "attack": {
+          "description": "Creates the live SageMaker notebook instance without a KMS key.",
+          "files": {
+            "s6319_bad.py": "from aws_cdk import aws_sagemaker as sagemaker\n\nclass CfnSagemakerStack(Stack):\n    def __init__(self, scope, construct_id, **kwargs):\n        super().__init__(scope, construct_id, **kwargs)\n        sagemaker.CfnNotebookInstance(\n            self,\n            \"Example\",\n            instance_type=\"instanceType\",\n            role_arn=\"roleArn\",\n        )\n"
+          },
+          "sources": [
+            "s6319_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Supplies a CDK KMS key to encrypt the SageMaker notebook instance.",
+          "files": {
+            "s6319_good.py": "from aws_cdk import aws_kms as kms\nfrom aws_cdk import aws_sagemaker as sagemaker\n\nclass CfnSagemakerStack(Stack):\n    def __init__(self, scope, construct_id, **kwargs):\n        super().__init__(scope, construct_id, **kwargs)\n        my_key = kms.Key(self, \"Key\")\n        sagemaker.CfnNotebookInstance(\n            self,\n            \"Example\",\n            instance_type=\"instanceType\",\n            role_arn=\"roleArn\",\n            kms_key_id=my_key.key_id,\n        )\n"
+          },
+          "sources": [
+            "s6319_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same notebook API with a deployment-supplied KMS key identifier.",
+          "files": {
+            "s6319_near_miss.py": "from aws_cdk import aws_sagemaker as sagemaker\n\ndef make_notebook(kms_key_id):\n    return sagemaker.CfnNotebookInstance(\n        self,\n        \"configured-notebook\",\n        instance_type=\"ml.t2.medium\",\n        role_arn=\"roleArn\",\n        kms_key_id=kms_key_id,\n    )\n"
+          },
+          "sources": [
+            "s6319_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6321",
+      "rationale": "An SSH ingress rule open to the world permits administrative access from arbitrary networks.",
+      "cases": {
+        "attack": {
+          "description": "Allows TCP port 22 from 0.0.0.0/0.",
+          "files": {
+            "s6321_bad.py": "from aws_cdk import aws_ec2 as ec2\n\ningress = ec2.CfnSecurityGroupIngress(\n    scope,\n    \"ssh\",\n    ip_protocol=\"tcp\",\n    cidr_ip=\"0.0.0.0/0\",\n    from_port=22,\n    to_port=22,\n    group_id=\"sg-0123\",\n)\n\n"
+          },
+          "sources": [
+            "s6321_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Restricts SSH ingress to an office CIDR.",
+          "files": {
+            "s6321_good.py": "from aws_cdk import aws_ec2 as ec2\n\ningress = ec2.CfnSecurityGroupIngress(\n    scope,\n    \"ssh\",\n    ip_protocol=\"tcp\",\n    cidr_ip=\"192.0.2.0/24\",\n    from_port=22,\n    to_port=22,\n    group_id=\"sg-0123\",\n)\n\n"
+          },
+          "sources": [
+            "s6321_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same ingress API with a different documentation CIDR.",
+          "files": {
+            "s6321_near_miss.py": "from aws_cdk import aws_ec2 as ec2\n\ningress = ec2.CfnSecurityGroupIngress(scope, \"ssh-office\", ip_protocol=\"tcp\", cidr_ip=\"198.51.100.0/24\", from_port=22, to_port=22, group_id=\"sg-0456\")\n"
+          },
+          "sources": [
+            "s6321_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6327",
+      "rationale": "An SNS topic without a KMS key may publish data without server-side encryption.",
+      "cases": {
+        "attack": {
+          "description": "Creates the live SNS Topic without a customer-managed master key.",
+          "files": {
+            "s6327_bad.py": "from aws_cdk import aws_sns as sns\n\nclass TopicStack(Stack):\n    def __init__(self, scope, construct_id, **kwargs):\n        super().__init__(scope, construct_id, **kwargs)\n        sns.Topic(self, \"example\")\n"
+          },
+          "sources": [
+            "s6327_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Supplies a CDK KMS key to the SNS Topic.",
+          "files": {
+            "s6327_good.py": "from aws_cdk import aws_kms as kms\nfrom aws_cdk import aws_sns as sns\n\nclass TopicStack(Stack):\n    def __init__(self, scope, construct_id, **kwargs):\n        super().__init__(scope, construct_id, **kwargs)\n        my_key = kms.Key(self, \"key\")\n        sns.Topic(self, \"example\", master_key=my_key)\n"
+          },
+          "sources": [
+            "s6327_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same SNS Topic API with a runtime-provided encryption key.",
+          "files": {
+            "s6327_near_miss.py": "from aws_cdk import aws_sns as sns\n\ndef make_topic(encryption_key):\n    return sns.Topic(self, \"audit\", master_key=encryption_key)\n"
+          },
+          "sources": [
+            "s6327_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6329",
+      "rationale": "Public network placement can expose cloud resources to unintended internet access.",
+      "cases": {
+        "attack": {
+          "description": "Places an EC2 instance in a public subnet, matching the live public-network example.",
+          "files": {
+            "s6329_bad.py": "from aws_cdk import aws_ec2 as ec2\n\ninstance = ec2.Instance(\n    self,\n    \"vpc_subnet_example\",\n    instance_type=nano_t2,\n    machine_image=ec2.MachineImage.latest_amazon_linux(),\n    vpc=vpc,\n    vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),\n)\n"
+          },
+          "sources": [
+            "s6329_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Places the same EC2 instance in a private subnet with egress.",
+          "files": {
+            "s6329_good.py": "from aws_cdk import aws_ec2 as ec2\n\ninstance = ec2.Instance(\n    self,\n    \"vpc_subnet_example\",\n    instance_type=nano_t2,\n    machine_image=ec2.MachineImage.latest_amazon_linux(),\n    vpc=vpc,\n    vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),\n)\n"
+          },
+          "sources": [
+            "s6329_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same EC2 subnet-selection API with a deployment-supplied subnet type.",
+          "files": {
+            "s6329_near_miss.py": "from aws_cdk import aws_ec2 as ec2\n\ndef make_instance(subnet_type):\n    return ec2.Instance(\n        self,\n        \"configured-instance\",\n        instance_type=nano_t2,\n        machine_image=ec2.MachineImage.latest_amazon_linux(),\n        vpc=vpc,\n        vpc_subnets=ec2.SubnetSelection(subnet_type=subnet_type),\n    )\n"
+          },
+          "sources": [
+            "s6329_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6330",
+      "rationale": "An SQS queue without a KMS key may store messages without customer-managed encryption.",
+      "cases": {
+        "attack": {
+          "description": "Creates the live SQS queue with managed server-side encryption disabled.",
+          "files": {
+            "s6330_bad.py": "from aws_cdk import aws_sqs as sqs\n\nclass CfnQueueStack(Stack):\n    def __init__(self, scope, construct_id, **kwargs):\n        super().__init__(scope, construct_id, **kwargs)\n        sqs.CfnQueue(self, \"example\", sqs_managed_sse_enabled=False)\n"
+          },
+          "sources": [
+            "s6330_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Enables managed server-side encryption on the same SQS queue.",
+          "files": {
+            "s6330_good.py": "from aws_cdk import aws_sqs as sqs\n\nclass CfnQueueStack(Stack):\n    def __init__(self, scope, construct_id, **kwargs):\n        super().__init__(scope, construct_id, **kwargs)\n        sqs.CfnQueue(self, \"example\", sqs_managed_sse_enabled=True)\n"
+          },
+          "sources": [
+            "s6330_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same queue API with an explicit runtime encryption policy.",
+          "files": {
+            "s6330_near_miss.py": "from aws_cdk import aws_sqs as sqs\n\ndef make_queue(enabled):\n    return sqs.CfnQueue(self, \"configured\", sqs_managed_sse_enabled=enabled)\n"
+          },
+          "sources": [
+            "s6330_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6332",
+      "rationale": "An EFS file system without encryption can expose shared data at rest.",
+      "cases": {
+        "attack": {
+          "description": "Creates an EFS file system with encrypted=False.",
+          "files": {
+            "s6332_bad.py": "from aws_cdk import aws_efs as efs\n\nfilesystem = efs.FileSystem(scope, \"data\", encrypted=False)\n\n"
+          },
+          "sources": [
+            "s6332_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Creates it with encrypted=True.",
+          "files": {
+            "s6332_good.py": "from aws_cdk import aws_efs as efs\n\nfilesystem = efs.FileSystem(scope, \"data\", encrypted=True)\n\n"
+          },
+          "sources": [
+            "s6332_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same API with encryption enabled for a private data volume.",
+          "files": {
+            "s6332_near_miss.py": "from aws_cdk import aws_efs as efs\n\nfilesystem = efs.FileSystem(scope, \"private-data\", encrypted=True)\n"
+          },
+          "sources": [
+            "s6332_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6333",
+      "rationale": "An API Gateway route without authorization permits unauthenticated access.",
+      "cases": {
+        "attack": {
+          "description": "Creates a route with authorization_type=NONE.",
+          "files": {
+            "s6333_bad.py": "from aws_cdk import aws_apigatewayv2 as apigateway\n\nroute = apigateway.CfnRoute(\n    scope,\n    \"route\",\n    api_id=\"api\",\n    route_key=\"GET /items\",\n    authorization_type=\"NONE\",\n)\n\n"
+          },
+          "sources": [
+            "s6333_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses AWS_IAM authorization.",
+          "files": {
+            "s6333_good.py": "from aws_cdk import aws_apigatewayv2 as apigateway\n\nroute = apigateway.CfnRoute(\n    scope,\n    \"route\",\n    api_id=\"api\",\n    route_key=\"GET /items\",\n    authorization_type=\"AWS_IAM\",\n)\n\n"
+          },
+          "sources": [
+            "s6333_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses a custom authorizer on the same route API.",
+          "files": {
+            "s6333_near_miss.py": "from aws_cdk import aws_apigatewayv2 as apigateway\n\nroute = apigateway.CfnRoute(scope, \"admin\", api_id=\"api\", route_key=\"POST /admin\", authorization_type=\"CUSTOM\", authorizer_id=\"auth\")\n"
+          },
+          "sources": [
+            "s6333_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6377",
+      "rationale": "XML signature verification without trusted certificate validation can accept forged signatures.",
+      "cases": {
+        "attack": {
+          "description": "Verifies an XML signature without supplying a trusted X.509 certificate, matching the live example.",
+          "files": {
+            "s6377_bad.py": "from lxml import etree\nfrom signxml import XMLVerifier\n\nxml_file = open(\"signed.xml\", \"rb\")\nxml = etree.parse(xml_file)\nXMLVerifier().verify(xml)\n"
+          },
+          "sources": [
+            "s6377_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Supplies a trusted X.509 certificate to the same XMLVerifier API.",
+          "files": {
+            "s6377_good.py": "from lxml import etree\nfrom signxml import XMLVerifier\n\nxml_file = open(\"signed.xml\", \"rb\")\nxml = etree.parse(xml_file)\ncert_file = open(\"cert.pem\", \"rb\")\ncert = cert_file.read()\nXMLVerifier().verify(xml, x509_cert=cert)\n"
+          },
+          "sources": [
+            "s6377_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same verifier API with a caller-supplied certificate and expected configuration.",
+          "files": {
+            "s6377_near_miss.py": "from lxml import etree\nfrom signxml import XMLVerifier\n\ndef verify_signed(xml, cert):\n    return XMLVerifier().verify(xml, x509_cert=cert, expect_config=expected_config)\n"
+          },
+          "sources": [
+            "s6377_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6418",
+      "rationale": "A recognizable API token in source can grant access after repository disclosure.",
+      "cases": {
+        "attack": {
+          "description": "Hard-codes an API key and sends it in an Authorization header, matching the live secret example.",
+          "files": {
+            "s6418_bad.py": "import requests\n\nAPI_KEY = \"1234567890abcdef\"\n\ndef send_api_request(data):\n    headers = {\"Authorization\": f\"Bearer {API_KEY}\"}\n    return requests.post(\"https://api.example.com\", headers=headers, data=data)\n"
+          },
+          "sources": [
+            "s6418_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Retrieves the API key from AWS Secrets Manager before sending the request.",
+          "files": {
+            "s6418_good.py": "import boto3\nimport requests\n\nSECRET_NAME = \"MY_API_KEY\"\nclient = boto3.client(\"secretsmanager\")\nsecret = client.get_secret_value(SecretId=SECRET_NAME)\n\ndef send_api_request(data):\n    headers = {\"Authorization\": f'Bearer {secret[\"SecretString\"]}'}\n    return requests.post(\"https://api.example.com\", headers=headers, data=data)\n"
+          },
+          "sources": [
+            "s6418_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same outbound request shape with a token obtained from the environment.",
+          "files": {
+            "s6418_near_miss.py": "import os\nimport requests\n\napi_token = os.environ[\"API_TOKEN\"]\ndef send_api_request(data):\n    return requests.post(\"https://api.example.com\", headers={\"Authorization\": api_token}, data=data)\n"
+          },
+          "sources": [
+            "s6418_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      },
+      "flow_cases": [
+        {
+          "name": "vault_secret_flow_across_files",
+          "description": "A secret provider helper returns the API token to a caller without embedding credential-shaped material in either file.",
+          "files": {
+            "secrets_store.py": "def load_api_token(vault):\n    return vault.fetch(\"api-token\")\n",
+            "app.py": "from secrets_store import load_api_token\n\napi_token = load_api_token(vault)\n"
+          },
+          "sources": [
+            "secrets_store.py",
+            "app.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      ]
+    },
+    {
+      "key": "python:S6437",
+      "rationale": "Credential values passed as source literals can be recovered and abused after disclosure.",
+      "cases": {
+        "attack": {
+          "description": "Passes a hard-coded OAuth client secret to fetch_token, matching the live credential example.",
+          "files": {
+            "s6437_bad.py": "from requests_oauthlib.oauth2_session import OAuth2Session\n\nscope = [\"https://www.api.example.com/auth/example.data\"]\noauth = OAuth2Session(\n    \"example_client_id\",\n    redirect_uri=\"https://callback.example.com/uri\",\n    scope=scope,\n)\noauth.fetch_token(\n    \"https://api.example.com/o/oauth2/token\",\n    client_secret=\"example_Password\",\n)\n"
+          },
+          "sources": [
+            "s6437_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Loads the OAuth client secret from the environment before fetch_token.",
+          "files": {
+            "s6437_good.py": "import os\nfrom requests_oauthlib.oauth2_session import OAuth2Session\n\nscope = [\"https://www.api.example.com/auth/example.data\"]\noauth = OAuth2Session(\n    \"example_client_id\",\n    redirect_uri=\"https://callback.example.com/uri\",\n    scope=scope,\n)\npassword = os.environ.get(\"OAUTH_SECRET\")\noauth.fetch_token(\n    \"https://api.example.com/o/oauth2/token\",\n    client_secret=password,\n)\n"
+          },
+          "sources": [
+            "s6437_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same OAuth2Session fetch API with a differently named environment-backed secret.",
+          "files": {
+            "s6437_near_miss.py": "import os\nfrom requests_oauthlib.oauth2_session import OAuth2Session\n\nscope = [\"https://www.api.example.com/auth/example.data\"]\noauth = OAuth2Session(\"example_client_id\", redirect_uri=\"https://callback.example.com/uri\", scope=scope)\nclient_secret = os.getenv(\"OAUTH_CLIENT_SECRET\")\noauth.fetch_token(\"https://api.example.com/o/oauth2/token\", client_secret=client_secret)\n"
+          },
+          "sources": [
+            "s6437_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6463",
+      "rationale": "A security group allowing all outbound traffic weakens egress control.",
+      "cases": {
+        "attack": {
+          "description": "Creates a CDK security group with default unrestricted outbound access.",
+          "files": {
+            "s6463_bad.py": "from aws_cdk import aws_ec2 as ec2\n\nsecurity_group = ec2.SecurityGroup(scope, \"app\", vpc=vpc)\n\n"
+          },
+          "sources": [
+            "s6463_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Sets allow_all_outbound=False.",
+          "files": {
+            "s6463_good.py": "from aws_cdk import aws_ec2 as ec2\n\nsecurity_group = ec2.SecurityGroup(\n    scope,\n    \"app\",\n    vpc=vpc,\n    allow_all_outbound=False,\n)\n\n"
+          },
+          "sources": [
+            "s6463_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same CDK API with outbound access disabled for an internal group.",
+          "files": {
+            "s6463_near_miss.py": "from aws_cdk import aws_ec2 as ec2\n\nsecurity_group = ec2.SecurityGroup(scope, \"internal\", vpc=vpc, allow_all_outbound=False)\n"
+          },
+          "sources": [
+            "s6463_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6779",
+      "rationale": "A disclosed provider secret can be abused to impersonate the application.",
+      "cases": {
+        "attack": {
+          "description": "Places a literal Flask SECRET_KEY in application configuration, matching the live example.",
+          "files": {
+            "s6779_bad.py": "from flask import Flask\n\napp = Flask(__name__)\napp.config[\"SECRET_KEY\"] = \"secret\"\n"
+          },
+          "sources": [
+            "s6779_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Loads the Flask secret key from the environment.",
+          "files": {
+            "s6779_good.py": "from flask import Flask\nimport os\n\napp = Flask(__name__)\napp.config[\"SECRET_KEY\"] = os.environ[\"SECRET_KEY\"]\n"
+          },
+          "sources": [
+            "s6779_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same Flask configuration API with a provider-returned secret.",
+          "files": {
+            "s6779_near_miss.py": "from flask import Flask\n\ndef load_secret(vault):\n    return vault.fetch(\"flask-secret\")\n\napp = Flask(__name__)\napp.config[\"SECRET_KEY\"] = load_secret(vault)\n"
+          },
+          "sources": [
+            "s6779_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6781",
+      "rationale": "A hard-coded JWT signing key permits token forgery after source disclosure.",
+      "cases": {
+        "attack": {
+          "description": "Uses a hard-coded JWT signing key in the live encode flow.",
+          "files": {
+            "s6781_bad.py": "import jwt\n\nsecret_key = \"secret\"\n\ndef create_access_token(data):\n    return jwt.encode(data, secret_key, algorithm=\"HS256\")\n"
+          },
+          "sources": [
+            "s6781_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses an environment-backed JWT signing key in the same encode flow.",
+          "files": {
+            "s6781_good.py": "import jwt\nimport os\n\nsecret_key = os.environ[\"JWT_SECRET_KEY\"]\n\ndef create_access_token(data):\n    return jwt.encode(data, secret_key, algorithm=\"HS256\")\n"
+          },
+          "sources": [
+            "s6781_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same JWT API with a key returned by a provider helper.",
+          "files": {
+            "s6781_near_miss.py": "import jwt\n\ndef load_signing_key(key_store):\n    return key_store.fetch(\"jwt\")\n\ndef create_access_token(data, key_store):\n    return jwt.encode(data, load_signing_key(key_store), algorithm=\"HS256\")\n"
+          },
+          "sources": [
+            "s6781_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    },
+    {
+      "key": "python:S6785",
+      "rationale": "A GraphQL schema without depth limiting can be exhausted by deeply nested queries.",
+      "cases": {
+        "attack": {
+          "description": "Creates a GraphQL endpoint without a depth-limiting validator, matching the live example.",
+          "files": {
+            "s6785_bad.py": "from graphql_server.flask import GraphQLView\n\napp.add_url_rule(\n    \"/api\",\n    view_func=GraphQLView.as_view(\n        name=\"api\",\n        schema=schema,\n    ),\n)\n"
+          },
+          "sources": [
+            "s6785_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Adds the documented depth_limit_validator to the GraphQL endpoint.",
+          "files": {
+            "s6785_good.py": "from graphene.validation import depth_limit_validator\nfrom graphql_server.flask import GraphQLView\n\napp.add_url_rule(\n    \"/api\",\n    view_func=GraphQLView.as_view(\n        name=\"api\",\n        schema=schema,\n        validation_rules=[depth_limit_validator(10)],\n    ),\n)\n"
+          },
+          "sources": [
+            "s6785_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses a same-named local view class rather than the supported GraphQL framework API.",
+          "files": {
+            "s6785_near_miss.py": "class GraphQLView:\n    @classmethod\n    def as_view(cls, **kwargs):\n        return None\n\nGraphQLView.as_view(schema=schema)\n"
+          },
+          "sources": [
+            "s6785_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      },
+      "flow_cases": [
+        {
+          "name": "depth_limiter_extension_alias",
+          "description": "Builds a real Graphene ObjectType schema, imports depth_limit_validator from a sibling module, applies it with graphql.validate, and rejects validation errors before execution.",
+          "files": {
+            "schema_types.py": "import graphene\n\n\nclass Node(graphene.ObjectType):\n    value = graphene.String()\n    child = graphene.Field(lambda: Node)\n\n\nclass Query(graphene.ObjectType):\n    node = graphene.Field(Node)\n",
+            "depth_rules.py": "from graphene.validation import depth_limit_validator\n",
+            "schema.py": "from graphene import Schema\nfrom graphql import parse, specified_rules, validate\nfrom depth_rules import depth_limit_validator\nfrom schema_types import Query\n\nschema = Schema(query=Query)\n\n\ndef execute_document(document_text):\n    parsed_document = parse(document_text)\n    errors = validate(\n        schema.graphql_schema,\n        parsed_document,\n        rules=specified_rules + (depth_limit_validator(10),),\n    )\n    if errors:\n        raise ValueError(\"; \".join(error.message for error in errors))\n    return schema.execute(document_text)\n"
+          },
+          "sources": [
+            "schema_types.py",
+            "depth_rules.py",
+            "schema.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      ]
+    },
+    {
+      "key": "python:S6786",
+      "rationale": "A GraphQL endpoint with no introspection blocker exposes schema details to clients.",
+      "cases": {
+        "attack": {
+          "description": "Uses the qualified direct-alias controls: supported GraphQLView imports and aliases call as_view without a blocker, so the reference target should report findings.",
+          "files": {
+            "direct_aliases.py": "from graphql_server.flask import GraphQLView\nfrom graphql_server.flask import GraphQLView as GqlView\nfrom flask_graphql import GraphQLView as LegacyView\nfrom graphene.validation import DisableIntrospection as Disable\nfrom graphql.validation import NoSchemaIntrospectionCustomRule as NoIntrospection\n\nGraphQLView.as_view(schema=schema)\nGqlView.as_view(schema=schema, middleware=[])\nLegacyView.as_view(schema=schema)\nGraphQLView.as_view(schema=schema, middleware=[IntrospectionMiddleware])\nGraphQLView.as_view(schema=schema, middleware=(IntrospectionMiddleware,))\nGraphQLView.as_view(schema=schema, middleware={IntrospectionMiddleware})\nGraphQLView.as_view(schema=schema, validation_rules=[Disable])\nGraphQLView.as_view(schema=schema, validation_rules=(NoIntrospection,))\nGraphQLView.as_view(schema=schema, validation_rules={Disable})\n"
+          },
+          "sources": [
+            "direct_aliases.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Uses the qualified GraphQLView API with both documented validation-rule blockers, covering graphene and graphql-core safe FQNs.",
+          "files": {
+            "safe_validation.py": "from graphene.validation import DisableIntrospection\nfrom graphql.validation import NoSchemaIntrospectionCustomRule\nfrom graphql_server.flask import GraphQLView\n\nGraphQLView.as_view(schema=schema, validation_rules=[DisableIntrospection])\nGraphQLView.as_view(schema=schema, validation_rules=(NoSchemaIntrospectionCustomRule,))\n"
+          },
+          "sources": [
+            "safe_validation.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same as_view spelling on a local same-named class, which the qualified project proves is not a supported GraphQLView framework identity.",
+          "files": {
+            "impostor.py": "class GraphQLView:\n    @classmethod\n    def as_view(cls, **kwargs):\n        return None\n\nGraphQLView.as_view(schema=schema)\n"
+          },
+          "sources": [
+            "impostor.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      },
+      "flow_cases": [
+        {
+          "name": "qualified_cross_module_reexport_subclass",
+          "description": "Reuses the qualified cross-module GraphQLView re-export/subclass case and runs it with explicit Python project context.",
+          "files": {
+            "graphql_cases/__init__.py": "",
+            "graphql_cases/framework_aliases.py": "from graphql_server.flask import GraphQLView as ImportedGraphQLView\n\nReExportedGraphQLView = ImportedGraphQLView\n",
+            "graphql_cases/base_views.py": "from graphql_cases.framework_aliases import ReExportedGraphQLView\n\n\nclass BaseGraphQLView(ReExportedGraphQLView):\n    pass\n",
+            "graphql_cases/derived_views.py": "from graphql_cases.base_views import BaseGraphQLView\nfrom graphql.validation import NoSchemaIntrospectionCustomRule\n\n\nclass DerivedGraphQLView(BaseGraphQLView):\n    pass\n\n\nclass IntrospectionMiddleware:\n    pass\n\n\nclass ConfiguredGraphQLView(BaseGraphQLView):\n    middleware = [IntrospectionMiddleware]\n    validation_rules = (NoSchemaIntrospectionCustomRule,)\n\n\nDerivedGraphQLView.as_view(schema=schema)\nConfiguredGraphQLView.as_view(schema=schema)\nConfiguredGraphQLView.as_view(schema=schema, middleware=[])\nConfiguredGraphQLView.as_view(schema=schema, validation_rules=[NoSchemaIntrospectionCustomRule])\n"
+          },
+          "sources": [
+            "graphql_cases/__init__.py",
+            "graphql_cases/framework_aliases.py",
+            "graphql_cases/base_views.py",
+            "graphql_cases/derived_views.py"
+          ],
+          "native_args": [
+            "--python-project",
+            "."
+          ],
+          "sonar_properties": {},
+          "expected_target": true
+        }
+      ]
+    },
+    {
+      "key": "python:S6985",
+      "rationale": "Loading arbitrary serialized model data without weights_only can execute unsafe payloads.",
+      "cases": {
+        "attack": {
+          "description": "Calls torch.load without the safe weights_only option.",
+          "files": {
+            "s6985_bad.py": "import torch\n\ncheckpoint = torch.load(\"model.pt\")\n"
+          },
+          "sources": [
+            "s6985_bad.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": true
+        },
+        "safe": {
+          "description": "Calls torch.load with weights_only=True.",
+          "files": {
+            "s6985_good.py": "import torch\n\ncheckpoint = torch.load(\"model.pt\", weights_only=True)\n"
+          },
+          "sources": [
+            "s6985_good.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
+        "near_miss": {
+          "description": "Uses the same loader API with the safe option for a path variable.",
+          "files": {
+            "s6985_near_miss.py": "import torch\n\ncheckpoint = torch.load(path, weights_only=True)\n"
+          },
+          "sources": [
+            "s6985_near_miss.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        }
+      }
+    }
+  ]
+}

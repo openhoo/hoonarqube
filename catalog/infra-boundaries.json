@@ -161,45 +161,37 @@
       "reason": "requires ASP.NET response metadata project context",
       "implementation_gap": false
     },
-    "javascript:S1438": {
-      "reason": "exact semicolon detection requires token-preserving automatic-semicolon-insertion boundaries",
-      "implementation_gap": true
-    },
     "javascript:S1874": {
       "reason": "deprecated API detection requires semantic symbol resolution and dependency declaration metadata",
-      "implementation_gap": true
+      "implementation_gap": false
     },
     "javascript:S6627": {
       "reason": "internal API import detection requires cross-file module resolution",
-      "implementation_gap": true
+      "implementation_gap": false
     },
     "python:S6786": {
       "reason": "GraphQL introspection detection requires third-party symbol resolution and inheritance semantics",
-      "implementation_gap": true
-    },
-    "typescript:S1438": {
-      "reason": "exact semicolon detection requires token-preserving automatic-semicolon-insertion boundaries",
-      "implementation_gap": true
+      "implementation_gap": false
     },
     "typescript:S1874": {
       "reason": "deprecated API detection requires semantic symbol resolution and dependency declaration metadata",
-      "implementation_gap": true
+      "implementation_gap": false
     },
     "typescript:S4325": {
       "reason": "unnecessary type assertion detection requires TypeScript checker type semantics",
-      "implementation_gap": true
+      "implementation_gap": false
     },
     "typescript:S4328": {
       "reason": "unresolvable import detection requires cross-file module resolution",
-      "implementation_gap": true
+      "implementation_gap": false
     },
     "typescript:S6606": {
       "reason": "nullish-coalescing suggestions require TypeScript checker value and nullability semantics; falsy values such as 0, false, and empty strings must remain distinguishable from null and undefined",
-      "implementation_gap": true
+      "implementation_gap": false
     },
     "typescript:S6627": {
       "reason": "internal API import detection requires cross-file module resolution",
-      "implementation_gap": true
+      "implementation_gap": false
     }
   }
 }

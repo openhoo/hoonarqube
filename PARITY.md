@@ -85,6 +85,13 @@ they must never become a successful zero-finding semantic result. Razor is
 registered with the C# family, but ordinary native dispatch rejects `.razor`;
 trusted compiler-generated and mapped facts require a complete C# project
 context.
+The TypeScript helper delegates configuration resolution to the pinned compiler:
+relative and package-based `extends`, directory or file-form `references`, and
+`include` globs are resolved against the project root plus supplied source
+snapshots. Config files and package manifests actually read are recorded as
+digest-bearing dependencies. Each invocation validates and caches the root
+`tsconfig.json` snapshot by digest, so a later on-disk mutation cannot change
+its options; missing or invalid config/reference input remains incomplete.
 
 ### Current configured worktree qualifications
 
@@ -98,13 +105,21 @@ context.
   worktree qualification, not final published-binary evidence. Its portable
   reference manifest is
   [`tools/oracle/roadmap-jsts-python-reference-20260909.json`](tools/oracle/roadmap-jsts-python-reference-20260909.json).
-- Valid JSX reserved-attribute syntax and valid C# contextual-keyword
-  identifiers named `async`/`await` remain `SourceFacts` limitations. Missing
-  or incomplete facts stay non-pass evidence; they are not safe negatives.
-- C# `S3005` and `S3169` diagnostics may lack a quick-fix attachment; that gap
-  remains unfixed. The exact `S1116` reference edit is correctly refused when
-  its projected result introduces `S1186`; that refusal is not completed fix
-  parity.
+- The parsers accept valid JSX `IdentifierName` element, attribute, member, and
+  namespace names, plus valid C# declarations using contextual `async`/`await`
+  (including `static`/`async` local functions). `S2306` is declaration-only:
+  valid `async`/`await` references are not findings. Missing or incomplete facts
+  remain non-pass evidence; they are not safe negatives.
+- Malformed JavaScript/TypeScript/JSX/C# input, and TypeScript-only JSX syntax
+  supplied through a `.jsx` input, remain fail-closed: project analysis exits
+  `2`, is incomplete, and has duplication unavailable.
+- A bounded working-tree CLI proof covers exact `S3005` attribute removal and
+  framework-`Enumerable` `S3169` replacement. Safe diff/apply/verification/
+  reanalysis goes from target count `1` to `0`; comment-bearing attribute
+  trivia and custom `ThenBy` selected actions exit `1`, leave source unchanged,
+  and retain their diagnostic.
+The exact `S1116` reference edit remains refused when its projected result
+introduces `S1186`; that refusal is not completed fix parity.
 
 Full-corpus comparisons intentionally include malformed-input rows. An
 incomplete malformed-input result remains fail-closed and non-pass (normally
@@ -116,6 +131,8 @@ remains `SECURITY_PARITY_UNVERIFIED` and explicitly preserves Enterprise,
 flow, and secondary-location `UNVERIFIED` states. Its recorded native identity
 `444c56f682998e7e638bd230104bfa1a3628cf57` is historical implementation
 evidence only, not the current checkout `HEAD` or a release identity.
+The separate `#43`/`#44` evidence comparisons remain open; this focused
+qualification does not close them.
 
 These focused results prove only the listed contexts and fixtures. They do not
 equate native syntax support, compiler-context support, or a target-only

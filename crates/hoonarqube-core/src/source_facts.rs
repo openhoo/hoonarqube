@@ -1293,6 +1293,94 @@ type ImportedKeys = keyof import("./module").Widget;
     }
 
     #[test]
+    fn jsx_reserved_attribute_names_produce_complete_original_ranges() {
+        let source = r#"const el = <div class="x" foo="1"></div>;"#;
+        let facts = facts("sample.jsx", source);
+        assert_eq!(facts.language, Language::JavaScript);
+        assert_eq!(facts.metrics.lines, 1);
+        assert_eq!(facts.metrics.code_lines, 1);
+        assert_eq!(facts.metrics.comment_lines, 0);
+        assert!(facts.error.is_none(), "{:?}", facts.error);
+        for name in ["class", "foo"] {
+            let start = source.find(name).expect("reserved JSX attribute");
+            let end = start + name.len();
+            assert!(facts.tokens.iter().any(|token| {
+                token.start_byte as usize == start
+                    && token.end_byte as usize == end
+                    && token.start_line == 1
+                    && token.end_line == 1
+            }));
+        }
+    }
+
+    #[test]
+    fn malformed_jsx_with_reserved_attribute_remains_incomplete() {
+        let facts = facts("sample.jsx", r#"const el = <div class="x" foo="1">"#);
+        assert!(facts.error.is_some(), "{:?}", facts.error);
+        assert_eq!(facts.metrics.lines, 1);
+    }
+
+    #[test]
+    fn jsx_reserved_element_member_and_namespace_names_are_complete() {
+        let source = r#"const el = <><class import="x" /><import:default for="y" /><for.import await="z" /></>;"#;
+        let facts = facts("sample.jsx", source);
+        assert_eq!(facts.language, Language::JavaScript);
+        assert_eq!(facts.metrics.lines, 1);
+        assert_eq!(facts.metrics.code_lines, 1);
+        assert_eq!(facts.metrics.comment_lines, 0);
+        assert!(facts.error.is_none(), "{:?}", facts.error);
+        for name in ["class", "import", "for", "await"] {
+            let start = source.find(name).expect("reserved JSX name");
+            let end = start + name.len();
+            assert!(facts.tokens.iter().any(|token| {
+                token.start_byte as usize == start
+                    && token.end_byte as usize == end
+                    && token.start_line == 1
+                    && token.end_line == 1
+            }));
+        }
+    }
+
+    #[test]
+    fn csharp_contextual_identifiers_produce_complete_facts() {
+        let source =
+            "class C { private int async; private int Get() { int await = async; return await; } }";
+        let facts = facts("sample.cs", source);
+        assert_eq!(facts.language, Language::CSharp);
+        assert!(facts.error.is_none(), "{:?}", facts.error);
+        assert!(!facts.tokens.is_empty());
+        assert!(facts.tokens.iter().all(|token| {
+            let start = token.start_byte as usize;
+            let end = token.end_byte as usize;
+            start <= end && end <= source.len()
+        }));
+    }
+
+    #[test]
+    fn csharp_local_function_modifiers_produce_complete_facts() {
+        let source = "using System.Threading.Tasks;\nclass C { void M() { static int A() => 1; static async Task<int> B() => await Work(); async static Task<int> D() => await Work(); async Task<int> E() => await Work(); } System.Func<Task<int>> f = async () => await Work(); System.Func<Task> g = async delegate { await Work(); }; static Task<int> Work() => Task.FromResult(1); string S(int x) => $\"{x}\"; }";
+        let facts = facts("sample.cs", source);
+        assert_eq!(facts.language, Language::CSharp);
+        assert!(facts.error.is_none(), "{:?}", facts.error);
+        assert!(!facts.tokens.is_empty());
+        assert!(facts.tokens.iter().all(|token| {
+            let start = token.start_byte as usize;
+            let end = token.end_byte as usize;
+            start <= end && end <= source.len()
+        }));
+    }
+
+    #[test]
+    fn malformed_csharp_contextual_identifier_initializer_is_incomplete() {
+        let facts = facts(
+            "sample.cs",
+            "class C { private int async; private int Get() { int await = ; return await; } }",
+        );
+        assert!(facts.error.is_some(), "{:?}", facts.error);
+        assert_eq!(facts.metrics.lines, 1);
+    }
+
+    #[test]
     fn comments_are_not_confused_with_markers_inside_strings() {
         let facts = facts(
             "sample.js",

@@ -2675,4 +2675,121 @@ mod tests {
         );
         assert_no_semantic_finding_at(&blazor_report, "csharpsquid:S6802", &[22, 32]);
     }
+    fn s3169_fixture() -> (OwnedTempDir, PathBuf, &'static str, ProjectSemanticContext) {
+        const PROJECT: &str = r#"<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>
+"#;
+        const SOURCE: &str = r#"using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace Safe
+{
+    public static class SafeCase
+    {
+        public static int[] SafeSort(int[] items) => items.OrderBy(x => x).OrderBy(x => x).ToArray();
+    }
+}
+
+namespace Unsafe
+{
+    public static class OrderingExtensions
+    {
+        public static IOrderedEnumerable<int> ThenBy(
+            this IOrderedEnumerable<int> values,
+            Func<int, int> key) =>
+            throw new InvalidOperationException("synthetic custom extension");
+    }
+
+    public static class UnsafeCase
+    {
+        public static int[] UnsafeSort(int[] items) => items.OrderBy(x => x).OrderBy(x => x).ToArray();
+    }
+}
+"#;
+        let workspace = OwnedTempDir::new("quickfix-s3169");
+        let project = workspace.write("src/QuickFix/QuickFix.csproj", PROJECT);
+        let source_path = workspace.write("src/QuickFix/OrderingCases.cs", SOURCE);
+        let dotnet =
+            env::var_os("HOONARQUBE_DOTNET").map_or_else(|| PathBuf::from("dotnet"), PathBuf::from);
+        restore_fixture_project(&dotnet, &project);
+        let helper = prepare_bundled_helper(&workspace.path().join("helper-cache"))
+            .expect("bundled CSharp helper must build for quickfix regression coverage");
+        let context = ProjectSemanticContext::load(
+            &ProjectSemanticConfig {
+                project: project.clone(),
+                helper: Some(helper),
+                trusted_evaluation: true,
+                timeout_ms: 120_000,
+                ..ProjectSemanticConfig::default()
+            },
+            &[SourceSnapshot::new(source_path.clone(), SOURCE).with_project(project)],
+        );
+        assert!(
+            context.is_complete(),
+            "quickfix semantic context is incomplete: {:?}",
+            context.diagnostics
+        );
+        (workspace, source_path, SOURCE, context)
+    }
+
+    #[test]
+    fn s3169_helper_withholds_custom_thenby_but_keeps_framework_action() {
+        let (_workspace, source_path, source, context) = s3169_fixture();
+        let report = context.analyze_with_context(
+            source_path,
+            source,
+            CsLanguage::CSharp,
+            &AnalyzerOptions::default(),
+        );
+        let findings: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "csharpsquid:S3169")
+            .collect();
+        assert_eq!(
+            findings.len(),
+            2,
+            "both safe and custom-ordering chains must remain diagnostics: {:?}",
+            report.issues
+        );
+        let safe = findings
+            .iter()
+            .find(|issue| {
+                source
+                    .lines()
+                    .nth(issue.range.start.line.saturating_sub(1) as usize)
+                    .is_some_and(|line| line.contains("SafeSort"))
+            })
+            .expect("safe Enumerable chain diagnostic");
+        let unsafe_chain = findings
+            .iter()
+            .find(|issue| {
+                source
+                    .lines()
+                    .nth(issue.range.start.line.saturating_sub(1) as usize)
+                    .is_some_and(|line| line.contains("UnsafeSort"))
+            })
+            .expect("custom ThenBy chain diagnostic");
+        assert!(
+            safe.alternatives
+                .iter()
+                .any(|alternative| alternative.id == "csharp.s3169.change-orderby-to-thenby"),
+            "normal Enumerable S3169 must retain its action: {:?}",
+            safe.alternatives
+        );
+        assert!(
+            unsafe_chain
+                .alternatives
+                .iter()
+                .all(|alternative| alternative.id != "csharp.s3169.change-orderby-to-thenby"),
+            "custom ThenBy binding must withhold the replacement action: {:?}",
+            unsafe_chain.alternatives
+        );
+    }
 }

@@ -38,6 +38,61 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
         self.assertIn("--userns=keep-id", command)
         self.assertIn("/working:/tmp/scannerwork:Z", command)
 
+    def test_rust_podman_scanner_uses_configured_immutable_image(self):
+        image = "localhost/hoonarqube-sonar-rust-scanner@sha256:" + "a" * 64
+        with (
+            mock.patch.dict(
+                parity_suite.os.environ,
+                {"SONAR_ORACLE_RUST_SCANNER_IMAGE_DIGEST": image},
+                clear=True,
+            ),
+            mock.patch.object(parity_suite.Path, "is_dir", return_value=True),
+            mock.patch.object(
+                parity_suite, "ensure_rust_scanner_image", return_value=True
+            ) as ensure,
+        ):
+            command = parity_suite.podman_scanner_command(
+                "/podman", "oracle-rust", Path("/source"), Path("/working")
+            )
+
+        self.assertEqual(command[command.index("-w") + 2], image)
+        ensure.assert_called_once_with()
+
+    def test_rust_pinned_image_refuses_mutable_tag_fallback(self):
+        image = "localhost/hoonarqube-sonar-rust-scanner@sha256:" + "b" * 64
+
+        def run(command, **kwargs):
+            if command == ["podman", "image", "exists", image]:
+                return mock.Mock(returncode=1, stdout="", stderr="")
+            if command == [
+                "podman",
+                "image",
+                "exists",
+                parity_suite.RUST_SCANNER_IMAGE,
+            ]:
+                return mock.Mock(returncode=0, stdout="", stderr="")
+            self.fail(f"unexpected image command: {command!r}")
+
+        with (
+            mock.patch.dict(
+                parity_suite.os.environ,
+                {"SONAR_ORACLE_RUST_SCANNER_IMAGE_DIGEST": image},
+                clear=True,
+            ),
+            mock.patch.object(parity_suite.Path, "is_dir", return_value=True),
+            mock.patch.object(parity_suite.subprocess, "run", side_effect=run) as probe,
+        ):
+            self.assertIsNone(
+                parity_suite.podman_scanner_command(
+                    "/podman", "oracle-rust", Path("/source"), Path("/working")
+                )
+            )
+
+        self.assertEqual(
+            [call.args[0] for call in probe.call_args_list],
+            [["podman", "image", "exists", image]],
+        )
+
     def test_empty_oracle_token_fails_closed(self):
         with (
             mock.patch.dict(

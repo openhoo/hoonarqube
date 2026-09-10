@@ -1,0 +1,59 @@
+tree-sitter-c-sharp 0.23.5 vendor
+
+Base source: https://github.com/tree-sitter/tree-sitter-c-sharp/tree/v0.23.5
+Base commit: cac6d5fb595f5811a076336682d5d595ac1c9e85
+Crates.io checksum: c1aac67f1ad71de1d6d39708d34811081c26dfa495658de6c14c34200849357c
+License: MIT (see LICENSE)
+
+Why vendored:
+- The crates.io index has no fixed release newer than 0.23.5.
+- Upstream PR https://github.com/tree-sitter/tree-sitter-c-sharp/pull/442
+  (head 8f21f2f5a7b6bc568202c738d17a6f47d65e9e09, still open) is the
+  relevant async contextual-identifier repair, so no published dependency
+  can provide this fix yet.
+
+Local grammar repair, applied to the v0.23.5 grammar:
+- Incorporate PR #442's four grammar changes: add `async` to
+  `_reserved_identifier`; prefer the `async`/`static` modifier path for local
+  functions; and raise the modifier precedence in lambda and anonymous-method
+  initializers so genuine async constructs remain structured.
+- Add `await` to `_reserved_identifier` as the matching contextual-keyword
+  repair. The existing `await_expression` literal remains available where
+  `await` is an operator; no source rewriting or error recovery is added.
+- The prioritized local-function path accepts either `async` or `static` as
+  its first modifier, followed by the existing modifier repeat. This preserves
+  plain `static`, `static async`, `async static`, and plain `async` local
+  functions instead of falling through to the lambda interpretation.
+
+Generated artifacts (`src/grammar.json`, `src/node-types.json`, and
+`src/parser.c`) were regenerated from this exact grammar with:
+
+    npx --yes tree-sitter-cli@0.25.10 generate
+
+Run that command from `vendor/tree-sitter-c-sharp` after changing grammar.js,
+then restore `src/tree_sitter/array.h` byte-for-byte from the v0.23.5 base.
+The base array header contains a strict-aliasing fix; tree-sitter CLI
+regeneration replaces it with whole-struct casts, so the header is
+intentionally not regenerated.
+Suggested targeted behavior checks (outside the vendored package) use the
+existing valid contextual-identifier source
+`.oracle/sonar/projects/oracle-cs/s2306_bad.cs` and malformed C# inputs such as
+`class C { private int async; private int Get() { int await = ; return await; } }`.
+The valid source must have no parse error; malformed sources must retain
+`root.has_error()` so callers fail closed.
+The broader regression matrix should also cover:
+- contextual parameter: `void M(bool async) { Use(async); }`
+- contextual field/local/return uses: `private int async; int await = async; return await;`
+- genuine modifier/operator forms: `async Task Run() => await Work();`,
+  `static async Task A() => await Work();`,
+  `async static Task B() => await Work();`,
+  `var f = async () => await Work();`, and `async delegate { await Work(); }`
+- combined local-function control: `void L() { static async Task A() => await Work(); async static Task B() => await Work(); }`;
+  both local functions must retain modifier nodes and nested
+  `await_expression` nodes with no `ERROR`.
+- ordinary static local control: `void M() { static int A() => 1; }` must
+  produce a local-function node with its `static` modifier and no `ERROR`.
+- malformed negatives: `await (Work();` and a declaration with a missing initializer.
+These cases must keep modifier nodes and `await_expression` structure where
+the keyword is an operator, while only valid identifier positions use the
+`identifier` node.

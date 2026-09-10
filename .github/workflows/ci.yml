@@ -116,6 +116,13 @@ jobs:
         with:
           dotnet-version: 10.0.111
 
+      - name: Install pinned TypeScript compiler
+        if: matrix.package == 'hoonarqube-jsts'
+        run: >-
+          npm install --prefix "$RUNNER_TEMP/hoonarqube-typescript"
+          --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
+          typescript@6.0.3
+
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           shared-key: ci
@@ -124,6 +131,7 @@ jobs:
       - name: Run package tests
         env:
           PACKAGE: ${{ matrix.package }}
+          HOONARQUBE_TYPESCRIPT_PACKAGE: ${{ runner.temp }}/hoonarqube-typescript/node_modules/typescript
         run: cargo test --locked -p "$PACKAGE" --all-targets --all-features
 
   quality-tests-rest:

@@ -100,6 +100,7 @@ SONAR_LANGUAGE = {
 }
 RESULT_TAG = os.environ.get("SONAR_ORACLE_RESULT_TAG", "")
 RUST_SCANNER_IMAGE = "localhost/hoonarqube-sonar-rust-scanner:12.1.0.3233_8.0.1"
+_RUST_SCANNER_IMAGE_ENV = "SONAR_ORACLE_RUST_SCANNER_IMAGE_DIGEST"
 SCANNER_IMAGE = (
     "docker.io/sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@"
     "sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9"
@@ -127,6 +128,13 @@ def _immutable_image_digest(name: str) -> str:
     if value is None or _IMMUTABLE_IMAGE_RE.fullmatch(value) is None:
         raise ValueError(f"{name} must be an immutable @sha256 image reference")
     return value
+
+
+def _rust_scanner_image() -> str:
+    configured = os.environ.get(_RUST_SCANNER_IMAGE_ENV)
+    if not configured:
+        return RUST_SCANNER_IMAGE
+    return _immutable_image_digest(_RUST_SCANNER_IMAGE_ENV)
 
 
 SCAN_TIMEOUT_SECONDS = 1800
@@ -224,9 +232,15 @@ if RESULT_TAG and not re.fullmatch(r"[a-zA-Z0-9_-]+", RESULT_TAG):
 
 
 def ensure_rust_scanner_image():
+    configured = bool(os.environ.get(_RUST_SCANNER_IMAGE_ENV))
+    try:
+        scanner_image = _rust_scanner_image()
+    except ValueError as error:
+        print(f"  Rust scanner image pin invalid: {error}")
+        return False
     try:
         exists = subprocess.run(
-            ["podman", "image", "exists", RUST_SCANNER_IMAGE],
+            ["podman", "image", "exists", scanner_image],
             capture_output=True,
             text=True,
             timeout=PROBE_TIMEOUT_SECONDS,
@@ -236,6 +250,9 @@ def ensure_rust_scanner_image():
         return False
     if exists.returncode == 0:
         return True
+    if configured:
+        print("  Rust scanner image pin is unavailable or mismatched")
+        return False
     try:
         built = subprocess.run(
             [
@@ -254,13 +271,12 @@ def ensure_rust_scanner_image():
         )
     except subprocess.TimeoutExpired:
         print("  Rust scanner image build timed out")
-        return False
-    if built.returncode != 0:
+        built = None
+    if built is not None and built.returncode != 0:
         print(
             f"  Rust scanner image build failed: {(built.stdout + built.stderr)[-1000:]}"
         )
-        return False
-    return True
+    return built is not None and built.returncode == 0
 
 
 def result_path(project, kind):
@@ -451,9 +467,10 @@ def _reference_tools(proj: str, kind: str) -> tuple[dict[str, object], list[Path
         tools.update(tool_versions(include_go=True))
     if proj == "oracle-rust":
         tools.update(tool_versions(include_rust=True))
-        tools["rust_scanner_image"] = RUST_SCANNER_IMAGE
-        digest = _immutable_image_digest("SONAR_ORACLE_RUST_SCANNER_IMAGE_DIGEST")
-        tools["rust_scanner_image_digest"] = digest
+        tools["rust_scanner_image"] = _rust_scanner_image()
+        tools["rust_scanner_image_digest"] = _immutable_image_digest(
+            _RUST_SCANNER_IMAGE_ENV
+        )
         tools["rust_containerfile"] = file_metadata(
             REPO / "tools/oracle/Containerfile.rust-scanner", root=REPO
         )
@@ -1657,7 +1674,7 @@ def podman_scanner_command(podman_path, proj, source, working):
             return None
         if not ensure_rust_scanner_image():
             return None
-        scanner_image = RUST_SCANNER_IMAGE
+        scanner_image = _rust_scanner_image()
         command.extend(
             [
                 "-v",
@@ -2686,7 +2703,7 @@ def reference_command(proj: str) -> str:
     for name in (
         "SONAR_ORACLE_PLUGIN_ROOT",
         "SONAR_ORACLE_IMAGE_DIGEST",
-        "SONAR_ORACLE_RUST_SCANNER_IMAGE_DIGEST",
+        _RUST_SCANNER_IMAGE_ENV,
         "SONAR_DOTNET_SCANNER",
         "SONAR_DOTNET_SCANNER_DLL",
         "SONAR_CSHARP_ANALYZER_PACKAGE",

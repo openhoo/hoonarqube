@@ -200,99 +200,209 @@ function readConfig(ts, request, snapshots, diagnostics) {
     };
   }
 
-  const configFiles = [];
+  // Let TypeScript resolve both relative and package-based extends entries.
+  // The parser host records the files that TypeScript actually reads instead
+  // of maintaining a second, necessarily incomplete resolver.
+  const configFiles = new Map();
+  const configTextCache = new Map();
+  const recordConfigFile = (file, text) => {
+    if (typeof text !== 'string') return;
+    const canonical = canonicalPath(file);
+    const basename = path.basename(canonical).toLowerCase();
+    configFiles.set(canonical, {
+      path: canonical,
+      digest: sha256(text),
+      kind: basename === 'package.json' ? 'package-manifest' : 'tsconfig',
+    });
+  };
+  const projectRoot = path.dirname(tsconfig);
+  const realpath = file => {
+    try {
+      const resolved = ts.sys.realpath ? ts.sys.realpath(file) : file;
+      return canonicalPath(resolved || file);
+    } catch {
+      return canonicalPath(file);
+    }
+  };
+  const getFileSystemEntries = directory => {
+    const files = new Set();
+    const directories = new Set();
+    const canonicalDirectory = canonicalPath(directory);
+    try {
+      for (const dirent of fs.readdirSync(directory, { withFileTypes: true })) {
+        const name = typeof dirent === 'string' ? dirent : dirent.name;
+        if (name === '.' || name === '..') continue;
+        const fullPath = path.join(directory, name);
+        let stat;
+        if (typeof dirent === 'string' || dirent.isSymbolicLink()) {
+          try { stat = fs.statSync(fullPath); } catch { continue; }
+        } else {
+          stat = dirent;
+        }
+        if (stat.isFile()) files.add(name);
+        else if (stat.isDirectory()) directories.add(name);
+      }
+    } catch { /* virtual snapshots may be the only entries */ }
+    const prefix = canonicalDirectory.endsWith(path.sep)
+      ? canonicalDirectory
+      : `${canonicalDirectory}${path.sep}`;
+    for (const snapshotPath of snapshots.keys()) {
+      if (path.dirname(snapshotPath) === canonicalDirectory) {
+        files.add(path.basename(snapshotPath));
+      } else if (snapshotPath.startsWith(prefix)) {
+        const rest = snapshotPath.slice(prefix.length);
+        const separator = rest.indexOf(path.sep);
+        if (separator < 0) files.add(rest);
+        else if (separator > 0) directories.add(rest.slice(0, separator));
+      }
+    }
+    return {
+      files: [...files].sort(),
+      directories: [...directories].sort(),
+    };
+  };
+  const readDirectory = (directory, extensions, excludes, includes, depth) => {
+    const absoluteDirectory = path.isAbsolute(directory)
+      ? directory
+      : path.resolve(projectRoot, directory);
+    return ts.matchFiles(
+      absoluteDirectory,
+      extensions,
+      excludes,
+      includes,
+      ts.sys.useCaseSensitiveFileNames,
+      projectRoot,
+      depth,
+      getFileSystemEntries,
+      realpath,
+    );
+  };
+  if (Object.prototype.hasOwnProperty.call(request, 'tsconfig_content')) {
+    configTextCache.set(
+      tsconfig,
+      typeof request.tsconfig_content === 'string' ? request.tsconfig_content : undefined,
+    );
+  }
+  let parsingConfig = tsconfig;
   const configHost = {
     useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
-    readDirectory: ts.sys.readDirectory,
+    readDirectory,
     fileExists(file) {
-      return snapshots.has(canonicalPath(file)) || fs.existsSync(file);
+      const canonical = canonicalPath(file);
+      if (configTextCache.has(canonical)) return configTextCache.get(canonical) !== undefined;
+      if (snapshots.has(canonical)) return true;
+      try { return fs.statSync(canonical).isFile(); } catch { return false; }
     },
     readFile(file) {
       const canonical = canonicalPath(file);
-      const snapshot = snapshots.get(canonical);
-      if (snapshot) return snapshot.content;
-      try { return fs.readFileSync(canonical, 'utf8'); } catch { return undefined; }
+      if (configTextCache.has(canonical)) {
+        const text = configTextCache.get(canonical);
+        recordConfigFile(canonical, text);
+        return text;
+      }
+      let text;
+      if (snapshots.has(canonical)) {
+        text = snapshots.get(canonical).content;
+      } else {
+        try { text = fs.readFileSync(canonical, 'utf8'); } catch { text = undefined; }
+      }
+      configTextCache.set(canonical, text);
+      recordConfigFile(canonical, text);
+      return text;
     },
-    onUnRecoverableConfigFileDiagnostic() {},
+    onUnRecoverableConfigFileDiagnostic(item) {
+      diagnostics.push(configDiagnostic(ts, item, item?.file?.fileName || parsingConfig));
+    },
+    getCurrentDirectory() {
+      return projectRoot;
+    },
   };
   const readConfigFile = configHost.readFile(tsconfig);
   if (readConfigFile === undefined) {
     diagnostics.push(diagnostic('TS_HELPER_MISSING_TSCONFIG', `Cannot read tsconfig: ${tsconfig}`, tsconfig));
     return undefined;
   }
-  configFiles.push({ path: tsconfig, digest: sha256(readConfigFile) });
   if (request.tsconfig_digest && request.tsconfig_digest !== sha256(readConfigFile)) {
     diagnostics.push(diagnostic('TS_HELPER_TSCONFIG_DIGEST', `tsconfig digest mismatch: ${tsconfig}`, tsconfig));
     return undefined;
   }
-  const parsedJson = ts.parseConfigFileTextToJson(tsconfig, readConfigFile);
-  if (parsedJson.error) {
-    diagnostics.push(configDiagnostic(ts, parsedJson.error, tsconfig));
-    return undefined;
-  }
-function collectExtendedConfigs(configPath, rawConfig, configFiles, seen) {
-  const extendsValue = rawConfig && typeof rawConfig.extends === 'string' ? rawConfig.extends : undefined;
-  if (!extendsValue) return;
-  let candidate = extendsValue;
-  if (!path.isAbsolute(candidate)) candidate = path.resolve(path.dirname(configPath), candidate);
-  if (!candidate.endsWith('.json')) candidate += '.json';
-  candidate = canonicalPath(candidate);
-  if (seen.has(candidate)) return;
-  seen.add(candidate);
-  const text = configHost.readFile(candidate);
-  if (text === undefined) return;
-  configFiles.push({ path: candidate, digest: sha256(text) });
-  try {
-    const parsed = JSON.parse(text);
-    collectExtendedConfigs(candidate, parsed, configFiles, seen);
-  } catch { /* parseConfigFileContent reports the actual malformed config */ }
-}
-  const configSeen = new Set([tsconfig]);
-  collectExtendedConfigs(tsconfig, parsedJson.config, configFiles, configSeen);
-  function collectProjectReferences(configPath, rawConfig) {
-    for (const reference of rawConfig?.references || []) {
-      if (!reference || typeof reference.path !== 'string') continue;
-      const referenceConfig = canonicalPath(path.resolve(path.dirname(configPath), reference.path, 'tsconfig.json'));
-      if (configSeen.has(referenceConfig)) continue;
-      configSeen.add(referenceConfig);
-      const referenceText = configHost.readFile(referenceConfig);
-      if (referenceText === undefined) {
-        diagnostics.push(diagnostic('TS_HELPER_MISSING_PROJECT_REFERENCE', `Cannot read project reference tsconfig: ${referenceConfig}`, referenceConfig));
-        continue;
+
+  const optionsToExtend = {
+    allowJs: true,
+    checkJs: true,
+    noEmit: true,
+    skipLibCheck: true,
+  };
+  const extendedConfigCache = new Map();
+  const parsedConfigResults = new Map();
+  const parsedConfigs = new Set();
+  const parseConfig = configFile => {
+    const canonical = canonicalPath(configFile);
+    if (parsedConfigResults.has(canonical)) return parsedConfigResults.get(canonical);
+    const previous = parsingConfig;
+    parsingConfig = canonical;
+    try {
+      const parsed = ts.getParsedCommandLineOfConfigFile(
+        canonical,
+        optionsToExtend,
+        configHost,
+        extendedConfigCache,
+      );
+      parsedConfigResults.set(canonical, parsed);
+      for (const error of parsed?.errors || []) {
+        diagnostics.push(configDiagnostic(ts, error, error.file?.fileName || canonical));
       }
-      configFiles.push({ path: referenceConfig, digest: sha256(referenceText) });
-      let referenceJson;
+      return parsed;
+    } finally {
+      parsingConfig = previous;
+    }
+  };
+
+  const parsed = parseConfig(tsconfig);
+  if (!parsed) return undefined;
+  parsedConfigs.add(tsconfig);
+
+  // `parseJsonConfigFileContent` returns normalized project-reference paths,
+  // while `resolveProjectReferencePath` is the TypeScript-supported conversion
+  // from either a directory form or a file form to its config filename.
+  function collectProjectReferences(parsedConfig) {
+    for (const reference of parsedConfig.projectReferences || []) {
+      let referenceConfig;
       try {
-        referenceJson = JSON.parse(referenceText);
+        referenceConfig = canonicalPath(ts.resolveProjectReferencePath(reference));
       } catch (error) {
-        diagnostics.push(diagnostic('TS_HELPER_PROJECT_REFERENCE_CONFIG', `Cannot parse project reference tsconfig ${referenceConfig}: ${error.message}`, referenceConfig));
+        diagnostics.push(diagnostic(
+          'TS_HELPER_PROJECT_REFERENCE_PATH',
+          `Unable to resolve project reference ${reference?.originalPath || reference?.path}: ${error.message}`,
+        ));
         continue;
       }
-      collectExtendedConfigs(referenceConfig, referenceJson, configFiles, configSeen);
-      collectProjectReferences(referenceConfig, referenceJson);
+      if (parsedConfigs.has(referenceConfig)) continue;
+      parsedConfigs.add(referenceConfig);
+      const referenceText = configHost.readFile(referenceConfig);
+      const referenceParsed = parseConfig(referenceConfig);
+      if (!referenceParsed) {
+        if (referenceText === undefined) {
+          diagnostics.push(diagnostic(
+            'TS_HELPER_MISSING_PROJECT_REFERENCE',
+            `Cannot read project reference tsconfig: ${referenceConfig}`,
+            referenceConfig,
+          ));
+        }
+        continue;
+      }
+      collectProjectReferences(referenceParsed);
     }
   }
-  collectProjectReferences(tsconfig, parsedJson.config);
+  collectProjectReferences(parsed);
 
-  const basePath = path.dirname(tsconfig);
-  const parsed = ts.parseJsonConfigFileContent(
-    parsedJson.config,
-    configHost,
-    basePath,
-    { allowJs: true, checkJs: true, noEmit: true, skipLibCheck: true },
-    tsconfig,
-  );
-  for (const error of parsed.errors || []) diagnostics.push(configDiagnostic(ts, error, tsconfig));
-  const names = new Set(parsed.fileNames.map(canonicalPath));
-  // The Rust caller sends the exact analyzed snapshots.  Include them even
-  // when a narrow include/exclude in the project config omitted one.
-  for (const file of snapshots.keys()) names.add(file);
   return {
-    fileNames: [...names],
+    fileNames: parsed.fileNames.map(canonicalPath),
     options: parsed.options,
     projectReferences: parsed.projectReferences,
-    configFiles,
-    raw: parsedJson.config,
+    configFiles: [...configFiles.values()].sort((left, right) => left.path.localeCompare(right.path)),
+    raw: parsed.raw,
+    getParsedCommandLine: parseConfig,
   };
 }
 
@@ -335,6 +445,9 @@ function makeHost(ts, config, snapshots, diagnostics) {
   base.realpath = file => {
     try { return canonicalPath(ts.sys.realpath ? ts.sys.realpath(file) : file); } catch { return canonicalPath(file); }
   };
+  if (typeof config.getParsedCommandLine === 'function') {
+    base.getParsedCommandLine = config.getParsedCommandLine;
+  }
   base.onUnRecoverableConfigFileDiagnostic = () => {};
   return base;
 }
@@ -595,9 +708,9 @@ function collectImports(ts, checker, program, sourceFile, config, host, root) {
     const external = !normalizedModule.startsWith('.') && !normalizedModule.startsWith('/') && !normalizedModule.startsWith('#');
     const builtins = require('node:module').builtinModules;
     const dependencyExempt = builtins.includes(normalizedModule) || builtins.includes(packageId) || normalizedModule.startsWith('node:') || normalizedModule.startsWith('data:') || normalizedModule.startsWith('file:') || normalizedModule.startsWith('npm:');
-    // S6627 follows the pinned module-specifier test literally: a package
-    // subpath that merely resolves under node_modules is still public API.
-    const internalModulePath = normalizedModule.includes('node_modules');
+    // S6627 applies the pinned literal module-specifier test to the raw
+    // string, independently of TypeScript resolution or package existence.
+    const internalModulePath = moduleName.includes('node_modules');
     // S4328 reports only ImportDeclaration/require nodes; ineligible import
     // forms intentionally carry no diagnostic span rather than a fallback.
     const diagnosticSpan = kind === 'import'
@@ -1534,8 +1647,16 @@ function main() {
   const host = makeHost(ts, config, snapshots, diagnostics);
   const rootNames = [...new Set([...config.fileNames, ...snapshots.keys()])];
   const projectReferences = (config.projectReferences || []).filter(reference => {
-    const referenceRoot = canonicalPath(reference.path);
-    return ![...snapshots.keys()].some(file => file === referenceRoot || file.startsWith(`${referenceRoot}${path.sep}`));
+    let referenceConfig;
+    try {
+      referenceConfig = canonicalPath(ts.resolveProjectReferencePath(reference));
+    } catch {
+      return true;
+    }
+    const referenceRoot = path.dirname(referenceConfig);
+    return ![...snapshots.keys()].some(file => (
+      file === referenceConfig || file.startsWith(`${referenceRoot}${path.sep}`)
+    ));
   });
   let program;
   try {
@@ -1564,13 +1685,26 @@ function main() {
   const manifests = new Map();
   for (const file of files) {
     for (const item of nearestPackageInfo(file.path, request.root)) {
-      manifests.set(item.path, { path: item.path, digest: item.digest });
+      manifests.set(item.path, {
+        path: item.path,
+        digest: item.digest,
+        kind: 'package-manifest',
+      });
     }
     for (const importFact of file.imports) {
-      for (const item of importFact.manifests || []) manifests.set(item.path, item);
+      for (const item of importFact.manifests || []) {
+        manifests.set(item.path, {
+          ...item,
+          kind: item.kind || 'package-manifest',
+        });
+      }
       if (importFact.resolved_path) {
         for (const item of nearestPackageInfo(importFact.resolved_path, request.root)) {
-          manifests.set(item.path, { path: item.path, digest: item.digest });
+          manifests.set(item.path, {
+            path: item.path,
+            digest: item.digest,
+            kind: 'package-manifest',
+          });
         }
       }
     }
@@ -1596,8 +1730,9 @@ function main() {
       dependencies.push({ path: canonicalPath(file), digest: sha256(text), kind: 'source' });
     } catch { /* source snapshots are already represented by files */ }
   }
-  for (const item of config.configFiles || []) dependencies.push({ ...item, kind: 'tsconfig' });
-  const uniqueDependencies = [...new Map(dependencies.map(item => [`${item.kind || 'manifest'}:${item.path}`, item])).values()].sort((a, b) => a.path.localeCompare(b.path));
+  for (const item of config.configFiles || []) dependencies.push({ ...item, kind: item.kind || 'tsconfig' });
+  const uniqueDependencies = [...new Map(dependencies.map(item => [`${item.kind || 'manifest'}:${item.path}`, item])).values()]
+    .sort((a, b) => a.path.localeCompare(b.path) || String(a.kind || '').localeCompare(String(b.kind || '')));
   const complete = diagnostics.every(item => item.category !== 'error') && files.length === requested.length;
   const fingerprint = stableDigest({
     protocol: PROTOCOL_VERSION,

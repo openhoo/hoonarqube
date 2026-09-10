@@ -552,6 +552,7 @@ fn is_delegated_semantic_key(key: &str) -> bool {
             | "csharpsquid:S2737"
             | "csharpsquid:S2934"
             | "csharpsquid:S2955"
+            | "csharpsquid:S3169"
             | "csharpsquid:S3217"
             | "csharpsquid:S3240"
             | "csharpsquid:S3253"
@@ -856,6 +857,20 @@ fn exact_node<'t>(root: Node<'t>, range: &Range, source: &str) -> Option<Node<'t
     let mut found = None;
     walk_all(root, &mut |node| {
         if range_of(node, source) == *range {
+            found = Some(node);
+        }
+    });
+    found
+}
+fn exact_node_of_kind<'t>(
+    root: Node<'t>,
+    range: &Range,
+    source: &str,
+    kind: &str,
+) -> Option<Node<'t>> {
+    let mut found = None;
+    walk_all(root, &mut |node| {
+        if node.kind() == kind && range_of(node, source) == *range {
             found = Some(node);
         }
     });
@@ -1353,14 +1368,49 @@ fn attribute_edit_span(attribute: Node<'_>, source: &str) -> (usize, usize) {
         (start, end)
     }
 }
+fn contains_comment(node: Node<'_>) -> bool {
+    let mut found = false;
+    walk_all(node, &mut |candidate| {
+        if candidate.kind() == "comment" {
+            found = true;
+        }
+    });
+    found
+}
+
 fn s3005(root: Node<'_>, source: &str, issue: &mut Issue) -> Vec<()> {
-    let Some(attribute) = exact_node(root, &issue.range, source) else {
+    let Some(attribute) = exact_node_of_kind(root, &issue.range, source, "attribute") else {
         return Vec::new();
     };
-    if attribute.kind() != "attribute" || !node_text(attribute, source).contains("ThreadStatic") {
+    if !node_text(attribute, source).contains("ThreadStatic") {
         return Vec::new();
     }
-    let (start, end) = attribute_edit_span(attribute, source);
+    if attribute
+        .parent()
+        .is_some_and(|parent| parent.kind() == "attribute_list" && contains_comment(parent))
+    {
+        return Vec::new();
+    }
+    let (start, mut end) = attribute_edit_span(attribute, source);
+    let single_attribute = attribute.parent().is_some_and(|parent| {
+        if parent.kind() != "attribute_list" {
+            return false;
+        }
+        let mut cursor = parent.walk();
+        parent
+            .children(&mut cursor)
+            .filter(|child| child.kind() == "attribute")
+            .count()
+            == 1
+    });
+    if single_attribute
+        && source
+            .as_bytes()
+            .get(end)
+            .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
+    {
+        end += 1;
+    }
     add_range_action(
         issue,
         source,
@@ -1786,4 +1836,246 @@ fn s6613(root: Node<'_>, source: &str, issue: &mut Issue) -> Vec<()> {
         ".Value",
     );
     Vec::new()
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    use hoonarqube_ir::{FileMetrics, FileReport, Issue};
+
+    struct TestSemanticFacts {
+        complete: bool,
+        proof: Option<(String, usize, usize)>,
+        plans: Vec<SemanticPlan>,
+    }
+
+    impl TestSemanticFacts {
+        fn new(key: &str, start: usize, end: usize, plans: Vec<SemanticPlan>) -> Self {
+            Self {
+                complete: true,
+                proof: Some((key.to_string(), start, end)),
+                plans,
+            }
+        }
+
+        fn without_proof(plans: Vec<SemanticPlan>) -> Self {
+            Self {
+                complete: true,
+                proof: None,
+                plans,
+            }
+        }
+    }
+
+    impl QuickFixSemanticFacts for TestSemanticFacts {
+        fn is_complete(&self) -> bool {
+            self.complete
+        }
+
+        fn proves(&self, key: &str, start: usize, end: usize, source: &str) -> bool {
+            self.complete
+                && source.get(start..end).is_some()
+                && self
+                    .proof
+                    .as_ref()
+                    .is_some_and(|(candidate, candidate_start, candidate_end)| {
+                        candidate == key && *candidate_start == start && *candidate_end == end
+                    })
+        }
+
+        fn plans(&self, key: &str, start: usize, end: usize, source: &str) -> Vec<SemanticPlan> {
+            if self.proves(key, start, end, source) {
+                self.plans.clone()
+            } else {
+                Vec::new()
+            }
+        }
+    }
+
+    fn report_with_issue(
+        source: &str,
+        key: &str,
+        message: &str,
+        start: usize,
+        end: usize,
+    ) -> FileReport {
+        FileReport {
+            path: PathBuf::from("t.cs"),
+            language: "csharpsquid".to_string(),
+            issues: vec![Issue::new(
+                key,
+                message,
+                range_from_byte_offsets(start, end, source),
+            )],
+            metrics: FileMetrics {
+                lines: u32::try_from(source.lines().count()).expect("fixture line count fits u32"),
+                code_lines: 1,
+                comment_lines: 0,
+            },
+        }
+    }
+
+    #[test]
+    fn s3005_selects_attribute_when_identifier_shares_the_issue_span() {
+        let source = "using System;\nclass C { [ThreadStatic] int field; }\n";
+        let start = source.find("ThreadStatic").expect("attribute name");
+        let end = start + "ThreadStatic".len();
+        let mut report = report_with_issue(
+            source,
+            "csharpsquid:S3005",
+            "Remove the 'ThreadStatic' attribute from this definition.",
+            start,
+            end,
+        );
+        let facts = TestSemanticFacts::new("csharpsquid:S3005", start, end, Vec::new());
+
+        attach_fixes(
+            source,
+            &AnalyzerOptions::default(),
+            &mut report,
+            Some(&facts),
+        );
+
+        let alternative = report.issues[0]
+            .alternatives
+            .first()
+            .expect("S3005 action should be reachable");
+        assert_eq!(alternative.id, "csharp.s3005.remove-threadstatic");
+        let fixed = hoonarqube_ir::apply_fixes(source, &[&alternative.fix.edits[0]])
+            .expect("native attribute edit should apply");
+        assert_eq!(fixed, "using System;\nclass C { int field; }\n");
+    }
+
+    #[test]
+    fn s3005_preserves_spacing_when_removing_one_of_multiple_attributes() {
+        let source = "using System;\nclass C { [Obsolete, ThreadStatic] int field; }\n";
+        let start = source.find("ThreadStatic").expect("attribute name");
+        let end = start + "ThreadStatic".len();
+        let mut report = report_with_issue(
+            source,
+            "csharpsquid:S3005",
+            "Remove the 'ThreadStatic' attribute from this definition.",
+            start,
+            end,
+        );
+        let facts = TestSemanticFacts::new("csharpsquid:S3005", start, end, Vec::new());
+
+        attach_fixes(
+            source,
+            &AnalyzerOptions::default(),
+            &mut report,
+            Some(&facts),
+        );
+
+        let alternative = report.issues[0]
+            .alternatives
+            .first()
+            .expect("S3005 multi-attribute action should be reachable");
+        let fixed = hoonarqube_ir::apply_fixes(source, &[&alternative.fix.edits[0]])
+            .expect("multi-attribute edit should apply");
+        assert_eq!(fixed, "using System;\nclass C { [Obsolete] int field; }\n");
+    }
+
+    #[test]
+    fn s3005_refuses_attribute_list_with_comments() {
+        let source = "using System;\nclass C { [ThreadStatic /*keep*/, Obsolete] int field; }\n";
+        let start = source.find("ThreadStatic").expect("attribute name");
+        let end = start + "ThreadStatic".len();
+        let mut report = report_with_issue(
+            source,
+            "csharpsquid:S3005",
+            "Remove the 'ThreadStatic' attribute from this definition.",
+            start,
+            end,
+        );
+        let facts = TestSemanticFacts::new("csharpsquid:S3005", start, end, Vec::new());
+
+        attach_fixes(
+            source,
+            &AnalyzerOptions::default(),
+            &mut report,
+            Some(&facts),
+        );
+
+        assert!(
+            report.issues[0].alternatives.is_empty(),
+            "commented attribute lists must remain unavailable to avoid deleting separators"
+        );
+    }
+
+    #[test]
+    fn s3169_delegates_the_exact_project_action() {
+        let source = "using System.Linq;\nclass C { void M(int[] items) { items.OrderBy(a => a).OrderByDescending(b => b); } }\n";
+        let start = source
+            .rfind("OrderByDescending")
+            .expect("outer ordering method");
+        let end = start + "OrderByDescending".len();
+        let action = SemanticPlan {
+            id: "csharp.s3169.change-orderby-to-thenby",
+            message: "Change 'OrderBy' to 'ThenBy'".to_string(),
+            edits: vec![edit(source, start, end, "ThenByDescending")],
+        };
+        let mut report = report_with_issue(
+            source,
+            "csharpsquid:S3169",
+            "Use 'ThenBy' instead.",
+            start,
+            end,
+        );
+        let facts = TestSemanticFacts::new("csharpsquid:S3169", start, end, vec![action]);
+
+        attach_fixes(
+            source,
+            &AnalyzerOptions::default(),
+            &mut report,
+            Some(&facts),
+        );
+
+        let alternative = report.issues[0]
+            .alternatives
+            .first()
+            .expect("S3169 delegated action should be reachable");
+        assert_eq!(alternative.id, "csharp.s3169.change-orderby-to-thenby");
+        let fixed = hoonarqube_ir::apply_fixes(source, &[&alternative.fix.edits[0]])
+            .expect("S3169 edit should apply");
+        assert_eq!(
+            fixed,
+            "using System.Linq;\nclass C { void M(int[] items) { items.OrderBy(a => a).ThenByDescending(b => b); } }\n"
+        );
+    }
+
+    #[test]
+    fn semantic_actions_refuse_unproved_same_named_or_dynamic_shapes() {
+        let cases = [
+            (
+                "class C { void M(dynamic items) { items.OrderBy(a => a).OrderBy(b => b); } }\n",
+                "csharpsquid:S3169",
+                "Use 'ThenBy' instead.",
+                "OrderBy",
+            ),
+            (
+                "using System;\nclass C { [ThreadStatic] static int field; }\n",
+                "csharpsquid:S3005",
+                "Remove the 'ThreadStatic' attribute from this definition.",
+                "ThreadStatic",
+            ),
+        ];
+        for (source, key, message, token) in cases {
+            let start = source.rfind(token).expect("negative-case token");
+            let end = start + token.len();
+            let mut report = report_with_issue(source, key, message, start, end);
+            let facts = TestSemanticFacts::without_proof(Vec::new());
+            attach_fixes(
+                source,
+                &AnalyzerOptions::default(),
+                &mut report,
+                Some(&facts),
+            );
+            assert!(
+                report.issues[0].alternatives.is_empty(),
+                "{key} must remain unavailable without its exact semantic fact"
+            );
+        }
+    }
 }

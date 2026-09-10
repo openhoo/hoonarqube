@@ -830,7 +830,7 @@ internal static class QuickFixPlanner
 
     private static void CollectS3005(CSharpCompilation compilation, SyntaxTree tree, SyntaxNode root, SemanticModel model, List<CompilerQuickFixFact> facts)
     {
-        var threadStatic = compilation.GetTypeByMetadataName("System.ThreadStaticAttribute");
+        var threadStatic = FrameworkType(compilation, "System.ThreadStaticAttribute");
         if (threadStatic is null) return;
         foreach (var field in root.DescendantNodes().OfType<FieldDeclarationSyntax>())
         {
@@ -845,7 +845,11 @@ internal static class QuickFixPlanner
             }
         }
     }
-    private static void CollectS3169(CSharpCompilation compilation, SyntaxTree tree, SyntaxNode root, SemanticModel model, List<CompilerQuickFixFact> facts) { }
+    private static void CollectS3169(CSharpCompilation compilation, SyntaxTree tree, SyntaxNode root, SemanticModel model, List<CompilerQuickFixFact> facts)
+    {
+        // S3169 requires the complete project pass below so its action is
+        // backed by the same exact Enumerable symbols as its proof.
+    }
     private static void CollectS3217(CSharpCompilation compilation, SyntaxTree tree, SyntaxNode root, SemanticModel model, List<CompilerQuickFixFact> facts)
     {
         var enumerable = compilation.GetTypeByMetadataName("System.Linq.Enumerable");
@@ -1532,25 +1536,59 @@ internal static class QuickFixPlanner
 
     private static void CollectS3005Project(SyntaxTree tree, SyntaxNode root, SemanticModel model, List<CompilerQuickFixFact> facts)
     {
-        var attributeType = model.Compilation.GetTypeByMetadataName("System.ThreadStaticAttribute");
+        var attributeType = FrameworkType(model.Compilation, "System.ThreadStaticAttribute");
         if (attributeType is null) return;
         foreach (var field in root.DescendantNodes().OfType<FieldDeclarationSyntax>())
         {
             if (field.Modifiers.Any(SyntaxKind.StaticKeyword)) continue;
             var attribute = field.AttributeLists.SelectMany(list => list.Attributes).FirstOrDefault(candidate => IsAttribute(candidate, model, attributeType));
-            if (attribute is null) continue;
+            if (attribute is null
+                || attribute.Parent is AttributeListSyntax list && list.Attributes.Count == 1) continue;
             AddFact(facts, tree, "csharpsquid:S3005", attribute.Span);
         }
     }
 
     private static void CollectS3169Project(CSharpCompilation compilation, SyntaxTree tree, SyntaxNode root, SemanticModel model, List<CompilerQuickFixFact> facts)
     {
+        var enumerable = FrameworkType(compilation, "System.Linq.Enumerable");
+        if (enumerable is null) return;
         foreach (var invocation in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
         {
-            if (invocation.Expression is not MemberAccessExpressionSyntax member || member.Name.Identifier.ValueText is not ("OrderBy" or "OrderByDescending") || model.GetSymbolInfo(invocation).Symbol is not IMethodSymbol method || method.ContainingType?.ToDisplayString() != "System.Linq.Enumerable") continue;
-            if (member.Expression is not InvocationExpressionSyntax previous || previous.Expression is not MemberAccessExpressionSyntax previousMember || previousMember.Name.Identifier.ValueText is not ("OrderBy" or "OrderByDescending")) continue;
-            if (model.GetSymbolInfo(previous).Symbol is not IMethodSymbol previousMethod || previousMethod.ContainingType?.ToDisplayString() != "System.Linq.Enumerable") continue;
-            AddFact(facts, tree, "csharpsquid:S3169", member.Name.Span);
+            if (invocation.Expression is not MemberAccessExpressionSyntax member
+                || member.Name.Identifier.ValueText is not ("OrderBy" or "OrderByDescending")
+                || model.GetSymbolInfo(invocation).Symbol is not IMethodSymbol method
+                || !SymbolEqualityComparer.Default.Equals(method.ContainingType, enumerable)
+                || method.Name != member.Name.Identifier.ValueText
+                || !HasBoundInvocationArguments(invocation, model))
+            {
+                continue;
+            }
+            if (member.Expression is not InvocationExpressionSyntax previous
+                || previous.Expression is not MemberAccessExpressionSyntax previousMember
+                || previousMember.Name.Identifier.ValueText is not ("OrderBy" or "OrderByDescending")
+                || model.GetSymbolInfo(previous).Symbol is not IMethodSymbol previousMethod
+                || !SymbolEqualityComparer.Default.Equals(previousMethod.ContainingType, enumerable)
+                || previousMethod.Name != previousMember.Name.Identifier.ValueText
+                || !HasBoundInvocationArguments(previous, model))
+            {
+                continue;
+            }
+            var replacement = member.Name.Identifier.ValueText == "OrderBy"
+                ? "ThenBy"
+                : "ThenByDescending";
+            if (!BindsToFrameworkOrderingReplacement(invocation, member, replacement, enumerable, model))
+            {
+                continue;
+            }
+            AddFact(
+                facts,
+                tree,
+                "csharpsquid:S3169",
+                member.Name.Span,
+                Action(
+                    "csharp.s3169.change-orderby-to-thenby",
+                    "Change 'OrderBy' to 'ThenBy'",
+                    Edit(tree, member.Name.Identifier.Span, replacement)));
         }
     }
 
@@ -1607,6 +1645,40 @@ internal static class QuickFixPlanner
             var modifier = parameter.Modifiers.First(token => token.IsKind(SyntaxKind.ParamsKeyword));
             AddFact(facts, tree, "csharpsquid:S3600", modifier.Span);
         }
+    }
+    private static bool HasBoundInvocationArguments(InvocationExpressionSyntax invocation, SemanticModel model)
+    {
+        if (invocation.ArgumentList.Arguments.Count == 0
+            || model.GetOperation(invocation) is not IInvocationOperation operation
+            || operation.Arguments.Any(argument => argument.Value.Kind == OperationKind.Invalid))
+        {
+            return false;
+        }
+        return invocation.ArgumentList.Arguments.All(argument =>
+            model.GetOperation(argument.Expression) is { } value
+            && value.Kind != OperationKind.Invalid);
+    }
+    private static bool BindsToFrameworkOrderingReplacement(
+        InvocationExpressionSyntax invocation,
+        MemberAccessExpressionSyntax member,
+        string replacement,
+        INamedTypeSymbol enumerable,
+        SemanticModel model)
+    {
+        var replacementToken = SyntaxFactory.Identifier(replacement).WithTriviaFrom(member.Name.Identifier);
+        var replacementName = member.Name.ReplaceToken(member.Name.Identifier, replacementToken);
+        var speculativeNode = invocation.ReplaceNode(member.Name, replacementName);
+        if (speculativeNode is not InvocationExpressionSyntax speculativeInvocation
+            || model.GetSpeculativeSymbolInfo(
+                    invocation.SpanStart,
+                    speculativeInvocation,
+                    SpeculativeBindingOption.BindAsExpression)
+                .Symbol is not IMethodSymbol target)
+        {
+            return false;
+        }
+        return target.Name == replacement
+            && SymbolEqualityComparer.Default.Equals(target.ContainingType, enumerable);
     }
 
     private static void CollectS6610Project(CSharpCompilation compilation, SyntaxTree tree, SyntaxNode root, SemanticModel model, List<CompilerQuickFixFact> facts)

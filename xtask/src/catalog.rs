@@ -2904,11 +2904,6 @@ mod tests {
     fn infrastructure_boundaries_match_frozen_catalog_keys() {
         let boundaries = infra_boundaries().unwrap();
         validate_infra_boundaries(&boundaries).unwrap();
-        assert!(
-            boundaries
-                .get("python:S6786")
-                .is_some_and(|boundary| boundary.implementation_gap)
-        );
 
         let stale = BTreeMap::from([(
             "python:S999999".to_owned(),
