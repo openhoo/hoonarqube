@@ -3530,13 +3530,33 @@ fn compact_code(node: Node<'_>, source: &str) -> String {
     value
 }
 
+fn spans_multiple_lines(node: Node<'_>) -> bool {
+    if node.kind() == "block" {
+        let Some(statement_list) = named_children(node)
+            .into_iter()
+            .find(|child| child.kind() == "statement_list")
+        else {
+            return false;
+        };
+        let mut statements = named_children(statement_list)
+            .into_iter()
+            .filter(|child| child.kind() != "comment");
+        let Some(first) = statements.next() else {
+            return false;
+        };
+        let last = statements.next_back().unwrap_or(first);
+        return first.start_position().row != last.end_position().row;
+    }
+    node.start_position().row < node.end_position().row
+}
+
 fn duplicate_branch<'tree>(
     branches: &[(String, Node<'tree>)],
 ) -> Option<(Node<'tree>, Node<'tree>)> {
     for (index, (value, original)) in branches.iter().enumerate() {
         if let Some((_, duplicate)) = branches[index + 1..]
             .iter()
-            .find(|(candidate, _)| candidate == value)
+            .find(|(candidate, branch)| candidate == value && spans_multiple_lines(*branch))
         {
             return Some((*original, *duplicate));
         }
@@ -4065,6 +4085,132 @@ mod tests {
                 "whitespace inside literals is semantic for {key}: {found:?}"
             );
         }
+    }
+
+    #[test]
+    fn s1871_ignores_single_line_duplicate_in_s3923_good() {
+        let s3923_good = concat!(
+            "// Hoonarqube oracle fixture: go:S3923 good\n",
+            "package oracle\n",
+            "\n",
+            "func chooseCondition(b int) {\n",
+            "\tif b == 0 {    // no issue, this could have been done on purpose to make the code more readable\n",
+            "\t\tdoSomething()\n",
+            "\t} else if b == 1 {\n",
+            "\t\tdoSomething()\n",
+            "\t} else {\n",
+            "\t\tdoSomethingElse()\n",
+            "\t}\n",
+            "}\n",
+        );
+        let found = keys(s3923_good);
+        assert!(
+            !found.iter().any(|key| key == "go:S1871"),
+            "single-line duplicate branches are an S1871 exception: {found:?}"
+        );
+        assert!(
+            !found.iter().any(|key| key == "go:S3923"),
+            "the real s3923_good interaction must stay clean: {found:?}"
+        );
+
+        let all_identical = keys(
+            "package oracle\nfunc same(b int) { if b == 0 { println(1) } else { println(1) } }\n",
+        );
+        assert_eq!(
+            all_identical
+                .iter()
+                .filter(|key| key.as_str() == "go:S3923")
+                .count(),
+            1,
+            "S3923 must still report an all-identical if/else: {all_identical:?}"
+        );
+    }
+
+    #[test]
+    fn s1871_requires_nontrivial_executable_branch_lines() {
+        let multiline_body = concat!(
+            "// Hoonarqube oracle fixture: go:S1871 bad\n",
+            "package oracle\n",
+            "func choose(a int) {\n",
+            " if a < 10 {\n",
+            "  println(1)\n",
+            "  println(2)\n",
+            " } else if a < 20 {\n",
+            "  println(3)\n",
+            " } else if a < 30 {\n",
+            "  println(1)\n",
+            "  println(2)\n",
+            " } else {\n",
+            "  println(4)\n",
+            " }\n",
+            "}\n",
+        );
+        let report = analyze(
+            PathBuf::from("s1871_bad.go"),
+            multiline_body,
+            &AnalyzerOptions::default(),
+        );
+        let duplicate_issues: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "go:S1871")
+            .collect();
+        assert_eq!(
+            duplicate_issues.len(),
+            1,
+            "multiline duplicate must remain: {report:?}"
+        );
+        let issue = duplicate_issues[0];
+        assert_eq!(
+            issue.message,
+            "This branch's code block is the same as the block for the branch on line 4."
+        );
+        assert_eq!(issue.range.start.line, 9);
+        assert_eq!(issue.range.start.column, 18);
+        assert_eq!(issue.range.end.line, 12);
+        assert_eq!(issue.range.end.column, 2);
+
+        let multiline_expression = concat!(
+            "package p\n",
+            "func f(b int) {\n",
+            " if b == 0 {\n",
+            "  println(\n",
+            "   1,\n",
+            "  )\n",
+            " } else if b == 1 {\n",
+            "  println(\n",
+            "   1,\n",
+            "  )\n",
+            " } else {\n",
+            "  println(2)\n",
+            " }\n",
+            "}\n",
+        );
+        let found = keys(multiline_expression);
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "go:S1871")
+                .count(),
+            1,
+            "one multiline expression is nontrivial despite one statement per block: {found:?}"
+        );
+
+        let same_line_statements = concat!(
+            "package p\n",
+            "func f(b int) {\n",
+            " if b == 0 { println(1); println(2) } else if b == 1 { println(1); println(2) } else { println(3) }\n",
+            "}\n",
+        );
+        let found = keys(same_line_statements);
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "go:S1871")
+                .count(),
+            0,
+            "multiple statements on one physical line are still a single-line block: {found:?}"
+        );
     }
 
     #[test]

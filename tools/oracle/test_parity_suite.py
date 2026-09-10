@@ -181,6 +181,86 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
             },
         )
 
+    def test_typescript_helper_fingerprints_ignore_cache_but_track_native_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            project = repo / "oracle-ts"
+            source = project / "src" / "main.ts"
+            config = project / "tsconfig.json"
+            dependency = project / "package.json"
+            other_config = project / ".hoonarqube" / "analysis.json"
+            generated_helper = (
+                project
+                / ".hoonarqube"
+                / "semantic"
+                / "typescript"
+                / "semantic-helper-v1.cjs"
+            )
+            tracked_helper = (
+                repo / "tools" / "semantic" / "typescript" / "semantic-helper.cjs"
+            )
+            catalog = repo / "catalog" / "rules" / "typescript.json"
+            files = {
+                source: "export const value = 1;\n",
+                config: '{"compilerOptions":{"strict":true}}\n',
+                dependency: '{"dependencies":{"typescript":"6.0.3"}}\n',
+                other_config: '{"keep":true}\n',
+                tracked_helper: "tracked-helper-v1\n",
+                catalog: "{}\n",
+                repo / "Cargo.toml": "[workspace]\n",
+                repo / "Cargo.lock": "# lock\n",
+            }
+            for path, content in files.items():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+            (repo / "crates").mkdir()
+
+            with mock.patch.object(parity_suite, "REPO", repo):
+                baseline = parity_suite.artifact_input_sha256(
+                    "oracle-ts", "ours", project_dir=project
+                )
+                generated_helper.parent.mkdir(parents=True, exist_ok=True)
+                generated_helper.write_text("generated-helper-v1\n", encoding="utf-8")
+                self.assertEqual(
+                    baseline,
+                    parity_suite.artifact_input_sha256(
+                        "oracle-ts", "ours", project_dir=project
+                    ),
+                )
+                generated_helper.write_text("generated-helper-v2\n", encoding="utf-8")
+                self.assertEqual(
+                    baseline,
+                    parity_suite.artifact_input_sha256(
+                        "oracle-ts", "ours", project_dir=project
+                    ),
+                )
+
+                tracked_helper.write_text("tracked-helper-v2\n", encoding="utf-8")
+                self.assertNotEqual(
+                    baseline,
+                    parity_suite.artifact_input_sha256(
+                        "oracle-ts", "ours", project_dir=project
+                    ),
+                )
+                tracked_helper.write_text("tracked-helper-v1\n", encoding="utf-8")
+                for path in (source, config, dependency, other_config):
+                    original = path.read_text(encoding="utf-8")
+                    path.write_text(original + "changed\n", encoding="utf-8")
+                    with self.subTest(path=path.relative_to(repo)):
+                        self.assertNotEqual(
+                            baseline,
+                            parity_suite.artifact_input_sha256(
+                                "oracle-ts", "ours", project_dir=project
+                            ),
+                        )
+                    path.write_text(original, encoding="utf-8")
+
+                tracked_helper.unlink()
+                with self.assertRaisesRegex(ValueError, "oracle input does not exist"):
+                    parity_suite.artifact_input_sha256(
+                        "oracle-ts", "ours", project_dir=project
+                    )
+
     def test_fixture_inventory_rejects_nested_basename_collisions(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -362,6 +442,20 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
         ):
             rows, issues, error = parity_suite.project_rows("oracle-py", quick=False)
 
+        self.assertIsNone(rows)
+        self.assertIsNone(issues)
+        self.assertEqual(error, "truncated page")
+
+    def test_full_run_csharp_fetch_allows_approved_project_issues(self):
+        with (
+            mock.patch.object(parity_suite, "scan_project", return_value=True),
+            mock.patch.object(
+                parity_suite, "fetch_issues", side_effect=ValueError("truncated page")
+            ) as fetch,
+        ):
+            rows, issues, error = parity_suite.project_rows("oracle-cs", quick=False)
+
+        fetch.assert_called_once_with("oracle-cs", allow_project_issues=True)
         self.assertIsNone(rows)
         self.assertIsNone(issues)
         self.assertEqual(error, "truncated page")

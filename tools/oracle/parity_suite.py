@@ -286,14 +286,30 @@ def result_path(project, kind):
     return RESULTS / f"{project}{tag}.{kind}.json"
 
 
-def _artifact_input_paths(project, kind, *, project_dir=None):
-    project_dir = (
-        Path(project_dir) if project_dir is not None else ORACLE / "projects" / project
-    )
+def _artifact_input_roots(project, kind, project_dir):
     language = CATALOG_LANGUAGE[EXT[project]]
     roots = [project_dir, REPO / "catalog/rules" / f"{language}.json"]
     if kind == "ours":
         roots.extend([REPO / "Cargo.toml", REPO / "Cargo.lock", REPO / "crates"])
+        if project == "oracle-ts":
+            roots.append(REPO / "tools/semantic/typescript/semantic-helper.cjs")
+    return roots
+
+
+def _artifact_input_paths(project, kind, *, project_dir=None):
+    project_dir = (
+        Path(project_dir) if project_dir is not None else ORACLE / "projects" / project
+    )
+    roots = _artifact_input_roots(project, kind, project_dir)
+    generated_helper = (
+        project_dir
+        / ".hoonarqube"
+        / "semantic"
+        / "typescript"
+        / "semantic-helper-v1.cjs"
+        if project == "oracle-ts"
+        else None
+    )
     paths = []
     for root in roots:
         if root.is_symlink():
@@ -303,6 +319,8 @@ def _artifact_input_paths(project, kind, *, project_dir=None):
                 if path.is_symlink():
                     raise ValueError(f"oracle input must not be a symlink: {path}")
                 if path.is_file():
+                    if generated_helper is not None and path == generated_helper:
+                        continue
                     paths.append(path)
         elif root.is_file():
             if root.is_symlink():
@@ -2866,7 +2884,7 @@ def project_rows(proj, quick):
         if not scan_project(proj):
             return None, None, "oracle scan failed"
         try:
-            issue_count = fetch_issues(proj)
+            issue_count = fetch_issues(proj, allow_project_issues=(proj == "oracle-cs"))
         except (OSError, ValueError) as error:
             print(f"  invalid oracle response: {error}")
             return None, None, str(error)

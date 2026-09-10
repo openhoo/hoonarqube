@@ -364,7 +364,8 @@ multiset:
 
 Important statuses:
 
-- `PASS`: exact bad-fixture equality and both good controls clean.
+- `PASS`: exact full finding-multiset equality, including cross-fixture findings,
+  with both designated good controls clean.
 - `ENTERPRISE_UNVERIFIED`: local fixture passes, but Community cannot execute
   the Enterprise rule. Explicit non-pass accepted by routine Community gates.
 - `UPSTREAM_UNVERIFIED`: local bad/good controls pass, but the current Community
@@ -384,7 +385,8 @@ Important statuses:
 Every `INFRA` row must match an exact key and reason in
 `catalog/infra-boundaries.json`. Fixture manifests cannot self-classify a new
 exception, change its reason, or silently retain a removed boundary. The same
-manifest identifies the 17 implementation gaps used by catalog coverage.
+manifest distinguishes implementation gaps from required external project or
+reference context; an implemented rule can still have an unverified prerequisite.
 
 Enterprise-unverified rules still require local evidence. If Hoonarqube misses
 their bad fixture or fires on their good control, the result is `OURS_MISS` or
@@ -395,6 +397,36 @@ Paginated API reads require unique issue/hotspot keys across every page;
 missing or repeated keys are rejected even when page counts and totals match.
 Legacy line-only artifacts are rejected. `--quick` validates cached artifacts;
 a full run refreshes scanner results.
+
+## Security qualification — 2026-09-10
+
+The machine-readable [security qualification matrix](tools/oracle/security-qualification-20260910.json)
+covers all 268 security keys and 834 attack, safe, near-miss, and flow controls
+from the versioned manifests. Native replay used commit
+`3d59d8dc4554429883e61a5a5990574434efa06a`; the artifact records the exact binary
+and input hashes, reference versions, profiles, parameters, source identities,
+and reproduction commands.
+
+All 834 native scans completed after preparing the declared C# project
+dependencies. Completion is not correctness: 104 controls disagree with their
+independent target-presence expectations. The owning Sonar sensors captured
+720 controls; the remaining 114 have explicit unavailable or incomplete
+reference evidence.
+
+| Qualified case outcome | Count |
+|---|---:|
+| Exact available detector evidence and matching control expectations | 448 |
+| Different finding identity, position, kind, or flow evidence | 233 |
+| Reference execution unavailable or incomplete | 114 |
+| Necessary detector evidence unavailable | 28 |
+| Equal detector multisets but failed independent control expectations | 11 |
+
+The comparison retains messages, ranges, detector kinds, available flows and
+secondary locations, and separate human-review state. Equal empty findings on
+an attack control are not a qualification pass. The original control
+expectations remain unchanged; mismatches are not accepted as new clean
+baselines. All 17 Enterprise keys remain explicitly unverified, and no licensed
+Enterprise execution or complete Security parity is claimed.
 
 ## Historical whole-corpus baseline — 2026-08-29
 

@@ -123,6 +123,38 @@ and custom-`ThenBy` `S3169`), both modes exit `1`, leave the source unchanged,
 and the retained diagnostic remains at count `1`. The separate `#43`/`#44`
 evidence comparisons remain open.
 
+## Inventory replay qualification — 2026-09-10
+
+The [machine-readable replay evidence](tools/oracle/quickfix-qualification-20260910.json)
+retains the five input manifests, replay harness, raw results, binary identity,
+and independent qualification of a correctly refused edit. It covers 273
+applications against source commit `3d59d8dc4554429883e61a5a5990574434efa06a`;
+it is not a release-binary or complete upstream-parity claim.
+
+| Language | Replayed inventory keys | Applied exact controls | Safety refusals | Expected no action | Unsafe reference action withheld | Reference difference |
+|---|---:|---:|---:|---:|---:|---:|
+| Python | 58/58 | 64 | 1 | 0 | 0 | 0 |
+| JavaScript | 20/28 | 25 | 8 | 26 | 1 | 1 |
+| TypeScript | 28/32 | 46 | 3 | 37 | 3 | 0 |
+| C# | 54/54 | 45 | 13 | 0 | 0 | 0 |
+
+The artifact lists the twelve missing language-key replays explicitly; an
+implemented action or a normal analyzer regression is not a substitute for
+its quickfix control. The planned inventory statuses above are not promoted
+from these incomplete language slices.
+
+The C# raw harness retains one `S3005` failure. Independent execution of its
+exact selected edit proves that removing `ThreadStatic` introduces `S1144`;
+`S1128` was already present and does not increase. Apply correctly refuses
+the new finding and leaves the source unchanged. This is qualified separately
+as a safety refusal without rewriting the raw result.
+
+The JavaScript `S6326` reference suggestion uses a regex-relative edit range
+against a complete source file and corrupts its `const` declaration. Native
+uses the safe source-relative edit. This remains `reference_different`, not
+an exact upstream-parity pass. Other unsafe upstream projections and all
+guarded no-write controls remain visible in the retained evidence.
+
 ## Gap template
 
 Keys later demoted from `planned` to `gap` get one line here with reason, e.g.:
