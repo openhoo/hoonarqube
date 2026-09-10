@@ -398,6 +398,14 @@ missing or repeated keys are rejected even when page counts and totals match.
 Legacy line-only artifacts are rejected. `--quick` validates cached artifacts;
 a full run refreshes scanner results.
 
+The Rust scanner's generated Cargo graph includes every valid bad and good
+control as an isolated module. Only malformed `S2260` bad source remains
+frontend-only; it is retained unchanged in the scanned source inventory.
+For this deliberately noncompliant oracle corpus, `RUSTFLAGS=--cap-lints=warn`
+retains denied-lint diagnostics without aborting the owning Clippy process.
+The flag is recorded in provenance; syntax errors and upstream-unverified
+boundaries are not converted into passes.
+
 ## Security qualification — 2026-09-10
 
 The machine-readable [security qualification matrix](tools/oracle/security-qualification-20260910.json)

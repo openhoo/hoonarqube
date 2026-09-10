@@ -56,7 +56,58 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
             )
 
         self.assertEqual(command[command.index("-w") + 2], image)
+        self.assertIn("RUSTFLAGS", command)
         ensure.assert_called_once_with()
+
+    def test_rust_scanner_retains_denied_diagnostics_without_aborting_graph(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "src").mkdir()
+            (root / "Cargo.toml").write_text(
+                '[package]\nname = "oracle-lint-control"\nversion = "0.0.0"\n'
+                'edition = "2024"\n',
+                encoding="utf-8",
+            )
+            source = (
+                "fn main() {\n    let _ = std::sync::Mutex::new(1).lock();\n"
+                '    println!("retained");\n}\n'
+            )
+            control = root / "src/main.rs"
+            control.write_text(source, encoding="utf-8")
+            scanner = root / "scanner"
+            scanner.write_text(
+                "#!/bin/sh\nexec cargo clippy --offline --quiet --message-format=json "
+                "-- -A clippy::all -Wclippy::print_stdout\n",
+                encoding="utf-8",
+            )
+            scanner.chmod(0o755)
+            with mock.patch.dict(
+                parity_suite.os.environ,
+                {
+                    "CARGO_TARGET_DIR": str(root / "target"),
+                    "CARGO_ENCODED_RUSTFLAGS": "--deny=warnings",
+                },
+            ):
+                result = parity_suite.run_generic_scanner(
+                    "oracle-rust", root, root / "work", "", str(scanner), None
+                )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            diagnostics = [
+                record["message"]
+                for line in result.stdout.splitlines()
+                if (record := json.loads(line)).get("reason") == "compiler-message"
+            ]
+            codes = {
+                message["code"]["code"]: message["level"]
+                for message in diagnostics
+                if message.get("code")
+            }
+            self.assertEqual(codes.get("let_underscore_lock"), "warning")
+            self.assertEqual(codes.get("clippy::print_stdout"), "warning")
+            self.assertFalse(
+                any(message["level"] == "error" for message in diagnostics)
+            )
+            self.assertEqual(control.read_text(encoding="utf-8"), source)
 
     def test_rust_pinned_image_refuses_mutable_tag_fallback(self):
         image = "localhost/hoonarqube-sonar-rust-scanner@sha256:" + "b" * 64

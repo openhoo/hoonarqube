@@ -111,6 +111,7 @@ BUILD_TIMEOUT_SECONDS = 900
 _IMMUTABLE_IMAGE_RE = re.compile(r"^.+@sha256:[0-9a-f]{64}$")
 _CSHARP_TIMEOUT_ENV = "HOONARQUBE_CSHARP_TIMEOUT_MS"
 _DEFAULT_CSHARP_TIMEOUT_MS = 30_000
+_RUST_SCANNER_FLAGS = "--cap-lints=warn"
 _TYPESCRIPT_PACKAGE_ENV = "HOONARQUBE_TYPESCRIPT_MODULE"
 _EXPECTED_TS_CONFIG = {
     "compilerOptions": {
@@ -662,6 +663,7 @@ def _reference_parameters(proj: str, kind: str) -> dict[str, object]:
     if proj == "oracle-rust":
         params["sonar.rust.clippy.enabled"] = True
         params["sonar.rust.clippy.enable"] = True
+        params["rustflags"] = _RUST_SCANNER_FLAGS
     if proj == "oracle-cs":
         params.update(
             {
@@ -1706,6 +1708,8 @@ def podman_scanner_command(podman_path, proj, source, working):
                 "-e",
                 "CARGO_TARGET_DIR=/tmp/cargo-target",
                 "-e",
+                "RUSTFLAGS",
+                "-e",
                 "PATH=/opt/cargo/bin:/opt/sonar-scanner/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             ]
         )
@@ -1731,6 +1735,11 @@ def podman_scanner_command(podman_path, proj, source, working):
 def run_generic_scanner(proj, source, working, token, scanner_path, podman_path):
     env = dict(os.environ)
     env["SONAR_TOKEN"] = token
+    if proj == "oracle-rust":
+        # Bad controls must retain their diagnostics without denied lints
+        # aborting Cargo before the owning scanner finishes the full graph.
+        env["RUSTFLAGS"] = _RUST_SCANNER_FLAGS
+        env.pop("CARGO_ENCODED_RUSTFLAGS", None)
     if scanner_path and Path(scanner_path).is_file():
         command = local_scanner_command(scanner_path, proj, working)
         return subprocess.run(
