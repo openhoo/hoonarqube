@@ -9,6 +9,7 @@
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
+    <AssemblyMetadata Include="Hoonarqube.BuildSdkPath" Value="$(MSBuildToolsPath)" />
     <Compile Include="Program.cs" />
     <Compile Include="QuickFixPlanner.cs" />
     <Compile Include="RazorSourceFacts.cs" />

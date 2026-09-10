@@ -684,23 +684,16 @@ internal static class Program
         {
             candidates.Add(configured);
         }
-        foreach (var root in new[]
+
+        var compiledSdkPath = CompiledSdkPath();
+        if (!string.IsNullOrWhiteSpace(compiledSdkPath))
         {
-            Environment.GetEnvironmentVariable("DOTNET_ROOT"),
-            Environment.GetEnvironmentVariable("DOTNET_ROOT_X64"),
-            "/usr/share/dotnet",
-            "/usr/local/share/dotnet",
-        }.Where(root => !string.IsNullOrWhiteSpace(root)))
-        {
-            if (Directory.Exists(root!))
-            {
-                candidates.AddRange(Directory.GetDirectories(Path.Combine(root!, "sdk")));
-            }
+            candidates.Add(compiledSdkPath);
         }
+
         return candidates
             .Select(Path.GetFullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(path => path, StringComparer.Ordinal)
             .FirstOrDefault(path =>
                 File.Exists(Path.Combine(path, "DotnetTools", "dotnet-format", "Microsoft.CodeAnalysis.dll"))
                 && File.Exists(Path.Combine(path, "DotnetTools", "dotnet-format", "Microsoft.CodeAnalysis.CSharp.dll"))
@@ -708,6 +701,18 @@ internal static class Program
                 && File.Exists(Path.Combine(path, "DotnetTools", "dotnet-format", "Microsoft.CodeAnalysis.CSharp.Workspaces.dll"))
                 && File.Exists(Path.Combine(path, "DotnetTools", "dotnet-format", "Microsoft.CodeAnalysis.Workspaces.MSBuild.dll"))
                 && File.Exists(Path.Combine(path, "DotnetTools", "dotnet-format", "BuildHost-netcore", "Microsoft.Build.Locator.dll")));
+    }
+
+    // With no explicit override, the project embeds MSBuildToolsPath so runtime
+    // loading uses the SDK that supplied the helper's compile-time references.
+    private static string? CompiledSdkPath()
+    {
+        const string metadataKey = "Hoonarqube.BuildSdkPath";
+        return typeof(Program)
+            .Assembly
+            .GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(attribute => string.Equals(attribute.Key, metadataKey, StringComparison.Ordinal))
+            ?.Value;
     }
 
     private static void ConfigureAssemblyResolution(string sdkPath)
