@@ -747,7 +747,7 @@ internal static class Program
         workspace.RegisterWorkspaceFailedHandler(diagnostic =>
             diagnostics.Add(Diagnostic(
                 "workspace_failed",
-                diagnostic.ToString() ?? "Workspace failure reported without a message.",
+                diagnostic.Diagnostic.ToString(),
                 null)));
     }
 

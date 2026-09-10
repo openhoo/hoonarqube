@@ -555,7 +555,7 @@
           "description": "Review attack: a real FileSystemAccessRule grants Everyone FullControl with Allow.",
           "files": {
             "global.json": "{\n  \"sdk\": {\n    \"version\": \"10.0.111\",\n    \"rollForward\": \"disable\"\n  },\n  \"allowPrerelease\": false\n}\n",
-            "Fixture.csproj": "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n    <OutputType>Library</OutputType>\n    <Nullable>enable</Nullable>\n    <ImplicitUsings>enable</ImplicitUsings>\n    <LangVersion>14.0</LangVersion>\n  </PropertyGroup>\n  <ItemGroup>\n    <PackageReference Include=\"System.Security.AccessControl\" Version=\"6.0.1\" />\n  </ItemGroup>\n</Project>\n",
+            "Fixture.csproj": "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n    <OutputType>Library</OutputType>\n    <Nullable>enable</Nullable>\n    <ImplicitUsings>enable</ImplicitUsings>\n    <LangVersion>14.0</LangVersion>\n  </PropertyGroup>\n</Project>\n",
             "S2612Attack.cs": "using System.Security.AccessControl;\n\npublic static class FilePermissions\n{\n    public static FileSecurity Build()\n    {\n        var rule = new FileSystemAccessRule(\n            \"Everyone\", FileSystemRights.FullControl, AccessControlType.Allow);\n        var security = new FileSecurity();\n        security.AddAccessRule(rule);\n        return security;\n    }\n}\n"
           },
           "native_args": [
@@ -573,7 +573,7 @@
           "description": "Review safe control: the real ACL explicitly denies Everyone FullControl, matching the owning rule’s documented compliant form.",
           "files": {
             "global.json": "{\n  \"sdk\": {\n    \"version\": \"10.0.111\",\n    \"rollForward\": \"disable\"\n  },\n  \"allowPrerelease\": false\n}\n",
-            "Fixture.csproj": "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n    <OutputType>Library</OutputType>\n    <Nullable>enable</Nullable>\n    <ImplicitUsings>enable</ImplicitUsings>\n    <LangVersion>14.0</LangVersion>\n  </PropertyGroup>\n  <ItemGroup>\n    <PackageReference Include=\"System.Security.AccessControl\" Version=\"6.0.1\" />\n  </ItemGroup>\n</Project>\n",
+            "Fixture.csproj": "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n    <OutputType>Library</OutputType>\n    <Nullable>enable</Nullable>\n    <ImplicitUsings>enable</ImplicitUsings>\n    <LangVersion>14.0</LangVersion>\n  </PropertyGroup>\n</Project>\n",
             "S2612Safe.cs": "using System.Security.AccessControl;\n\npublic static class FilePermissions\n{\n    public static FileSecurity Build()\n    {\n        var rule = new FileSystemAccessRule(\n            \"Everyone\", FileSystemRights.FullControl, AccessControlType.Deny);\n        var security = new FileSecurity();\n        security.AddAccessRule(rule);\n        return security;\n    }\n}\n"
           },
           "native_args": [
@@ -591,7 +591,7 @@
           "description": "Review near miss: an alias applies a narrower real Everyone/Read Deny rule and never grants world access.",
           "files": {
             "global.json": "{\n  \"sdk\": {\n    \"version\": \"10.0.111\",\n    \"rollForward\": \"disable\"\n  },\n  \"allowPrerelease\": false\n}\n",
-            "Fixture.csproj": "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n    <OutputType>Library</OutputType>\n    <Nullable>enable</Nullable>\n    <ImplicitUsings>enable</ImplicitUsings>\n    <LangVersion>14.0</LangVersion>\n  </PropertyGroup>\n  <ItemGroup>\n    <PackageReference Include=\"System.Security.AccessControl\" Version=\"6.0.1\" />\n  </ItemGroup>\n</Project>\n",
+            "Fixture.csproj": "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n    <OutputType>Library</OutputType>\n    <Nullable>enable</Nullable>\n    <ImplicitUsings>enable</ImplicitUsings>\n    <LangVersion>14.0</LangVersion>\n  </PropertyGroup>\n</Project>\n",
             "S2612NearMiss.cs": "using System.Security.AccessControl;\n\npublic static class FilePermissionsAlias\n{\n    public static FileSecurity Build() => BuildRule(\"Everyone\");\n\n    private static FileSecurity BuildRule(string identity)\n    {\n        var rule = new FileSystemAccessRule(\n            identity, FileSystemRights.Read, AccessControlType.Deny);\n        var security = new FileSecurity();\n        security.AddAccessRule(rule);\n        return security;\n    }\n}\n"
           },
           "native_args": [
