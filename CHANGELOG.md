@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1 (2026-09-10)
+
+### Bug Fixes
+
+- **hoonarqube:** qualify remaining parity and guarded fixes (e71a7e6)
+
 ## 0.8.0 (2026-09-10)
 
 ### Features

@@ -21,7 +21,7 @@ exclude = ["vendor/tree-sitter-typescript", "vendor/tree-sitter-c-sharp", "vendo
 resolver = "3"
 
 [workspace.package]
-version = "0.8.0"
+version = "0.8.1"
 edition = "2024"
 rust-version = "1.96.0"
 license = "Apache-2.0"
