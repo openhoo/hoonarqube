@@ -400,7 +400,7 @@ fn extensions_map_to_languages() {
 #[test]
 fn issues_are_sorted_by_position() {
     let source = "\
-eval('a');
+eval(input);
 let b = x; let c = y;
 ";
     let report = js(source);
@@ -427,8 +427,8 @@ let b = x; let c = y;
 #[test]
 fn eval_usage_is_flagged_at_callee_span_across_the_tree() {
     let source = "\
-eval('x');
-const f = new Function('return 1');
+eval(input);
+const f = new Function(source);
 foo(eval(nested));
 window.eval('not plain identifier');
 new window.Function('also ignored');
@@ -448,7 +448,7 @@ new window.Function('also ignored');
                 "javascript:S3523",
                 "The Function constructor is eval.",
                 (2, 10),
-                (2, 34),
+                (2, 30),
             ),
             issue(
                 "javascript:S1523",
@@ -782,7 +782,7 @@ const TRACKED_JAVASCRIPT_ORACLE_CASES: &[(&str, &str, &str, usize)] = &[
     ("javascript:S4165", "s4165_bad.js", "s4165_good.js", 1),
     ("javascript:S4784", "s4784_bad.js", "s4784_good.js", 3),
     ("javascript:S5443", "s5443_bad.js", "s5443_good.js", 2),
-    ("javascript:S5725", "s5725_bad.js", "s5725_good.js", 2),
+    ("javascript:S5725", "s5725_bad.js", "s5725_good.js", 1),
     ("javascript:S5876", "s5876_bad.js", "s5876_good.js", 1),
     ("javascript:S6486", "s6486_bad.jsx", "s6486_good.jsx", 1),
     ("javascript:S6522", "s6522_bad.js", "s6522_good.js", 1),
@@ -1172,7 +1172,7 @@ const TRACKED_TYPESCRIPT_ORACLE_CASES: &[(&str, &str, &str, usize)] = &[
     ("typescript:S1116", "s1116_bad.ts", "s1116_good.ts", 1),
     ("typescript:S1119", "s1119_bad.ts", "s1119_good.ts", 1),
     ("typescript:S1154", "s1154_bad.ts", "s1154_good.ts", 1),
-    ("typescript:S1199", "s1199_bad.ts", "s1199_good.ts", 1),
+    ("typescript:S1199", "s1199_bad.ts", "s1199_good.ts", 2),
     ("typescript:S1525", "s1525_bad.ts", "s1525_good.ts", 1),
     ("typescript:S1848", "s1848_bad.ts", "s1848_good.ts", 1),
     ("typescript:S2201", "s2201_bad.ts", "s2201_good.ts", 1),
@@ -1257,7 +1257,7 @@ const TRACKED_TYPESCRIPT_ORACLE_CASES: &[(&str, &str, &str, usize)] = &[
     ("typescript:S4165", "s4165_bad.ts", "s4165_good.ts", 1),
     ("typescript:S4784", "s4784_bad.ts", "s4784_good.ts", 3),
     ("typescript:S5443", "s5443_bad.ts", "s5443_good.ts", 2),
-    ("typescript:S5725", "s5725_bad.ts", "s5725_good.ts", 2),
+    ("typescript:S5725", "s5725_bad.ts", "s5725_good.ts", 1),
     ("typescript:S5860", "s5860_bad.ts", "s5860_good.ts", 2),
     ("typescript:S5876", "s5876_bad.ts", "s5876_good.ts", 1),
     ("typescript:S6441", "s6441_bad.ts", "s6441_good.ts", 1),
@@ -1290,6 +1290,7 @@ const TRACKED_TYPESCRIPT_ORACLE_CASES: &[(&str, &str, &str, usize)] = &[
 fn tracked_typescript_oracle_pairs_trigger_only_the_bad_control() {
     let project = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../.oracle/sonar/projects/oracle-ts/src");
+    let mut mismatches = Vec::new();
     for &(key, bad_name, good_name, expected_bad_count) in TRACKED_TYPESCRIPT_ORACLE_CASES {
         let bad_path = project.join(bad_name);
         let bad_source = std::fs::read_to_string(&bad_path)
@@ -1300,14 +1301,16 @@ fn tracked_typescript_oracle_pairs_trigger_only_the_bad_control() {
             JstsLanguage::TypeScript,
             &AnalyzerOptions::default(),
         );
-        assert_eq!(
-            bad.issues
-                .iter()
-                .filter(|issue| issue.rule_key == key)
-                .count(),
-            expected_bad_count,
-            "bad oracle control for {key}",
-        );
+        let bad_count = bad
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == key)
+            .count();
+        if bad_count != expected_bad_count {
+            mismatches.push(format!(
+                "bad oracle control for {key}: expected {expected_bad_count}, got {bad_count}"
+            ));
+        }
 
         let good_path = project.join(good_name);
         let good_source = std::fs::read_to_string(&good_path)
@@ -1318,15 +1321,18 @@ fn tracked_typescript_oracle_pairs_trigger_only_the_bad_control() {
             JstsLanguage::TypeScript,
             &AnalyzerOptions::default(),
         );
-        assert_eq!(
-            good.issues
-                .iter()
-                .filter(|issue| issue.rule_key == key)
-                .count(),
-            0,
-            "good oracle control for {key}",
-        );
+        let good_count = good
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == key)
+            .count();
+        if good_count != 0 {
+            mismatches.push(format!(
+                "good oracle control for {key}: expected 0, got {good_count}"
+            ));
+        }
     }
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }
 
 #[test]

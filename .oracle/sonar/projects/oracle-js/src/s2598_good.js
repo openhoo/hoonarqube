@@ -1,7 +1,6 @@
-// S2598 good: upload middleware with explicit limits.
+// S2598 good: disk storage with an explicit destination.
 const multer = require("multer");
 const upload = multer({
-  dest: "uploads/",
-  limits: { fileSize: 1048576, files: 5 },
+  storage: multer.diskStorage({ destination: "uploads/" }),
 });
 module.exports = { upload };

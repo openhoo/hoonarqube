@@ -12,6 +12,80 @@ import parity_suite
 
 
 class ParitySuiteFailClosedTests(unittest.TestCase):
+    @staticmethod
+    def _write_csharp_context_workspace(root: Path):
+        workspace = root / "workspace"
+        projects = workspace / "projects"
+        projects.mkdir(parents=True)
+        (workspace / "Oracle.slnx").write_text("<Solution />\n", encoding="utf-8")
+
+        frameworks = (
+            ("azure-functions-framework", "AzureFunctions.cs", "AzureFunctions.csproj"),
+            ("durable-task-framework", "DurableTask.cs", "DurableTask.csproj"),
+            ("nfluent-framework", "NFluent.cs", "NFluent.csproj"),
+            ("test-framework", "TestFramework.cs", "TestFramework.csproj"),
+        )
+        for directory, source_name, project_name in frameworks:
+            framework_dir = projects / directory
+            framework_dir.mkdir()
+            (framework_dir / source_name).write_text(
+                "namespace Framework { public class Marker {} }\n",
+                encoding="utf-8",
+            )
+            (framework_dir / project_name).write_text(
+                f"""<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="{source_name}" />
+  </ItemGroup>
+</Project>
+""",
+                encoding="utf-8",
+            )
+
+        fixture_dir = projects / "fixture-0000"
+        fixture_dir.mkdir()
+        fixture = fixture_dir / "fixture.cs"
+        fixture.write_text("class Fixture {}\n", encoding="utf-8")
+        (fixture_dir / "OracleStubs.g.cs").write_text(
+            "class OracleStub {}\n", encoding="utf-8"
+        )
+        project = fixture_dir / "fixture-0000.csproj"
+        project.write_text(
+            """<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="fixture.cs" />
+    <Compile Include="OracleStubs.g.cs" AutoGen="true" />
+  </ItemGroup>
+</Project>
+""",
+            encoding="utf-8",
+        )
+
+        static_files = parity_suite._csharp_workspace_static_files(workspace)
+        source_metadata = parity_suite.file_metadata(fixture, root=workspace)
+        copy_metadata = parity_suite.file_metadata(fixture, root=workspace)
+        project_metadata = parity_suite.file_metadata(project, root=workspace)
+        mapping = {
+            "source": fixture.name,
+            "source_path": str(fixture),
+            "source_sha256": source_metadata["sha256"],
+            "copy": copy_metadata["path"],
+            "copy_sha256": copy_metadata["sha256"],
+            "project": project_metadata["path"],
+            "project_sha256": project_metadata["sha256"],
+        }
+        expected_paths = sorted(
+            str((projects / directory / source_name).resolve())
+            for directory, source_name, _project_name in frameworks
+        )
+        return workspace, static_files, mapping, fixture, expected_paths
+
     def test_fixture_inventory_includes_jsx_and_tsx_variants(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -333,6 +407,115 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
         self.assertIn(f"/d:sonar.projectBaseDir={output}", command)
         self.assertIn("/d:sonar.scm.exclusions.disabled=true", command)
         self.assertIn("/d:sonar.host.url=http://sonar.test", command)
+
+    def test_csharp_context_sources_are_context_only_and_ordered_before_fixture_scope(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as directory:
+            (
+                workspace,
+                static_files,
+                mapping,
+                fixture,
+                expected_context_paths,
+            ) = self._write_csharp_context_workspace(Path(directory))
+            current_static = parity_suite._csharp_metadata_map(static_files, workspace)
+            context_paths, context_hashes = (
+                parity_suite._csharp_workspace_context_sources(
+                    workspace, static_files, current_static, [mapping]
+                )
+            )
+            self.assertEqual(context_paths, expected_context_paths)
+            self.assertEqual(set(context_hashes), set(context_paths))
+            self.assertNotIn(str(fixture), context_paths)
+            self.assertNotIn(
+                str((workspace / "projects/fixture-0000/OracleStubs.g.cs").resolve()),
+                context_paths,
+            )
+
+            native_context = {
+                "status": "READY",
+                "workspace": str(workspace),
+                "solution": str(workspace / "Oracle.slnx"),
+                "source_mapping": [mapping],
+                "source_paths": [str(fixture)],
+                "context_source_paths": context_paths,
+                "context_source_hashes": context_hashes,
+            }
+            command: list[str] = []
+            with mock.patch.dict(parity_suite.os.environ, {}, clear=True):
+                parity_suite._append_ours_command(
+                    command, "oracle-cs", fixture, native_context
+                )
+
+            values = [
+                command[index + 1]
+                for index, value in enumerate(command[:-1])
+                if value == "--csharp-context-source"
+            ]
+            fixture_index = command.index(str(fixture))
+            self.assertEqual(values, expected_context_paths)
+            self.assertTrue(
+                all(
+                    command.index(path) < fixture_index
+                    for path in expected_context_paths
+                )
+            )
+            self.assertEqual(command[fixture_index:], [str(fixture)])
+            self.assertEqual(native_context["source_paths"], [str(fixture)])
+            self.assertEqual(native_context["source_mapping"], [mapping])
+
+            report = {"files": [{"path": str(fixture)}]}
+            parity_suite._normalize_csharp_report_paths(report, native_context)
+            self.assertEqual(report["files"][0]["path"], "fixture.cs")
+            with self.assertRaisesRegex(
+                ValueError, "outside the retained fixture mapping"
+            ):
+                parity_suite._normalize_csharp_report_paths(
+                    {"files": [{"path": context_paths[0]}]}, native_context
+                )
+
+    def test_csharp_context_sources_reject_changed_or_unowned_auxiliary_inputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            (
+                workspace,
+                static_files,
+                mapping,
+                _fixture,
+                _expected_context_paths,
+            ) = self._write_csharp_context_workspace(Path(directory))
+            current_static = parity_suite._csharp_metadata_map(static_files, workspace)
+            context_paths, _ = parity_suite._csharp_workspace_context_sources(
+                workspace, static_files, current_static, [mapping]
+            )
+            changed_source = Path(context_paths[0])
+            original_source = changed_source.read_text(encoding="utf-8")
+            changed_source.write_text(original_source + "changed\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "context source hash mismatch"):
+                parity_suite._csharp_workspace_context_sources(
+                    workspace, static_files, current_static, [mapping]
+                )
+            changed_source.write_text(original_source, encoding="utf-8")
+
+            project = (
+                workspace
+                / "projects/azure-functions-framework"
+                / ("AzureFunctions.csproj")
+            )
+            project.write_text(
+                """<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+</Project>
+""",
+                encoding="utf-8",
+            )
+            changed_static = parity_suite._csharp_metadata_map(static_files, workspace)
+            with self.assertRaisesRegex(ValueError, "no project Compile owner"):
+                parity_suite._csharp_workspace_context_sources(
+                    workspace, static_files, changed_static, [mapping]
+                )
 
     def test_csharp_failed_native_build_fails_closed_after_scanner_end(self):
         def completed(code, output=""):

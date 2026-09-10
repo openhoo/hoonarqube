@@ -432,7 +432,7 @@ mod tests {
     fn javascript_analyzer_runs_through_the_registry() {
         let report = analyze(
             Path::new("a.js"),
-            "eval('x');\n",
+            "function run(code) { eval(code); }\n",
             &AnalyzerOptions::default(),
         )
         .unwrap();
@@ -444,7 +444,7 @@ mod tests {
     fn typescript_analyzer_runs_through_the_registry() {
         let report = analyze(
             Path::new("a.ts"),
-            "eval('x');\n",
+            "function run(code) { eval(code); }\n",
             &AnalyzerOptions::default(),
         )
         .unwrap();

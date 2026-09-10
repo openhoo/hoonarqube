@@ -41,10 +41,34 @@ pub(crate) enum KnownBinding {
     DjangoConnectionCursor,
     DjangoCursor,
     DjangoCursorExecute,
+    DjangoHttpModule,
+    DjangoViewsModule,
+    DjangoDecoratorsModule,
+    DjangoHttpDecoratorsModule,
+    DjangoMethodRestriction,
+    DjangoHttpResponse,
+    FlaskModule,
+    FlaskClass,
+    FlaskInstance,
+    FlaskConfig,
+    RequestsOauthlibModule,
+    RequestsOauthlibOauth2SessionModule,
+    OAuth2SessionClass,
+    OAuth2SessionInstance,
+    OAuth2FetchToken,
+    JoseModule,
+    JwtModule,
+    JwtEncode,
+    JwtDecode,
+    SignxmlModule,
+    SignxmlXMLVerifier,
+    SignxmlVerifierInstance,
+    SignxmlVerify,
 }
 #[derive(Clone, Copy)]
 struct Binding {
     value: KnownBinding,
+    static_text: bool,
     range: TextRange,
 }
 
@@ -62,10 +86,10 @@ struct Scope {
     bindings: HashMap<String, Vec<Binding>>,
 }
 
-/// Minimal lexical binding facts for standard-library identities. This is not
-/// a general type checker: it only tracks imports, local definitions, and
+/// Minimal lexical binding facts for recognized library APIs. This is not a
+/// general type checker: it only tracks imports, local definitions, and
 /// straightforward aliases, which is enough to avoid guessing from a method's
-/// spelling while preserving conservative unknown-call behavior.
+/// final spelling while preserving conservative unknown-call behavior.
 pub(crate) struct KnownBindings {
     scopes: Vec<Scope>,
 }
@@ -109,19 +133,36 @@ impl KnownBindings {
             Stmt::ClassDef(class) => self.record_class(scope, statement, class),
             Stmt::Assign(assign) => {
                 let value = self.resolve_value_in_scope(scope, &assign.value);
+                let static_text = self.resolve_static_in_scope(scope, &assign.value);
                 for target in &assign.targets {
-                    self.bind_assignment_targets(scope, target, value, statement.range());
+                    self.bind_assignment_targets(
+                        scope,
+                        target,
+                        value,
+                        static_text,
+                        statement.range(),
+                    );
                 }
                 self.record_nested_bodies(scope, statement);
             }
             Stmt::AnnAssign(assign) => {
-                let value = assign
-                    .value
-                    .as_deref()
-                    .map_or(KnownBinding::Unknown, |value| {
-                        self.resolve_value_in_scope(scope, value)
-                    });
-                self.bind_assignment_targets(scope, &assign.target, value, statement.range());
+                let (value, static_text) =
+                    assign
+                        .value
+                        .as_deref()
+                        .map_or((KnownBinding::Unknown, false), |value| {
+                            (
+                                self.resolve_value_in_scope(scope, value),
+                                self.resolve_static_in_scope(scope, value),
+                            )
+                        });
+                self.bind_assignment_targets(
+                    scope,
+                    &assign.target,
+                    value,
+                    static_text,
+                    statement.range(),
+                );
                 self.record_nested_bodies(scope, statement);
             }
             Stmt::AugAssign(assign) => {
@@ -132,8 +173,15 @@ impl KnownBindings {
             Stmt::With(with_stmt) => {
                 for item in &with_stmt.items {
                     let value = self.resolve_value_in_scope(scope, &item.context_expr);
+                    let static_text = self.resolve_static_in_scope(scope, &item.context_expr);
                     if let Some(target) = item.optional_vars.as_deref() {
-                        self.bind_assignment_targets(scope, target, value, target.range());
+                        self.bind_assignment_targets(
+                            scope,
+                            target,
+                            value,
+                            static_text,
+                            target.range(),
+                        );
                     }
                 }
                 self.record_nested_bodies(scope, statement);
@@ -154,6 +202,18 @@ impl KnownBindings {
             _ => self.resolve_expr_in_scope(scope, expr),
         }
     }
+
+    fn resolve_static_in_scope(&self, scope: usize, expr: &Expr) -> bool {
+        match expr {
+            Expr::StringLiteral(_) | Expr::BytesLiteral(_) => true,
+            Expr::Named(named) => self.resolve_static_in_scope(scope, &named.value),
+            Expr::Name(name) => {
+                self.resolve_static_name(scope, name.id.as_str(), expr.range().start())
+            }
+            _ => false,
+        }
+    }
+
     fn record_import(&mut self, scope: usize, import: &ruff_python_ast::StmtImport) {
         for alias in &import.names {
             let local = alias.asname.as_deref().map_or_else(
@@ -168,10 +228,10 @@ impl KnownBindings {
                 },
                 str::to_string,
             );
-            let value = if alias.asname.is_none() && alias.name.as_str().starts_with("django.") {
-                module_binding("django")
-            } else {
+            let value = if alias.asname.is_some() {
                 module_binding(alias.name.as_str())
+            } else {
+                module_binding(alias.name.as_str().split('.').next().unwrap_or(""))
             };
             self.bind(scope, &local, value, alias.range());
         }
@@ -262,19 +322,45 @@ impl KnownBindings {
     }
 
     fn bind_targets(&mut self, scope: usize, target: &Expr, value: KnownBinding, range: TextRange) {
+        self.bind_targets_with_static(scope, target, value, false, range);
+    }
+
+    fn bind_targets_with_static(
+        &mut self,
+        scope: usize,
+        target: &Expr,
+        value: KnownBinding,
+        static_text: bool,
+        range: TextRange,
+    ) {
         let mut names = Vec::new();
         collect_target_names(target, &mut names);
         for name in names {
-            self.bind(scope, &name, value, range);
+            self.bind_with_static(scope, &name, value, static_text, range);
         }
     }
 
     fn bind(&mut self, scope: usize, name: &str, value: KnownBinding, range: TextRange) {
+        self.bind_with_static(scope, name, value, false, range);
+    }
+
+    fn bind_with_static(
+        &mut self,
+        scope: usize,
+        name: &str,
+        value: KnownBinding,
+        static_text: bool,
+        range: TextRange,
+    ) {
         self.scopes[scope]
             .bindings
             .entry(name.to_string())
             .or_default()
-            .push(Binding { value, range });
+            .push(Binding {
+                value,
+                static_text,
+                range,
+            });
     }
 
     fn bind_assignment_targets(
@@ -282,6 +368,7 @@ impl KnownBindings {
         scope: usize,
         target: &Expr,
         value: KnownBinding,
+        static_text: bool,
         statement: TextRange,
     ) {
         if self.scopes[scope].kind == ScopeKind::Function {
@@ -289,9 +376,8 @@ impl KnownBindings {
             self.bind_targets(scope, target, KnownBinding::Unknown, lexical);
         }
         let end = TextRange::new(statement.end(), statement.end());
-        self.bind_targets(scope, target, value, end);
+        self.bind_targets_with_static(scope, target, value, static_text, end);
     }
-
     fn activation_range(&self, scope: usize, statement: TextRange) -> TextRange {
         if self.scopes[scope].kind == ScopeKind::Function {
             let start = self.scopes[scope].range.start();
@@ -311,6 +397,14 @@ impl KnownBindings {
         });
         self.scopes.len() - 1
     }
+    pub(crate) fn resolve_expr_identity(&self, expr: &Expr) -> KnownBinding {
+        self.resolve_expr(expr, expr.range())
+    }
+
+    pub(crate) fn is_static_text(&self, expr: &Expr) -> bool {
+        let scope = self.scope_for(expr.range());
+        self.resolve_static_in_scope(scope, expr)
+    }
 
     fn resolve_expr(&self, expr: &Expr, _at: TextRange) -> KnownBinding {
         let scope = self.scope_for(expr.range());
@@ -322,6 +416,9 @@ impl KnownBindings {
             Expr::Name(name) => self.resolve_name(scope, name.id.as_str(), expr.range().start()),
             Expr::Call(call) => match self.resolve_expr_in_scope(scope, &call.func) {
                 KnownBinding::DjangoConnectionCursor => KnownBinding::DjangoCursor,
+                KnownBinding::FlaskClass => KnownBinding::FlaskInstance,
+                KnownBinding::OAuth2SessionClass => KnownBinding::OAuth2SessionInstance,
+                KnownBinding::SignxmlXMLVerifier => KnownBinding::SignxmlVerifierInstance,
                 _ => KnownBinding::Unknown,
             },
             Expr::Attribute(attribute) => {
@@ -330,6 +427,25 @@ impl KnownBindings {
             }
             _ => KnownBinding::Unknown,
         }
+    }
+
+    fn resolve_static_name(&self, scope: usize, name: &str, position: TextSize) -> bool {
+        if let Some(binding) = self.binding_record_at(scope, name, position) {
+            return binding.static_text;
+        }
+        if self.scopes[scope].kind != ScopeKind::Module
+            && self.scopes[scope].bindings.contains_key(name)
+        {
+            return false;
+        }
+        self.lexical_parent(scope).is_some_and(|parent| {
+            let parent_position = if self.scopes[scope].kind == ScopeKind::Function {
+                self.scopes[parent].range.end()
+            } else {
+                position
+            };
+            self.resolve_static_name(parent, name, parent_position)
+        })
     }
 
     fn resolve_name(&self, scope: usize, name: &str, position: TextSize) -> KnownBinding {
@@ -344,13 +460,17 @@ impl KnownBindings {
         self.resolve_parent_or_fallback(scope, name, position)
     }
 
-    fn binding_at(&self, scope: usize, name: &str, position: TextSize) -> Option<KnownBinding> {
+    fn binding_record_at(&self, scope: usize, name: &str, position: TextSize) -> Option<&Binding> {
         self.scopes[scope]
             .bindings
             .get(name)?
             .iter()
             .filter(|binding| binding.range.start() <= position)
             .max_by_key(|binding| binding.range.start())
+    }
+
+    fn binding_at(&self, scope: usize, name: &str, position: TextSize) -> Option<KnownBinding> {
+        self.binding_record_at(scope, name, position)
             .map(|binding| binding.value)
     }
 
@@ -428,10 +548,30 @@ fn module_binding(module: &str) -> KnownBinding {
         "time" => KnownBinding::TimeModule,
         "django" => KnownBinding::DjangoModule,
         "django.db" => KnownBinding::DjangoDbModule,
+        "django.http" => KnownBinding::DjangoHttpModule,
+        "django.views.decorators.http" => KnownBinding::DjangoHttpDecoratorsModule,
+        "flask" => KnownBinding::FlaskModule,
+        "requests_oauthlib" => KnownBinding::RequestsOauthlibModule,
+        "requests_oauthlib.oauth2_session" => KnownBinding::RequestsOauthlibOauth2SessionModule,
+        "jose" => KnownBinding::JoseModule,
+        "jwt" | "jose.jwt" => KnownBinding::JwtModule,
+        "signxml" => KnownBinding::SignxmlModule,
         _ => KnownBinding::Unknown,
     }
 }
 
+fn fallback_binding(name: &str) -> KnownBinding {
+    match name {
+        "builtins" => KnownBinding::BuiltinsModule,
+        "os" => KnownBinding::OsModule,
+        "subprocess" => KnownBinding::SubprocessModule,
+        "asyncio" => KnownBinding::AsyncioModule,
+        "eval" => KnownBinding::BuiltinEval,
+        "exec" => KnownBinding::BuiltinExec,
+        "repr" => KnownBinding::BuiltinRepr,
+        _ => KnownBinding::Unknown,
+    }
+}
 fn from_import_binding(module: Option<&str>, name: &str) -> KnownBinding {
     match (module, name) {
         (Some("builtins"), "eval") => KnownBinding::BuiltinEval,
@@ -452,24 +592,24 @@ fn from_import_binding(module: Option<&str>, name: &str) -> KnownBinding {
         (Some("asyncio"), "sleep") => KnownBinding::AsyncioSleep,
         (Some("time"), "sleep") => KnownBinding::TimeSleep,
         (Some("django"), "db") => KnownBinding::DjangoDbModule,
+        (Some("django"), "http") => KnownBinding::DjangoHttpModule,
+        (Some("django.http"), "HttpResponse") => KnownBinding::DjangoHttpResponse,
+        (
+            Some("django.views.decorators.http"),
+            "require_http_methods" | "require_GET" | "require_POST" | "require_safe",
+        ) => KnownBinding::DjangoMethodRestriction,
         (Some("django.db"), "connection") => KnownBinding::DjangoDbConnection,
+        (Some("flask"), "Flask") => KnownBinding::FlaskClass,
+        (Some("requests_oauthlib" | "requests_oauthlib.oauth2_session"), "OAuth2Session") => {
+            KnownBinding::OAuth2SessionClass
+        }
+        (Some("jwt" | "jose.jwt"), "encode") => KnownBinding::JwtEncode,
+        (Some("jwt" | "jose.jwt"), "decode") => KnownBinding::JwtDecode,
+        (Some("jose"), "jwt") => KnownBinding::JwtModule,
+        (Some("signxml"), "XMLVerifier") => KnownBinding::SignxmlXMLVerifier,
         _ => KnownBinding::Unknown,
     }
 }
-
-fn fallback_binding(name: &str) -> KnownBinding {
-    match name {
-        "builtins" => KnownBinding::BuiltinsModule,
-        "os" => KnownBinding::OsModule,
-        "subprocess" => KnownBinding::SubprocessModule,
-        "asyncio" => KnownBinding::AsyncioModule,
-        "eval" => KnownBinding::BuiltinEval,
-        "exec" => KnownBinding::BuiltinExec,
-        "repr" => KnownBinding::BuiltinRepr,
-        _ => KnownBinding::Unknown,
-    }
-}
-
 fn attribute_binding(base: KnownBinding, attribute: &str) -> KnownBinding {
     match (base, attribute) {
         (KnownBinding::BuiltinsModule, "repr") => KnownBinding::BuiltinRepr,
@@ -492,8 +632,31 @@ fn attribute_binding(base: KnownBinding, attribute: &str) -> KnownBinding {
         (KnownBinding::AsyncioModule, "sleep") => KnownBinding::AsyncioSleep,
         (KnownBinding::TimeModule, "sleep") => KnownBinding::TimeSleep,
         (KnownBinding::DjangoModule, "db") => KnownBinding::DjangoDbModule,
-        (KnownBinding::DjangoDbModule, "connection") => KnownBinding::DjangoDbConnection,
+        (KnownBinding::DjangoModule, "http") => KnownBinding::DjangoHttpModule,
+        (KnownBinding::DjangoHttpModule, "HttpResponse") => KnownBinding::DjangoHttpResponse,
+        (KnownBinding::DjangoModule, "views") => KnownBinding::DjangoViewsModule,
+        (KnownBinding::DjangoViewsModule, "decorators") => KnownBinding::DjangoDecoratorsModule,
+        (KnownBinding::DjangoDecoratorsModule, "http") => KnownBinding::DjangoHttpDecoratorsModule,
+        (
+            KnownBinding::DjangoHttpDecoratorsModule,
+            "require_http_methods" | "require_GET" | "require_POST" | "require_safe",
+        ) => KnownBinding::DjangoMethodRestriction,
         (KnownBinding::DjangoDbConnection, "cursor") => KnownBinding::DjangoConnectionCursor,
+        (KnownBinding::DjangoDbModule, "connection") => KnownBinding::DjangoDbConnection,
+        (KnownBinding::FlaskModule, "Flask") => KnownBinding::FlaskClass,
+        (KnownBinding::FlaskInstance, "config") => KnownBinding::FlaskConfig,
+        (KnownBinding::RequestsOauthlibModule, "oauth2_session") => {
+            KnownBinding::RequestsOauthlibOauth2SessionModule
+        }
+        (KnownBinding::RequestsOauthlibOauth2SessionModule, "OAuth2Session") => {
+            KnownBinding::OAuth2SessionClass
+        }
+        (KnownBinding::OAuth2SessionInstance, "fetch_token") => KnownBinding::OAuth2FetchToken,
+        (KnownBinding::JoseModule, "jwt") => KnownBinding::JwtModule,
+        (KnownBinding::JwtModule, "encode") => KnownBinding::JwtEncode,
+        (KnownBinding::JwtModule, "decode") => KnownBinding::JwtDecode,
+        (KnownBinding::SignxmlModule, "XMLVerifier") => KnownBinding::SignxmlXMLVerifier,
+        (KnownBinding::SignxmlVerifierInstance, "verify") => KnownBinding::SignxmlVerify,
         (KnownBinding::DjangoCursor, "execute") => KnownBinding::DjangoCursorExecute,
         _ => KnownBinding::Unknown,
     }

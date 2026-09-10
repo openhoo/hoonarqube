@@ -41,6 +41,10 @@ pub(crate) struct SemanticOptions {
     /// C# project or solution to load for compiler-backed rules.
     #[arg(long = "csharp-project")]
     pub(crate) csharp_project: Option<PathBuf>,
+    /// Additional explicit C# source snapshots supplied only to the compiler context.
+    /// Repeat for project files that are not positional analysis inputs.
+    #[arg(long = "csharp-context-source", requires = "csharp_project")]
+    pub(crate) csharp_context_sources: Vec<PathBuf>,
     /// Maximum parent-type depth for C# S110. The default remains five.
     #[arg(long = "csharp-s110-max", requires = "csharp_project")]
     pub(crate) csharp_s110_max: Option<u32>,
@@ -88,6 +92,7 @@ impl SemanticOptions {
             || self.typescript_module.is_some()
             || !self.typescript_dependency_whitelist.is_empty()
             || self.csharp_project.is_some()
+            || !self.csharp_context_sources.is_empty()
             || self.csharp_s110_max.is_some()
             || !self.csharp_s110_filtered_class.is_empty()
             || self.csharp_s1200_max.is_some()

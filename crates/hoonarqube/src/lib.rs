@@ -188,8 +188,8 @@ mod tests {
         let embedded = catalog::embedded();
         let fixtures = [
             ("fixture.py", "x = 1 \n"),
-            ("fixture.js", "eval('x');\n"),
-            ("fixture.ts", "eval('x');\n"),
+            ("fixture.js", "function run(code) { eval(code); }\n"),
+            ("fixture.ts", "function run(code) { eval(code); }\n"),
             ("fixture.cs", "\tint x;\nclass A\n{\n}\n"),
             ("fixture.go", "package p\nfunc bad_name() {}\n"),
             ("fixture.rs", "fn main() { println!(\"hello\"); }\n"),

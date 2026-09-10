@@ -36,6 +36,7 @@ use oxc_ast_visit::walk::{
     walk_sequence_expression, walk_static_block, walk_template_literal, walk_ts_type,
     walk_unary_expression, walk_variable_declarator,
 };
+use oxc_semantic::Semantic;
 use oxc_span::GetSpan;
 use oxc_syntax::precedence::{GetPrecedence, Precedence};
 use oxc_syntax::scope::ScopeFlags;
@@ -46,6 +47,7 @@ fn check_expression_rules(
     source: &str,
     index: &LineIndex,
     language: JstsLanguage,
+    semantic: Option<&Semantic<'_>>,
 ) -> Vec<Issue> {
     let mut collector = ExpressionCollector {
         sink: IssueSink {
@@ -54,6 +56,7 @@ fn check_expression_rules(
             issues: Vec::new(),
         },
         source,
+        semantic,
         contexts: Vec::new(),
         ternary_spans: HashSet::new(),
         grammar_parenthesized_depth: 0,
@@ -72,9 +75,10 @@ fn check_expression_rules(
 /// `S1442`, `S6653`, `S6661`, `S6666`, `S2685`, `S6654`, `S6643`, `S2424`,
 /// `S1528`, `S1533`, `S2428`, `S3834`, `S4624`, `S3786`, `S1516`, `S6535`,
 /// `S6657`, `S1314`, `S6534`, `S1313`, `S4140`, `S1110`, and `S3812`.
-struct ExpressionCollector<'index> {
+struct ExpressionCollector<'index, 'semantic> {
     sink: IssueSink<'index>,
     source: &'index str,
+    semantic: Option<&'index Semantic<'semantic>>,
     contexts: Vec<ExpressionContext>,
     ternary_spans: HashSet<(u32, u32)>,
     grammar_parenthesized_depth: usize,
@@ -83,7 +87,7 @@ struct ExpressionCollector<'index> {
     /// Nesting depth of template literals for `S4624`.
     template_depth: u32,
 }
-impl ExpressionCollector<'_> {
+impl ExpressionCollector<'_, '_> {
     fn visit_condition(&mut self, expression: &Expression<'_>) {
         self.contexts.push(ExpressionContext::Condition);
         // The surrounding `if`/loop test parentheses are consumed by OXC's
@@ -194,7 +198,7 @@ fn expression_precedence(expression: &Expression<'_>) -> Option<Precedence> {
     }
 }
 
-impl<'a> Visit<'a> for ExpressionCollector<'_> {
+impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
     fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
         self.with_non_condition_context(|collector| walk_function(collector, it, flags));
     }
@@ -479,7 +483,7 @@ impl<'a> Visit<'a> for ExpressionCollector<'_> {
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
         self.mark_required_parentheses(&it.callee, Precedence::Call, false);
         check_member_calls(&mut self.sink, it);
-        check_plain_calls(&mut self.sink, it);
+        check_plain_calls(&mut self.sink, it, self.semantic);
         if callee_name(it).is_some_and(|name| name == "Boolean")
             && it.arguments.len() == 1
             && self
@@ -627,7 +631,13 @@ pub(crate) fn numeric_literal_value(expression: &Expression<'_>) -> Option<f64> 
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_expression_rules(ctx.program, ctx.source, ctx.index, ctx.language)
+    check_expression_rules(
+        ctx.program,
+        ctx.source,
+        ctx.index,
+        ctx.language,
+        ctx.semantic,
+    )
 }
 
 #[cfg(test)]

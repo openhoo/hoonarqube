@@ -1,1 +1,1 @@
-const f = function () {}.bind(this);
+const f = function () { return this.value; }.bind(receiver);

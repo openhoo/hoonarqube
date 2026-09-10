@@ -2965,12 +2965,12 @@
     },
     {
       "key": "python:S6785",
-      "rationale": "A GraphQL schema without depth limiting can be exhausted by deeply nested queries.",
+      "rationale": "The pinned S6785 checks GraphQLView depth limiting when the same file contains a resolved Flask-SQLAlchemy relationship.",
       "cases": {
         "attack": {
-          "description": "Creates a GraphQL endpoint without a depth-limiting validator, matching the live example.",
+          "description": "Creates a genuine mapped self-relationship and a GraphQL endpoint without a depth-limiting validator.",
           "files": {
-            "s6785_bad.py": "from graphql_server.flask import GraphQLView\n\napp.add_url_rule(\n    \"/api\",\n    view_func=GraphQLView.as_view(\n        name=\"api\",\n        schema=schema,\n    ),\n)\n"
+            "s6785_bad.py": "import graphene\nfrom flask_sqlalchemy import SQLAlchemy\nfrom graphql_server.flask import GraphQLView\n\ndb = SQLAlchemy()\n\n\nclass Record(db.Model):\n    id = db.Column(db.Integer, primary_key=True)\n    parent_id = db.Column(db.Integer, db.ForeignKey(\"record.id\"))\n    parent = db.relationship(\"Record\", remote_side=[id], backref=\"children\")\n\n\n\nclass Node(graphene.ObjectType):\n    child = graphene.Field(lambda: Node)\n\n\nclass Query(graphene.ObjectType):\n    node = graphene.Field(Node)\n\n\nschema = graphene.Schema(query=Query)\nview = GraphQLView.as_view(\"api\", schema=schema)\n"
           },
           "sources": [
             "s6785_bad.py"
@@ -2980,9 +2980,9 @@
           "expected_target": true
         },
         "safe": {
-          "description": "Adds the documented depth_limit_validator to the GraphQL endpoint.",
+          "description": "Retains the same mapped relationship and supplies the documented depth_limit_validator to the endpoint.",
           "files": {
-            "s6785_good.py": "from graphene.validation import depth_limit_validator\nfrom graphql_server.flask import GraphQLView\n\napp.add_url_rule(\n    \"/api\",\n    view_func=GraphQLView.as_view(\n        name=\"api\",\n        schema=schema,\n        validation_rules=[depth_limit_validator(10)],\n    ),\n)\n"
+            "s6785_good.py": "import graphene\nfrom flask_sqlalchemy import SQLAlchemy\nfrom graphene.validation import depth_limit_validator\nfrom graphql_server.flask import GraphQLView\n\ndb = SQLAlchemy()\n\n\nclass Record(db.Model):\n    id = db.Column(db.Integer, primary_key=True)\n    parent_id = db.Column(db.Integer, db.ForeignKey(\"record.id\"))\n    parent = db.relationship(\"Record\", remote_side=[id], backref=\"children\")\n\n\n\nclass Node(graphene.ObjectType):\n    child = graphene.Field(lambda: Node)\n\n\nclass Query(graphene.ObjectType):\n    node = graphene.Field(Node)\n\n\nschema = graphene.Schema(query=Query)\nview = GraphQLView.as_view(\n    \"api\",\n    schema=schema,\n    validation_rules=[depth_limit_validator(10)],\n)\n"
           },
           "sources": [
             "s6785_good.py"
@@ -2994,7 +2994,7 @@
         "near_miss": {
           "description": "Uses a same-named local view class rather than the supported GraphQL framework API.",
           "files": {
-            "s6785_near_miss.py": "class GraphQLView:\n    @classmethod\n    def as_view(cls, **kwargs):\n        return None\n\nGraphQLView.as_view(schema=schema)\n"
+            "s6785_near_miss.py": "from flask_sqlalchemy import SQLAlchemy\n\ndb = SQLAlchemy()\n\nclass Record(db.Model):\n    id = db.Column(db.Integer, primary_key=True)\n    parent_id = db.Column(db.Integer, db.ForeignKey(\"record.id\"))\n    parent = db.relationship(\"Record\", remote_side=[id], backref=\"children\")\n\nclass GraphQLView:\n    @classmethod\n    def as_view(cls, **kwargs):\n        return None\n\nGraphQLView.as_view(schema=None)\n"
           },
           "sources": [
             "s6785_near_miss.py"
@@ -3005,6 +3005,19 @@
         }
       },
       "flow_cases": [
+        {
+          "name": "graphene_without_sqlalchemy_relationship",
+          "description": "A recursive Graphene endpoint without the pinned SQLAlchemy relationship prerequisite; absence of S6785 is not a safety claim.",
+          "files": {
+            "graphene_only.py": "import graphene\nfrom graphql_server.flask import GraphQLView\n\n\nclass Node(graphene.ObjectType):\n    child = graphene.Field(lambda: Node)\n\n\nclass Query(graphene.ObjectType):\n    node = graphene.Field(Node)\n\n\nschema = graphene.Schema(query=Query)\nview = GraphQLView.as_view(\"api\", schema=schema)\n"
+          },
+          "sources": [
+            "graphene_only.py"
+          ],
+          "native_args": [],
+          "sonar_properties": {},
+          "expected_target": false
+        },
         {
           "name": "depth_limiter_extension_alias",
           "description": "Builds a real Graphene ObjectType schema, imports depth_limit_validator from a sibling module, applies it with graphql.validate, and rejects validation errors before execution.",

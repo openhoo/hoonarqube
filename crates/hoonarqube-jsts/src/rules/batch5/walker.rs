@@ -1,5 +1,5 @@
 // Family walker for 'batch5' (generated).
-use super::collectors::{SecurityHotspotCollector, TsTypeCollector};
+use super::collectors::{SecurityBindingResolver, SecurityHotspotCollector, TsTypeCollector};
 use super::collectors_hotspots::{MiscCollector, check_default_export_name, check_self_imports};
 use super::s2187_test_framework_rules::check_test_framework_rules;
 use super::s4036_s4721_shell_exec::ProcessBindingResolver;
@@ -77,8 +77,19 @@ fn check_security_hotspot_rules(
             issues: Vec::new(),
         },
         process_bindings: ProcessBindingResolver::new(semantic),
+        app_aliases: std::collections::HashMap::new(),
+        security_bindings: SecurityBindingResolver::new(program, semantic),
+        unsafe_helmet_middleware: std::collections::HashSet::new(),
+        pending_express_apps: Vec::new(),
+        disabled_express_apps: std::collections::HashSet::new(),
+        csrf_protected_apps: std::collections::HashSet::new(),
+        debug_guard_spans: Vec::new(),
+        script_bindings: std::collections::HashMap::new(),
+        function_depth: 0,
+        signale_unprotected: std::collections::HashSet::new(),
     };
     collector.visit_program(program);
+    collector.finish_security();
     collector.sink.issues
 }
 
@@ -482,17 +493,30 @@ mod tests {
 
     #[test]
     fn weak_hash_algorithms_are_flagged() {
-        let findings = js_keys("const hash = crypto.createHash('md5');\n");
-        assert_eq!(count_key(&findings, "javascript:S2612"), 1);
+        let findings =
+            js_keys("const crypto = require('crypto'); const hash = crypto.createHash('md5');\n");
+        assert_eq!(count_key(&findings, "javascript:S2612"), 0);
         assert_eq!(count_key(&findings, "javascript:S4790"), 1);
 
-        let strong = js_keys("const hash = crypto.createHash('sha256');\n");
+        let strong = js_keys(
+            "const crypto = require('crypto'); const hash = crypto.createHash('sha256');\n",
+        );
         assert_eq!(count_key(&strong, "javascript:S2612"), 0);
         assert_eq!(count_key(&strong, "javascript:S4790"), 0);
 
-        let family = js_keys("const h = crypto.createHash('ripemd160');\n");
+        let family = js_keys(
+            "const crypto = require('crypto'); const h = crypto.createHash('ripemd160');\n",
+        );
         assert_eq!(count_key(&family, "javascript:S2612"), 0);
         assert_eq!(count_key(&family, "javascript:S4790"), 0);
+    }
+
+    #[test]
+    fn s2612_reports_world_permissions_not_hash_algorithms() {
+        let world = js_keys("const fs = require('fs'); fs.chmodSync('/tmp/fs', 0o777);\n");
+        assert_eq!(count_key(&world, "javascript:S2612"), 1);
+        let owner = js_keys("const fs = require('fs'); fs.chmodSync('/tmp/fs', 0o700);\n");
+        assert_eq!(count_key(&owner, "javascript:S2612"), 0);
     }
 
     #[test]

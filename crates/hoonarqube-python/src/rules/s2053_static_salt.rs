@@ -3,7 +3,6 @@ use crate::support::called_name;
 use crate::support::is_static_text_literal;
 use crate::support::issue_at;
 use crate::support::keyword_value;
-use crate::support::static_literal_payload_len;
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
@@ -16,7 +15,6 @@ pub(crate) fn check_s2053_static_salt(
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
     const KDF_NAMES: [&str; 3] = ["pbkdf2_hmac", "pbkdf2_hmac_sha256", "scrypt"];
-    const MINIMUM_SALT_BYTES: usize = 16;
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
         if !KDF_NAMES.contains(&called_name(&call.func).unwrap_or_default()) {
@@ -24,12 +22,8 @@ pub(crate) fn check_s2053_static_salt(
         }
         let positional_salt = call.arguments.args.get(2);
         let salt_expr = positional_salt.or_else(|| keyword_value(&call.arguments, "salt"));
-        let short_salt = salt_expr.is_some_and(|salt| {
-            is_static_text_literal(salt)
-                && static_literal_payload_len(salt, source)
-                    .is_some_and(|len| len < MINIMUM_SALT_BYTES)
-        });
-        if short_salt {
+        let static_salt = salt_expr.is_some_and(is_static_text_literal);
+        if static_salt {
             issues.push(issue_at(
                 "python:S2053",
                 "Use a randomly generated salt of at least 16 bytes for this hash.",
@@ -56,7 +50,26 @@ mod tests {
         assert_eq!(findings(&scan(flagged), "python:S2053").len(), 2);
         let clean = concat!(
             "hashlib.pbkdf2_hmac(\"sha256\", pw, os.urandom(16), 100000)\n",
-            "hashlib.pbkdf2_hmac(\"sha256\", pw, b\"a-32-byte-salt-of-random-data!!\", 100000)\n"
+            "def derive(password, salt):\n",
+            "    return hashlib.scrypt(password, salt=salt)\n"
+        );
+        assert!(findings(&scan(clean), "python:S2053").is_empty());
+    }
+
+    #[test]
+    fn s2053_flags_constant_salts_regardless_of_byte_length() {
+        let flagged = concat!(
+            "hashlib.scrypt(password, salt=b\"F3MdWpeHeeSjlUxvKBnzzA\")\n",
+            "hashlib.pbkdf2_hmac(\n",
+            "    \"sha256\", password, b\"0123456789abcdef0123456789abcdef0123456789\", 100000\n",
+            ")\n"
+        );
+        assert_eq!(findings(&scan(flagged), "python:S2053").len(), 2);
+
+        let clean = concat!(
+            "hashlib.pbkdf2_hmac(\"sha256\", password, os.urandom(32), 100000)\n",
+            "def derive(password, salt):\n",
+            "    return hashlib.scrypt(password, salt=salt)\n"
         );
         assert!(findings(&scan(clean), "python:S2053").is_empty());
     }

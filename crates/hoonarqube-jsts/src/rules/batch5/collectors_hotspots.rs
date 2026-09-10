@@ -213,9 +213,9 @@ mod tests {
     }
 
     #[test]
-    fn weak_tls_protocol_versions_are_flagged() {
+    fn bare_tls_version_data_is_not_a_protocol_setting() {
         let findings = js_keys("const version = 'TLSv1';\nconst older = 'TLSv1.1';\n");
-        assert_eq!(count_key(&findings, "javascript:S4423"), 2);
+        assert_eq!(count_key(&findings, "javascript:S4423"), 0);
 
         let clean = js_keys("const version = 'TLSv1.2';\n");
         assert_eq!(count_key(&clean, "javascript:S4423"), 0);
@@ -323,11 +323,13 @@ mod tests {
     }
 
     #[test]
-    fn forwarded_header_trust_is_a_hotspot() {
-        let findings = js_keys("const ip = req.headers['x-forwarded-for'];\n");
+    fn proxy_forwarding_is_a_hotspot_but_header_reads_are_not() {
+        let findings = js_keys(
+            "const { createProxyMiddleware } = require('http-proxy-middleware'); createProxyMiddleware({ target: 'http://localhost:9000', xfwd: true });\n",
+        );
         assert_eq!(count_key(&findings, "javascript:S5759"), 1);
 
-        let clean: &str = "const agent = req.headers['user-agent'];\n";
+        let clean: &str = "const { createProxyMiddleware } = require('http-proxy-middleware'); createProxyMiddleware({ target: 'http://localhost:9000', xfwd: false }); const ip = req.headers['x-forwarded-for']; const agent = req.headers['user-agent'];\n";
         assert_eq!(count_key(&js_keys(clean), "javascript:S5759"), 0);
     }
 
@@ -342,10 +344,11 @@ mod tests {
 
     #[test]
     fn unconditional_error_middleware_is_flagged() {
-        let violating: &str = "app.use(errorHandler);\n";
+        let violating: &str = "const express = require('express'); const errorHandler = require('errorhandler'); const app = express(); app.use(errorHandler());\n";
         assert_eq!(count_key(&js_keys(violating), "javascript:S4507"), 1);
 
-        let clean: &str = "app.use(router);\n";
+        let clean: &str =
+            "const express = require('express'); const app = express(); app.use(router);\n";
         assert_eq!(count_key(&js_keys(clean), "javascript:S4507"), 0);
     }
 
@@ -384,10 +387,11 @@ mod tests {
 
     #[test]
     fn csrf_route_exemptions_are_flagged() {
-        let violating: &str = "app.use(csrf({ ignoreRoutes: ['/webhook'] }));\n";
+        let violating: &str =
+            "const csurf = require('csurf'); app.use(csurf({ ignoreRoutes: ['/webhook'] }));\n";
         assert_eq!(count_key(&js_keys(violating), "javascript:S4502"), 1);
 
-        let clean: &str = "app.use(csrf());\n";
+        let clean: &str = "const csurf = require('csurf'); app.use(csurf());\n";
         assert_eq!(count_key(&js_keys(clean), "javascript:S4502"), 0);
     }
 
@@ -401,26 +405,90 @@ mod tests {
     }
 
     #[test]
-    fn upload_handlers_without_limits_are_flagged() {
-        let call = js_keys("const upload = multer({ dest: 'uploads/' });\n");
-        assert_eq!(count_key(&call, "javascript:S2598"), 1);
+    fn multer_storage_destinations_are_controlled() {
+        let direct = "const multer = require('multer'); const upload = multer({ storage: multer.diskStorage({}) });\n";
+        assert_eq!(count_key(&js_keys(direct), "javascript:S2598"), 1);
 
-        let constructor = js_keys("const busboy = new Busboy({ headers: req.headers });\n");
-        assert_eq!(count_key(&constructor, "javascript:S2598"), 1);
-
-        let clean: &str = "const upload = multer({ limits: { fileSize: 1000000 } });\n";
+        let clean: &str = "const multer = require('multer'); const upload = multer({ storage: multer.diskStorage({ destination: 'uploads/' }) });\n";
         assert_eq!(count_key(&js_keys(clean), "javascript:S2598"), 0);
+
+        let indirect: &str = r"const multer = require('multer');
+const storageOptions = {};
+const storage = multer.diskStorage(storageOptions);
+const options = { storage };
+const upload = multer(options);
+";
+        assert_eq!(count_key(&js_keys(indirect), "javascript:S2598"), 1);
+        assert_eq!(count_key(&ts_keys(indirect), "typescript:S2598"), 1);
+
+        let explicit_destination: &str = r"const multer = require('multer');
+const storageOptions = { destination: 'uploads/' };
+const storage = multer.diskStorage(storageOptions);
+const options = { storage };
+const upload = multer(options);
+";
+        assert_eq!(
+            count_key(&js_keys(explicit_destination), "javascript:S2598"),
+            0
+        );
+        assert_eq!(
+            count_key(&ts_keys(explicit_destination), "typescript:S2598"),
+            0
+        );
+
+        let shadowed: &str = r"const multer = require('multer');
+const options = { storage: multer.diskStorage({}) };
+function configure(multer) {
+    const upload = multer(options);
+}
+";
+        assert_eq!(count_key(&js_keys(shadowed), "javascript:S2598"), 0);
+        assert_eq!(count_key(&ts_keys(shadowed), "typescript:S2598"), 0);
+
+        let unrelated_factory: &str = r"const multer = require('multer');
+const options = { storage: multer.diskStorage({}) };
+multer.diskStorage(options);
+";
+        assert_eq!(
+            count_key(&js_keys(unrelated_factory), "javascript:S2598"),
+            0
+        );
+        assert_eq!(
+            count_key(&ts_keys(unrelated_factory), "typescript:S2598"),
+            0
+        );
+
+        let reassigned: &str = r"const multer = require('multer');
+let storage = multer.diskStorage({});
+storage = otherStorage;
+const options = { storage };
+const upload = multer(options);
+";
+        assert_eq!(count_key(&js_keys(reassigned), "javascript:S2598"), 0);
+        assert_eq!(count_key(&ts_keys(reassigned), "typescript:S2598"), 0);
+
+        let unknown_options = "const multer = require('multer'); const storageOptions = configuredOptions(); const storage = multer.diskStorage(storageOptions); multer({ storage });";
+        assert_eq!(count_key(&js_keys(unknown_options), "javascript:S2598"), 0);
+        assert_eq!(count_key(&ts_keys(unknown_options), "typescript:S2598"), 0);
+
+        let replaced_options = "const multer = require('multer'); let storageOptions = {}; storageOptions = configuredOptions; const storage = multer.diskStorage(storageOptions); multer({ storage });";
+        assert_eq!(count_key(&js_keys(replaced_options), "javascript:S2598"), 0);
+        assert_eq!(count_key(&ts_keys(replaced_options), "typescript:S2598"), 0);
+
+        let opaque_storage = "const multer = require('multer'); const storage = multer.diskStorage({ ...configuredOptions }); multer({ storage });";
+        assert_eq!(count_key(&js_keys(opaque_storage), "javascript:S2598"), 0);
+        assert_eq!(count_key(&ts_keys(opaque_storage), "typescript:S2598"), 0);
     }
 
     #[test]
     fn xml_parsers_allowing_entity_expansion_are_flagged() {
-        let violating: &str = "libxml.parseXml(xml, { noent: true, noxxe: true });\n";
+        let violating: &str = "const libxmljs = require('libxmljs'); libxmljs.parseXmlString(xml, { noent: true, noxxe: true });\n";
         assert_eq!(count_key(&js_keys(violating), "javascript:S2755"), 1);
 
-        let no_xxe_guard: &str = "libxml.parseXml(xml, { noent: false });\n";
+        let no_xxe_guard: &str = "const libxmljs = require('libxmljs'); libxmljs.parseXmlString(xml, { noent: false, noxxe: false });\n";
         assert_eq!(count_key(&js_keys(no_xxe_guard), "javascript:S2755"), 1);
 
-        let clean: &str = "libxml.parseXml(xml, { noent: false, noxxe: true });\n";
+        let clean: &str = "const libxmljs = require('libxmljs'); libxmljs.parseXmlString(xml, { noent: false, noxxe: true });\n";
         assert_eq!(count_key(&js_keys(clean), "javascript:S2755"), 0);
     }
 
@@ -435,10 +503,10 @@ mod tests {
 
     #[test]
     fn disabled_certificate_verification_options_are_flagged() {
-        let violating: &str = "https.get(url, { rejectUnauthorized: false });\n";
+        let violating: &str = "const https = require('https'); const request = https.request; request({ hostname: 'example.com', rejectUnauthorized: false });\n";
         assert_eq!(count_key(&js_keys(violating), "javascript:S5527"), 1);
 
-        let clean: &str = "https.get(url, { rejectUnauthorized: true });\n";
+        let clean: &str = "const https = require('https'); const request = https.request; request({ hostname: 'example.com', rejectUnauthorized: true });\n";
         assert_eq!(count_key(&js_keys(clean), "javascript:S5527"), 0);
     }
 
@@ -461,25 +529,69 @@ mod tests {
     }
 
     #[test]
-    fn body_parsers_need_size_limits() {
-        let violating: &str = "app.use(express.json({ strict: true }));\n";
+    fn body_parsers_respect_explicit_and_default_size_limits() {
+        let violating: &str =
+            "const express = require('express'); const parser = express.json({ limit: '4mb' });\n";
         assert_eq!(count_key(&js_keys(violating), "javascript:S5693"), 1);
 
-        let clean: &str = "app.use(express.json({ limit: '100kb' }));\n";
+        let clean: &str = "const express = require('express'); const parser = express.json({ limit: '100kb' });\n";
         assert_eq!(count_key(&js_keys(clean), "javascript:S5693"), 0);
+
+        let default_limit =
+            "const express = require('express'); const parser = express.json({ strict: true });\n";
+        assert_eq!(count_key(&js_keys(default_limit), "javascript:S5693"), 0);
+
+        let unbound = "app.use(express.json({ strict: true }));\n";
+        assert_eq!(count_key(&js_keys(unbound), "javascript:S5693"), 0);
     }
 
     #[test]
-    fn helmet_csp_disabling_is_flagged() {
-        let entire: &str = "app.use(helmet({ contentSecurityPolicy: false }));\n";
-        assert_eq!(count_key(&js_keys(entire), "javascript:S5728"), 1);
+    fn helmet_csp_disabling_is_flagged_only_when_mounted() {
+        let entire: &str = "const express = require('express'); const helmet = require('helmet'); const app = express(); app.use(helmet({ contentSecurityPolicy: false }));\n";
+        let report = js(entire);
+        let issue = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "javascript:S5728")
+            .expect("mounted Helmet CSP should be reported");
+        assert_eq!(
+            issue.message,
+            "Make sure not enabling content security policy fetch directives is safe here."
+        );
+        assert_eq!(count_key(&report_keys(&report), "javascript:S5728"), 1);
 
-        let directive: &str =
-            "app.use(helmet({ contentSecurityPolicy: { directives: { scriptSrc: [] } } }));\n";
-        assert_eq!(count_key(&js_keys(directive), "javascript:S5728"), 1);
+        let unused: &str =
+            "const helmet = require('helmet'); helmet({ contentSecurityPolicy: false });\n";
+        assert_eq!(count_key(&js_keys(unused), "javascript:S5728"), 0);
 
-        let clean: &str = "app.use(helmet({ contentSecurityPolicy: { directives: { scriptSrc: [\"'self'\"] } } }));\n";
+        let directive: &str = "const express = require('express'); const helmet = require('helmet'); const app = express(); app.use(helmet({ contentSecurityPolicy: { directives: { scriptSrc: [] } } }));\n";
+        assert_eq!(count_key(&js_keys(directive), "javascript:S5728"), 0);
+
+        let clean: &str = "const express = require('express'); const helmet = require('helmet'); const app = express(); app.use(helmet({ contentSecurityPolicy: { directives: { scriptSrc: [\"'self'\"] } } }));\n";
         assert_eq!(count_key(&js_keys(clean), "javascript:S5728"), 0);
+    }
+
+    #[test]
+    fn helmet_csp_reused_middleware_reports_each_mount() {
+        let report = js(
+            "const express = require('express');\nconst helmet = require('helmet');\nconst app = express();\nconst middleware = helmet({ contentSecurityPolicy: false });\napp.use('/a', middleware);\napp.use('/b', middleware);\n",
+        );
+        let lines: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S5728")
+            .map(|issue| issue.range.start.line)
+            .collect();
+        assert_eq!(lines, vec![5, 6]);
+    }
+
+    #[test]
+    fn helmet_csp_resolves_array_values_but_not_rebound_middleware() {
+        let array = "const express = require('express'); const helmet = require('helmet'); const app = express(); const middleware = [helmet({ contentSecurityPolicy: false })]; app.use(middleware);\n";
+        assert_eq!(count_key(&js_keys(array), "javascript:S5728"), 1);
+
+        let rebound = "const express = require('express'); const helmet = require('helmet'); const app = express(); let middleware = helmet({ contentSecurityPolicy: false }); middleware = () => {}; app.use(middleware);\n";
+        assert_eq!(count_key(&js_keys(rebound), "javascript:S5728"), 0);
     }
 
     #[test]

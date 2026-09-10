@@ -153,11 +153,11 @@ impl JstsLanguage {
 /// The struct stays `Eq` because `hoonarqube-core` bundles it in an `Eq`
 /// container; the non-`Eq` `randomnessSensibility` for `S6418` (an `f64`)
 /// stays on the private `RuleOptions` carrier. These fields are the only
-/// catalog parameters surfaced through [`AnalyzerOptions`]: every remaining
-/// frozen-catalog parameter (structural thresholds such as S107's
-/// `maximumFunctionParameters`, style knobs, and unevaluated hotspot knobs
-/// such as `S5693`'s `fileUploadSizeLimit` / `standardSizeLimit`) is pinned
-/// to its catalog default inside the individual rule modules.
+/// catalog parameters surfaced through [`AnalyzerOptions`]. Other implemented
+/// parameters, including structural thresholds and style settings, use their
+/// frozen catalog defaults. S5693 evaluates the default 2,000,000-byte parser
+/// limit; custom size thresholds and multipart file-size checks are not
+/// implemented.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalyzerOptions {
     pub maximum_line_length: u32,

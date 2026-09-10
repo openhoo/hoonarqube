@@ -1,20 +1,33 @@
-// Rule module s5876_tb_session_regeneration (generated).
-use crate::support::{IssueSink, RuleScope, span_text_contains};
+// Rule module s5876_tb_session_regeneration.
+use crate::rules::batch5::collectors::{SecurityBindingResolver, SecurityFactory, SecurityModule};
+use crate::rules::shared::argument_expression;
+use crate::support::{
+    IssueSink, RuleScope, expression_root_name, span_text_contains, unparenthesized,
+};
+use oxc_ast::ast::{CallExpression, Expression};
 use oxc_ast_visit::Visit;
-use oxc_span::Span;
+use oxc_ast_visit::walk::walk_call_expression;
+use oxc_semantic::Semantic;
+use oxc_span::{GetSpan, Span};
 
 /// `S5876`: login handlers that keep the pre-authentication session.
 pub(crate) fn check_tb_session_regeneration(
     program: &oxc_ast::ast::Program<'_>,
     source: &str,
+    semantic: Option<&Semantic<'_>>,
     sink: &mut IssueSink<'_>,
 ) {
-    let mut collector = SessionRegenerationCollector::default();
+    let mut collector = SessionRegenerationCollector {
+        security_bindings: SecurityBindingResolver::new(program, semantic),
+        ..Default::default()
+    };
     collector.visit_program(program);
     for handler_span in collector.sites {
         let touches_session = span_text_contains(source, handler_span, "session");
         let regenerates = span_text_contains(source, handler_span, ".regenerate(");
-        if touches_session && !regenerates {
+        if (touches_session || collector.passport_login_spans.contains(&handler_span))
+            && !regenerates
+        {
             sink.emit_span(
                 RuleScope::Both,
                 "S5876",
@@ -25,12 +38,70 @@ pub(crate) fn check_tb_session_regeneration(
     }
 }
 
-// ===== Tier B remainder group 3: CFG-lite checks =====
-
-/// Login endpoints whose handler never regenerates the session (`S5876`).
 #[derive(Default)]
 pub(crate) struct SessionRegenerationCollector {
     pub(crate) sites: Vec<Span>,
+    pub(crate) passport_login_spans: Vec<Span>,
+    pub(crate) security_bindings: SecurityBindingResolver,
+}
+
+impl<'p> Visit<'p> for SessionRegenerationCollector {
+    fn visit_call_expression(&mut self, call: &CallExpression<'p>) {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            walk_call_expression(self, call);
+            return;
+        };
+        let app_fallback = expression_root_name(&member.object) == Some("app")
+            && self.security_bindings.symbol(&member.object).is_none();
+        if member.property.name != "post"
+            || ((!self.security_bindings.is_factory(
+                &member.object,
+                SecurityFactory::ExpressApp,
+                call.span().start,
+            ) && !self.security_bindings.is_factory(
+                &member.object,
+                SecurityFactory::ExpressRouter,
+                call.span().start,
+            )) && !app_fallback)
+        {
+            walk_call_expression(self, call);
+            return;
+        }
+        if let Some(path) = call.arguments.first().and_then(argument_expression)
+            && is_login_path(unparenthesized(path))
+            && let Some(handler) = call.arguments.last().and_then(argument_expression)
+        {
+            let has_passport = call.arguments.iter().skip(1).any(|argument| {
+                argument_expression(argument).is_some_and(|expression| {
+                    if let Expression::CallExpression(auth) = unparenthesized(expression) {
+                        self.security_bindings.is_module_member(
+                            &auth.callee,
+                            SecurityModule::Passport,
+                            "authenticate",
+                            auth.span().start,
+                        )
+                    } else {
+                        false
+                    }
+                })
+            });
+            self.sites.push(handler.span());
+            if has_passport {
+                self.passport_login_spans.push(handler.span());
+            }
+        }
+        walk_call_expression(self, call);
+    }
+}
+
+fn is_login_path(expression: &Expression<'_>) -> bool {
+    matches!(
+        expression,
+        Expression::StringLiteral(literal)
+            if literal.value.as_str() == "/login"
+                || literal.value.as_str() == "/signin"
+                || literal.value.as_str() == "/sign-in"
+    )
 }
 
 #[cfg(test)]

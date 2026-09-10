@@ -75,8 +75,11 @@
       "cases": {
         "attack": {"description": "Existing Set-Cookie header omits Secure.", "files": {"s2255_bad.ts": "function respond(response: any): void {\n  response.setHeader('Set-Cookie', 'session=abc123; Path=/');\n}\n"}, "sources": ["s2255_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
         "safe": {"description": "Unrelated security header does not write a cookie.", "files": {"s2255_good.ts": "function respond(response: any): void {\n  response.setHeader('X-Frame-Options', 'DENY');\n}\n"}, "sources": ["s2255_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
-        "near_miss": {"description": "Same Set-Cookie API includes Secure and HttpOnly attributes.", "files": {"s2255_near_miss.ts": "response.setHeader('Set-Cookie', 'session=abc123; Path=/; Secure; HttpOnly');\n"}, "sources": ["s2255_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
-      }
+        "near_miss": {"description": "A similarly named Set-Cookie-Policy header does not create a cookie; the owning predicate requires the exact Set-Cookie header name.", "files": {"s2255_near_miss.ts": "response.setHeader('Set-Cookie-Policy', 'session=abc123; Path=/; Secure; HttpOnly');\n"}, "sources": ["s2255_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      },
+      "flow_cases": [
+        {"name": "hardened_cookie_review", "description": "Secure and HttpOnly do not remove the retained S2255 cookie-review hotspot: the historical owning predicate reports Set-Cookie writes regardless of attributes. Current live-rule availability remains unverified.", "files": {"s2255_near_miss.ts": "response.setHeader('Set-Cookie', 'session=abc123; Path=/; Secure; HttpOnly');\n"}, "sources": ["s2255_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true}
+      ]
     },
     {
       "key": "typescript:S2598",
@@ -89,7 +92,7 @@
     },
     {
       "key": "typescript:S2612",
-      "rationale": "The live TypeScript S2612 contract rejects chmod modes granting permissions to other users; the checked-in crypto/MD5 source is a stale native/source mismatch and is not reused as this attack.",
+      "rationale": "The live TypeScript S2612 contract rejects chmod modes granting permissions to other users; weak hashes belong to S4790.",
       "cases": {
         "attack": {"description": "Live-rule example: chmodSync grants all permissions to other users.", "files": {"s2612_attack.ts": "import fs from 'fs';\nfs.chmodSync('/tmp/fs', 0o777);\n"}, "sources": ["s2612_attack.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
         "safe": {"description": "Same fs.chmodSync API grants permissions only to the owner.", "files": {"s2612_safe.ts": "import fs from 'fs';\nfs.chmodSync('/tmp/fs', 0o700);\n"}, "sources": ["s2612_safe.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
@@ -392,9 +395,12 @@
       "rationale": "Body-parser request bodies must have a bounded size.",
       "cases": {
         "attack": {"description": "body-parser accepts a four-megabyte request body, above the reviewed limit.", "files": {"s5693_bad.ts": "import bodyParser from 'body-parser';\nconst jsonParser = bodyParser.json({ limit: '4mb' });\nconst urlencodedParser = bodyParser.urlencoded({ extended: false, limit: '4mb' });\n"}, "sources": ["s5693_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
-        "safe": {"description": "body-parser limits JSON and URL-encoded bodies to two megabytes.", "files": {"s5693_good.ts": "import bodyParser from 'body-parser';\nconst jsonParser = bodyParser.json({ limit: '2mb' });\nconst urlencodedParser = bodyParser.urlencoded({ extended: false, limit: '2mb' });\n"}, "sources": ["s5693_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "safe": {"description": "body-parser limits JSON and URL-encoded bodies to exactly 2,000,000 bytes.", "files": {"s5693_good.ts": "import bodyParser from 'body-parser';\nconst jsonParser = bodyParser.json({ limit: 2000000 });\nconst urlencodedParser = bodyParser.urlencoded({ extended: false, limit: 2000000 });\n"}, "sources": ["s5693_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
         "near_miss": {"description": "The same body-parser APIs use a stricter one-megabyte limit.", "files": {"s5693_near_miss.ts": "import bodyParser from 'body-parser';\nconst jsonParser = bodyParser.json({ limit: '1mb' });\nconst urlencodedParser = bodyParser.urlencoded({ extended: false, limit: '1mb' });\n"}, "sources": ["s5693_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
-      }
+      },
+      "flow_cases": [
+        {"name": "binary_unit_boundary", "description": "The original 2mb controls are 2,097,152 bytes under npm bytes, above the 2,000,000-byte threshold; preserve them as positive boundary cases.", "files": {"s5693_good.ts": "import bodyParser from 'body-parser';\nconst jsonParser = bodyParser.json({ limit: '2mb' });\nconst urlencodedParser = bodyParser.urlencoded({ extended: false, limit: '2mb' });\n"}, "sources": ["s5693_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true}
+      ]
     },
     {
       "key": "typescript:S5725",

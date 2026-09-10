@@ -476,16 +476,39 @@ fn fix_verifies_independently(
     fix: &PlannedFix,
     before: &[hoonarqube_ir::Issue],
     options: &semantic_cli::FixAnalysisContext,
-) -> bool {
+) -> Result<(), String> {
     let edits: Vec<&TextEdit> = fix.edits.iter().collect();
-    let Ok(content) = apply_fixes(&plan.source, &edits) else {
-        return false;
+    let content = apply_fixes(&plan.source, &edits)
+        .map_err(|error| format!("could not apply isolated edits: {error}"))?;
+    let report = match options.analyze(&plan.path, &content) {
+        Ok(Some(report)) => report,
+        Ok(None) => return Err("projected source is not analyzable".to_string()),
+        Err(error) => return Err(error),
     };
-    let Ok(Some(report)) = options.analyze(&plan.path, &content) else {
-        return false;
-    };
-    let (_, unverified, regressions) = verify_analysis(&[fix], before, &report.issues);
-    unverified == 0 && regressions.is_empty()
+    let (verified, unverified, regressions) = verify_analysis(&[fix], before, &report.issues);
+    if unverified == 0 && regressions.is_empty() {
+        return Ok(());
+    }
+    let before_counts = issue_counts(before);
+    let after_counts = issue_counts(&report.issues);
+    let before_target = before_counts
+        .get(&fix.rule_key)
+        .copied()
+        .unwrap_or_default();
+    let after_target = after_counts.get(&fix.rule_key).copied().unwrap_or_default();
+    let mut details = vec![format!(
+        "{} count {before_target} -> {after_target} (verified {verified}, unverified {unverified})",
+        fix.rule_key
+    )];
+    if !regressions.is_empty() {
+        let regressions = regressions
+            .iter()
+            .map(|(rule_key, count)| format!("{rule_key} +{count}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        details.push(format!("regressions: {regressions}"));
+    }
+    Err(details.join("; "))
 }
 
 fn verify_projected_rewrite(
@@ -510,15 +533,24 @@ fn verify_projected_rewrite(
             return false;
         }
     };
-    let independently_verified = targeted
-        .iter()
-        .filter(|fix| fix_verifies_independently(plan, fix, &before.issues, options))
-        .count();
+    let mut independently_verified = 0;
+    let mut independent_failures = Vec::new();
+    for fix in targeted {
+        match fix_verifies_independently(plan, fix, &before.issues, options) {
+            Ok(()) => independently_verified += 1,
+            Err(reason) => independent_failures.push(format!("{}: {reason}", fix.rule_key)),
+        }
+    }
     if independently_verified != targeted.len() {
         outcome.verified = independently_verified;
         outcome.unverified = targeted.len() - independently_verified;
+        let details = if independent_failures.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", independent_failures.join(" | "))
+        };
         warnings.push(format!(
-            "{}: {} of {} projected rule fix(es) do not independently remove their findings",
+            "{}: {} of {} projected rule fix(es) did not pass independent verification{details}",
             plan.path.display(),
             outcome.unverified,
             targeted.len()
@@ -545,10 +577,11 @@ fn verify_projected_rewrite(
             targeted.len()
         ));
     }
-    for (rule_key, count) in regressions {
+    if !regressions.is_empty() {
         warnings.push(format!(
-            "{}: projected source has {count} new {rule_key} finding(s)",
-            plan.path.display()
+            "{}: projected source has {} new rule-key finding(s)",
+            plan.path.display(),
+            outcome.regressions
         ));
     }
     outcome.unverified == 0 && outcome.regressions == 0
@@ -4018,7 +4051,7 @@ mod tests {
         assert!(!outcome.written);
         assert_eq!(outcome.verified, 1);
         assert_eq!(outcome.unverified, 1);
-        assert!(warnings[0].contains("do not independently remove"));
+        assert!(warnings[0].contains("did not pass independent verification"));
         assert_eq!(std::fs::read_to_string(&file).expect("read back"), SOURCE);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -4888,6 +4921,43 @@ mod tests {
         assert_eq!(
             duplication_exclude,
             vec!["{large,fixtures}/**".to_string(), "sample.py".to_string()]
+        );
+    }
+
+    #[test]
+    fn parser_requires_csharp_project_for_repeatable_context_sources() {
+        let error = Cli::try_parse_from([
+            "hoonarqube",
+            "analyze",
+            "--csharp-context-source",
+            "Contracts.cs",
+            "Main.cs",
+        ])
+        .err()
+        .expect("context sources without a project must be rejected");
+        assert!(error.to_string().contains("csharp-project"));
+
+        let parsed = Cli::try_parse_from([
+            "hoonarqube",
+            "analyze",
+            "--csharp-project",
+            "Fixture.csproj",
+            "--csharp-context-source",
+            "Contracts.cs",
+            "--csharp-context-source",
+            "Shared.cs",
+            "Main.cs",
+        ])
+        .expect("repeatable context sources should parse");
+        let Command::Analyze { features, .. } = parsed.command else {
+            panic!("expected analyze command");
+        };
+        assert_eq!(
+            features.semantics.csharp_context_sources,
+            vec![
+                std::path::PathBuf::from("Contracts.cs"),
+                std::path::PathBuf::from("Shared.cs"),
+            ]
         );
     }
 }

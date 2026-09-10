@@ -2419,11 +2419,11 @@
           ]
         },
         "near_miss": {
-          "description": "Review near miss: a method alias and real IDeserializationCallback apply URL normalization after state restoration.",
+          "description": "The deserialization constructor normalizes through the helper, and the real callback contains an explicit URL-prefix guard recognized by the owning conditional-validation predicate.",
           "files": {
             "global.json": "{\n  \"sdk\": {\n    \"version\": \"10.0.111\",\n    \"rollForward\": \"disable\"\n  },\n  \"allowPrerelease\": false\n}\n",
             "Fixture.csproj": "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n    <OutputType>Library</OutputType>\n    <Nullable>enable</Nullable>\n    <ImplicitUsings>enable</ImplicitUsings>\n    <LangVersion>14.0</LangVersion>\n  </PropertyGroup>\n</Project>\n",
-            "S5766NearMiss.cs": "using System;\nusing System.Runtime.Serialization;\n\n[Serializable]\npublic sealed class InternalUrlAlias : ISerializable, IDeserializationCallback\n{\n    private string url = string.Empty;\n\n    public InternalUrlAlias(string candidate)\n        => url = NormalizeUrl(candidate);\n\n    protected InternalUrlAlias(SerializationInfo info, StreamingContext context)\n        => url = info.GetString(\"url\") ?? string.Empty;\n\n    public void OnDeserialization(object? sender)\n        => url = NormalizeUrl(url);\n\n    void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)\n        => info.AddValue(\"url\", url);\n\n    private static string NormalizeUrl(string candidate)\n        => candidate.StartsWith(\"http://localhost/\", StringComparison.Ordinal)\n            ? candidate\n            : \"http://localhost/default\";\n}\n"
+            "S5766NearMiss.cs": "using System;\nusing System.Runtime.Serialization;\n\n[Serializable]\npublic sealed class InternalUrlAlias : ISerializable, IDeserializationCallback\n{\n    private string url = string.Empty;\n\n    public InternalUrlAlias(string candidate)\n        => url = NormalizeUrl(candidate);\n\n    protected InternalUrlAlias(SerializationInfo info, StreamingContext context)\n        => url = NormalizeUrl(info.GetString(\"url\") ?? string.Empty);\n\n    public void OnDeserialization(object? sender)\n    {\n        if (!url.StartsWith(\"http://localhost/\", StringComparison.Ordinal))\n        {\n            url = \"http://localhost/default\";\n        }\n    }\n\n    void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)\n        => info.AddValue(\"url\", url);\n\n    private static string NormalizeUrl(string candidate)\n        => candidate.StartsWith(\"http://localhost/\", StringComparison.Ordinal)\n            ? candidate\n            : \"http://localhost/default\";\n}\n"
           },
           "native_args": [
             "--csharp-project",
@@ -2436,7 +2436,10 @@
             "S5766NearMiss.cs"
           ]
         }
-      }
+      },
+      "flow_cases": [
+        {"name": "callback_after_deserialization", "description": "The owning conditional-only predicate reports a helper-only callback because it does not follow the normalization helper. This preserved reference-positive boundary is not a claim that normalization is absent or ineffective.", "files": {"global.json": "{\n  \"sdk\": {\n    \"version\": \"10.0.111\",\n    \"rollForward\": \"disable\"\n  },\n  \"allowPrerelease\": false\n}\n", "Fixture.csproj": "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n    <OutputType>Library</OutputType>\n    <Nullable>enable</Nullable>\n    <ImplicitUsings>enable</ImplicitUsings>\n    <LangVersion>14.0</LangVersion>\n  </PropertyGroup>\n</Project>\n", "S5766NearMiss.cs": "using System;\nusing System.Runtime.Serialization;\n\n[Serializable]\npublic sealed class InternalUrlAlias : ISerializable, IDeserializationCallback\n{\n    private string url = string.Empty;\n\n    public InternalUrlAlias(string candidate)\n        => url = NormalizeUrl(candidate);\n\n    protected InternalUrlAlias(SerializationInfo info, StreamingContext context)\n        => url = info.GetString(\"url\") ?? string.Empty;\n\n    public void OnDeserialization(object? sender)\n        => url = NormalizeUrl(url);\n\n    void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)\n        => info.AddValue(\"url\", url);\n\n    private static string NormalizeUrl(string candidate)\n        => candidate.StartsWith(\"http://localhost/\", StringComparison.Ordinal)\n            ? candidate\n            : \"http://localhost/default\";\n}\n"}, "native_args": ["--csharp-project", "Fixture.csproj", "--allow-project-build"], "sonar_properties": {}, "expected_target": true, "sources": ["S5766NearMiss.cs"]}
+      ]
     },
     {
       "key": "csharpsquid:S5773",

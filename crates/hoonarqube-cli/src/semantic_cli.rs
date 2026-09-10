@@ -8,6 +8,7 @@
 //! projected in-memory source differs from the original snapshot.
 
 use std::fs;
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use hoonarqube_core::Language;
@@ -41,6 +42,26 @@ impl ProjectSemanticContext {
         semantic: &SemanticOptions,
         options: &AnalyzerOptionsBundle,
     ) -> Result<Self, String> {
+        let context_sources = load_csharp_context_sources(semantic);
+        Self::load_with_context_sources(
+            sources,
+            &context_sources.snapshots,
+            &context_sources.diagnostics,
+            semantic,
+            options,
+        )
+    }
+
+    /// Loads semantic contexts from the analyzed snapshots plus immutable
+    /// auxiliary C# snapshots.  Auxiliary snapshots never become analyzed
+    /// files, project roots, metrics, or fix inventory.
+    pub(crate) fn load_with_context_sources(
+        sources: &[AnalyzedSource],
+        context_sources: &[AnalyzedSource],
+        context_diagnostics: &[String],
+        semantic: &SemanticOptions,
+        options: &AnalyzerOptionsBundle,
+    ) -> Result<Self, String> {
         if !semantic.requested() {
             return Ok(Self {
                 jsts: None,
@@ -58,10 +79,16 @@ impl ProjectSemanticContext {
             );
         }
 
-        let mut diagnostics = Vec::new();
+        let mut diagnostics = context_diagnostics.to_vec();
         let mut fingerprints = SemanticFingerprintParts::default();
         let jsts = load_jsts_context(sources, semantic, &mut diagnostics, &mut fingerprints);
-        let csharp = load_csharp_context(sources, semantic, &mut diagnostics, &mut fingerprints);
+        let csharp = load_csharp_context(
+            sources,
+            context_sources,
+            semantic,
+            &mut diagnostics,
+            &mut fingerprints,
+        );
         let python = load_python_context(sources, semantic, &mut diagnostics, &mut fingerprints);
         let complete = semantic_context_complete(
             semantic,
@@ -182,6 +209,88 @@ struct SemanticFingerprintParts {
     reference: Vec<String>,
     dependency: Vec<String>,
 }
+#[derive(Default)]
+struct ContextSourceLoad {
+    snapshots: Vec<AnalyzedSource>,
+    diagnostics: Vec<String>,
+}
+
+/// Loads only explicitly named auxiliary C# snapshots.  These files are kept
+/// outside the analyzed inventory and are bounded by the same retained-source
+/// limit as positional project inputs.
+fn load_csharp_context_sources(semantic: &SemanticOptions) -> ContextSourceLoad {
+    let mut loaded = ContextSourceLoad::default();
+    if semantic.csharp_context_sources.is_empty()
+        || semantic
+            .csharp_project
+            .as_ref()
+            .is_none_or(|project| !project.exists())
+    {
+        return loaded;
+    }
+
+    let mut identities = std::collections::BTreeSet::new();
+    let mut retained_bytes = 0usize;
+    for path in &semantic.csharp_context_sources {
+        if hoonarqube_core::language_for_path(path) != Some(Language::CSharp) {
+            loaded.diagnostics.push(format!(
+                "csharp context source is not a C# source file: {}",
+                path.display()
+            ));
+            continue;
+        }
+        if !identities.insert(snapshot_identity_path(path)) {
+            continue;
+        }
+        let remaining = MAX_RETAINED_SOURCE_BYTES - retained_bytes;
+        let source = match read_csharp_context_source(path, remaining) {
+            Ok(source) => source,
+            Err(reason) => {
+                loaded.diagnostics.push(format!(
+                    "cannot read csharp context source {}: {reason}",
+                    path.display()
+                ));
+                continue;
+            }
+        };
+        retained_bytes += source.len();
+        loaded.snapshots.push(AnalyzedSource {
+            path: path.clone(),
+            source,
+            classification: hoonarqube_ir::FileClassification::Source,
+        });
+    }
+
+    loaded
+}
+
+fn read_csharp_context_source(path: &Path, remaining: usize) -> Result<String, String> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    if !metadata.is_file() {
+        return Err("source is not a regular file".to_owned());
+    }
+    let limit = u64::try_from(remaining).map_err(|error| error.to_string())?;
+    if metadata.len() > limit {
+        return Err(format!(
+            "source exceeds the {remaining} byte remaining context snapshot budget"
+        ));
+    }
+    let file = fs::File::open(path).map_err(|error| error.to_string())?;
+    let mut bytes = Vec::new();
+    file.take(limit.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() > remaining {
+        return Err(format!(
+            "source exceeds the {remaining} byte remaining context snapshot budget"
+        ));
+    }
+    String::from_utf8(bytes).map_err(|_| "source is not valid UTF-8".to_owned())
+}
+
+fn snapshot_identity_path(path: &Path) -> PathBuf {
+    absolute_lexical(path)
+}
 
 fn load_jsts_context(
     sources: &[AnalyzedSource],
@@ -289,11 +398,20 @@ fn record_jsts_context(
 
 fn load_csharp_context(
     sources: &[AnalyzedSource],
+    context_sources: &[AnalyzedSource],
     semantic: &SemanticOptions,
     diagnostics: &mut Vec<String>,
     fingerprints: &mut SemanticFingerprintParts,
 ) -> Option<hoonarqube_csharp::semantic::ProjectSemanticContext> {
     let Some(project) = semantic.csharp_project.as_ref() else {
+        if semantic.csharp_context_sources.is_empty() {
+            // Keep the existing diagnostics for the other C#-specific knobs.
+        } else {
+            diagnostics.push(
+                "csharp project configuration is required when --csharp-context-source is supplied"
+                    .to_owned(),
+            );
+        }
         if semantic.csharp_timeout_ms.is_some() {
             diagnostics.push(
                 "csharp project configuration is required when --csharp-timeout-ms is supplied"
@@ -342,27 +460,99 @@ fn load_csharp_context(
     // before looking for or invoking a helper.
     config.trusted_evaluation = semantic.allow_project_build;
     config.trusted_build = semantic.allow_project_build;
-    // Razor source snapshots are retained above through the
-    // canonical C# extension registry.  Ask the trusted helper
-    // for generated trees only when this invocation actually
-    // contains a Razor document.
+
+    let snapshots = merged_csharp_snapshots(sources, context_sources, diagnostics);
     config.include_razor_generated = semantic.allow_project_build
-        && sources
+        && snapshots
             .iter()
             .any(|source| hoonarqube_core::is_razor_path(&source.path));
-    let snapshots = sources
-        .iter()
-        .filter(|source| hoonarqube_core::language_for_path(&source.path) == Some(Language::CSharp))
-        .map(|source| {
-            hoonarqube_csharp::semantic::SourceSnapshot::new(
-                source.path.clone(),
-                source.source.clone(),
-            )
-        })
-        .collect::<Vec<_>>();
+    record_context_source_fingerprints(context_sources, fingerprints);
     let context = hoonarqube_csharp::semantic::ProjectSemanticContext::load(&config, &snapshots);
     record_csharp_context(&config, &context, diagnostics, fingerprints);
     Some(context)
+}
+
+fn merged_csharp_snapshots(
+    sources: &[AnalyzedSource],
+    context_sources: &[AnalyzedSource],
+    diagnostics: &mut Vec<String>,
+) -> Vec<hoonarqube_csharp::semantic::SourceSnapshot> {
+    let mut identities = std::collections::BTreeMap::<PathBuf, usize>::new();
+    let mut merged = Vec::<(PathBuf, String)>::new();
+    for source in sources {
+        insert_csharp_snapshot(
+            &mut identities,
+            &mut merged,
+            source,
+            "analyzed",
+            diagnostics,
+        );
+    }
+    for source in context_sources {
+        insert_csharp_snapshot(&mut identities, &mut merged, source, "context", diagnostics);
+    }
+    let snapshots = merged
+        .into_iter()
+        .map(|(path, source)| hoonarqube_csharp::semantic::SourceSnapshot::new(path, source))
+        .collect::<Vec<_>>();
+    let retained_bytes = snapshots.iter().try_fold(0usize, |total, snapshot| {
+        total.checked_add(snapshot.source.len())
+    });
+    if retained_bytes.is_none_or(|total| total > MAX_RETAINED_SOURCE_BYTES) {
+        diagnostics.push(format!(
+            "csharp semantic source snapshots exceed the {MAX_RETAINED_SOURCE_BYTES} byte project limit"
+        ));
+        return Vec::new();
+    }
+    snapshots
+}
+
+fn insert_csharp_snapshot(
+    identities: &mut std::collections::BTreeMap<PathBuf, usize>,
+    merged: &mut Vec<(PathBuf, String)>,
+    source: &AnalyzedSource,
+    origin: &str,
+    diagnostics: &mut Vec<String>,
+) {
+    if hoonarqube_core::language_for_path(&source.path) != Some(Language::CSharp) {
+        if origin == "context" {
+            diagnostics.push(format!(
+                "csharp context source is not a C# source file: {}",
+                source.path.display()
+            ));
+        }
+        return;
+    }
+    let identity = snapshot_identity_path(&source.path);
+    if let Some(index) = identities.get(&identity) {
+        let (previous_path, previous_source) = &merged[*index];
+        if previous_source != &source.source {
+            diagnostics.push(format!(
+                "csharp {origin} source overlaps {} with different content: {}",
+                previous_path.display(),
+                source.path.display()
+            ));
+        }
+        return;
+    }
+    identities.insert(identity, merged.len());
+    merged.push((source.path.clone(), source.source.clone()));
+}
+
+fn record_context_source_fingerprints(
+    context_sources: &[AnalyzedSource],
+    fingerprints: &mut SemanticFingerprintParts,
+) {
+    for source in context_sources {
+        let identity = snapshot_identity_path(&source.path);
+        fingerprints.context.push(digest_values(
+            "csharp-context-source-v1",
+            &[
+                identity.as_os_str().as_encoded_bytes(),
+                source.source.as_bytes(),
+            ],
+        ));
+    }
 }
 
 fn record_csharp_context(
@@ -541,6 +731,7 @@ pub(crate) struct FixAnalysisContext {
     options: AnalyzerOptionsBundle,
     semantic: SemanticOptions,
     sources: Vec<AnalyzedSource>,
+    context_sources: Vec<AnalyzedSource>,
     base: ProjectSemanticContext,
 }
 
@@ -556,6 +747,7 @@ impl FixAnalysisContext {
                 options: options.clone(),
                 semantic: semantic.clone(),
                 sources: Vec::new(),
+                context_sources: Vec::new(),
                 base: ProjectSemanticContext::load(&[], semantic, options)?,
             });
         }
@@ -587,7 +779,17 @@ impl FixAnalysisContext {
                 classification: hoonarqube_ir::FileClassification::Source,
             });
         }
-        let base = ProjectSemanticContext::load(&sources, semantic, options)?;
+        let context_source_load = load_csharp_context_sources(semantic);
+        if !context_source_load.diagnostics.is_empty() {
+            return Err(context_source_load.diagnostics.join("; "));
+        }
+        let base = ProjectSemanticContext::load_with_context_sources(
+            &sources,
+            &context_source_load.snapshots,
+            &[],
+            semantic,
+            options,
+        )?;
         if !base.is_complete() {
             return Err(format_diagnostics(base.diagnostics()));
         }
@@ -595,6 +797,7 @@ impl FixAnalysisContext {
             options: options.clone(),
             semantic: semantic.clone(),
             sources,
+            context_sources: context_source_load.snapshots,
             base,
         })
     }
@@ -630,7 +833,24 @@ impl FixAnalysisContext {
         };
         item.source.clear();
         item.source.push_str(source);
-        let context = ProjectSemanticContext::load(&projected, &self.semantic, &self.options)?;
+        // An analyzed file is authoritative during a projected fix.  If the
+        // same path was also supplied as context, discard its frozen base
+        // snapshot rather than sending stale bytes beside the edit.  Context-
+        // exclusive files remain immutable for the verification rebuild.
+        let projected_identity = snapshot_identity_path(path);
+        let projected_context_sources = self
+            .context_sources
+            .iter()
+            .filter(|item| snapshot_identity_path(&item.path) != projected_identity)
+            .cloned()
+            .collect::<Vec<_>>();
+        let context = ProjectSemanticContext::load_with_context_sources(
+            &projected,
+            &projected_context_sources,
+            &[],
+            &self.semantic,
+            &self.options,
+        )?;
         if !context.is_complete() {
             return Err(format_diagnostics(context.diagnostics()));
         }
@@ -799,4 +1019,139 @@ fn digest_values(domain: &str, values: &[&[u8]]) -> String {
         write!(&mut result, "{byte:02x}").expect("writing to String cannot fail");
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn csharp_context_source_reads_respect_remaining_byte_budget() {
+        let path = std::env::temp_dir().join(format!(
+            "hoonarqube-context-budget-{}-{}.cs",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::write(&path, "//é").unwrap();
+        assert_eq!(read_csharp_context_source(&path, 4).unwrap(), "//é");
+        assert!(read_csharp_context_source(&path, 3).is_err());
+        let file = fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_len(u64::try_from(MAX_RETAINED_SOURCE_BYTES).unwrap() + 1)
+            .unwrap();
+        assert!(read_csharp_context_source(&path, MAX_RETAINED_SOURCE_BYTES).is_err());
+        drop(file);
+        fs::remove_file(path).unwrap();
+        assert!(read_csharp_context_source(&std::env::temp_dir(), 4).is_err());
+    }
+
+    fn source(path: &str, text: &str) -> AnalyzedSource {
+        AnalyzedSource {
+            path: PathBuf::from(path),
+            source: text.to_owned(),
+            classification: hoonarqube_ir::FileClassification::Source,
+        }
+    }
+
+    #[test]
+    fn csharp_context_sources_require_a_project() {
+        let semantic = SemanticOptions {
+            csharp_context_sources: vec![PathBuf::from("Context.cs")],
+            ..SemanticOptions::default()
+        };
+        let context =
+            ProjectSemanticContext::load(&[], &semantic, &AnalyzerOptionsBundle::default())
+                .expect("unsupported profiles are the only hard load error");
+        assert!(!context.is_complete());
+        assert!(
+            context
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| diagnostic.contains("--csharp-context-source"))
+        );
+    }
+
+    #[test]
+    fn csharp_context_union_deduplicates_exact_overlap_and_rejects_conflicts() {
+        let analyzed = vec![source("src/Main.cs", "class Main {}")];
+        let context = vec![
+            source("./src/Main.cs", "class Main {}"),
+            source("src/Contracts.cs", "class Contracts {}"),
+            source("./src/Contracts.cs", "class Contracts {}"),
+        ];
+        let mut diagnostics = Vec::new();
+        let merged = merged_csharp_snapshots(&analyzed, &context, &mut diagnostics);
+        assert_eq!(merged.len(), 2);
+        assert!(diagnostics.is_empty());
+        assert_eq!(analyzed.len(), 1);
+
+        let conflicting = vec![source("./src/Main.cs", "class Changed {}")];
+        let mut diagnostics = Vec::new();
+        let merged = merged_csharp_snapshots(&analyzed, &conflicting, &mut diagnostics);
+        assert_eq!(merged.len(), 1);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("different content"))
+        );
+    }
+
+    #[test]
+    fn csharp_context_source_content_changes_cache_identity() {
+        let first = vec![source("Context.cs", "class Context {}")];
+        let second = vec![source("Context.cs", "class Changed {}")];
+        let mut first_parts = SemanticFingerprintParts::default();
+        record_context_source_fingerprints(&first, &mut first_parts);
+        let mut second_parts = SemanticFingerprintParts::default();
+        record_context_source_fingerprints(&second, &mut second_parts);
+        assert_ne!(
+            semantic_cache_fingerprints(&first_parts).context,
+            semantic_cache_fingerprints(&second_parts).context
+        );
+    }
+
+    #[test]
+    fn csharp_context_source_read_failures_are_diagnostics() {
+        let invalid = std::env::temp_dir().join(format!(
+            "hoonarqube-csharp-context-invalid-{}.cs",
+            std::process::id()
+        ));
+        fs::write(&invalid, [0xff, 0xfe]).expect("write invalid UTF-8 fixture");
+        let semantic = SemanticOptions {
+            csharp_project: Some(PathBuf::from(".")),
+            csharp_context_sources: vec![
+                PathBuf::from("missing-context-source.cs"),
+                invalid.clone(),
+            ],
+            ..SemanticOptions::default()
+        };
+        let loaded = load_csharp_context_sources(&semantic);
+        let _ = fs::remove_file(&invalid);
+        assert!(loaded.snapshots.is_empty());
+        assert!(
+            loaded
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("cannot read csharp context source"))
+        );
+        assert!(
+            loaded
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("not valid UTF-8"))
+        );
+    }
+
+    #[test]
+    fn csharp_context_sources_are_not_analyzed_inventory() {
+        let analyzed = vec![source("src/Main.cs", "class Main {}")];
+        let original = analyzed.clone();
+        let context = vec![source("src/Contracts.cs", "class Contracts {}")];
+        let mut diagnostics = Vec::new();
+        let _ = merged_csharp_snapshots(&analyzed, &context, &mut diagnostics);
+        assert_eq!(analyzed, original);
+        assert!(diagnostics.is_empty());
+    }
 }

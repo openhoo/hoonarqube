@@ -207,8 +207,14 @@ pub fn analyze_with_context(
         &parsed, &index, source, options, &file_ctx,
     ));
     issues.extend(check_regex_battery(&parsed, &index, source, options));
+    let module_name = module_name_from_path(path.as_path());
     issues.extend(check_tier_c_security_battery(
-        &parsed, &index, source, &file_ctx,
+        &parsed,
+        &index,
+        source,
+        &file_ctx,
+        &module_name,
+        project,
     ));
     issues.extend(check_tier_c_semantic_battery(
         &parsed, &index, source, &file_ctx,
@@ -216,7 +222,6 @@ pub fn analyze_with_context(
     issues.extend(check_structural_battery(
         &parsed, &index, source, options, &file_ctx,
     ));
-    let module_name = module_name_from_path(path.as_path());
     issues.extend(check_s6786_graphql_introspection(
         &parsed,
         &index,

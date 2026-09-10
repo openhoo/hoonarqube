@@ -87,7 +87,7 @@ impl<'t> UsageSymbols<'t> {
     /// The symbol collector already visits identifiers in document order, so
     /// the index vectors preserve the old `uses_of` ordering without
     /// rescanning every reference or allocating a result vector per member.
-    pub(crate) fn uses_of(&self, name: &str) -> impl Iterator<Item = Node<'t>> + '_ {
+    pub(crate) fn uses_of(&self, name: &str) -> impl Iterator<Item = Node<'t>> + '_ + use<'t, '_> {
         self.reference_indices_by_name
             .get(name)
             .into_iter()

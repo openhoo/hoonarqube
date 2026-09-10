@@ -84,8 +84,11 @@
       "cases": {
         "attack": {"description": "Existing Set-Cookie header omits Secure.", "files": {"s2255_bad.js": "function respond(response) {\n  response.setHeader('Set-Cookie', 'session=abc123; Path=/');\n}\nmodule.exports = { respond };\n"}, "sources": ["s2255_bad.js"], "native_args": [], "sonar_properties": {}, "expected_target": true},
         "safe": {"description": "Existing unrelated security header does not write a cookie.", "files": {"s2255_good.js": "function respond(response) {\n  response.setHeader('X-Frame-Options', 'DENY');\n}\nmodule.exports = { respond };\n"}, "sources": ["s2255_good.js"], "native_args": [], "sonar_properties": {}, "expected_target": false},
-        "near_miss": {"description": "Same Set-Cookie API includes Secure and HttpOnly attributes.", "files": {"s2255_near_miss.js": "function respond(response) {\n  response.setHeader('Set-Cookie', 'session=abc123; Path=/; Secure; HttpOnly');\n}\n"}, "sources": ["s2255_near_miss.js"], "native_args": [], "sonar_properties": {}, "expected_target": false}
-      }
+        "near_miss": {"description": "A similarly named Set-Cookie-Policy header does not create a cookie; the owning predicate requires the exact Set-Cookie header name.", "files": {"s2255_near_miss.js": "function respond(response) {\n  response.setHeader('Set-Cookie-Policy', 'session=abc123; Path=/; Secure; HttpOnly');\n}\n"}, "sources": ["s2255_near_miss.js"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      },
+      "flow_cases": [
+        {"name": "hardened_cookie_review", "description": "Secure and HttpOnly do not remove the retained S2255 cookie-review hotspot: the historical owning predicate reports Set-Cookie writes regardless of attributes. Current live-rule availability remains unverified.", "files": {"s2255_near_miss.js": "function respond(response) {\n  response.setHeader('Set-Cookie', 'session=abc123; Path=/; Secure; HttpOnly');\n}\n"}, "sources": ["s2255_near_miss.js"], "native_args": [], "sonar_properties": {}, "expected_target": true}
+      ]
     },
     {
       "key": "javascript:S2598",
@@ -98,7 +101,7 @@
     },
     {
       "key": "javascript:S2612",
-      "rationale": "The live JavaScript S2612 contract rejects chmod modes granting any permissions to other users; the checked-in s2612_bad.js MD5 source is a stale native/source mismatch and is intentionally not reused as this attack.",
+      "rationale": "The live JavaScript S2612 contract rejects chmod modes granting permissions to other users; weak hashes belong to S4790.",
       "cases": {
         "attack": {"description": "Live-rule example: chmodSync grants read/write/execute permissions to other users.", "files": {"s2612_attack.js": "const fs = require('fs');\nfs.chmodSync('/tmp/fs', 0o777);\n"}, "sources": ["s2612_attack.js"], "native_args": [], "sonar_properties": {}, "expected_target": true},
         "safe": {"description": "Same fs.chmodSync API grants permissions only to the owner.", "files": {"s2612_safe.js": "const fs = require('fs');\nfs.chmodSync('/tmp/fs', 0o700);\n"}, "sources": ["s2612_safe.js"], "native_args": [], "sonar_properties": {}, "expected_target": false},
@@ -398,12 +401,15 @@
     },
     {
       "key": "javascript:S5693",
-      "rationale": "Body parsers need explicit size limits to prevent oversized request denial of service.",
+      "rationale": "Body parsers must respect bounded defaults and reviewed byte limits; npm bytes interprets kb/mb using powers of 1024.",
       "cases": {
         "attack": {"description": "An imported body-parser JSON parser permits a four-megabyte body.", "files": {"s5693_bad.js": "const bodyParser = require('body-parser');\nconst jsonParser = bodyParser.json({ limit: '4mb' });\nmodule.exports = { jsonParser };\n"}, "sources": ["s5693_bad.js"], "native_args": [], "sonar_properties": {}, "expected_target": true},
-        "safe": {"description": "An imported body-parser JSON parser stays at the two-megabyte threshold.", "files": {"s5693_good.js": "const bodyParser = require('body-parser');\nconst jsonParser = bodyParser.json({ limit: '2mb' });\nmodule.exports = { jsonParser };\n"}, "sources": ["s5693_good.js"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "safe": {"description": "An imported body-parser JSON parser uses the exact reviewed threshold of 2,000,000 bytes.", "files": {"s5693_good.js": "const bodyParser = require('body-parser');\nconst jsonParser = bodyParser.json({ limit: 2000000 });\nmodule.exports = { jsonParser };\n"}, "sources": ["s5693_good.js"], "native_args": [], "sonar_properties": {}, "expected_target": false},
         "near_miss": {"description": "An imported body-parser URL-encoded parser uses a smaller bounded limit.", "files": {"s5693_near_miss.js": "const bodyParser = require('body-parser');\nconst urlencodedParser = bodyParser.urlencoded({ extended: false, limit: '1mb' });\nmodule.exports = { urlencodedParser };\n"}, "sources": ["s5693_near_miss.js"], "native_args": [], "sonar_properties": {}, "expected_target": false}
-      }
+      },
+      "flow_cases": [
+        {"name": "binary_unit_boundary", "description": "The original 2mb control is 2,097,152 bytes under npm bytes, above the 2,000,000-byte threshold; preserve it as a positive boundary case.", "files": {"s5693_good.js": "const bodyParser = require('body-parser');\nconst jsonParser = bodyParser.json({ limit: '2mb' });\nmodule.exports = { jsonParser };\n"}, "sources": ["s5693_good.js"], "native_args": [], "sonar_properties": {}, "expected_target": true}
+      ]
     },
     {
       "key": "javascript:S5725",
@@ -416,7 +422,7 @@
     },
     {
       "key": "javascript:S5728",
-      "rationale": "Disabling or emptying CSP fetch directives removes browser script restrictions.",
+      "rationale": "Disabling Helmet's contentSecurityPolicy removes CSP browser restrictions; an empty scriptSrc list is not equivalent to disabling the policy.",
       "cases": {
         "attack": {"description": "Helmet is mounted on Express with contentSecurityPolicy disabled.", "files": {"s5728_bad.js": "const express = require('express');\nconst helmet = require('helmet');\nconst app = express();\napp.use(helmet({ contentSecurityPolicy: false }));\nmodule.exports = { app };\n"}, "sources": ["s5728_bad.js"], "native_args": [], "sonar_properties": {}, "expected_target": true},
         "safe": {"description": "Express mounts Helmet's contentSecurityPolicy middleware.", "files": {"s5728_good.js": "const express = require('express');\nconst helmet = require('helmet');\nconst app = express();\napp.use(helmet.contentSecurityPolicy());\nmodule.exports = { app };\n"}, "sources": ["s5728_good.js"], "native_args": [], "sonar_properties": {}, "expected_target": false},

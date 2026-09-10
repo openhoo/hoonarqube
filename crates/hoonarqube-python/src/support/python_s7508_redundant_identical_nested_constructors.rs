@@ -64,27 +64,6 @@ pub(crate) fn dotted_name_in(expr: &Expr, candidates: &[&str]) -> bool {
 }
 
 /// Allocation-free equivalent of `dotted_name(expr).is_some_and(|p|
-/// p.starts_with(prefix))` for a `prefix` that includes the trailing dot.
-pub(crate) fn dotted_name_starts_with(expr: &Expr, prefix: &str) -> bool {
-    debug_assert!(prefix.ends_with('.'), "prefix must end with '.'");
-    let Some(stem) = prefix.strip_suffix('.') else {
-        return false;
-    };
-    let Some(segments) = dotted_segments(expr) else {
-        return false;
-    };
-    let mut parts = stem.split('.');
-    let mut matched = 0usize;
-    for (segment, part) in segments.iter().copied().zip(&mut parts) {
-        if segment != part {
-            return false;
-        }
-        matched += 1;
-    }
-    parts.next().is_none() && segments.len() > matched
-}
-
-/// Allocation-free equivalent of `dotted_name(expr).is_some_and(|p|
 /// p.rsplit_once('.').is_some_and(|(head, _)| candidates.contains(&head)))`:
 /// the full path minus its final segment is one of `candidates`.
 pub(crate) fn dotted_name_parent_in(expr: &Expr, candidates: &[&str]) -> bool {

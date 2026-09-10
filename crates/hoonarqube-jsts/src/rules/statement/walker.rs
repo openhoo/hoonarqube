@@ -5,17 +5,17 @@ use crate::support::{IssueSink, LineIndex, RuleScope, source_slice, static_prope
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     BlockStatement, CallExpression, ContinueStatement, DebuggerStatement, EmptyStatement,
-    Expression, ExpressionStatement, FunctionBody, IfStatement, ImportDeclaration,
-    ImportDeclarationSpecifier, LabeledStatement, NewExpression, ReturnStatement, Statement,
-    StaticBlock, SwitchCase, ThrowStatement, VariableDeclaration, VariableDeclarationKind,
-    WithStatement,
+    Expression, ExpressionStatement, Function, FunctionBody, FunctionType, IfStatement,
+    ImportDeclaration, ImportDeclarationSpecifier, LabeledStatement, NewExpression,
+    ReturnStatement, Statement, StaticBlock, SwitchCase, ThrowStatement, VariableDeclaration,
+    VariableDeclarationKind, WithStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
-    walk_block_statement, walk_expression_statement, walk_function_body, walk_if_statement,
-    walk_import_declaration, walk_labeled_statement, walk_return_statement, walk_statement,
-    walk_static_block, walk_switch_case, walk_throw_statement, walk_variable_declaration,
-    walk_with_statement,
+    walk_block_statement, walk_expression_statement, walk_function, walk_function_body,
+    walk_if_statement, walk_import_declaration, walk_labeled_statement, walk_program,
+    walk_return_statement, walk_statement, walk_static_block, walk_switch_case,
+    walk_throw_statement, walk_variable_declaration, walk_with_statement,
 };
 use oxc_span::{GetSpan, Span};
 
@@ -32,14 +32,28 @@ fn check_statement_rules(
             issues: Vec::new(),
         },
         source,
-        bare_block_depth: 0,
         last_import: None,
         statement_scopes: Vec::new(),
+        s1199_list_kinds: Vec::new(),
+        s1199_candidates: Vec::new(),
+        s1199_active_blocks: Vec::new(),
+        strict_scopes: Vec::new(),
         current_statement_is_if: false,
         if_parent_is_if: false,
     };
     collector.visit_program(program);
     collector.sink.issues
+}
+
+/// Statement-list parent kinds used by the `S1199` lone-block check.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum S1199ListKind {
+    Program,
+    // OXC stores directives outside the function's statement list.
+    FunctionBody { has_directives: bool },
+    Block,
+    StaticBlock,
+    SwitchCase,
 }
 
 /// Statement-level batch rules in one traversal: `S909`, `S1119`, `S1321`,
@@ -49,24 +63,68 @@ fn check_statement_rules(
 struct StatementCollector<'a, 'index> {
     sink: IssueSink<'index>,
     source: &'a str,
-    /// Depth of `BlockStatement`s nested directly inside `BlockStatement`s;
-    /// reset at function boundaries for `S1199`.
-    bare_block_depth: u32,
     last_import: Option<(String, u32)>,
     /// Active statement lists used to find the return immediately following
     /// an if statement without reparsing source text.
     statement_scopes: Vec<&'a [Statement<'a>]>,
+    /// Parallel list kinds used to identify genuine lone-block parents.
+    s1199_list_kinds: Vec<S1199ListKind>,
+    /// Candidate blocks are removed when a direct lexical declaration gives
+    /// them a legitimate scope.
+    s1199_candidates: Vec<(Span, S1199ListKind)>,
+    s1199_active_blocks: Vec<Span>,
+    /// Strictness inherited through all OXC scopes, for strict function
+    /// declarations (which also create a lexical scope).
+    strict_scopes: Vec<bool>,
     /// Tracks whether the current statement is a direct child of an if.
     current_statement_is_if: bool,
     if_parent_is_if: bool,
 }
 
 impl<'a> Visit<'a> for StatementCollector<'a, '_> {
+    fn enter_scope(
+        &mut self,
+        flags: oxc_syntax::scope::ScopeFlags,
+        _: &std::cell::Cell<Option<oxc_syntax::scope::ScopeId>>,
+    ) {
+        let inherited = self.strict_scopes.last().copied().unwrap_or(false);
+        self.strict_scopes.push(inherited || flags.is_strict_mode());
+    }
+
+    fn leave_scope(&mut self) {
+        self.strict_scopes.pop();
+    }
+
+    fn visit_program(&mut self, it: &oxc_ast::ast::Program<'a>) {
+        self.statement_scopes.push(self.alloc(&it.body).as_slice());
+        self.s1199_list_kinds.push(S1199ListKind::Program);
+        walk_program(self, it);
+        self.s1199_list_kinds.pop();
+        self.statement_scopes.pop();
+    }
+
+    fn visit_function(&mut self, it: &Function<'a>, flags: oxc_syntax::scope::ScopeFlags) {
+        if matches!(it.r#type, FunctionType::FunctionDeclaration)
+            && (self.strict_scopes.last().copied().unwrap_or(false)
+                || flags.is_strict_mode()
+                || it
+                    .body
+                    .as_ref()
+                    .is_some_and(|body| body.has_use_strict_directive()))
+        {
+            self.mark_lone_block();
+        }
+        walk_function(self, it, flags);
+    }
+
     fn visit_statement(&mut self, it: &Statement<'a>) {
         let previous_current = self.current_statement_is_if;
         let previous_parent = self.if_parent_is_if;
         self.if_parent_is_if = previous_current && matches!(it, Statement::IfStatement(_));
         self.current_statement_is_if = matches!(it, Statement::IfStatement(_));
+        if matches!(it, Statement::ClassDeclaration(_)) {
+            self.mark_lone_block();
+        }
         walk_statement(self, it);
         self.current_statement_is_if = previous_current;
         self.if_parent_is_if = previous_parent;
@@ -116,56 +174,91 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
     }
 
     fn visit_block_statement(&mut self, it: &BlockStatement<'a>) {
-        if self.bare_block_depth > 0 {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S1199",
-                "Remove this nested block.",
-                it.span(),
-            );
+        let parent_kind = self.s1199_parent_kind(it);
+        let fallback = matches!(
+            parent_kind,
+            Some(
+                S1199ListKind::Block
+                    | S1199ListKind::StaticBlock
+                    | S1199ListKind::FunctionBody {
+                        has_directives: false
+                    }
+            )
+        ) && self
+            .statement_scopes
+            .last()
+            .is_some_and(|statements| statements.len() == 1);
+
+        if let Some(parent_kind) = parent_kind {
+            self.s1199_candidates.push((it.span(), parent_kind));
         }
         if it.body.is_empty() {
             self.check_empty_block(it);
         }
-        self.bare_block_depth += 1;
+        self.s1199_active_blocks.push(it.span());
         self.statement_scopes.push(self.alloc(&it.body).as_slice());
+        self.s1199_list_kinds.push(S1199ListKind::Block);
         walk_block_statement(self, it);
+        self.s1199_list_kinds.pop();
         self.statement_scopes.pop();
-        self.bare_block_depth -= 1;
+        self.s1199_active_blocks.pop();
+
+        let reported_candidate = self
+            .s1199_candidates
+            .last()
+            .is_some_and(|(span, _)| *span == it.span());
+        if reported_candidate {
+            let (_, parent_kind) = self.s1199_candidates.pop().expect("candidate was present");
+            let message = match parent_kind {
+                S1199ListKind::Block
+                | S1199ListKind::StaticBlock
+                | S1199ListKind::FunctionBody { .. } => "Nested block is redundant.",
+                S1199ListKind::Program | S1199ListKind::SwitchCase => "Block is redundant.",
+            };
+            self.sink
+                .emit_span(RuleScope::Both, "S1199", message, it.span());
+        } else if fallback {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1199",
+                "Nested block is redundant.",
+                it.span(),
+            );
+        }
     }
 
     fn visit_static_block(&mut self, it: &StaticBlock<'a>) {
         if it.body.is_empty() {
             self.check_empty_block_span(it.span());
         }
-        let saved_depth = self.bare_block_depth;
         let saved_current = self.current_statement_is_if;
         let saved_parent = self.if_parent_is_if;
-        self.bare_block_depth = 0;
         self.current_statement_is_if = false;
         self.if_parent_is_if = false;
         self.statement_scopes.push(self.alloc(&it.body).as_slice());
+        self.s1199_list_kinds.push(S1199ListKind::StaticBlock);
         walk_static_block(self, it);
+        self.s1199_list_kinds.pop();
         self.statement_scopes.pop();
         self.if_parent_is_if = saved_parent;
         self.current_statement_is_if = saved_current;
-        self.bare_block_depth = saved_depth;
     }
 
     fn visit_function_body(&mut self, it: &FunctionBody<'a>) {
-        let saved_depth = self.bare_block_depth;
         let saved_current = self.current_statement_is_if;
         let saved_parent = self.if_parent_is_if;
-        self.bare_block_depth = 0;
         self.current_statement_is_if = false;
         self.if_parent_is_if = false;
         self.statement_scopes
             .push(self.alloc(&it.statements).as_slice());
+        self.s1199_list_kinds.push(S1199ListKind::FunctionBody {
+            has_directives: !it.directives.is_empty(),
+        });
         walk_function_body(self, it);
+        self.s1199_list_kinds.pop();
         self.statement_scopes.pop();
         self.if_parent_is_if = saved_parent;
         self.current_statement_is_if = saved_current;
-        self.bare_block_depth = saved_depth;
     }
 
     fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
@@ -184,7 +277,12 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
         if let Some(first) = it.consequent.first() {
             self.check_case_leading_declaration(first);
         }
+        self.statement_scopes
+            .push(self.alloc(&it.consequent).as_slice());
+        self.s1199_list_kinds.push(S1199ListKind::SwitchCase);
         walk_switch_case(self, it);
+        self.s1199_list_kinds.pop();
+        self.statement_scopes.pop();
     }
 
     fn visit_expression_statement(&mut self, it: &ExpressionStatement<'a>) {
@@ -246,6 +344,8 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
                 "Unexpected var, use let or const instead.",
                 span,
             );
+        } else {
+            self.mark_lone_block();
         }
         walk_variable_declaration(self, it);
     }
@@ -259,6 +359,39 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
 }
 
 impl StatementCollector<'_, '_> {
+    fn s1199_parent_kind(&self, it: &BlockStatement<'_>) -> Option<S1199ListKind> {
+        let statements = self.statement_scopes.last()?;
+        let kind = *self.s1199_list_kinds.last()?;
+        let is_direct_child = statements.iter().any(|statement| {
+            matches!(
+                statement,
+                Statement::BlockStatement(block) if block.span() == it.span()
+            )
+        });
+        if !is_direct_child {
+            return None;
+        }
+        // ESLint intentionally keeps a block that is the sole statement of a
+        // switch case: the case itself already supplies the statement scope.
+        if kind == S1199ListKind::SwitchCase && statements.len() == 1 {
+            return None;
+        }
+        Some(kind)
+    }
+
+    fn mark_lone_block(&mut self) {
+        let Some(active_block) = self.s1199_active_blocks.last().copied() else {
+            return;
+        };
+        if self
+            .s1199_candidates
+            .last()
+            .is_some_and(|(candidate, _)| *candidate == active_block)
+        {
+            self.s1199_candidates.pop();
+        }
+    }
+
     fn boolean_return(statement: &Statement<'_>) -> Option<bool> {
         match statement {
             Statement::ReturnStatement(return_statement) => {
@@ -692,12 +825,51 @@ function clean() {
     }
 
     #[test]
-    fn s1199_flags_nested_bare_block_single_one_passes() {
+    fn s1199_matches_lone_block_context_and_lexical_scope_rules() {
         let nested = js_keys("{\n  {\n    g();\n  }\n}\n");
-        assert_eq!(count_key(&nested, "javascript:S1199"), 1);
+        assert_eq!(count_key(&nested, "javascript:S1199"), 2);
 
-        let single = js_keys("{\n  g();\n}\n");
-        assert_eq!(count_key(&single, "javascript:S1199"), 0);
+        let function_body = js_keys("function work() {\n  {\n    prepare();\n  }\n}\n");
+        assert_eq!(count_key(&function_body, "javascript:S1199"), 1);
+
+        let control_body = js_keys("function work() {\n  if (ready) {\n    prepare();\n  }\n}\n");
+        assert_eq!(count_key(&control_body, "javascript:S1199"), 0);
+
+        let lexical_scope = js_keys(
+            "function work() {\n  {\n    let value = prepare();\n    use(value);\n  }\n}\n",
+        );
+        assert_eq!(count_key(&lexical_scope, "javascript:S1199"), 1);
+
+        let class_scope = js_keys("function work() {\n  {\n    class Local {}\n  }\n}\n");
+        assert_eq!(count_key(&class_scope, "javascript:S1199"), 1);
+
+        let required_lexical_scope = js_keys(
+            "function work() {\n  const value = prepare();\n  {\n    let value = prepare();\n    use(value);\n  }\n  use(value);\n}\n",
+        );
+        assert_eq!(count_key(&required_lexical_scope, "javascript:S1199"), 0);
+
+        let directive_and_lexical_scope = js_keys(
+            "function work() {\n  'use strict';\n  {\n    let value = prepare();\n    use(value);\n  }\n}\n",
+        );
+        assert_eq!(
+            count_key(&directive_and_lexical_scope, "javascript:S1199"),
+            0
+        );
+    }
+
+    #[test]
+    fn s1199_uses_the_owning_message_and_full_block_range() {
+        let report = js("function work() {\n  {\n    prepare();\n  }\n}\n");
+        let issue = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "javascript:S1199")
+            .expect("nested block should be reported");
+        assert_eq!(issue.message, "Nested block is redundant.");
+        assert_eq!(issue.range.start.line, 2);
+        assert_eq!(issue.range.start.column, 2);
+        assert_eq!(issue.range.end.line, 4);
+        assert_eq!(issue.range.end.column, 3);
     }
 
     #[test]

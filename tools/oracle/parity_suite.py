@@ -27,6 +27,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from csharp_oracle import generate_solution
@@ -1093,6 +1094,366 @@ def _csharp_workspace_source_mappings(
     ]
 
 
+def _csharp_xml_local_name(tag: object) -> str:
+    if not isinstance(tag, str):
+        return ""
+    return tag.rsplit("}", 1)[-1]
+
+
+def _csharp_compile_item_generated(item: ET.Element, path: Path) -> bool:
+    if any(part.lower() in {"bin", "obj"} for part in path.parts):
+        return True
+    name = path.name.lower()
+    if name.endswith(".g.cs") or name.endswith(".razor.cs"):
+        return True
+    generated_values = {"1", "true", "yes"}
+    for key, value in item.attrib.items():
+        if (
+            _csharp_xml_local_name(key).lower() in {"autogen", "generated"}
+            and str(value).strip().lower() in generated_values
+        ):
+            return True
+    return False
+
+
+def _csharp_workspace_project_metadata(
+    workspace: Path,
+    project: Path,
+    current_static: dict[str, dict[str, object]],
+) -> str:
+    project_relative = _csharp_relative(project, workspace)
+    recorded_project = current_static.get(project_relative)
+    if not isinstance(recorded_project, dict):
+        raise ValueError(
+            f"retained C# project is missing from static inventory: {project_relative}"
+        )
+    current_project = file_metadata(project, root=workspace)
+    if (
+        recorded_project.get("size") != current_project["size"]
+        or recorded_project.get("sha256") != current_project["sha256"]
+    ):
+        raise ValueError(f"retained C# project hash mismatch: {project_relative}")
+    return project_relative
+
+
+def _csharp_workspace_project_xml(project: Path, project_relative: str) -> ET.Element:
+    try:
+        return ET.parse(project).getroot()
+    except (ET.ParseError, OSError) as error:
+        raise ValueError(
+            f"retained C# project is not valid XML: {project_relative}"
+        ) from error
+
+
+def _csharp_compile_item_includes(item: ET.Element, project_relative: str) -> list[str]:
+    include = item.attrib.get("Include")
+    if not isinstance(include, str) or not include.strip():
+        raise ValueError(
+            f"retained C# project has an invalid Compile Include: {project_relative}"
+        )
+    return [
+        part.strip().replace("\\", "/") for part in include.split(";") if part.strip()
+    ]
+
+
+def _csharp_workspace_compile_document(
+    workspace: Path,
+    static_paths: dict[str, Path],
+    project: Path,
+    project_relative: str,
+    item: ET.Element,
+    included: str,
+) -> tuple[str, bool]:
+    if any(token in included for token in "*?[") or "$(" in included:
+        raise ValueError(
+            f"retained C# project has an unresolved Compile Include: "
+            f"{project_relative}:{included}"
+        )
+    compile_path = (project.parent / included).resolve()
+    try:
+        relative = _csharp_relative(compile_path, workspace)
+    except ValueError as error:
+        raise ValueError(
+            f"retained C# Compile Include escapes the workspace: "
+            f"{project_relative}:{included}"
+        ) from error
+    if relative not in static_paths:
+        raise ValueError(
+            f"retained C# compile document is missing from static inventory: {relative}"
+        )
+    if not relative.lower().endswith(".cs"):
+        raise ValueError(f"retained C# Compile Include is not a C# source: {relative}")
+    return relative, _csharp_compile_item_generated(item, compile_path)
+
+
+def _csharp_workspace_compile_item_documents(
+    workspace: Path,
+    static_paths: dict[str, Path],
+    project: Path,
+    project_relative: str,
+    item: ET.Element,
+) -> list[tuple[str, bool]]:
+    if _csharp_xml_local_name(item.tag).lower() != "compile":
+        return []
+    return [
+        _csharp_workspace_compile_document(
+            workspace,
+            static_paths,
+            project,
+            project_relative,
+            item,
+            included,
+        )
+        for included in _csharp_compile_item_includes(item, project_relative)
+    ]
+
+
+def _csharp_workspace_project_compile_ownership(
+    workspace: Path,
+    static_paths: dict[str, Path],
+    current_static: dict[str, dict[str, object]],
+    project: Path,
+) -> tuple[dict[str, set[str]], set[str]]:
+    project_relative = _csharp_workspace_project_metadata(
+        workspace, project, current_static
+    )
+    root = _csharp_workspace_project_xml(project, project_relative)
+    ownership: dict[str, set[str]] = {}
+    generated: set[str] = set()
+    for item in root.iter():
+        for relative, is_generated in _csharp_workspace_compile_item_documents(
+            workspace, static_paths, project, project_relative, item
+        ):
+            ownership.setdefault(relative, set()).add(project_relative)
+            if is_generated:
+                generated.add(relative)
+    return ownership, generated
+
+
+def _csharp_workspace_compile_ownership(
+    workspace: Path,
+    static_files: list[Path],
+    current_static: dict[str, dict[str, object]],
+) -> tuple[dict[str, set[str]], set[str]]:
+    """Return ordinary compile ownership and the generated compile documents."""
+    static_paths = {_csharp_relative(path, workspace): path for path in static_files}
+    ownership: dict[str, set[str]] = {}
+    generated: set[str] = set()
+    projects = sorted(
+        (path for path in static_files if path.suffix.lower() == ".csproj"),
+        key=lambda path: _csharp_relative(path, workspace),
+    )
+    for project in projects:
+        project_ownership, project_generated = (
+            _csharp_workspace_project_compile_ownership(
+                workspace, static_paths, current_static, project
+            )
+        )
+        for relative, projects_for_source in project_ownership.items():
+            ownership.setdefault(relative, set()).update(projects_for_source)
+        generated.update(project_generated)
+    return ownership, generated
+
+
+def _csharp_workspace_mapped_copies(
+    workspace: Path,
+    current_static: dict[str, dict[str, object]],
+    normalized_mappings: list[dict[str, object]],
+) -> set[str]:
+    mapped_copies: set[str] = set()
+    for mapping in normalized_mappings:
+        copy = mapping.get("copy")
+        if not isinstance(copy, str) or not copy:
+            raise ValueError("retained C# source mapping has an invalid copy path")
+        copy_path = (workspace / copy).resolve()
+        relative = _csharp_relative(copy_path, workspace)
+        if relative != copy or relative not in current_static:
+            raise ValueError(
+                f"retained C# mapped fixture copy is not in static inventory: {copy}"
+            )
+        mapped_copies.add(relative)
+    return mapped_copies
+
+
+def _csharp_workspace_context_source_record(
+    workspace: Path,
+    current_static: dict[str, dict[str, object]],
+    ownership: dict[str, set[str]],
+    generated: set[str],
+    mapped_copies: set[str],
+    path: Path,
+) -> tuple[str, str] | None:
+    relative = _csharp_relative(path, workspace)
+    if not relative.lower().endswith(".cs"):
+        return None
+    if relative in mapped_copies or relative in generated:
+        return None
+    if (
+        len(relative.split("/")) >= 2
+        and relative.split("/")[0] == "projects"
+        and relative.split("/")[1].startswith("fixture-")
+    ):
+        raise ValueError(f"retained C# fixture source is not mapped: {relative}")
+    if not ownership.get(relative):
+        raise ValueError(f"retained C# source has no project Compile owner: {relative}")
+    recorded = current_static.get(relative)
+    if not isinstance(recorded, dict):
+        raise ValueError(
+            f"retained C# context source is missing from static inventory: {relative}"
+        )
+    current = file_metadata(path, root=workspace)
+    if (
+        recorded.get("size") != current["size"]
+        or recorded.get("sha256") != current["sha256"]
+    ):
+        raise ValueError(f"retained C# context source hash mismatch: {relative}")
+    digest = current.get("sha256")
+    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise ValueError(
+            f"retained C# context source has an invalid digest: {relative}"
+        )
+    return str(path.resolve()), digest
+
+
+def _csharp_workspace_context_source_records(
+    workspace: Path,
+    static_files: list[Path],
+    current_static: dict[str, dict[str, object]],
+    mapped_copies: set[str],
+    ownership: dict[str, set[str]],
+    generated: set[str],
+) -> list[tuple[str, str]]:
+    context: list[tuple[str, str]] = []
+    for path in sorted(
+        static_files, key=lambda item: _csharp_relative(item, workspace)
+    ):
+        record = _csharp_workspace_context_source_record(
+            workspace,
+            current_static,
+            ownership,
+            generated,
+            mapped_copies,
+            path,
+        )
+        if record is not None:
+            context.append(record)
+    return context
+
+
+def _csharp_workspace_context_sources(
+    workspace: Path,
+    static_files: list[Path],
+    current_static: dict[str, dict[str, object]],
+    normalized_mappings: list[dict[str, object]],
+) -> tuple[list[str], dict[str, str]]:
+    """Derive and revalidate non-generated, non-fixture compiler documents."""
+    mapped_copies = _csharp_workspace_mapped_copies(
+        workspace, current_static, normalized_mappings
+    )
+    ownership, generated = _csharp_workspace_compile_ownership(
+        workspace, static_files, current_static
+    )
+    context = _csharp_workspace_context_source_records(
+        workspace,
+        static_files,
+        current_static,
+        mapped_copies,
+        ownership,
+        generated,
+    )
+    if not context:
+        raise ValueError("retained C# workspace has no ordinary context sources")
+    context.sort(key=lambda item: item[0])
+    return [path for path, _ in context], {path: digest for path, digest in context}
+
+
+def _csharp_context_source_metadata(
+    native_context: dict[str, object],
+) -> tuple[list[str], dict[str, object], Path, list[dict[str, object]]]:
+    paths = native_context.get("context_source_paths")
+    hashes = native_context.get("context_source_hashes")
+    workspace_value = native_context.get("workspace")
+    mappings = native_context.get("source_mapping")
+    if (
+        not isinstance(paths, list)
+        or any(not isinstance(path, str) for path in paths)
+        or not isinstance(hashes, dict)
+        or not isinstance(workspace_value, str)
+        or not isinstance(mappings, list)
+    ):
+        raise ValueError("C# native context has invalid context source metadata")
+    if len(paths) != len(set(paths)) or set(paths) != set(hashes):
+        raise ValueError("C# native context context source metadata is inconsistent")
+    return paths, hashes, Path(workspace_value).resolve(), mappings
+
+
+def _validate_csharp_context_source_record(
+    path: str, hashes: dict[str, object], workspace: Path
+) -> None:
+    digest = hashes.get(path)
+    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise ValueError(f"C# native context has an invalid source digest: {path}")
+    source = Path(path)
+    if source.is_symlink() or not source.is_file():
+        raise ValueError(f"C# native context source is unavailable: {source}")
+    try:
+        _csharp_relative(source, workspace)
+    except ValueError as error:
+        raise ValueError(
+            f"C# native context source is outside the retained workspace: {source}"
+        ) from error
+    current = file_metadata(source)
+    if current["sha256"] != digest:
+        raise ValueError(f"C# native context source hash mismatch: {source}")
+
+
+def _validate_csharp_context_workspace_hash(
+    native_context: dict[str, object],
+    workspace: Path,
+    static_files: list[Path],
+) -> None:
+    recorded_workspace_hash = native_context.get("workspace_sha256")
+    if not isinstance(recorded_workspace_hash, str):
+        return
+    current_workspace_hash = input_paths_sha256(workspace, static_files)
+    if current_workspace_hash != recorded_workspace_hash:
+        raise ValueError("C# native context workspace hash mismatch")
+
+
+def _validate_csharp_context_project_hash(
+    native_context: dict[str, object],
+    current_static: dict[str, dict[str, object]],
+) -> None:
+    recorded_project_hashes = native_context.get("project_hashes")
+    if not isinstance(recorded_project_hashes, dict):
+        return
+    current_project_hashes = {
+        relative: metadata["sha256"]
+        for relative, metadata in current_static.items()
+        if relative.lower().endswith(".csproj")
+    }
+    if current_project_hashes != recorded_project_hashes:
+        raise ValueError("C# native context project hash mismatch")
+
+
+def _validate_csharp_context_source_records(
+    native_context: dict[str, object],
+) -> None:
+    paths, hashes, workspace, mappings = _csharp_context_source_metadata(native_context)
+    for path in paths:
+        _validate_csharp_context_source_record(path, hashes, workspace)
+
+    static_files = _csharp_workspace_static_files(workspace)
+    current_static = _csharp_metadata_map(static_files, workspace)
+    _validate_csharp_context_workspace_hash(native_context, workspace, static_files)
+    _validate_csharp_context_project_hash(native_context, current_static)
+    expected_paths, expected_hashes = _csharp_workspace_context_sources(
+        workspace, static_files, current_static, mappings
+    )
+    if paths != expected_paths or hashes != expected_hashes:
+        raise ValueError("C# native context source ownership or scope mismatch")
+
+
 def _csharp_workspace_reference_argv(
     workspace: Path, reference_execution: dict[str, object]
 ) -> None:
@@ -1213,6 +1574,9 @@ def _validate_csharp_workspace() -> tuple[Path, dict[str, object]]:
     normalized_mappings = _csharp_workspace_source_mappings(
         workspace, sources, manifest
     )
+    context_source_paths, context_source_hashes = _csharp_workspace_context_sources(
+        workspace, static_files, current_static, normalized_mappings
+    )
     reference_execution = _csharp_workspace_reference_execution(workspace, manifest)
     _csharp_reject_foreign_workspace_inputs(workspace)
     solution = workspace / "Oracle.slnx"
@@ -1229,6 +1593,8 @@ def _validate_csharp_workspace() -> tuple[Path, dict[str, object]]:
         "source_paths": [
             str(workspace / str(row["copy"])) for row in normalized_mappings
         ],
+        "context_source_paths": context_source_paths,
+        "context_source_hashes": context_source_hashes,
         "compiler": dict(_CSHARP_COMPILER_CONFIG),
         "input_hashes": dict(input_hashes),
         "solution_metadata": dict(manifest["solution_metadata"]),
@@ -1241,6 +1607,7 @@ def _validate_csharp_workspace() -> tuple[Path, dict[str, object]]:
         "workspace_sha256": manifest["workspace_sha256"],
         "reference_execution": reference_execution,
     }
+    _validate_csharp_context_source_records(context)
     return workspace, context
 
 
@@ -2376,6 +2743,7 @@ def _append_ours_command(
             raise ValueError(
                 "C# native analysis requires a validated workspace context"
             )
+        _validate_csharp_context_source_records(native_context)
         command.extend(
             [
                 "--csharp-project",
@@ -2383,6 +2751,8 @@ def _append_ours_command(
                 "--allow-project-build",
             ]
         )
+        for path in native_context["context_source_paths"]:
+            command.extend(["--csharp-context-source", str(path)])
         timeout_ms = _csharp_timeout_override()
         effective_timeout_ms = (
             _DEFAULT_CSHARP_TIMEOUT_MS if timeout_ms is None else timeout_ms

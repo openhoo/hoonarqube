@@ -1,10 +1,7 @@
-use crate::rules::batch5::collectors::SecurityHotspotCollector;
+use crate::rules::batch5::collectors::{SecurityFactory, SecurityHotspotCollector};
 use crate::rules::shared::argument_expression;
 use crate::support::RuleScope;
-use crate::support::expression_root_name;
-use crate::support::unparenthesized;
-use oxc_ast::ast::CallExpression;
-use oxc_ast::ast::Expression;
+use oxc_ast::ast::{CallExpression, Expression};
 use oxc_span::GetSpan;
 
 impl SecurityHotspotCollector<'_, '_> {
@@ -13,25 +10,31 @@ impl SecurityHotspotCollector<'_, '_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return;
         };
-        let property: &str = &member.property.name;
-        if property != "use" || expression_root_name(&member.object) != Some("app") {
+        if member.property.name != "use"
+            || !self.security_bindings.is_factory(
+                &member.object,
+                SecurityFactory::ExpressApp,
+                call.span().start,
+            )
+        {
             return;
         }
         let Some(argument) = call.arguments.first().and_then(argument_expression) else {
             return;
         };
-        let flagged = match unparenthesized(argument) {
-            Expression::Identifier(identifier) => identifier.name == "errorHandler",
-            Expression::StringLiteral(literal) => literal.value.as_str() == "errorHandler",
-            _ => false,
-        };
-        if flagged {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S4507",
-                "Only enable this error-handling middleware while debugging.",
-                call.span(),
-            );
+        if !self.security_bindings.is_factory(
+            argument,
+            SecurityFactory::ErrorMiddleware,
+            call.span().start,
+        ) || self.in_development_guard(call.span())
+        {
+            return;
         }
+        self.sink.emit_span(
+            RuleScope::Both,
+            "S4507",
+            "Only enable this error-handling middleware while debugging.",
+            call.span(),
+        );
     }
 }

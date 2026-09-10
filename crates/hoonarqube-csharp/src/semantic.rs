@@ -1358,23 +1358,64 @@ fn append_ref_object_issues(
     language: CsLanguage,
     issues: &mut Vec<hoonarqube_ir::Issue>,
 ) {
+    let mut facts_by_method: BTreeMap<(u32, u32, u32, u32), Vec<&RefObjectParameterFact>> =
+        BTreeMap::new();
     for fact in &context.facts.ref_object_parameters {
         if canonical_or_original(&fact.source_path) != path || !fact.method_span.valid() {
             continue;
         }
+        let method_key = (
+            fact.method_span.start_line,
+            fact.method_span.start_column,
+            fact.method_span.end_line,
+            fact.method_span.end_column,
+        );
+        facts_by_method.entry(method_key).or_default().push(fact);
+    }
+
+    for (_, mut facts) in facts_by_method {
+        facts.sort_by_key(|fact| {
+            (
+                fact.parameter_span.start_line,
+                fact.parameter_span.start_column,
+                fact.parameter_span.end_line,
+                fact.parameter_span.end_column,
+            )
+        });
+        let Some(first) = facts.first() else {
+            continue;
+        };
         let mut issue = cst::issue(
             language,
             "S4047",
-            fact.message.clone(),
-            range_from_semantic_span(fact.method_span, source),
+            first.message.clone(),
+            range_from_semantic_span(first.method_span, source),
         );
-        if fact.parameter_span.valid() {
-            issue.flows.push(hoonarqube_ir::IssueFlow {
-                locations: vec![hoonarqube_ir::FlowLocation::in_primary_file(
+        let mut seen_parameter_spans = BTreeSet::new();
+        let locations: Vec<_> = facts
+            .into_iter()
+            .filter_map(|fact| {
+                let span = fact.parameter_span;
+                if !span.valid() {
+                    return None;
+                }
+                let span_key = (
+                    span.start_line,
+                    span.start_column,
+                    span.end_line,
+                    span.end_column,
+                );
+                if !seen_parameter_spans.insert(span_key) {
+                    return None;
+                }
+                Some(hoonarqube_ir::FlowLocation::in_primary_file(
                     fact.secondary_message.clone(),
-                    range_from_semantic_span(fact.parameter_span, source),
-                )],
-            });
+                    range_from_semantic_span(span, source),
+                ))
+            })
+            .collect();
+        if !locations.is_empty() {
+            issue.flows.push(hoonarqube_ir::IssueFlow { locations });
         }
         issues.push(issue);
     }
@@ -2563,6 +2604,55 @@ mod tests {
             );
         }
     }
+    fn assert_ref_object_secondary_locations(report: &hoonarqube_ir::FileReport) {
+        let expected = vec![
+            (122, vec![(122, 44, 122, 49)]),
+            (124, vec![(124, 48, 124, 53)]),
+            (126, vec![(126, 41, 126, 46), (126, 59, 126, 65)]),
+        ];
+        let findings: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "csharpsquid:S4047")
+            .collect();
+        assert_eq!(
+            findings.len(),
+            expected.len(),
+            "S4047 must have one primary finding per eligible method: {findings:?}"
+        );
+        let mut secondary_count = 0;
+        for (line, locations) in expected {
+            let issue = findings
+                .iter()
+                .find(|issue| issue.range.start.line == line)
+                .unwrap_or_else(|| panic!("S4047 finding missing for line {line}"));
+            assert_eq!(
+                issue.message,
+                "Make this method generic and replace the 'object' parameter with a type parameter."
+            );
+            assert_eq!(
+                issue.flows.len(),
+                1,
+                "S4047 method on line {line} must have one secondary flow"
+            );
+            assert_eq!(issue.flows[0].locations.len(), locations.len());
+            secondary_count += locations.len();
+            for (location, (start_line, start_column, end_line, end_column)) in
+                issue.flows[0].locations.iter().zip(locations)
+            {
+                assert_eq!(location.path, None);
+                assert_eq!(
+                    location.message,
+                    "Replace this parameter with a type parameter."
+                );
+                assert_eq!(location.range.start.line, start_line);
+                assert_eq!(location.range.start.column, start_column);
+                assert_eq!(location.range.end.line, end_line);
+                assert_eq!(location.range.end.column, end_column);
+            }
+        }
+        assert_eq!(secondary_count, 4);
+    }
 
     fn assert_no_semantic_finding_at(report: &hoonarqube_ir::FileReport, key: &str, lines: &[u32]) {
         for line in lines {
@@ -2579,8 +2669,14 @@ mod tests {
     #[test]
     fn compiler_backed_rules_report_roadmap_semantic_cases() {
         let workspace = OwnedTempDir::new("semantic-fixtures");
-        let contracts_project =
-            workspace.write("src/Contracts/Contracts.csproj", ROADMAP_CONTRACTS_PROJECT);
+        let contracts_project_contents = ROADMAP_CONTRACTS_PROJECT.replace(
+            "<Nullable>enable</Nullable>",
+            "<Nullable>disable</Nullable>",
+        );
+        let contracts_project = workspace.write(
+            "src/Contracts/Contracts.csproj",
+            &contracts_project_contents,
+        );
         let contracts_source =
             workspace.write("src/Contracts/Contracts.cs", ROADMAP_CONTRACTS_SOURCE);
         let semantic_project = workspace.write(
@@ -2638,6 +2734,7 @@ mod tests {
             "semantic fixture context is incomplete: {:?}",
             context.diagnostics
         );
+        assert_eq!(context.compiler.nullable, "multiple:Disable,Enable");
 
         let options = AnalyzerOptions::default();
         let semantic_report = context.analyze_with_context(
@@ -2651,6 +2748,7 @@ mod tests {
             ROADMAP_SEMANTIC_SOURCE,
             ROADMAP_SEMANTIC_FINDINGS,
         );
+        assert_ref_object_secondary_locations(&semantic_report);
         assert_no_semantic_finding_at(&semantic_report, "csharpsquid:S110", &[12, 13, 18]);
         assert_no_semantic_finding_at(&semantic_report, "csharpsquid:S1200", &[34, 41]);
         assert_no_semantic_finding_at(&semantic_report, "csharpsquid:S1944", &[57, 59, 61]);
@@ -2675,6 +2773,7 @@ mod tests {
         );
         assert_no_semantic_finding_at(&blazor_report, "csharpsquid:S6802", &[22, 32]);
     }
+
     fn s3169_fixture() -> (OwnedTempDir, PathBuf, &'static str, ProjectSemanticContext) {
         const PROJECT: &str = r#"<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
