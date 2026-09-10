@@ -14,12 +14,12 @@ doc = false
 
 [dependencies]
 clap = { version = "4.5.48", features = ["derive"] }
-hoonarqube-catalog = { version = "0.7.1", path = "../hoonarqube-catalog" }
-hoonarqube-core = { version = "0.7.1", path = "../hoonarqube-core" }
-hoonarqube-csharp = { version = "0.7.1", path = "../hoonarqube-csharp" }
-hoonarqube-ir = { version = "0.7.1", path = "../hoonarqube-ir" }
-hoonarqube-jsts = { version = "0.7.1", path = "../hoonarqube-jsts" }
-hoonarqube-python = { version = "0.7.1", path = "../hoonarqube-python" }
+hoonarqube-catalog = { version = "0.8.0", path = "../hoonarqube-catalog" }
+hoonarqube-core = { version = "0.8.0", path = "../hoonarqube-core" }
+hoonarqube-csharp = { version = "0.8.0", path = "../hoonarqube-csharp" }
+hoonarqube-ir = { version = "0.8.0", path = "../hoonarqube-ir" }
+hoonarqube-jsts = { version = "0.8.0", path = "../hoonarqube-jsts" }
+hoonarqube-python = { version = "0.8.0", path = "../hoonarqube-python" }
 ignore = "0.4.33"
 globset = "0.4.20"
 serde = { version = "1.0.225", features = ["derive"] }
