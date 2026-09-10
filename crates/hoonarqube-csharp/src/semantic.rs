@@ -2108,7 +2108,11 @@ fn diag(
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use std::env;
+    use std::fs;
+    use std::io::ErrorKind;
+    use std::process::Command;
+    use std::sync::atomic::{AtomicU64, Ordering};
     #[test]
     fn source_snapshots_hash_the_exact_text() {
         let source = SourceSnapshot::new(PathBuf::from("A.cs"), "class A {}");
@@ -2238,5 +2242,437 @@ mod tests {
         let facts: SemanticFacts = serde_json::from_str(r#"{"source_digests":{}}"#)
             .expect("older semantic facts omit redundant_casts");
         assert!(facts.redundant_casts.is_empty());
+    }
+    const ROADMAP_CONTRACTS_PROJECT: &str = include_str!(
+        "../../../tools/oracle/fixtures/roadmap-csharp/reference-39-41/src/Contracts/Contracts.csproj"
+    );
+    const ROADMAP_CONTRACTS_SOURCE: &str = include_str!(
+        "../../../tools/oracle/fixtures/roadmap-csharp/reference-39-41/src/Contracts/Contracts.cs"
+    );
+    const ROADMAP_SEMANTIC_PROJECT: &str = include_str!(
+        "../../../tools/oracle/fixtures/roadmap-csharp/reference-39-41/src/SemanticFixtures/SemanticFixtures.csproj"
+    );
+    const ROADMAP_SEMANTIC_EDITORCONFIG: &str = include_str!(
+        "../../../tools/oracle/fixtures/roadmap-csharp/reference-39-41/src/SemanticFixtures/.editorconfig"
+    );
+    const ROADMAP_SEMANTIC_SONARLINT: &str = include_str!(
+        "../../../tools/oracle/fixtures/roadmap-csharp/reference-39-41/src/SemanticFixtures/SonarLint.xml"
+    );
+    const ROADMAP_SEMANTIC_SOURCE: &str = include_str!(
+        "../../../tools/oracle/fixtures/roadmap-csharp/reference-39-41/src/SemanticFixtures/SemanticCases.cs"
+    );
+    const ROADMAP_BLAZOR_SOURCE: &str = include_str!(
+        "../../../tools/oracle/fixtures/roadmap-csharp/reference-39-41/src/SemanticFixtures/BlazorInvocationCases.cs"
+    );
+
+    struct OwnedTempDir(PathBuf);
+
+    impl OwnedTempDir {
+        fn new(label: &str) -> Self {
+            static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+            const MAX_ATTEMPTS: u64 = 100;
+            let pid = std::process::id();
+            for _ in 0..MAX_ATTEMPTS {
+                let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+                let path = env::temp_dir().join(format!("hoonarqube-csharp-{label}-{pid}-{id}"));
+                match fs::create_dir(&path) {
+                    Ok(()) => return Self(path),
+                    Err(error) if error.kind() == ErrorKind::AlreadyExists => (),
+                    Err(error) => {
+                        panic!(
+                            "create temp directory {} for {label}: {error}",
+                            path.display()
+                        )
+                    }
+                }
+            }
+            panic!("create temp directory for {label}: exhausted {MAX_ATTEMPTS} attempts");
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+
+        fn write(&self, relative: &str, contents: &str) -> PathBuf {
+            let path = self.0.join(relative);
+            fs::create_dir_all(path.parent().expect("fixture path has a parent"))
+                .expect("create fixture parent");
+            fs::write(&path, contents).expect("write fixture");
+            path
+        }
+    }
+
+    impl Drop for OwnedTempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn restore_fixture_project(dotnet: &Path, project: &Path) {
+        let status = Command::new(dotnet)
+            .arg("restore")
+            .arg(project)
+            .arg("--disable-parallel")
+            .arg("--nologo")
+            .env("DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "1")
+            .status()
+            .expect("dotnet SDK is required for CSharp semantic regression coverage");
+        assert!(
+            status.success(),
+            "restoring CSharp semantic fixture project failed: {status}"
+        );
+    }
+
+    #[derive(Debug)]
+    struct ExpectedSemanticFinding {
+        case: &'static str,
+        key: &'static str,
+        line: u32,
+        start_column: u32,
+        end_column: u32,
+        source_fragment: &'static str,
+    }
+    const ROADMAP_SEMANTIC_FINDINGS: &[ExpectedSemanticFinding] = &[
+        ExpectedSemanticFinding {
+            case: "LocalDepth6",
+            key: "csharpsquid:S110",
+            line: 14,
+            start_column: 13,
+            end_column: 24,
+            source_fragment: "LocalDepth6",
+        },
+        ExpectedSemanticFinding {
+            case: "DeepAbove",
+            key: "csharpsquid:S110",
+            line: 16,
+            start_column: 13,
+            end_column: 22,
+            source_fragment: "DeepAbove",
+        },
+        ExpectedSemanticFinding {
+            case: "DeepAt",
+            key: "csharpsquid:S110",
+            line: 17,
+            start_column: 13,
+            end_column: 19,
+            source_fragment: "DeepAt",
+        },
+        ExpectedSemanticFinding {
+            case: "CoupledAbove",
+            key: "csharpsquid:S1200",
+            line: 20,
+            start_column: 20,
+            end_column: 32,
+            source_fragment: "CoupledAbove",
+        },
+        ExpectedSemanticFinding {
+            case: "ImpossibleCastCases",
+            key: "csharpsquid:S1200",
+            line: 53,
+            start_column: 20,
+            end_column: 39,
+            source_fragment: "ImpossibleCastCases",
+        },
+        ExpectedSemanticFinding {
+            case: "BaseParameterCases",
+            key: "csharpsquid:S1200",
+            line: 64,
+            start_column: 20,
+            end_column: 38,
+            source_fragment: "BaseParameterCases",
+        },
+        ExpectedSemanticFinding {
+            case: "ImpossibleCastCases.Bad",
+            key: "csharpsquid:S1944",
+            line: 55,
+            start_column: 54,
+            end_column: 60,
+            source_fragment: "(IOther)value",
+        },
+        ExpectedSemanticFinding {
+            case: "BaseParameterCases.Bad",
+            key: "csharpsquid:S3242",
+            line: 66,
+            start_column: 40,
+            end_column: 45,
+            source_fragment: "Bad(DerivedRecord",
+        },
+        ExpectedSemanticFinding {
+            case: "BaseParameterCases.BadLocal",
+            key: "csharpsquid:S3242",
+            line: 72,
+            start_column: 48,
+            end_column: 53,
+            source_fragment: "BadLocal(DerivedParameter",
+        },
+        ExpectedSemanticFinding {
+            case: "OutputNeedsOut<T>",
+            key: "csharpsquid:S3246",
+            line: 87,
+            start_column: 32,
+            end_column: 33,
+            source_fragment: "OutputNeedsOut<T>",
+        },
+        ExpectedSemanticFinding {
+            case: "InputNeedsIn<T>",
+            key: "csharpsquid:S3246",
+            line: 92,
+            start_column: 30,
+            end_column: 31,
+            source_fragment: "InputNeedsIn<T>",
+        },
+        ExpectedSemanticFinding {
+            case: "NestedOutputNeedsOut<T>",
+            key: "csharpsquid:S3246",
+            line: 97,
+            start_column: 38,
+            end_column: 39,
+            source_fragment: "NestedOutputNeedsOut<T>",
+        },
+        ExpectedSemanticFinding {
+            case: "NestedInputInvariant<T>",
+            key: "csharpsquid:S3246",
+            line: 102,
+            start_column: 38,
+            end_column: 39,
+            source_fragment: "NestedInputInvariant<T>",
+        },
+        ExpectedSemanticFinding {
+            case: "ConstrainedOutput<T>",
+            key: "csharpsquid:S3246",
+            line: 112,
+            start_column: 35,
+            end_column: 36,
+            source_fragment: "ConstrainedOutput<T>",
+        },
+        ExpectedSemanticFinding {
+            case: "OutputDelegate<T>",
+            key: "csharpsquid:S3246",
+            line: 117,
+            start_column: 33,
+            end_column: 34,
+            source_fragment: "OutputDelegate<T>",
+        },
+        ExpectedSemanticFinding {
+            case: "InputDelegate<T>",
+            key: "csharpsquid:S3246",
+            line: 118,
+            start_column: 35,
+            end_column: 36,
+            source_fragment: "InputDelegate<T>",
+        },
+        ExpectedSemanticFinding {
+            case: "RefObject(ref object)",
+            key: "csharpsquid:S4047",
+            line: 122,
+            start_column: 23,
+            end_column: 32,
+            source_fragment: "RefObject",
+        },
+        ExpectedSemanticFinding {
+            case: "RefAlias(ref ObjectAlias)",
+            key: "csharpsquid:S4047",
+            line: 124,
+            start_column: 23,
+            end_column: 31,
+            source_fragment: "RefAlias",
+        },
+        ExpectedSemanticFinding {
+            case: "RefTwo(ref object, ref object)",
+            key: "csharpsquid:S4047",
+            line: 126,
+            start_column: 23,
+            end_column: 29,
+            source_fragment: "RefTwo",
+        },
+    ];
+    const ROADMAP_BLAZOR_FINDINGS: &[ExpectedSemanticFinding] = &[
+        ExpectedSemanticFinding {
+            case: "BlazorInvocationCases",
+            key: "csharpsquid:S1200",
+            line: 6,
+            start_column: 20,
+            end_column: 41,
+            source_fragment: "BlazorInvocationCases",
+        },
+        ExpectedSemanticFinding {
+            case: "BuildRenderTree",
+            key: "csharpsquid:S6802",
+            line: 12,
+            start_column: 82,
+            end_column: 101,
+            source_fragment: "AddAttribute(0, \"onclick\"",
+        },
+    ];
+
+    fn assert_semantic_findings(
+        report: &hoonarqube_ir::FileReport,
+        source: &str,
+        expected: &[ExpectedSemanticFinding],
+    ) {
+        for key in [
+            "csharpsquid:S110",
+            "csharpsquid:S1200",
+            "csharpsquid:S1944",
+            "csharpsquid:S3242",
+            "csharpsquid:S3246",
+            "csharpsquid:S4047",
+            "csharpsquid:S6802",
+        ] {
+            let expected_count = expected.iter().filter(|finding| finding.key == key).count();
+            let actual_count = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == key)
+                .count();
+            assert_eq!(
+                actual_count, expected_count,
+                "unexpected {key} findings: {:?}",
+                report.issues
+            );
+        }
+
+        for finding in expected {
+            let mut finding_matches = report.issues.iter().filter(|issue| {
+                issue.rule_key == finding.key
+                    && issue.range.start.line == finding.line
+                    && issue.range.start.column == finding.start_column
+                    && issue.range.end.line == finding.line
+                    && issue.range.end.column == finding.end_column
+            });
+            assert!(
+                finding_matches.next().is_some(),
+                "{} ({}) did not produce an expected finding",
+                finding.case,
+                finding.key
+            );
+            assert!(
+                finding_matches.next().is_none(),
+                "{} ({}) produced more than one matching finding",
+                finding.case,
+                finding.key
+            );
+            let source_line = source
+                .lines()
+                .nth(finding.line.saturating_sub(1) as usize)
+                .unwrap_or_else(|| panic!("{} points outside fixture source", finding.case));
+            assert!(
+                source_line.contains(finding.source_fragment),
+                "{} does not identify its expected fixture case",
+                finding.case
+            );
+        }
+    }
+
+    fn assert_no_semantic_finding_at(report: &hoonarqube_ir::FileReport, key: &str, lines: &[u32]) {
+        for line in lines {
+            assert!(
+                report
+                    .issues
+                    .iter()
+                    .all(|issue| issue.rule_key != key || issue.range.start.line != *line),
+                "{key} unexpectedly flagged control line {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn compiler_backed_rules_report_roadmap_semantic_cases() {
+        let workspace = OwnedTempDir::new("semantic-fixtures");
+        let contracts_project =
+            workspace.write("src/Contracts/Contracts.csproj", ROADMAP_CONTRACTS_PROJECT);
+        let contracts_source =
+            workspace.write("src/Contracts/Contracts.cs", ROADMAP_CONTRACTS_SOURCE);
+        let semantic_project = workspace.write(
+            "src/SemanticFixtures/SemanticFixtures.csproj",
+            ROADMAP_SEMANTIC_PROJECT,
+        );
+        workspace.write(
+            "src/SemanticFixtures/.editorconfig",
+            ROADMAP_SEMANTIC_EDITORCONFIG,
+        );
+        workspace.write(
+            "src/SemanticFixtures/SonarLint.xml",
+            ROADMAP_SEMANTIC_SONARLINT,
+        );
+        let semantic_source = workspace.write(
+            "src/SemanticFixtures/SemanticCases.cs",
+            ROADMAP_SEMANTIC_SOURCE,
+        );
+        let blazor_source = workspace.write(
+            "src/SemanticFixtures/BlazorInvocationCases.cs",
+            ROADMAP_BLAZOR_SOURCE,
+        );
+
+        let dotnet =
+            env::var_os("HOONARQUBE_DOTNET").map_or_else(|| PathBuf::from("dotnet"), PathBuf::from);
+        restore_fixture_project(&dotnet, &semantic_project);
+        let helper = prepare_bundled_helper(&workspace.path().join("helper-cache"))
+            .expect("bundled CSharp helper must build for semantic regression coverage");
+
+        let sources = vec![
+            SourceSnapshot::new(contracts_source, ROADMAP_CONTRACTS_SOURCE)
+                .with_project(contracts_project),
+            SourceSnapshot::new(blazor_source.clone(), ROADMAP_BLAZOR_SOURCE)
+                .with_project(semantic_project.clone()),
+            SourceSnapshot::new(semantic_source.clone(), ROADMAP_SEMANTIC_SOURCE)
+                .with_project(semantic_project.clone()),
+        ];
+        let config = ProjectSemanticConfig {
+            project: semantic_project,
+            helper: Some(helper),
+            trusted_evaluation: true,
+            timeout_ms: 120_000,
+            rules: SemanticRuleOptions {
+                s110_max: 5,
+                s110_filtered_classes: vec!["Roadmap.Contracts.Depth3".to_owned()],
+                s1200_max: 3,
+                s1200_enabled: true,
+            },
+            ..ProjectSemanticConfig::default()
+        };
+
+        let context = ProjectSemanticContext::load(&config, &sources);
+        assert!(
+            context.is_complete(),
+            "semantic fixture context is incomplete: {:?}",
+            context.diagnostics
+        );
+
+        let options = AnalyzerOptions::default();
+        let semantic_report = context.analyze_with_context(
+            semantic_source,
+            ROADMAP_SEMANTIC_SOURCE,
+            CsLanguage::CSharp,
+            &options,
+        );
+        assert_semantic_findings(
+            &semantic_report,
+            ROADMAP_SEMANTIC_SOURCE,
+            ROADMAP_SEMANTIC_FINDINGS,
+        );
+        assert_no_semantic_finding_at(&semantic_report, "csharpsquid:S110", &[12, 13, 18]);
+        assert_no_semantic_finding_at(&semantic_report, "csharpsquid:S1200", &[34, 41]);
+        assert_no_semantic_finding_at(&semantic_report, "csharpsquid:S1944", &[57, 59, 61]);
+        assert_no_semantic_finding_at(&semantic_report, "csharpsquid:S3242", &[68, 70, 74]);
+        assert_no_semantic_finding_at(&semantic_report, "csharpsquid:S3246", &[107]);
+        assert_no_semantic_finding_at(
+            &semantic_report,
+            "csharpsquid:S4047",
+            &[131, 133, 135, 137, 139],
+        );
+
+        let blazor_report = context.analyze_with_context(
+            blazor_source,
+            ROADMAP_BLAZOR_SOURCE,
+            CsLanguage::CSharp,
+            &options,
+        );
+        assert_semantic_findings(
+            &blazor_report,
+            ROADMAP_BLAZOR_SOURCE,
+            ROADMAP_BLAZOR_FINDINGS,
+        );
+        assert_no_semantic_finding_at(&blazor_report, "csharpsquid:S6802", &[22, 32]);
     }
 }
