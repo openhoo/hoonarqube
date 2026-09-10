@@ -75,12 +75,9 @@ fn broken_source_neither_panics_nor_emits_issues() {
     };
     // This contains unrecoverable declaration syntax, plus text that would
     // trigger S103 and S105 if rule families ran on the recovered tree.
-    let report = analyze(
-        PathBuf::from("t.cs"),
-        "\tclass {{{ ;;; ???\n",
-        CsLanguage::CSharp,
-        &options,
-    );
+    let source = "\tclass {{{ ;;; ???\n";
+    assert!(crate::parse(source).root_node().has_error());
+    let report = analyze(PathBuf::from("t.cs"), source, CsLanguage::CSharp, &options);
     assert!(report.issues.is_empty());
     assert_eq!(report.metrics.lines, 1);
 }
@@ -790,6 +787,10 @@ fn s3168_flags_async_void_methods() {
 fn s2306_flags_async_await_identifiers_but_not_keywords() {
     let source = "class Sleeper\n{\n    private int async;\n\n    private int Get()\n    {\n        int await = async;\n        return await;\n    }\n\n    public async void NapAsync()\n    {\n        await System.Threading.Tasks.Task.Yield();\n    }\n}\n";
     let tree = crate::parse(source);
+    assert!(
+        !tree.root_node().has_error(),
+        "valid contextual-keyword identifiers must use the ordinary rule path"
+    );
     let report = analyze_default(source);
     let flagged = with_key(&report, "csharpsquid:S2306");
     assert_eq!(flagged.len(), 2, "{}", tree.root_node().to_sexp());

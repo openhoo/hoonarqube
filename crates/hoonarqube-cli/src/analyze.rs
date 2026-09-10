@@ -2059,6 +2059,35 @@ mod tests {
         assert!(warnings.is_empty());
     }
 
+    #[test]
+    fn csharp_context_sources_stay_outside_report_inventory_and_roots() {
+        let fix = TempDir::new("context-only-inventory");
+        let project = fix.write("Fixture.csproj", "<Project />");
+        let context_source = fix.write("Contracts.cs", "class Contracts {}\n");
+        let analyzed_source = fix.write("Main.cs", "class Main {}\n");
+        let mut options = project_options();
+        options.features.semantics.csharp_project = Some(project);
+        options.features.semantics.csharp_context_sources = vec![context_source.clone()];
+
+        let mut warnings = Vec::new();
+        let report = run_project(
+            std::slice::from_ref(&analyzed_source),
+            &options,
+            &mut warnings,
+        );
+
+        assert_eq!(report.project.roots, vec![analyzed_source.clone()]);
+        assert_eq!(report.files.len(), 1);
+        assert_eq!(report.files[0].path, analyzed_source);
+        assert!(
+            report
+                .project
+                .files
+                .iter()
+                .all(|file| file.path != context_source)
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn fix_collection_rejects_explicit_and_walked_symlinked_files() {

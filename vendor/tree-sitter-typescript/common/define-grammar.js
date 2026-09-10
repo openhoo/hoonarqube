@@ -115,8 +115,23 @@ module.exports = function defineGrammar(dialect) {
       dialect === 'typescript' ? [
         [$.primary_type, $.type_parameter],
       ] : [
+        [$.primary_expression, $.method_signature],
+        [$.primary_expression, $.index_signature],
+        [$.primary_expression, $.method_signature, $.property_signature],
+        [$.primary_expression, $.method_signature, $.property_signature, $.index_signature],
         [$.jsx_opening_element, $.type_parameter],
+        [$.jsx_expression, $.object_type],
+        [$.jsx_attribute, $.type_parameter],
+        [$.jsx_attribute, $.constraint],
+        [$.jsx_namespace_name, $.type_query],
         [$.jsx_namespace_name, $.primary_type],
+        [$.jsx_namespace_name, $.false],
+        [$.jsx_namespace_name, $.null],
+        [$.jsx_namespace_name, $.this],
+        [$.jsx_namespace_name, $.true],
+        [$.jsx_namespace_name, $.predefined_type],
+        [$.jsx_namespace_name, $.readonly_type],
+        [$._jsx_string, $.string],
       ],
     ),
 
@@ -235,6 +250,74 @@ module.exports = function defineGrammar(dialect) {
         return choice(...choices);
       },
 
+      // JSX identifiers are IdentifierName values, not JavaScript binding
+      // identifiers: reserved words remain valid element and attribute names.
+      // Keep this relaxation scoped to JSX so ordinary TypeScript/JavaScript
+      // keyword rejection is unchanged.
+      _jsx_identifier: $ => choice(
+        alias($.jsx_identifier, $.identifier),
+        $.identifier,
+        $._reserved_identifier,
+        'break',
+        'case',
+        'catch',
+        'class',
+        'const',
+        'continue',
+        'debugger',
+        'default',
+        'delete',
+        'do',
+        'else',
+        'export',
+        'extends',
+        'false',
+        'finally',
+        'for',
+        'function',
+        'if',
+        'import',
+        'in',
+        'instanceof',
+        'new',
+        'null',
+        'return',
+        'super',
+        'switch',
+        'this',
+        'throw',
+        'true',
+        'try',
+        'typeof',
+        'var',
+        'void',
+        'while',
+        'with',
+        'enum',
+        'implements',
+        'interface',
+        'package',
+        'private',
+        'protected',
+        'public',
+        'yield',
+      ),
+      jsx_member_expression: $ => prec('member', seq(
+        field('object', choice(
+          $._jsx_identifier,
+          alias($.jsx_member_expression, $.member_expression),
+        )),
+        '.',
+        field('property', alias($._jsx_identifier, $.property_identifier)),
+      )),
+
+      _jsx_element_name: $ => choice(
+        $._jsx_identifier,
+        alias($.jsx_member_expression, $.member_expression),
+        $.jsx_namespace_name,
+      ),
+
+
       _jsx_start_opening_element: $ => seq(
         '<',
         optional(
@@ -246,8 +329,8 @@ module.exports = function defineGrammar(dialect) {
               )),
               seq(
                 field('name', choice(
+                  alias($.jsx_member_expression, $.member_expression),
                   $.identifier,
-                  alias($.nested_identifier, $.member_expression),
                 )),
                 field('type_arguments', optional($.type_arguments)),
               ),

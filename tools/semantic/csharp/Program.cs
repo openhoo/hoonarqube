@@ -527,6 +527,18 @@ internal static class Program
         {
             return Incomplete(Diagnostic("target_framework_mismatch", "Requested target framework does not match the workspace project references.", request.Project));
         }
+        var nullableContexts = projectCompilations
+            .Select(project => (project.Project.CompilationOptions as CSharpCompilationOptions)?.NullableContextOptions.ToString() ?? "")
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(value => value, StringComparer.Ordinal)
+            .ToList();
+        var compilerNullable = nullableContexts.Count switch
+        {
+            0 => "per-project",
+            1 => nullableContexts[0],
+            _ => $"multiple:{string.Join(",", nullableContexts)}",
+        };
+
         var compiler = new CompilerFingerprint
         {
             HelperVersion = HelperVersion,
@@ -543,10 +555,7 @@ internal static class Program
             LanguageVersion = request.LanguageVersion ?? projectCompilations
                 .Select(project => (project.Project.ParseOptions as CSharpParseOptions)?.LanguageVersion.ToString() ?? "")
                 .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "workspace",
-            Nullable = projectCompilations
-                .Select(project => (project.Project.CompilationOptions as CSharpCompilationOptions)?.NullableContextOptions.ToString() ?? "")
-                .Distinct(StringComparer.Ordinal)
-                .SingleOrDefault() ?? "per-project",
+            Nullable = compilerNullable,
             ProjectDigest = request.ProjectManifestDigest,
             ReferenceDigest = referenceDigest,
             DependencyDigest = dependencyDigest,
@@ -747,7 +756,7 @@ internal static class Program
         workspace.RegisterWorkspaceFailedHandler(diagnostic =>
             diagnostics.Add(Diagnostic(
                 "workspace_failed",
-                diagnostic.ToString() ?? "Workspace failure reported without a message.",
+                diagnostic.Diagnostic.ToString(),
                 null)));
     }
 
@@ -1099,7 +1108,7 @@ internal static class Program
                 {
                     SourcePath = NormalizePath(tree.FilePath!),
                     MethodSpan = Span(method.Identifier.GetLocation()),
-                    ParameterSpan = Span(syntaxParameter.GetLocation()),
+                    ParameterSpan = Span(syntaxParameter.Identifier.GetLocation()),
                     MethodId = methodSymbol.GetDocumentationCommentId() ?? methodSymbol.ToDisplayString(),
                     ParameterId = parameter.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     ParameterName = parameter.Name,

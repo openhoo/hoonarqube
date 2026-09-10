@@ -1,7 +1,6 @@
 // Family walker for 'jsx_a11y' (generated).
 use super::collectors::INTERACTIVE_ROLES;
 use super::collectors::jsx_has_attribute;
-use super::s6819_s6822_role_duplicates::implicit_role;
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::support::IssueSink;
@@ -61,7 +60,7 @@ impl Visit<'_> for A11yCollector<'_> {
         self.check_role_duplicates(it);
         self.check_abstract_role(it);
         self.check_aria_values(it);
-        self.check_required_owned(it);
+        self.check_required_aria_properties(it);
         self.check_supported_properties(it);
         self.check_activedescendant_focusable(it);
         self.check_allowed_roles(it);
@@ -96,7 +95,6 @@ pub(crate) struct SubtreeFacts {
     pub(crate) has_visible_text: bool,
     pub(crate) header_ids: BTreeSet<String>,
     pub(crate) header_references: Vec<(Span, Vec<String>)>,
-    pub(crate) descendant_roles: BTreeSet<String>,
     pub(crate) labelable_controls: u32,
 }
 
@@ -137,9 +135,6 @@ impl Visit<'_> for SubtreeFacts {
                     self.header_references
                         .push((headers_attribute.span(), tokens));
                 }
-            }
-            if let Some(role) = resolved_role(tag, &it.opening_element) {
-                self.descendant_roles.insert(role);
             }
         }
         walk_jsx_element(self, it);
@@ -223,14 +218,6 @@ pub(crate) fn attribute_named_static_value<'x>(
 /// Whether an explicit role makes an element interactive.
 pub(crate) fn is_interactive_role(role: &str) -> bool {
     INTERACTIVE_ROLES.contains(&role)
-}
-
-/// Effective role of an element: explicit attribute value or the tag's
-/// implicit role.
-fn resolved_role(tag: &str, opening: &JSXOpeningElement) -> Option<String> {
-    explicit_role(opening)
-        .map(str::to_string)
-        .or_else(|| implicit_role(tag, opening).map(str::to_string))
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
@@ -494,16 +481,15 @@ mod tests {
     }
 
     #[test]
-    fn list_roles_require_owned_listitems() {
-        let bare = jsx_keys("const el = <div role=\"list\"/>;\n");
-        assert_eq!(count_key(&bare, "javascript:S6807"), 1);
+    fn roles_require_required_aria_properties() {
+        let missing = jsx_keys("const el = <div role=\"treeitem\"/>;\n");
+        assert_eq!(count_key(&missing, "javascript:S6807"), 1);
 
-        let implicit_owned = jsx_keys("const el = <div role=\"list\"><li>Item</li></div>;\n");
-        assert_eq!(count_key(&implicit_owned, "javascript:S6807"), 0);
+        let list_role = jsx_keys("const el = <div role=\"list\"/>;\n");
+        assert_eq!(count_key(&list_role, "javascript:S6807"), 0);
 
-        let explicit_owned =
-            jsx_keys("const el = <div role=\"list\"><div role=\"listitem\">Item</div></div>;\n");
-        assert_eq!(count_key(&explicit_owned, "javascript:S6807"), 0);
+        let complete = jsx_keys("const el = <div role=\"treeitem\" aria-selected=\"false\"/>;\n");
+        assert_eq!(count_key(&complete, "javascript:S6807"), 0);
     }
 
     #[test]

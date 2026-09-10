@@ -10,11 +10,11 @@
 /// `singleQuotes=true`, and `S6747` `whitelist=<empty>`.
 ///
 /// Only the fields above are surfaced through the public
-/// [`AnalyzerOptions`]; every other frozen-catalog parameter — including
-/// the non-`Eq` `secret_entropy_sensibility` (`f64`) and `S5693`'s
-/// unevaluated `fileUploadSizeLimit` / `standardSizeLimit` — is pinned to
-/// its catalog default inside the rule modules. See the
-/// [`AnalyzerOptions`] documentation.
+/// [`AnalyzerOptions`]. Other implemented parameters use frozen defaults,
+/// including the non-`Eq` `secret_entropy_sensibility` (`f64`). S5693 evaluates
+/// parser sizes against the default `standardSizeLimit` of 2,000,000 bytes;
+/// custom size thresholds and multipart `fileUploadSizeLimit` checks are not
+/// implemented. See the [`AnalyzerOptions`] documentation.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct RuleOptions {
     pub(crate) maximum_lines_of_code: u32,

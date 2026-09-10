@@ -20,6 +20,12 @@ pub(crate) const GRAPHQL_VIEW_FQNS: [&str; 2] = [
     "flask_graphql.GraphQLView",
     "graphql_server.flask.GraphQLView",
 ];
+/// The `SQLAlchemy` constructor identity required by S6785's relationship owner.
+pub(crate) const SQLALCHEMY_FQNS: [&str; 1] = ["flask_sqlalchemy.SQLAlchemy"];
+
+/// The Graphene depth validator identity used by S6785 ownership checks.
+pub(crate) const GRAPHQL_DEPTH_VALIDATOR_FQNS: [&str; 1] =
+    ["graphene.validation.depth_limit_validator"];
 
 /// Accepted blocker identities from the same pinned `SonarPython` contract.
 pub(crate) const SAFE_VALIDATION_RULE_FQNS: [&str; 2] = [
@@ -153,6 +159,8 @@ pub(crate) enum RefExpr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SymbolResolution {
     GraphqlView,
+    GraphqlDepthValidator,
+    SqlAlchemy,
     SafeValidation,
     User,
     Other,
@@ -214,6 +222,46 @@ impl ModuleFacts {
         }
         None
     }
+
+    fn single_assigned_binding_at(
+        &self,
+        start: usize,
+        name: &str,
+        at: TextSize,
+    ) -> Option<(usize, TextSize, &ValueFact)> {
+        let mut scope_id = Some(start);
+        while let Some(current) = scope_id {
+            let scope = &self.scopes[current];
+            if let Some(binding) = scope
+                .bindings
+                .iter()
+                .rev()
+                .find(|binding| binding.name == name && binding.at <= at)
+            {
+                if scope
+                    .bindings
+                    .iter()
+                    .filter(|candidate| candidate.name == name)
+                    .count()
+                    != 1
+                {
+                    return None;
+                }
+                return Some((current, binding.at, &binding.value));
+            }
+            scope_id = match scope.kind {
+                ScopeKind::Function => {
+                    let mut parent = scope.parent;
+                    while parent.is_some_and(|id| self.scopes[id].kind == ScopeKind::Class) {
+                        parent = parent.and_then(|id| self.scopes[id].parent);
+                    }
+                    parent
+                }
+                ScopeKind::Module | ScopeKind::Class => scope.parent,
+            };
+        }
+        None
+    }
 }
 
 /// Resolves references against one current module plus the explicit project
@@ -238,6 +286,29 @@ impl<'a> GraphqlResolver<'a> {
             return SymbolResolution::Unknown;
         };
         self.resolve_reference(self.current, scope, at, &reference, &mut Vec::new())
+    }
+
+    pub(crate) fn is_single_assigned_sqlalchemy_constructor(
+        &self,
+        scope: usize,
+        at: TextSize,
+        name: &str,
+    ) -> bool {
+        let Some((binding_scope, binding_at, value)) =
+            self.current.single_assigned_binding_at(scope, name, at)
+        else {
+            return false;
+        };
+        let ValueFact::Call(Some(callee)) = value else {
+            return false;
+        };
+        self.resolve_reference(
+            self.current,
+            binding_scope,
+            binding_at,
+            callee,
+            &mut Vec::new(),
+        ) == SymbolResolution::SqlAlchemy
     }
 
     pub(crate) fn configuration_safety(
@@ -588,7 +659,9 @@ impl<'a> GraphqlResolver<'a> {
             match self.resolve_reference(module, *scope, *at, base, visited) {
                 SymbolResolution::GraphqlView => target = true,
                 SymbolResolution::Unknown => unknown = true,
-                SymbolResolution::SafeValidation
+                SymbolResolution::GraphqlDepthValidator
+                | SymbolResolution::SqlAlchemy
+                | SymbolResolution::SafeValidation
                 | SymbolResolution::User
                 | SymbolResolution::Other => {}
             }
@@ -623,15 +696,22 @@ impl<'a> GraphqlResolver<'a> {
             return self.resolve_value(module, 0, TextSize::new(u32::MAX), value, visited);
         }
         let fqn = format!("{module_name}.{attribute}");
-        if GRAPHQL_VIEW_FQNS.contains(&fqn.as_str()) {
-            SymbolResolution::GraphqlView
-        } else if SAFE_VALIDATION_RULE_FQNS.contains(&fqn.as_str()) {
-            SymbolResolution::SafeValidation
-        } else if self.module_exists(&fqn) {
-            SymbolResolution::Other
-        } else {
-            SymbolResolution::Unknown
-        }
+        known_module_member_resolution(&fqn).unwrap_or_else(|| {
+            if self.module_exists(&fqn) {
+                SymbolResolution::Other
+            } else {
+                SymbolResolution::Unknown
+            }
+        })
+    }
+
+    fn looks_like_known_module(name: &str) -> bool {
+        GRAPHQL_VIEW_FQNS
+            .iter()
+            .chain(GRAPHQL_DEPTH_VALIDATOR_FQNS.iter())
+            .chain(SQLALCHEMY_FQNS.iter())
+            .chain(SAFE_VALIDATION_RULE_FQNS.iter())
+            .any(|fqn| *fqn == name || fqn.starts_with(&format!("{name}.")))
     }
 
     fn module(&self, name: &str) -> Option<&ModuleFacts> {
@@ -642,14 +722,24 @@ impl<'a> GraphqlResolver<'a> {
         }
     }
 
-    fn looks_like_known_module(name: &str) -> bool {
-        GRAPHQL_VIEW_FQNS
-            .iter()
-            .chain(SAFE_VALIDATION_RULE_FQNS.iter())
-            .any(|fqn| *fqn == name || fqn.starts_with(&format!("{name}.")))
-    }
     fn module_exists(&self, name: &str) -> bool {
         self.module(name).is_some()
+    }
+}
+fn known_module_member_resolution(fqn: &str) -> Option<SymbolResolution> {
+    match fqn {
+        "flask_graphql.GraphQLView" | "graphql_server.flask.GraphQLView" => {
+            Some(SymbolResolution::GraphqlView)
+        }
+        "graphene.validation.depth_limit_validator" => {
+            Some(SymbolResolution::GraphqlDepthValidator)
+        }
+        "flask_sqlalchemy.SQLAlchemy" => Some(SymbolResolution::SqlAlchemy),
+        "graphene.validation.DisableIntrospection"
+        | "graphql.validation.NoSchemaIntrospectionCustomRule" => {
+            Some(SymbolResolution::SafeValidation)
+        }
+        _ => None,
     }
 }
 

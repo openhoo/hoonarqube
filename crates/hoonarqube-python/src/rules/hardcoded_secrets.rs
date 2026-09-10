@@ -1,8 +1,10 @@
+use crate::engine::bindings::KnownBinding;
 use crate::engine::file_context::FileContext;
 use crate::support::SECRET_ENTROPY_THRESHOLD;
 use crate::support::SECRET_HIGH_ENTROPY_THRESHOLD;
 use crate::support::has_credential_prefix;
 use crate::support::is_secret_name;
+use crate::support::keyword_value;
 use crate::support::shannon_entropy;
 use crate::support::stmt_targets;
 use crate::support::string_value_text;
@@ -65,6 +67,25 @@ pub(crate) fn check_hardcoded_secrets(
             });
         }
     }
+    for call in &file_ctx.calls {
+        if file_ctx.known_bindings.resolve_call(call) != KnownBinding::OAuth2FetchToken {
+            continue;
+        }
+        let Some(secret) = keyword_value(&call.arguments, "client_secret") else {
+            continue;
+        };
+        if file_ctx.known_bindings.is_static_text(secret) {
+            issues.push(Issue {
+                rule_key: "python:S6437".to_string(),
+                message: "Revoke and replace this hard-coded credential with one stored securely."
+                    .to_string(),
+                range: to_range(secret.range(), index, source),
+                fix: None,
+                flows: Vec::new(),
+                alternatives: Vec::new(),
+            });
+        }
+    }
     issues
 }
 
@@ -117,5 +138,23 @@ mod tests {
             )
             .is_empty()
         );
+    }
+    #[test]
+    fn s6437_flags_literal_oauth_client_secrets_by_api_identity() {
+        let attack = scan(
+            "from requests_oauthlib.oauth2_session import OAuth2Session\n\n\
+             oauth = OAuth2Session(\"client\")\n\
+             oauth.fetch_token(\"https://example.test/token\", client_secret=\"example_Password\")\n",
+        );
+        assert_eq!(findings(&attack, "python:S6437").len(), 1);
+
+        let safe = scan(
+            "import os\n\
+             from requests_oauthlib.oauth2_session import OAuth2Session\n\n\
+             oauth = OAuth2Session(\"client\")\n\
+             secret = os.environ['OAUTH_SECRET']\n\
+             oauth.fetch_token(\"https://example.test/token\", client_secret=secret)\n",
+        );
+        assert!(findings(&safe, "python:S6437").is_empty());
     }
 }

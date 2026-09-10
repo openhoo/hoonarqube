@@ -4,7 +4,8 @@ failOn: error
 waivers: .hoolicy/waivers.yaml
 budgets:
   maximumFiles: 100000
-  maximumDocumentBytes: 16777216
+  # Keep the generated ~29 MiB C# parse table inside the policy input scope.
+  maximumDocumentBytes: 33554432
   maximumFindings: 10000
   maximumRuleDuration: 30s
   maximumTotalDuration: 2m

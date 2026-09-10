@@ -1,1 +1,1 @@
-const el = <ul role="tree"><li role="treeitem">Node</li></ul>;
+const el = <ul role="tree"><li role="treeitem" aria-selected="false">Node</li></ul>;

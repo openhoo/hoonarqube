@@ -1,24 +1,29 @@
 use crate::CsLanguage;
 use crate::cst::{
     ancestors_of, collect_kinds, is_error_tainted, issue, node_text, parameters_of, range_of,
-    simple_name,
 };
 use crate::rules::expressions::{
-    binary_operands, creation_type_text, expression_name, first_named_child, integer_literal_value,
-    invocation_arguments, operator_of,
+    binary_operands, callee_name, creation_type_text, expression_name, first_named_child,
+    integer_literal_value, invocation_arguments, invocation_receiver, operator_of,
 };
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
+const MINIMUM_ASYMMETRIC_KEY_SIZE: u64 = 2048;
+
 /// csharpsquid:S4426 — weak asymmetric providers and short keys give way.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    const MINIMUM_ASYMMETRIC_KEY_SIZE: u64 = 2048;
+    let mut issues = creation_issues(root, source, language);
+    issues.extend(factory_issues(root, source, language));
+    issues.extend(assignment_issues(root, source, language));
+    issues
+}
+
+fn creation_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for creation in collect_kinds(root, &["object_creation_expression"]) {
-        let algorithm = match simple_name(creation_type_text(creation, source)) {
-            "RSACryptoServiceProvider" => "RSA",
-            "DSACryptoServiceProvider" => "DSA",
-            _ => continue,
+        let Some(algorithm) = asymmetric_algorithm(creation_type_text(creation, source)) else {
+            continue;
         };
         if explicit_creation_size(creation, source)
             .is_some_and(|bits| bits >= MINIMUM_ASYMMETRIC_KEY_SIZE)
@@ -32,6 +37,41 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             range_of(creation, source),
         ));
     }
+    issues
+}
+
+fn factory_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for invocation in collect_kinds(root, &["invocation_expression"]) {
+        let Some(algorithm) = factory_algorithm(invocation, source) else {
+            continue;
+        };
+        let arguments = invocation_arguments(invocation);
+        if arguments.len() != 1 {
+            continue;
+        }
+        let value = actual_argument_expression(arguments[0]);
+        let Some(bits) = (value.kind() == "integer_literal")
+            .then(|| integer_literal_value(node_text(value, source)))
+            .flatten()
+        else {
+            continue;
+        };
+        if bits >= MINIMUM_ASYMMETRIC_KEY_SIZE {
+            continue;
+        }
+        issues.push(issue(
+            language,
+            "S4426",
+            format!("Use a key length of at least 2048 bits for {algorithm} cipher algorithm."),
+            range_of(invocation, source),
+        ));
+    }
+    issues
+}
+
+fn assignment_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+    let mut issues = Vec::new();
     for assignment in collect_kinds(root, &["assignment_expression"]) {
         if is_error_tainted(assignment) || operator_of(assignment) != Some("=") {
             continue;
@@ -64,6 +104,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     }
     issues
 }
+fn actual_argument_expression(argument: Node<'_>) -> Node<'_> {
+    let mut cursor = argument.walk();
+    argument
+        .named_children(&mut cursor)
+        .last()
+        .unwrap_or(argument)
+}
 
 fn explicit_creation_size(creation: Node<'_>, source: &str) -> Option<u64> {
     invocation_arguments(creation)
@@ -74,6 +121,20 @@ fn explicit_creation_size(creation: Node<'_>, source: &str) -> Option<u64> {
         })
         .filter(|value| value.kind() == "integer_literal")
         .and_then(|value| integer_literal_value(node_text(value, source)))
+}
+fn factory_algorithm(invocation: Node<'_>, source: &str) -> Option<&'static str> {
+    if callee_name(invocation, source) != Some("Create") {
+        return None;
+    }
+    match node_text(invocation_receiver(invocation)?, source).trim() {
+        "RSA" | "System.Security.Cryptography.RSA" | "global::System.Security.Cryptography.RSA" => {
+            Some("RSA")
+        }
+        "DSA" | "System.Security.Cryptography.DSA" | "global::System.Security.Cryptography.DSA" => {
+            Some("DSA")
+        }
+        _ => None,
+    }
 }
 
 fn declared_algorithm<'a>(assignment: Node<'_>, name: &str, source: &'a str) -> Option<&'a str> {
@@ -171,9 +232,19 @@ fn visible_local_algorithm(
 }
 
 fn asymmetric_algorithm(type_text: &str) -> Option<&'static str> {
-    match simple_name(type_text) {
-        "RSA" | "RSACryptoServiceProvider" => Some("RSA"),
-        "DSA" | "DSACryptoServiceProvider" => Some("DSA"),
+    match type_text.trim() {
+        "RSA"
+        | "System.Security.Cryptography.RSA"
+        | "global::System.Security.Cryptography.RSA"
+        | "RSACryptoServiceProvider"
+        | "System.Security.Cryptography.RSACryptoServiceProvider"
+        | "global::System.Security.Cryptography.RSACryptoServiceProvider" => Some("RSA"),
+        "DSA"
+        | "System.Security.Cryptography.DSA"
+        | "global::System.Security.Cryptography.DSA"
+        | "DSACryptoServiceProvider"
+        | "System.Security.Cryptography.DSACryptoServiceProvider"
+        | "global::System.Security.Cryptography.DSACryptoServiceProvider" => Some("DSA"),
         _ => None,
     }
 }
@@ -219,5 +290,25 @@ mod tests {
         let report =
             analyze_default("class Crypto { RSA Make() => new RSACryptoServiceProvider(4096); }");
         assert!(with_key(&report, "csharpsquid:S4426").is_empty());
+    }
+    #[test]
+    fn s4426_flags_weak_rsa_and_dsa_factory_sizes() {
+        let report = analyze_default(
+            "using System.Security.Cryptography;\npublic static class WeakKeyFactory\n{\n    public static RSA CreateRsa() => RSA.Create(1024);\n    public static DSA CreateDsa() => DSA.Create(1024);\n}\n",
+        );
+        let found = with_key(&report, "csharpsquid:S4426");
+        assert_eq!(found.len(), 2);
+        assert_eq!(
+            found[0].message,
+            "Use a key length of at least 2048 bits for RSA cipher algorithm."
+        );
+        assert_eq!(
+            found[1].message,
+            "Use a key length of at least 2048 bits for DSA cipher algorithm."
+        );
+        assert_eq!(found[0].range.start.line, 4);
+        assert_eq!(found[0].range.start.column, 37);
+        assert_eq!(found[1].range.start.line, 5);
+        assert_eq!(found[1].range.start.column, 37);
     }
 }

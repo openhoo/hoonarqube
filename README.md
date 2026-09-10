@@ -68,18 +68,18 @@ against the frozen catalog:
 
 | Language | Implemented | Directly tested | Untested | Infra gaps | Total | Tested coverage |
 |---|---:|---:|---:|---:|---:|---:|
-| JavaScript | 403 | 403 | 0 | 3 | 406 | 100.0% |
-| TypeScript | 406 | 406 | 0 | 6 | 412 | 100.0% |
-| Python | 334 | 334 | 0 | 1 | 335 | 100.0% |
-| C# | 460 | 460 | 0 | 7 | 467 | 100.0% |
+| JavaScript | 406 | 406 | 0 | 0 | 406 | 100.0% |
+| TypeScript | 412 | 412 | 0 | 0 | 412 | 100.0% |
+| Python | 335 | 335 | 0 | 0 | 335 | 100.0% |
+| C# | 467 | 467 | 0 | 0 | 467 | 100.0% |
 | Go | 36 | 36 | 0 | 0 | 36 | 100.0% |
 | Rust | 85 | 85 | 0 | 0 | 85 | 100.0% |
 
-### Documented gaps
+### Bounded semantic and context contracts
 
-The uncovered keys require out-of-repository infrastructure or reflect deliberate
-parser-fidelity limits. Each exact key and reason is recorded in
-`catalog/infra-boundaries.json`:
+The following areas depend on configured compiler/project context or explicit
+parser-fidelity contracts. Their implementations are directly tested, but
+syntax-only matching does not establish complete framework or analyzer parity:
 
 - TypeScript-checker semantic symbol and dependency metadata —
   `javascript:S1874`, `typescript:S1874`.
@@ -92,53 +92,61 @@ parser-fidelity limits. Each exact key and reason is recorded in
 - Third-party GraphQL symbol resolution and inheritance semantics — `python:S6786`.
 - ASI reconstruction from a tolerant parse — `javascript:S1438`, `typescript:S1438`.
 
-All 1,724 actionable implementations now have direct, repository-qualified test
-evidence. The strict audit remains deliberately red because 17
-infrastructure-classified rows are still parity gaps. Direct tests and
-implementation markers do not prove SonarQube-equivalent behavior. See
+All 1,741 catalog implementations have direct repository test evidence, and
+the strict implementation-coverage audit passes. This is implementation
+coverage, not SonarQube equivalence: compiler prerequisites, reference-sensor
+availability, finding identity, and remaining comparison failures stay separate. See
 [PARITY.md](PARITY.md) for the exact oracle contract and current failures.
 
-The captured public C# analyzer baseline (`SonarAnalyzer.CSharp` 10.33.0.1635)
-certifies 302 exact full-corpus contracts. Another 106 rules match their
-designated bad/good fixtures exactly but diverge on cross-fixture interactions,
-so remain failing `BAD_MISMATCH` rows. Forty-two rows remain direct-oracle
-infrastructure gaps; 17 implemented commercial rules are explicitly
-`enterprise-unverified` because Community cannot execute them. They remain
-shipped and locally tested, but no Enterprise parity claim is made.
+The [current full-corpus evidence](tools/oracle/full-corpus-qualification-20260910.json.gz)
+binds native and fresh reference captures to commit
+`14b389bc34af2835c56ccf050dde48989013fece`. It retains all 1,853 rule rows,
+including 300 exact C# contracts and every non-pass. The complete C# replay
+covers 920 source files; all 13,899 reference findings, including 2,695
+project-level findings, are preserved.
 
-Go Community parity is 36/36 exact. Rust Community parity is 80/85 exact;
-five implemented rules are upstream-unverified because SonarQube 26.8 requests
-removed or invalid Clippy contracts. They still require bad-fire/good-clean
-local evidence and are not counted as exact passes.
+The other five full corpora intentionally retain malformed-source controls.
+Their native exit `2` and incomplete scope are not converted into clean or
+exact-parity results. Go's 135 emitted finding identities match the reference
+multiset, but that does not override the incomplete full-project status.
+Five Rust upstream boundaries were rechecked and remain explicit. Historical
+baseline counts and detailed current limitations are documented in
+[PARITY.md](PARITY.md); complete SonarQube parity is not claimed.
 
-A captured SonarQube 26.8 run certifies 117 Python, 119 JavaScript, and 115
-TypeScript full-corpus contracts. Those projects still have 833 fail-closed
-rows spanning finding mismatches, misses, good-control fires, catalog drift,
-legacy/configuration skips, and approved infrastructure boundaries. These
-whole-corpus comparisons intentionally include malformed-input rows; an
-incomplete row remains non-pass and is never counted as clean or exact parity.
-Local coverage therefore does not imply analyzer parity.
+### Qualification and publication boundaries
 
-### Current qualification and publication boundaries
-
-- The configured C# worktree proof establishes exactly 21 canonical target
-  findings (`reference=21`, `native=21`). All other context findings remain
-  retained outside that target-only exactness claim. See the
+- The configured C# replay at the recorded source commit establishes exactly
+  21 canonical target findings in both the native probe and actual CLI
+  (`reference=21`, `native=21`, `CLI=21`). All other context findings remain
+  retained outside that target-only claim. See the
   [portable C# reference manifest](tools/oracle/roadmap-focused-reference-20260909.json).
-- The configured issue36 JavaScript/TypeScript worktree proof covers six cases
-  and 30 exact target findings in total, including one whitelist finding. It
-  is worktree qualification, not final published-binary evidence. See the
-  [portable JS/TS reference manifest](tools/oracle/roadmap-jsts-python-reference-20260909.json).
-- Valid JSX reserved-attribute syntax and valid C# contextual-keyword
-  identifiers named `async`/`await` remain `SourceFacts` limitations.
-- C# `S3005` and `S3169` diagnostics may lack a quick-fix attachment; that gap
-  remains unfixed. The exact `S1116` reference edit is correctly refused when
-  its projected result introduces `S1186`; this is not completed fix parity.
-- The [security qualification wrapper](tools/oracle/security-qualification-20260909.json)
-  remains `SECURITY_PARITY_UNVERIFIED` and preserves explicit Enterprise,
-  flow, and secondary-location `UNVERIFIED` states. Its recorded native
-  identity `444c56f682998e7e638bd230104bfa1a3628cf57` is historical
-  implementation evidence only, not the current `HEAD` or a release identity.
+- The committed JavaScript/TypeScript replay covers all six issue36 cases and
+  30 exact target findings, including one whitelist finding. The same binary
+  passes the recorded S4325/S6606 and JavaScript/TypeScript S1438 comparisons.
+  GraphQL retains 18 exact controls plus seven explicitly unverified extras.
+  See the [portable JS/TS/Python manifest](tools/oracle/roadmap-jsts-python-reference-20260909.json).
+- The parsers accept valid JSX `IdentifierName` element, attribute, member, and
+  namespace names, plus valid C# declarations using contextual `async`/`await`
+  (including `static`/`async` local functions). `S2306` remains
+  declaration-only: valid `async`/`await` references are not reported.
+- Malformed JavaScript/TypeScript/JSX/C# input, and TypeScript-only JSX syntax
+  supplied through a `.jsx` input, remain fail-closed: project analysis exits
+  `2`, marks the report incomplete, and does not expose duplication.
+- The [four-language quickfix qualification](tools/oracle/quickfix-qualification-20260910.json.gz)
+  records 275 applications: 181 verified applications, 26 safety refusals,
+  63 expected no-action cases, four native action refusals, and one explicit
+  JavaScript reference difference. There are no failed or unavailable
+  applications. All 54 C# manifest rows are covered; original `S3005`/`S3447`
+  refusal controls and successful used-member controls remain distinct.
+  Refusals and differing edits are not counted as equivalent fixes.
+- The [current security matrix](tools/oracle/security-qualification-20260910.json)
+  records 840 complete native scans. Two declared positive controls
+  (`csharpsquid:S4347` and `S5773`) remain unmatched and explicitly unverified;
+  completion is not correctness. All 17 Enterprise keys remain unverified
+  without licensed reference execution. Exact detector evidence, target
+  presence, and human-review state are separate contracts.
+- These are source-commit qualification records, not a blanket equivalence
+  claim for SonarQube, Sonar IDE, or a separately built release binary.
 
 Reference captures and their recorded identities are not rewritten, and
 pending or blocked drafts are not presented as final release evidence.
@@ -229,10 +237,25 @@ Project/compiler contexts are explicit and use these existing flags:
   helper is required; `HOONARQUBE_DOTNET` can select its executable. Without
   this flag the project is not executed and compiler-backed C# facts are
   unavailable, while native analysis remains.
+- `--csharp-context-source PATH` supplies an additional compiler-only snapshot
+  from a regular UTF-8 file (not a symlink). Repeat it for referenced project documents outside the positional
+  analysis inputs; it requires `--csharp-project`. These files do not become
+  analysis roots, findings, measurements, duplication inputs, or fix targets.
+  Their paths and contents participate in semantic/cache identity; missing or
+  invalid snapshots remain incomplete diagnostics.
 - `--csharp-timeout-ms MS` optionally changes the C# helper deadline from its
   default **30,000 ms**. It requires `--csharp-project` and accepts only a
   positive finite `u64` millisecond value; for example, `180000` allows a
   larger trusted workspace without introducing retries or an unbounded wait.
+- TypeScript config resolution delegates to the pinned compiler: relative and
+  package-based `extends`, directory or file-form project `references`, and
+  `include` globs are resolved against the project root plus supplied source
+  snapshots. Config files and package manifests actually read are recorded as
+  digest-bearing context dependencies.
+- Each invocation validates the root `tsconfig.json` bytes against its captured
+  digest before helper analysis and caches that validated root config locally for
+  the invocation. A later on-disk mutation cannot change its options; missing
+  or invalid config/reference input remains an incomplete diagnostic.
 - `--csharp-s110-max N` overrides S110's maximum parent-type depth (default
   **5**). It requires `--csharp-project`.
 - `--csharp-s110-filtered-class PATTERN` supplies a repeatable S110 wildcard
@@ -569,8 +592,9 @@ files, but never follows symlinked directories.
 
 Global `--json` keeps stdout as one JSON document, including requested diffs as
 per-file `diff` fields instead of mixing human text into machine output. Current
-finding-backed coverage starts with the syntax-checked `python:S1721` redundant-
-parentheses remedy. See [QUICKFIX.md](QUICKFIX.md) for the parity inventory.
+finding-backed coverage includes the syntax-checked `python:S1721` redundant-
+parentheses remedy and guarded C# `csharpsquid:S3005`/`S3169` actions. See
+[QUICKFIX.md](QUICKFIX.md) for the parity inventory and bounded proof.
 
 ## GitLab Code Quality report
 

@@ -38,6 +38,7 @@ use crate::engine::scope_model::{TbFlow, TbHalt, build_tb_model};
 use crate::support::{IssueSink, LineIndex, ScannedComment};
 use hoonarqube_ir::Issue;
 use oxc_ast_visit::Visit;
+use oxc_semantic::Semantic;
 use std::collections::HashMap;
 
 /// All Tier-B checks that run over the scope model.
@@ -47,6 +48,7 @@ fn check_tier_b_rules(
     index: &LineIndex,
     language: JstsLanguage,
     comments: &[ScannedComment],
+    semantic: Option<&Semantic<'_>>,
 ) -> Vec<Issue> {
     let mut sink = IssueSink {
         index,
@@ -86,7 +88,7 @@ fn check_tier_b_rules(
     check_tb_permissive_file_access(program, &mut sink);
     check_tb_readonly_candidate_fields(program, &mut sink);
     check_tb_dynamic_regexps(program, &mut sink);
-    check_tb_session_regeneration(program, source, &mut sink);
+    check_tb_session_regeneration(program, source, semantic, &mut sink);
     check_tb_unstable_keys(program, &mut sink);
     check_tb_promise_chains(program, &mut sink);
     check_tb_trailing_commas(program, source, index, comments, &mut sink);
@@ -137,7 +139,6 @@ fn check_tb_class_rules<'a>(program: &'a oxc_ast::ast::Program<'a>, sink: &mut I
     }
     sink.issues.append(&mut collector.sink.issues);
 }
-
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     check_tier_b_rules(
         ctx.program,
@@ -145,6 +146,7 @@ pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
         ctx.index,
         ctx.language,
         &ctx.comments,
+        ctx.semantic,
     )
 }
 

@@ -1,6 +1,7 @@
 use crate::AnalyzerOptions;
 use crate::engine::calls::LocalSignatures;
 use crate::engine::file_context::FileContext;
+use crate::engine::project_context::PythonProjectContext;
 use crate::engine::rx::collect_regex_sites;
 use crate::engine::rx::parse_regex;
 use crate::engine::scope::build_symbol_table;
@@ -512,7 +513,9 @@ fn tier_a2_web_async_typing_checks(
     issues.extend(check_mutable_default_mutation(index, source, file_ctx));
     issues.extend(check_constant_conditions(index, source, file_ctx));
     issues.extend(check_imprecise_assertions(index, source, file_ctx));
-    issues.extend(check_unconditional_assertions(index, source, file_ctx));
+    issues.extend(check_unconditional_assertions(
+        parsed, index, source, file_ctx,
+    ));
     issues.extend(check_unseeded_randomness(index, source, file_ctx));
     issues.extend(check_sync_os_calls_in_async(
         parsed, index, source, file_ctx,
@@ -646,11 +649,21 @@ pub(crate) fn check_tier_c_security_battery(
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
+    module_name: &str,
+    project: &PythonProjectContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     tier_c_core_security_checks(parsed, index, source, file_ctx, &mut issues);
     tier_c_web_crypto_checks(parsed, index, source, file_ctx, &mut issues);
-    tier_c_cloud_data_checks(parsed, index, source, file_ctx, &mut issues);
+    tier_c_cloud_data_checks(
+        parsed,
+        index,
+        source,
+        file_ctx,
+        module_name,
+        project,
+        &mut issues,
+    );
     issues
 }
 
@@ -723,7 +736,7 @@ fn tier_c_web_crypto_checks(
     issues.extend(check_s5443_public_temp_files(index, source, file_ctx));
     issues.extend(check_s2755_xxe_parsers(index, source, file_ctx));
     issues.extend(check_s6377_weak_xml_signature_transforms(
-        parsed, index, source,
+        parsed, index, source, file_ctx,
     ));
 }
 
@@ -733,18 +746,29 @@ fn tier_c_cloud_data_checks(
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
+    module_name: &str,
+    project: &PythonProjectContext,
     issues: &mut Vec<Issue>,
 ) {
     issues.extend(check_s4828_signal_parameters(index, source, file_ctx));
     issues.extend(check_s1523_dynamic_code_execution(index, source, file_ctx));
     issues.extend(check_s2257_custom_cryptography(index, source, file_ctx));
-    issues.extend(check_s6785_graphql_depth_limiting(index, source, file_ctx));
+    issues.extend(check_s6785_graphql_depth_limiting(
+        parsed,
+        index,
+        source,
+        file_ctx,
+        module_name,
+        project,
+    ));
     issues.extend(check_s6245_s3_encryption_configuration(
         index, source, file_ctx,
     ));
     issues.extend(check_s6252_s3_versioning(index, source, file_ctx));
     issues.extend(check_s6265_s3_public_acl(index, source, file_ctx));
-    issues.extend(check_s6270_public_resource_policy(parsed, index, source));
+    issues.extend(check_s6270_public_resource_policy(
+        parsed, index, source, file_ctx,
+    ));
     issues.extend(check_s6275_ebs_encryption(index, source, file_ctx));
     issues.extend(check_s6281_s3_public_access_block(index, source, file_ctx));
     issues.extend(check_s6302_all_privileges_policy(

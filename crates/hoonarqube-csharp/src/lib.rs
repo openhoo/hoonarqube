@@ -6,8 +6,7 @@
 //! catalog (`csharpsquid:S103`); severity and type always resolve through the
 //! frozen `hoonarqube-catalog` catalog via [`hoonarqube_ir::Issue::rule_key`],
 //! never duplicated here. Syntax errors emit no issues (no catalog-backed
-//! `ParsingError` rule exists for C#), except exact S2306 declaration recovery
-//! for valid contextual-keyword identifiers misparsed by tree-sitter.
+//! `ParsingError` rule exists for C#).
 //!
 //! Explicit project-mode APIs in [`semantic`] can invoke a trusted Roslyn
 //! helper once for a complete source snapshot set.  The standalone
@@ -159,22 +158,11 @@ pub fn analyze(
     let root = tree.root_node();
     let (metrics, code_line_count) = metrics::file_metrics(root, source);
     if root.has_error() {
-        // tree-sitter-c-sharp currently recovers valid contextual-keyword
-        // declarations such as `int await` with ERROR nodes. Its declaration
-        // names remain exact identifier nodes, so preserve S2306 and the
-        // independent file-scope S3903 evidence without running other rules.
-        let mut issues =
-            rules::modifiers::contextual_keyword_identifiers::check(root, source, language);
-        if !issues.is_empty() {
-            issues.extend(rules::structure::types_outside_namespaces::check(
-                root, source, language,
-            ));
-        }
-        hoonarqube_ir::sort_issues(&mut issues);
+        // Do not run rule families on a recovered malformed tree.
         return hoonarqube_ir::FileReport {
             path,
             language: language.prefix().to_string(),
-            issues,
+            issues: Vec::new(),
             metrics,
         };
     }

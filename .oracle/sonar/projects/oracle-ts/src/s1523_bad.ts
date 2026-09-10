@@ -1,1 +1,3 @@
-eval('work()');
+export function executeCode(code: string) {
+    return eval(code);
+}

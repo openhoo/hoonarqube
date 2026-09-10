@@ -55,7 +55,6 @@ mod s5659_jwt_algorithms;
 mod s5693_body_parser_limit;
 mod s5728_helmet_config;
 mod s5757_sensitive_log;
-mod s5759_forwarded_header_trust;
 mod s5958_catch_without_assertion;
 mod s6080_this_timeout_zero;
 mod s6245_new_s3_bucket_command;
@@ -69,6 +68,7 @@ mod s6590_s6590_variable_declarator;
 mod s6598_single_call_signature;
 mod s6759_s6759_ts_interface_declaration;
 mod s7059_s7059_await_expression;
+mod tls_connection_options;
 mod walker;
 
 use crate::Issue;

@@ -71,12 +71,17 @@ intentionally omitted, and blocked or pending drafts are not final evidence.
 The ordinary `analyze` route is native and syntax-oriented; it does not retain
 source snapshots or load compiler contexts. Current project-context options
 are `--typescript-project` (optionally `--typescript-module`),
-`--csharp-project`, `--allow-project-build`, and `--python-project`.
+`--csharp-project` (optionally repeated `--csharp-context-source` inputs),
+`--allow-project-build`, and `--python-project`.
 Semantic options opt into the bounded source-snapshot path. Assessment,
 coverage, baseline, and quality-gate options use that same retained-source
 path for their artifacts but do not themselves establish semantic parity.
 `--allow-project-build` is a C# trust gate for a supplied project; it is not a
 standalone analyzer switch.
+Compiler-only C# context sources supply snapshots without extending the
+positional finding/measurement scope. They do not relax the helper's requirement
+for a complete snapshot set of non-generated project documents.
+
 
 Explicitly requested contexts are loaded for JavaScript/TypeScript, C#, and
 Python. Missing files, runtimes, helpers, references, compiler diagnostics, or
@@ -85,26 +90,44 @@ they must never become a successful zero-finding semantic result. Razor is
 registered with the C# family, but ordinary native dispatch rejects `.razor`;
 trusted compiler-generated and mapped facts require a complete C# project
 context.
+The TypeScript helper delegates configuration resolution to the pinned compiler:
+relative and package-based `extends`, directory or file-form `references`, and
+`include` globs are resolved against the project root plus supplied source
+snapshots. Config files and package manifests actually read are recorded as
+digest-bearing dependencies. Each invocation validates and caches the root
+`tsconfig.json` snapshot by digest, so a later on-disk mutation cannot change
+its options; missing or invalid config/reference input remains incomplete.
 
-### Current configured worktree qualifications
+### Configured focused qualifications
 
-- The configured C# proof establishes exactly 21 canonical target findings
-  (`reference=21`, `native=21`). All other context findings remain retained in
-  the comparison/report but are outside that target-only exactness claim. The
+- The configured C# replay at source commit `14b389bc34af2835c56ccf050dde48989013fece`
+  establishes exactly 21 canonical target findings in both the native probe
+  and actual CLI (`reference=21`, `native=21`, `CLI=21`). All other context
+  findings remain retained outside that target-only exactness claim. The
   portable reference manifest is
   [`tools/oracle/roadmap-focused-reference-20260909.json`](tools/oracle/roadmap-focused-reference-20260909.json).
-- The configured issue36 JavaScript/TypeScript proof covers six cases and 30
-  exact target findings in total, including one whitelist finding. This is
-  worktree qualification, not final published-binary evidence. Its portable
+- The committed issue36 JavaScript/TypeScript replay covers six cases and 30
+  exact target findings, including one whitelist finding. S4325/S6606 and
+  both S1438 language comparisons also match; GraphQL retains 18 exact
+  controls and seven unverified extras. This is source-commit qualification,
+  not final published-binary evidence. Its portable
   reference manifest is
   [`tools/oracle/roadmap-jsts-python-reference-20260909.json`](tools/oracle/roadmap-jsts-python-reference-20260909.json).
-- Valid JSX reserved-attribute syntax and valid C# contextual-keyword
-  identifiers named `async`/`await` remain `SourceFacts` limitations. Missing
-  or incomplete facts stay non-pass evidence; they are not safe negatives.
-- C# `S3005` and `S3169` diagnostics may lack a quick-fix attachment; that gap
-  remains unfixed. The exact `S1116` reference edit is correctly refused when
-  its projected result introduces `S1186`; that refusal is not completed fix
-  parity.
+- The parsers accept valid JSX `IdentifierName` element, attribute, member, and
+  namespace names, plus valid C# declarations using contextual `async`/`await`
+  (including `static`/`async` local functions). `S2306` is declaration-only:
+  valid `async`/`await` references are not findings. Missing or incomplete facts
+  remain non-pass evidence; they are not safe negatives.
+- Malformed JavaScript/TypeScript/JSX/C# input, and TypeScript-only JSX syntax
+  supplied through a `.jsx` input, remain fail-closed: project analysis exits
+  `2`, is incomplete, and has duplication unavailable.
+- A bounded working-tree CLI proof covers exact `S3005` attribute removal and
+  framework-`Enumerable` `S3169` replacement. Safe diff/apply/verification/
+  reanalysis goes from target count `1` to `0`; comment-bearing attribute
+  trivia and custom `ThenBy` selected actions exit `1`, leave source unchanged,
+  and retain their diagnostic.
+The exact `S1116` reference edit remains refused when its projected result
+introduces `S1186`; that refusal is not completed fix parity.
 
 Full-corpus comparisons intentionally include malformed-input rows. An
 incomplete malformed-input result remains fail-closed and non-pass (normally
@@ -116,6 +139,8 @@ remains `SECURITY_PARITY_UNVERIFIED` and explicitly preserves Enterprise,
 flow, and secondary-location `UNVERIFIED` states. Its recorded native identity
 `444c56f682998e7e638bd230104bfa1a3628cf57` is historical implementation
 evidence only, not the current checkout `HEAD` or a release identity.
+These historical focused captures are not the complete `#43`/`#44` evidence.
+The current whole-corpus and security qualifications are recorded below.
 
 These focused results prove only the listed contexts and fixtures. They do not
 equate native syntax support, compiler-context support, or a target-only
@@ -347,7 +372,8 @@ multiset:
 
 Important statuses:
 
-- `PASS`: exact bad-fixture equality and both good controls clean.
+- `PASS`: exact full finding-multiset equality, including cross-fixture findings,
+  with both designated good controls clean.
 - `ENTERPRISE_UNVERIFIED`: local fixture passes, but Community cannot execute
   the Enterprise rule. Explicit non-pass accepted by routine Community gates.
 - `UPSTREAM_UNVERIFIED`: local bad/good controls pass, but the current Community
@@ -367,7 +393,8 @@ Important statuses:
 Every `INFRA` row must match an exact key and reason in
 `catalog/infra-boundaries.json`. Fixture manifests cannot self-classify a new
 exception, change its reason, or silently retain a removed boundary. The same
-manifest identifies the 17 implementation gaps used by catalog coverage.
+manifest distinguishes implementation gaps from required external project or
+reference context; an implemented rule can still have an unverified prerequisite.
 
 Enterprise-unverified rules still require local evidence. If Hoonarqube misses
 their bad fixture or fires on their good control, the result is `OURS_MISS` or
@@ -378,6 +405,102 @@ Paginated API reads require unique issue/hotspot keys across every page;
 missing or repeated keys are rejected even when page counts and totals match.
 Legacy line-only artifacts are rejected. `--quick` validates cached artifacts;
 a full run refreshes scanner results.
+
+The Rust scanner's generated Cargo graph includes every valid bad and good
+control as an isolated module. Only malformed `S2260` bad source remains
+frontend-only; it is retained unchanged in the scanned source inventory.
+For this deliberately noncompliant oracle corpus, `RUSTFLAGS=--cap-lints=warn`
+retains denied-lint diagnostics without aborting the owning Clippy process.
+The flag is recorded in provenance; syntax errors and upstream-unverified
+boundaries are not converted into passes.
+
+## Security qualification — 2026-09-10
+
+The machine-readable [security qualification matrix](tools/oracle/security-qualification-20260910.json)
+covers all 268 security keys and 840 attack, safe, near-miss, and flow controls
+from the versioned manifests. Native replay used commit
+`14b389bc34af2835c56ccf050dde48989013fece`; the artifact records exact binary
+and input hashes, reference versions, profiles, parameters, source identities,
+and reproduction commands.
+
+All 840 native scans completed after preparing declared C# dependencies.
+Two positive controls (`csharpsquid:S4347` and `S5773`) remain unmatched and
+explicitly Enterprise-unverified; completion is not correctness.
+There are 724 source/configuration-matched reference comparisons and 116
+unverified cases. Of the 724 comparable controls, 67 disagree with native
+target presence. This is separate from the two independent control-expectation
+disagreements; matching presence alone does not establish matching identities,
+ranges, kinds, or flows.
+
+| Qualified case outcome | Count |
+|---|---:|
+| Exact available detector evidence and matching control expectations | 477 |
+| Different finding identity, position, kind, or flow evidence | 213 |
+| Reference execution unavailable or incomplete | 116 |
+| Necessary detector evidence unavailable | 34 |
+
+The comparison retains messages, ranges, detector kinds, available flows and
+secondary locations, and separate human-review state. Equal empty findings on
+an attack control are not a qualification pass. Corrected fixture APIs and
+control classifications retain their versioned rationale and historical
+evidence; existing mismatches are not silently accepted as new clean baselines.
+A fresh 13-key refresh captured eight keys; three live-rule metadata lookups
+returned `404`, and two keys require unavailable licensed analyzers. These
+attempts remain explicit non-passes. All 17 Enterprise keys remain unverified;
+no licensed Enterprise execution or complete Security parity is claimed.
+
+## Whole-corpus qualification — 2026-09-10
+
+The [complete compressed evidence](tools/oracle/full-corpus-qualification-20260910.json.gz)
+binds fresh native and reference captures to source commit
+`14b389bc34af2835c56ccf050dde48989013fece`. Existing provenance validators
+accept the six-language inputs. The publication status is
+`VALIDATED_EVIDENCE_NONPASS`, not complete analyzer parity.
+
+All 1,853 rule rows remain visible. The C# replay now completes with exit `0`
+over all 920 source files, including mixed Nullable project settings. It has
+300 exact rule comparisons, 109 `BAD_MISMATCH`, one `OURS_MISS`, 40 `INFRA`,
+17 `ENTERPRISE_UNVERIFIED`, and 81 new-upstream `INVALID_ARTIFACT` rows.
+The artifact retains all 6,653 native findings and all 13,899 reference
+findings: 11,204 file-scoped findings plus 2,695 separately retained project
+findings. The project-level keys do not overlap the 300 passing rule keys.
+
+The Python, JavaScript, TypeScript, Go, and Rust corpora retain their intentional
+malformed-source controls. Their native analyses exit `2`; incomplete scope
+is not converted into clean or exact-parity results. All emitted findings,
+cross-fixture findings, unassigned/infrastructure findings, diagnostics, and
+source identities remain available in the artifact. No fixture was removed
+to make the complete corpus pass.
+
+Go's 135 emitted native finding identities equal the 135 reference identities,
+including messages, ranges, and multiplicities. This regression observation
+does not override its incomplete full-project status. The five Rust upstream
+contracts (`S1858`, `S3723`, `S3807`, `S4275`, `S7450`) were freshly rechecked
+against the pinned plugin and Clippy; their boundaries remain explicit and
+are not native implementation failures or parity passes.
+
+## Four-language quickfix qualification — 2026-09-10
+
+The [compressed quickfix matrix](tools/oracle/quickfix-qualification-20260910.json.gz)
+records 275 actual CLI scenarios at the same source commit and binary SHA-256.
+It embeds byte-exact replay manifests and the runner, with per-file hashes.
+Every C# manifest row is covered; the long C# run was partitioned into disjoint
+rule slices while retaining completed applications and unique case identities.
+
+| Language | Verified application | Safety refusal | Expected no action | Native action refusal | Reference difference |
+|---|---:|---:|---:|---:|---:|
+| Python | 64 | 1 | 0 | 0 | 0 |
+| JavaScript | 25 | 8 | 26 | 1 | 1 |
+| TypeScript | 46 | 3 | 37 | 3 | 0 |
+| C# | 46 | 14 | 0 | 0 | 0 |
+
+There are no failed or unavailable scenarios. This does not make refusals or
+different edits equivalent to upstream fixes. JavaScript `S6326` retains its
+explicit `reference_different` status. For C# `S3005` and `S3447`, original
+minimal controls remain unchanged when independent verification detects new
+findings; separate used-member controls apply successfully. The verifier's
+guard was not weakened. Exact edit availability, preview, apply, source hashes,
+reanalysis, compiler checks, and negative controls are retained per scenario.
 
 ## Historical whole-corpus baseline — 2026-08-29
 

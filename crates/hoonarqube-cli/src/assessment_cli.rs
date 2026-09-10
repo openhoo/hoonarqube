@@ -401,19 +401,30 @@ fn ruby_options_value(options: &RubyAnalyzerOptions) -> serde_json::Value {
 fn semantic_options_value(
     semantics: &crate::project_features::SemanticOptions,
 ) -> serde_json::Value {
-    serde_json::json!([
-        "semantics-v2",
-        path_identity(semantics.typescript_project.as_deref()),
-        path_identity(semantics.typescript_module.as_deref()),
-        &semantics.typescript_dependency_whitelist,
-        path_identity(semantics.csharp_project.as_deref()),
-        semantics.csharp_s110_max,
-        &semantics.csharp_s110_filtered_class,
-        semantics.csharp_s1200_max,
-        semantics.csharp_timeout_ms,
-        semantics.allow_project_build,
-        path_identity(semantics.python_project.as_deref()),
-    ])
+    let context_sources = semantics
+        .csharp_context_sources
+        .iter()
+        .map(|path| path_identity(Some(path)))
+        .collect::<Vec<_>>();
+    let mut values = vec![
+        serde_json::json!("semantics-v2"),
+        serde_json::json!(path_identity(semantics.typescript_project.as_deref())),
+        serde_json::json!(path_identity(semantics.typescript_module.as_deref())),
+        serde_json::json!(&semantics.typescript_dependency_whitelist),
+        serde_json::json!(path_identity(semantics.csharp_project.as_deref())),
+    ];
+    if !context_sources.is_empty() {
+        values.push(serde_json::json!(context_sources));
+    }
+    values.extend([
+        serde_json::json!(semantics.csharp_s110_max),
+        serde_json::json!(&semantics.csharp_s110_filtered_class),
+        serde_json::json!(semantics.csharp_s1200_max),
+        serde_json::json!(semantics.csharp_timeout_ms),
+        serde_json::json!(semantics.allow_project_build),
+        serde_json::json!(path_identity(semantics.python_project.as_deref())),
+    ]);
+    serde_json::Value::Array(values)
 }
 fn path_identity(path: Option<&Path>) -> Option<String> {
     path.map(|path| {

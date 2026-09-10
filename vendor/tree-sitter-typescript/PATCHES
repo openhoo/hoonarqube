@@ -15,7 +15,15 @@ common/define-grammar.js:
 - permit the aliased import member expression as a `generic_type` name.
 
 The unrelated accessor-modifier changes from 1b3e602 are intentionally not
-included. The generated TypeScript and TSX parser sources, node-type tables,
-and matching tree-sitter support headers were regenerated from this narrowed
+included.
+
+The JSX grammar is also patched so JSX element, namespace, and attribute
+names accept JavaScript/TypeScript reserved words as IdentifierName values
+without relaxing ordinary identifier parsing. The TSX-only conflict entries
+in common/define-grammar.js keep type-parameter and type-member ambiguity
+explicit and leave the TypeScript dialect branch unchanged.
+
+The generated TypeScript and TSX parser sources, node-type tables, and
+matching tree-sitter support headers were regenerated from this narrowed
 grammar with tree-sitter CLI 0.25.10 using ABI 14, with
 tree-sitter-javascript 0.23.1 as the grammar base.

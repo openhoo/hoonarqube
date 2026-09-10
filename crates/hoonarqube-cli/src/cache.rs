@@ -746,6 +746,12 @@ mod tests {
         cache.options_fingerprint.pop();
         cache.executable_fingerprint.push('x');
         assert!(cache.load(path, source.len(), digest).is_none());
+        cache.executable_fingerprint.pop();
+        cache.context_fingerprint.push('x');
+        assert!(
+            cache.load(path, source.len(), digest).is_none(),
+            "semantic context fingerprint changes must invalidate cached files"
+        );
     }
 
     #[test]
