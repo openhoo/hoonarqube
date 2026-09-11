@@ -12,6 +12,80 @@ import parity_suite
 
 
 class ParitySuiteFailClosedTests(unittest.TestCase):
+    @staticmethod
+    def _write_csharp_context_workspace(root: Path):
+        workspace = root / "workspace"
+        projects = workspace / "projects"
+        projects.mkdir(parents=True)
+        (workspace / "Oracle.slnx").write_text("<Solution />\n", encoding="utf-8")
+
+        frameworks = (
+            ("azure-functions-framework", "AzureFunctions.cs", "AzureFunctions.csproj"),
+            ("durable-task-framework", "DurableTask.cs", "DurableTask.csproj"),
+            ("nfluent-framework", "NFluent.cs", "NFluent.csproj"),
+            ("test-framework", "TestFramework.cs", "TestFramework.csproj"),
+        )
+        for directory, source_name, project_name in frameworks:
+            framework_dir = projects / directory
+            framework_dir.mkdir()
+            (framework_dir / source_name).write_text(
+                "namespace Framework { public class Marker {} }\n",
+                encoding="utf-8",
+            )
+            (framework_dir / project_name).write_text(
+                f"""<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="{source_name}" />
+  </ItemGroup>
+</Project>
+""",
+                encoding="utf-8",
+            )
+
+        fixture_dir = projects / "fixture-0000"
+        fixture_dir.mkdir()
+        fixture = fixture_dir / "fixture.cs"
+        fixture.write_text("class Fixture {}\n", encoding="utf-8")
+        (fixture_dir / "OracleStubs.g.cs").write_text(
+            "class OracleStub {}\n", encoding="utf-8"
+        )
+        project = fixture_dir / "fixture-0000.csproj"
+        project.write_text(
+            """<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="fixture.cs" />
+    <Compile Include="OracleStubs.g.cs" AutoGen="true" />
+  </ItemGroup>
+</Project>
+""",
+            encoding="utf-8",
+        )
+
+        static_files = parity_suite._csharp_workspace_static_files(workspace)
+        source_metadata = parity_suite.file_metadata(fixture, root=workspace)
+        copy_metadata = parity_suite.file_metadata(fixture, root=workspace)
+        project_metadata = parity_suite.file_metadata(project, root=workspace)
+        mapping = {
+            "source": fixture.name,
+            "source_path": str(fixture),
+            "source_sha256": source_metadata["sha256"],
+            "copy": copy_metadata["path"],
+            "copy_sha256": copy_metadata["sha256"],
+            "project": project_metadata["path"],
+            "project_sha256": project_metadata["sha256"],
+        }
+        expected_paths = sorted(
+            str((projects / directory / source_name).resolve())
+            for directory, source_name, _project_name in frameworks
+        )
+        return workspace, static_files, mapping, fixture, expected_paths
+
     def test_fixture_inventory_includes_jsx_and_tsx_variants(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -37,6 +111,112 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
 
         self.assertIn("--userns=keep-id", command)
         self.assertIn("/working:/tmp/scannerwork:Z", command)
+
+    def test_rust_podman_scanner_uses_configured_immutable_image(self):
+        image = "localhost/hoonarqube-sonar-rust-scanner@sha256:" + "a" * 64
+        with (
+            mock.patch.dict(
+                parity_suite.os.environ,
+                {"SONAR_ORACLE_RUST_SCANNER_IMAGE_DIGEST": image},
+                clear=True,
+            ),
+            mock.patch.object(parity_suite.Path, "is_dir", return_value=True),
+            mock.patch.object(
+                parity_suite, "ensure_rust_scanner_image", return_value=True
+            ) as ensure,
+        ):
+            command = parity_suite.podman_scanner_command(
+                "/podman", "oracle-rust", Path("/source"), Path("/working")
+            )
+
+        self.assertEqual(command[command.index("-w") + 2], image)
+        self.assertIn("RUSTFLAGS", command)
+        ensure.assert_called_once_with()
+
+    def test_rust_scanner_retains_denied_diagnostics_without_aborting_graph(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "src").mkdir()
+            (root / "Cargo.toml").write_text(
+                '[package]\nname = "oracle-lint-control"\nversion = "0.0.0"\n'
+                'edition = "2024"\n',
+                encoding="utf-8",
+            )
+            source = (
+                "fn main() {\n    let _ = std::sync::Mutex::new(1).lock();\n"
+                '    println!("retained");\n}\n'
+            )
+            control = root / "src/main.rs"
+            control.write_text(source, encoding="utf-8")
+            scanner = root / "scanner"
+            scanner.write_text(
+                "#!/bin/sh\nexec cargo clippy --offline --quiet --message-format=json "
+                "-- -A clippy::all -Wclippy::print_stdout\n",
+                encoding="utf-8",
+            )
+            scanner.chmod(0o755)
+            with mock.patch.dict(
+                parity_suite.os.environ,
+                {
+                    "CARGO_TARGET_DIR": str(root / "target"),
+                    "CARGO_ENCODED_RUSTFLAGS": "--deny=warnings",
+                },
+            ):
+                result = parity_suite.run_generic_scanner(
+                    "oracle-rust", root, root / "work", "", str(scanner), None
+                )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            diagnostics = [
+                record["message"]
+                for line in result.stdout.splitlines()
+                if (record := json.loads(line)).get("reason") == "compiler-message"
+            ]
+            codes = {
+                message["code"]["code"]: message["level"]
+                for message in diagnostics
+                if message.get("code")
+            }
+            self.assertEqual(codes.get("let_underscore_lock"), "warning")
+            self.assertEqual(codes.get("clippy::print_stdout"), "warning")
+            self.assertFalse(
+                any(message["level"] == "error" for message in diagnostics)
+            )
+            self.assertEqual(control.read_text(encoding="utf-8"), source)
+
+    def test_rust_pinned_image_refuses_mutable_tag_fallback(self):
+        image = "localhost/hoonarqube-sonar-rust-scanner@sha256:" + "b" * 64
+
+        def run(command, **kwargs):
+            if command == ["podman", "image", "exists", image]:
+                return mock.Mock(returncode=1, stdout="", stderr="")
+            if command == [
+                "podman",
+                "image",
+                "exists",
+                parity_suite.RUST_SCANNER_IMAGE,
+            ]:
+                return mock.Mock(returncode=0, stdout="", stderr="")
+            self.fail(f"unexpected image command: {command!r}")
+
+        with (
+            mock.patch.dict(
+                parity_suite.os.environ,
+                {"SONAR_ORACLE_RUST_SCANNER_IMAGE_DIGEST": image},
+                clear=True,
+            ),
+            mock.patch.object(parity_suite.Path, "is_dir", return_value=True),
+            mock.patch.object(parity_suite.subprocess, "run", side_effect=run) as probe,
+        ):
+            self.assertIsNone(
+                parity_suite.podman_scanner_command(
+                    "/podman", "oracle-rust", Path("/source"), Path("/working")
+                )
+            )
+
+        self.assertEqual(
+            [call.args[0] for call in probe.call_args_list],
+            [["podman", "image", "exists", image]],
+        )
 
     def test_empty_oracle_token_fails_closed(self):
         with (
@@ -126,6 +306,86 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
             },
         )
 
+    def test_typescript_helper_fingerprints_ignore_cache_but_track_native_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            project = repo / "oracle-ts"
+            source = project / "src" / "main.ts"
+            config = project / "tsconfig.json"
+            dependency = project / "package.json"
+            other_config = project / ".hoonarqube" / "analysis.json"
+            generated_helper = (
+                project
+                / ".hoonarqube"
+                / "semantic"
+                / "typescript"
+                / "semantic-helper-v1.cjs"
+            )
+            tracked_helper = (
+                repo / "tools" / "semantic" / "typescript" / "semantic-helper.cjs"
+            )
+            catalog = repo / "catalog" / "rules" / "typescript.json"
+            files = {
+                source: "export const value = 1;\n",
+                config: '{"compilerOptions":{"strict":true}}\n',
+                dependency: '{"dependencies":{"typescript":"6.0.3"}}\n',
+                other_config: '{"keep":true}\n',
+                tracked_helper: "tracked-helper-v1\n",
+                catalog: "{}\n",
+                repo / "Cargo.toml": "[workspace]\n",
+                repo / "Cargo.lock": "# lock\n",
+            }
+            for path, content in files.items():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+            (repo / "crates").mkdir()
+
+            with mock.patch.object(parity_suite, "REPO", repo):
+                baseline = parity_suite.artifact_input_sha256(
+                    "oracle-ts", "ours", project_dir=project
+                )
+                generated_helper.parent.mkdir(parents=True, exist_ok=True)
+                generated_helper.write_text("generated-helper-v1\n", encoding="utf-8")
+                self.assertEqual(
+                    baseline,
+                    parity_suite.artifact_input_sha256(
+                        "oracle-ts", "ours", project_dir=project
+                    ),
+                )
+                generated_helper.write_text("generated-helper-v2\n", encoding="utf-8")
+                self.assertEqual(
+                    baseline,
+                    parity_suite.artifact_input_sha256(
+                        "oracle-ts", "ours", project_dir=project
+                    ),
+                )
+
+                tracked_helper.write_text("tracked-helper-v2\n", encoding="utf-8")
+                self.assertNotEqual(
+                    baseline,
+                    parity_suite.artifact_input_sha256(
+                        "oracle-ts", "ours", project_dir=project
+                    ),
+                )
+                tracked_helper.write_text("tracked-helper-v1\n", encoding="utf-8")
+                for path in (source, config, dependency, other_config):
+                    original = path.read_text(encoding="utf-8")
+                    path.write_text(original + "changed\n", encoding="utf-8")
+                    with self.subTest(path=path.relative_to(repo)):
+                        self.assertNotEqual(
+                            baseline,
+                            parity_suite.artifact_input_sha256(
+                                "oracle-ts", "ours", project_dir=project
+                            ),
+                        )
+                    path.write_text(original, encoding="utf-8")
+
+                tracked_helper.unlink()
+                with self.assertRaisesRegex(ValueError, "oracle input does not exist"):
+                    parity_suite.artifact_input_sha256(
+                        "oracle-ts", "ours", project_dir=project
+                    )
+
     def test_fixture_inventory_rejects_nested_basename_collisions(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -147,6 +407,115 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
         self.assertIn(f"/d:sonar.projectBaseDir={output}", command)
         self.assertIn("/d:sonar.scm.exclusions.disabled=true", command)
         self.assertIn("/d:sonar.host.url=http://sonar.test", command)
+
+    def test_csharp_context_sources_are_context_only_and_ordered_before_fixture_scope(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as directory:
+            (
+                workspace,
+                static_files,
+                mapping,
+                fixture,
+                expected_context_paths,
+            ) = self._write_csharp_context_workspace(Path(directory))
+            current_static = parity_suite._csharp_metadata_map(static_files, workspace)
+            context_paths, context_hashes = (
+                parity_suite._csharp_workspace_context_sources(
+                    workspace, static_files, current_static, [mapping]
+                )
+            )
+            self.assertEqual(context_paths, expected_context_paths)
+            self.assertEqual(set(context_hashes), set(context_paths))
+            self.assertNotIn(str(fixture), context_paths)
+            self.assertNotIn(
+                str((workspace / "projects/fixture-0000/OracleStubs.g.cs").resolve()),
+                context_paths,
+            )
+
+            native_context = {
+                "status": "READY",
+                "workspace": str(workspace),
+                "solution": str(workspace / "Oracle.slnx"),
+                "source_mapping": [mapping],
+                "source_paths": [str(fixture)],
+                "context_source_paths": context_paths,
+                "context_source_hashes": context_hashes,
+            }
+            command: list[str] = []
+            with mock.patch.dict(parity_suite.os.environ, {}, clear=True):
+                parity_suite._append_ours_command(
+                    command, "oracle-cs", fixture, native_context
+                )
+
+            values = [
+                command[index + 1]
+                for index, value in enumerate(command[:-1])
+                if value == "--csharp-context-source"
+            ]
+            fixture_index = command.index(str(fixture))
+            self.assertEqual(values, expected_context_paths)
+            self.assertTrue(
+                all(
+                    command.index(path) < fixture_index
+                    for path in expected_context_paths
+                )
+            )
+            self.assertEqual(command[fixture_index:], [str(fixture)])
+            self.assertEqual(native_context["source_paths"], [str(fixture)])
+            self.assertEqual(native_context["source_mapping"], [mapping])
+
+            report = {"files": [{"path": str(fixture)}]}
+            parity_suite._normalize_csharp_report_paths(report, native_context)
+            self.assertEqual(report["files"][0]["path"], "fixture.cs")
+            with self.assertRaisesRegex(
+                ValueError, "outside the retained fixture mapping"
+            ):
+                parity_suite._normalize_csharp_report_paths(
+                    {"files": [{"path": context_paths[0]}]}, native_context
+                )
+
+    def test_csharp_context_sources_reject_changed_or_unowned_auxiliary_inputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            (
+                workspace,
+                static_files,
+                mapping,
+                _fixture,
+                _expected_context_paths,
+            ) = self._write_csharp_context_workspace(Path(directory))
+            current_static = parity_suite._csharp_metadata_map(static_files, workspace)
+            context_paths, _ = parity_suite._csharp_workspace_context_sources(
+                workspace, static_files, current_static, [mapping]
+            )
+            changed_source = Path(context_paths[0])
+            original_source = changed_source.read_text(encoding="utf-8")
+            changed_source.write_text(original_source + "changed\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "context source hash mismatch"):
+                parity_suite._csharp_workspace_context_sources(
+                    workspace, static_files, current_static, [mapping]
+                )
+            changed_source.write_text(original_source, encoding="utf-8")
+
+            project = (
+                workspace
+                / "projects/azure-functions-framework"
+                / ("AzureFunctions.csproj")
+            )
+            project.write_text(
+                """<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+</Project>
+""",
+                encoding="utf-8",
+            )
+            changed_static = parity_suite._csharp_metadata_map(static_files, workspace)
+            with self.assertRaisesRegex(ValueError, "no project Compile owner"):
+                parity_suite._csharp_workspace_context_sources(
+                    workspace, static_files, changed_static, [mapping]
+                )
 
     def test_csharp_failed_native_build_fails_closed_after_scanner_end(self):
         def completed(code, output=""):
@@ -310,6 +679,112 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
         self.assertIsNone(rows)
         self.assertIsNone(issues)
         self.assertEqual(error, "truncated page")
+
+    def test_full_run_csharp_fetch_allows_approved_project_issues(self):
+        with (
+            mock.patch.object(parity_suite, "scan_project", return_value=True),
+            mock.patch.object(
+                parity_suite, "fetch_issues", side_effect=ValueError("truncated page")
+            ) as fetch,
+        ):
+            rows, issues, error = parity_suite.project_rows("oracle-cs", quick=False)
+
+        fetch.assert_called_once_with("oracle-cs", allow_project_issues=True)
+        self.assertIsNone(rows)
+        self.assertIsNone(issues)
+        self.assertEqual(error, "truncated page")
+
+    def test_native_exit2_keeps_incomplete_report_and_exact_execution(self):
+        report = {
+            "schema_version": 1,
+            "files": [
+                {
+                    "path": "/fixture/s112_bad.py",
+                    "issues": [
+                        {
+                            "rule_key": "python:S112",
+                            "message": "generic exception",
+                            "range": {
+                                "start": {"line": 1, "column": 0},
+                                "end": {"line": 1, "column": 4},
+                            },
+                        }
+                    ],
+                }
+            ],
+            "project": {
+                "complete": False,
+                "warnings": ["assessment: parser failed"],
+                "files": [
+                    {
+                        "path": "src/s112_bad.py",
+                        "status": "failed",
+                    }
+                ],
+            },
+        }
+        completed = mock.Mock(
+            returncode=2,
+            stdout=json.dumps(report, separators=(",", ":")),
+            stderr="parser failed\n",
+        )
+        context = {"status": "SYNTAX_ONLY", "kind": "python"}
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(parity_suite.subprocess, "run", return_value=completed),
+            mock.patch.object(parity_suite, "attach_artifact_evidence"),
+            mock.patch.object(parity_suite, "attach_artifact_provenance"),
+            mock.patch.object(parity_suite, "validate_artifact_provenance"),
+        ):
+            output = Path(directory) / "ours.json"
+            self.assertEqual(
+                parity_suite._execute_ours(
+                    "oracle-py",
+                    ["/scanner", "analyze", "--format", "json"],
+                    output,
+                    context,
+                ),
+                output,
+            )
+            self.assertEqual(json.loads(output.read_text()), report)
+
+        execution = context["execution"]
+        self.assertEqual(execution["status"], "INCOMPLETE")
+        self.assertEqual(execution["exit_code"], 2)
+        self.assertEqual(execution["stdout"], completed.stdout)
+        self.assertEqual(execution["stderr"], completed.stderr)
+        self.assertEqual(execution["argv"], ["/scanner", "analyze", "--format", "json"])
+        self.assertIs(execution["project_complete"], False)
+        self.assertEqual(
+            execution["reason"],
+            "native project analysis is incomplete: assessment: parser failed",
+        )
+
+    def test_failed_empty_native_report_clears_stale_output(self):
+        completed = mock.Mock(returncode=1, stdout="", stderr="fatal\n")
+        context = {"status": "SYNTAX_ONLY", "kind": "python"}
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(parity_suite.subprocess, "run", return_value=completed),
+        ):
+            output = Path(directory) / "ours.json"
+            output.write_text("stale")
+            self.assertIsNone(
+                parity_suite._execute_ours(
+                    "oracle-py",
+                    ["/scanner", "analyze", "--format", "json"],
+                    output,
+                    context,
+                )
+            )
+            self.assertFalse(output.exists())
+
+        execution = context["execution"]
+        self.assertEqual(execution["status"], "INVALID")
+        self.assertEqual(execution["exit_code"], 1)
+        self.assertEqual(execution["stdout"], "")
+        self.assertEqual(execution["stderr"], "fatal\n")
+        self.assertIn("invalid report", execution["reason"])
 
     def test_failed_oracle_scan_fails_gate_without_using_stale_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:

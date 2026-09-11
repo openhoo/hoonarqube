@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true
+  },
+  "files": [
+    "src/deprecated.ts",
+    "src/index.ts",
+    "src/assertions.ts",
+    "src/nullish.ts",
+    "src/internal.ts",
+    "src/consumer.tsx",
+    "src/module.mts",
+    "src/module.cts",
+    "src/module.js",
+    "src/component.jsx"
+  ],
+  "references": [{ "path": "./reference" }]
+}

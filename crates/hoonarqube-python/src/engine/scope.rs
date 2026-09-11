@@ -111,6 +111,13 @@ impl SymbolScope {
             nonlocal_names: Vec::new(),
         }
     }
+    pub(crate) fn declares_global(&self, name: &str) -> bool {
+        self.global_names.iter().any(|declared| declared == name)
+    }
+
+    pub(crate) fn declares_nonlocal(&self, name: &str) -> bool {
+        self.nonlocal_names.iter().any(|declared| declared == name)
+    }
 }
 
 pub(crate) struct LoadRecord {

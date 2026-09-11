@@ -1,0 +1,438 @@
+{
+  "schema_version": 1,
+  "artifact": "csharp-security-reference-20260909",
+  "status": "verified_worktree_primary_tuples_commit_pending",
+  "claim_boundary": "Actual SonarQube Community C# server and an independent pinned Roslyn analyzer agree on six isolated controls. The built native CLI now matches the two primary finding tuples and four zero controls, and also matches a fresh full-server-corpus replay of the four published merged fixtures. This is bounded S1313/S2077 primary finding evidence, not whole-catalog security or taint-flow parity; final committed-release replay remains required.",
+  "repository_identity": {
+    "status": "not_recorded",
+    "commit": "not_recorded",
+    "note": "Do not substitute the current checkout HEAD. Main must record the committed identity from the fresh native replay."
+  },
+  "catalog_boundary_migration": {
+    "removed": [
+      "csharpsquid:S1313",
+      "csharpsquid:S2077"
+    ],
+    "unchanged": "All other catalog infrastructure-boundary entries remain unchanged."
+  },
+  "frozen_catalog_kinds": {
+    "csharpsquid:S1313": "SECURITY_HOTSPOT",
+    "csharpsquid:S2077": "SECURITY_HOTSPOT"
+  },
+  "observed_server_kinds": {
+    "csharpsquid:S1313": "CODE_SMELL",
+    "csharpsquid:S2077": "VULNERABILITY"
+  },
+  "original_sources": [
+    {
+      "name": "IpAttack.cs",
+      "bytes": 84,
+      "sha256": "06b1bb61c9208f3c040b74a4e89b96070c1b5e3037016471313749fe6e88d0c2",
+      "content": "public static class IpAttack { public static string Address() => \"192.168.10.42\"; }\n"
+    },
+    {
+      "name": "IpSafe.cs",
+      "bytes": 94,
+      "sha256": "6654d8a0c3ebd1880614ccd893cd4f2530e1c5daa8cf3183a642c8e599255398",
+      "content": "public static class IpSafe { public static string Address(string configured) => configured; }\n"
+    },
+    {
+      "name": "IpNearMiss.cs",
+      "bytes": 83,
+      "sha256": "a75a65e6232457ba816b1cfb93b05eb57f84190c5760b81258c07c154a310a67",
+      "content": "public static class IpNearMiss { public static string Address() => \"192.168.10\"; }\n"
+    },
+    {
+      "name": "SqlAttack.cs",
+      "bytes": 196,
+      "sha256": "8c59561bc28103ff4b9fb31515394e85c62e80cd818f5ffe354de79531b1e8ea",
+      "content": "using System.Data.Common;\npublic static class SqlAttack { public static void Run(DbCommand command, string input) { command.CommandText = \"SELECT * FROM records WHERE name = '\" + input + \"'\"; } }\n"
+    },
+    {
+      "name": "SqlSafe.cs",
+      "bytes": 170,
+      "sha256": "6064665778fe1e67f64fbc25e5aef2ab1f01922e0efd06c4f4e9da2628186b15",
+      "content": "using System.Data.Common;\npublic static class SqlSafe { public static void Run(DbCommand command) { command.CommandText = \"SELECT * FROM records WHERE name = @name\"; } }\n"
+    },
+    {
+      "name": "SqlNearMiss.cs",
+      "bytes": 260,
+      "sha256": "eecaf3bbd1461732a5e80b3fb8788c7b9f6db4572599ee27f108f840b6705715",
+      "content": "public sealed class CustomCommand { public string CommandText { get; set; } = \"\"; }\npublic static class SqlNearMiss { public static void Run(CustomCommand command, string input) { command.CommandText = \"SELECT * FROM records WHERE name = '\" + input + \"'\"; } }\n"
+    }
+  ],
+  "published_corpus": {
+    "root": ".oracle/sonar/projects/oracle-cs",
+    "files": [
+      {
+        "path": "s1313_bad.cs",
+        "role": "attack",
+        "exact_source": "IpAttack.cs",
+        "source_sha256": "06b1bb61c9208f3c040b74a4e89b96070c1b5e3037016471313749fe6e88d0c2"
+      },
+      {
+        "path": "s1313_good.cs",
+        "role": "combined_control",
+        "components": [
+          "IpSafe.cs",
+          "IpNearMiss.cs"
+        ],
+        "merge": "Exact component declarations separated by one blank line; declaration semantics are unchanged.",
+        "fresh_main_scan_required": true
+      },
+      {
+        "path": "s2077_bad.cs",
+        "role": "attack",
+        "exact_source": "SqlAttack.cs",
+        "source_sha256": "8c59561bc28103ff4b9fb31515394e85c62e80cd818f5ffe354de79531b1e8ea"
+      },
+      {
+        "path": "s2077_good.cs",
+        "role": "combined_control",
+        "components": [
+          "SqlSafe.cs",
+          "SqlNearMiss.cs"
+        ],
+        "merge": "Exact component declarations separated by one blank line; declaration semantics are unchanged.",
+        "fresh_main_scan_required": true
+      }
+    ],
+    "replay_requirement": "Fresh Main-owned full server corpus and four-file native replay completed with exact primary tuples and zero target findings on both merged good files. Repeat against the committed release binary before claiming released qualification."
+  },
+  "agreement": [
+    {
+      "source": "IpAttack.cs",
+      "rule": "csharpsquid:S1313",
+      "role": "attack",
+      "server_target_count": 1,
+      "independent_analyzer_target_count": 1
+    },
+    {
+      "source": "IpSafe.cs",
+      "rule": "csharpsquid:S1313",
+      "role": "zero_control",
+      "server_target_count": 0,
+      "independent_analyzer_target_count": 0
+    },
+    {
+      "source": "IpNearMiss.cs",
+      "rule": "csharpsquid:S1313",
+      "role": "zero_control",
+      "server_target_count": 0,
+      "independent_analyzer_target_count": 0
+    },
+    {
+      "source": "SqlAttack.cs",
+      "rule": "csharpsquid:S2077",
+      "role": "attack",
+      "server_target_count": 1,
+      "independent_analyzer_target_count": 1
+    },
+    {
+      "source": "SqlSafe.cs",
+      "rule": "csharpsquid:S2077",
+      "role": "zero_control",
+      "server_target_count": 0,
+      "independent_analyzer_target_count": 0
+    },
+    {
+      "source": "SqlNearMiss.cs",
+      "rule": "csharpsquid:S2077",
+      "role": "zero_control",
+      "server_target_count": 0,
+      "independent_analyzer_target_count": 0
+    }
+  ],
+  "server_reference": {
+    "server_version": "26.8.0.126808",
+    "scanner": {
+      "name": "SonarScanner for .NET",
+      "version": "11.2.1",
+      "scanner_dll_sha256": "574b7a322e283bb82fee76c966c63340935594925e6799774b7d6869636a51ec"
+    },
+    "csharp_plugin": {
+      "version": "10.31.0.145097",
+      "build": "145097",
+      "package": "sonar-csharp-plugin-10.31.0.145097.jar",
+      "package_sha256": "2fb54d5397847d2bafb8a2ff33c0f6cb380ec417f502abc92270e248a7ef91bf",
+      "server_reported_hash": "b4fa96062dcc82b846820437a668be62",
+      "executed_analyzer_sha256": "fe8dd6674c48ac090668f9a7afb2473c4b62e60da3dfdc0068774b268fce63d9",
+      "official_package_analyzer_sha256": "fe8dd6674c48ac090668f9a7afb2473c4b62e60da3dfdc0068774b268fce63d9"
+    },
+    "compiler": {
+      "roslyn": "42.42.42.42",
+      "language_version": "CSharp14",
+      "target_framework": "net10.0"
+    },
+    "target_issues": [
+      {
+        "source": "IpAttack.cs",
+        "rule": "csharpsquid:S1313",
+        "target_count": 1,
+        "observed_kind": "CODE_SMELL",
+        "message": "Do not hardcode IP address '192.168.10.42'.",
+        "range": {
+          "start_line": 1,
+          "end_line": 1,
+          "start_offset": 65,
+          "end_offset": 80,
+          "offsets": "zero-based, end-exclusive"
+        }
+      },
+      {
+        "source": "SqlAttack.cs",
+        "rule": "csharpsquid:S2077",
+        "target_count": 1,
+        "observed_kind": "VULNERABILITY",
+        "message": "Use a parameterized query instead of string formatting.",
+        "range": {
+          "start_line": 2,
+          "end_line": 2,
+          "start_offset": 90,
+          "end_offset": 109,
+          "offsets": "zero-based, end-exclusive"
+        }
+      }
+    ],
+    "zero_control_results": [
+      {
+        "source": "IpSafe.cs",
+        "rule": "csharpsquid:S1313",
+        "target_count": 0
+      },
+      {
+        "source": "IpNearMiss.cs",
+        "rule": "csharpsquid:S1313",
+        "target_count": 0
+      },
+      {
+        "source": "SqlSafe.cs",
+        "rule": "csharpsquid:S2077",
+        "target_count": 0
+      },
+      {
+        "source": "SqlNearMiss.cs",
+        "rule": "csharpsquid:S2077",
+        "target_count": 0
+      }
+    ]
+  },
+  "independent_analyzer_reference": {
+    "package": "SonarAnalyzer.CSharp",
+    "version": "10.33.0.1635",
+    "nupkg_sha256": "164449741635d2c4ca82dc7e096b95cc325fc695cae4c364d5355d5c57070527",
+    "assembly_sha256": "461b82be21a9e8f57c1312ff877f8276789eeec5e64678344e961a0a3edfd957",
+    "dotnet_sdk": "10.0.111",
+    "target_framework": "net10.0",
+    "target_diagnostics": [
+      {
+        "source": "IpAttack.cs",
+        "rule": "csharpsquid:S1313",
+        "target_count": 1,
+        "message": "Do not hardcode IP address '192.168.10.42'.",
+        "range": {
+          "start": 65,
+          "length": 15,
+          "line": 1,
+          "column": 66,
+          "end_line": 1,
+          "end_column": 81,
+          "location_kind": "SourceFile"
+        },
+        "category": "Minor Code Smell"
+      },
+      {
+        "source": "SqlAttack.cs",
+        "rule": "csharpsquid:S2077",
+        "target_count": 1,
+        "message": "Use a parameterized query instead of string formatting.",
+        "range": {
+          "start": 116,
+          "length": 19,
+          "line": 2,
+          "column": 91,
+          "end_line": 2,
+          "end_column": 110,
+          "location_kind": "SourceFile"
+        },
+        "category": "Major Vulnerability"
+      }
+    ],
+    "zero_control_results": [
+      {
+        "source": "IpSafe.cs",
+        "rule": "csharpsquid:S1313",
+        "target_count": 0
+      },
+      {
+        "source": "IpNearMiss.cs",
+        "rule": "csharpsquid:S1313",
+        "target_count": 0
+      },
+      {
+        "source": "SqlSafe.cs",
+        "rule": "csharpsquid:S2077",
+        "target_count": 0
+      },
+      {
+        "source": "SqlNearMiss.cs",
+        "rule": "csharpsquid:S2077",
+        "target_count": 0
+      }
+    ]
+  },
+  "native_evidence": {
+    "status": "verified_worktree_primary_tuples",
+    "not_used_as_reference": true,
+    "binary_sha256": "a1c618230c221e9ce7984234eaa700578a1089b45977ad66b5a9eb4ffa1517f7",
+    "repository_identity": "working-tree binary; final committed release identity pending",
+    "original_controls": {
+      "exit_code": 0,
+      "complete": true,
+      "source_sha256": {
+        "SqlAttack.cs": "8c59561bc28103ff4b9fb31515394e85c62e80cd818f5ffe354de79531b1e8ea",
+        "SqlSafe.cs": "6064665778fe1e67f64fbc25e5aef2ab1f01922e0efd06c4f4e9da2628186b15",
+        "SqlNearMiss.cs": "eecaf3bbd1461732a5e80b3fb8788c7b9f6db4572599ee27f108f840b6705715",
+        "IpAttack.cs": "06b1bb61c9208f3c040b74a4e89b96070c1b5e3037016471313749fe6e88d0c2",
+        "IpSafe.cs": "6654d8a0c3ebd1880614ccd893cd4f2530e1c5daa8cf3183a642c8e599255398",
+        "IpNearMiss.cs": "a75a65e6232457ba816b1cfb93b05eb57f84190c5760b81258c07c154a310a67"
+      },
+      "target_findings": [
+        {
+          "file": "IpAttack.cs",
+          "rule": "csharpsquid:S1313",
+          "message": "Do not hardcode IP address '192.168.10.42'.",
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 65
+            },
+            "end": {
+              "line": 1,
+              "column": 80
+            }
+          }
+        },
+        {
+          "file": "SqlAttack.cs",
+          "rule": "csharpsquid:S2077",
+          "message": "Use a parameterized query instead of string formatting.",
+          "range": {
+            "start": {
+              "line": 2,
+              "column": 90
+            },
+            "end": {
+              "line": 2,
+              "column": 109
+            }
+          }
+        }
+      ],
+      "zero_target_controls": [
+        "IpNearMiss.cs",
+        "IpSafe.cs",
+        "SqlNearMiss.cs",
+        "SqlSafe.cs"
+      ]
+    },
+    "merged_corpus": {
+      "exit_code": 0,
+      "complete": true,
+      "source_sha256": {
+        "s1313_bad.cs": "06b1bb61c9208f3c040b74a4e89b96070c1b5e3037016471313749fe6e88d0c2",
+        "s1313_good.cs": "705fd3db9e24582f9a0b9bb2350212c8de044873540f14f1c0d6409ac72584d9",
+        "s2077_bad.cs": "8c59561bc28103ff4b9fb31515394e85c62e80cd818f5ffe354de79531b1e8ea",
+        "s2077_good.cs": "aefe518712a424ee7cd2e2cdfb27a3a3fc5a54df61246b94dc784e947e9594ac"
+      },
+      "target_findings": [
+        {
+          "file": "s1313_bad.cs",
+          "rule": "csharpsquid:S1313",
+          "message": "Do not hardcode IP address '192.168.10.42'.",
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 65
+            },
+            "end": {
+              "line": 1,
+              "column": 80
+            }
+          }
+        },
+        {
+          "file": "s2077_bad.cs",
+          "rule": "csharpsquid:S2077",
+          "message": "Use a parameterized query instead of string formatting.",
+          "range": {
+            "start": {
+              "line": 2,
+              "column": 90
+            },
+            "end": {
+              "line": 2,
+              "column": 109
+            }
+          }
+        }
+      ],
+      "zero_target_controls": [
+        "s1313_good.cs",
+        "s2077_good.cs"
+      ],
+      "reference_target_findings": [
+        {
+          "file": "s2077_bad.cs",
+          "rule": "csharpsquid:S2077",
+          "message": "Use a parameterized query instead of string formatting.",
+          "range": {
+            "start": {
+              "line": 2,
+              "column": 90
+            },
+            "end": {
+              "line": 2,
+              "column": 109
+            }
+          }
+        },
+        {
+          "file": "s1313_bad.cs",
+          "rule": "csharpsquid:S1313",
+          "message": "Do not hardcode IP address '192.168.10.42'.",
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 65
+            },
+            "end": {
+              "line": 1,
+              "column": 80
+            }
+          }
+        }
+      ],
+      "primary_tuple_comparison": "EXACT",
+      "reference_capture_sha256": "4d67014845f7ad031bf306512738d51e9948f0b99a279a91f93fca7e7dcb7e36",
+      "reference_manifest_sha256": "0e2a24dbc7f4f70cad0388669c33d56ab528ca5965a6ee0f7f8a369cd2b5d4b7"
+    },
+    "replay_argv": [
+      "<REPOSITORY>/target/debug/hoonarqube",
+      "analyze",
+      "--profile",
+      "sonar-parity",
+      "--format",
+      "json",
+      ".oracle/sonar/projects/oracle-cs/s1313_bad.cs",
+      ".oracle/sonar/projects/oracle-cs/s1313_good.cs",
+      ".oracle/sonar/projects/oracle-cs/s2077_bad.cs",
+      ".oracle/sonar/projects/oracle-cs/s2077_good.cs"
+    ],
+    "limits": [
+      "Frozen catalog security-hotspot kinds remain distinct from observed server CODE_SMELL/VULNERABILITY kinds.",
+      "No complete source-to-sink flow or licensed Enterprise equivalence is asserted.",
+      "Source and executable digests identify this working-tree proof; committed release replay remains pending."
+    ]
+  }
+}

@@ -37,6 +37,7 @@ pub(crate) fn check_suite(
                 ),
                 fix: None,
                 flows: Vec::new(),
+                alternatives: Vec::new(),
             });
         }
         for stmt in &suite[start..end] {

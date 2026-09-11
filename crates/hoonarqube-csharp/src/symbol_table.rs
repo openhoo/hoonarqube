@@ -5,6 +5,7 @@ use crate::cst::{ancestors_of, canonical_identifier, collect_kinds, modifiers_of
 use crate::rules::expressions::{binary_operands, first_named_child};
 use crate::rules::modifiers::has_modifier;
 use crate::rules::naming::{TYPE_DECLARATION_KINDS, type_members};
+use std::collections::{HashMap, HashSet};
 use tree_sitter::Node;
 
 /// Member-level declarations owning data or executable bodies. Deliberately
@@ -75,31 +76,36 @@ pub(crate) struct UsageSymbols<'t> {
     pub(crate) members: Vec<MemberSymbol<'t>>,
     pub(crate) references: Vec<Reference<'t>>,
     pub(crate) writes: Vec<WriteSite<'t>>,
+    reference_indices_by_name: HashMap<&'t str, Vec<usize>>,
+    write_indices_by_name: HashMap<&'t str, Vec<usize>>,
+    member_names_by_owner: HashMap<usize, HashSet<&'t str>>,
 }
 
 impl<'t> UsageSymbols<'t> {
-    pub(crate) fn uses_of(&self, name: &str) -> Vec<Node<'t>> {
-        self.references
-            .iter()
-            .filter(|reference| reference.name == name && !reference.introduces_binding)
-            .map(|reference| reference.node)
-            .collect()
+    /// Returns non-binding references for `name` in source order.
+    ///
+    /// The symbol collector already visits identifiers in document order, so
+    /// the index vectors preserve the old `uses_of` ordering without
+    /// rescanning every reference or allocating a result vector per member.
+    pub(crate) fn uses_of(&self, name: &str) -> impl Iterator<Item = Node<'t>> + '_ + use<'t, '_> {
+        self.reference_indices_by_name
+            .get(name)
+            .into_iter()
+            .flatten()
+            .map(|&index| self.references[index].node)
     }
 
-    pub(crate) fn writes_of(&self, name: &str) -> Vec<Node<'t>> {
-        self.writes
-            .iter()
-            .filter(|site| site.name == name)
-            .map(|site| site.node)
-            .collect()
+    /// Returns writes targeting `name` in source order.
+    pub(crate) fn writes_of(&self, name: &str) -> impl Iterator<Item = Node<'t>> + '_ {
+        self.write_indices_by_name
+            .get(name)
+            .into_iter()
+            .flatten()
+            .map(|&index| self.writes[index].node)
     }
 
-    fn member_names_of(&self, owner: Node<'t>) -> std::collections::HashSet<&'t str> {
-        self.members
-            .iter()
-            .filter(|member| member.owner == owner)
-            .map(|member| member.name)
-            .collect()
+    fn member_names_of(&self, owner: Node<'t>) -> Option<&HashSet<&'t str>> {
+        self.member_names_by_owner.get(&owner.id())
     }
 
     pub(crate) fn static_members_of(&self, owner: Node<'t>) -> Vec<&MemberSymbol<'t>> {
@@ -107,6 +113,15 @@ impl<'t> UsageSymbols<'t> {
             .iter()
             .filter(|member| member.owner == owner && member.is_static_or_const)
             .collect()
+    }
+
+    fn populate_member_names(&mut self) {
+        for member in &self.members {
+            self.member_names_by_owner
+                .entry(member.owner.id())
+                .or_default()
+                .insert(member.name);
+        }
     }
 }
 
@@ -116,42 +131,96 @@ pub(crate) fn build_usage_symbols<'t>(root: Node<'t>, source: &'t str) -> UsageS
         members: Vec::new(),
         references: Vec::new(),
         writes: Vec::new(),
+        reference_indices_by_name: HashMap::new(),
+        write_indices_by_name: HashMap::new(),
+        member_names_by_owner: HashMap::new(),
     };
     collect_usage_symbols(root, source, &mut symbols);
+    symbols.populate_member_names();
     symbols
 }
 
 fn collect_usage_symbols<'t>(root: Node<'t>, source: &'t str, symbols: &mut UsageSymbols<'t>) {
-    let mut pending = vec![(root, None)];
-    while let Some((node, type_owner)) = pending.pop() {
-        if node.is_error() || node.is_missing() {
+    let mut cursor = root.walk();
+    // One owner entry per cursor depth; unlike the previous child collection,
+    // this stack is reused for the entire walk and preserves pre-order.
+    let mut owner_stack: Vec<Option<Node<'t>>> = vec![None];
+    loop {
+        let node = cursor.node();
+        let type_owner = *owner_stack
+            .last()
+            .expect("the root cursor always has an owner entry");
+        let valid = !node.is_error() && !node.is_missing();
+        let child_owner = if valid {
+            collect_node_symbols(node, type_owner, source, symbols)
+        } else {
+            type_owner
+        };
+
+        if valid && cursor.goto_first_child() {
+            owner_stack.push(child_owner);
             continue;
         }
-        let mut child_owner = type_owner;
-        match node.kind() {
-            kind if TYPE_DECLARATION_KINDS.contains(&kind) => {
-                symbols.types.push(TypeSymbol {
-                    declaration: node,
-                    parent: type_owner,
-                });
-                collect_declared_members(node, type_owner.is_some(), source, symbols);
-                child_owner = Some(node);
+        loop {
+            if cursor.goto_next_sibling() {
+                break;
             }
-            "identifier" => symbols.references.push(Reference {
-                name: canonical_identifier(node_text(node, source)),
-                node,
-                introduces_binding: introduces_binding(node),
-            }),
-            _ => {
-                if let Some(site) = write_site(node, source) {
-                    symbols.writes.push(site);
-                }
+            if !cursor.goto_parent() {
+                return;
             }
+            owner_stack.pop();
         }
-        let mut cursor = node.walk();
-        let mut children: Vec<Node<'t>> = node.children(&mut cursor).collect();
-        children.reverse();
-        pending.extend(children.into_iter().map(|child| (child, child_owner)));
+    }
+}
+
+/// Collects the symbols contributed by one valid node and returns its owner
+/// for child traversal.
+fn collect_node_symbols<'t>(
+    node: Node<'t>,
+    type_owner: Option<Node<'t>>,
+    source: &'t str,
+    symbols: &mut UsageSymbols<'t>,
+) -> Option<Node<'t>> {
+    match node.kind() {
+        kind if TYPE_DECLARATION_KINDS.contains(&kind) => {
+            symbols.types.push(TypeSymbol {
+                declaration: node,
+                parent: type_owner,
+            });
+            collect_declared_members(node, type_owner.is_some(), source, symbols);
+            Some(node)
+        }
+        "identifier" => {
+            let name = canonical_identifier(node_text(node, source));
+            let introduces_binding = introduces_binding(node);
+            let index = symbols.references.len();
+            symbols.references.push(Reference {
+                name,
+                node,
+                introduces_binding,
+            });
+            if !introduces_binding {
+                symbols
+                    .reference_indices_by_name
+                    .entry(name)
+                    .or_default()
+                    .push(index);
+            }
+            type_owner
+        }
+        _ => {
+            if let Some(site) = write_site(node, source) {
+                let name = site.name;
+                let index = symbols.writes.len();
+                symbols.writes.push(site);
+                symbols
+                    .write_indices_by_name
+                    .entry(name)
+                    .or_default()
+                    .push(index);
+            }
+            type_owner
+        }
     }
 }
 
@@ -422,7 +491,7 @@ pub(crate) fn touches_instance_data(member: &MemberSymbol<'_>, symbols: &UsageSy
             && reference_span.end <= span.end
             && !reference.introduces_binding
             && reference.name != member.name
-            && owner_names.contains(reference.name)
+            && owner_names.is_some_and(|names| names.contains(reference.name))
     });
     sibling_reference || !collect_kinds(member.declaration, &["this", "this_expression"]).is_empty()
 }
@@ -483,13 +552,45 @@ class C
         assert_eq!(fields[0].name, "größe");
         assert_eq!(fields[1].name, "größe");
         assert_ne!(fields[0].owner, fields[1].owner);
-        assert_eq!(symbols.writes_of("größe").len(), 1);
+        assert_eq!(symbols.writes_of("größe").count(), 1);
         let method = symbols
             .members
             .iter()
             .find(|member| member.flavor == MemberFlavor::Method)
             .expect("nested method is indexed");
         assert!(touches_instance_data(method, &symbols));
+    }
+
+    #[test]
+    fn indexed_name_queries_preserve_order_and_canonicalize_bindings() {
+        let source = r"
+class C
+{
+    private int @value;
+    void M(int @value)
+    {
+        @value = 1;
+        value++;
+        Consume(@value);
+        value = @value;
+    }
+}
+";
+        let tree = parse(source);
+        let symbols = build_usage_symbols(tree.root_node(), source);
+
+        let uses: Vec<&str> = symbols
+            .uses_of("value")
+            .map(|node| crate::cst::node_text(node, source))
+            .collect();
+        assert_eq!(uses, vec!["@value", "value", "@value", "value", "@value"]);
+
+        let writes: Vec<&str> = symbols
+            .writes_of("value")
+            .map(|node| crate::cst::node_text(node, source))
+            .collect();
+        assert_eq!(writes, vec!["@value = 1", "value++", "value = @value"]);
+        assert!(symbols.uses_of("missing").next().is_none());
     }
 
     #[test]

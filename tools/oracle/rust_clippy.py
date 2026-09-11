@@ -16,7 +16,7 @@ import os
 import subprocess
 import tempfile
 import zipfile
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from parity import read_jsonl, write_text_atomic
 
@@ -153,6 +153,68 @@ UPSTREAM_BOUNDARIES = {
     },
 }
 FIXTURE_TIMEOUT_SECONDS = 300
+FRONTEND_ONLY_CONTROL = ("rust:S2260", "bad")
+FRONTEND_ONLY_REASON = (
+    "malformed rust:S2260 bad fixture is retained for frontend-only analysis"
+)
+MATERIALIZED_CARGO = Path("Cargo.toml")
+MATERIALIZED_MAIN = Path("src/oracle_main.rs")
+MATERIALIZED_INVENTORY = Path("rust-source-inventory.json")
+_RUST_MODULE_KEYWORDS = frozenset(
+    {
+        "Self",
+        "as",
+        "async",
+        "await",
+        "break",
+        "const",
+        "continue",
+        "crate",
+        "dyn",
+        "else",
+        "enum",
+        "extern",
+        "false",
+        "fn",
+        "for",
+        "if",
+        "impl",
+        "in",
+        "let",
+        "loop",
+        "match",
+        "mod",
+        "move",
+        "mut",
+        "pub",
+        "ref",
+        "return",
+        "self",
+        "static",
+        "struct",
+        "super",
+        "trait",
+        "true",
+        "type",
+        "unsafe",
+        "use",
+        "where",
+        "while",
+        "abstract",
+        "become",
+        "box",
+        "do",
+        "final",
+        "macro",
+        "override",
+        "priv",
+        "typeof",
+        "unsized",
+        "virtual",
+        "yield",
+        "gen",
+    }
+)
 
 
 def expectations(project_dir: Path) -> list[dict[str, object]]:
@@ -488,8 +550,229 @@ def _fixture_pairs(item: dict[str, object]) -> tuple[tuple[str, bool], ...]:
     return ((bad_name, True), (good_name, False))
 
 
+def _fixture_relative_path(key: str, fixture_name: str) -> Path:
+    if not isinstance(fixture_name, str) or not fixture_name:
+        raise RuntimeError(f"{key}: fixture path escapes source root: {fixture_name}")
+    relative = Path(fixture_name)
+    windows = PureWindowsPath(fixture_name)
+    if (
+        not relative.parts
+        or relative.is_absolute()
+        or windows.root
+        or windows.drive
+        or "\\" in fixture_name
+        or any(part in {".", ".."} for part in relative.parts)
+        or any(
+            ord(character) < 32 or ord(character) == 127 for character in fixture_name
+        )
+    ):
+        raise RuntimeError(f"{key}: fixture path escapes source root: {fixture_name}")
+    return relative
+
+
+def _fixture_source_path(
+    project_dir: Path, key: str, fixture_name: str
+) -> tuple[Path, str]:
+    if project_dir.is_symlink() or not project_dir.is_dir():
+        raise RuntimeError(
+            f"{key}: Rust fixture project must be a real directory: {project_dir}"
+        )
+    source_root = project_dir / "src"
+    if source_root.is_symlink() or not source_root.is_dir():
+        raise RuntimeError(
+            f"{key}: Rust fixture source root is unavailable: {source_root}"
+        )
+    relative = _fixture_relative_path(key, fixture_name)
+
+    try:
+        resolved_root = source_root.resolve()
+    except (OSError, RuntimeError) as error:
+        raise RuntimeError(
+            f"{key}: cannot resolve Rust fixture source root: {source_root}"
+        ) from error
+
+    candidate = source_root.joinpath(relative)
+    current = source_root
+    for part in relative.parts:
+        current /= part
+        if current.is_symlink():
+            raise RuntimeError(
+                f"{key}: fixture source must not be a symlink: {fixture_name}"
+            )
+    try:
+        resolved = candidate.resolve(strict=False)
+    except (OSError, RuntimeError, ValueError) as error:
+        raise RuntimeError(
+            f"{key}: cannot safely resolve fixture source: {fixture_name}"
+        ) from error
+    try:
+        resolved.relative_to(resolved_root)
+    except ValueError as error:
+        raise RuntimeError(
+            f"{key}: fixture path escapes source root: {fixture_name}"
+        ) from error
+    if candidate.is_symlink():
+        raise RuntimeError(
+            f"{key}: fixture source must not be a symlink: {fixture_name}"
+        )
+    if not candidate.is_file():
+        raise RuntimeError(
+            f"{key}: fixture source does not exist or is not a regular file: "
+            f"{fixture_name}"
+        )
+    return candidate, relative.as_posix()
+
+
+def _materialization_entries(
+    project_dir: Path, items: list[dict[str, object]]
+) -> list[dict[str, object]]:
+    entries: list[dict[str, object]] = []
+    for item in items:
+        key = item.get("key")
+        if not isinstance(key, str) or not key:
+            raise RuntimeError("Rust materializer expectation key must be a string")
+        for fixture_name, should_fire in _fixture_pairs(item):
+            _, relative = _fixture_source_path(project_dir, key, fixture_name)
+            role = "bad" if should_fire else "good"
+            excluded = (key, role) == FRONTEND_ONLY_CONTROL
+            entries.append(
+                {
+                    "key": key,
+                    "role": role,
+                    "fixture": fixture_name,
+                    "relative": relative,
+                    "compiled": not excluded,
+                }
+            )
+    entries.sort(
+        key=lambda entry: (
+            str(entry["relative"]),
+            str(entry["key"]),
+            str(entry["role"]),
+        )
+    )
+    return entries
+
+
+def _module_identifier(relative: str, used: set[str]) -> str:
+    stem = Path(relative).with_suffix("").as_posix().replace("/", "_")
+    base = "".join(
+        character
+        if character.isascii() and (character.isalnum() or character == "_")
+        else "_"
+        for character in stem
+    )
+    if not base:
+        base = "fixture"
+    if base[0].isdigit():
+        base = f"fixture_{base}"
+    if base in _RUST_MODULE_KEYWORDS:
+        base = f"{base}_fixture"
+    candidate = base
+    suffix = 2
+    while candidate in used:
+        candidate = f"{base}_{suffix}"
+        suffix += 1
+    used.add(candidate)
+    return candidate
+
+
+def _render_oracle_main(entries: list[dict[str, object]]) -> str:
+    rows = [
+        "// Cargo entry point for SonarQube's automatic Clippy sensor.",
+        "// Native Rust rules remain scanner-owned; every valid bad and good",
+        "// fixture is compiled as an isolated module so diagnostics retain its",
+        "// fixture path. The malformed rust:S2260 bad fixture remains frontend-only.",
+    ]
+    used_modules: set[str] = set()
+    for entry in entries:
+        if not entry["compiled"]:
+            continue
+        relative = str(entry["relative"])
+        module = _module_identifier(relative, used_modules)
+        entry["module"] = module
+        rows.append(
+            f"#[path = {json.dumps(relative, ensure_ascii=False)}] mod {module};"
+        )
+    rows.extend(["", "fn main() {}", ""])
+    return "\n".join(rows)
+
+
+def _render_source_inventory(entries: list[dict[str, object]]) -> str:
+    compiled = []
+    excluded = []
+    for entry in entries:
+        row = {
+            "fixture": str(entry["fixture"]),
+            "key": str(entry["key"]),
+            "path": f"src/{entry['relative']}",
+            "role": str(entry["role"]),
+        }
+        if entry["compiled"]:
+            compiled.append(row)
+        else:
+            row["reason"] = FRONTEND_ONLY_REASON
+            excluded.append(row)
+    payload = {
+        "compiled": compiled,
+        "excluded": excluded,
+        "schema_version": 1,
+        "source_root": "src",
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+
+def _owned_manifest_text(project_dir: Path) -> str:
+    manifest = project_dir / MATERIALIZED_CARGO
+    if manifest.is_symlink() or not manifest.is_file():
+        raise RuntimeError(
+            f"Rust oracle Cargo manifest must be a regular file: {manifest}"
+        )
+    try:
+        rendered = manifest.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise RuntimeError(
+            f"cannot read Rust oracle Cargo manifest: {manifest}"
+        ) from error
+    if not rendered.strip():
+        raise RuntimeError(f"Rust oracle Cargo manifest is empty: {manifest}")
+    return rendered
+
+
+def _check_materialized_target(path: Path) -> None:
+    if path.is_symlink():
+        raise RuntimeError(f"Rust oracle generated path must not be a symlink: {path}")
+    if path.exists() and not path.is_file():
+        raise RuntimeError(f"Rust oracle generated path must be a regular file: {path}")
+
+
+def materialize_rust_project(
+    project_dir: Path, items: list[dict[str, object]] | None = None
+) -> None:
+    """Render the persistent Cargo graph from validated Rust expectation pairs."""
+    project_dir = Path(project_dir)
+    if project_dir.is_symlink() or not project_dir.is_dir():
+        raise RuntimeError(
+            f"Rust oracle project must be a real directory: {project_dir}"
+        )
+    if items is None:
+        items = expectations(project_dir)
+    entries = _materialization_entries(project_dir, items)
+    cargo_path = project_dir / MATERIALIZED_CARGO
+    main_path = project_dir / MATERIALIZED_MAIN
+    inventory_path = project_dir / MATERIALIZED_INVENTORY
+    cargo_text = _owned_manifest_text(project_dir)
+    main_text = _render_oracle_main(entries)
+    inventory_text = _render_source_inventory(entries)
+    for path in (cargo_path, main_path, inventory_path):
+        _check_materialized_target(path)
+    write_text_atomic(cargo_path, cargo_text)
+    write_text_atomic(main_path, main_text)
+    write_text_atomic(inventory_path, inventory_text)
+
+
 def generate_report(project_dir: Path, output_path: Path) -> int:
-    """Validate all pairs and write bad-fixture target diagnostics as JSONL."""
+    """Validate all pairs, materialize the Cargo graph, and write diagnostics."""
     items = expectations(project_dir)
     validate_mapping(project_dir)
     combined: list[dict[str, object]] = []
@@ -500,12 +783,12 @@ def generate_report(project_dir: Path, output_path: Path) -> int:
         for item in items:
             key = item["key"]
             assert isinstance(key, str)
-            if key in NATIVE_RULES:
-                continue
-            lint = CLIPPY_LINTS[key]
-            run_lint = RUN_LINTS.get(key, lint)
             for fixture_name, should_fire in _fixture_pairs(item):
-                fixture = project_dir / "src" / fixture_name
+                fixture, _ = _fixture_source_path(project_dir, key, fixture_name)
+                if key in NATIVE_RULES:
+                    continue
+                lint = CLIPPY_LINTS[key]
+                run_lint = RUN_LINTS.get(key, lint)
                 combined.extend(
                     _validated_fixture_records(
                         fixture,
@@ -517,6 +800,7 @@ def generate_report(project_dir: Path, output_path: Path) -> int:
                         target,
                     )
                 )
+    materialize_rust_project(project_dir, items)
     write_text_atomic(
         output_path, "".join(json.dumps(record) + "\n" for record in combined)
     )

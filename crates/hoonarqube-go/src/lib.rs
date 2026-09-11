@@ -2989,15 +2989,12 @@ fn report_if_chain_smells(
     issues: &mut Vec<Issue>,
 ) {
     if condition_count > 1 && !ends_with_else {
-        let start = last_if.start_position();
-        let start_column = point_column(start, last_if.start_byte(), source);
-        let offset = start_column.saturating_sub(5);
-        issues.push(line_issue(
+        let range =
+            nested_else_if_range(last_if, source).unwrap_or_else(|| node_range(last_if, source));
+        issues.push(Issue::new(
             "go:S126",
             "Add the missing \"else\" clause.",
-            start.row,
-            offset,
-            offset + 7,
+            range,
         ));
     }
     if branches.len() >= 3
@@ -3019,6 +3016,31 @@ fn report_if_chain_smells(
     {
         issues.push(node_issue("go:S3923", "Remove this conditional structure or edit its code blocks so that they're not all the same.", node, source));
     }
+}
+
+fn nested_else_if_range(last_if: Node<'_>, source: &str) -> Option<Range> {
+    let parent = last_if.parent()?;
+    if parent.kind() != "if_statement"
+        || !parent
+            .child_by_field_name("alternative")
+            .is_some_and(|alternative| alternative == last_if)
+    {
+        return None;
+    }
+    let else_token = (0..parent.child_count())
+        .filter_map(|index| parent.child(index))
+        .find(|child| {
+            child.kind() == "else"
+                && !child.is_missing()
+                && child.end_byte() <= last_if.start_byte()
+        })?;
+    let if_token = (0..last_if.child_count())
+        .filter_map(|index| last_if.child(index))
+        .find(|child| child.kind() == "if" && !child.is_missing())?;
+    Some(Range {
+        start: point_pos(else_token.start_position(), else_token.start_byte(), source),
+        end: point_pos(if_token.end_position(), if_token.end_byte(), source),
+    })
 }
 
 fn check_switch(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues: &mut Vec<Issue>) {
@@ -3552,13 +3574,33 @@ fn compact_code(node: Node<'_>, source: &str) -> String {
     value
 }
 
+fn spans_multiple_lines(node: Node<'_>) -> bool {
+    if node.kind() == "block" {
+        let Some(statement_list) = named_children(node)
+            .into_iter()
+            .find(|child| child.kind() == "statement_list")
+        else {
+            return false;
+        };
+        let mut statements = named_children(statement_list)
+            .into_iter()
+            .filter(|child| child.kind() != "comment");
+        let Some(first) = statements.next() else {
+            return false;
+        };
+        let last = statements.next_back().unwrap_or(first);
+        return first.start_position().row != last.end_position().row;
+    }
+    node.start_position().row < node.end_position().row
+}
+
 fn duplicate_branch<'tree>(
     branches: &[(String, Node<'tree>)],
 ) -> Option<(Node<'tree>, Node<'tree>)> {
     for (index, (value, original)) in branches.iter().enumerate() {
         if let Some((_, duplicate)) = branches[index + 1..]
             .iter()
-            .find(|(candidate, _)| candidate == value)
+            .find(|(candidate, branch)| candidate == value && spans_multiple_lines(*branch))
         {
             return Some((*original, *duplicate));
         }
@@ -3668,11 +3710,21 @@ fn keyword_issue(
 fn header_issue(key: &str, message: impl Into<String>, node: Node<'_>, source: &str) -> Issue {
     let point = node.start_position();
     let start_column = point_column(point, node.start_byte(), source);
-    let first_line = text(node, source).lines().next().unwrap_or_default();
-    let length = first_line
-        .find(':')
-        .map_or(4, |column| first_line[..=column].chars().count());
-    line_issue(key, message, point.row, start_column, start_column + length)
+    let start = point_pos(point, node.start_byte(), source);
+    let colon = (0..node.child_count())
+        .filter_map(|index| node.child(index))
+        .find(|child| child.kind() == ":" && !child.is_missing());
+    if let Some(colon) = colon {
+        return Issue::new(
+            key,
+            message,
+            Range {
+                start,
+                end: point_pos(colon.end_position(), colon.end_byte(), source),
+            },
+        );
+    }
+    line_issue(key, message, point.row, start_column, start_column + 4)
 }
 
 fn node_range(node: Node<'_>, source: &str) -> Range {
@@ -4052,6 +4104,98 @@ mod tests {
     }
 
     #[test]
+    fn s126_range_starts_at_else_through_nested_if_with_trivia() {
+        let source = concat!(
+            "package p\n",
+            "func commented(x int) {\n",
+            "    if x == 0 {\n",
+            "        println(0)\n",
+            "    } else /* note */ if x == 1 {\n",
+            "        println(1)\n",
+            "    }\n",
+            "}\n",
+            "func direct(x int) {\n",
+            "    if x == 0 {\n",
+            "        println(0)\n",
+            "    } else if x == 1 {\n",
+            "        println(1)\n",
+            "    }\n",
+            "}\n",
+        );
+        let report = analyze(
+            PathBuf::from("s126_ranges.go"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        let issues: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "go:S126")
+            .collect();
+        assert_eq!(
+            issues.len(),
+            2,
+            "both incomplete chains must report: {report:?}"
+        );
+        assert_eq!(issues[0].range.start.line, 5);
+        assert_eq!(issues[0].range.start.column, 6);
+        assert_eq!(issues[0].range.end.line, 5);
+        assert_eq!(issues[0].range.end.column, 24);
+        assert_eq!(issues[1].range.start.line, 12);
+        assert_eq!(issues[1].range.start.column, 6);
+        assert_eq!(issues[1].range.end.line, 12);
+        assert_eq!(issues[1].range.end.column, 13);
+    }
+
+    #[test]
+    fn s1151_case_range_uses_clause_colon_not_literal_colon() {
+        let source = concat!(
+            "package p\n",
+            "func f(value string) {\n",
+            "switch value {\n",
+            "case \"a:b\":\n",
+            "println(1)\n",
+            "println(2)\n",
+            "println(3)\n",
+            "println(4)\n",
+            "println(5)\n",
+            "println(6)\n",
+            "println(7)\n",
+            "case \"ab\":\n",
+            "println(8)\n",
+            "println(9)\n",
+            "println(10)\n",
+            "println(11)\n",
+            "println(12)\n",
+            "println(13)\n",
+            "println(14)\n",
+            "default:\n",
+            "println(0)\n",
+            "}\n",
+            "}\n",
+        );
+        let report = analyze(
+            PathBuf::from("s1151_ranges.go"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        let issues: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "go:S1151")
+            .collect();
+        assert_eq!(issues.len(), 2, "both long cases must report: {report:?}");
+        assert_eq!(issues[0].range.start.line, 4);
+        assert_eq!(issues[0].range.start.column, 0);
+        assert_eq!(issues[0].range.end.line, 4);
+        assert_eq!(issues[0].range.end.column, 11);
+        assert_eq!(issues[1].range.start.line, 12);
+        assert_eq!(issues[1].range.start.column, 0);
+        assert_eq!(issues[1].range.end.line, 12);
+        assert_eq!(issues[1].range.end.column, 10);
+    }
+
+    #[test]
     fn nesting_reports_only_first_exceeded_level_and_flattens_else_if() {
         let source = concat!(
             "package p\n",
@@ -4087,6 +4231,132 @@ mod tests {
                 "whitespace inside literals is semantic for {key}: {found:?}"
             );
         }
+    }
+
+    #[test]
+    fn s1871_ignores_single_line_duplicate_in_s3923_good() {
+        let s3923_good = concat!(
+            "// Hoonarqube oracle fixture: go:S3923 good\n",
+            "package oracle\n",
+            "\n",
+            "func chooseCondition(b int) {\n",
+            "\tif b == 0 {    // no issue, this could have been done on purpose to make the code more readable\n",
+            "\t\tdoSomething()\n",
+            "\t} else if b == 1 {\n",
+            "\t\tdoSomething()\n",
+            "\t} else {\n",
+            "\t\tdoSomethingElse()\n",
+            "\t}\n",
+            "}\n",
+        );
+        let found = keys(s3923_good);
+        assert!(
+            !found.iter().any(|key| key == "go:S1871"),
+            "single-line duplicate branches are an S1871 exception: {found:?}"
+        );
+        assert!(
+            !found.iter().any(|key| key == "go:S3923"),
+            "the real s3923_good interaction must stay clean: {found:?}"
+        );
+
+        let all_identical = keys(
+            "package oracle\nfunc same(b int) { if b == 0 { println(1) } else { println(1) } }\n",
+        );
+        assert_eq!(
+            all_identical
+                .iter()
+                .filter(|key| key.as_str() == "go:S3923")
+                .count(),
+            1,
+            "S3923 must still report an all-identical if/else: {all_identical:?}"
+        );
+    }
+
+    #[test]
+    fn s1871_requires_nontrivial_executable_branch_lines() {
+        let multiline_body = concat!(
+            "// Hoonarqube oracle fixture: go:S1871 bad\n",
+            "package oracle\n",
+            "func choose(a int) {\n",
+            " if a < 10 {\n",
+            "  println(1)\n",
+            "  println(2)\n",
+            " } else if a < 20 {\n",
+            "  println(3)\n",
+            " } else if a < 30 {\n",
+            "  println(1)\n",
+            "  println(2)\n",
+            " } else {\n",
+            "  println(4)\n",
+            " }\n",
+            "}\n",
+        );
+        let report = analyze(
+            PathBuf::from("s1871_bad.go"),
+            multiline_body,
+            &AnalyzerOptions::default(),
+        );
+        let duplicate_issues: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "go:S1871")
+            .collect();
+        assert_eq!(
+            duplicate_issues.len(),
+            1,
+            "multiline duplicate must remain: {report:?}"
+        );
+        let issue = duplicate_issues[0];
+        assert_eq!(
+            issue.message,
+            "This branch's code block is the same as the block for the branch on line 4."
+        );
+        assert_eq!(issue.range.start.line, 9);
+        assert_eq!(issue.range.start.column, 18);
+        assert_eq!(issue.range.end.line, 12);
+        assert_eq!(issue.range.end.column, 2);
+
+        let multiline_expression = concat!(
+            "package p\n",
+            "func f(b int) {\n",
+            " if b == 0 {\n",
+            "  println(\n",
+            "   1,\n",
+            "  )\n",
+            " } else if b == 1 {\n",
+            "  println(\n",
+            "   1,\n",
+            "  )\n",
+            " } else {\n",
+            "  println(2)\n",
+            " }\n",
+            "}\n",
+        );
+        let found = keys(multiline_expression);
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "go:S1871")
+                .count(),
+            1,
+            "one multiline expression is nontrivial despite one statement per block: {found:?}"
+        );
+
+        let same_line_statements = concat!(
+            "package p\n",
+            "func f(b int) {\n",
+            " if b == 0 { println(1); println(2) } else if b == 1 { println(1); println(2) } else { println(3) }\n",
+            "}\n",
+        );
+        let found = keys(same_line_statements);
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "go:S1871")
+                .count(),
+            0,
+            "multiple statements on one physical line are still a single-line block: {found:?}"
+        );
     }
 
     #[test]

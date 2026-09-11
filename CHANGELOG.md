@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.8.2 (2026-09-11)
+
+### Bug Fixes
+
+- **hoonarqube:** harden analysis boundaries and quick fixes (e7add58)
+
+## 0.8.1 (2026-09-10)
+
+### Bug Fixes
+
+- **hoonarqube:** qualify remaining parity and guarded fixes (e71a7e6)
+
+## 0.8.0 (2026-09-10)
+
+### Features
+
+- **hoonarqube:** complete analysis capabilities and evidence boundaries (d6048e6)
+
+## 0.7.1 (2026-09-09)
+
+### Bug Fixes
+
+- **hoonarqube:** correct real-project analyzer findings (#84) (cf6a668)
+
+## 0.7.0 (2026-09-08)
+
+### Features
+
+- **cli:** cache unchanged file analysis (#33) (036baa2)
+
+## 0.6.0 (2026-09-08)
+
+### Features
+
+- **cli:** add native GitLab Code Quality reports (a47fcf7)
+
+## 0.5.1 (2026-09-08)
+
+### Performance
+
+- **hoonarqube:** optimize duplication coverage and benchmark scaling (3dd0d68)
+
+## 0.5.0 (2026-09-08)
+
+### Features
+
+- **hoonarqube:** add project metrics and duplicate-code detection (#27) (a515757)
+
+### Bug Fixes
+
+- correct analyzer data flow and oracle validation (#24) (d305104)
+
 ## 0.4.2 (2026-09-04)
 
 ### Performance
@@ -28,6 +80,25 @@
 - **release:** repair version synchronization (4b01d0a)
 
 ## Unreleased
+
+### Performance
+
+- Add opt-in `analyze --cache-dir` content-addressed caching of successful
+  per-file findings and source facts while rebuilding complete project metrics
+  and cross-file duplication on every run.
+- Add optional cache-directory inputs to both GitHub Actions integrations and
+  document trusted pipeline cache restore/save.
+
+### Features
+
+- **analysis:** add versioned project reports with consistent source size,
+  explicit source/test/generated/vendor/excluded scope, and incomplete-scan
+  diagnostics.
+- **duplication:** detect repeated code within and across files in all eight
+  supported language families; report exact byte/line locations, unique
+  duplicated lines and blocks, affected files, and weighted density.
+- **cli:** expose classification/exclusion globs and duplication thresholds;
+  keep Sonar/SARIF issue schemas unchanged and exit 2 for incomplete analysis.
 
 ### Bug Fixes
 

@@ -171,7 +171,7 @@
 {"key": "csharpsquid:S127", "bad": "s127_bad.cs", "expect_lines_min": 1}
 {"key": "csharpsquid:S1751", "bad": "s1751_bad.cs", "expect_lines_min": 1}
 {"key": "csharpsquid:S1854", "bad": "s1854_bad.cs", "expect_lines_min": 1}
-{"key": "csharpsquid:S2077", "infra": "direct analyzer excludes taint analysis"}
+{"key": "csharpsquid:S2077", "bad": "s2077_bad.cs", "good": "s2077_good.cs", "expect_lines_min": 1}
 {"key": "csharpsquid:S2123", "bad": "s2123_bad.cs", "expect_lines_min": 2}
 {"key": "csharpsquid:S2190", "bad": "s2190_bad.cs", "expect_lines_min": 1}
 {"key": "csharpsquid:S2251", "bad": "s2251_bad.cs", "expect_lines_min": 1}
@@ -412,7 +412,7 @@
 {"key":"csharpsquid:S6602","bad":"s6602_bad.cs","expect_lines_min":1}
 {"key":"csharpsquid:S1075","bad":"s1075_bad.cs","expect_lines_min":1}
 {"key":"csharpsquid:S1192","bad":"s1192_bad.cs","expect_lines_min":1}
-{"key":"csharpsquid:S1313","infra":"direct analyzer excludes security hotspots"}
+{"key": "csharpsquid:S1313", "bad": "s1313_bad.cs", "good": "s1313_good.cs", "expect_lines_min": 1}
 {"key":"csharpsquid:S2068","infra":"direct analyzer excludes security hotspots"}
 {"key":"csharpsquid:S2479","bad":"s2479_bad.cs","expect_lines_min":1}
 {"key":"csharpsquid:S2857","bad":"s2857_bad.cs","expect_lines_min":2}

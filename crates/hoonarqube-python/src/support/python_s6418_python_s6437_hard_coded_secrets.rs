@@ -175,15 +175,6 @@ fn is_valid_escape_byte(byte: u8) -> bool {
     ) || byte.is_ascii_digit()
 }
 
-pub(crate) fn is_bytes_literal(raw: &str) -> bool {
-    let prefix = raw
-        .split(['"', '\''])
-        .next()
-        .unwrap_or_default()
-        .to_lowercase();
-    prefix.contains('b')
-}
-
 // ---------------------------------------------------------------------------
 // Tier-A battery entries #48–#110 (python:S2772 … python:S7512).
 //
@@ -206,6 +197,7 @@ pub(crate) fn issue_at(
         range: to_range(range, index, source),
         fix: None,
         flows: Vec::new(),
+        alternatives: Vec::new(),
     }
 }
 

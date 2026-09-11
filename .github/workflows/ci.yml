@@ -65,6 +65,15 @@ jobs:
       - name: Rust format
         run: cargo fmt --all --check
 
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.111
+
+      - name: Compiler helper build and syntax
+        run: |
+          dotnet build tools/semantic/csharp/CSharpSemanticHelper.csproj --configuration Release --nologo
+          node --check tools/semantic/typescript/semantic-helper.cjs
+
       - name: Release version synchronization
         run: |
           python3 scripts/sync_release_version.py --check
@@ -102,6 +111,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - if: matrix.package == 'hoonarqube-csharp'
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.111
+
+      - name: Install pinned TypeScript compiler
+        if: matrix.package == 'hoonarqube-jsts'
+        run: >-
+          npm install --prefix "$RUNNER_TEMP/hoonarqube-typescript"
+          --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
+          typescript@6.0.3
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
@@ -111,6 +131,7 @@ jobs:
       - name: Run package tests
         env:
           PACKAGE: ${{ matrix.package }}
+          HOONARQUBE_TYPESCRIPT_PACKAGE: ${{ runner.temp }}/hoonarqube-typescript/node_modules/typescript
         run: cargo test --locked -p "$PACKAGE" --all-targets --all-features
 
   quality-tests-rest:
@@ -219,6 +240,7 @@ jobs:
         uses: ./actions/code-quality
         with:
           executable: ${{ github.workspace }}/target/debug/hoonarqube
+          cache-dir: ${{ github.workspace }}/.cache/hoonarqube
           working-directory: crates/hoonarqube-cli
           paths: |
             src

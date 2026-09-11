@@ -71,14 +71,26 @@ pub mod github_quality {
 /// Re-exported from `hoonarqube-ir`; positions follow the `SonarQube`
 /// text-range convention (1-based lines, 0-based columns).
 pub mod ir {
-    /// Complete result of analyzing one target.
+    /// Complete result of analyzing one target and its project inventory.
     pub use hoonarqube_ir::AnalysisReport;
+    /// A set of matching source ranges in one language.
+    pub use hoonarqube_ir::DuplicateGroup;
+    /// A physical source range participating in a duplication group.
+    pub use hoonarqube_ir::DuplicateOccurrence;
+    /// Duplication counters for one file.
+    pub use hoonarqube_ir::DuplicationFileMetrics;
+    /// Project-wide duplication counters.
+    pub use hoonarqube_ir::DuplicationMetrics;
+    /// Classification assigned by project orchestration.
+    pub use hoonarqube_ir::FileClassification;
     /// SonarQube-style size metrics for one file.
     pub use hoonarqube_ir::FileMetrics;
     /// Findings and metrics for one analyzed file.
     pub use hoonarqube_ir::FileReport;
     /// A human-readable machine-applicable remedy and its edits.
     pub use hoonarqube_ir::Fix;
+    /// One named alternative machine-applicable remedy.
+    pub use hoonarqube_ir::FixAlternative;
     /// Validation failure returned while applying edits.
     pub use hoonarqube_ir::FixApplyError;
     /// One secondary location in an execution or data-flow trace.
@@ -87,14 +99,37 @@ pub mod ir {
     pub use hoonarqube_ir::Issue;
     /// One ordered execution or data-flow trace.
     pub use hoonarqube_ir::IssueFlow;
+    /// One file's project measurement status.
+    pub use hoonarqube_ir::MeasurementStatus;
     /// Source position; `line` is 1-based, `column` is 0-based.
     pub use hoonarqube_ir::Pos;
+    /// One file's classification and optional project measurements.
+    pub use hoonarqube_ir::ProjectFileMeasurement;
+    /// Widened project size counters.
+    pub use hoonarqube_ir::ProjectMetrics;
+    /// Project-wide measurements and completeness inventory.
+    pub use hoonarqube_ir::ProjectReport;
     /// Half-open source span.
     pub use hoonarqube_ir::Range;
     /// One source-range replacement belonging to a fix.
     pub use hoonarqube_ir::TextEdit;
     /// Applies non-overlapping edits to one source string.
     pub use hoonarqube_ir::apply_fixes;
+}
+
+/// Parsed source facts shared by project measurement and duplication.
+pub mod source_facts {
+    pub use hoonarqube_core::source_facts::*;
+}
+
+/// Deterministic intra- and cross-file duplication APIs.
+pub mod duplication {
+    pub use hoonarqube_core::duplication::*;
+}
+
+/// Project-level orchestration and completeness reporting.
+pub mod project {
+    pub use hoonarqube_core::project::*;
 }
 
 /// Language dispatch knobs for [`analyze`]; defaults match analyzer defaults.
@@ -111,6 +146,14 @@ pub use hoonarqube_core::{
     CSharpAnalyzerOptions, GoAnalyzerOptions, JavaAnalyzerOptions, JstsAnalyzerOptions,
     PythonAnalyzerOptions, RubyAnalyzerOptions, RustAnalyzerOptions,
 };
+/// Deterministic duplication configuration and result types.
+pub use hoonarqube_core::{
+    DuplicationFile, DuplicationOptions, DuplicationResult, detect_duplications,
+};
+/// Parsed source facts shared by project measurement and duplication.
+pub use hoonarqube_core::{NormalizedToken, SourceFacts, collect_source_facts};
+/// Project-file orchestration and report assembly.
+pub use hoonarqube_core::{ProjectFile, analyze_project_file, build_project_report};
 
 #[cfg(test)]
 mod tests {
@@ -145,8 +188,8 @@ mod tests {
         let embedded = catalog::embedded();
         let fixtures = [
             ("fixture.py", "x = 1 \n"),
-            ("fixture.js", "eval('x');\n"),
-            ("fixture.ts", "eval('x');\n"),
+            ("fixture.js", "function run(code) { eval(code); }\n"),
+            ("fixture.ts", "function run(code) { eval(code); }\n"),
             ("fixture.cs", "\tint x;\nclass A\n{\n}\n"),
             ("fixture.go", "package p\nfunc bad_name() {}\n"),
             ("fixture.rs", "fn main() { println!(\"hello\"); }\n"),

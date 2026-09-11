@@ -52,14 +52,6 @@ pub(crate) fn decorator_callee_path(expr: &Expr) -> Option<String> {
     }
 }
 
-pub(crate) fn assignment_target_leaf_name(target: &Expr) -> Option<String> {
-    match target {
-        Expr::Name(name) => Some(name.id.as_str().to_string()),
-        Expr::Attribute(attribute) => Some(attribute.attr.as_str().to_string()),
-        _ => None,
-    }
-}
-
 pub(crate) fn sleep_call_tail(call: &ruff_python_ast::ExprCall) -> Option<String> {
     dotted_name(&call.func)
         .and_then(|path| path.rsplit('.').next().map(str::to_string))

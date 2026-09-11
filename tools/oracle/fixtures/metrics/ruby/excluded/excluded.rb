@@ -1,0 +1,2 @@
+# excluded
+VALUE = 1

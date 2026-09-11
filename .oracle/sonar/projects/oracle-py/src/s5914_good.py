@@ -1,5 +1,5 @@
 case = object()
-actual = 1
+actual = int(input())
 expected = 2
 
 case.assertEqual(actual, expected)

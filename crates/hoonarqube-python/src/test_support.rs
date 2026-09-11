@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use crate::{AnalyzerOptions, analyze};
+use crate::{AnalyzerOptions, PythonProjectContext, analyze, analyze_with_context};
 
 pub(crate) fn findings_of(source: &str, key: &str) -> Vec<String> {
     findings(&scan(source), key)
@@ -35,6 +35,7 @@ pub(crate) fn issue(
         },
         fix: None,
         flows: Vec::new(),
+        alternatives: Vec::new(),
     }
 }
 
@@ -51,6 +52,13 @@ pub(crate) fn findings<'a>(
 
 pub(crate) fn scan(source: &str) -> hoonarqube_ir::FileReport {
     analyze(PathBuf::from("t.py"), source, &AnalyzerOptions::default())
+}
+pub(crate) fn scan_in_project(
+    project: &PythonProjectContext,
+    path: PathBuf,
+    source: &str,
+) -> hoonarqube_ir::FileReport {
+    analyze_with_context(path, source, &AnalyzerOptions::default(), project)
 }
 
 pub(crate) fn scan_with_options(

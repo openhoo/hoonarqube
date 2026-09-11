@@ -63,10 +63,24 @@ pub struct LineIndex {
 impl LineIndex {
     #[must_use]
     pub fn new(source: &str) -> Self {
+        let bytes = source.as_bytes();
         let mut line_starts = vec![0];
-        for (offset, byte) in source.bytes().enumerate() {
-            if byte == b'\n' {
-                line_starts.push(offset + 1);
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let separator_width = match bytes[offset] {
+                b'\r' => Some(if bytes.get(offset + 1) == Some(&b'\n') {
+                    2
+                } else {
+                    1
+                }),
+                b'\n' => Some(1),
+                _ => None,
+            };
+            if let Some(width) = separator_width {
+                offset += width;
+                line_starts.push(offset);
+            } else {
+                offset += 1;
             }
         }
         Self {
@@ -81,10 +95,7 @@ impl LineIndex {
         while offset > 0 && !source.is_char_boundary(offset) {
             offset -= 1;
         }
-        let line_index = self
-            .line_starts
-            .partition_point(|&start| start <= offset)
-            .saturating_sub(1);
+        let line_index = self.line_index(offset);
         let line_start = self.line_starts[line_index];
         let column = source
             .get(line_start..offset)
@@ -105,6 +116,55 @@ impl LineIndex {
             start: self.position(source, start),
             end: self.position(source, end),
         }
+    }
+
+    fn line_index(&self, byte_offset: usize) -> usize {
+        self.line_starts
+            .partition_point(|&start| start <= byte_offset.min(self.source_len))
+            .saturating_sub(1)
+    }
+
+    fn line_span(&self, start: usize, end: usize) -> std::ops::RangeInclusive<usize> {
+        let start = start.min(self.source_len);
+        let end = end.min(self.source_len).max(start);
+        let start_line = self.line_index(start);
+        if end <= start {
+            return start_line..=start_line;
+        }
+        start_line..=self.line_index(end.saturating_sub(1)).max(start_line)
+    }
+
+    fn line_count(&self) -> usize {
+        if self.source_len == 0 {
+            return 0;
+        }
+        self.line_starts.len().saturating_sub(usize::from(
+            self.line_starts.last() == Some(&self.source_len),
+        ))
+    }
+}
+
+pub(crate) fn file_metrics(root: Node<'_>, source: &str) -> FileMetrics {
+    let index = LineIndex::new(source);
+    let lines = u32_saturating(index.line_count());
+    let mut code = BTreeSet::new();
+    let mut comments = BTreeSet::new();
+    walk_all(root, &mut |node| {
+        let is_comment = matches!(node.kind(), "line_comment" | "block_comment" | "comment");
+        if is_comment {
+            for row in index.line_span(node.start_byte(), node.end_byte()) {
+                comments.insert(row);
+            }
+        } else if node.child_count() == 0 && !node.is_error() && !node.is_missing() {
+            for row in index.line_span(node.start_byte(), node.end_byte()) {
+                code.insert(row);
+            }
+        }
+    });
+    FileMetrics {
+        lines,
+        code_lines: u32_saturating(code.len()),
+        comment_lines: u32_saturating(comments.difference(&code).count()),
     }
 }
 
@@ -215,33 +275,6 @@ fn append_literal_tail(
     i
 }
 
-pub(crate) fn file_metrics(root: Node<'_>, source: &str) -> FileMetrics {
-    let lines = if source.is_empty() {
-        0
-    } else {
-        u32_saturating(source.lines().count())
-    };
-    let mut code = BTreeSet::new();
-    let mut comments = BTreeSet::new();
-    walk_all(root, &mut |node| {
-        let is_comment = matches!(node.kind(), "line_comment" | "block_comment" | "comment");
-        if is_comment {
-            for row in node.start_position().row..=node.end_position().row {
-                comments.insert(row);
-            }
-        } else if node.child_count() == 0 && !node.is_error() && !node.is_missing() {
-            for row in node.start_position().row..=node.end_position().row {
-                code.insert(row);
-            }
-        }
-    });
-    FileMetrics {
-        lines,
-        code_lines: u32_saturating(code.len()),
-        comment_lines: u32_saturating(comments.difference(&code).count()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{LineIndex, canonical_expression, file_metrics};
@@ -264,6 +297,73 @@ mod tests {
     }
 
     #[test]
+    fn bare_cr_line_index_maps_five_lines() {
+        let source = "one\rtwo\rthree\rfour\rfive";
+        let index = LineIndex::new(source);
+        assert_eq!(index.line_starts, vec![0, 4, 8, 14, 19]);
+        for (line, start) in [0, 4, 8, 14, 19].into_iter().enumerate() {
+            let position = index.position(source, start);
+            assert_eq!(
+                position.line,
+                u32::try_from(line).expect("line index fits in u32") + 1
+            );
+            assert_eq!(position.column, 0);
+        }
+        for (line, separator) in [3, 7, 13, 18].into_iter().enumerate() {
+            let at_separator = index.position(source, separator);
+            assert_eq!(
+                at_separator.line,
+                u32::try_from(line).expect("line index fits in u32") + 1
+            );
+            assert_eq!(at_separator.column, [3, 3, 5, 4][line]);
+            let after_separator = index.position(source, separator + 1);
+            assert_eq!(
+                after_separator.line,
+                u32::try_from(line).expect("line index fits in u32") + 2
+            );
+            assert_eq!(after_separator.column, 0);
+        }
+        assert_eq!(index.line_count(), 5);
+    }
+
+    #[test]
+    fn line_index_treats_lf_and_crlf_as_single_breaks() {
+        let source = "a\r\nbb\nccc\r\nd";
+        let index = LineIndex::new(source);
+        assert_eq!(index.line_starts, vec![0, 3, 6, 11]);
+        assert_eq!(index.line_count(), 4);
+        assert_eq!(index.position(source, 1).line, 1);
+        assert_eq!(index.position(source, 1).column, 1);
+        assert_eq!(index.position(source, 2).line, 1);
+        assert_eq!(index.position(source, 2).column, 1);
+        assert_eq!(index.position(source, 3).line, 2);
+        assert_eq!(index.position(source, 3).column, 0);
+        assert_eq!(index.position(source, 5).line, 2);
+        assert_eq!(index.position(source, 5).column, 2);
+        assert_eq!(index.position(source, 6).line, 3);
+        assert_eq!(index.position(source, 9).column, 3);
+        assert_eq!(index.position(source, 10).column, 3);
+        assert_eq!(index.position(source, 11).line, 4);
+    }
+
+    #[test]
+    fn unicode_columns_count_scalars_not_utf8_bytes() {
+        let source = "π🙂 = 1\r\n漢字 = 2";
+        let index = LineIndex::new(source);
+        let emoji = source.find('🙂').unwrap();
+        assert_eq!(index.position(source, emoji).column, 1);
+        let cr = source.find('\r').unwrap();
+        let lf = source.find('\n').unwrap();
+        assert_eq!(index.position(source, cr).column, 6);
+        assert_eq!(index.position(source, lf).column, 6);
+        let second = source.find('漢').unwrap();
+        assert_eq!(index.position(source, second).line, 2);
+        assert_eq!(index.position(source, second).column, 0);
+        let second_character = source.find('字').unwrap();
+        assert_eq!(index.position(source, second_character).column, 1);
+    }
+
+    #[test]
     fn expression_identity_ignores_layout_and_comments() {
         assert_eq!(canonical_expression("a + /* x */ b"), "a+b");
         assert_eq!(canonical_expression("a+b"), "a+b");
@@ -281,5 +381,18 @@ mod tests {
         assert_eq!(metrics.lines, 2);
         assert_eq!(metrics.comment_lines, 1);
         assert_eq!(metrics.code_lines, 1);
+    }
+
+    #[test]
+    fn metrics_use_java_physical_lines_for_all_terminators() {
+        for separator in ["\n", "\r\n", "\r"] {
+            let source = format!("// one{separator}class A {{ int x; }}{separator}");
+            let tree = crate::context::parse(&source).expect("valid Java fixture");
+            assert!(!tree.root_node().has_error(), "{separator:?}");
+            let metrics = file_metrics(tree.root_node(), &source);
+            assert_eq!(metrics.lines, 2, "{separator:?}");
+            assert_eq!(metrics.comment_lines, 1, "{separator:?}");
+            assert_eq!(metrics.code_lines, 1, "{separator:?}");
+        }
     }
 }

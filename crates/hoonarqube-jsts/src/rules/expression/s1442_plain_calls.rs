@@ -1,12 +1,17 @@
 // Rule module s1442_plain_calls (generated).
 use crate::rules::shared::call_property;
-use crate::support::{IssueSink, RuleScope, callee_name, member_rooted_at};
+use crate::support::{IssueSink, RuleScope, callee_name, member_object, member_rooted_at};
 use oxc_ast::ast::{CallExpression, Expression};
+use oxc_semantic::Semantic;
 use oxc_span::GetSpan;
 
 /// Plain-callee rules: `S1442`, `S2427`, `S3533`, `S2817`, `S6958`, and the
 /// prototype-mutation calls of `S6643`.
-pub(crate) fn check_plain_calls(sink: &mut IssueSink, it: &CallExpression<'_>) {
+pub(crate) fn check_plain_calls(
+    sink: &mut IssueSink,
+    it: &CallExpression<'_>,
+    semantic: Option<&Semantic<'_>>,
+) {
     let plain_name = callee_name(it);
     if let Some(name) = plain_name {
         if name == "alert" {
@@ -28,14 +33,14 @@ pub(crate) fn check_plain_calls(sink: &mut IssueSink, it: &CallExpression<'_>) {
                 it.callee.span(),
             );
         }
-        if matches!(name, "openDatabase" | "openDatabaseSync") {
-            sink.emit_span(
-                RuleScope::Both,
-                "S2817",
-                "Convert this use of a Web SQL database to another technology.",
-                it.callee.span(),
-            );
-        }
+    }
+    if is_global_open_database(it, semantic) {
+        sink.emit_span(
+            RuleScope::Both,
+            "S2817",
+            "Convert this use of a Web SQL database to another technology.",
+            it.callee.span(),
+        );
     }
     if plain_name.is_none()
         && let Some((property, member)) = call_property(it)
@@ -62,6 +67,28 @@ pub(crate) fn check_plain_calls(sink: &mut IssueSink, it: &CallExpression<'_>) {
             it.callee.span(),
         );
     }
+}
+fn is_global_open_database(call: &CallExpression<'_>, semantic: Option<&Semantic<'_>>) -> bool {
+    if let Expression::Identifier(identifier) = &call.callee {
+        return identifier.name == "openDatabase" && is_global_identifier(identifier, semantic);
+    }
+    let Some((property, member)) = call_property(call) else {
+        return false;
+    };
+    if property != "openDatabase" {
+        return false;
+    }
+    let Expression::Identifier(root) = member_object(member) else {
+        return false;
+    };
+    matches!(root.name.as_str(), "window" | "globalThis") && is_global_identifier(root, semantic)
+}
+
+fn is_global_identifier(
+    identifier: &oxc_ast::ast::IdentifierReference<'_>,
+    semantic: Option<&Semantic<'_>>,
+) -> bool {
+    semantic.is_some_and(|semantic| semantic.is_reference_to_global_variable(identifier))
 }
 
 /// Built-in globals whose prototypes `S6643` protects and whose surfaces
@@ -103,5 +130,62 @@ mod tests {
 
         let literal_call = js_keys("\"foo\"();\n");
         assert_eq!(count_key(&literal_call, "javascript:S6958"), 1);
+    }
+    #[test]
+    fn s2817_matches_unbound_bare_and_global_browser_members_in_js_and_ts() {
+        let javascript_attack = js_keys(
+            "const db = window.openDatabase(\"myDb\", \"1.0\", \
+             \"Personal secrets stored here\", 2*1024*1024);\n",
+        );
+        assert_eq!(count_key(&javascript_attack, "javascript:S2817"), 1);
+
+        let typescript_attack = ts_keys(
+            "const db = window.openDatabase(\"myDb\", \"1.0\", \
+             \"Personal secrets stored here\", 2*1024*1024);\n",
+        );
+        assert_eq!(count_key(&typescript_attack, "typescript:S2817"), 1);
+
+        let javascript_bare = js_keys("const db = openDatabase(name);\n");
+        assert_eq!(count_key(&javascript_bare, "javascript:S2817"), 1);
+
+        let typescript_bare = ts_keys("const db = openDatabase(name);\n");
+        assert_eq!(count_key(&typescript_bare, "typescript:S2817"), 1);
+
+        let javascript_global_this = js_keys("globalThis.openDatabase(name);\n");
+        assert_eq!(count_key(&javascript_global_this, "javascript:S2817"), 1);
+
+        let typescript_global_this = ts_keys("globalThis.openDatabase(name);\n");
+        assert_eq!(count_key(&typescript_global_this, "typescript:S2817"), 1);
+
+        for findings in [
+            js_keys(
+                "const db = window.indexedDB.open('myDb');\n\
+                 const open = window.indexedDB.open;\n\
+                 const same = open('myDb');\n",
+            ),
+            ts_keys(
+                "const db = window.indexedDB.open('myDb');\n\
+                 const open = window.indexedDB.open;\n\
+                 const same = open('myDb');\n",
+            ),
+        ] {
+            assert!(findings.iter().all(|(key, _)| !key.ends_with(":S2817")));
+        }
+
+        let javascript_shadowed = js_keys(
+            "function use(window, openDatabase) {\n\
+             window.openDatabase(name);\n\
+             openDatabase(name);\n\
+             }\n",
+        );
+        assert_eq!(count_key(&javascript_shadowed, "javascript:S2817"), 0);
+
+        let typescript_shadowed = ts_keys(
+            "function use(window: unknown, openDatabase: () => unknown) {\n\
+             window.openDatabase(name);\n\
+             openDatabase(name);\n\
+             }\n",
+        );
+        assert_eq!(count_key(&typescript_shadowed, "typescript:S2817"), 0);
     }
 }

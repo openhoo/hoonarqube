@@ -14,6 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INSTALL = ROOT / "actions" / "setup" / "install.sh"
 RUN_SCAN = ROOT / "tools" / "oracle" / "run_scan.sh"
+ANALYZE_ACTION = ROOT / "actions" / "analyze" / "action.yml"
+CODE_QUALITY_ACTION = ROOT / "actions" / "code-quality" / "action.yml"
 
 
 class OwnedShellScriptTests(unittest.TestCase):
@@ -130,6 +132,298 @@ class OwnedShellScriptTests(unittest.TestCase):
             text=True,
             capture_output=True,
         )
+
+    def _action_run_script(self, action: Path, step_name: str) -> str:
+        lines = action.read_text(encoding="utf-8").splitlines()
+        marker = f"    - name: {step_name}"
+        try:
+            step = lines.index(marker)
+        except ValueError as error:
+            raise AssertionError(f"missing action step {step_name!r}") from error
+
+        run = next(
+            (
+                index
+                for index in range(step + 1, len(lines))
+                if lines[index] == "      run: |"
+            ),
+            None,
+        )
+        if run is None:
+            raise AssertionError(f"step {step_name!r} has no shell run block")
+
+        body: list[str] = []
+        for line in lines[run + 1 :]:
+            if line and not line.startswith("        "):
+                break
+            body.append(line[8:] if line else "")
+        return "\n".join(body) + "\n"
+
+    def _run_action_argument_case(
+        self,
+        root: Path,
+        *,
+        action: Path,
+        step_name: str,
+        cache_dir: str,
+        report: str,
+    ) -> list[str]:
+        commands = root / "commands"
+        commands.mkdir(parents=True)
+        arguments = root / "arguments"
+        report_fixture = root / "report-fixture"
+        runner_temp = root / "runner-temp"
+        runner_temp.mkdir()
+        self._write_executable(
+            commands / "hoonarqube",
+            """
+            #!/bin/sh
+            set -eu
+            printf '%s\\n' "$@" > "$MOCK_ARGUMENTS"
+            cat "$MOCK_REPORT"
+            """,
+        )
+        report_fixture.write_text(report, encoding="utf-8")
+
+        sentinel = root / "injected"
+        source_path = f"src/space path;touch {sentinel}"
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "PATH": f"{commands}{os.pathsep}{environment['PATH']}",
+                "GITHUB_OUTPUT": str(root / "github-output"),
+                "INPUT_CACHE_DIR": cache_dir,
+                "INPUT_EXECUTABLE": "",
+                "INPUT_FAIL_ON": "none",
+                "INPUT_GO_HEADER_FORMAT": "",
+                "INPUT_OUTPUT": "report",
+                "INPUT_PATHS": source_path,
+                "INPUT_PROFILE": "sonar-parity",
+                "INPUT_UPLOAD": "false",
+                "MOCK_ARGUMENTS": str(arguments),
+                "MOCK_REPORT": str(report_fixture),
+                "RUNNER_TEMP": str(runner_temp),
+            }
+        )
+        result = subprocess.run(
+            ["bash", "-c", self._action_run_script(action, step_name)],
+            cwd=root,
+            env=environment,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(sentinel.exists(), result.stderr)
+        return arguments.read_text(encoding="utf-8").splitlines()
+
+    def _run_action_report_case(
+        self,
+        root: Path,
+        *,
+        action: Path,
+        step_name: str,
+        report_script: str,
+        output: str = "report",
+        fail_on: str = "none",
+    ) -> subprocess.CompletedProcess[str]:
+        commands = root / "commands"
+        commands.mkdir(parents=True)
+        runner_temp = root / "runner-temp"
+        runner_temp.mkdir()
+        executable = commands / "hoonarqube"
+        self._write_executable(executable, report_script)
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "PATH": f"{commands}{os.pathsep}{environment['PATH']}",
+                "GITHUB_OUTPUT": str(root / "github-output"),
+                "INPUT_CACHE_DIR": "",
+                "INPUT_EXECUTABLE": str(executable),
+                "INPUT_FAIL_ON": fail_on,
+                "INPUT_GO_HEADER_FORMAT": "",
+                "INPUT_OUTPUT": output,
+                "INPUT_PATHS": "src",
+                "INPUT_PROFILE": "sonar-parity",
+                "INPUT_UPLOAD": "false",
+                "RUNNER_TEMP": str(runner_temp),
+            }
+        )
+        return subprocess.run(
+            ["bash", "-c", self._action_run_script(action, step_name)],
+            cwd=root,
+            env=environment,
+            text=True,
+            capture_output=True,
+        )
+
+    def test_analyze_publishes_valid_report_before_propagating_exit_two(self):
+        report = (
+            '{"rules":[{"id":"R1","severity":"MAJOR"}],'
+            '"issues":[{"ruleId":"R1"}]}\n'
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = self._run_action_report_case(
+                root,
+                action=ANALYZE_ACTION,
+                step_name="Analyze source",
+                fail_on="major",
+                report_script=f"""
+                #!/bin/sh
+                printf '%s' '{report}'
+                exit 2
+                """,
+            )
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertEqual((root / "report").read_text(encoding="utf-8"), report)
+            output = (root / "github-output").read_text(encoding="utf-8")
+            self.assertIn("report=report\n", output)
+            self.assertIn("blocking-findings=1\n", output)
+            self.assertEqual(list(root.glob(".hoonarqube-analyze.*.json")), [])
+
+    def test_analyze_keeps_existing_report_when_output_is_invalid(self):
+        existing = '{"rules":[],"issues":[]}\n'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            report_path = root / "report"
+            report_path.write_text(existing, encoding="utf-8")
+            result = self._run_action_report_case(
+                root,
+                action=ANALYZE_ACTION,
+                step_name="Analyze source",
+                report_script="""
+                #!/bin/sh
+                printf '%s\n' '{"rules":[]}'
+                exit 2
+                """,
+            )
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertEqual(report_path.read_text(encoding="utf-8"), existing)
+            self.assertIn("no report was published", result.stdout)
+            self.assertEqual(list(root.glob(".hoonarqube-analyze.*.json")), [])
+
+    def test_analyze_rejects_concatenated_json_documents(self):
+        existing = '{"rules":[],"issues":[]}\n'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            report_path = root / "report"
+            report_path.write_text(existing, encoding="utf-8")
+            result = self._run_action_report_case(
+                root,
+                action=ANALYZE_ACTION,
+                step_name="Analyze source",
+                report_script="""
+                #!/bin/sh
+                printf '%s\n' '{"rules":[],"issues":[]}'
+                printf '%s\n' '{"rules":[],"issues":[]}'
+                """,
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(report_path.read_text(encoding="utf-8"), existing)
+            self.assertIn("no report was published", result.stdout)
+            self.assertEqual(list(root.glob(".hoonarqube-analyze.*.json")), [])
+
+    def test_analyze_refuses_symlinked_output_parent(self):
+        report = '{"rules":[],"issues":[]}\n'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            real_parent = root / "real"
+            real_parent.mkdir()
+            (root / "out").symlink_to(real_parent, target_is_directory=True)
+            result = self._run_action_report_case(
+                root,
+                action=ANALYZE_ACTION,
+                step_name="Analyze source",
+                output="out/report",
+                report_script=f"""
+                #!/bin/sh
+                printf '%s' '{report.rstrip()}'
+                """,
+            )
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse((real_parent / "report").exists())
+            self.assertIn("must not traverse symlinks", result.stdout)
+
+    def test_code_quality_refuses_symlinked_output_parent(self):
+        report = (
+            '{"$schema":"https://json.schemastore.org/sarif-2.1.0.json",'
+            '"version":"2.1.0","runs":[{"tool":{"driver":'
+            '{"name":"Hoonarqube","rules":[]}},"results":[]}]}'
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            real_parent = root / "real"
+            real_parent.mkdir()
+            (root / "out").symlink_to(real_parent, target_is_directory=True)
+            result = self._run_action_report_case(
+                root,
+                action=CODE_QUALITY_ACTION,
+                step_name="Analyze source and write SARIF",
+                output="out/report.sarif",
+                report_script=f"""
+                #!/bin/sh
+                printf '%s' '{report}'
+                """,
+            )
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse((real_parent / "report.sarif").exists())
+            self.assertIn("must not traverse symlinks", result.stdout)
+
+    def test_analyze_cache_dir_is_optional_and_literal(self):
+        report = '{"rules":[],"issues":[]}\n'
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            for use_cache in (False, True):
+                root = parent / ("default" if not use_cache else "cached")
+                cache_dir = (
+                    f"{root}/cache dir;touch {root}/injected" if use_cache else ""
+                )
+                with self.subTest(cache_dir=cache_dir):
+                    arguments = self._run_action_argument_case(
+                        root,
+                        action=ANALYZE_ACTION,
+                        step_name="Analyze source",
+                        cache_dir=cache_dir,
+                        report=report,
+                    )
+                    expected = ["analyze", "--format", "sonar"]
+                    if cache_dir:
+                        expected += ["--cache-dir", cache_dir]
+                    expected += ["--", f"src/space path;touch {root}/injected"]
+                    self.assertEqual(arguments, expected)
+
+    def test_code_quality_cache_dir_is_optional_and_literal(self):
+        report = (
+            '{"$schema":"https://json.schemastore.org/sarif-2.1.0.json",'
+            '"version":"2.1.0","runs":[{"tool":{"driver":'
+            '{"name":"Hoonarqube","rules":[]}},"results":[]}]}'
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            for use_cache in (False, True):
+                root = parent / ("default" if not use_cache else "cached")
+                cache_dir = (
+                    f"{root}/cache dir;touch {root}/injected" if use_cache else ""
+                )
+                with self.subTest(cache_dir=cache_dir):
+                    arguments = self._run_action_argument_case(
+                        root,
+                        action=CODE_QUALITY_ACTION,
+                        step_name="Analyze source and write SARIF",
+                        cache_dir=cache_dir,
+                        report=report,
+                    )
+                    expected = [
+                        "analyze",
+                        "--profile",
+                        "github-code-quality",
+                        "--format",
+                        "sarif",
+                    ]
+                    if cache_dir:
+                        expected += ["--cache-dir", cache_dir]
+                    expected += ["--", f"src/space path;touch {root}/injected"]
+                    self.assertEqual(arguments, expected)
 
     def test_install_accepts_full_semver_and_publishes_verified_binary(self):
         with tempfile.TemporaryDirectory() as directory:

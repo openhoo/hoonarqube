@@ -1,1 +1,1 @@
-const r = flag ? false : true;
+const r = flag ? value : other;

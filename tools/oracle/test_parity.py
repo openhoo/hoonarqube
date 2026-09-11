@@ -8,18 +8,21 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from parity import (
+    build_hoonarqube_security_evidence,
     canonical_sonar_issue,
+    canonical_sonar_security_issue,
     classify_sq_misses,
     compare_reports,
+    compare_security_evidence,
     counts,
     failure_count,
     input_paths_sha256,
-    load_infra_boundaries,
     parse_report_task,
     read_json,
     read_secret_file,
     validate_oracle_report,
     validate_search_page,
+    validate_security_evidence,
     wait_for_compute_engine,
     write_json_atomic,
 )
@@ -60,6 +63,61 @@ def oracle_report(*issues):
 
 def ours_report(*issues, file=BAD):
     return {"files": [{"path": f"/fixture/{file}", "issues": list(issues)}]}
+
+
+def security_finding(
+    *,
+    rule=RULE,
+    file="src/security.py",
+    message="unsafe input",
+    kind="VULNERABILITY",
+    line=1,
+    flow_locations=None,
+    secondary_locations=None,
+    status="OPEN",
+    resolution=None,
+    assignee=None,
+    flow_available=True,
+    secondary_available=True,
+    primary_range_available=True,
+):
+    range_value = {
+        "start": {"line": line, "column": 0},
+        "end": {"line": line, "column": 4},
+    }
+    flow_locations = [] if flow_locations is None else flow_locations
+    secondary_locations = [] if secondary_locations is None else secondary_locations
+    return {
+        "rule": rule,
+        "file": file,
+        "message": message,
+        "range": range_value,
+        "detector": {
+            "kind": kind,
+            "flows": flow_locations,
+            "secondary_locations": secondary_locations,
+            "flow_evidence_available": flow_available,
+            "secondary_location_evidence_available": secondary_available,
+            "primary_range_evidence_available": primary_range_available,
+        },
+        "review": {
+            "status": status,
+            "resolution": resolution,
+            "assignee": assignee,
+            "available": True,
+        },
+    }
+
+
+def security_report(*findings, project="oracle-py", source="test", edition="community"):
+    return {
+        "schema_version": 1,
+        "project": project,
+        "source": source,
+        "edition": edition,
+        "findings": list(findings),
+        "limits": [],
+    }
 
 
 def expectation(**overrides):
@@ -107,6 +165,43 @@ class StrictParityTests(unittest.TestCase):
 
     def compare(self, expected, sonar, ours, infra=None):
         return compare_reports(expected, sonar, ours, infra)
+
+    def test_incomplete_native_report_cannot_pass_matching_findings(self):
+        ours = ours_report(ours_issue())
+        ours["schema_version"] = 1
+        ours["project"] = {
+            "complete": False,
+            "warnings": ["source inventory failed"],
+        }
+        rows = self.compare(
+            [expectation()],
+            oracle_report(oracle_issue()),
+            ours,
+        )
+        self.assertEqual(rows[0]["observed_status"], "PASS")
+        self.assertEqual(rows[0]["status"], "ORACLE_UNVERIFIED")
+        self.assertEqual(rows[0]["native_status"], "INCOMPLETE")
+        self.assertEqual(rows[0]["native_complete"], False)
+        self.assertEqual(
+            rows[0]["reason"],
+            "native project analysis is incomplete: source inventory failed",
+        )
+        self.assertEqual(rows[0]["ours_bad"], rows[0]["sonar_bad"])
+        self.assertEqual(failure_count(rows), 1)
+
+    def test_incomplete_empty_native_report_is_not_zero_finding_pass(self):
+        ours = {
+            "schema_version": 1,
+            "files": [],
+            "project": {
+                "complete": False,
+                "warnings": ["no source files could be analyzed"],
+            },
+        }
+        rows = self.compare([expectation()], oracle_report(), ours)
+        self.assertEqual(rows[0]["status"], "ORACLE_UNVERIFIED")
+        self.assertEqual(rows[0]["observed_status"], "BOTH_MISS")
+        self.assertEqual(failure_count(rows), 1)
 
     def test_exact_finding_multiset_passes(self):
         rows = self.compare(
@@ -536,14 +631,6 @@ class StrictParityTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "securely open"):
                 read_secret_file(link)
 
-    def test_checked_in_infra_manifest_is_strict_and_nonempty(self):
-        boundaries = load_infra_boundaries(
-            Path(__file__).resolve().parent.parent.parent
-            / "catalog/infra-boundaries.json"
-        )
-        self.assertEqual(len(boundaries), 52)
-        self.assertIn("python:S6786", boundaries)
-
     def test_input_fingerprint_is_order_stable_and_rejects_symlinks(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -618,6 +705,321 @@ class StrictParityTests(unittest.TestCase):
             ],
         )
         self.assertEqual(failure_count(rows), 7)
+
+    def test_security_detector_evidence_compares_kind_flows_ranges_and_duplicates(self):
+        location = {
+            "file": "src/input.py",
+            "message": "source",
+            "range": {
+                "start": {"line": 2, "column": 0},
+                "end": {"line": 2, "column": 4},
+            },
+        }
+        secondary = {
+            "file": "src/sink.py",
+            "message": "sink",
+            "range": {
+                "start": {"line": 8, "column": 1},
+                "end": {"line": 8, "column": 5},
+            },
+        }
+        finding = security_finding(
+            flow_locations=[[location]],
+            secondary_locations=[secondary],
+        )
+        self.assertEqual(
+            compare_security_evidence(
+                security_report(finding),
+                security_report(finding),
+                expected_project="oracle-py",
+            )["status"],
+            "PASS",
+        )
+        for changed in (
+            {
+                **finding,
+                "detector": {**finding["detector"], "kind": "SECURITY_HOTSPOT"},
+            },
+            {
+                **finding,
+                "detector": {
+                    **finding["detector"],
+                    "flows": [
+                        [
+                            {
+                                **location,
+                                "range": {
+                                    **location["range"],
+                                    "end": {"line": 3, "column": 4},
+                                },
+                            }
+                        ]
+                    ],
+                },
+            },
+            {
+                **finding,
+                "detector": {
+                    **finding["detector"],
+                    "secondary_locations": [
+                        secondary,
+                        {**secondary, "file": "src/other.py"},
+                    ],
+                },
+            },
+            {
+                **finding,
+                "range": {
+                    **finding["range"],
+                    "start": {"line": 4, "column": 0},
+                    "end": {"line": 4, "column": 4},
+                },
+            },
+        ):
+            with self.subTest(changed=changed):
+                result = compare_security_evidence(
+                    security_report(finding),
+                    security_report(changed),
+                    expected_project="oracle-py",
+                )
+                self.assertEqual(result["status"], "BAD_MISMATCH")
+        duplicate = compare_security_evidence(
+            security_report(finding, finding),
+            security_report(finding),
+            expected_project="oracle-py",
+        )
+        self.assertEqual(duplicate["status"], "BAD_MISMATCH")
+        self.assertEqual(duplicate["detector"]["missing"][0]["count"], 1)
+
+    def test_security_availability_metadata_does_not_create_detector_mismatch(self):
+        sonar = security_finding(flow_available=False, secondary_available=False)
+        ours = security_finding(flow_available=True, secondary_available=False)
+        result = compare_security_evidence(
+            security_report(sonar),
+            security_report(ours),
+            expected_project="oracle-py",
+        )
+        self.assertEqual(result["status"], "SECURITY_EVIDENCE_UNAVAILABLE")
+        self.assertEqual(result["detector"]["missing"], [])
+        self.assertEqual(result["detector"]["extra"], [])
+
+    def test_security_known_flow_mismatch_stays_bad_with_other_evidence_unavailable(
+        self,
+    ):
+        source = {
+            "file": "src/input.py",
+            "message": "source",
+            "range": {
+                "start": {"line": 2, "column": 0},
+                "end": {"line": 2, "column": 4},
+            },
+        }
+        sonar = security_finding(
+            flow_locations=[[source]],
+            flow_available=True,
+            secondary_available=False,
+            primary_range_available=False,
+        )
+        sonar["range"] = None
+        ours_source = {**source, "message": "different source"}
+        ours = security_finding(
+            flow_locations=[[ours_source]],
+            flow_available=True,
+            secondary_available=False,
+            primary_range_available=False,
+        )
+        ours["range"] = None
+        result = compare_security_evidence(
+            security_report(sonar),
+            security_report(ours),
+            expected_project="oracle-py",
+        )
+        self.assertEqual(result["status"], "BAD_MISMATCH")
+        self.assertEqual(result["detector"]["missing"][0]["count"], 1)
+        self.assertEqual(result["detector"]["extra"][0]["count"], 1)
+
+    def test_security_wildcard_matching_reassigns_ambiguous_rows(self):
+        source_a = {
+            "file": "src/input.py",
+            "message": "source A",
+            "range": {
+                "start": {"line": 2, "column": 0},
+                "end": {"line": 2, "column": 4},
+            },
+        }
+        source_b = {**source_a, "message": "source B"}
+        sonar = [
+            security_finding(
+                flow_locations=[[source_a]],
+                flow_available=True,
+                secondary_available=False,
+            ),
+            security_finding(flow_available=False, secondary_available=False),
+        ]
+        ours = [
+            security_finding(
+                flow_locations=[[source_b]],
+                flow_available=True,
+                secondary_available=False,
+            ),
+            security_finding(flow_available=False, secondary_available=False),
+        ]
+        result = compare_security_evidence(
+            security_report(*sonar),
+            security_report(*ours),
+            expected_project="oracle-py",
+        )
+        self.assertEqual(result["status"], "SECURITY_EVIDENCE_UNAVAILABLE")
+        self.assertEqual(result["detector"]["missing"], [])
+        self.assertEqual(result["detector"]["extra"], [])
+
+    def test_security_flow_without_location_message_is_explicitly_unavailable(self):
+        issue = {
+            "rule": "python:S2077",
+            "ruleKey": "python:S2077",
+            "type": "VULNERABILITY",
+            "component": "oracle-py:src/input.py",
+            "message": "Make sure that formatting this SQL query is safe here.",
+            "textRange": {
+                "startLine": 4,
+                "endLine": 4,
+                "startOffset": 4,
+                "endOffset": 39,
+            },
+            "flows": [
+                {
+                    "locations": [
+                        {
+                            "component": "oracle-py:src/input.py",
+                            "textRange": {
+                                "startLine": 4,
+                                "endLine": 4,
+                                "startOffset": 19,
+                                "endOffset": 38,
+                            },
+                            "msgFormattings": [],
+                        }
+                    ]
+                }
+            ],
+            "status": "OPEN",
+            "resolution": None,
+            "assignee": None,
+        }
+        evidence = canonical_sonar_security_issue(
+            issue, hotspot=False, expected_project="oracle-py"
+        )
+        self.assertEqual(evidence["range"]["start"], {"line": 4, "column": 4})
+        self.assertEqual(evidence["detector"]["flows"], [])
+        self.assertFalse(evidence["detector"]["flow_evidence_available"])
+        malformed = {
+            **issue,
+            "flows": [
+                {
+                    "locations": [
+                        {
+                            **issue["flows"][0]["locations"][0],
+                            "msg": "source",
+                            "textRange": {
+                                "startLine": 0,
+                                "startOffset": 0,
+                                "endLine": 1,
+                                "endOffset": 1,
+                            },
+                        }
+                    ]
+                }
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "text range lines must be positive"):
+            canonical_sonar_security_issue(
+                malformed, hotspot=False, expected_project="oracle-py"
+            )
+
+    def test_security_review_state_is_exposed_but_not_detector_equality(self):
+        finding = security_finding(status="OPEN", resolution=None, assignee=None)
+        reviewed = security_finding(
+            status="RESOLVED", resolution="FIXED", assignee="reviewer"
+        )
+        result = compare_security_evidence(
+            security_report(finding),
+            security_report(reviewed),
+            expected_project="oracle-py",
+        )
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["review"]["ours"][0]["review"]["status"], "RESOLVED")
+        self.assertEqual(result["review"]["ours"][0]["review"]["assignee"], "reviewer")
+
+    def test_security_evidence_rejects_missing_fields_and_project_mismatch(self):
+        finding = security_finding()
+        malformed = security_report(finding)
+        del malformed["findings"][0]["detector"]["flows"]
+        with self.assertRaisesRegex(ValueError, "detector missing fields.*flows"):
+            validate_security_evidence(malformed, expected_project="oracle-py")
+        with self.assertRaisesRegex(ValueError, "project must be 'oracle-py'"):
+            validate_security_evidence(
+                security_report(finding, project="other-project"),
+                expected_project="oracle-py",
+            )
+
+    def test_security_paths_are_project_relative_not_basename_only(self):
+        first = security_finding(file="src/one/security.py")
+        second = security_finding(file="src/two/security.py")
+        result = compare_security_evidence(
+            security_report(first, second),
+            security_report(security_finding(file="security.py")),
+            expected_project="oracle-py",
+        )
+        self.assertEqual(result["status"], "BAD_MISMATCH")
+        self.assertEqual(len(result["detector"]["missing"]), 2)
+
+    def test_unavailable_security_evidence_never_becomes_pass(self):
+        finding = security_finding(
+            flow_available=False,
+            secondary_available=False,
+            primary_range_available=False,
+        )
+        finding["range"] = None
+        result = compare_security_evidence(
+            security_report(finding),
+            security_report(finding),
+            expected_project="oracle-py",
+        )
+        self.assertEqual(result["status"], "SECURITY_EVIDENCE_UNAVAILABLE")
+        self.assertIn("detector evidence is incomplete", " ".join(result["limits"]))
+
+    def test_local_ir_empty_flows_are_materialized_explicitly(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "src" / "security.py"
+            path.parent.mkdir()
+            path.write_text("raise Exception()\n")
+            report = {
+                "files": [
+                    {
+                        "path": str(path),
+                        "issues": [
+                            {
+                                "rule_key": RULE,
+                                "message": MESSAGE,
+                                "range": {
+                                    "start": {"line": 1, "column": 0},
+                                    "end": {"line": 1, "column": 4},
+                                },
+                            }
+                        ],
+                    }
+                ]
+            }
+            artifact = build_hoonarqube_security_evidence(
+                report,
+                project="oracle-py",
+                rule_types={RULE: "VULNERABILITY"},
+                project_root=root,
+            )
+        self.assertEqual(artifact["findings"][0]["detector"]["flows"], [])
+        self.assertTrue(artifact["findings"][0]["detector"]["flow_evidence_available"])
+        self.assertEqual(artifact["findings"][0]["file"], "src/security.py")
 
     def test_report_task_requires_compute_engine_identity(self):
         task = parse_report_task("projectKey=oracle-py\nceTaskId=task-123\n")

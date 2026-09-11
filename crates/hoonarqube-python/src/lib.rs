@@ -5,23 +5,21 @@
 //! the frozen `hoonarqube-catalog` catalog via [`hoonarqube_ir::Issue::rule_key`];
 //! they are deliberately never duplicated here.
 //!
-//! # Documented coverage gaps (INFRA skips)
-//!
-//! One rule of the frozen Python catalog is intentionally not implemented
-//! because the infrastructure it requires does not exist in this crate; the
-//! coverage audit gap is explained here in code:
-//!
-//! - `python:S6786` (GraphQL introspection): detection needs third-party
-//!   symbol resolution and inheritance semantics to identify GraphQL views
-//!   and accepted introspection-blocking middleware or validation rules.
+//! GraphQL introspection (`python:S6786`) uses the explicit
+//! [`PythonProjectContext`] API for syntax-backed imports, aliases, re-exports,
+//! and inheritance.  Dynamic or unresolved configuration remains a distinct
+//! resolver state and is not guessed as safe.
 
 use crate::engine::file_context::FileContext;
+pub use crate::engine::project_context::PythonProjectContext;
+use crate::engine::project_context::module_name_from_path;
 #[cfg(test)]
 use crate::engine::rx::RxUnit;
 #[cfg(test)]
 use crate::engine::rx::decode_string_part;
 #[cfg(test)]
 use crate::engine::rx::parse_regex;
+use crate::quickfix::attach_quick_fixes;
 use crate::rules::assign_plus_minus::check_assign_plus_minus;
 use crate::rules::check_naming_convention_battery;
 use crate::rules::check_regex_battery;
@@ -54,6 +52,7 @@ use crate::rules::pre_increment_decrement::check_pre_increment_decrement;
 use crate::rules::py2_backticks::check_py2_backticks;
 use crate::rules::py2_inequality::check_py2_inequality;
 use crate::rules::py2_statements::check_py2_statements;
+use crate::rules::s6786_graphql_introspection::check_s6786_graphql_introspection;
 use crate::rules::trailing_whitespace::check_trailing_whitespace;
 use crate::support::file_metrics;
 use crate::support::parse;
@@ -141,12 +140,26 @@ impl Default for AnalyzerOptions {
         }
     }
 }
-
 #[must_use]
 pub fn analyze(
     path: PathBuf,
     source: &str,
     options: &AnalyzerOptions,
+) -> hoonarqube_ir::FileReport {
+    analyze_with_context(path, source, options, &PythonProjectContext::new())
+}
+
+/// Runs the Python analyzer with syntax-backed cross-module facts.
+///
+/// The context is explicit so the caller controls the project/module boundary;
+/// unresolved imports and dynamic values remain unresolved instead of being
+/// guessed from names.
+#[must_use]
+pub fn analyze_with_context(
+    path: PathBuf,
+    source: &str,
+    options: &AnalyzerOptions,
+    project: &PythonProjectContext,
 ) -> hoonarqube_ir::FileReport {
     let parsed = parse(source);
     let index = LineIndex::from_source_text(source);
@@ -194,8 +207,14 @@ pub fn analyze(
         &parsed, &index, source, options, &file_ctx,
     ));
     issues.extend(check_regex_battery(&parsed, &index, source, options));
+    let module_name = module_name_from_path(path.as_path());
     issues.extend(check_tier_c_security_battery(
-        &parsed, &index, source, &file_ctx,
+        &parsed,
+        &index,
+        source,
+        &file_ctx,
+        &module_name,
+        project,
     ));
     issues.extend(check_tier_c_semantic_battery(
         &parsed, &index, source, &file_ctx,
@@ -203,6 +222,15 @@ pub fn analyze(
     issues.extend(check_structural_battery(
         &parsed, &index, source, options, &file_ctx,
     ));
+    issues.extend(check_s6786_graphql_introspection(
+        &parsed,
+        &index,
+        source,
+        &file_ctx,
+        &module_name,
+        project,
+    ));
+    attach_quick_fixes(&parsed, &index, source, &file_ctx, &mut issues);
     sort_issues(&mut issues);
 
     hoonarqube_ir::FileReport {
@@ -259,6 +287,7 @@ pub fn analyze_github_quality_report(path: PathBuf, source: &str) -> hoonarqube_
 
 mod context;
 mod engine;
+pub(crate) mod quickfix;
 mod rules;
 mod support;
 

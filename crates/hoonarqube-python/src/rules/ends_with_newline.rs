@@ -16,6 +16,7 @@ pub(crate) fn check_ends_with_newline(path: &Path, source: &str) -> Vec<Issue> {
         range: hoonarqube_ir::Range::file_level(),
         fix: None,
         flows: Vec::new(),
+        alternatives: Vec::new(),
     }]
 }
 

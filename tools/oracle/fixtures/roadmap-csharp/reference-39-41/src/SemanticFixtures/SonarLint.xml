@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<AnalysisInput>
+  <Rules>
+    <Rule>
+      <Key>S110</Key>
+      <Parameters>
+        <Parameter><Key>max</Key><Value>5</Value></Parameter>
+        <Parameter><Key>filteredClasses</Key><Value>Roadmap.Contracts.Depth3</Value></Parameter>
+      </Parameters>
+    </Rule>
+    <Rule>
+      <Key>S1200</Key>
+      <Parameters>
+        <Parameter><Key>max</Key><Value>3</Value></Parameter>
+      </Parameters>
+    </Rule>
+    <Rule><Key>S1944</Key></Rule>
+    <Rule><Key>S3242</Key></Rule>
+    <Rule><Key>S3246</Key></Rule>
+    <Rule><Key>S4047</Key></Rule>
+    <Rule><Key>S6802</Key></Rule>
+  </Rules>
+</AnalysisInput>

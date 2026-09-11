@@ -3,6 +3,7 @@ use crate::support::collect_target_names;
 use crate::support::is_true_literal;
 use crate::support::issue_at;
 use crate::support::keyword_value;
+use crate::support::named_parameters;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::{Expr, Stmt};
 use ruff_source_file::LineIndex;
@@ -445,7 +446,6 @@ fn scope_for_range(scopes: &[LexicalScope], range: TextRange) -> usize {
         .min_by_key(|(_, scope)| scope.range.end().to_u32() - scope.range.start().to_u32())
         .map_or(0, |(id, _)| id)
 }
-
 pub(crate) fn check_s6281_s3_public_access_block(
     index: &LineIndex,
     source: &str,
@@ -461,21 +461,42 @@ pub(crate) fn check_s6281_s3_public_access_block(
         if !is_s3_bucket_constructor(&call.func, &bindings, at) {
             continue;
         }
-        let fully_blocked = keyword_value(&call.arguments, "block_public_access")
-            .is_some_and(|value| is_safe_public_access_block(value, &bindings, at));
-        if !fully_blocked {
+        let Some(block_public_access) = keyword_value(&call.arguments, "block_public_access")
+        else {
             issues.push(issue_at(
                 "python:S6281",
-                "No Public Access Block configuration prevents public ACL/policies to be set on this S3 bucket. Make sure it is safe here.",
+                MESSAGE,
                 call.func.range(),
                 index,
                 source,
             ));
+            continue;
+        };
+        // A function parameter is an intentionally runtime-supplied
+        // BlockPublicAccess object.  The reference rule leaves this
+        // unresolved configuration alone; keep concrete/unresolved
+        // module values as findings below.
+        if is_unresolved_function_parameter(block_public_access, at, file_ctx) {
+            continue;
         }
+        if is_safe_public_access_block(block_public_access, &bindings, at) {
+            continue;
+        }
+        let issue_range = incomplete_public_access_range(block_public_access, &bindings, at)
+            .unwrap_or_else(|| call.func.range());
+        issues.push(issue_at(
+            "python:S6281",
+            MESSAGE,
+            issue_range,
+            index,
+            source,
+        ));
     }
     issues
 }
 // --- python:S6281 — S3 public access fully blocked --------------------------------
+
+const MESSAGE: &str = "Disabling public access block settings allows public ACL/policies to be set on this S3 bucket.";
 
 const PUBLIC_ACCESS_BLOCK_KEYS: [&str; 4] = [
     "block_public_acls",
@@ -483,6 +504,107 @@ const PUBLIC_ACCESS_BLOCK_KEYS: [&str; 4] = [
     "ignore_public_acls",
     "restrict_public_buckets",
 ];
+
+fn incomplete_public_access_range(
+    value: &Expr,
+    bindings: &S3Bindings,
+    at: TextSize,
+) -> Option<TextRange> {
+    let Expr::Call(call) = value else {
+        return None;
+    };
+    if !is_block_public_access_constructor(&call.func, bindings, at) {
+        return None;
+    }
+    PUBLIC_ACCESS_BLOCK_KEYS.iter().find_map(|key| {
+        call.arguments
+            .keywords
+            .iter()
+            .find(|keyword| {
+                keyword
+                    .arg
+                    .as_ref()
+                    .is_some_and(|name| name.as_str() == *key)
+            })
+            .filter(|keyword| !is_true_literal(&keyword.value))
+            .map(Ranged::range)
+    })
+}
+
+fn is_unresolved_function_parameter(
+    value: &Expr,
+    at: TextSize,
+    file_ctx: &FileContext<'_>,
+) -> bool {
+    let Expr::Name(name) = value else {
+        return false;
+    };
+    let point = TextRange::new(at, at);
+    let Some((function, body_range)) = file_ctx
+        .functions
+        .iter()
+        .filter_map(|function| {
+            let body_range = function
+                .body
+                .first()
+                .zip(function.body.last())
+                .map_or(function.range(), |(first, last)| {
+                    TextRange::new(first.range().start(), last.range().end())
+                });
+            body_range
+                .contains_range(point)
+                .then_some((*function, body_range))
+        })
+        .min_by_key(|(_, range)| range.end().to_u32() - range.start().to_u32())
+    else {
+        return false;
+    };
+    if !named_parameters(&function.parameters)
+        .iter()
+        .any(|parameter| parameter.parameter.name.as_str() == name.id.as_str())
+    {
+        return false;
+    }
+    !file_ctx.stmts.iter().any(|stmt| {
+        stmt.range().start() >= body_range.start()
+            && stmt.range().end() <= body_range.end()
+            && stmt.range().end() <= at
+            && !is_nested_scope(stmt, function.range(), file_ctx)
+            && statement_rebinds_name(stmt, name.id.as_str())
+    })
+}
+
+fn is_nested_scope(stmt: &Stmt, function_range: TextRange, file_ctx: &FileContext<'_>) -> bool {
+    file_ctx.functions.iter().any(|nested| {
+        nested.range() != function_range && nested.range().contains_range(stmt.range())
+    }) || file_ctx
+        .classes
+        .iter()
+        .any(|nested| nested.range().contains_range(stmt.range()))
+}
+
+fn statement_rebinds_name(stmt: &Stmt, wanted: &str) -> bool {
+    let mut names = Vec::new();
+    match stmt {
+        Stmt::Assign(assign) => {
+            for target in &assign.targets {
+                collect_target_names(target, &mut names);
+            }
+        }
+        Stmt::AnnAssign(assign) => collect_target_names(&assign.target, &mut names),
+        Stmt::AugAssign(assign) => collect_target_names(&assign.target, &mut names),
+        Stmt::For(for_stmt) => collect_target_names(&for_stmt.target, &mut names),
+        Stmt::With(with_stmt) => {
+            for item in &with_stmt.items {
+                if let Some(target) = item.optional_vars.as_deref() {
+                    collect_target_names(target, &mut names);
+                }
+            }
+        }
+        _ => {}
+    }
+    names.iter().any(|name| name == wanted)
+}
 
 fn is_safe_public_access_block(value: &Expr, bindings: &S3Bindings, at: TextSize) -> bool {
     match value {
@@ -605,6 +727,68 @@ mod tests {
             ),
             0
         );
+    }
+
+    #[test]
+    fn s6281_keeps_the_selected_partial_block_as_an_unsafe_bucket() {
+        let source = concat!(
+            "from aws_cdk import aws_s3 as s3\n",
+            "\n",
+            "bucket = s3.Bucket(\n",
+            "    self,\n",
+            "    \"bucket\",\n",
+            "    block_public_access=s3.BlockPublicAccess(\n",
+            "        block_public_acls=False,\n",
+            "        ignore_public_acls=True,\n",
+            "        block_public_policy=True,\n",
+            "        restrict_public_buckets=True,\n",
+            "    ),\n",
+            ")\n",
+        );
+        let report = scan(source);
+        let found = findings(&report, "python:S6281");
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            found[0].message,
+            "Disabling public access block settings allows public ACL/policies to be set on this S3 bucket."
+        );
+        assert_eq!(
+            (
+                found[0].range.start.line,
+                found[0].range.start.column,
+                found[0].range.end.line,
+                found[0].range.end.column,
+            ),
+            (7, 8, 7, 31)
+        );
+    }
+
+    #[test]
+    fn leaves_runtime_blocker_parameters_unresolved() {
+        let source = concat!(
+            "from aws_cdk import aws_s3 as s3\n",
+            "\n",
+            "def make_bucket(blocker):\n",
+            "    return s3.Bucket(self, \"configured\", block_public_access=blocker)\n",
+        );
+        assert!(findings(&scan(source), "python:S6281").is_empty());
+    }
+
+    #[test]
+    fn reports_a_runtime_blocker_after_parameter_rebinding() {
+        let source = concat!(
+            "from aws_cdk import aws_s3 as s3\n",
+            "\n",
+            "def make_bucket(blocker):\n",
+            "    blocker = s3.BlockPublicAccess(\n",
+            "        block_public_acls=False,\n",
+            "        ignore_public_acls=True,\n",
+            "        block_public_policy=True,\n",
+            "        restrict_public_buckets=True,\n",
+            "    )\n",
+            "    return s3.Bucket(self, \"configured\", block_public_access=blocker)\n",
+        );
+        assert_eq!(findings(&scan(source), "python:S6281").len(), 1);
     }
     #[test]
     fn binds_s3_symbols_to_real_imports_and_requires_all_keys() {

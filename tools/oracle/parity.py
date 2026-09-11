@@ -14,15 +14,22 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import posixpath
 import stat
 import tempfile
 from typing import Any, Callable, Iterable, Mapping
 
 
 ORACLE_REPORT_SCHEMA = 2
+SECURITY_EVIDENCE_SCHEMA = 1
 NON_FAILURE_STATUSES = frozenset(
     {"PASS", "ENTERPRISE_UNVERIFIED", "UPSTREAM_UNVERIFIED"}
 )
+
+# Security detector metadata is deliberately compared outside the legacy
+# finding tuple.  The latter remains the stable issue-only contract used by
+# all existing reports.
+_SECURITY_REVIEW_FIELDS = ("status", "resolution", "assignee")
 
 
 def _reject_json_constant(value: str) -> None:
@@ -424,6 +431,1092 @@ def _required_string(value: dict[str, Any], key: str, context: str) -> str:
     return field
 
 
+def _canonical_project_path(
+    value: Any, *, context: str, expected_project: str | None = None
+) -> str:
+    """Return a normalized project-relative path without basename collisions."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{context} path must be a non-empty string")
+    normalized = value.replace("\\", "/")
+    if expected_project is not None:
+        prefix = f"{expected_project}:"
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix) :]
+        elif normalized == expected_project:
+            normalized = ""
+    if normalized.startswith("/"):
+        raise ValueError(f"{context} path must be project-relative")
+    normalized = posixpath.normpath(normalized)
+    if normalized in {"", ".", ".."} or normalized.startswith("../"):
+        raise ValueError(f"{context} path must identify a project file")
+    return normalized
+
+
+def _sonar_component_path(
+    issue: dict[str, Any], context: str, expected_project: str | None
+) -> str:
+    component = issue.get("component")
+    if isinstance(component, dict):
+        component = component.get("path")
+    return _canonical_project_path(
+        component, context=f"{context} component", expected_project=expected_project
+    )
+
+
+def _range_object(
+    canonical: tuple[int | None, int | None, int | None, int | None],
+) -> dict[str, dict[str, int]] | None:
+    if all(coordinate is None for coordinate in canonical):
+        return None
+    start_line, start_column, end_line, end_column = canonical
+    assert (
+        start_line is not None
+        and start_column is not None
+        and end_line is not None
+        and end_column is not None
+    )
+    return {
+        "start": {"line": start_line, "column": start_column},
+        "end": {"line": end_line, "column": end_column},
+    }
+
+
+def _security_api_range(
+    value: dict[str, Any], *, context: str
+) -> dict[str, dict[str, int]] | None:
+    if "range" in value:
+        raw_range = value["range"]
+    elif "textRange" in value:
+        text_range = value["textRange"]
+        if text_range is None:
+            raw_range = None
+        elif isinstance(text_range, dict):
+            start_line = text_range.get("startLine")
+            raw_range = {
+                "start": {
+                    "line": start_line,
+                    "column": text_range.get("startOffset"),
+                },
+                "end": {
+                    "line": text_range.get("endLine", start_line),
+                    "column": text_range.get("endOffset"),
+                },
+            }
+        else:
+            raise ValueError(f"{context} textRange must be an object or null")
+    else:
+        raise ValueError(f"{context} range/textRange field is missing")
+    canonical = _canonical_range(raw_range, context=context, allow_absent=True)
+    return _range_object(canonical)
+
+
+def _security_location(
+    value: Any,
+    *,
+    context: str,
+    expected_project: str | None = None,
+    primary_file: str | None = None,
+) -> dict[str, Any]:
+    """Normalize one immutable flow/secondary location."""
+    if not isinstance(value, dict):
+        raise ValueError(f"{context} must be an object")
+    if "file" in value:
+        file_name = _canonical_project_path(
+            value["file"], context=f"{context} file", expected_project=expected_project
+        )
+        message = value.get("message")
+    elif "path" in value and "component" not in value:
+        raw_path = value.get("path")
+        file_name = (
+            primary_file
+            if raw_path is None and primary_file is not None
+            else _canonical_project_path(
+                raw_path, context=f"{context} path", expected_project=expected_project
+            )
+        )
+        message = value.get("message")
+    elif "component" in value:
+        file_name = _sonar_component_path(value, context, expected_project)
+        message = value.get("msg", value.get("message"))
+    else:
+        raise ValueError(f"{context} must identify a file")
+    if not isinstance(message, str):
+        raise ValueError(f"{context} message must be a string")
+    return {
+        "file": file_name,
+        "message": message,
+        "range": _security_api_range(value, context=context),
+    }
+
+
+def _security_locations(
+    raw: Any,
+    *,
+    context: str,
+    expected_project: str | None = None,
+    primary_file: str | None = None,
+) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        raise ValueError(f"{context} must be a list")
+    return [
+        _security_location(
+            location,
+            context=f"{context} {index}",
+            expected_project=expected_project,
+            primary_file=primary_file,
+        )
+        for index, location in enumerate(raw)
+    ]
+
+
+def _security_flow_locations_messages_unavailable(
+    flow: Any, *, flow_index: int, expected_project: str | None
+) -> bool:
+    locations = flow.get("locations") if isinstance(flow, dict) else flow
+    if not isinstance(locations, list) or not locations:
+        return False
+    for location_index, location in enumerate(locations):
+        if (
+            not isinstance(location, dict)
+            or "component" not in location
+            or "msg" in location
+            or "message" in location
+            or not isinstance(location.get("msgFormattings"), list)
+        ):
+            return False
+        try:
+            _canonical_project_path(
+                location["component"],
+                context=f"security flow {flow_index} location {location_index} component",
+                expected_project=expected_project,
+            )
+            _security_api_range(
+                location,
+                context=f"security flow {flow_index} location {location_index}",
+            )
+        except ValueError:
+            return False
+    return True
+
+
+def _security_flow_messages_unavailable(
+    raw_flows: Any, *, expected_project: str | None = None
+) -> bool:
+    """Recognize Sonar's flow shape without per-location messages."""
+    return (
+        isinstance(raw_flows, list)
+        and bool(raw_flows)
+        and all(
+            _security_flow_locations_messages_unavailable(
+                flow,
+                flow_index=flow_index,
+                expected_project=expected_project,
+            )
+            for flow_index, flow in enumerate(raw_flows)
+        )
+    )
+
+
+def _security_flows(
+    issue: dict[str, Any],
+    *,
+    context: str,
+    expected_project: str | None,
+    primary_file: str,
+) -> list[list[dict[str, Any]]]:
+    if "flows" not in issue:
+        raise ValueError(f"{context} flows field is missing")
+    raw_flows = issue["flows"]
+    if not isinstance(raw_flows, list):
+        raise ValueError(f"{context} flows must be a list")
+    flows: list[list[dict[str, Any]]] = []
+    for flow_index, flow in enumerate(raw_flows):
+        locations = flow.get("locations") if isinstance(flow, dict) else flow
+        if not isinstance(locations, list) or not locations:
+            raise ValueError(f"{context} flow {flow_index} must contain locations")
+        flows.append(
+            _security_locations(
+                locations,
+                context=f"{context} flow {flow_index}",
+                expected_project=expected_project,
+                primary_file=primary_file,
+            )
+        )
+    return flows
+
+
+def _security_review(issue: dict[str, Any], *, context: str) -> dict[str, Any]:
+    review: dict[str, Any] = {}
+    for key in _SECURITY_REVIEW_FIELDS:
+        value = issue.get(key)
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"{context} review {key} must be a string or null")
+        review[key] = value
+    review["available"] = any(key in issue for key in _SECURITY_REVIEW_FIELDS)
+    return review
+
+
+def canonical_sonar_security_issue(
+    issue: Any, *, hotspot: bool, expected_project: str | None = None
+) -> dict[str, Any]:
+    """Normalize complete detector and review evidence from a Sonar API issue."""
+    context = "Sonar hotspot" if hotspot else "Sonar security issue"
+    if not isinstance(issue, dict):
+        raise ValueError(f"{context} must be an object")
+    try:
+        primary = canonical_sonar_issue(
+            issue, hotspot=hotspot, expected_project=expected_project
+        )
+        primary_range_available = primary["range"] is not None
+    except ValueError as error:
+        if not (hotspot and "line-only range" in str(error)):
+            raise
+        # Hotspot search can expose only a line. Keep the finding visible, but
+        # explicitly mark the immutable primary range as unavailable.
+        primary_range_available = False
+        primary = {
+            "rule": _required_string(issue, "ruleKey", context),
+            "file": _sonar_component_file(issue, context, expected_project),
+            "message": _required_string(issue, "message", context),
+            "range": None,
+        }
+    if hotspot:
+        detector_kind = "SECURITY_HOTSPOT"
+    else:
+        detector_kind = _required_string(issue, "type", context)
+    primary_path = _sonar_component_path(issue, context, expected_project)
+    if "flows" not in issue:
+        if not hotspot:
+            raise ValueError(f"{context} flows field is missing")
+        flows: list[list[dict[str, Any]]] = []
+        flow_available = False
+    else:
+        try:
+            flows = _security_flows(
+                issue,
+                context=context,
+                expected_project=expected_project,
+                primary_file=primary_path,
+            )
+        except ValueError:
+            if not _security_flow_messages_unavailable(
+                issue.get("flows"), expected_project=expected_project
+            ):
+                raise
+            flows = []
+            flow_available = False
+        else:
+            flow_available = True
+    secondary_available = "secondaryLocations" in issue
+    secondary = _security_locations(
+        issue.get("secondaryLocations", []),
+        context=f"{context} secondaryLocations",
+        expected_project=expected_project,
+        primary_file=primary_path,
+    )
+    return {
+        "rule": primary["rule"],
+        "file": primary_path,
+        "message": primary["message"],
+        "range": primary["range"],
+        "detector": {
+            "kind": detector_kind,
+            "flows": flows,
+            "secondary_locations": secondary,
+            "flow_evidence_available": flow_available,
+            "secondary_location_evidence_available": secondary_available,
+            "primary_range_evidence_available": primary_range_available,
+        },
+        "review": _security_review(issue, context=context),
+    }
+
+
+def _canonical_security_review(value: Any, *, context: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{context} review must be an object")
+    missing_review = sorted(set(_SECURITY_REVIEW_FIELDS) - set(value))
+    if missing_review:
+        raise ValueError(
+            f"{context} review missing fields: {', '.join(missing_review)}"
+        )
+    normalized: dict[str, Any] = {}
+    for key in _SECURITY_REVIEW_FIELDS:
+        review_value = value[key]
+        if review_value is not None and not isinstance(review_value, str):
+            raise ValueError(f"{context} review {key} must be a string or null")
+        normalized[key] = review_value
+    if "available" in value and not isinstance(value["available"], bool):
+        raise ValueError(f"{context} review available must be boolean")
+    normalized["available"] = bool(
+        value.get(
+            "available",
+            any(value[key] is not None for key in _SECURITY_REVIEW_FIELDS),
+        )
+    )
+    return normalized
+
+
+def _canonical_security_detector(
+    value: Any,
+    *,
+    context: str,
+    expected_project: str | None,
+    file_name: str,
+    canonical_range: tuple[int | None, int | None, int | None, int | None],
+) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{context} detector must be an object")
+    detector_required = {
+        "flows",
+        "secondary_locations",
+        "flow_evidence_available",
+        "secondary_location_evidence_available",
+        "primary_range_evidence_available",
+    }
+    detector_missing = sorted(detector_required - set(value))
+    if detector_missing:
+        raise ValueError(
+            f"{context} detector missing fields: {', '.join(detector_missing)}"
+        )
+    detector_context = f"{context} detector"
+    kind = _required_string(value, "kind", detector_context)
+    availability_keys = (
+        "flow_evidence_available",
+        "secondary_location_evidence_available",
+        "primary_range_evidence_available",
+    )
+    for availability_key in availability_keys:
+        if not isinstance(value[availability_key], bool):
+            raise ValueError(f"{context} detector {availability_key} must be boolean")
+    flows = _security_flows(
+        value,
+        context=detector_context,
+        expected_project=expected_project,
+        primary_file=file_name,
+    )
+    secondary = _security_locations(
+        value["secondary_locations"],
+        context=f"{detector_context} secondary_locations",
+        expected_project=expected_project,
+        primary_file=file_name,
+    )
+    if value["primary_range_evidence_available"] != (canonical_range != (None,) * 4):
+        raise ValueError(f"{context} primary range availability does not match range")
+    if not value["flow_evidence_available"] and flows:
+        raise ValueError(f"{context} flow evidence unavailable but flows are populated")
+    if not value["secondary_location_evidence_available"] and secondary:
+        raise ValueError(
+            f"{context} secondary location evidence unavailable but locations are populated"
+        )
+    return {
+        "kind": kind,
+        "flows": flows,
+        "secondary_locations": secondary,
+        "flow_evidence_available": value["flow_evidence_available"],
+        "secondary_location_evidence_available": value[
+            "secondary_location_evidence_available"
+        ],
+        "primary_range_evidence_available": value["primary_range_evidence_available"],
+    }
+
+
+def _canonical_security_finding(
+    value: Any, *, context: str, expected_project: str | None
+) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{context} must be an object")
+    required = {"rule", "file", "message", "range", "detector", "review"}
+    missing = sorted(required - set(value))
+    if missing:
+        raise ValueError(f"{context} missing fields: {', '.join(missing)}")
+    rule = _required_string(value, "rule", context)
+    file_name = _canonical_project_path(
+        value["file"], context=f"{context} file", expected_project=expected_project
+    )
+    message = _required_string(value, "message", context)
+    canonical_range = _canonical_range(
+        value["range"], context=context, allow_absent=True
+    )
+    detector = _canonical_security_detector(
+        value["detector"],
+        context=context,
+        expected_project=expected_project,
+        file_name=file_name,
+        canonical_range=canonical_range,
+    )
+    return {
+        "rule": rule,
+        "file": file_name,
+        "message": message,
+        "range": _range_object(canonical_range),
+        "detector": detector,
+        "review": _canonical_security_review(value["review"], context=context),
+    }
+
+
+def _validate_security_project(
+    report: dict[str, Any], expected_project: str | None
+) -> str:
+    project = report["project"]
+    if not isinstance(project, str) or not project.strip():
+        raise ValueError("security evidence project must be a non-empty string")
+    if expected_project is not None and project != expected_project:
+        raise ValueError(
+            f"security evidence project must be {expected_project!r}, got {project!r}"
+        )
+    return project
+
+
+def _validate_security_metadata(report: dict[str, Any]) -> None:
+    for key in ("source", "edition"):
+        if not isinstance(report[key], str) or not report[key].strip():
+            raise ValueError(f"security evidence {key} must be a non-empty string")
+    for key in ("sensor", "execution"):
+        if key in report and not isinstance(report[key], dict):
+            raise ValueError(f"security evidence {key} must be an object")
+
+
+def _validate_security_evidence_root(
+    report: Any, expected_project: str | None
+) -> tuple[dict[str, Any], str]:
+    if not isinstance(report, dict):
+        raise ValueError("security evidence must be an object")
+    required_root = {
+        "schema_version",
+        "project",
+        "source",
+        "edition",
+        "findings",
+        "limits",
+    }
+    missing_root = sorted(required_root - set(report))
+    if missing_root:
+        raise ValueError(
+            f"security evidence missing root fields: {', '.join(missing_root)}"
+        )
+    if report.get("schema_version") != SECURITY_EVIDENCE_SCHEMA:
+        raise ValueError(
+            f"security evidence schema_version {SECURITY_EVIDENCE_SCHEMA} required"
+        )
+    project = _validate_security_project(report, expected_project)
+    _validate_security_metadata(report)
+    return report, project
+
+
+def _validate_security_limits(limits: Any) -> None:
+    if not isinstance(limits, list) or any(
+        not isinstance(limit, str) or not limit.strip() for limit in limits
+    ):
+        raise ValueError("security evidence limits must be a list of strings")
+
+
+def validate_security_evidence(
+    report: Any, *, expected_project: str | None = None
+) -> list[dict[str, Any]]:
+    """Validate a versioned security artifact without weakening missing fields."""
+    validated_report, project = _validate_security_evidence_root(
+        report, expected_project
+    )
+    findings = validated_report["findings"]
+    if not isinstance(findings, list):
+        raise ValueError("security evidence findings must be a list")
+    _validate_security_limits(validated_report["limits"])
+    return [
+        _canonical_security_finding(
+            finding,
+            context=f"security finding {index}",
+            expected_project=project,
+        )
+        for index, finding in enumerate(findings)
+    ]
+
+
+def canonical_hoonarqube_security_issue(
+    issue: Any,
+    *,
+    rule_type: str,
+    file: str,
+    expected_project: str,
+) -> dict[str, Any]:
+    """Adapt one local IR issue without inventing omitted flow evidence."""
+    context = "Hoonarqube security issue"
+    if not isinstance(issue, dict):
+        raise ValueError(f"{context} must be an object")
+    rule = _required_string(issue, "rule_key", context)
+    message = _required_string(issue, "message", context)
+    if not isinstance(rule_type, str) or not rule_type.strip():
+        raise ValueError(f"{context} detector kind must be a non-empty string")
+    if "range" not in issue:
+        raise ValueError(f"{context} range field is missing")
+    range_value = _range_object(
+        _canonical_range(issue["range"], context=context, allow_absent=True)
+    )
+    file_name = _canonical_project_path(
+        file, context=f"{context} file", expected_project=expected_project
+    )
+    # The IR deliberately omits an empty `flows` vector during serde.  This
+    # adapter knows that source schema, so it materializes the omission as an
+    # explicit validated empty list; arbitrary security artifacts still reject
+    # a missing field in `_security_flows`.
+    flow_issue = issue if "flows" in issue else {**issue, "flows": []}
+    flows = _security_flows(
+        flow_issue,
+        context=context,
+        expected_project=expected_project,
+        primary_file=file_name,
+    )
+    secondary_available = "secondary_locations" in issue
+    secondary = _security_locations(
+        issue.get("secondary_locations", []),
+        context=f"{context} secondary_locations",
+        expected_project=expected_project,
+        primary_file=file_name,
+    )
+    return {
+        "rule": rule,
+        "file": file_name,
+        "message": message,
+        "range": range_value,
+        "detector": {
+            "kind": rule_type,
+            "flows": flows,
+            "secondary_locations": secondary,
+            "flow_evidence_available": True,
+            "secondary_location_evidence_available": secondary_available,
+            "primary_range_evidence_available": range_value is not None,
+        },
+        "review": {
+            "status": None,
+            "resolution": None,
+            "assignee": None,
+            "available": False,
+        },
+    }
+
+
+def _canonical_local_security_path(
+    raw_path: Any, *, context: str, root: Path | None
+) -> str:
+    if not isinstance(raw_path, str) or not raw_path:
+        raise ValueError(f"{context} path must be a non-empty string")
+    if root is None:
+        return raw_path
+    path = Path(raw_path)
+    candidate = path if path.is_absolute() else root / path
+    try:
+        return candidate.resolve().relative_to(root).as_posix()
+    except ValueError as error:
+        raise ValueError(f"{context} path is outside project root") from error
+
+
+def _build_local_security_issue(
+    issue: Any,
+    *,
+    context: str,
+    rule_types: Mapping[str, str],
+    file: str,
+    project: str,
+) -> dict[str, Any] | None:
+    if not isinstance(issue, dict):
+        raise ValueError(f"{context} must be an object")
+    rule = issue.get("rule_key")
+    if rule not in rule_types:
+        return None
+    return canonical_hoonarqube_security_issue(
+        issue,
+        rule_type=rule_types[rule],
+        file=file,
+        expected_project=project,
+    )
+
+
+def _build_local_security_file(
+    file_report: Any,
+    *,
+    context: str,
+    root: Path | None,
+    rule_types: Mapping[str, str],
+    project: str,
+) -> list[dict[str, Any]]:
+    if not isinstance(file_report, dict):
+        raise ValueError(f"{context} must be an object")
+    file_path = _canonical_local_security_path(
+        file_report.get("path"), context=context, root=root
+    )
+    issues = file_report.get("issues")
+    if not isinstance(issues, list):
+        raise ValueError(f"{context} issues must be a list")
+    findings: list[dict[str, Any]] = []
+    for issue_index, issue in enumerate(issues):
+        finding = _build_local_security_issue(
+            issue,
+            context=f"{context} issue {issue_index}",
+            rule_types=rule_types,
+            file=file_path,
+            project=project,
+        )
+        if finding is not None:
+            findings.append(finding)
+    return findings
+
+
+def build_hoonarqube_security_evidence(
+    report: Any,
+    *,
+    project: str,
+    rule_types: Mapping[str, str],
+    project_root: str | os.PathLike[str] | None = None,
+    limits: Iterable[str] = (),
+) -> dict[str, Any]:
+    """Build a strict local security artifact from the existing files report."""
+    if not isinstance(project, str) or not project.strip():
+        raise ValueError("security evidence project must be a non-empty string")
+    if not isinstance(report, dict) or not isinstance(report.get("files"), list):
+        raise ValueError("hoonarqube report must contain a files list")
+    root = Path(project_root).resolve() if project_root is not None else None
+    findings: list[dict[str, Any]] = []
+    for file_index, file_report in enumerate(report["files"]):
+        findings.extend(
+            _build_local_security_file(
+                file_report,
+                context=f"hoonarqube security file report {file_index}",
+                root=root,
+                rule_types=rule_types,
+                project=project,
+            )
+        )
+    artifact = {
+        "schema_version": SECURITY_EVIDENCE_SCHEMA,
+        "project": project,
+        "source": "hoonarqube",
+        "edition": "local",
+        "sensor": {"kind": "direct-analyzer"},
+        "findings": findings,
+        "limits": sorted(
+            {limit for limit in limits if isinstance(limit, str) and limit.strip()}
+        ),
+    }
+    validate_security_evidence(artifact, expected_project=project)
+    return artifact
+
+
+def _freeze_security(value: Any) -> Any:
+    if isinstance(value, dict):
+        return (
+            "__dict__",
+            tuple((key, _freeze_security(value[key])) for key in sorted(value)),
+        )
+    if isinstance(value, list):
+        return ("__list__", tuple(_freeze_security(item) for item in value))
+    return ("__value__", value)
+
+
+def _thaw_security(value: Any) -> Any:
+    if not isinstance(value, tuple) or not value:
+        return value
+    tag = value[0]
+    if tag == "__dict__":
+        return {key: _thaw_security(item) for key, item in value[1]}
+    if tag == "__list__":
+        return [_thaw_security(item) for item in value[1]]
+    if tag == "__value__":
+        return value[1]
+    return value
+
+
+def _security_detector_key(finding: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        finding["rule"],
+        finding["file"],
+        finding["message"],
+        _freeze_security(finding["range"]),
+        _freeze_security(finding["detector"]),
+    )
+
+
+def _security_detector_identity(finding: dict[str, Any]) -> tuple[Any, ...]:
+    detector = finding["detector"]
+    return (
+        finding["rule"],
+        finding["file"],
+        finding["message"],
+        detector["kind"],
+    )
+
+
+def _security_detector_compatible(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    """Return whether both findings' known detector facts agree."""
+    if _security_detector_identity(left) != _security_detector_identity(right):
+        return False
+    left_detector = left["detector"]
+    right_detector = right["detector"]
+    return not (
+        (
+            left_detector["primary_range_evidence_available"]
+            and right_detector["primary_range_evidence_available"]
+            and left["range"] != right["range"]
+        )
+        or (
+            left_detector["flow_evidence_available"]
+            and right_detector["flow_evidence_available"]
+            and left_detector["flows"] != right_detector["flows"]
+        )
+        or (
+            left_detector["secondary_location_evidence_available"]
+            and right_detector["secondary_location_evidence_available"]
+            and left_detector["secondary_locations"]
+            != right_detector["secondary_locations"]
+        )
+    )
+
+
+_SECURITY_COMPARISON_WORK_BUDGET = 100_000
+
+
+def _security_detector_mask(finding: dict[str, Any]) -> tuple[bool, bool, bool]:
+    detector = finding["detector"]
+    return (
+        detector["primary_range_evidence_available"],
+        detector["flow_evidence_available"],
+        detector["secondary_location_evidence_available"],
+    )
+
+
+def _security_projected_detector_key(
+    finding: dict[str, Any], mask: tuple[bool, bool, bool]
+) -> tuple[Any, ...]:
+    detector = finding["detector"]
+    return (
+        _security_detector_identity(finding),
+        _freeze_security(finding["range"]) if mask[0] else None,
+        _freeze_security(detector["flows"]) if mask[1] else None,
+        _freeze_security(detector["secondary_locations"]) if mask[2] else None,
+    )
+
+
+def _security_unmatched_rows(
+    left: list[dict[str, Any]],
+    right: list[dict[str, Any]],
+    key: Callable[[dict[str, Any]], tuple[Any, ...]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    left_counter = Counter(key(finding) for finding in left)
+    right_counter = Counter(key(finding) for finding in right)
+    left_rows = {key(finding): finding for finding in left}
+    right_rows = {key(finding): finding for finding in right}
+    missing: list[dict[str, Any]] = []
+    extra: list[dict[str, Any]] = []
+    for row_key, count in (left_counter - right_counter).items():
+        missing.extend([left_rows[row_key]] * count)
+    for row_key, count in (right_counter - left_counter).items():
+        extra.extend([right_rows[row_key]] * count)
+    return missing, extra
+
+
+def _security_group_detector_rows(
+    sonar: list[dict[str, Any]], ours: list[dict[str, Any]]
+) -> dict[
+    tuple[Any, ...],
+    tuple[list[dict[str, Any]], list[dict[str, Any]]],
+]:
+    groups: dict[
+        tuple[Any, ...],
+        tuple[list[dict[str, Any]], list[dict[str, Any]]],
+    ] = {}
+    for side, findings in (("sonar", sonar), ("ours", ours)):
+        for finding in findings:
+            group = groups.setdefault(_security_detector_identity(finding), ([], []))
+            (group[0] if side == "sonar" else group[1]).append(finding)
+    return groups
+
+
+def _security_uniform_detector_rows(
+    sonar_rows: list[dict[str, Any]], ours_rows: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]] | None:
+    sonar_masks = {_security_detector_mask(finding) for finding in sonar_rows}
+    ours_masks = {_security_detector_mask(finding) for finding in ours_rows}
+    if len(sonar_masks) > 1 or len(ours_masks) > 1:
+        return None
+    sonar_mask = next(iter(sonar_masks))
+    ours_mask = next(iter(ours_masks))
+    common_mask = (
+        sonar_mask[0] and ours_mask[0],
+        sonar_mask[1] and ours_mask[1],
+        sonar_mask[2] and ours_mask[2],
+    )
+    return _security_unmatched_rows(
+        sonar_rows,
+        ours_rows,
+        lambda finding, common_mask=common_mask: _security_projected_detector_key(
+            finding, common_mask
+        ),
+    )
+
+
+def _security_spend_work(remaining_work: int) -> tuple[int, bool]:
+    if remaining_work <= 0:
+        return remaining_work, False
+    return remaining_work - 1, True
+
+
+def _security_compatibility_graph(
+    sonar_rows: list[dict[str, Any]],
+    ours_rows: list[dict[str, Any]],
+    remaining_work: int,
+) -> tuple[list[list[int]], int, bool]:
+    compatible: list[list[int]] = []
+    for sonar_finding in sonar_rows:
+        row: list[int] = []
+        for ours_index, ours_finding in enumerate(ours_rows):
+            remaining_work, spent = _security_spend_work(remaining_work)
+            if not spent:
+                return compatible, remaining_work, True
+            if _security_detector_compatible(sonar_finding, ours_finding):
+                row.append(ours_index)
+        compatible.append(row)
+    return compatible, remaining_work, False
+
+
+def _security_find_augmenting_path(
+    start: int,
+    compatible: list[list[int]],
+    ours_owner: list[int | None],
+    remaining_work: int,
+) -> tuple[dict[int, int], int | None, int, bool]:
+    queue = [start]
+    queue_index = 0
+    visited_sonar = {start}
+    visited_ours: set[int] = set()
+    parent_ours: dict[int, int] = {}
+    free_ours: int | None = None
+    exhausted = False
+    while queue_index < len(queue) and free_ours is None:
+        sonar_index = queue[queue_index]
+        queue_index += 1
+        for ours_index in compatible[sonar_index]:
+            remaining_work, spent = _security_spend_work(remaining_work)
+            if not spent:
+                exhausted = True
+                break
+            if ours_index in visited_ours:
+                continue
+            visited_ours.add(ours_index)
+            parent_ours[ours_index] = sonar_index
+            previous_sonar = ours_owner[ours_index]
+            if previous_sonar is None:
+                free_ours = ours_index
+                break
+            if previous_sonar not in visited_sonar:
+                visited_sonar.add(previous_sonar)
+                queue.append(previous_sonar)
+        if exhausted:
+            break
+    return parent_ours, free_ours, remaining_work, exhausted
+
+
+def _security_assign_compatible_rows(
+    compatible: list[list[int]],
+    sonar_count: int,
+    ours_count: int,
+    remaining_work: int,
+) -> tuple[list[int | None], list[int | None], int, bool]:
+    sonar_owner: list[int | None] = [None] * sonar_count
+    ours_owner: list[int | None] = [None] * ours_count
+    for start in range(sonar_count):
+        parent_ours, free_ours, remaining_work, exhausted = (
+            _security_find_augmenting_path(
+                start,
+                compatible,
+                ours_owner,
+                remaining_work,
+            )
+        )
+        if exhausted:
+            return sonar_owner, ours_owner, remaining_work, True
+        if free_ours is None:
+            continue
+        ours_index: int | None = free_ours
+        while ours_index is not None:
+            sonar_index = parent_ours[ours_index]
+            previous_ours = sonar_owner[sonar_index]
+            sonar_owner[sonar_index] = ours_index
+            ours_owner[ours_index] = sonar_index
+            ours_index = previous_ours
+    return sonar_owner, ours_owner, remaining_work, False
+
+
+def _security_match_variable_mask_rows(
+    sonar_rows: list[dict[str, Any]],
+    ours_rows: list[dict[str, Any]],
+    remaining_work: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int, bool]:
+    compatible, remaining_work, exhausted = _security_compatibility_graph(
+        sonar_rows, ours_rows, remaining_work
+    )
+    if exhausted:
+        return [], [], remaining_work, True
+    sonar_owner, ours_owner, remaining_work, exhausted = (
+        _security_assign_compatible_rows(
+            compatible,
+            len(sonar_rows),
+            len(ours_rows),
+            remaining_work,
+        )
+    )
+    if exhausted:
+        return [], [], remaining_work, True
+    unmatched_sonar = [
+        finding
+        for index, finding in enumerate(sonar_rows)
+        if sonar_owner[index] is None
+    ]
+    unmatched_ours = [
+        finding for index, finding in enumerate(ours_rows) if ours_owner[index] is None
+    ]
+    return unmatched_sonar, unmatched_ours, remaining_work, False
+
+
+def _security_match_detector_rows(
+    sonar: list[dict[str, Any]], ours: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool, bool]:
+    """Match compatible findings with a bounded deterministic work budget."""
+    groups = _security_group_detector_rows(sonar, ours)
+    unmatched_sonar: list[dict[str, Any]] = []
+    unmatched_ours: list[dict[str, Any]] = []
+    remaining_work = _SECURITY_COMPARISON_WORK_BUDGET
+    exhausted = False
+    known_mismatch = False
+    for identity in sorted(groups, key=repr):
+        sonar_rows, ours_rows = groups[identity]
+        sonar_rows = sorted(
+            sonar_rows, key=lambda finding: repr(_security_detector_key(finding))
+        )
+        ours_rows = sorted(
+            ours_rows, key=lambda finding: repr(_security_detector_key(finding))
+        )
+        if not sonar_rows or not ours_rows:
+            unmatched_sonar.extend(sonar_rows)
+            unmatched_ours.extend(ours_rows)
+            continue
+
+        count_mismatch = len(sonar_rows) != len(ours_rows)
+        if count_mismatch:
+            known_mismatch = True
+        uniform_rows = _security_uniform_detector_rows(sonar_rows, ours_rows)
+        if uniform_rows is not None:
+            missing, extra = uniform_rows
+            unmatched_sonar.extend(missing)
+            unmatched_ours.extend(extra)
+            continue
+        if count_mismatch:
+            continue
+        missing, extra, remaining_work, exhausted = _security_match_variable_mask_rows(
+            sonar_rows, ours_rows, remaining_work
+        )
+        if exhausted:
+            break
+        unmatched_sonar.extend(missing)
+        unmatched_ours.extend(extra)
+    return unmatched_sonar, unmatched_ours, exhausted, known_mismatch
+
+
+def _security_counter_rows(counter: Counter[tuple[Any, ...]]) -> list[dict[str, Any]]:
+    rows = []
+    for key, count in sorted(counter.items(), key=lambda item: repr(item[0])):
+        rows.append(
+            {
+                "rule": key[0],
+                "file": key[1],
+                "message": key[2],
+                "range": _thaw_security(key[3]),
+                "detector": _thaw_security(key[4]),
+                "count": count,
+            }
+        )
+    return rows
+
+
+def _security_review_rows(
+    findings: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows = [
+        {
+            "rule": finding["rule"],
+            "file": finding["file"],
+            "range": finding["range"],
+            "review": finding["review"],
+        }
+        for finding in findings
+    ]
+    return sorted(rows, key=lambda row: repr(row))
+
+
+def _security_detector_available(findings: Iterable[dict[str, Any]]) -> bool:
+    return all(
+        detector["flow_evidence_available"]
+        and detector["secondary_location_evidence_available"]
+        and detector["primary_range_evidence_available"]
+        for finding in findings
+        for detector in (finding["detector"],)
+    )
+
+
+def compare_security_evidence(
+    sonar_report: Any,
+    ours_report: Any,
+    *,
+    expected_project: str | None = None,
+) -> dict[str, Any]:
+    """Compare detector evidence while reporting review state separately."""
+    sonar = validate_security_evidence(sonar_report, expected_project=expected_project)
+    ours = validate_security_evidence(ours_report, expected_project=expected_project)
+    sonar_counter = Counter(_security_detector_key(finding) for finding in sonar)
+    ours_counter = Counter(_security_detector_key(finding) for finding in ours)
+    missing_rows, extra_rows, exhausted, known_mismatch = _security_match_detector_rows(
+        sonar, ours
+    )
+    missing = Counter(_security_detector_key(finding) for finding in missing_rows)
+    extra = Counter(_security_detector_key(finding) for finding in extra_rows)
+    sonar_available = _security_detector_available(sonar)
+    ours_available = _security_detector_available(ours)
+    if missing or extra or known_mismatch:
+        status = "BAD_MISMATCH"
+    elif exhausted or not sonar_available or not ours_available:
+        status = "SECURITY_EVIDENCE_UNAVAILABLE"
+    else:
+        status = "PASS"
+    limits = sorted(
+        set(sonar_report.get("limits", [])) | set(ours_report.get("limits", []))
+    )
+    if not sonar_available:
+        limits.append("sonar detector evidence is incomplete")
+    if not ours_available:
+        limits.append("hoonarqube detector evidence is incomplete")
+    if exhausted:
+        limits.append("security detector comparison work budget exhausted")
+    return {
+        "schema_version": SECURITY_EVIDENCE_SCHEMA,
+        "status": status,
+        "detector": {
+            "sonar": _security_counter_rows(sonar_counter),
+            "ours": _security_counter_rows(ours_counter),
+            "missing": _security_counter_rows(missing),
+            "extra": _security_counter_rows(extra),
+            "availability": {
+                "sonar": sonar_available,
+                "ours": ours_available,
+            },
+        },
+        # Review status is deliberately visible but never part of detector
+        # equality. A human changing OPEN/RESOLVED cannot turn a detector
+        # mismatch into a pass, nor can it make equivalent detectors fail.
+        "review": {
+            "sonar": _security_review_rows(sonar),
+            "ours": _security_review_rows(ours),
+        },
+        "limits": sorted(set(limits)),
+    }
+
+
 def _sonar_component_file(
     issue: dict[str, Any], context: str, expected_project: str | None
 ) -> str:
@@ -808,6 +1901,38 @@ def _comparison_row(
     return row
 
 
+def _native_incomplete_details(
+    report: Any,
+) -> tuple[bool, str | None]:
+    """Return whether native explicitly reports an incomplete project."""
+    if not isinstance(report, dict):
+        return False, None
+    project = report.get("project")
+    if not isinstance(project, dict) or project.get("complete") is not False:
+        return False, None
+    warnings = project.get("warnings")
+    if isinstance(warnings, list):
+        details = [warning for warning in warnings if isinstance(warning, str)]
+        if details:
+            return True, (
+                "native project analysis is incomplete: " + "; ".join(details)
+            )
+    return True, "native project analysis is incomplete"
+
+
+def _mark_native_incomplete(row: dict[str, Any], reason: str) -> None:
+    observed_status = row.get("status")
+    if observed_status is not None:
+        row["observed_status"] = observed_status
+    if "reason" in row:
+        row["observed_reason"] = row["reason"]
+    row["native_status"] = "INCOMPLETE"
+    row["native_complete"] = False
+    row["native_reason"] = reason
+    row["status"] = "ORACLE_UNVERIFIED"
+    row["reason"] = reason
+
+
 def compare_reports(
     expected: list[dict[str, Any]],
     sonar_report: Any,
@@ -817,11 +1942,12 @@ def compare_reports(
     available_files: Iterable[str] | None = None,
     enterprise_unverified: Iterable[str] = (),
 ) -> list[dict[str, Any]]:
-    """Compare the complete catalog contract with exact finding equality."""
+    """Compare exact finding equality, never certifying an incomplete native report."""
     if not isinstance(expected, list):
         raise ValueError("oracle expectations must be a list")
     catalog = _unique_set(catalog_keys, "catalog key")
     files = _unique_set(available_files, "available fixture")
+    native_incomplete, native_reason = _native_incomplete_details(hoonarqube_report)
     context = _ComparisonContext(
         sonar=sonar_findings(sonar_report),
         ours=hoonarqube_findings(hoonarqube_report),
@@ -847,7 +1973,12 @@ def compare_reports(
             continue
         assert expectation is not None
         counters = _finding_counters(expectation, context)
-        rows.append(_comparison_row(expectation, counters, context))
+        row = _comparison_row(expectation, counters, context)
+        if native_incomplete:
+            _mark_native_incomplete(
+                row, native_reason or "native project analysis is incomplete"
+            )
+        rows.append(row)
     if context.catalog is not None:
         rows.extend(
             _terminal_row(
@@ -859,6 +1990,14 @@ def compare_reports(
         )
     if context.catalog is not None:
         rows.extend(_unexpected_finding_rows(context, context.catalog))
+    if native_incomplete and not rows:
+        rows.append(
+            _terminal_row(
+                None,
+                "ORACLE_UNVERIFIED",
+                native_reason or "native project analysis is incomplete",
+            )
+        )
     return rows
 
 

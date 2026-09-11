@@ -1,5 +1,6 @@
 //! Java parse context: exact source coordinates and conservative lexical facts.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use hoonarqube_ir::Range;
@@ -956,6 +957,29 @@ fn is_write_reference(node: Node<'_>) -> bool {
     false
 }
 
+/// Tree-sitter Java's line-comment grammar only recognizes LF. Java source
+/// semantics also treat a lone CR as a line terminator, so normalize only the
+/// parser view while retaining original byte offsets for all source facts.
+fn normalize_java_parser_source(source: &str) -> Cow<'_, str> {
+    let bytes = source.as_bytes();
+    let mut normalized = None;
+    let mut segment_start = 0;
+    for (offset, character) in source.char_indices() {
+        if character == '\r' && bytes.get(offset + 1) != Some(&b'\n') {
+            let output = normalized.get_or_insert_with(|| String::with_capacity(source.len()));
+            output.push_str(&source[segment_start..offset]);
+            output.push('\n');
+            segment_start = offset + 1;
+        }
+    }
+    if let Some(mut output) = normalized {
+        output.push_str(&source[segment_start..]);
+        Cow::Owned(output)
+    } else {
+        Cow::Borrowed(source)
+    }
+}
+
 /// Parses Java with tree-sitter recovery enabled.
 #[must_use]
 pub fn parse(source: &str) -> Option<Tree> {
@@ -963,12 +987,13 @@ pub fn parse(source: &str) -> Option<Tree> {
     parser
         .set_language(&tree_sitter_java::LANGUAGE.into())
         .ok()?;
-    parser.parse(source, None)
+    let parser_source = normalize_java_parser_source(source);
+    parser.parse(parser_source.as_ref(), None)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ScopeId, ScopeKind, SemanticIndex, parse};
+    use super::{ScopeId, ScopeKind, SemanticIndex, normalize_java_parser_source, parse};
     use crate::support::LineIndex;
 
     #[test]
@@ -1018,5 +1043,27 @@ mod tests {
         let tree = parse(source).expect("valid annotated package fixture");
         let index = SemanticIndex::build(tree.root_node(), source, &LineIndex::new(source));
         assert_eq!(index.package_name(), Some("demo.pkg"));
+    }
+
+    #[test]
+    fn java_line_terminators_preserve_tree_offsets_and_source_text() {
+        for separator in ["\n", "\r\n", "\r"] {
+            let source = format!("// comment{separator}class A {{}}");
+            let parser_source = normalize_java_parser_source(&source);
+            assert_eq!(parser_source.len(), source.len(), "{separator:?}");
+            if separator == "\r" {
+                assert_eq!(parser_source.as_ref(), "// comment\nclass A {}");
+            } else {
+                assert_eq!(parser_source.as_ref(), source.as_str());
+            }
+            let tree = parse(&source).expect("valid Java fixture");
+            assert!(!tree.root_node().has_error(), "{separator:?}");
+            let class = crate::support::collect_kinds(tree.root_node(), &["class_declaration"])
+                .into_iter()
+                .next()
+                .expect("class declaration");
+            assert_eq!(class.start_byte(), source.find("class").unwrap());
+            assert_eq!(class.utf8_text(source.as_bytes()).unwrap(), "class A {}");
+        }
     }
 }

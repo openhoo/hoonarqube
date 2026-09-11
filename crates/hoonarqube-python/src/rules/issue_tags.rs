@@ -43,6 +43,7 @@ pub(crate) fn check_issue_tags(
                     range: to_range(comment.range(), index, source),
                     fix: None,
                     flows: Vec::new(),
+                    alternatives: Vec::new(),
                 });
             }
         }
@@ -54,6 +55,7 @@ pub(crate) fn check_issue_tags(
                 range: to_range(comment.range(), index, source),
                 fix: None,
                 flows: Vec::new(),
+                alternatives: Vec::new(),
             });
         }
     }

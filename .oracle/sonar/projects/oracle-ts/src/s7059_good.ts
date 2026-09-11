@@ -1,7 +1,6 @@
 class Server {
-  constructor() {
-    this.start();
-  }
-
   async start() {}
 }
+
+const server = new Server();
+void server.start();

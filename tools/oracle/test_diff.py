@@ -9,9 +9,44 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import diff
 import parity_suite
+from reference_provenance import manifest_digest
 
 
 class DiffArtifactValidationTests(unittest.TestCase):
+    @staticmethod
+    def _manifest(kind):
+        manifest = {
+            "schema_version": 1,
+            "project": "oracle-py",
+            "kind": kind,
+            "repository": {"commit": "0" * 40},
+            "inputs": {
+                "input_sha256": "current",
+                "source_root": "src",
+                "expected": "expected",
+                "catalog": "catalog",
+            },
+            "server": {"url": parity_suite.SONAR_URL},
+            "profile": {},
+            "plugins": [],
+            "tools": {
+                "scanner_image": "scanner",
+                **(
+                    {
+                        "hoonarqube_executable": {
+                            "path": "target/debug/hoonarqube",
+                            "size": 1,
+                            "sha256": "native",
+                        }
+                    }
+                    if kind == "ours"
+                    else {}
+                ),
+            },
+        }
+        manifest["manifest_sha256"] = manifest_digest(manifest)
+        return manifest
+
     def test_stale_or_missing_artifact_evidence_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory) / "oracle-py"
@@ -67,6 +102,12 @@ class DiffArtifactValidationTests(unittest.TestCase):
             ):
                 parity_suite.attach_artifact_evidence(sonar_report, "oracle-py", "sq")
                 parity_suite.attach_artifact_evidence(ours_report, "oracle-py", "ours")
+                for report, kind in ((sonar_report, "sq"), (ours_report, "ours")):
+                    manifest = self._manifest(kind)
+                    report["oracle_provenance"] = manifest
+                    report["oracle_evidence"]["provenance_sha256"] = manifest[
+                        "manifest_sha256"
+                    ]
                 sonar.write_text(json.dumps(sonar_report), encoding="utf-8")
                 ours.write_text(json.dumps(ours_report), encoding="utf-8")
                 self.assertEqual(diff.main("py", project, sonar, ours, output), 0)
@@ -101,6 +142,22 @@ class DiffArtifactValidationTests(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, "stale or mismatched"),
             ):
                 diff.main("py", project, report, report)
+
+    def test_parameter_context_mismatch_is_rejected(self):
+        from reference_provenance import validate_compatible_manifests
+
+        sonar = {"oracle_provenance": self._manifest("sq")}
+        ours = {"oracle_provenance": self._manifest("ours")}
+        sonar["oracle_provenance"]["parameters"] = {
+            "kind": "sq",
+            "scanner_image": "scanner-a",
+        }
+        ours["oracle_provenance"]["parameters"] = {
+            "kind": "ours",
+            "scanner_image": "scanner-b",
+        }
+        with self.assertRaisesRegex(ValueError, "parameters"):
+            validate_compatible_manifests(sonar, ours)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,389 @@
+use crate::project_context::{
+    ProjectSemanticContext, ProjectSemanticSources, TypeScriptProjectConfig,
+};
 use crate::test_support::{
     AnalyzerOptions, JstsLanguage, Language, PathBuf, RuleOptions, analyze, count_key, findings,
     issue, js, js_keys, js_with_rules, language_for_extension, report_keys, ts,
 };
+use std::{
+    fs,
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+fn issue36_temp_dir(label: &str) -> PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock must be after the Unix epoch")
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "hoonarqube-jsts-issue36-{label}-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&path).expect("issue36 temporary fixture should be creatable");
+    path
+}
+
+fn write_issue36_file(path: &Path, source: &str) {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).expect("issue36 fixture parent should be creatable");
+    }
+    fs::write(path, source).expect("issue36 fixture should be writable");
+}
+
+fn pinned_typescript_package_for_tests() -> Option<PathBuf> {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut candidates = Vec::new();
+    if let Some(path) = std::env::var_os("HOONARQUBE_TYPESCRIPT_PACKAGE") {
+        candidates.push(PathBuf::from(path));
+    }
+    candidates.push(manifest_dir.join("../../node_modules/typescript"));
+    candidates.push(manifest_dir.join("node_modules/typescript"));
+    if let Some(node_path) = std::env::var_os("NODE_PATH") {
+        candidates.extend(std::env::split_paths(&node_path).map(|path| path.join("typescript")));
+    }
+    candidates.into_iter().find(|candidate| {
+        let Ok(text) = fs::read_to_string(candidate.join("package.json")) else {
+            return false;
+        };
+        let Ok(package) = serde_json::from_str::<serde_json::Value>(&text) else {
+            return false;
+        };
+        package.get("version").and_then(serde_json::Value::as_str) == Some("6.0.3")
+    })
+}
+
+struct TypeScriptResolutionFixture {
+    root: PathBuf,
+    base_config: PathBuf,
+    main_path: PathBuf,
+    main_source: String,
+    config: TypeScriptProjectConfig,
+    sources: ProjectSemanticSources,
+}
+
+fn issue36_typescript_resolution_fixture(
+    typescript_package: PathBuf,
+) -> TypeScriptResolutionFixture {
+    let root = issue36_temp_dir("config-resolution");
+    write_issue36_file(
+        &root.join("package.json"),
+        r#"{"name":"issue36-config-resolution","private":true,"type":"module"}"#,
+    );
+    write_issue36_file(
+        &root.join("node_modules/@issue36/base/package.json"),
+        r#"{
+  "name": "@issue36/base",
+  "version": "1.0.0",
+  "tsconfig": "./tsconfig.json",
+  "exports": {
+    ".": "./tsconfig.json",
+    "./tsconfig.json": "./tsconfig.json"
+  }
+}"#,
+    );
+    let base_config = root.join("node_modules/@issue36/base/tsconfig.json");
+    write_issue36_file(
+        &base_config,
+        r#"{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true
+  }
+}"#,
+    );
+    write_issue36_file(
+        &root.join("lib/tsconfig.ref.json"),
+        r#"{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts"]
+}"#,
+    );
+    write_issue36_file(
+        &root.join("tsconfig.json"),
+        r#"{
+  "extends": "@issue36/base",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true
+  },
+  "files": ["src/main.ts"],
+  "references": [{ "path": "lib/tsconfig.ref.json" }]
+}"#,
+    );
+    let main_path = root.join("src/main.ts");
+    let reference_path = root.join("lib/src/reference.ts");
+    let main_source = "export const mainValue = 1;\n".to_owned();
+    let reference_source = "export const referenceValue = 2;\n".to_owned();
+    let sources = ProjectSemanticSources::from_pairs([
+        (main_path.clone(), main_source.clone()),
+        (reference_path, reference_source),
+    ]);
+    let config =
+        TypeScriptProjectConfig::new(root.clone()).with_typescript_package(typescript_package);
+    TypeScriptResolutionFixture {
+        root,
+        base_config,
+        main_path,
+        main_source,
+        config,
+        sources,
+    }
+}
+
+struct RootConfigRaceFixture {
+    root: PathBuf,
+    tsconfig: PathBuf,
+    config: TypeScriptProjectConfig,
+    sources: ProjectSemanticSources,
+}
+
+fn issue36_root_config_race_fixture(typescript_package: PathBuf) -> RootConfigRaceFixture {
+    let root = issue36_temp_dir("config-race");
+    let tsconfig = root.join("tsconfig.json");
+    let original_config = r#"{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": false,
+    "noEmit": true
+  },
+  "files": ["src/main.ts"]
+}"#;
+    write_issue36_file(&tsconfig, original_config);
+    let mutation_marker = root.join(".mutate-config");
+    write_issue36_file(&mutation_marker, "mutate");
+    let helper_source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tools/semantic/typescript/semantic-helper.cjs")
+        .canonicalize()
+        .expect("embedded semantic helper should exist");
+    let helper_literal = serde_json::to_string(&helper_source.to_string_lossy().into_owned())
+        .expect("helper path should be JSON encodable");
+    let racing_helper = root.join("mutate-after-root-read.cjs");
+    let mut racing_source = String::from(
+        r"const fs = require('node:fs');
+const path = require('node:path');
+const helper = ",
+    );
+    racing_source.push_str(&helper_literal);
+    racing_source.push_str(
+        r#";
+const input = fs.readFileSync(0, 'utf8');
+const request = JSON.parse(input);
+const marker = path.join(request.root, '.mutate-config');
+const originalReadFileSync = fs.readFileSync;
+let mutated = false;
+fs.readFileSync = function(file, ...args) {
+  if (file === 0) return input;
+  const result = originalReadFileSync.call(this, file, ...args);
+  if (
+    !mutated &&
+    fs.existsSync(marker) &&
+    typeof file === 'string' &&
+    request.tsconfig &&
+    path.resolve(file) === path.resolve(request.tsconfig)
+  ) {
+    mutated = true;
+    fs.writeFileSync(
+      request.tsconfig,
+      '{"compilerOptions":{"target":"ES2022","module":"NodeNext","moduleResolution":"NodeNext","strict":true,"noEmit":true},"files":["src/main.ts"]}'
+    );
+  }
+  return result;
+};
+const output = [];
+const originalWrite = process.stdout.write.bind(process.stdout);
+process.stdout.write = chunk => {
+  output.push(Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk));
+  return true;
+};
+try {
+  require(helper);
+} finally {
+  process.stdout.write = originalWrite;
+}
+const responseText = output.join('');
+const response = JSON.parse(responseText);
+fs.writeFileSync(
+  path.join(request.root, 'race-response.json'),
+  JSON.stringify(response)
+);
+originalWrite(responseText);
+"#,
+    );
+    write_issue36_file(&racing_helper, &racing_source);
+    let source_path = root.join("src/main.ts");
+    let source = "export const value = 1;\n".to_owned();
+    let config = TypeScriptProjectConfig::new(root.clone())
+        .with_typescript_package(typescript_package)
+        .with_helper(PathBuf::from("node"), racing_helper);
+    let sources = ProjectSemanticSources::from_pairs([(source_path, source)]);
+    RootConfigRaceFixture {
+        root,
+        tsconfig,
+        config,
+        sources,
+    }
+}
+
+#[test]
+fn project_context_uses_typescript_resolution_for_file_references_and_package_extends() {
+    let Some(typescript_package) = pinned_typescript_package_for_tests() else {
+        eprintln!(
+            "skipping TypeScript config-resolution regression: \
+             set HOONARQUBE_TYPESCRIPT_PACKAGE to TypeScript 6.0.3"
+        );
+        return;
+    };
+    let TypeScriptResolutionFixture {
+        root,
+        base_config,
+        main_path,
+        main_source,
+        config,
+        sources,
+    } = issue36_typescript_resolution_fixture(typescript_package);
+    let context =
+        ProjectSemanticContext::load(&config, &sources).expect("TypeScript helper should load");
+    assert!(
+        context.is_complete(),
+        "config diagnostics: {:?}",
+        context.diagnostics()
+    );
+    let dependency_digest = |suffix: &str| {
+        context
+            .dependencies()
+            .iter()
+            .find(|dependency| dependency.path.ends_with(suffix))
+            .map(|dependency| dependency.digest.clone())
+    };
+    assert!(dependency_digest("tsconfig.json").is_some());
+    assert!(
+        dependency_digest("node_modules/@issue36/base/package.json").is_some(),
+        "package-based extends must fingerprint its package manifest"
+    );
+    assert!(
+        dependency_digest("node_modules/@issue36/base/tsconfig.json").is_some(),
+        "package-based extends must fingerprint its resolved config"
+    );
+    assert!(
+        dependency_digest("lib/tsconfig.ref.json").is_some(),
+        "file-form project reference must fingerprint its exact config path"
+    );
+    let original_fingerprint = context.fingerprint().to_owned();
+    let original_base_digest = dependency_digest("node_modules/@issue36/base/tsconfig.json")
+        .expect("base config dependency must be present");
+
+    write_issue36_file(
+        &base_config,
+        r#"{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": false
+  }
+}"#,
+    );
+    let changed_context =
+        ProjectSemanticContext::load(&config, &sources).expect("changed config should load");
+    assert!(changed_context.is_complete());
+    assert_ne!(changed_context.fingerprint(), original_fingerprint);
+    let changed_base_digest = changed_context
+        .dependencies()
+        .iter()
+        .find(|dependency| {
+            dependency
+                .path
+                .ends_with("node_modules/@issue36/base/tsconfig.json")
+        })
+        .map(|dependency| dependency.digest.as_str());
+    assert_ne!(changed_base_digest, Some(original_base_digest.as_str()));
+
+    fs::remove_file(&base_config).expect("base config should be removable");
+    let incomplete =
+        ProjectSemanticContext::load(&config, &sources).expect("missing config is a context");
+    assert!(
+        !incomplete.is_complete(),
+        "missing package extends config must not become an unresolved-import result"
+    );
+    assert!(incomplete.diagnostics().iter().any(|diagnostic| {
+        diagnostic.code.starts_with("TS_CONFIG_") || diagnostic.code == "TS_HELPER_MISSING_TSCONFIG"
+    }));
+    let incomplete_analysis =
+        incomplete.analyze(main_path, &main_source, &AnalyzerOptions::default());
+    assert!(
+        incomplete_analysis
+            .report
+            .issues
+            .iter()
+            .all(|issue| issue.rule_key != "typescript:S4328"),
+        "incomplete project configuration must not be recast as S4328"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn project_context_serves_frozen_root_config_during_helper_race() {
+    let Some(typescript_package) = pinned_typescript_package_for_tests() else {
+        eprintln!(
+            "skipping TypeScript root-config race regression: \
+             set HOONARQUBE_TYPESCRIPT_PACKAGE to TypeScript 6.0.3"
+        );
+        return;
+    };
+    let RootConfigRaceFixture {
+        root,
+        tsconfig,
+        config,
+        sources,
+    } = issue36_root_config_race_fixture(typescript_package);
+    let context =
+        ProjectSemanticContext::load(&config, &sources).expect("racing helper should load");
+    let response_text =
+        fs::read_to_string(root.join("race-response.json")).expect("race response should exist");
+    let response: serde_json::Value =
+        serde_json::from_str(&response_text).expect("race response should be JSON");
+    assert_eq!(
+        response
+            .get("complete")
+            .and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        response
+            .get("options")
+            .and_then(|options| options.get("strict"))
+            .and_then(serde_json::Value::as_bool),
+        Some(false),
+        "the helper must report the validated root config, not the post-read mutation"
+    );
+    assert!(
+        context.is_complete(),
+        "context diagnostics: {:?}",
+        context.diagnostics()
+    );
+    let mutated_config: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(&tsconfig).expect("mutated root config should remain readable"),
+    )
+    .expect("mutated root config should be JSON");
+    assert_eq!(
+        mutated_config["compilerOptions"]["strict"].as_bool(),
+        Some(true),
+        "the reproduction must actually mutate the on-disk config"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
 #[test]
 fn extensions_map_to_languages() {
     assert_eq!(language_for_extension("js"), Some(Language::JavaScript));
@@ -18,7 +400,7 @@ fn extensions_map_to_languages() {
 #[test]
 fn issues_are_sorted_by_position() {
     let source = "\
-eval('a');
+eval(input);
 let b = x; let c = y;
 ";
     let report = js(source);
@@ -45,8 +427,8 @@ let b = x; let c = y;
 #[test]
 fn eval_usage_is_flagged_at_callee_span_across_the_tree() {
     let source = "\
-eval('x');
-const f = new Function('return 1');
+eval(input);
+const f = new Function(source);
 foo(eval(nested));
 window.eval('not plain identifier');
 new window.Function('also ignored');
@@ -66,7 +448,7 @@ new window.Function('also ignored');
                 "javascript:S3523",
                 "The Function constructor is eval.",
                 (2, 10),
-                (2, 34),
+                (2, 30),
             ),
             issue(
                 "javascript:S1523",
@@ -122,6 +504,36 @@ fn broken_source_neither_panics_nor_hides_parse_errors() {
             .issues
             .iter()
             .any(|issue| issue.rule_key == "javascript:S2260")
+    );
+}
+
+#[test]
+fn malformed_lexer_tokens_do_not_panic_and_valid_tokens_remain_available() {
+    let javascript = js("const value = 1;\0");
+    assert!(
+        javascript
+            .issues
+            .iter()
+            .any(|issue| issue.rule_key == "javascript:S2260"),
+        "a trailing NUL must remain a normal JavaScript parse error"
+    );
+
+    let typescript = ts("const value: number = 1;\u{202e}");
+    assert!(
+        typescript
+            .issues
+            .iter()
+            .any(|issue| issue.rule_key == "typescript:S2260"),
+        "a trailing bidi control must remain a normal TypeScript parse error"
+    );
+
+    let valid = js("const value = 42");
+    assert!(
+        valid
+            .issues
+            .iter()
+            .any(|issue| issue.rule_key == "javascript:S1438"),
+        "valid source must retain token-dependent semicolon findings"
     );
 }
 
@@ -400,7 +812,7 @@ const TRACKED_JAVASCRIPT_ORACLE_CASES: &[(&str, &str, &str, usize)] = &[
     ("javascript:S4165", "s4165_bad.js", "s4165_good.js", 1),
     ("javascript:S4784", "s4784_bad.js", "s4784_good.js", 3),
     ("javascript:S5443", "s5443_bad.js", "s5443_good.js", 2),
-    ("javascript:S5725", "s5725_bad.js", "s5725_good.js", 2),
+    ("javascript:S5725", "s5725_bad.js", "s5725_good.js", 1),
     ("javascript:S5876", "s5876_bad.js", "s5876_good.js", 1),
     ("javascript:S6486", "s6486_bad.jsx", "s6486_good.jsx", 1),
     ("javascript:S6522", "s6522_bad.js", "s6522_good.js", 1),
@@ -790,7 +1202,7 @@ const TRACKED_TYPESCRIPT_ORACLE_CASES: &[(&str, &str, &str, usize)] = &[
     ("typescript:S1116", "s1116_bad.ts", "s1116_good.ts", 1),
     ("typescript:S1119", "s1119_bad.ts", "s1119_good.ts", 1),
     ("typescript:S1154", "s1154_bad.ts", "s1154_good.ts", 1),
-    ("typescript:S1199", "s1199_bad.ts", "s1199_good.ts", 1),
+    ("typescript:S1199", "s1199_bad.ts", "s1199_good.ts", 2),
     ("typescript:S1525", "s1525_bad.ts", "s1525_good.ts", 1),
     ("typescript:S1848", "s1848_bad.ts", "s1848_good.ts", 1),
     ("typescript:S2201", "s2201_bad.ts", "s2201_good.ts", 1),
@@ -875,7 +1287,7 @@ const TRACKED_TYPESCRIPT_ORACLE_CASES: &[(&str, &str, &str, usize)] = &[
     ("typescript:S4165", "s4165_bad.ts", "s4165_good.ts", 1),
     ("typescript:S4784", "s4784_bad.ts", "s4784_good.ts", 3),
     ("typescript:S5443", "s5443_bad.ts", "s5443_good.ts", 2),
-    ("typescript:S5725", "s5725_bad.ts", "s5725_good.ts", 2),
+    ("typescript:S5725", "s5725_bad.ts", "s5725_good.ts", 1),
     ("typescript:S5860", "s5860_bad.ts", "s5860_good.ts", 2),
     ("typescript:S5876", "s5876_bad.ts", "s5876_good.ts", 1),
     ("typescript:S6441", "s6441_bad.ts", "s6441_good.ts", 1),
@@ -908,6 +1320,7 @@ const TRACKED_TYPESCRIPT_ORACLE_CASES: &[(&str, &str, &str, usize)] = &[
 fn tracked_typescript_oracle_pairs_trigger_only_the_bad_control() {
     let project = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../.oracle/sonar/projects/oracle-ts/src");
+    let mut mismatches = Vec::new();
     for &(key, bad_name, good_name, expected_bad_count) in TRACKED_TYPESCRIPT_ORACLE_CASES {
         let bad_path = project.join(bad_name);
         let bad_source = std::fs::read_to_string(&bad_path)
@@ -918,14 +1331,16 @@ fn tracked_typescript_oracle_pairs_trigger_only_the_bad_control() {
             JstsLanguage::TypeScript,
             &AnalyzerOptions::default(),
         );
-        assert_eq!(
-            bad.issues
-                .iter()
-                .filter(|issue| issue.rule_key == key)
-                .count(),
-            expected_bad_count,
-            "bad oracle control for {key}",
-        );
+        let bad_count = bad
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == key)
+            .count();
+        if bad_count != expected_bad_count {
+            mismatches.push(format!(
+                "bad oracle control for {key}: expected {expected_bad_count}, got {bad_count}"
+            ));
+        }
 
         let good_path = project.join(good_name);
         let good_source = std::fs::read_to_string(&good_path)
@@ -936,15 +1351,18 @@ fn tracked_typescript_oracle_pairs_trigger_only_the_bad_control() {
             JstsLanguage::TypeScript,
             &AnalyzerOptions::default(),
         );
-        assert_eq!(
-            good.issues
-                .iter()
-                .filter(|issue| issue.rule_key == key)
-                .count(),
-            0,
-            "good oracle control for {key}",
-        );
+        let good_count = good
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == key)
+            .count();
+        if good_count != 0 {
+            mismatches.push(format!(
+                "good oracle control for {key}: expected 0, got {good_count}"
+            ));
+        }
     }
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }
 
 #[test]
@@ -999,4 +1417,881 @@ fn deeply_nested_valid_program_does_not_overflow_the_process_stack() {
             .all(|issue| issue.rule_key != "javascript:S2260"),
         "valid deeply nested source must still parse"
     );
+}
+
+#[test]
+fn s4322_quickfix_refuses_rest_and_inserts_missing_annotation_after_parameters() {
+    let rest_source = "\
+type Foo = { kind?: string };
+function isFoo(...values: Foo[]): boolean {
+  return (values[0] as Foo).kind !== undefined;
+}
+export { isFoo };
+";
+    let rest_report = ts(rest_source);
+    let rest_issue = rest_report
+        .issues
+        .iter()
+        .find(|issue| issue.rule_key == "typescript:S4322")
+        .expect("rest predicate should still report S4322");
+    assert!(
+        rest_issue
+            .alternatives
+            .iter()
+            .all(|alternative| alternative.id != "s4322-use-type-predicate"),
+        "rest predicates must not receive an invalid values[0] predicate"
+    );
+
+    let source = "\
+type Foo = { kind?: string };
+function isFoo(x: Foo) {
+  return (x as Foo).kind !== undefined;
+}
+export { isFoo };
+";
+    let report = ts(source);
+    let issue = report
+        .issues
+        .iter()
+        .find(|issue| issue.rule_key == "typescript:S4322")
+        .expect("missing return annotation should report S4322");
+    let alternative = issue
+        .alternatives
+        .iter()
+        .find(|alternative| alternative.id == "s4322-use-type-predicate")
+        .expect("missing return annotation should offer a type predicate");
+    let [edit] = alternative.fix.edits.as_slice() else {
+        panic!("S4322 type-predicate action should contain one edit");
+    };
+    assert_eq!(edit.range.start, edit.range.end);
+    assert_eq!(edit.replacement, ": x is Foo");
+    let signature = source.lines().nth(1).expect("function signature");
+    let expected_column = signature.find(") {").expect("closing parameter list") + 1;
+    assert_eq!(edit.range.start.line, 2);
+    assert_eq!(edit.range.start.column as usize, expected_column);
+}
+fn semantic_issue_source_text<'a>(source: &'a str, issue: &hoonarqube_ir::Issue) -> &'a str {
+    fn offset_at(source: &str, line: u32, column: u32) -> usize {
+        let line_index = line.saturating_sub(1) as usize;
+        let mut line_starts = vec![0_usize];
+        for (offset, byte) in source.bytes().enumerate() {
+            if byte == b'\n' {
+                line_starts.push(offset + 1);
+            }
+        }
+        let line_start = line_starts.get(line_index).copied().unwrap_or(source.len());
+        let line_end = source[line_start..]
+            .find('\n')
+            .map_or(source.len(), |offset| line_start + offset);
+        let column = column as usize;
+        let byte_offset = source[line_start..line_end]
+            .char_indices()
+            .nth(column)
+            .map_or(line_end - line_start, |(offset, _)| offset);
+        line_start + byte_offset
+    }
+
+    let start = offset_at(source, issue.range.start.line, issue.range.start.column);
+    let end = offset_at(source, issue.range.end.line, issue.range.end.column);
+    source
+        .get(start..end)
+        .expect("semantic issue range must be a UTF-8 source span")
+}
+
+struct SemanticRulesFixture {
+    root: PathBuf,
+    config: TypeScriptProjectConfig,
+    files: Vec<(PathBuf, String)>,
+}
+
+impl SemanticRulesFixture {
+    fn sources(&self) -> ProjectSemanticSources {
+        ProjectSemanticSources::from_pairs(self.files.iter().cloned())
+    }
+
+    fn file(&self, relative: &str) -> (&PathBuf, &str) {
+        let path = self.root.join(relative);
+        self.files
+            .iter()
+            .find(|(candidate, _)| candidate == &path)
+            .map_or_else(
+                || panic!("semantic fixture source is missing: {relative}"),
+                |(candidate, source)| (candidate, source.as_str()),
+            )
+    }
+}
+
+fn add_semantic_source(
+    files: &mut Vec<(PathBuf, String)>,
+    root: &Path,
+    relative: &str,
+    source: &str,
+) {
+    let path = root.join(relative);
+    write_issue36_file(&path, source);
+    files.push((path, source.to_owned()));
+}
+
+fn write_semantic_project_package(root: &Path) {
+    write_issue36_file(
+        &root.join("package.json"),
+        r#"{
+  "name": "hoonarqube-jsts-semantic-rules",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "legacy-lib": "1.0.0",
+    "internal-pkg": "1.0.0"
+  }
+}"#,
+    );
+}
+
+fn write_semantic_legacy_package(root: &Path) {
+    write_issue36_file(
+        &root.join("node_modules/legacy-lib/package.json"),
+        r#"{
+  "name": "legacy-lib",
+  "version": "1.0.0",
+  "type": "module",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  }
+}"#,
+    );
+    write_issue36_file(
+        &root.join("node_modules/legacy-lib/index.d.ts"),
+        r"/** @deprecated Use currentApi instead. */
+export declare function oldApi(value: string): string;
+export declare function currentApi(value: string): string;
+",
+    );
+    write_issue36_file(
+        &root.join("node_modules/legacy-lib/index.js"),
+        r"export function oldApi(value) {
+  return value;
+}
+export function currentApi(value) {
+  return value;
+}
+",
+    );
+}
+
+fn write_semantic_internal_package(root: &Path) {
+    write_issue36_file(
+        &root.join("node_modules/internal-pkg/package.json"),
+        r#"{
+  "name": "internal-pkg",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./public.d.ts",
+      "default": "./public.js"
+    },
+    "./_internal": {
+      "types": "./_internal.d.ts",
+      "default": "./_internal.js"
+    }
+  }
+}"#,
+    );
+    write_issue36_file(
+        &root.join("node_modules/internal-pkg/_internal.d.ts"),
+        "export declare const internalValue: string;\n",
+    );
+    write_issue36_file(
+        &root.join("node_modules/internal-pkg/_internal.js"),
+        "export const internalValue = 'internal';\n",
+    );
+    write_issue36_file(
+        &root.join("node_modules/internal-pkg/public.d.ts"),
+        "export { internalValue as publicValue } from './_internal.js';\n",
+    );
+    write_issue36_file(
+        &root.join("node_modules/internal-pkg/public.js"),
+        "export { internalValue as publicValue } from './_internal.js';\n",
+    );
+}
+
+fn add_s1874_import_sources(root: &Path, files: &mut Vec<(PathBuf, String)>) {
+    add_semantic_source(
+        files,
+        root,
+        "src/s1874-js.js",
+        r"import { oldApi as legacyAlias } from 'legacy-lib';
+
+export const aliasValue = legacyAlias('alias');
+import { currentApi as currentAlias } from 'legacy-lib';
+export const goodValue = currentAlias('good');
+/** @param {string} oldApi */
+export function localShadow(oldApi) {
+  return oldApi;
+}
+",
+    );
+    add_semantic_source(
+        files,
+        root,
+        "src/s1874-ts.ts",
+        r"import { oldApi as legacyAlias } from 'legacy-lib';
+
+export const aliasValue = legacyAlias('alias');
+import { currentApi as currentAlias } from 'legacy-lib';
+export const goodValue = currentAlias('good');
+export function localShadow(oldApi: string): string {
+  return oldApi;
+}
+",
+    );
+}
+
+fn add_s1874_reexport_sources(root: &Path, files: &mut Vec<(PathBuf, String)>) {
+    add_semantic_source(
+        files,
+        root,
+        "src/s1874-local.js",
+        r"/** @deprecated Use currentLocal instead. */
+/** @param {string} value */
+export function oldLocal(value) {
+  return value;
+}
+/** @param {string} value */
+export function currentLocal(value) {
+  return value;
+}
+",
+    );
+    add_semantic_source(
+        files,
+        root,
+        "src/s1874-barrel.js",
+        "export { oldLocal as renamedLocal } from './s1874-local.js';\n",
+    );
+    add_semantic_source(
+        files,
+        root,
+        "src/s1874-barrel-consumer.js",
+        r"import { renamedLocal } from './s1874-barrel.js';
+
+export const barrelValue = renamedLocal('barrel');
+",
+    );
+    add_semantic_source(
+        files,
+        root,
+        "src/s1874-local.ts",
+        r"/** @deprecated Use currentLocal instead. */
+export function oldLocal(value: string): string {
+  return value;
+}
+export function currentLocal(value: string): string {
+  return value;
+}
+",
+    );
+    add_semantic_source(
+        files,
+        root,
+        "src/s1874-barrel.ts",
+        "export { oldLocal as renamedLocal } from './s1874-local.js';\n",
+    );
+    add_semantic_source(
+        files,
+        root,
+        "src/s1874-barrel-consumer.ts",
+        r"import { renamedLocal } from './s1874-barrel.js';
+
+export const barrelValue = renamedLocal('barrel');
+",
+    );
+}
+
+fn add_s6627_sources(root: &Path, files: &mut Vec<(PathBuf, String)>) {
+    for (relative, source) in [
+        (
+            "src/s6627-js.js",
+            r#"import { internalValue } from "../node_modules/internal-pkg/_internal.js";
+export const badImport = internalValue;
+import { publicValue } from "internal-pkg";
+export const goodImport = publicValue;
+"#,
+        ),
+        (
+            "src/s6627-ts.ts",
+            r#"import { internalValue } from "../node_modules/internal-pkg/_internal.js";
+export const badImport = internalValue;
+import { publicValue } from "internal-pkg";
+export const goodImport = publicValue;
+"#,
+        ),
+    ] {
+        add_semantic_source(files, root, relative, source);
+    }
+}
+
+fn add_s4325_sources(root: &Path, files: &mut Vec<(PathBuf, String)>) {
+    add_semantic_source(
+        files,
+        root,
+        "src/s4325-redundant.ts",
+        r"const text: string = 'text';
+const same = text as string;
+const object = ({ value: 1 } as { value: number });
+export { same, object };
+",
+    );
+    add_semantic_source(
+        files,
+        root,
+        "src/s4325-meaningful.ts",
+        r"declare const input: string | number;
+const meaningful = input as string;
+export { meaningful };
+",
+    );
+}
+
+fn add_s6606_ternary_sources(root: &Path, files: &mut Vec<(PathBuf, String)>) {
+    add_semantic_source(
+        files,
+        root,
+        "src/s6606-ternary.ts",
+        r"declare const maybeValue: string | null | undefined;
+const ternary = maybeValue != null ? maybeValue : 'fallback';
+const strictTernary = maybeValue !== null && maybeValue !== undefined ? maybeValue : 'fallback';
+export { ternary, strictTernary };
+",
+    );
+    add_semantic_source(
+        files,
+        root,
+        "src/s6606-falsy-primitives.ts",
+        r"declare const numeric: number | undefined;
+declare const booleanValue: boolean | undefined;
+declare const empty: string | undefined;
+const numericOr = numeric || 1;
+const booleanOr = booleanValue || true;
+const emptyOr = empty || 'fallback';
+export { numericOr, booleanOr, emptyOr };
+",
+    );
+}
+
+fn add_s6606_union_sources(root: &Path, files: &mut Vec<(PathBuf, String)>) {
+    add_semantic_source(
+        files,
+        root,
+        "src/s6606-mixed-union.ts",
+        r"declare const mixed: string | 0 | false | null | undefined;
+const mixedOr = mixed || 'fallback';
+const mixedNullish = mixed ?? 'fallback';
+export { mixedOr, mixedNullish };
+",
+    );
+    add_semantic_source(
+        files,
+        root,
+        "src/s6606-nullable-union.ts",
+        r"declare const nullable: string | null | undefined;
+const nullableOr = nullable || 'fallback';
+const nullableNullish = nullable ?? 'fallback';
+export { nullableOr, nullableNullish };
+",
+    );
+}
+
+fn add_s6606_effect_sources(root: &Path, files: &mut Vec<(PathBuf, String)>) {
+    add_semantic_source(
+        files,
+        root,
+        "src/s6606-side-effects.ts",
+        r"declare function getValue(): string | null | undefined;
+let calls = 0;
+function next(): string { calls += 1; return 'next'; }
+const sideEffectOr = getValue() || next();
+const sideEffectNullish = getValue() ?? next();
+export { calls, sideEffectOr, sideEffectNullish };
+",
+    );
+}
+
+fn add_s6606_special_sources(root: &Path, files: &mut Vec<(PathBuf, String)>) {
+    add_semantic_source(
+        files,
+        root,
+        "src/s6606-special-types.ts",
+        r"declare const anyValue: any;
+declare const unknownValue: unknown;
+declare const neverValue: never;
+const anyOr = anyValue || 'fallback';
+const unknownOr = unknownValue || 'fallback';
+const neverOr = neverValue || 'fallback';
+export { anyOr, unknownOr, neverOr };
+",
+    );
+}
+
+fn add_s6594_sources(root: &Path, files: &mut Vec<(PathBuf, String)>) {
+    add_semantic_source(
+        files,
+        root,
+        "src/s6594-control.ts",
+        r"const text: string = 'text';
+const matches = text.match(/a/);
+export { matches };
+",
+    );
+    add_semantic_source(
+        files,
+        root,
+        "src/s6594-shadow.ts",
+        r"const text: string = 'text';
+const outside = text.match(/a/);
+function localRegExp() {
+  function RegExp(pattern: string) {
+    return pattern;
+  }
+  return text.match(/a/);
+}
+export { outside, localRegExp };
+",
+    );
+}
+
+fn semantic_rule_sources(root: &Path) -> Vec<(PathBuf, String)> {
+    let mut files = Vec::new();
+    add_s1874_import_sources(root, &mut files);
+    add_s1874_reexport_sources(root, &mut files);
+    add_s6627_sources(root, &mut files);
+    add_s4325_sources(root, &mut files);
+    add_s6606_ternary_sources(root, &mut files);
+    add_s6606_union_sources(root, &mut files);
+    add_s6606_effect_sources(root, &mut files);
+    add_s6606_special_sources(root, &mut files);
+    add_s6594_sources(root, &mut files);
+    files
+}
+
+fn write_semantic_rules_config(root: &Path) {
+    write_issue36_file(
+        &root.join("tsconfig.json"),
+        r#"{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "strictNullChecks": true,
+    "allowJs": true,
+    "checkJs": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "files": [
+    "src/s1874-js.js",
+    "src/s1874-ts.ts",
+    "src/s1874-local.js",
+    "src/s1874-barrel.js",
+    "src/s1874-barrel-consumer.js",
+    "src/s1874-local.ts",
+    "src/s1874-barrel.ts",
+    "src/s1874-barrel-consumer.ts",
+    "src/s6627-js.js",
+    "src/s6627-ts.ts",
+    "src/s4325-redundant.ts",
+    "src/s4325-meaningful.ts",
+    "src/s6606-ternary.ts",
+    "src/s6606-falsy-primitives.ts",
+    "src/s6606-mixed-union.ts",
+    "src/s6606-nullable-union.ts",
+    "src/s6606-side-effects.ts",
+    "src/s6606-special-types.ts",
+    "src/s6594-control.ts",
+    "src/s6594-shadow.ts"
+  ]
+}"#,
+    );
+}
+
+fn semantic_rules_fixture(typescript_package: PathBuf) -> SemanticRulesFixture {
+    let root = issue36_temp_dir("semantic-rules");
+    write_semantic_project_package(&root);
+    write_semantic_legacy_package(&root);
+    write_semantic_internal_package(&root);
+    let files = semantic_rule_sources(&root);
+    write_semantic_rules_config(&root);
+    let config =
+        TypeScriptProjectConfig::new(root.clone()).with_typescript_package(typescript_package);
+    SemanticRulesFixture {
+        root,
+        config,
+        files,
+    }
+}
+
+fn load_semantic_rules_fixture() -> Option<(SemanticRulesFixture, ProjectSemanticContext)> {
+    let Some(typescript_package) = pinned_typescript_package_for_tests() else {
+        eprintln!(
+            "skipping semantic rule regressions: \
+             set HOONARQUBE_TYPESCRIPT_PACKAGE to TypeScript 6.0.3"
+        );
+        return None;
+    };
+    let fixture = semantic_rules_fixture(typescript_package);
+    let sources = fixture.sources();
+    let context = ProjectSemanticContext::load(&fixture.config, &sources)
+        .expect("semantic helper should load");
+    assert!(
+        context.is_complete(),
+        "semantic fixture diagnostics: {:?}",
+        context.diagnostics()
+    );
+    assert_eq!(
+        context.compiler_version(),
+        Some("6.0.3"),
+        "semantic tests must use the pinned compiler"
+    );
+    Some((fixture, context))
+}
+
+#[test]
+fn semantic_s1874_flags_deprecated_aliases_and_reexports_for_js_and_ts() {
+    let Some((fixture, context)) = load_semantic_rules_fixture() else {
+        return;
+    };
+    for (language, rule_key, names) in [
+        (
+            JstsLanguage::JavaScript,
+            "javascript:S1874",
+            ["src/s1874-js.js", "src/s1874-barrel-consumer.js"],
+        ),
+        (
+            JstsLanguage::TypeScript,
+            "typescript:S1874",
+            ["src/s1874-ts.ts", "src/s1874-barrel-consumer.ts"],
+        ),
+    ] {
+        for name in names {
+            let (path, source) = fixture.file(name);
+            let analysis = context.analyze_with_context(
+                path.clone(),
+                source,
+                language,
+                &AnalyzerOptions::default(),
+            );
+            let target: Vec<_> = analysis
+                .report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == rule_key)
+                .collect();
+            let expected = if name.contains("barrel-consumer") {
+                vec![
+                    (1, 9, 1, 21, "renamedLocal"),
+                    (3, 27, 3, 39, "renamedLocal"),
+                ]
+            } else {
+                vec![
+                    (1, 9, 1, 30, "oldApi as legacyAlias"),
+                    (3, 26, 3, 37, "legacyAlias"),
+                ]
+            };
+            assert_eq!(
+                target
+                    .iter()
+                    .map(|issue| (
+                        issue.range.start.line,
+                        issue.range.start.column,
+                        issue.range.end.line,
+                        issue.range.end.column,
+                        semantic_issue_source_text(source, issue),
+                    ))
+                    .collect::<Vec<_>>(),
+                expected,
+                "S1874 must identify exact deprecated alias/reexport ranges in {name}"
+            );
+        }
+    }
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
+fn semantic_s6627_flags_resolved_raw_internal_paths_but_not_public_reexports() {
+    let Some((fixture, context)) = load_semantic_rules_fixture() else {
+        return;
+    };
+    for (language, rule_key, name) in [
+        (
+            JstsLanguage::JavaScript,
+            "javascript:S6627",
+            "src/s6627-js.js",
+        ),
+        (
+            JstsLanguage::TypeScript,
+            "typescript:S6627",
+            "src/s6627-ts.ts",
+        ),
+    ] {
+        let (path, source) = fixture.file(name);
+        let analysis = context.analyze_with_context(
+            path.clone(),
+            source,
+            language,
+            &AnalyzerOptions::default(),
+        );
+        let target: Vec<_> = analysis
+            .report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == rule_key)
+            .collect();
+        assert_eq!(
+            target.len(),
+            1,
+            "only the raw internal-module import must be reported in {name}: {target:?}"
+        );
+        let issue = target[0];
+        assert_eq!(issue.range.start.line, 1);
+        assert_eq!(issue.range.end.line, 1);
+        assert_eq!(issue.range.start.column, 0);
+        assert!(
+            semantic_issue_source_text(source, issue)
+                .contains("../node_modules/internal-pkg/_internal.js"),
+            "S6627 must range the raw internal import, not its resolved public target: {issue:?}"
+        );
+    }
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
+fn semantic_s4325_flags_redundant_assertions_but_not_a_meaningful_target_type() {
+    let Some((fixture, context)) = load_semantic_rules_fixture() else {
+        return;
+    };
+    let (redundant_path, redundant_source) = fixture.file("src/s4325-redundant.ts");
+    let redundant = context.analyze_with_context(
+        redundant_path.clone(),
+        redundant_source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+    );
+    let target: Vec<_> = redundant
+        .report
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key == "typescript:S4325")
+        .collect();
+    assert_eq!(
+        target
+            .iter()
+            .map(|issue| (
+                issue.range.start.line,
+                issue.range.start.column,
+                issue.range.end.line,
+                issue.range.end.column,
+                semantic_issue_source_text(redundant_source, issue),
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (2, 13, 2, 27, "text as string"),
+            (3, 16, 3, 49, "{ value: 1 } as { value: number }",),
+        ]
+    );
+
+    let (meaningful_path, meaningful_source) = fixture.file("src/s4325-meaningful.ts");
+    let meaningful = context.analyze_with_context(
+        meaningful_path.clone(),
+        meaningful_source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+    );
+    assert!(
+        meaningful
+            .report
+            .issues
+            .iter()
+            .all(|issue| issue.rule_key != "typescript:S4325"),
+        "a string|number to string assertion changes the target type"
+    );
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
+fn semantic_s6606_flags_nullish_ternaries_without_falsy_primitive_false_positives() {
+    let Some((fixture, context)) = load_semantic_rules_fixture() else {
+        return;
+    };
+    let (ternary_path, ternary_source) = fixture.file("src/s6606-ternary.ts");
+    let ternary = context.analyze_with_context(
+        ternary_path.clone(),
+        ternary_source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+    );
+    let target: Vec<_> = ternary
+        .report
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key == "typescript:S6606")
+        .collect();
+    assert_eq!(
+        target
+            .iter()
+            .map(|issue| (
+                issue.range.start.line,
+                issue.range.start.column,
+                issue.range.end.line,
+                issue.range.end.column,
+                semantic_issue_source_text(ternary_source, issue),
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (2, 16, 2, 60, "maybeValue != null ? maybeValue : 'fallback'",),
+            (
+                3,
+                22,
+                3,
+                95,
+                "maybeValue !== null && maybeValue !== undefined ? maybeValue : 'fallback'",
+            ),
+        ]
+    );
+
+    for name in [
+        "src/s6606-falsy-primitives.ts",
+        "src/s6606-mixed-union.ts",
+        "src/s6606-nullable-union.ts",
+        "src/s6606-side-effects.ts",
+        "src/s6606-special-types.ts",
+    ] {
+        let (path, source) = fixture.file(name);
+        let analysis = context.analyze_with_context(
+            path.clone(),
+            source,
+            JstsLanguage::TypeScript,
+            &AnalyzerOptions::default(),
+        );
+        assert!(
+            analysis
+                .report
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "typescript:S6606"),
+            "falsy, mixed, side-effect, and special types must not be rewritten as nullish in {name}"
+        );
+    }
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
+fn semantic_s6594_uses_global_regexp_but_rejects_shadowed_binding() {
+    let Some((fixture, context)) = load_semantic_rules_fixture() else {
+        return;
+    };
+
+    let (control_path, control_source) = fixture.file("src/s6594-control.ts");
+    let control = context.analyze_with_context(
+        control_path.clone(),
+        control_source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+    );
+    let control_issues: Vec<_> = control
+        .report
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key == "typescript:S6594")
+        .collect();
+    assert_eq!(
+        control_issues
+            .iter()
+            .map(|issue| (
+                issue.range.start.line,
+                issue.range.start.column,
+                issue.range.end.line,
+                issue.range.end.column,
+                semantic_issue_source_text(control_source, issue),
+            ))
+            .collect::<Vec<_>>(),
+        vec![(2, 21, 2, 26, "match")]
+    );
+    let [control_issue] = control_issues.as_slice() else {
+        panic!("ordinary S6594 control should report one exact issue");
+    };
+    let control_action = control_issue
+        .alternatives
+        .iter()
+        .find(|alternative| alternative.id == "s6594-use-regexp-exec")
+        .expect("ordinary S6594 should expose the RegExp.exec action");
+    let [control_edit] = control_action.fix.edits.as_slice() else {
+        panic!("ordinary S6594 action should contain one edit");
+    };
+    assert_eq!(control_edit.range.start.line, 2);
+    assert_eq!(control_edit.range.start.column, 16);
+    assert_eq!(control_edit.range.end.line, 2);
+    assert_eq!(control_edit.range.end.column, 31);
+    assert_eq!(control_edit.replacement, "RegExp(/a/).exec(text)");
+    let fixed_control = hoonarqube_ir::apply_fixes(control_source, &[control_edit])
+        .expect("ordinary S6594 action should apply");
+    assert_eq!(
+        fixed_control,
+        "const text: string = 'text';\n\
+const matches = RegExp(/a/).exec(text);\n\
+export { matches };\n"
+    );
+
+    let (shadow_path, shadow_source) = fixture.file("src/s6594-shadow.ts");
+    let shadow = context.analyze_with_context(
+        shadow_path.clone(),
+        shadow_source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+    );
+    let shadow_issues: Vec<_> = shadow
+        .report
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key == "typescript:S6594")
+        .collect();
+    assert_eq!(
+        shadow_issues
+            .iter()
+            .map(|issue| (
+                issue.range.start.line,
+                issue.range.start.column,
+                issue.range.end.line,
+                issue.range.end.column,
+                semantic_issue_source_text(shadow_source, issue),
+            ))
+            .collect::<Vec<_>>(),
+        vec![(2, 21, 2, 26, "match"), (7, 14, 7, 19, "match")]
+    );
+    let [outside_issue, shadowed_issue] = shadow_issues.as_slice() else {
+        panic!("shadow fixture should report both exact S6594 call sites");
+    };
+    let outside_action = outside_issue
+        .alternatives
+        .iter()
+        .find(|alternative| alternative.id == "s6594-use-regexp-exec")
+        .expect("unshadowed S6594 call should remain actionable");
+    let [outside_edit] = outside_action.fix.edits.as_slice() else {
+        panic!("unshadowed S6594 action should contain one edit");
+    };
+    assert_eq!(outside_edit.replacement, "RegExp(/a/).exec(text)");
+    assert!(
+        shadowed_issue.fix.is_none(),
+        "shadowed RegExp call must not receive an automatic fix"
+    );
+    assert!(
+        shadowed_issue.alternatives.is_empty(),
+        "shadowed RegExp call must not receive an unsafe action"
+    );
+
+    let _ = fs::remove_dir_all(fixture.root);
 }

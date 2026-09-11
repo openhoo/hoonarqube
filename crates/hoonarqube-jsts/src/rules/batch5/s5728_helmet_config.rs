@@ -1,66 +1,172 @@
-use crate::rules::batch5::collectors::CSP_FETCH_DIRECTIVES;
-use crate::rules::batch5::collectors::SecurityHotspotCollector;
-use crate::rules::batch5::collectors::boolean_property;
-use crate::rules::batch5::collectors::object_property;
+use crate::rules::batch5::collectors::{
+    SecurityFactory, SecurityHotspotCollector, SecurityValue, UNSAFE_REFERRER_POLICIES,
+    boolean_property, object_property, string_property,
+};
 use crate::rules::shared::argument_expression;
-use crate::rules::shared::duplicated_key_name;
-use crate::rules::shared::sink_callee_name;
 use crate::support::RuleScope;
 use crate::support::unparenthesized;
-use oxc_ast::ast::CallExpression;
-use oxc_ast::ast::Expression;
-use oxc_ast::ast::ObjectPropertyKind;
+use oxc_ast::ast::{CallExpression, Expression};
 use oxc_span::GetSpan;
 
 impl SecurityHotspotCollector<'_, '_> {
-    /// `S5728`: helmet configurations disabling the CSP or its directives.
+    /// Helmet middleware and its named helpers (`S5730`, `S5734`, `S5736`,
+    /// `S5739`). The callee is resolved to the imported module, not a
+    /// spelling-only `helmet` match.
     pub(crate) fn check_helmet_config(&mut self, call: &CallExpression<'_>) {
-        if sink_callee_name(&call.callee) != Some("helmet") {
-            return;
-        }
-        let Some(argument) = call.arguments.first().and_then(argument_expression) else {
+        let origin = self.security_bindings.call_origin(call, call.span().start);
+        let Some(options) = call.arguments.first().and_then(argument_expression) else {
             return;
         };
-        let Expression::ObjectExpression(options) = unparenthesized(argument) else {
-            return;
-        };
-        if boolean_property(options, "contentSecurityPolicy") == Some(false) {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S5728",
-                "Do not disable the Content Security Policy entirely.",
-                call.span(),
-            );
-            return;
-        }
-        let Some(Expression::ObjectExpression(csp)) =
-            object_property(options, "contentSecurityPolicy")
-        else {
-            return;
-        };
-        let Some(Expression::ObjectExpression(directives)) = object_property(csp, "directives")
-        else {
-            return;
-        };
-        for directive in &directives.properties {
-            let ObjectPropertyKind::ObjectProperty(inner) = directive else {
-                continue;
-            };
-            let disabled = duplicated_key_name(&inner.key)
-                .is_some_and(|key| CSP_FETCH_DIRECTIVES.contains(&key))
-                && match &inner.value {
-                    Expression::BooleanLiteral(literal) => !literal.value,
-                    Expression::ArrayExpression(items) => items.elements.is_empty(),
-                    _ => false,
-                };
-            if disabled {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S5728",
-                    "Do not disable this Content Security Policy directive.",
-                    inner.key.span(),
-                );
+        match origin {
+            crate::rules::batch5::collectors::SecurityOrigin::Factory(
+                SecurityFactory::HelmetMiddleware,
+            ) => {
+                if option_bool(self, options, "noSniff", call.span().start) == Some(false) {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S5734",
+                        "Enable the X-Content-Type-Options header with 'nosniff'.",
+                        call.span(),
+                    );
+                }
             }
+            crate::rules::batch5::collectors::SecurityOrigin::Factory(
+                SecurityFactory::HelmetCsp,
+            ) => {
+                let Expression::ObjectExpression(options) = unparenthesized(options) else {
+                    return;
+                };
+                let Some(Expression::ObjectExpression(directives)) =
+                    object_property(options, "directives")
+                else {
+                    return;
+                };
+                if !block_all_mixed_content_enabled(directives) {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S5730",
+                        "Enable 'block-all-mixed-content' in this Content Security Policy.",
+                        call.span(),
+                    );
+                }
+                if matches!(
+                    object_property(directives, "frameAncestors"),
+                    Some(value)
+                        if matches!(unparenthesized(value), Expression::NullLiteral(_))
+                ) {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S5732",
+                        "Protect against clickjacking with 'frame-ancestors'.",
+                        call.span(),
+                    );
+                }
+            }
+            crate::rules::batch5::collectors::SecurityOrigin::Factory(
+                SecurityFactory::HelmetReferrerPolicy,
+            ) => {
+                if string_option(self, options, "policy", call.span().start)
+                    .is_some_and(|policy| UNSAFE_REFERRER_POLICIES.contains(&policy.as_str()))
+                {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S5736",
+                        "Use a privacy-protecting 'Referrer-Policy' value.",
+                        call.span(),
+                    );
+                }
+            }
+            crate::rules::batch5::collectors::SecurityOrigin::Factory(
+                SecurityFactory::HelmetHsts,
+            ) => {
+                if number_option(self, options, "maxAge", call.span().start)
+                    .is_some_and(|max_age| max_age < 31_536_000.0)
+                {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S5739",
+                        "Increase the Strict-Transport-Security max-age.",
+                        call.span(),
+                    );
+                }
+                if option_bool(self, options, "includeSubDomains", call.span().start) == Some(false)
+                {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S5739",
+                        "Include subdomains in the Strict-Transport-Security policy.",
+                        call.span(),
+                    );
+                }
+            }
+            _ => {}
         }
+    }
+}
+
+fn block_all_mixed_content_enabled(directives: &oxc_ast::ast::ObjectExpression<'_>) -> bool {
+    match object_property(directives, "blockAllMixedContent").map(unparenthesized) {
+        Some(Expression::BooleanLiteral(value)) => value.value,
+        Some(Expression::ArrayExpression(array)) => array.elements.is_empty(),
+        _ => false,
+    }
+}
+
+fn option_bool(
+    collector: &SecurityHotspotCollector<'_, '_>,
+    expression: &Expression<'_>,
+    key: &str,
+    at: u32,
+) -> Option<bool> {
+    match unparenthesized(expression) {
+        Expression::ObjectExpression(object) => boolean_property(object, key),
+        _ => match collector
+            .security_bindings
+            .object_property(expression, key, at)?
+        {
+            SecurityValue::Boolean(value) => Some(value),
+            _ => None,
+        },
+    }
+}
+
+fn string_option(
+    collector: &SecurityHotspotCollector<'_, '_>,
+    expression: &Expression<'_>,
+    key: &str,
+    at: u32,
+) -> Option<String> {
+    match unparenthesized(expression) {
+        Expression::ObjectExpression(object) => string_property(object, key).map(str::to_owned),
+        _ => match collector
+            .security_bindings
+            .object_property(expression, key, at)?
+        {
+            SecurityValue::String(value) => Some(value),
+            _ => None,
+        },
+    }
+}
+
+fn number_option(
+    collector: &SecurityHotspotCollector<'_, '_>,
+    expression: &Expression<'_>,
+    key: &str,
+    at: u32,
+) -> Option<f64> {
+    match unparenthesized(expression) {
+        Expression::ObjectExpression(object) => object_property(object, key).and_then(|value| {
+            let Expression::NumericLiteral(value) = unparenthesized(value) else {
+                return None;
+            };
+            Some(value.value)
+        }),
+        _ => match collector
+            .security_bindings
+            .object_property(expression, key, at)?
+        {
+            SecurityValue::Number(value) => Some(value),
+            _ => None,
+        },
     }
 }

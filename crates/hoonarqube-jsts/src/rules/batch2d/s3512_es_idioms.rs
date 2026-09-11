@@ -26,8 +26,6 @@ pub(crate) fn check_es_idioms(
         .iter()
         .copied()
         .filter(|span| {
-            // Left-nested chains share their start offset with the root,
-            // so containment is checked inclusively on both edges.
             !collector.concat_roots.iter().any(|other| {
                 let different_span = *other != *span;
                 different_span && other.contains_inclusive(*span)

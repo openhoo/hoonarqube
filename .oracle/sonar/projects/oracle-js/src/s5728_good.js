@@ -1,3 +1,6 @@
-const helmet = require("helmet");
+import express from "express";
+import helmet from "helmet";
 
-module.exports = helmet();
+const app = express();
+app.use(helmet());
+export default app;

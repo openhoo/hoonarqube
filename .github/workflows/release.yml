@@ -86,8 +86,8 @@ jobs:
           set -euo pipefail
           test "$(tr -d '[:space:]' < VERSION)" = "$RELEASE_VERSION"
           python3 scripts/sync_release_version.py --check
-          cargo test --locked -p hoonarqube-cli
-          cargo build --locked --release -p hoonarqube-cli
+          cargo test --locked -p hoonarqube-cli -p hoonarqube-service
+          cargo build --locked --release -p hoonarqube-cli -p hoonarqube-service
           target/release/hoonarqube --version | grep -Fx "hoonarqube $RELEASE_VERSION"
 
       - name: Package archive
@@ -98,6 +98,7 @@ jobs:
           package="hoonarqube-${RELEASE_VERSION}-x86_64-unknown-linux-gnu"
           mkdir -p "dist/$package"
           install -m 0755 target/release/hoonarqube "dist/$package/hoonarqube"
+          install -m 0755 target/release/hoonarqube-service "dist/$package/hoonarqube-service"
           install -m 0644 LICENSE README.md "dist/$package/"
           tar -C dist -czf "dist/$package.tar.gz" "$package"
 
@@ -206,8 +207,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/sync_release_version.py --check
-          cargo test --locked -p hoonarqube-cli
-          cargo build --locked --release -p hoonarqube-cli
+          cargo test --locked -p hoonarqube-cli -p hoonarqube-service
+          cargo build --locked --release -p hoonarqube-cli -p hoonarqube-service
           target/release/hoonarqube --version | grep -Fx "hoonarqube $RELEASE_VERSION"
 
       - name: Package archive
@@ -218,6 +219,7 @@ jobs:
           package="hoonarqube-${RELEASE_VERSION}-x86_64-unknown-linux-gnu"
           mkdir -p "dist/$package"
           install -m 0755 target/release/hoonarqube "dist/$package/hoonarqube"
+          install -m 0755 target/release/hoonarqube-service "dist/$package/hoonarqube-service"
           install -m 0644 LICENSE README.md "dist/$package/"
           tar -C dist -czf "dist/$package.tar.gz" "$package"
 

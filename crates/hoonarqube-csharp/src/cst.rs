@@ -123,6 +123,7 @@ pub(crate) fn issue(
         range,
         fix: None,
         flows: Vec::new(),
+        alternatives: Vec::new(),
     }
 }
 

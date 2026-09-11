@@ -75,12 +75,9 @@ fn broken_source_neither_panics_nor_emits_issues() {
     };
     // This contains unrecoverable declaration syntax, plus text that would
     // trigger S103 and S105 if rule families ran on the recovered tree.
-    let report = analyze(
-        PathBuf::from("t.cs"),
-        "\tclass {{{ ;;; ???\n",
-        CsLanguage::CSharp,
-        &options,
-    );
+    let source = "\tclass {{{ ;;; ???\n";
+    assert!(crate::parse(source).root_node().has_error());
+    let report = analyze(PathBuf::from("t.cs"), source, CsLanguage::CSharp, &options);
     assert!(report.issues.is_empty());
     assert_eq!(report.metrics.lines, 1);
 }
@@ -630,9 +627,9 @@ fn s3450_requires_optional_next_to_default_parameter_value() {
 }
 
 #[test]
-fn s3451_flags_default_value_on_parameters() {
+fn s3451_flags_default_value_on_optional_parameters() {
     let report = analyze_default(
-        "class Saver\n{\n    public void Save([DefaultValue(3)] int retries)\n    {\n    }\n}\n",
+        "class Saver\n{\n    public void Save([Optional][DefaultValue(3)] int retries)\n    {\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S3451");
     assert_eq!(flagged.len(), 1);
@@ -790,6 +787,10 @@ fn s3168_flags_async_void_methods() {
 fn s2306_flags_async_await_identifiers_but_not_keywords() {
     let source = "class Sleeper\n{\n    private int async;\n\n    private int Get()\n    {\n        int await = async;\n        return await;\n    }\n\n    public async void NapAsync()\n    {\n        await System.Threading.Tasks.Task.Yield();\n    }\n}\n";
     let tree = crate::parse(source);
+    assert!(
+        !tree.root_node().has_error(),
+        "valid contextual-keyword identifiers must use the ordinary rule path"
+    );
     let report = analyze_default(source);
     let flagged = with_key(&report, "csharpsquid:S2306");
     assert_eq!(flagged.len(), 2, "{}", tree.root_node().to_sexp());
@@ -1752,13 +1753,13 @@ fn s3898_flags_structs_without_iequatable() {
 #[test]
 fn s3971_and_s3234_track_suppress_finalize_calls() {
     let finalizerless = analyze_default(
-        "class C\n{\n    void Close()\n    {\n        System.GC.SuppressFinalize(this);\n    }\n}\n",
+        "sealed class C\n{\n    void Close()\n    {\n        System.GC.SuppressFinalize(this);\n    }\n}\n",
     );
     assert_eq!(with_key(&finalizerless, "csharpsquid:S3971").len(), 1);
     assert_eq!(with_key(&finalizerless, "csharpsquid:S3234").len(), 1);
 
     let with_finalizer = analyze_default(
-        "class C\n{\n    ~C() { }\n\n    void Close()\n    {\n        System.GC.SuppressFinalize(this);\n    }\n}\n",
+        "sealed class C\n{\n    ~C() { }\n\n    void Close()\n    {\n        System.GC.SuppressFinalize(this);\n    }\n}\n",
     );
     assert_eq!(with_key(&with_finalizer, "csharpsquid:S3971").len(), 1);
     assert!(with_key(&with_finalizer, "csharpsquid:S3234").is_empty());

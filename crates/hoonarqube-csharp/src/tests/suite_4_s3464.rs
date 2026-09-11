@@ -415,14 +415,63 @@ fn s2934_flags_property_writes_on_readonly_generic_fields() {
 
 #[test]
 fn s5766_flags_serializable_without_deserialization_validation() {
-    let violating =
-        analyze_default("[Serializable]\nclass Session\n{\n    public string User;\n}\n");
+    let violating = analyze_default(
+        r#"using System;
+using System.Runtime.Serialization;
+
+[Serializable]
+public sealed class Session : ISerializable
+{
+    private string user = string.Empty;
+
+    public Session(string candidate)
+    {
+        if (string.IsNullOrEmpty(candidate))
+        {
+            user = "default";
+        }
+        else
+        {
+            user = candidate;
+        }
+    }
+
+    protected Session(SerializationInfo info, StreamingContext context)
+    {
+        user = info.GetString("user")!;
+    }
+
+    void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
+        => info.AddValue("user", user);
+}
+"#,
+    );
     let flagged = with_key(&violating, "csharpsquid:S5766");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 2);
+    assert_eq!(flagged[0].range.start.line, 9);
 
     let clean = analyze_default(
-        "[Serializable]\nclass Session\n{\n    public string User;\n    [OnDeserialized]\n    public void Validate(StreamingContext context)\n    {\n    }\n}\n",
+        r#"using System;
+using System.Runtime.Serialization;
+
+[Serializable]
+public sealed class Session : ISerializable
+{
+    private string user = string.Empty;
+
+    public Session(string candidate)
+        => user = Normalize(candidate);
+
+    protected Session(SerializationInfo info, StreamingContext context)
+        => user = Normalize(info.GetString("user") ?? string.Empty);
+
+    void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
+        => info.AddValue("user", user);
+
+    private static string Normalize(string candidate)
+        => string.IsNullOrEmpty(candidate) ? "default" : candidate;
+}
+"#,
     );
     assert!(with_key(&clean, "csharpsquid:S5766").is_empty());
 }

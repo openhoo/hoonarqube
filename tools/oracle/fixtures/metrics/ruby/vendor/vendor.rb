@@ -1,0 +1,2 @@
+# vendor
+VALUE = 1

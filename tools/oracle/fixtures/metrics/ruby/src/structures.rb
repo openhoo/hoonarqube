@@ -1,0 +1,2 @@
+# structures
+VALUE = 1

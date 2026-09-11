@@ -179,6 +179,176 @@ class FetchIssuesPaginationTests(unittest.TestCase):
         ):
             fetch_issues.fetch("oracle-project")
 
+    def test_security_fetch_requests_complete_issue_fields_and_preserves_evidence(self):
+        page = response(
+            {
+                "issues": [
+                    {
+                        "key": "security-1",
+                        "rule": "python:S2077",
+                        "type": "VULNERABILITY",
+                        "message": "unsafe query",
+                        "component": "oracle-project:src/a.py",
+                        "textRange": {
+                            "startLine": 2,
+                            "startOffset": 1,
+                            "endLine": 2,
+                            "endOffset": 4,
+                        },
+                        "flows": [
+                            {
+                                "locations": [
+                                    {
+                                        "component": "oracle-project:src/source.py",
+                                        "msg": "source",
+                                        "textRange": {
+                                            "startLine": 1,
+                                            "startOffset": 0,
+                                            "endLine": 1,
+                                            "endOffset": 3,
+                                        },
+                                    }
+                                ]
+                            }
+                        ],
+                        "secondaryLocations": [
+                            {
+                                "component": "oracle-project:src/sink.py",
+                                "message": "sink",
+                                "textRange": {
+                                    "startLine": 8,
+                                    "startOffset": 0,
+                                    "endLine": 8,
+                                    "endOffset": 4,
+                                },
+                            }
+                        ],
+                        "status": "OPEN",
+                        "resolution": None,
+                        "assignee": None,
+                    }
+                ],
+                "paging": {"pageIndex": 1, "pageSize": 500, "total": 1},
+            }
+        )
+        requests = []
+
+        def open_request(request, *, timeout):
+            requests.append((request, timeout))
+            return page
+
+        with (
+            mock.patch.object(fetch_issues, "auth_header", return_value="Basic token"),
+            mock.patch.object(fetch_issues.urllib.request, "urlopen", open_request),
+        ):
+            artifact = fetch_issues.fetch_security("oracle-project")
+
+        self.assertIn("additionalFields=_all", requests[0][0].full_url)
+        finding = artifact["findings"][0]
+        self.assertEqual(finding["file"], "src/a.py")
+        self.assertEqual(finding["detector"]["kind"], "VULNERABILITY")
+        self.assertEqual(finding["detector"]["flows"][0][0]["file"], "src/source.py")
+        self.assertEqual(
+            finding["detector"]["secondary_locations"][0]["file"], "src/sink.py"
+        )
+        self.assertEqual(finding["review"]["status"], "OPEN")
+        self.assertEqual(artifact["limits"], [])
+
+    def test_security_fetch_retains_issue_when_flow_location_message_is_unavailable(
+        self,
+    ):
+        page = response(
+            {
+                "issues": [
+                    {
+                        "key": "security-flow-without-message",
+                        "rule": "python:S2077",
+                        "type": "VULNERABILITY",
+                        "message": "unsafe query",
+                        "component": "oracle-project:src/a.py",
+                        "textRange": {
+                            "startLine": 2,
+                            "startOffset": 1,
+                            "endLine": 2,
+                            "endOffset": 4,
+                        },
+                        "flows": [
+                            {
+                                "locations": [
+                                    {
+                                        "component": "oracle-project:src/source.py",
+                                        "textRange": {
+                                            "startLine": 1,
+                                            "startOffset": 0,
+                                            "endLine": 1,
+                                            "endOffset": 3,
+                                        },
+                                        "msgFormattings": [],
+                                    }
+                                ]
+                            }
+                        ],
+                        "status": "OPEN",
+                        "resolution": None,
+                        "assignee": None,
+                    }
+                ],
+                "paging": {"pageIndex": 1, "pageSize": 500, "total": 1},
+            }
+        )
+        with (
+            mock.patch.object(fetch_issues, "auth_header", return_value="Basic token"),
+            mock.patch.object(
+                fetch_issues.urllib.request, "urlopen", return_value=page
+            ),
+        ):
+            artifact = fetch_issues.fetch_security("oracle-project")
+
+        finding = artifact["findings"][0]
+        self.assertEqual(finding["detector"]["flows"], [])
+        self.assertFalse(finding["detector"]["flow_evidence_available"])
+        self.assertIn("python:S2077:flow-evidence-unavailable", artifact["limits"])
+
+    def test_hotspot_fetch_records_unavailable_flow_and_range_evidence(self):
+        page = response(
+            {
+                "hotspots": [
+                    {
+                        "key": "hotspot-1",
+                        "ruleKey": "python:S2245",
+                        "message": "randomness",
+                        "component": "oracle-project:src/a.py",
+                        "line": 4,
+                        "status": "TO_REVIEW",
+                        "resolution": None,
+                        "assignee": None,
+                    }
+                ],
+                "paging": {"pageIndex": 1, "pageSize": 500, "total": 1},
+            }
+        )
+        with (
+            mock.patch.object(fetch_issues, "auth_header", return_value="Basic token"),
+            mock.patch.object(
+                fetch_issues.urllib.request, "urlopen", return_value=page
+            ),
+        ):
+            artifact = fetch_issues.fetch_security("oracle-project", hotspot=True)
+        self.assertEqual(
+            artifact["findings"][0]["detector"]["kind"], "SECURITY_HOTSPOT"
+        )
+        self.assertIn("flow-evidence-unavailable", artifact["limits"][0])
+        self.assertTrue(
+            any(
+                "primary-range-evidence-unavailable" in limit
+                for limit in artifact["limits"]
+            )
+        )
+
+    def test_security_fetch_rejects_unverified_enterprise_edition(self):
+        with self.assertRaisesRegex(ValueError, "only certifies community"):
+            fetch_issues.fetch_security("oracle-project", edition="enterprise")
+
 
 if __name__ == "__main__":
     unittest.main()

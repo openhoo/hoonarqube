@@ -1,11 +1,13 @@
 # Quick-Fix Parity Audit
 
-Audit of machine-applicable quick-fix capability per rule, dated 2026-08-26. Status values:
-`fix shipped` (implemented in hoonarqube), `planned`, or `gap` (with reason). Fix
-infrastructure now ships: findings can carry atomic multi-edit remedies and the CLI supports
-dry-run planning, unified diffs, explicit `--apply`, conflict reporting, and pre-write
-verification of projected content. The captured upstream-parity rows below remain planned; `python:S1721` is the
-first shipped local seed fixer.
+Audit of machine-applicable quick-fix capability per rule, dated 2026-09-10.
+Status values: `fix shipped` (implemented in hoonarqube), `planned`, or `gap`
+(with reason). Fix infrastructure now ships: findings can carry atomic
+multi-edit remedies and the CLI supports dry-run planning, unified diffs,
+explicit `--apply`, conflict reporting, and pre-write verification of projected
+content. The captured upstream-parity rows remain planned except for the
+explicitly qualified local seeds `python:S1721`, `csharpsquid:S3005`, and
+`csharpsquid:S3169`.
 
 ## What SonarQube actually provides
 
@@ -90,10 +92,68 @@ via Roslyn Workspaces hosts (VS IDE); SonarSource supports no CLI path.
 |---|---|---|
 | S1006 S1116 S1125 S1128 S1155 S1172 S1185 S1186 S125 S818 | Roslyn `CodeFixProvider` | planned |
 | S1451 S1858 S1905 S1939 S1940 S2219 S2290 S2328 S2333 S2737 | Roslyn `CodeFixProvider` | planned |
-| S2761 S2933 S2934 S2955 S3005 S3052 S3169 S3217 S3234 S3235 | Roslyn `CodeFixProvider` | planned |
+| S2761 S2933 S2934 S2955 | Roslyn `CodeFixProvider` | planned |
+| S3005 | Roslyn `CodeFixProvider` | fix shipped |
+| S3052 | Roslyn `CodeFixProvider` | planned |
+| S3169 | Roslyn `CodeFixProvider` | fix shipped |
+| S3217 S3234 S3235 | Roslyn `CodeFixProvider` | planned |
 | S3240 S3253 S3254 S3257 S3261 S3262 S3265 S3353 S3440 S3441 | Roslyn `CodeFixProvider` | planned |
 | S3445 S3447 S3450 S3451 S3456 S3458 S3532 S3600 S3604 S4201 | Roslyn `CodeFixProvider` | planned |
 | S4581 S6610 S6613 S6961 | Roslyn `CodeFixProvider` | planned |
+
+### Working-tree qualification — 2026-09-10
+
+This bounded CLI proof covers two guarded C# actions; it is not a whole
+catalog or release-binary parity claim:
+
+- `csharpsquid:S3005` / `csharp.s3005.remove-threadstatic` requires complete
+  project semantics, the exact `System.ThreadStaticAttribute`, and the exact
+  instance-field declaration. It removes only the exact attribute span.
+  Comment-bearing trivia in that attribute list is unsupported and suppresses
+  the action.
+- `csharpsquid:S3169` / `csharp.s3169.change-orderby-to-thenby` is offered only
+  when the replacement binds to framework `System.Linq.Enumerable` and its key
+  selector. A custom `ThenBy` retains the `S3169` diagnostic, but the selected
+  replacement action is unavailable and is refused.
+
+For each safe fixture, `--diff` and `--apply` exit `0`; apply reports one
+verified action with no regressions, and reanalysis reduces the target from
+`1` to `0`. For each unsafe selected action (comment-bearing `S3005` trivia
+and custom-`ThenBy` `S3169`), both modes exit `1`, leave the source unchanged,
+and the retained diagnostic remains at count `1`. The separate `#43`/`#44`
+evidence comparisons remain open.
+
+## Inventory replay qualification — 2026-09-10
+
+The [machine-readable replay evidence](tools/oracle/quickfix-qualification-20260910.json)
+retains the five input manifests, replay harness, raw results, binary identity,
+and independent qualification of a correctly refused edit. It covers 273
+applications against source commit `3d59d8dc4554429883e61a5a5990574434efa06a`;
+it is not a release-binary or complete upstream-parity claim.
+
+| Language | Replayed inventory keys | Applied exact controls | Safety refusals | Expected no action | Unsafe reference action withheld | Reference difference |
+|---|---:|---:|---:|---:|---:|---:|
+| Python | 58/58 | 64 | 1 | 0 | 0 | 0 |
+| JavaScript | 20/28 | 25 | 8 | 26 | 1 | 1 |
+| TypeScript | 28/32 | 46 | 3 | 37 | 3 | 0 |
+| C# | 54/54 | 45 | 13 | 0 | 0 | 0 |
+
+The artifact lists the twelve missing language-key replays explicitly; an
+implemented action or a normal analyzer regression is not a substitute for
+its quickfix control. The planned inventory statuses above are not promoted
+from these incomplete language slices.
+
+The C# raw harness retains one `S3005` failure. Independent execution of its
+exact selected edit proves that removing `ThreadStatic` introduces `S1144`;
+`S1128` was already present and does not increase. Apply correctly refuses
+the new finding and leaves the source unchanged. This is qualified separately
+as a safety refusal without rewriting the raw result.
+
+The JavaScript `S6326` reference suggestion uses a regex-relative edit range
+against a complete source file and corrupts its `const` declaration. Native
+uses the safe source-relative edit. This remains `reference_different`, not
+an exact upstream-parity pass. Other unsafe upstream projections and all
+guarded no-write controls remain visible in the retained evidence.
 
 ## Gap template
 

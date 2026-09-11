@@ -1,3 +1,6 @@
-const helmet = require("helmet");
+import express from "express";
+import helmet from "helmet";
 
-module.exports = helmet({ contentSecurityPolicy: false });
+const app = express();
+app.use(helmet({ contentSecurityPolicy: false }));
+export default app;

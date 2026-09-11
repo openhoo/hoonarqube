@@ -16,8 +16,13 @@ use hoonarqube_catalog::{
     Catalog, NativeRuleRecord, RuleProfile, RuleRecord, embedded, native_rule, native_rules,
 };
 use hoonarqube_ir::{Range, TextEdit, apply_fixes};
+use sha2::{Digest as _, Sha256};
 
 mod analyze;
+mod assessment_cli;
+mod cache;
+mod project_features;
+mod semantic_cli;
 
 #[derive(Parser)]
 #[command(
@@ -46,19 +51,60 @@ enum Command {
         /// Files or directories to analyze.
         #[arg(required = true)]
         paths: Vec<std::path::PathBuf>,
-        /// Output format: `text` (default), `json`, `sonar`, or `sarif`
-        /// (`SonarQube` Generic Issue Import or SARIF 2.1.0).
+        /// Opt in to successful per-file result caching under this directory.
+        ///
+        /// Only the owned `.hoonarqube-cache-v1` child is reserved; the
+        /// directory argument itself remains ordinary project input.
+        #[arg(long = "cache-dir")]
+        cache_dir: Option<std::path::PathBuf>,
+        /// Output format: `text` (default), `json`, `sonar`, `sarif`, or
+        /// `gitlab-codequality` (GitLab Code Quality JSON).
         #[arg(long)]
         format: Option<String>,
         /// Expected literal Go license header (`go:S1451`); empty keeps the
         /// catalog-default disabled behavior.
         #[arg(long, default_value = "")]
         go_header_format: String,
+        /// Expected literal C# license header (`csharpsquid:S1451`); empty keeps the
+        /// catalog-default disabled behavior.
+        #[arg(long = "csharp-header-format", default_value = "")]
+        csharp_header_format: String,
+        /// Require Python type hints for the Python analyzer rules that support this option.
+        #[arg(long = "python-require-type-hints")]
+        python_require_type_hints: bool,
         /// Analyzer profile: `sonar-parity` (default), cumulative native
         /// profiles `recommended`/`extended`/`strict`, or isolated
         /// `github-code-quality`.
         #[arg(long, default_value = "sonar-parity")]
         profile: RuleProfile,
+        /// Exclude paths from analysis and project measurements.
+        #[arg(long = "exclude")]
+        exclude: Vec<String>,
+        /// Classify matching paths as tests; patterns are matched against
+        /// normalized CWD-relative paths.
+        #[arg(long = "test-include")]
+        test_include: Vec<String>,
+        /// Inventory matching paths as generated without reading them.
+        #[arg(long = "generated-include")]
+        generated_include: Vec<String>,
+        /// Inventory matching paths as vendor code without reading them.
+        #[arg(long = "vendor-include")]
+        vendor_include: Vec<String>,
+        /// Keep matching source measurements but omit them from duplication.
+        #[arg(long = "duplication-exclude")]
+        duplication_exclude: Vec<String>,
+        /// Minimum normalized tokens in a duplicated block.
+        #[arg(long = "duplication-min-tokens", default_value_t = 100)]
+        duplication_min_tokens: usize,
+        /// Minimum physical lines in a duplicated block.
+        #[arg(long = "duplication-min-lines", default_value_t = 10)]
+        duplication_min_lines: u32,
+        /// Minimum Java statement units in a duplicated block.
+        #[arg(long = "duplication-min-statements", default_value_t = 10)]
+        duplication_min_statements: usize,
+        /// Optional project semantics, coverage, baseline and quality gates.
+        #[command(flatten)]
+        features: Box<project_features::ProjectFeatureOptions>,
     },
     /// Detect and optionally apply automatic fixes.
     ///
@@ -71,17 +117,35 @@ enum Command {
         /// Files or directories to fix.
         #[arg(required = true)]
         paths: Vec<std::path::PathBuf>,
-        /// Restrict rule fixes to these keys (repeatable or comma-
-        /// separated; prefix match, so `python:S17` selects `python:S1721`).
-        #[arg(long = "rule", value_delimiter = ',')]
-        rule: Vec<String>,
-        /// Print unified diffs of the projected or applied rewrites.
-        #[arg(long)]
-        diff: bool,
-        /// Write fixed files back; without this flag nothing is written.
-        #[arg(long)]
-        apply: bool,
+        #[command(flatten)]
+        options: FixOptions,
     },
+}
+
+#[derive(Clone, Debug, clap::Args)]
+struct FixOptions {
+    /// Restrict rule fixes by key or prefix (repeatable or comma-separated).
+    #[arg(long = "rule", value_delimiter = ',')]
+    rule: Vec<String>,
+    /// Explicitly select an IDE suggestion as `RULE=ACTION_ID` (repeatable).
+    /// When supplied, only these suggestions are planned, not automatic fixes.
+    #[arg(long = "suggestion")]
+    suggestion: Vec<String>,
+    /// Print unified diffs without writing unless --apply is also supplied.
+    #[arg(long)]
+    diff: bool,
+    /// Apply selected edits after independent and combined reanalysis.
+    #[arg(long)]
+    apply: bool,
+    /// Expected literal C# license header (`csharpsquid:S1451`); empty keeps the
+    /// catalog-default disabled behavior.
+    #[arg(long = "csharp-header-format", default_value = "")]
+    csharp_header_format: String,
+    /// Require Python type hints for the Python analyzer rules that support this option.
+    #[arg(long = "python-require-type-hints")]
+    python_require_type_hints: bool,
+    #[command(flatten)]
+    semantics: project_features::SemanticOptions,
 }
 
 #[derive(Subcommand)]
@@ -122,6 +186,8 @@ enum AnalyzeFormat {
     Json,
     /// `SonarQube` Generic Issue Import JSON.
     Sonar,
+    /// GitLab Code Quality report JSON.
+    GitlabCodeQuality,
     /// SARIF 2.1.0 for GitHub Code Quality findings.
     Sarif,
 }
@@ -135,6 +201,7 @@ fn analyze_format(format: Option<&str>, json_flag: bool) -> Result<AnalyzeFormat
         Some("json") => Ok(AnalyzeFormat::Json),
         Some("sonar") => Ok(AnalyzeFormat::Sonar),
         Some("sarif") => Ok(AnalyzeFormat::Sarif),
+        Some("gitlab-codequality") => Ok(AnalyzeFormat::GitlabCodeQuality),
         Some(value) => Err(value.to_string()),
         None if json_flag => Ok(AnalyzeFormat::Json),
         None => Ok(AnalyzeFormat::Text),
@@ -159,23 +226,54 @@ fn main() -> ExitCode {
         Command::Rules { cmd } => run_rules(catalog, cmd, cli.json),
         Command::Analyze {
             paths,
+            cache_dir,
             format,
             go_header_format,
+            csharp_header_format,
+            python_require_type_hints,
             profile,
-        } => run_analyze(
-            catalog,
-            paths,
-            format.as_deref(),
-            go_header_format,
-            *profile,
-            cli.json,
-        ),
-        Command::Fix {
-            paths,
-            rule,
-            diff,
-            apply,
-        } => run_fix(paths, rule, *diff, *apply, cli.json),
+            exclude,
+            test_include,
+            generated_include,
+            vendor_include,
+            duplication_exclude,
+            duplication_min_tokens,
+            duplication_min_lines,
+            duplication_min_statements,
+            features,
+        } => {
+            let mut project_options = match analyze::project_analysis_options(
+                analyze::ProjectPatternLists {
+                    exclude,
+                    test_include,
+                    generated_include,
+                    vendor_include,
+                    duplication_exclude,
+                },
+                *duplication_min_tokens,
+                *duplication_min_lines,
+                *duplication_min_statements,
+            ) {
+                Ok(options) => options,
+                Err(error) => {
+                    eprintln!("{error}");
+                    return ExitCode::from(2);
+                }
+            };
+            project_options.cache_dir.clone_from(cache_dir);
+            project_options.features.clone_from(features.as_ref());
+            let run_options = AnalyzeRunOptions {
+                format: format.as_deref(),
+                go_header_format,
+                csharp_header_format,
+                profile: *profile,
+                json_flag: cli.json,
+                python_require_type_hints: *python_require_type_hints,
+                project_options: &project_options,
+            };
+            run_analyze(catalog, paths, &run_options)
+        }
+        Command::Fix { paths, options } => run_fix(paths, options, cli.json),
     }
 }
 
@@ -211,11 +309,19 @@ struct PlannedFix {
     edits: Vec<TextEdit>,
 }
 
+#[derive(serde::Serialize)]
+struct AvailableAlternative {
+    rule_key: String,
+    range: Range,
+    alternative: hoonarqube_ir::FixAlternative,
+}
+
 /// Per-file fix plan gathered from analysis plus the mechanical repair count.
 struct FileFixPlan {
     path: std::path::PathBuf,
     source: String,
     fixes: Vec<PlannedFix>,
+    alternatives: Vec<AvailableAlternative>,
     mechanical: usize,
 }
 
@@ -355,7 +461,7 @@ fn verify_analysis(
         .into_iter()
         .filter_map(|(rule_key, after_count)| {
             let before_count = before_counts.get(&rule_key).copied().unwrap_or_default();
-            (after_count > before_count).then_some((rule_key, after_count - before_count))
+            (after_count > before_count).then(|| (rule_key, after_count - before_count))
         })
         .collect();
     (verified, unverified, regressions)
@@ -369,53 +475,89 @@ fn fix_verifies_independently(
     plan: &FileFixPlan,
     fix: &PlannedFix,
     before: &[hoonarqube_ir::Issue],
-    options: &analyze::AnalyzerOptionsBundle,
-) -> bool {
+    options: &semantic_cli::FixAnalysisContext,
+) -> Result<(), String> {
     let edits: Vec<&TextEdit> = fix.edits.iter().collect();
-    let Ok(content) = apply_fixes(&plan.source, &edits) else {
-        return false;
+    let content = apply_fixes(&plan.source, &edits)
+        .map_err(|error| format!("could not apply isolated edits: {error}"))?;
+    let report = match options.analyze(&plan.path, &content) {
+        Ok(Some(report)) => report,
+        Ok(None) => return Err("projected source is not analyzable".to_string()),
+        Err(error) => return Err(error),
     };
-    let Some(report) = hoonarqube_core::analyze(&plan.path, &content, options) else {
-        return false;
-    };
-    let (_, unverified, regressions) = verify_analysis(&[fix], before, &report.issues);
-    unverified == 0 && regressions.is_empty()
+    let (verified, unverified, regressions) = verify_analysis(&[fix], before, &report.issues);
+    if unverified == 0 && regressions.is_empty() {
+        return Ok(());
+    }
+    let before_counts = issue_counts(before);
+    let after_counts = issue_counts(&report.issues);
+    let before_target = before_counts
+        .get(&fix.rule_key)
+        .copied()
+        .unwrap_or_default();
+    let after_target = after_counts.get(&fix.rule_key).copied().unwrap_or_default();
+    let mut details = vec![format!(
+        "{} count {before_target} -> {after_target} (verified {verified}, unverified {unverified})",
+        fix.rule_key
+    )];
+    if !regressions.is_empty() {
+        let regressions = regressions
+            .iter()
+            .map(|(rule_key, count)| format!("{rule_key} +{count}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        details.push(format!("regressions: {regressions}"));
+    }
+    Err(details.join("; "))
 }
 
 fn verify_projected_rewrite(
     plan: &FileFixPlan,
     targeted: &[&PlannedFix],
-    options: &analyze::AnalyzerOptionsBundle,
+    options: &semantic_cli::FixAnalysisContext,
     outcome: &mut ApplyOutcome,
     warnings: &mut Vec<String>,
 ) -> bool {
-    let Some(before) = hoonarqube_core::analyze(&plan.path, &plan.source, options) else {
-        if targeted.is_empty() {
-            return true;
+    let before = match options.analyze(&plan.path, &plan.source) {
+        Ok(Some(report)) => report,
+        Ok(None) if targeted.is_empty() => return true,
+        result => {
+            outcome.unverified = targeted.len();
+            let reason = result
+                .err()
+                .unwrap_or_else(|| "source is not analyzable".to_string());
+            warnings.push(format!(
+                "cannot verify fixes for {}: {reason}",
+                plan.path.display()
+            ));
+            return false;
         }
-        outcome.unverified = targeted.len();
-        warnings.push(format!(
-            "cannot verify fixes for {}: source is not analyzable",
-            plan.path.display()
-        ));
-        return false;
     };
-    let independently_verified = targeted
-        .iter()
-        .filter(|fix| fix_verifies_independently(plan, fix, &before.issues, options))
-        .count();
+    let mut independently_verified = 0;
+    let mut independent_failures = Vec::new();
+    for fix in targeted {
+        match fix_verifies_independently(plan, fix, &before.issues, options) {
+            Ok(()) => independently_verified += 1,
+            Err(reason) => independent_failures.push(format!("{}: {reason}", fix.rule_key)),
+        }
+    }
     if independently_verified != targeted.len() {
         outcome.verified = independently_verified;
         outcome.unverified = targeted.len() - independently_verified;
+        let details = if independent_failures.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", independent_failures.join(" | "))
+        };
         warnings.push(format!(
-            "{}: {} of {} projected rule fix(es) do not independently remove their findings",
+            "{}: {} of {} projected rule fix(es) did not pass independent verification{details}",
             plan.path.display(),
             outcome.unverified,
             targeted.len()
         ));
         return false;
     }
-    let Some(after) = hoonarqube_core::analyze(&plan.path, &outcome.content, options) else {
+    let Ok(Some(after)) = options.analyze(&plan.path, &outcome.content) else {
         outcome.unverified = targeted.len();
         warnings.push(format!(
             "cannot verify rewrite for {}: projected source is not analyzable",
@@ -435,10 +577,11 @@ fn verify_projected_rewrite(
             targeted.len()
         ));
     }
-    for (rule_key, count) in regressions {
+    if !regressions.is_empty() {
         warnings.push(format!(
-            "{}: projected source has {count} new {rule_key} finding(s)",
-            plan.path.display()
+            "{}: projected source has {} new rule-key finding(s)",
+            plan.path.display(),
+            outcome.regressions
         ));
     }
     outcome.unverified == 0 && outcome.regressions == 0
@@ -468,7 +611,7 @@ fn source_matches_plan(plan: &FileFixPlan, warnings: &mut Vec<String>) -> bool {
 /// untouched.
 fn apply_plan(
     plan: &FileFixPlan,
-    options: &analyze::AnalyzerOptionsBundle,
+    options: &semantic_cli::FixAnalysisContext,
     warnings: &mut Vec<String>,
 ) -> Option<ApplyOutcome> {
     if !apply_path_is_regular_file(&plan.path, warnings) {
@@ -767,6 +910,7 @@ fn file_plan_json(plan: &FileFixPlan) -> serde_json::Value {
             })
             .collect::<Vec<_>>(),
         "mechanical": plan.mechanical,
+        "alternatives": plan.alternatives,
     })
 }
 
@@ -864,6 +1008,81 @@ fn unified_diff(path: &std::path::Path, old: &str, new: &str) -> String {
     out
 }
 
+type SuggestionSelections = std::collections::BTreeMap<String, String>;
+
+fn suggestion_selections(values: &[String]) -> Result<SuggestionSelections, String> {
+    let mut selections = SuggestionSelections::new();
+    for value in values {
+        let Some((rule, action)) = value.split_once('=') else {
+            return Err(format!(
+                "invalid suggestion {value:?}: expected RULE=ACTION_ID"
+            ));
+        };
+        if rule.is_empty() || action.is_empty() {
+            return Err(format!(
+                "invalid suggestion {value:?}: rule and action must be nonempty"
+            ));
+        }
+        if let Some(previous) = selections.insert(rule.to_string(), action.to_string())
+            && previous != action
+        {
+            return Err(format!(
+                "multiple different suggestions selected for {rule}"
+            ));
+        }
+    }
+    Ok(selections)
+}
+
+fn selected_issue_remedy(
+    issue: &mut hoonarqube_ir::Issue,
+    selections: &SuggestionSelections,
+    used: &mut std::collections::BTreeSet<String>,
+) -> Option<hoonarqube_ir::Fix> {
+    if selections.is_empty() {
+        return issue.fix.take();
+    }
+    let id = selections.get(&issue.rule_key)?;
+    let alternative = issue
+        .alternatives
+        .iter()
+        .find(|alternative| alternative.id == *id)?;
+    used.insert(issue.rule_key.clone());
+    Some(alternative.fix.clone())
+}
+
+fn planned_issue_remedies(
+    report: Option<hoonarqube_ir::FileReport>,
+    rules: &[String],
+    selections: &SuggestionSelections,
+    used: &mut std::collections::BTreeSet<String>,
+) -> (Vec<PlannedFix>, Vec<AvailableAlternative>) {
+    let mut planned = Vec::new();
+    let mut alternatives = Vec::new();
+    for mut issue in report.into_iter().flat_map(|report| report.issues) {
+        if !rule_selected(&issue.rule_key, rules) {
+            continue;
+        }
+        let remedy = selected_issue_remedy(&mut issue, selections, used);
+        for alternative in issue.alternatives {
+            alternatives.push(AvailableAlternative {
+                rule_key: issue.rule_key.clone(),
+                range: issue.range.clone(),
+                alternative,
+            });
+        }
+        if let Some(fix) = remedy {
+            planned.push(PlannedFix {
+                rule_key: issue.rule_key,
+                message: fix.message,
+                range: issue.range,
+                edits: fix.edits,
+            });
+        }
+    }
+    (planned, alternatives)
+}
+
 /// Plans fixes for every explicitly passed file plus, for directories,
 /// every supported source file found by the same recursive walk the
 /// `analyze` command uses. Unreadable paths become warnings; non-source
@@ -871,12 +1090,14 @@ fn unified_diff(path: &std::path::Path, old: &str, new: &str) -> String {
 fn fix_plans(
     paths: &[std::path::PathBuf],
     rules: &[String],
-    options: &analyze::AnalyzerOptionsBundle,
+    options: &semantic_cli::FixAnalysisContext,
+    selections: &SuggestionSelections,
     warnings: &mut Vec<String>,
 ) -> Vec<FileFixPlan> {
-    let files = analyze::collect_input_files(paths, analyze::InputMode::Fix, warnings);
+    let files = analyze::collect_input_files(paths, warnings);
 
     let mut plans = Vec::new();
+    let mut used = std::collections::BTreeSet::new();
     for path in &files {
         let source = match std::fs::read_to_string(path) {
             Ok(source) => source,
@@ -885,36 +1106,35 @@ fn fix_plans(
                 continue;
             }
         };
-        let planned: Vec<PlannedFix> = hoonarqube_core::analyze(path, &source, options)
-            .map(|report| {
-                report
-                    .issues
-                    .into_iter()
-                    .filter_map(|issue| {
-                        let fix = issue.fix?;
-                        if !rule_selected(&issue.rule_key, rules) {
-                            return None;
-                        }
-                        Some(PlannedFix {
-                            rule_key: issue.rule_key,
-                            message: fix.message,
-                            range: issue.range,
-                            edits: fix.edits,
-                        })
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let report = match options.analyze(path, &source) {
+            Ok(report) => report,
+            Err(error) => {
+                warnings.push(format!(
+                    "cannot analyze fixes for {}: {error}",
+                    path.display()
+                ));
+                continue;
+            }
+        };
+        let (planned, alternatives) = planned_issue_remedies(report, rules, selections, &mut used);
         let mechanical = mechanical_fixed(&source).map_or(0, |(_, count)| count);
-        if planned.is_empty() && mechanical == 0 {
+        if planned.is_empty() && alternatives.is_empty() && mechanical == 0 {
             continue;
         }
         plans.push(FileFixPlan {
             path: path.clone(),
             source,
             fixes: planned,
+            alternatives,
             mechanical,
         });
+    }
+    for (rule, action) in selections {
+        if !used.contains(rule) {
+            warnings.push(format!(
+                "selected suggestion {rule}={action} is unavailable"
+            ));
+        }
     }
     plans
 }
@@ -922,20 +1142,34 @@ fn fix_plans(
 /// Runs the `fix` subcommand: dry-run reporting by default, unified diffs
 /// under `--diff`, write-and-verify under `--apply`. Exits nonzero on any
 /// warning or unverified finding.
-fn run_fix(
-    paths: &[std::path::PathBuf],
-    rules: &[String],
-    diff: bool,
-    apply: bool,
-    json: bool,
-) -> ExitCode {
+fn run_fix(paths: &[std::path::PathBuf], config: &FixOptions, json: bool) -> ExitCode {
+    let selections = match suggestion_selections(&config.suggestion) {
+        Ok(selections) => selections,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::from(2);
+        }
+    };
+    let mut analyzer_options = analyze::analyzer_options_bundle(embedded());
+    analyzer_options.python.require_type_hints = config.python_require_type_hints;
+    analyzer_options
+        .csharp
+        .header_format
+        .clone_from(&config.csharp_header_format);
+    let options =
+        match semantic_cli::FixAnalysisContext::load(paths, &config.semantics, &analyzer_options) {
+            Ok(options) => options,
+            Err(error) => {
+                eprintln!("cannot initialize fix analysis: {error}");
+                return ExitCode::from(2);
+            }
+        };
     let mut warnings = Vec::new();
-    let options = analyze::analyzer_options_bundle(embedded());
-    let plans = fix_plans(paths, rules, &options, &mut warnings);
-    if apply {
-        run_fix_apply(&plans, &options, diff, json, &mut warnings)
+    let plans = fix_plans(paths, &config.rule, &options, &selections, &mut warnings);
+    if config.apply {
+        run_fix_apply(&plans, &options, config.diff, json, &mut warnings)
     } else {
-        run_fix_dry_run(&plans, diff, json, &mut warnings)
+        run_fix_dry_run(&plans, config.diff, json, &mut warnings)
     }
 }
 
@@ -1049,6 +1283,16 @@ fn print_dry_run_plan(plan: &FileFixPlan, projection: &FixProjection, diff: Opti
             fix.message
         );
     }
+    for available in &plan.alternatives {
+        println!(
+            "  suggestion {}={} at {}:{}: {}",
+            available.rule_key,
+            available.alternative.id,
+            available.range.start.line,
+            available.range.start.column,
+            available.alternative.fix.message,
+        );
+    }
     if let Some(diff) = diff {
         print!("{diff}");
     }
@@ -1150,7 +1394,7 @@ impl ApplyTotals {
 
 fn apply_one_plan(
     plan: &FileFixPlan,
-    options: &analyze::AnalyzerOptionsBundle,
+    options: &semantic_cli::FixAnalysisContext,
     diff: bool,
     json: bool,
     warnings: &mut Vec<String>,
@@ -1230,7 +1474,7 @@ fn print_apply_outcome(plan: &FileFixPlan, outcome: &ApplyOutcome, diff: Option<
 /// finding count. Warnings fail the run.
 fn run_fix_apply(
     plans: &[FileFixPlan],
-    options: &analyze::AnalyzerOptionsBundle,
+    options: &semantic_cli::FixAnalysisContext,
     diff: bool,
     json: bool,
     warnings: &mut Vec<String>,
@@ -1554,14 +1798,185 @@ fn render_text_report(reports: &[hoonarqube_ir::FileReport]) -> String {
     out
 }
 
+/// Extends the issue-oriented text renderer with project measurements,
+/// completeness, and deterministic duplication ranges.
+fn render_project_text_report(report: &hoonarqube_ir::AnalysisReport) -> String {
+    let mut out = render_text_report(&report.files);
+    let project = &report.project;
+    let _ = writeln!(
+        out,
+        "project: {} file(s), {} line(s), {} code line(s), {} comment line(s)",
+        project.metrics.files,
+        project.metrics.lines,
+        project.metrics.code_lines,
+        project.metrics.comment_lines
+    );
+
+    let mut source_count = 0_u64;
+    let mut test_count = 0_u64;
+    let mut generated_count = 0_u64;
+    let mut vendor_count = 0_u64;
+    let mut excluded_count = 0_u64;
+    let mut complete_count = 0_u64;
+    let mut excluded_status_count = 0_u64;
+    let mut failed_count = 0_u64;
+    let mut unsupported_count = 0_u64;
+    let mut measured_test_files = 0_u64;
+    let mut measured_test_lines = 0_u64;
+    for measurement in &project.files {
+        match measurement.classification {
+            hoonarqube_ir::FileClassification::Source => source_count += 1,
+            hoonarqube_ir::FileClassification::Test => {
+                test_count += 1;
+                if let Some(metrics) = measurement.metrics.as_ref() {
+                    measured_test_files += 1;
+                    measured_test_lines += u64::from(metrics.lines);
+                }
+            }
+            hoonarqube_ir::FileClassification::Generated => generated_count += 1,
+            hoonarqube_ir::FileClassification::Vendor => vendor_count += 1,
+            hoonarqube_ir::FileClassification::Excluded => excluded_count += 1,
+        }
+        match measurement.status {
+            hoonarqube_ir::MeasurementStatus::Complete => complete_count += 1,
+            hoonarqube_ir::MeasurementStatus::Excluded => excluded_status_count += 1,
+            hoonarqube_ir::MeasurementStatus::Failed => failed_count += 1,
+            hoonarqube_ir::MeasurementStatus::Unsupported => unsupported_count += 1,
+        }
+    }
+    let _ = writeln!(
+        out,
+        "scope: source={source_count}, test={test_count}, generated={generated_count}, \
+         vendor={vendor_count}, excluded={excluded_count}; status complete={complete_count}, \
+         excluded={excluded_status_count}, failed={failed_count}, unsupported={unsupported_count}; \
+         tests measured={measured_test_files} file(s), {measured_test_lines} line(s)"
+    );
+    let _ = writeln!(out, "analysis complete: {}", project.complete);
+    match project.duplication.as_ref() {
+        Some(metrics) => {
+            let density = metrics
+                .duplicated_lines_density
+                .map_or_else(|| "n/a".to_owned(), |value| format!("{value:.2}%"));
+            let _ = writeln!(
+                out,
+                "duplication: {} line(s), {} block(s), {} file(s), {density} density",
+                metrics.duplicated_lines, metrics.duplicated_blocks, metrics.duplicated_files
+            );
+        }
+        None => {
+            let _ = writeln!(out, "duplication: unavailable");
+        }
+    }
+    for group in &project.duplications {
+        let _ = write!(out, "duplicate {}:", group.language);
+        for occurrence in &group.occurrences {
+            let _ = write!(
+                out,
+                " {}:{}-{} bytes={}:{}",
+                occurrence.path.display(),
+                occurrence.start_line,
+                occurrence.end_line,
+                occurrence.start_byte,
+                occurrence.end_byte
+            );
+        }
+        out.push('\n');
+    }
+    out
+}
+
 /// Builds the current `SonarQube` Generic Issue Import document. Every used rule
 /// is defined once in the top-level `rules` array; findings reference it by the
 /// repository-qualified `ruleId`. Catalog classification and impacts remain the
-/// single metadata source. Positions reuse the IR convention (1-based lines,
-/// 0-based columns); optional fields are omitted rather than emitted as null.
+/// single metadata source. Native columns are converted at this export boundary
+/// to Sonar's zero-based UTF-16 units; native JSON and SARIF retain their own
+/// coordinate contracts.
 fn sonar_import_value(
     catalog: &Catalog,
     reports: &[hoonarqube_ir::FileReport],
+) -> Result<serde_json::Value, String> {
+    let mut source_cache = SonarSourceCache::default();
+    sonar_import_value_with_source_loader(
+        catalog,
+        reports,
+        &mut |path| {
+            std::fs::read_to_string(path)
+                .map_err(|error| format!("cannot read Sonar source {}: {error}", path.display()))
+        },
+        &mut source_cache,
+    )
+}
+
+#[derive(Default)]
+struct SonarSourceCache {
+    sources: std::collections::HashMap<std::path::PathBuf, SonarSource>,
+}
+
+struct SonarSource {
+    text: String,
+    line_starts: Vec<usize>,
+}
+
+impl SonarSource {
+    fn new(text: String) -> Self {
+        let mut line_starts = vec![0];
+        for (offset, byte) in text.bytes().enumerate() {
+            if byte == b'\n' {
+                line_starts.push(offset + 1);
+            }
+        }
+        Self { text, line_starts }
+    }
+
+    fn line(&self, line: u32) -> Result<&str, String> {
+        if line == 0 {
+            return Err("Sonar source positions use 1-based lines".to_owned());
+        }
+        let line_index =
+            usize::try_from(line - 1).map_err(|_| "Sonar line is too large".to_owned())?;
+        let start = *self
+            .line_starts
+            .get(line_index)
+            .ok_or_else(|| format!("Sonar source has no line {line}"))?;
+        let end = self
+            .line_starts
+            .get(line_index + 1)
+            .copied()
+            .unwrap_or(self.text.len());
+        let mut line_text = &self.text[start..end];
+        if line_text.ends_with('\n') {
+            line_text = &line_text[..line_text.len() - 1];
+        }
+        if line_text.ends_with('\r') {
+            line_text = &line_text[..line_text.len() - 1];
+        }
+        Ok(line_text)
+    }
+}
+
+impl SonarSourceCache {
+    fn load<'a>(
+        &'a mut self,
+        path: &std::path::Path,
+        loader: &mut dyn FnMut(&std::path::Path) -> Result<String, String>,
+    ) -> Result<&'a SonarSource, String> {
+        if !self.sources.contains_key(path) {
+            let source = loader(path)?;
+            self.sources
+                .insert(path.to_path_buf(), SonarSource::new(source));
+        }
+        Ok(self
+            .sources
+            .get(path)
+            .expect("source cache entry inserted above"))
+    }
+}
+
+fn sonar_import_value_with_source_loader(
+    catalog: &Catalog,
+    reports: &[hoonarqube_ir::FileReport],
+    source_loader: &mut dyn FnMut(&std::path::Path) -> Result<String, String>,
+    source_cache: &mut SonarSourceCache,
 ) -> Result<serde_json::Value, String> {
     let mut rules = std::collections::BTreeMap::new();
     let mut findings = Vec::new();
@@ -1577,12 +1992,12 @@ fn sonar_import_value(
             rules
                 .entry(rule_id)
                 .or_insert_with(|| sonar_import_rule(catalog, issue));
-            findings.push((file_path, issue));
+            findings.push((file_path, report.path.as_path(), issue));
         }
     }
-    findings.sort_by(|(path_a, issue_a), (path_b, issue_b)| {
+    findings.sort_by(|(path_a, _, issue_a), (path_b, _, issue_b)| {
         (
-            path_a,
+            *path_a,
             issue_a.range.start.line,
             issue_a.range.start.column,
             issue_a.range.end.line,
@@ -1591,7 +2006,7 @@ fn sonar_import_value(
             issue_a.message.as_str(),
         )
             .cmp(&(
-                path_b,
+                *path_b,
                 issue_b.range.start.line,
                 issue_b.range.start.column,
                 issue_b.range.end.line,
@@ -1602,7 +2017,9 @@ fn sonar_import_value(
     });
     let issues = findings
         .into_iter()
-        .map(|(file_path, issue)| sonar_import_issue(file_path, issue))
+        .map(|(file_path, source_path, issue)| {
+            sonar_import_issue(file_path, source_path, issue, source_loader, source_cache)
+        })
         .collect::<Result<Vec<_>, _>>()?;
     // Move the already-built values into the document. Passing them through
     // json! serializes them again, cloning every finding and location.
@@ -1664,7 +2081,10 @@ fn sonar_import_rule(catalog: &Catalog, issue: &hoonarqube_ir::Issue) -> serde_j
 
 fn sonar_import_issue(
     file_path: &str,
+    source_path: &std::path::Path,
     issue: &hoonarqube_ir::Issue,
+    source_loader: &mut dyn FnMut(&std::path::Path) -> Result<String, String>,
+    source_cache: &mut SonarSourceCache,
 ) -> Result<serde_json::Value, String> {
     sonar_validate_range(&issue.range, "primary location")?;
     let mut primary_location = serde_json::json!({
@@ -1672,7 +2092,8 @@ fn sonar_import_issue(
         "filePath": file_path,
     });
     if !issue.range.is_file_level() {
-        primary_location["textRange"] = sonar_text_range(&issue.range);
+        let source = source_cache.load(source_path, source_loader)?;
+        primary_location["textRange"] = sonar_text_range(&issue.range, source)?;
     }
     let mut imported = serde_json::json!({
         "ruleId": sonar_rule_id(&issue.rule_key),
@@ -1691,12 +2112,14 @@ fn sonar_import_issue(
                 })?,
                 None => file_path,
             };
+            let secondary_source_path = location.path.as_deref().unwrap_or(source_path);
             let mut value = serde_json::json!({
                 "message": location.message,
                 "filePath": secondary_file_path,
             });
             if !location.range.is_file_level() {
-                value["textRange"] = sonar_text_range(&location.range);
+                let source = source_cache.load(secondary_source_path, source_loader)?;
+                value["textRange"] = sonar_text_range(&location.range, source)?;
             }
             Ok(value)
         })
@@ -1707,7 +2130,6 @@ fn sonar_import_issue(
     }
     Ok(imported)
 }
-
 fn sonar_validate_range(range: &hoonarqube_ir::Range, context: &str) -> Result<(), String> {
     if !range.is_file_level()
         && (range.start.line == 0
@@ -1721,13 +2143,40 @@ fn sonar_validate_range(range: &hoonarqube_ir::Range, context: &str) -> Result<(
     Ok(())
 }
 
-fn sonar_text_range(range: &hoonarqube_ir::Range) -> serde_json::Value {
-    serde_json::json!({
+fn sonar_text_range(
+    range: &hoonarqube_ir::Range,
+    source: &SonarSource,
+) -> Result<serde_json::Value, String> {
+    let start_column = sonar_utf16_column(source, range.start.line, range.start.column)?;
+    let end_column = sonar_utf16_column(source, range.end.line, range.end.column)?;
+    Ok(serde_json::json!({
         "startLine": range.start.line,
-        "startColumn": range.start.column.saturating_add(1),
+        "startColumn": start_column,
         "endLine": range.end.line,
-        "endColumn": range.end.column.saturating_add(1),
-    })
+        "endColumn": end_column,
+    }))
+}
+
+fn sonar_utf16_column(source: &SonarSource, line: u32, column: u32) -> Result<u32, String> {
+    let line_text = source.line(line)?;
+    let target = usize::try_from(column).map_err(|_| "Sonar column is too large".to_owned())?;
+    let mut scalar_count = 0_usize;
+    let mut utf16_count = 0_usize;
+    for character in line_text.chars() {
+        if scalar_count == target {
+            break;
+        }
+        utf16_count = utf16_count
+            .checked_add(character.len_utf16())
+            .ok_or_else(|| "Sonar UTF-16 column overflow".to_owned())?;
+        scalar_count += 1;
+    }
+    if scalar_count != target {
+        return Err(format!(
+            "Sonar source line {line} has no Unicode scalar column {column}"
+        ));
+    }
+    u32::try_from(utf16_count).map_err(|_| "Sonar UTF-16 column overflow".to_owned())
 }
 
 fn sarif_level(severity: hoonarqube_catalog::github_quality::Severity) -> &'static str {
@@ -2169,72 +2618,417 @@ fn sarif_validate_flow_locations(
     }
     Ok(())
 }
+/// Returns the GitLab Code Quality severity spelling for one rule.
+///
+/// Sonar and native rules use the same five-level severity vocabulary. The
+/// additional impact spellings are accepted for defensive handling of native
+/// metadata, while unknown rule keys retain the issue instead of being
+/// discarded.
+fn gitlab_severity(catalog: &Catalog, rule_key: &str) -> &'static str {
+    let severity = catalog
+        .rule(rule_key)
+        .map(|rule| rule.severity.as_str())
+        .or_else(|| native_rule(rule_key).map(|rule| rule.severity))
+        .unwrap_or("INFO");
+    gitlab_severity_value(severity)
+}
 
-/// Validates input paths and the requested output format/profile, then walks
-/// and analyzes them; issues and non-fatal read skips do not fail the scan,
-/// while invalid inputs or output rendering errors exit nonzero.
+fn gitlab_severity_value(severity: &str) -> &'static str {
+    match severity {
+        "BLOCKER" => "blocker",
+        "CRITICAL" | "HIGH" => "critical",
+        "MAJOR" | "MEDIUM" => "major",
+        "MINOR" | "LOW" => "minor",
+        _ => "info",
+    }
+}
+
+/// Normalizes a report path to GitLab's raw repository-relative path contract.
+///
+/// GitLab expects the path as it appears in the checkout, not a URI-escaped
+/// reference. Lexical normalization removes `.` segments, rejects traversal
+/// outside the checkout, and converts platform path components to `/`.
+fn gitlab_path_error(context: &str, path: &std::path::Path, reason: &str) -> String {
+    format!(
+        "{context} is not a portable file path ({reason}): {}",
+        path.display()
+    )
+}
+
+fn gitlab_validate_raw_path(
+    path_text: &str,
+    path: &std::path::Path,
+    context: &str,
+) -> Result<(), String> {
+    if path_text.chars().any(char::is_control) {
+        return Err(gitlab_path_error(context, path, "control character"));
+    }
+    if cfg!(unix) && path_text.contains('\\') {
+        return Err(gitlab_path_error(context, path, "backslash separator"));
+    }
+    Ok(())
+}
+
+fn gitlab_is_uri_scheme(value: &str) -> bool {
+    let mut characters = value.chars();
+    matches!(
+        characters.next(),
+        Some(first) if first.is_ascii_alphabetic()
+    ) && characters
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.'))
+}
+
+fn gitlab_is_uri_like_path(path_text: &str) -> bool {
+    let mut candidate = path_text;
+    while let Some(rest) = candidate.strip_prefix("./") {
+        candidate = rest;
+    }
+    let Some(colon) = candidate.find(':') else {
+        return false;
+    };
+    let scheme = &candidate[..colon];
+    gitlab_is_uri_scheme(scheme) && candidate[colon + 1..].starts_with('/')
+}
+
+fn gitlab_is_drive_component(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+}
+
+fn gitlab_validate_component(
+    value: &str,
+    is_first: bool,
+    path: &std::path::Path,
+    context: &str,
+) -> Result<(), String> {
+    if value.chars().any(char::is_control) {
+        return Err(gitlab_path_error(context, path, "control character"));
+    }
+    if value.contains('\\') {
+        return Err(gitlab_path_error(context, path, "backslash separator"));
+    }
+    if is_first && gitlab_is_drive_component(value) {
+        return Err(gitlab_path_error(context, path, "drive prefix"));
+    }
+    Ok(())
+}
+
+fn gitlab_relative_path(
+    path: &std::path::Path,
+    checkout_root: &std::path::Path,
+    context: &str,
+) -> Result<String, String> {
+    let path_text = path
+        .to_str()
+        .ok_or_else(|| format!("{context} is not valid UTF-8: {}", path.display()))?;
+    gitlab_validate_raw_path(path_text, path, context)?;
+    let root = sarif_normalize_path(checkout_root)
+        .ok_or_else(|| "checkout root is not a valid normalized path".to_owned())?;
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    let absolute = sarif_normalize_path(&absolute)
+        .ok_or_else(|| format!("{context} is outside checkout root: {}", path.display()))?;
+    let relative = absolute
+        .strip_prefix(&root)
+        .map_err(|_| format!("{context} is outside checkout root: {}", path.display()))?;
+    let relative_text = relative
+        .to_str()
+        .ok_or_else(|| format!("{context} is not valid UTF-8: {}", path.display()))?;
+    if gitlab_is_uri_like_path(relative_text) {
+        return Err(gitlab_path_error(context, path, "URI-like prefix"));
+    }
+    let mut output = String::with_capacity(relative_text.len());
+    for (index, component) in relative.components().enumerate() {
+        let value = match component {
+            std::path::Component::Normal(value) => value.to_str(),
+            _ => None,
+        }
+        .ok_or_else(|| gitlab_path_error(context, path, "non-normal component"))?;
+        gitlab_validate_component(value, index == 0, path, context)?;
+        if index > 0 {
+            output.push('/');
+        }
+        output.push_str(value);
+    }
+    if output.is_empty() {
+        return Err(format!("{context} must name a file: {}", path.display()));
+    }
+    Ok(output)
+}
+
+/// Converts an IR range to GitLab's inclusive positive line interval.
+///
+/// GitLab has no file-level location sentinel. A file-level finding is
+/// anchored at line 1, which is the conventional report location when the
+/// analyzer has no more precise source range.
+fn gitlab_lines(range: &Range, context: &str) -> Result<(u32, u32), String> {
+    if range.is_file_level() {
+        return Ok((1, 1));
+    }
+    if range.start.line == 0
+        || range.end.line == 0
+        || (range.start.line, range.start.column) > (range.end.line, range.end.column)
+    {
+        return Err(format!(
+            "invalid {context} range for GitLab Code Quality output"
+        ));
+    }
+    Ok((range.start.line, range.end.line))
+}
+
+fn gitlab_hash_field(hasher: &mut Sha256, value: &[u8]) {
+    let length = u64::try_from(value.len()).unwrap_or(u64::MAX);
+    hasher.update(length.to_be_bytes());
+    hasher.update(value);
+}
+
+fn gitlab_hash_range(hasher: &mut Sha256, range: &Range) {
+    gitlab_hash_field(hasher, &range.start.line.to_be_bytes());
+    gitlab_hash_field(hasher, &range.start.column.to_be_bytes());
+    gitlab_hash_field(hasher, &range.end.line.to_be_bytes());
+    gitlab_hash_field(hasher, &range.end.column.to_be_bytes());
+}
+
+/// Computes a stable content identity for one GitLab finding.
+///
+/// The version tag makes future identity changes explicit. Only the normalized
+/// primary path, rule, message, and primary range participate in the identity;
+/// flow and fix metadata are intentionally excluded from the fingerprint.
+fn gitlab_fingerprint(file_path: &str, issue: &hoonarqube_ir::Issue) -> String {
+    let mut hasher = Sha256::new();
+    gitlab_hash_field(&mut hasher, b"hoonarqube-gitlab-codequality-v2");
+    gitlab_hash_field(&mut hasher, file_path.as_bytes());
+    gitlab_hash_field(&mut hasher, issue.rule_key.as_bytes());
+    gitlab_hash_field(&mut hasher, issue.message.as_bytes());
+    gitlab_hash_range(&mut hasher, &issue.range);
+    let digest = hasher.finalize();
+    let mut fingerprint = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(&mut fingerprint, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    fingerprint
+}
+
+struct GitlabFinding<'a> {
+    file_path: String,
+    issue: &'a hoonarqube_ir::Issue,
+    severity: &'static str,
+    fingerprint: String,
+    start_line: u32,
+    end_line: u32,
+}
+
+fn gitlab_finding_order(left: &GitlabFinding<'_>, right: &GitlabFinding<'_>) -> std::cmp::Ordering {
+    (
+        left.file_path.as_str(),
+        left.start_line,
+        left.end_line,
+        left.issue.range.start.column,
+        left.issue.range.end.column,
+        left.issue.rule_key.as_str(),
+        left.issue.message.as_str(),
+        left.fingerprint.as_str(),
+    )
+        .cmp(&(
+            right.file_path.as_str(),
+            right.start_line,
+            right.end_line,
+            right.issue.range.start.column,
+            right.issue.range.end.column,
+            right.issue.rule_key.as_str(),
+            right.issue.message.as_str(),
+            right.fingerprint.as_str(),
+        ))
+}
+
+fn gitlab_finding_value(finding: &GitlabFinding<'_>) -> serde_json::Value {
+    serde_json::json!({
+        "description": finding.issue.message,
+        "check_name": finding.issue.rule_key,
+        "fingerprint": finding.fingerprint,
+        "severity": finding.severity,
+        "location": {
+            "path": finding.file_path,
+            "lines": {
+                "begin": finding.start_line,
+                "end": finding.end_line,
+            },
+        },
+    })
+}
+
+/// Builds GitLab Code Quality's one-array report from issue findings.
+///
+/// This format intentionally transports findings only. Project metrics and
+/// completeness stay in the versioned JSON report, while `run_analyze`
+/// preserves their status semantics for this issue-only output.
+fn gitlab_codequality_value(
+    catalog: &Catalog,
+    reports: &[hoonarqube_ir::FileReport],
+) -> Result<serde_json::Value, String> {
+    let checkout_root = std::env::current_dir()
+        .map_err(|error| format!("cannot determine checkout root for GitLab output: {error}"))?;
+    let mut findings = Vec::new();
+    for report in reports {
+        let file_path = gitlab_relative_path(&report.path, &checkout_root, "primary report path")?;
+        for issue in &report.issues {
+            let (start_line, end_line) = gitlab_lines(&issue.range, "primary location")?;
+            findings.push(GitlabFinding {
+                file_path: file_path.clone(),
+                issue,
+                severity: gitlab_severity(catalog, &issue.rule_key),
+                fingerprint: gitlab_fingerprint(&file_path, issue),
+                start_line,
+                end_line,
+            });
+        }
+    }
+    findings.sort_by(gitlab_finding_order);
+    Ok(serde_json::Value::Array(
+        findings.iter().map(gitlab_finding_value).collect(),
+    ))
+}
+
+/// Options captured from the `analyze` command before execution.
+struct AnalyzeRunOptions<'a> {
+    format: Option<&'a str>,
+    go_header_format: &'a str,
+    csharp_header_format: &'a str,
+    profile: RuleProfile,
+    json_flag: bool,
+    python_require_type_hints: bool,
+    project_options: &'a analyze::ProjectAnalysisOptions,
+}
+
+/// Validates the requested output format/profile and project options, then
+/// walks and analyzes the inputs. Issue findings remain renderable when the
+/// project inventory is incomplete; incomplete analysis exits with status 2.
 fn run_analyze(
     catalog: &Catalog,
     paths: &[std::path::PathBuf],
-    format: Option<&str>,
-    go_header_format: &str,
-    profile: RuleProfile,
-    json_flag: bool,
+    run_options: &AnalyzeRunOptions<'_>,
 ) -> ExitCode {
-    let format = match analyze_format(format, json_flag) {
+    let format = match analyze_format(run_options.format, run_options.json_flag) {
         Ok(format) => format,
         Err(value) => {
             eprintln!("unknown format: {value}");
             return ExitCode::from(2);
         }
     };
-    if let Err(error) = validate_analyze_format(format, profile) {
+    if let Err(error) = validate_analyze_format(format, run_options.profile) {
         eprintln!("{error}");
         return ExitCode::from(2);
     }
 
-    let mut valid = true;
-    for path in paths {
-        if !path.exists() {
-            eprintln!("path does not exist: {}", path.display());
-            valid = false;
-        }
-    }
-    if !valid {
-        return ExitCode::from(2);
-    }
-
-    let mut options = analyze::analyzer_options_bundle(catalog);
-    options.profile = profile;
-    options.go.header_format = go_header_format.to_string();
+    let options = analyze_options(
+        catalog,
+        run_options.profile,
+        run_options.go_header_format,
+        run_options.csharp_header_format,
+        run_options.python_require_type_hints,
+    );
     let mut warnings = Vec::new();
-    let reports = analyze::analyze_paths(paths, &options, &mut warnings);
-    for warning in &warnings {
+    let report = match analyze::analyze_project_paths(
+        paths,
+        &options,
+        run_options.project_options,
+        &mut warnings,
+    ) {
+        Ok(report) => report,
+        Err(error) => {
+            eprintln!("cannot build project report: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    for warning in &report.project.warnings {
         eprintln!("{warning}");
     }
+    let assessment_status = assessment_cli::assessment_exit_status(&report);
+    let output_ok = render_analyze_output(catalog, format, &report);
+    analyze_exit_code(output_ok, &report, assessment_status)
+}
 
-    let output_ok = match format {
-        AnalyzeFormat::Json => print_json(&hoonarqube_ir::AnalysisReport { files: reports }),
-        AnalyzeFormat::Sonar => match sonar_import_value(catalog, &reports) {
-            Ok(value) => print_json(&value),
-            Err(error) => {
-                eprintln!("cannot render Sonar output: {error}");
-                false
-            }
-        },
-        AnalyzeFormat::Sarif => match sarif_value(catalog, &reports) {
-            Ok(value) => print_json(&value),
-            Err(error) => {
-                eprintln!("cannot render SARIF output: {error}");
-                false
-            }
-        },
-        AnalyzeFormat::Text => print_text(&render_text_report(&reports)),
-    };
-    if output_ok {
-        ExitCode::SUCCESS
-    } else {
+fn analyze_options(
+    catalog: &Catalog,
+    profile: RuleProfile,
+    go_header_format: &str,
+    csharp_header_format: &str,
+    python_require_type_hints: bool,
+) -> analyze::AnalyzerOptionsBundle {
+    let mut options = analyze::analyzer_options_bundle(catalog);
+    options.profile = profile;
+    options.python.require_type_hints = python_require_type_hints;
+    options.go.header_format = go_header_format.to_string();
+    options.csharp.header_format = csharp_header_format.to_string();
+    options
+}
+
+fn render_analyze_output(
+    catalog: &Catalog,
+    format: AnalyzeFormat,
+    report: &hoonarqube_ir::AnalysisReport,
+) -> bool {
+    match format {
+        AnalyzeFormat::Json => print_json(report),
+        AnalyzeFormat::Sonar => render_sonar_output(catalog, report),
+        AnalyzeFormat::GitlabCodeQuality => render_gitlab_output(catalog, report),
+        AnalyzeFormat::Sarif => render_sarif_output(catalog, report),
+        AnalyzeFormat::Text => render_text_output(report),
+    }
+}
+
+fn render_sonar_output(catalog: &Catalog, report: &hoonarqube_ir::AnalysisReport) -> bool {
+    match sonar_import_value(catalog, &report.files) {
+        Ok(value) => print_json(&value),
+        Err(error) => {
+            eprintln!("cannot render Sonar output: {error}");
+            false
+        }
+    }
+}
+
+fn render_gitlab_output(catalog: &Catalog, report: &hoonarqube_ir::AnalysisReport) -> bool {
+    match gitlab_codequality_value(catalog, &report.files) {
+        Ok(value) => print_json(&value),
+        Err(error) => {
+            eprintln!("cannot render GitLab Code Quality output: {error}");
+            false
+        }
+    }
+}
+
+fn render_sarif_output(catalog: &Catalog, report: &hoonarqube_ir::AnalysisReport) -> bool {
+    match sarif_value(catalog, &report.files) {
+        Ok(value) => print_json(&value),
+        Err(error) => {
+            eprintln!("cannot render SARIF output: {error}");
+            false
+        }
+    }
+}
+
+fn render_text_output(report: &hoonarqube_ir::AnalysisReport) -> bool {
+    let mut text = render_project_text_report(report);
+    text.push_str(&assessment_cli::render_assessment_summary(report));
+    print_text(&text)
+}
+
+fn analyze_exit_code(
+    output_ok: bool,
+    report: &hoonarqube_ir::AnalysisReport,
+    assessment_status: u8,
+) -> ExitCode {
+    if !output_ok {
         ExitCode::FAILURE
+    } else if !report.project.complete || assessment_status == 2 {
+        ExitCode::from(2)
+    } else if assessment_status == 1 {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
     }
 }
 
@@ -2256,6 +3050,71 @@ mod tests {
             },
         }
     }
+    /// Existing schema tests use synthetic reports rather than files on disk.
+    /// Give those tests deterministic ASCII source snapshots while production
+    /// export remains strict about loading the analyzed source.
+    fn sonar_import_value_for_test(
+        catalog: &Catalog,
+        reports: &[FileReport],
+    ) -> Result<serde_json::Value, String> {
+        let mut source_lines = std::collections::HashMap::<std::path::PathBuf, Vec<usize>>::new();
+        let mut add_range = |path: &std::path::Path, range: &Range| {
+            if range.is_file_level()
+                || range.start.column == u32::MAX
+                || range.end.column == u32::MAX
+                || range.start.line == 0
+                || range.end.line == 0
+            {
+                return;
+            }
+            let max_line = range.start.line.max(range.end.line) as usize;
+            let lines = source_lines.entry(path.to_path_buf()).or_default();
+            lines.resize(lines.len().max(max_line), 0);
+            lines[range.start.line as usize - 1] =
+                lines[range.start.line as usize - 1].max(range.start.column as usize);
+            lines[range.end.line as usize - 1] =
+                lines[range.end.line as usize - 1].max(range.end.column as usize);
+        };
+        for report in reports {
+            for issue in &report.issues {
+                add_range(&report.path, &issue.range);
+                for location in issue.flows.iter().flat_map(|flow| &flow.locations) {
+                    add_range(
+                        location.path.as_deref().unwrap_or(&report.path),
+                        &location.range,
+                    );
+                }
+            }
+        }
+        let sources = source_lines
+            .into_iter()
+            .map(|(path, mut lines)| {
+                if lines.is_empty() {
+                    lines.push(0);
+                }
+                (
+                    path,
+                    lines
+                        .into_iter()
+                        .map(|length| "x".repeat(length))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                )
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        let mut source_cache = SonarSourceCache::default();
+        sonar_import_value_with_source_loader(
+            catalog,
+            reports,
+            &mut |path| {
+                sources
+                    .get(path)
+                    .cloned()
+                    .ok_or_else(|| format!("missing synthetic Sonar source {}", path.display()))
+            },
+            &mut source_cache,
+        )
+    }
 
     #[test]
     fn sonar_import_maps_findings_to_generic_schema() {
@@ -2271,6 +3130,7 @@ mod tests {
                         end: Pos { line: 1, column: 4 },
                     },
                     fix: None,
+                    alternatives: Vec::new(),
                     flows: Vec::new(),
                 }],
             ),
@@ -2289,12 +3149,13 @@ mod tests {
                         },
                     },
                     fix: None,
+                    alternatives: Vec::new(),
                     flows: Vec::new(),
                 }],
             ),
         ];
 
-        let value = sonar_import_value(embedded(), &reports).unwrap();
+        let value = sonar_import_value_for_test(embedded(), &reports).unwrap();
         let rules = value["rules"].as_array().expect("rules array");
         let issues = value["issues"].as_array().expect("issues array");
         assert_eq!(rules.len(), 2);
@@ -2319,9 +3180,9 @@ mod tests {
         );
         assert_eq!(first["primaryLocation"]["filePath"], "src/bad.js");
         assert_eq!(first["primaryLocation"]["textRange"]["startLine"], 1);
-        assert_eq!(first["primaryLocation"]["textRange"]["startColumn"], 1);
+        assert_eq!(first["primaryLocation"]["textRange"]["startColumn"], 0);
         assert_eq!(first["primaryLocation"]["textRange"]["endLine"], 1);
-        assert_eq!(first["primaryLocation"]["textRange"]["endColumn"], 5);
+        assert_eq!(first["primaryLocation"]["textRange"]["endColumn"], 4);
 
         assert_eq!(issues[1]["ruleId"], "python:LineLength");
         assert_eq!(issues[1]["primaryLocation"]["filePath"], "src/long.py");
@@ -2332,7 +3193,7 @@ mod tests {
 
     #[test]
     fn sonar_import_of_clean_report_has_empty_issue_list() {
-        let value = sonar_import_value(embedded(), &[]).unwrap();
+        let value = sonar_import_value_for_test(embedded(), &[]).unwrap();
         assert_eq!(value["rules"].as_array().map(Vec::len), Some(0));
         assert_eq!(value["issues"].as_array().map(Vec::len), Some(0));
     }
@@ -2369,7 +3230,7 @@ mod tests {
             ),
             FlowLocation::in_primary_file("Unbounded copy occurs here.", sink_range),
         ]);
-        let value = sonar_import_value(
+        let value = sonar_import_value_for_test(
             embedded(),
             &[sample_report("src/archive.go", "go", vec![issue])],
         )
@@ -2387,10 +3248,10 @@ mod tests {
         assert_eq!(secondary.len(), 2, "primary sink is not duplicated");
         assert_eq!(secondary[0]["filePath"], "src/archive.go");
         assert_eq!(secondary[0]["textRange"]["startLine"], 2);
-        assert_eq!(secondary[0]["textRange"]["startColumn"], 5);
-        assert_eq!(secondary[0]["textRange"]["endColumn"], 25);
-        assert_eq!(secondary[1]["textRange"]["startColumn"], 1);
-        assert_eq!(secondary[1]["textRange"]["endColumn"], 2);
+        assert_eq!(secondary[0]["textRange"]["startColumn"], 4);
+        assert_eq!(secondary[0]["textRange"]["endColumn"], 24);
+        assert_eq!(secondary[1]["textRange"]["startColumn"], 0);
+        assert_eq!(secondary[1]["textRange"]["endColumn"], 1);
     }
 
     #[test]
@@ -2403,14 +3264,14 @@ mod tests {
                 end: Pos { line: 1, column: 2 },
             },
         );
-        let value = sonar_import_value(
+        let value = sonar_import_value_for_test(
             embedded(),
             &[sample_report("src/é.py", "python", vec![issue])],
         )
         .expect("Unicode Generic Issue output");
         let range = &value["issues"][0]["primaryLocation"]["textRange"];
-        assert_eq!(range["startColumn"], 2);
-        assert_eq!(range["endColumn"], 3);
+        assert_eq!(range["startColumn"], 1);
+        assert_eq!(range["endColumn"], 2);
         assert_eq!(
             value["issues"][0]["primaryLocation"]["filePath"],
             "src/é.py"
@@ -2426,10 +3287,10 @@ mod tests {
                 column: u32::MAX,
             },
         };
-        let converted = sonar_text_range(&boundary);
-        assert_eq!(converted["startColumn"], u32::MAX);
-        assert_eq!(converted["endColumn"], u32::MAX);
-        let error = sonar_import_value(
+        let source = SonarSource::new("x".to_owned());
+        let converted = sonar_text_range(&boundary, &source);
+        assert!(converted.is_err());
+        let error = sonar_import_value_for_test(
             embedded(),
             &[sample_report(
                 "src/boundary.py",
@@ -2442,6 +3303,132 @@ mod tests {
     }
 
     #[test]
+    fn sonar_columns_are_zero_based_utf16_for_six_source_variants() {
+        let cases = [
+            ("ascii-lf", "const value=1; value=2;\n", 15, 23, 15, 23),
+            ("ascii-crlf", "const value=1; value=2;\r\n", 15, 23, 15, 23),
+            (
+                "ascii-no-newline",
+                "const value=1; value=2;",
+                15,
+                23,
+                15,
+                23,
+            ),
+            (
+                "unicode-bmp",
+                "/*ü*/ const value=1; value=2;\n",
+                21,
+                29,
+                21,
+                29,
+            ),
+            (
+                "unicode-astral",
+                "/*😀*/ const value=1; value=2;\n",
+                21,
+                29,
+                22,
+                30,
+            ),
+            (
+                "unicode-two-astral",
+                "/*😀😀*/ const value=1; value=2;\n",
+                22,
+                30,
+                24,
+                32,
+            ),
+        ];
+        let options = analyze::analyzer_options_bundle(embedded());
+        for (label, source, native_start, native_end, expected_start, expected_end) in cases {
+            let directory = temp_fix_path(label);
+            std::fs::create_dir_all(&directory).expect("create Sonar fixture directory");
+            let path = directory.join("source.js");
+            std::fs::write(&path, source).expect("write Sonar fixture");
+            let report =
+                hoonarqube_core::analyze(&path, source, &options).expect("JavaScript report");
+            let native_issue = report
+                .issues
+                .iter()
+                .find(|issue| issue.rule_key == "javascript:S122")
+                .expect("S122 finding");
+            assert_eq!(
+                native_issue.range.start.column, native_start,
+                "{label} native start"
+            );
+            assert_eq!(
+                native_issue.range.end.column, native_end,
+                "{label} native end"
+            );
+            let native = serde_json::to_value(&report).expect("native JSON report");
+            let native_json_issue = native["issues"]
+                .as_array()
+                .expect("native issues")
+                .iter()
+                .find(|issue| issue["rule_key"] == "javascript:S122")
+                .expect("native S122");
+            assert_eq!(native_json_issue["range"]["start"]["column"], native_start);
+            assert_eq!(native_json_issue["range"]["end"]["column"], native_end);
+            let value = sonar_import_value(embedded(), &[report]).expect("Sonar output");
+            let finding = value["issues"]
+                .as_array()
+                .expect("Sonar issues")
+                .iter()
+                .find(|issue| issue["ruleId"] == "javascript:S122")
+                .expect("Sonar S122");
+            let range = &finding["primaryLocation"]["textRange"];
+            assert_eq!(range["startColumn"], expected_start, "{label} start");
+            assert_eq!(range["endColumn"], expected_end, "{label} end");
+            let _ = std::fs::remove_dir_all(directory);
+        }
+    }
+
+    #[test]
+    fn sonar_columns_convert_multiline_end_and_cross_file_secondary_ranges() {
+        let directory = temp_fix_path("multiline-secondary");
+        std::fs::create_dir_all(&directory).expect("create Sonar fixture directory");
+        let primary_path = directory.join("primary.js");
+        let secondary_path = directory.join("secondary.js");
+        std::fs::write(&primary_path, "header\n😀value\nfinish😀\n")
+            .expect("write primary Sonar fixture");
+        std::fs::write(&secondary_path, "é😀x\n").expect("write secondary Sonar fixture");
+        let issue = Issue::new(
+            "javascript:S999999",
+            "Multiline position finding",
+            Range {
+                start: Pos { line: 2, column: 0 },
+                end: Pos { line: 3, column: 7 },
+            },
+        )
+        .with_flow(vec![FlowLocation {
+            path: Some(secondary_path.clone()),
+            message: "Cross-file secondary location.".to_owned(),
+            range: Range {
+                start: Pos { line: 1, column: 0 },
+                end: Pos { line: 1, column: 3 },
+            },
+        }]);
+        let report = sample_report(
+            primary_path.to_str().expect("primary fixture path"),
+            "javascript",
+            vec![issue],
+        );
+        let value = sonar_import_value(embedded(), &[report]).expect("Sonar output");
+        let primary = &value["issues"][0]["primaryLocation"]["textRange"];
+        assert_eq!(primary["startLine"], 2);
+        assert_eq!(primary["startColumn"], 0);
+        assert_eq!(primary["endLine"], 3);
+        assert_eq!(primary["endColumn"], 8);
+        let secondary = &value["issues"][0]["secondaryLocations"][0]["textRange"];
+        assert_eq!(secondary["startLine"], 1);
+        assert_eq!(secondary["startColumn"], 0);
+        assert_eq!(secondary["endLine"], 1);
+        assert_eq!(secondary["endColumn"], 4);
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
     fn sonar_import_omits_text_range_for_file_level_issues() {
         let reports = vec![sample_report(
             "src/no-newline.py",
@@ -2451,10 +3438,11 @@ mod tests {
                 message: "Add a new line at the end of this file \"no-newline.py\".".to_string(),
                 range: Range::file_level(),
                 fix: None,
+                alternatives: Vec::new(),
                 flows: Vec::new(),
             }],
         )];
-        let value = sonar_import_value(embedded(), &reports).unwrap();
+        let value = sonar_import_value_for_test(embedded(), &reports).unwrap();
         let primary = &value["issues"][0]["primaryLocation"];
         assert_eq!(primary["filePath"], "src/no-newline.py");
         assert!(primary.get("textRange").is_none());
@@ -2473,11 +3461,12 @@ mod tests {
                     end: Pos { line: 1, column: 1 },
                 },
                 fix: None,
+                alternatives: Vec::new(),
                 flows: Vec::new(),
             }],
         )];
 
-        let value = sonar_import_value(embedded(), &reports).unwrap();
+        let value = sonar_import_value_for_test(embedded(), &reports).unwrap();
         let rule = &value["rules"][0];
         assert_eq!(rule["id"], "python:S999999");
         assert_eq!(rule["severity"], "INFO");
@@ -2497,6 +3486,7 @@ mod tests {
                 end: Pos { line: 1, column: 1 },
             },
             fix: None,
+            alternatives: Vec::new(),
             flows: Vec::new(),
         };
         let reports = vec![
@@ -2504,7 +3494,7 @@ mod tests {
             sample_report("src/a.cs", "csharp", vec![issue("csharpsquid:S112")]),
         ];
 
-        let value = sonar_import_value(embedded(), &reports).unwrap();
+        let value = sonar_import_value_for_test(embedded(), &reports).unwrap();
         let ids = value["rules"]
             .as_array()
             .expect("rules")
@@ -2531,9 +3521,10 @@ mod tests {
         let first = sample_report("zeta.py", "python", vec![make_issue("python:S112", 2)]);
         let second = sample_report("alpha.py", "python", vec![make_issue("python:S113", 1)]);
 
-        let left =
-            sonar_import_value(embedded(), &[first.clone(), second.clone()]).expect("Sonar output");
-        let right = sonar_import_value(embedded(), &[second, first]).expect("Sonar output");
+        let left = sonar_import_value_for_test(embedded(), &[first.clone(), second.clone()])
+            .expect("Sonar output");
+        let right =
+            sonar_import_value_for_test(embedded(), &[second, first]).expect("Sonar output");
 
         assert_eq!(left["issues"], right["issues"]);
     }
@@ -2549,7 +3540,7 @@ mod tests {
             b's', b'r', b'c', b'/', 0xff, b'.', b'p', b'y',
         ]));
 
-        let error = sonar_import_value(embedded(), &[report]).expect_err("invalid path");
+        let error = sonar_import_value_for_test(embedded(), &[report]).expect_err("invalid path");
         assert!(error.contains("primary report path is not valid UTF-8"));
     }
 
@@ -2579,7 +3570,7 @@ mod tests {
         }]);
         let report = sample_report("src/valid.py", "python", vec![issue]);
 
-        let error = sonar_import_value(embedded(), &[report]).expect_err("invalid path");
+        let error = sonar_import_value_for_test(embedded(), &[report]).expect_err("invalid path");
         assert!(error.contains("secondary flow path is not valid UTF-8"));
     }
 
@@ -2593,7 +3584,7 @@ mod tests {
                 end: Pos { line: 2, column: 0 },
             },
         );
-        let primary_error = sonar_import_value(
+        let primary_error = sonar_import_value_for_test(
             embedded(),
             &[sample_report(
                 "src/bad.py",
@@ -2619,7 +3610,7 @@ mod tests {
                 end: Pos { line: 1, column: 1 },
             },
         )]);
-        let flow_error = sonar_import_value(
+        let flow_error = sonar_import_value_for_test(
             embedded(),
             &[sample_report("src/bad.py", "python", vec![malformed_flow])],
         )
@@ -2668,13 +3659,31 @@ mod tests {
         assert!(mechanical_fixed("TEXT = \"\"\"value  \n\tindented\n\"\"\"\n").is_none());
     }
 
+    fn default_fix_context() -> semantic_cli::FixAnalysisContext {
+        semantic_cli::FixAnalysisContext::load(
+            &[],
+            &project_features::SemanticOptions::default(),
+            &analyze::analyzer_options_bundle(embedded()),
+        )
+        .expect("standalone fix analysis")
+    }
+
     #[test]
     fn fix_plans_report_missing_paths_as_warnings() {
         let missing = temp_fix_path("missing").join("nope.py");
-        let options = analyze::analyzer_options_bundle(embedded());
+        let options = default_fix_context();
         let mut warnings = Vec::new();
 
-        assert!(fix_plans(std::slice::from_ref(&missing), &[], &options, &mut warnings).is_empty());
+        assert!(
+            fix_plans(
+                std::slice::from_ref(&missing),
+                &[],
+                &options,
+                &SuggestionSelections::new(),
+                &mut warnings
+            )
+            .is_empty()
+        );
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].starts_with("path does not exist: "));
     }
@@ -2724,10 +3733,16 @@ mod tests {
     #[test]
     fn dry_run_plans_s1721_without_touching_files() {
         let (dir, file) = temp_python_fixture("dry", S1721_SOURCE);
-        let options = analyze::analyzer_options_bundle(embedded());
+        let options = default_fix_context();
         let mut warnings = Vec::new();
 
-        let plans = fix_plans(std::slice::from_ref(&file), &[], &options, &mut warnings);
+        let plans = fix_plans(
+            std::slice::from_ref(&file),
+            &[],
+            &options,
+            &SuggestionSelections::new(),
+            &mut warnings,
+        );
 
         assert!(warnings.is_empty());
         assert_eq!(plans.len(), 1);
@@ -2745,13 +3760,14 @@ mod tests {
     #[test]
     fn rule_filter_matches_rule_key_prefixes() {
         let (dir, file) = temp_python_fixture("filter", S1721_SOURCE);
-        let options = analyze::analyzer_options_bundle(embedded());
+        let options = default_fix_context();
         let mut warnings = Vec::new();
 
         let matched = fix_plans(
             std::slice::from_ref(&file),
             &["python:S17".to_string()],
             &options,
+            &SuggestionSelections::new(),
             &mut warnings,
         );
         assert_eq!(matched[0].fixes.len(), 1);
@@ -2760,6 +3776,7 @@ mod tests {
             std::slice::from_ref(&file),
             &["javascript:".to_string()],
             &options,
+            &SuggestionSelections::new(),
             &mut warnings,
         );
         assert!(other_language.is_empty());
@@ -2769,10 +3786,16 @@ mod tests {
     #[test]
     fn apply_resolves_seeded_s1721_finding_end_to_end() {
         let (dir, file) = temp_python_fixture("e2e", S1721_SOURCE);
-        let options = analyze::analyzer_options_bundle(embedded());
+        let options = default_fix_context();
         let mut warnings = Vec::new();
 
-        let plans = fix_plans(std::slice::from_ref(&file), &[], &options, &mut warnings);
+        let plans = fix_plans(
+            std::slice::from_ref(&file),
+            &[],
+            &options,
+            &SuggestionSelections::new(),
+            &mut warnings,
+        );
         assert_eq!(plans[0].fixes.len(), 1);
 
         let outcome = apply_plan(&plans[0], &options, &mut warnings).expect("applies");
@@ -2788,7 +3811,10 @@ mod tests {
         );
         // The re-analysis the verification relied on really is clean.
         let fixed_source = "def f():\n    return 1\n";
-        let report = hoonarqube_core::analyze(&file, fixed_source, &options).expect("analyzable");
+        let report = options
+            .analyze(&file, fixed_source)
+            .expect("complete")
+            .expect("analyzable");
         assert!(
             report
                 .issues
@@ -2810,9 +3836,15 @@ mod tests {
         std::fs::write(&alias, "value = 1").expect("write alias");
         std::fs::set_permissions(&alias, std::fs::Permissions::from_mode(0o751)).expect("set mode");
         std::fs::hard_link(&alias, &file).expect("hard link");
-        let options = analyze::analyzer_options_bundle(embedded());
+        let options = default_fix_context();
         let mut warnings = Vec::new();
-        let plans = fix_plans(std::slice::from_ref(&file), &[], &options, &mut warnings);
+        let plans = fix_plans(
+            std::slice::from_ref(&file),
+            &[],
+            &options,
+            &SuggestionSelections::new(),
+            &mut warnings,
+        );
 
         let outcome = apply_plan(&plans[0], &options, &mut warnings).expect("applies");
 
@@ -2841,9 +3873,15 @@ mod tests {
         let (dir, file) = temp_python_fixture("symlink-swap", S1721_SOURCE);
         let outside = temp_fix_path("symlink-target");
         std::fs::write(&outside, S1721_SOURCE).expect("write outside target");
-        let options = analyze::analyzer_options_bundle(embedded());
+        let options = default_fix_context();
         let mut warnings = Vec::new();
-        let plans = fix_plans(std::slice::from_ref(&file), &[], &options, &mut warnings);
+        let plans = fix_plans(
+            std::slice::from_ref(&file),
+            &[],
+            &options,
+            &SuggestionSelections::new(),
+            &mut warnings,
+        );
         assert!(warnings.is_empty());
 
         std::fs::remove_file(&file).expect("remove planned file");
@@ -2873,9 +3911,15 @@ mod tests {
         let outside = outside_parent.join("find.py");
         std::fs::write(&file, S1721_SOURCE).expect("write planned source");
         std::fs::write(&outside, S1721_SOURCE).expect("write outside target");
-        let options = analyze::analyzer_options_bundle(embedded());
+        let options = default_fix_context();
         let mut warnings = Vec::new();
-        let plans = fix_plans(std::slice::from_ref(&file), &[], &options, &mut warnings);
+        let plans = fix_plans(
+            std::slice::from_ref(&file),
+            &[],
+            &options,
+            &SuggestionSelections::new(),
+            &mut warnings,
+        );
         assert!(warnings.is_empty());
 
         std::fs::remove_file(&file).expect("remove planned file");
@@ -2902,6 +3946,7 @@ mod tests {
             path: file.clone(),
             source: S1721_SOURCE.to_string(),
             fixes: Vec::new(),
+            alternatives: Vec::new(),
             mechanical: 0,
         };
         let mut outcome = ApplyOutcome {
@@ -2927,7 +3972,7 @@ mod tests {
     #[test]
     fn apply_rejects_a_fix_that_does_not_resolve_its_finding() {
         let (dir, file) = temp_python_fixture("stuck", S1721_SOURCE);
-        let options = analyze::analyzer_options_bundle(embedded());
+        let options = default_fix_context();
 
         // Hypothetical broken fixer: rewrites the argument instead of
         // dropping the parentheses, so the finding survives re-analysis.
@@ -2946,6 +3991,7 @@ mod tests {
                 },
                 edits: vec![cli_edit((2, 11), (2, 12), " 2 ")],
             }],
+            alternatives: Vec::new(),
             mechanical: 0,
         };
         let mut warnings = Vec::new();
@@ -2968,7 +4014,7 @@ mod tests {
     fn apply_rejects_broken_fix_masked_by_an_overeffective_same_rule_fix() {
         const SOURCE: &str = "def f():\n    return(1)\ndef g():\n    return(2)\n";
         let (dir, file) = temp_python_fixture("masked-broken-fix", SOURCE);
-        let options = analyze::analyzer_options_bundle(embedded());
+        let options = default_fix_context();
         let plan = FileFixPlan {
             path: file.clone(),
             source: SOURCE.to_string(),
@@ -3003,6 +4049,7 @@ mod tests {
                     ],
                 },
             ],
+            alternatives: Vec::new(),
             mechanical: 0,
         };
         let mut warnings = Vec::new();
@@ -3012,7 +4059,7 @@ mod tests {
         assert!(!outcome.written);
         assert_eq!(outcome.verified, 1);
         assert_eq!(outcome.unverified, 1);
-        assert!(warnings[0].contains("do not independently remove"));
+        assert!(warnings[0].contains("did not pass independent verification"));
         assert_eq!(std::fs::read_to_string(&file).expect("read back"), SOURCE);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -3022,9 +4069,15 @@ mod tests {
         let source = "TEXT = \"\"\"value  \n\tindented\n\"\"\"";
         let expected = format!("{source}\n");
         let (dir, file) = temp_python_fixture("mechanical-literal", source);
-        let options = analyze::analyzer_options_bundle(embedded());
+        let options = default_fix_context();
         let mut warnings = Vec::new();
-        let plans = fix_plans(std::slice::from_ref(&file), &[], &options, &mut warnings);
+        let plans = fix_plans(
+            std::slice::from_ref(&file),
+            &[],
+            &options,
+            &SuggestionSelections::new(),
+            &mut warnings,
+        );
         assert!(warnings.is_empty());
         assert_eq!(plans.len(), 1);
         assert!(plans[0].fixes.is_empty());
@@ -3096,12 +4149,21 @@ mod tests {
                 },
             },
             fix: None,
+            alternatives: Vec::new(),
             flows: Vec::new(),
         };
-        let before = vec![issue("python:S1", 1, 0), issue("python:S2", 2, 0)];
-        // S2 moved because of an earlier edit, but its unchanged count still
-        // proves that fix did not resolve it. S3 is a new regression.
-        let after = vec![issue("python:S2", 2, 3), issue("python:S3", 3, 0)];
+        let before = vec![
+            issue("python:S1", 1, 0),
+            issue("python:S1", 3, 0),
+            issue("python:S2", 2, 0),
+        ];
+        // S1 decreases without disappearing. S2 moves but remains unresolved.
+        // S3 is a new regression.
+        let after = vec![
+            issue("python:S1", 1, 0),
+            issue("python:S2", 2, 3),
+            issue("python:S3", 3, 0),
+        ];
 
         assert_eq!(
             verify_analysis(&[&resolved, &stuck], &before, &after),
@@ -3126,22 +4188,9 @@ mod tests {
     fn json_serialization_rejects_non_utf8_paths_without_partial_output() {
         use std::os::unix::ffi::OsStringExt as _;
 
-        let report = hoonarqube_ir::AnalysisReport {
-            files: vec![FileReport {
-                path: std::path::PathBuf::from(std::ffi::OsString::from_vec(vec![
-                    0xff, b'.', b'p', b'y',
-                ])),
-                language: "python".to_string(),
-                issues: Vec::new(),
-                metrics: FileMetrics {
-                    lines: 0,
-                    code_lines: 0,
-                    comment_lines: 0,
-                },
-            }],
-        };
-
-        let error = json_line(&report).expect_err("invalid path must fail serialization");
+        let path =
+            std::path::PathBuf::from(std::ffi::OsString::from_vec(vec![0xff, b'.', b'p', b'y']));
+        let error = json_line(&path).expect_err("invalid path must fail serialization");
         assert!(error.to_string().contains("invalid UTF-8"));
     }
 
@@ -3150,64 +4199,6 @@ mod tests {
         assert_eq!(sonar_rule_id("typescript:S122"), "typescript:S122");
         assert_eq!(sonar_rule_id("python:LineLength"), "python:LineLength");
         assert_eq!(sonar_rule_id("S103"), "S103");
-    }
-
-    #[test]
-    fn text_rendering_keeps_historical_line_format() {
-        let reports = vec![sample_report(
-            "a.js",
-            "javascript",
-            vec![Issue {
-                rule_key: "javascript:S1523".to_string(),
-                message: "Remove this usage of 'eval'.".to_string(),
-                range: Range {
-                    start: Pos {
-                        line: 2,
-                        column: 10,
-                    },
-                    end: Pos {
-                        line: 2,
-                        column: 14,
-                    },
-                },
-                fix: None,
-                flows: Vec::new(),
-            }],
-        )];
-
-        assert_eq!(
-            render_text_report(&reports),
-            "a.js:2:10: javascript:S1523: Remove this usage of 'eval'.\n\
-             analyzed 1 file(s), 1 finding(s)\n"
-        );
-    }
-
-    #[test]
-    fn json_rendering_keeps_the_ir_serialization() {
-        let report = hoonarqube_ir::AnalysisReport {
-            files: vec![sample_report(
-                "a.py",
-                "python",
-                vec![Issue {
-                    rule_key: "python:S103".to_string(),
-                    message: "Line is too long".to_string(),
-                    range: Range {
-                        start: Pos { line: 1, column: 0 },
-                        end: Pos {
-                            line: 1,
-                            column: 80,
-                        },
-                    },
-                    fix: None,
-                    flows: Vec::new(),
-                }],
-            )],
-        };
-
-        assert_eq!(
-            serde_json::to_string(&report).expect("serialize report"),
-            "{\"files\":[{\"path\":\"a.py\",\"language\":\"python\",\"issues\":[{\"rule_key\":\"python:S103\",\"message\":\"Line is too long\",\"range\":{\"start\":{\"line\":1,\"column\":0},\"end\":{\"line\":1,\"column\":80}}}],\"metrics\":{\"lines\":2,\"code_lines\":2,\"comment_lines\":0}}]}"
-        );
     }
 
     #[test]
@@ -3225,6 +4216,10 @@ mod tests {
         assert_eq!(
             analyze_format(Some("sonar"), true),
             Ok(AnalyzeFormat::Sonar)
+        );
+        assert_eq!(
+            analyze_format(Some("gitlab-codequality"), true),
+            Ok(AnalyzeFormat::GitlabCodeQuality)
         );
         assert_eq!(analyze_format(Some("xml"), true), Err("xml".to_string()));
     }
@@ -3251,6 +4246,258 @@ mod tests {
             validate_analyze_format(AnalyzeFormat::Text, RuleProfile::Recommended),
             Ok(())
         );
+        assert_eq!(
+            validate_analyze_format(AnalyzeFormat::GitlabCodeQuality, RuleProfile::SonarParity),
+            Ok(())
+        );
+        assert_eq!(
+            validate_analyze_format(
+                AnalyzeFormat::GitlabCodeQuality,
+                RuleProfile::GithubCodeQuality
+            ),
+            Err("github-code-quality profile requires --format sarif".to_string())
+        );
+    }
+
+    #[test]
+    fn gitlab_codequality_maps_metadata_paths_and_fingerprints() {
+        let issue = Issue::new(
+            "hoonarqube-go:G110",
+            "Limit decompression output.",
+            Range {
+                start: Pos { line: 2, column: 0 },
+                end: Pos { line: 4, column: 5 },
+            },
+        );
+        let value = gitlab_codequality_value(
+            embedded(),
+            &[sample_report("./src/main.go", "go", vec![issue])],
+        )
+        .expect("GitLab Code Quality");
+        let finding = &value[0];
+        assert_eq!(finding["description"], "Limit decompression output.");
+        assert_eq!(finding["check_name"], "hoonarqube-go:G110");
+        assert_eq!(finding["severity"], "critical");
+        assert_eq!(finding["location"]["path"], "src/main.go");
+        assert_eq!(
+            finding["location"]["lines"],
+            serde_json::json!({ "begin": 2, "end": 4 })
+        );
+        let fingerprint = finding["fingerprint"].as_str().expect("fingerprint string");
+        assert_eq!(fingerprint.len(), 64);
+        assert!(fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn gitlab_fingerprint_ignores_nested_flow_and_fix_paths() {
+        fn finding(flow_path: &str, replacement: &str) -> Issue {
+            Issue::new(
+                "go/duplicate-condition",
+                "quality finding",
+                Range {
+                    start: Pos { line: 2, column: 1 },
+                    end: Pos { line: 2, column: 3 },
+                },
+            )
+            .with_fix(
+                "replace",
+                vec![TextEdit {
+                    range: Range {
+                        start: Pos { line: 2, column: 1 },
+                        end: Pos { line: 2, column: 3 },
+                    },
+                    replacement: replacement.to_string(),
+                }],
+            )
+            .with_flow(vec![FlowLocation {
+                path: Some(std::path::PathBuf::from(flow_path)),
+                message: "flow location".to_string(),
+                range: Range {
+                    start: Pos { line: 8, column: 0 },
+                    end: Pos { line: 8, column: 1 },
+                },
+            }])
+        }
+
+        let first = finding("/checkout-one/flow.go", "/checkout-one/fix.go");
+        let second = finding("/checkout-two/flow.go", "/checkout-two/fix.go");
+        assert_eq!(
+            gitlab_fingerprint("src/main.go", &first),
+            gitlab_fingerprint("src/main.go", &second)
+        );
+    }
+
+    #[test]
+    fn gitlab_severity_maps_catalog_native_and_unknown_rules() {
+        assert_eq!(
+            gitlab_severity(embedded(), "hoonarqube-go:G110"),
+            "critical"
+        );
+        assert_eq!(
+            gitlab_severity(embedded(), "hoonarqube-csharp:CA2022"),
+            "major"
+        );
+        assert_eq!(gitlab_severity(embedded(), "unknown:rule"), "info");
+        assert_eq!(gitlab_severity_value("BLOCKER"), "blocker");
+        assert_eq!(gitlab_severity_value("LOW"), "minor");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn gitlab_paths_keep_colon_filenames_and_reject_nonportable_forms() {
+        let issue = Issue::new(
+            "go/duplicate-condition",
+            "quality finding",
+            Range {
+                start: Pos { line: 1, column: 0 },
+                end: Pos { line: 1, column: 1 },
+            },
+        );
+        let value = gitlab_codequality_value(
+            embedded(),
+            &[
+                sample_report("generated:main.go", "go", vec![issue.clone()]),
+                sample_report("src/generated:files/main.go", "go", vec![issue]),
+            ],
+        )
+        .expect("ordinary colon filenames");
+        assert_eq!(value[0]["location"]["path"], "generated:main.go");
+        assert_eq!(value[1]["location"]["path"], "src/generated:files/main.go");
+
+        for path in [
+            "C:/src/main.go",
+            "file:///src/main.go",
+            "src\\main.go",
+            "src/\nmain.go",
+        ] {
+            let error =
+                gitlab_codequality_value(embedded(), &[sample_report(path, "go", Vec::new())])
+                    .expect_err("non-portable path");
+            assert!(error.contains("portable file path"), "{path:?}: {error}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn gitlab_relative_path_is_checkout_root_independent() {
+        let first = gitlab_relative_path(
+            std::path::Path::new("/checkout-one/src/main.go"),
+            std::path::Path::new("/checkout-one"),
+            "test path",
+        )
+        .expect("first checkout");
+        let second = gitlab_relative_path(
+            std::path::Path::new("/checkout-two/src/main.go"),
+            std::path::Path::new("/checkout-two"),
+            "test path",
+        )
+        .expect("second checkout");
+        assert_eq!(first, "src/main.go");
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn gitlab_codequality_is_empty_and_anchors_file_level_findings() {
+        let clean = gitlab_codequality_value(embedded(), &[]).expect("clean GitLab report");
+        assert_eq!(clean, serde_json::json!([]));
+
+        let value = gitlab_codequality_value(
+            embedded(),
+            &[sample_report(
+                "src/no-newline.py",
+                "python",
+                vec![Issue::new(
+                    "python:S113",
+                    "Add a final newline.",
+                    Range::file_level(),
+                )],
+            )],
+        )
+        .expect("file-level GitLab report");
+        assert_eq!(
+            value[0]["location"]["lines"],
+            serde_json::json!({
+                "begin": 1,
+                "end": 1,
+            })
+        );
+    }
+
+    #[test]
+    fn gitlab_codequality_order_and_fingerprints_are_deterministic() {
+        let make_issue = |rule_key: &str, line: u32| {
+            Issue::new(
+                rule_key,
+                "quality finding",
+                Range {
+                    start: Pos { line, column: 1 },
+                    end: Pos { line, column: 3 },
+                },
+            )
+        };
+        let first = sample_report(
+            "z.go",
+            "go",
+            vec![make_issue("go/mistyped-exponentiation", 3)],
+        );
+        let second = sample_report("a.go", "go", vec![make_issue("go/duplicate-condition", 2)]);
+        let left = gitlab_codequality_value(embedded(), &[first.clone(), second.clone()])
+            .expect("GitLab report");
+        let right = gitlab_codequality_value(embedded(), &[second, first]).expect("GitLab report");
+        assert_eq!(
+            serde_json::to_string(&left).expect("serialize"),
+            serde_json::to_string(&right).expect("serialize")
+        );
+        assert_eq!(left[0]["location"]["path"], "a.go");
+        assert_eq!(left[0]["fingerprint"], right[0]["fingerprint"]);
+    }
+
+    #[test]
+    fn gitlab_codequality_rejects_outside_paths_and_malformed_ranges() {
+        let outside = sample_report(
+            "/tmp/outside.go",
+            "go",
+            vec![Issue::new(
+                "go/duplicate-condition",
+                "outside",
+                Range {
+                    start: Pos { line: 1, column: 0 },
+                    end: Pos { line: 1, column: 1 },
+                },
+            )],
+        );
+        let outside_error =
+            gitlab_codequality_value(embedded(), &[outside]).expect_err("outside path");
+        assert!(outside_error.contains("outside checkout root"));
+
+        let malformed = sample_report(
+            "src/bad.go",
+            "go",
+            vec![Issue::new(
+                "go/duplicate-condition",
+                "malformed",
+                Range {
+                    start: Pos { line: 0, column: 0 },
+                    end: Pos { line: 1, column: 1 },
+                },
+            )],
+        );
+        let range_error =
+            gitlab_codequality_value(embedded(), &[malformed]).expect_err("malformed range");
+        assert!(range_error.contains("invalid primary location range"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn gitlab_codequality_rejects_non_utf8_paths() {
+        use std::os::unix::ffi::OsStringExt as _;
+
+        let mut report = sample_report("valid.go", "go", Vec::new());
+        report.path = std::path::PathBuf::from(std::ffi::OsString::from_vec(vec![
+            b'b', 0xff, b'.', b'g', b'o',
+        ]));
+        let error = gitlab_codequality_value(embedded(), &[report]).expect_err("invalid path");
+        assert!(error.contains("primary report path is not valid UTF-8"));
     }
 
     #[test]
@@ -3622,5 +4869,103 @@ mod tests {
             .err()
             .expect("unknown profile should fail parsing");
         assert!(error.to_string().contains("github-code-quality"));
+    }
+
+    #[test]
+    fn parser_keeps_each_project_glob_unsplit_and_supports_braces() {
+        let parsed = Cli::try_parse_from([
+            "hoonarqube",
+            "analyze",
+            "--exclude",
+            "{build,vendor}/**",
+            "--exclude",
+            "ignored/**",
+            "--test-include",
+            "{tests,spec}/**",
+            "--test-include",
+            "unit/**",
+            "--generated-include",
+            "{generated,codegen}/**",
+            "--generated-include",
+            "build.rs",
+            "--vendor-include",
+            "{vendor,third_party}/**",
+            "--vendor-include",
+            "deps/**",
+            "--duplication-exclude",
+            "{large,fixtures}/**",
+            "--duplication-exclude",
+            "sample.py",
+            "src",
+        ])
+        .expect("project glob flags should parse");
+        let Command::Analyze {
+            exclude,
+            test_include,
+            generated_include,
+            vendor_include,
+            duplication_exclude,
+            ..
+        } = parsed.command
+        else {
+            panic!("expected analyze command");
+        };
+        assert_eq!(
+            exclude,
+            vec!["{build,vendor}/**".to_string(), "ignored/**".to_string()]
+        );
+        assert_eq!(
+            test_include,
+            vec!["{tests,spec}/**".to_string(), "unit/**".to_string()]
+        );
+        assert_eq!(
+            generated_include,
+            vec!["{generated,codegen}/**".to_string(), "build.rs".to_string()]
+        );
+        assert_eq!(
+            vendor_include,
+            vec!["{vendor,third_party}/**".to_string(), "deps/**".to_string()]
+        );
+        assert_eq!(
+            duplication_exclude,
+            vec!["{large,fixtures}/**".to_string(), "sample.py".to_string()]
+        );
+    }
+
+    #[test]
+    fn parser_requires_csharp_project_for_repeatable_context_sources() {
+        let error = Cli::try_parse_from([
+            "hoonarqube",
+            "analyze",
+            "--csharp-context-source",
+            "Contracts.cs",
+            "Main.cs",
+        ])
+        .err()
+        .expect("context sources without a project must be rejected");
+        assert!(error.to_string().contains("csharp-project"));
+
+        let parsed = Cli::try_parse_from([
+            "hoonarqube",
+            "analyze",
+            "--csharp-project",
+            "Fixture.csproj",
+            "--csharp-context-source",
+            "Contracts.cs",
+            "--csharp-context-source",
+            "Shared.cs",
+            "Main.cs",
+        ])
+        .expect("repeatable context sources should parse");
+        let Command::Analyze { features, .. } = parsed.command else {
+            panic!("expected analyze command");
+        };
+        assert_eq!(
+            features.semantics.csharp_context_sources,
+            vec![
+                std::path::PathBuf::from("Contracts.cs"),
+                std::path::PathBuf::from("Shared.cs"),
+            ]
+        );
     }
 }

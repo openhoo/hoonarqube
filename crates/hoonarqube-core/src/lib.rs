@@ -6,6 +6,20 @@
 //! hoonarqube-bench drives the per-language analyzer crates directly to
 //! isolate per-analyzer throughput.
 
+/// Optional coverage, reference-baseline, and quality-gate assessment.
+pub mod assessment;
+/// Deterministic intra- and cross-file duplication detection.
+pub mod duplication;
+/// Project-level orchestration and completeness reporting.
+pub mod project;
+/// Tree-sitter-backed source facts shared by project metrics and duplication.
+pub mod source_facts;
+pub use duplication::{
+    DuplicationFile, DuplicationOptions, DuplicationResult, detect_duplications,
+};
+pub use project::{ProjectFile, analyze_project_file, build_project_report};
+pub use source_facts::{NormalizedToken, SourceFacts, collect_source_facts, compiler_razor_facts};
+
 use std::path::Path;
 
 use hoonarqube_csharp::CsLanguage;
@@ -75,6 +89,7 @@ const EXTENSIONS: &[(&str, Language)] = &[
     ("mts", Language::TypeScript),
     ("cts", Language::TypeScript),
     ("cs", Language::CSharp),
+    ("razor", Language::CSharp),
     ("go", Language::Go),
     ("java", Language::Java),
     ("rs", Language::Rust),
@@ -100,6 +115,18 @@ pub fn language_for_extension(ext: &str) -> Option<Language> {
 pub fn language_for_path(path: &Path) -> Option<Language> {
     let ext = path.extension()?.to_str()?;
     language_for_extension(ext)
+}
+
+/// Returns whether a path is a Razor source document.
+///
+/// Razor documents use the C# analyzer family only after a trusted compiler
+/// context has generated and mapped their C# representation.  Native callers
+/// must not send the mixed markup through the ordinary C# parser.
+#[must_use]
+pub fn is_razor_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("razor"))
 }
 
 /// C# analyzer knobs, re-exported for consumers constructing [`AnalyzerOptions`] field-by-field.
@@ -150,10 +177,9 @@ impl Default for AnalyzerOptions {
 
 /// Analyzes one source file with the analyzer registered for its extension.
 ///
-/// Returns `None` when no analyzer claims the file's extension (see
-/// [`language_for_path`]); otherwise every analyzer returns a complete
-/// [`hoonarqube_ir::FileReport`] whose `language` field carries the catalog
-/// repository prefix.
+/// Returns `None` when no analyzer claims the file's extension or when the
+/// path is a Razor document that requires a complete trusted compiler context.
+/// Razor markup must never be passed through the ordinary C# parser.
 ///
 /// # Panics
 ///
@@ -166,6 +192,9 @@ pub fn analyze(
     options: &AnalyzerOptions,
 ) -> Option<hoonarqube_ir::FileReport> {
     let language = language_for_path(path)?;
+    if is_razor_path(path) {
+        return None;
+    }
     let path = path.to_path_buf();
     if options.profile == RuleProfile::GithubCodeQuality {
         return Some(analyze_github_quality(path, source, language));
@@ -355,10 +384,18 @@ mod tests {
         for (extension, _) in EXTENSIONS {
             let name = format!("empty.{extension}");
             let path = Path::new(&name);
-            assert_eq!(
-                analyze(path, "", &github_options).unwrap().metrics,
-                analyze(path, "", &options).unwrap().metrics
-            );
+            let github = analyze(path, "", &github_options);
+            let parity = analyze(path, "", &options);
+            if extension.eq_ignore_ascii_case("razor") {
+                assert!(github.is_none(), "Razor must require compiler context");
+                assert!(parity.is_none(), "Razor must require compiler context");
+            } else {
+                assert_eq!(
+                    github.unwrap().metrics,
+                    parity.unwrap().metrics,
+                    "empty.{extension}"
+                );
+            }
         }
     }
 
@@ -488,7 +525,7 @@ mod tests {
     fn javascript_analyzer_runs_through_the_registry() {
         let report = analyze(
             Path::new("a.js"),
-            "eval('x');\n",
+            "function run(code) { eval(code); }\n",
             &AnalyzerOptions::default(),
         )
         .unwrap();
@@ -500,7 +537,7 @@ mod tests {
     fn typescript_analyzer_runs_through_the_registry() {
         let report = analyze(
             Path::new("a.ts"),
-            "eval('x');\n",
+            "function run(code) { eval(code); }\n",
             &AnalyzerOptions::default(),
         )
         .unwrap();

@@ -27,6 +27,268 @@ The remaining rule records carry `community-base`. Development and Community
 oracle runs need no commercial license. Full SonarQube parity cannot be claimed
 without valid Enterprise oracle evidence for the 17 commercial rules.
 
+## Project-measurement scope
+
+Rule parity and project-measurement parity are separate contracts. The
+versioned project report provides source size, scope/completeness, and
+within-/cross-file duplication for Python, JavaScript, TypeScript, C#, Go,
+Java, Rust, and Ruby. Java/Ruby measurement support does not add either
+language to the frozen Sonar rule catalog.
+
+The native duplication defaults resemble SonarQube's documented thresholds:
+100 normalized syntax tokens across 10 physical lines for non-Java input,
+and 10 statement units for Java. This is not equivalent to an oracle pass.
+Structural tokens, normalized literal kinds, Java declaration/control units
+and nested statement streams, comment-only line accounting, and exclusion
+denominators have explicit native semantics. Exact SonarQube metric values,
+block grouping, and all-language lexical equivalence remain unverified.
+
+Clone occurrences use inclusive line ranges and half-open UTF-8 byte offsets.
+Line totals union overlaps; block totals identify distinct byte spans.
+Incomplete analysis has no duplication aggregate, and empty density
+denominators are null. Generic Issue Import, SARIF, and GitLab Code Quality
+exports continue to carry issues only, not duplication measures.
+
+Coverage import, new-code baselines, metric-based quality gates, issue/hotspot
+review state, a persistent analysis service, and a dashboard are not included
+in this measurement milestone.
+
+Project measurement itself is controlled by `--exclude`, `--test-include`,
+`--generated-include`, `--vendor-include`, `--duplication-exclude`, and the
+`--duplication-min-tokens`, `--duplication-min-lines`, and
+`--duplication-min-statements` thresholds. `--cache-dir` is a separate
+opt-in per-file cache and does not change this semantic boundary.
+
+## Focused evidence — 2026-09-09 (not whole-corpus parity)
+
+The repository manifests below preserve focused reference captures and
+worktree qualification state. They do not replace the historical whole-corpus
+baseline or establish release-binary parity. Temporary filesystem paths are
+intentionally omitted, and blocked or pending drafts are not final evidence.
+
+### Opt-in semantic context boundary
+
+The ordinary `analyze` route is native and syntax-oriented; it does not retain
+source snapshots or load compiler contexts. Current project-context options
+are `--typescript-project` (optionally `--typescript-module`),
+`--csharp-project` (optionally repeated `--csharp-context-source` inputs),
+`--allow-project-build`, and `--python-project`.
+Semantic options opt into the bounded source-snapshot path. Assessment,
+coverage, baseline, and quality-gate options use that same retained-source
+path for their artifacts but do not themselves establish semantic parity.
+`--allow-project-build` is a C# trust gate for a supplied project; it is not a
+standalone analyzer switch.
+Compiler-only C# context sources supply snapshots without extending the
+positional finding/measurement scope. They do not relax the helper's requirement
+for a complete snapshot set of non-generated project documents.
+
+
+Explicitly requested contexts are loaded for JavaScript/TypeScript, C#, and
+Python. Missing files, runtimes, helpers, references, compiler diagnostics, or
+incomplete owner contexts remain diagnostics and make the context incomplete;
+they must never become a successful zero-finding semantic result. Razor is
+registered with the C# family, but ordinary native dispatch rejects `.razor`;
+trusted compiler-generated and mapped facts require a complete C# project
+context.
+The TypeScript helper delegates configuration resolution to the pinned compiler:
+relative and package-based `extends`, directory or file-form `references`, and
+`include` globs are resolved against the project root plus supplied source
+snapshots. Config files and package manifests actually read are recorded as
+digest-bearing dependencies. Each invocation validates and caches the root
+`tsconfig.json` snapshot by digest, so a later on-disk mutation cannot change
+its options; missing or invalid config/reference input remains incomplete.
+
+### Configured focused qualifications
+
+- The configured C# replay at source commit `14b389bc34af2835c56ccf050dde48989013fece`
+  establishes exactly 21 canonical target findings in both the native probe
+  and actual CLI (`reference=21`, `native=21`, `CLI=21`). All other context
+  findings remain retained outside that target-only exactness claim. The
+  portable reference manifest is
+  [`tools/oracle/roadmap-focused-reference-20260909.json`](tools/oracle/roadmap-focused-reference-20260909.json).
+- The committed issue36 JavaScript/TypeScript replay covers six cases and 30
+  exact target findings, including one whitelist finding. S4325/S6606 and
+  both S1438 language comparisons also match; GraphQL retains 18 exact
+  controls and seven unverified extras. This is source-commit qualification,
+  not final published-binary evidence. Its portable
+  reference manifest is
+  [`tools/oracle/roadmap-jsts-python-reference-20260909.json`](tools/oracle/roadmap-jsts-python-reference-20260909.json).
+- The parsers accept valid JSX `IdentifierName` element, attribute, member, and
+  namespace names, plus valid C# declarations using contextual `async`/`await`
+  (including `static`/`async` local functions). `S2306` is declaration-only:
+  valid `async`/`await` references are not findings. Missing or incomplete facts
+  remain non-pass evidence; they are not safe negatives.
+- Malformed JavaScript/TypeScript/JSX/C# input, and TypeScript-only JSX syntax
+  supplied through a `.jsx` input, remain fail-closed: project analysis exits
+  `2`, is incomplete, and has duplication unavailable.
+- A bounded working-tree CLI proof covers exact `S3005` attribute removal and
+  framework-`Enumerable` `S3169` replacement. Safe diff/apply/verification/
+  reanalysis goes from target count `1` to `0`; comment-bearing attribute
+  trivia and custom `ThenBy` selected actions exit `1`, leave source unchanged,
+  and retain their diagnostic.
+The exact `S1116` reference edit remains refused when its projected result
+introduces `S1186`; that refusal is not completed fix parity.
+
+Full-corpus comparisons intentionally include malformed-input rows. An
+incomplete malformed-input result remains fail-closed and non-pass (normally
+with exit `2`); it is never counted as a clean or exact parity result.
+Reference captures and their recorded identities remain unchanged. The
+security wrapper
+[`tools/oracle/security-qualification-20260909.json`](tools/oracle/security-qualification-20260909.json)
+remains `SECURITY_PARITY_UNVERIFIED` and explicitly preserves Enterprise,
+flow, and secondary-location `UNVERIFIED` states. Its recorded native identity
+`444c56f682998e7e638bd230104bfa1a3628cf57` is historical implementation
+evidence only, not the current checkout `HEAD` or a release identity.
+These historical focused captures are not the complete `#43`/`#44` evidence.
+The current whole-corpus and security qualifications are recorded below.
+
+These focused results prove only the listed contexts and fixtures. They do not
+equate native syntax support, compiler-context support, or a target-only
+finding comparison with whole-corpus SonarQube parity.
+
+### Native project metrics versus the captured Sonar reference
+
+`tools/oracle/fixtures/metrics/corpus.json` defines seven aggregate metrics:
+`lines`, `ncloc`, `comment_lines`, `duplicated_lines`,
+`duplicated_blocks`, `duplicated_files`, and `duplicated_lines_density`.
+The corrected comparison uses the captured SonarQube 26.8.0.126808 reference
+in `tools/oracle/metrics-reference-20260909.json`. Cells below are
+`native/reference` project aggregate values; `=` is an `EXACT` comparison and
+`≠` is `DIFFERENT`. This is an explicit difference table, not a similarity
+score.
+
+[`tools/oracle/metrics-qualification-20260909.json`](tools/oracle/metrics-qualification-20260909.json)
+publishes all 17 executed scenarios: 16 exit `0` and one intentional
+malformed-input case exits `2`. The malformed row is deliberately included in
+the full scenario comparison, remains incomplete/non-pass, and is never treated
+as a clean or exact parity result. Every row records uncached/cold/warm byte
+equality. It includes portable replay commands, input/capture hashes,
+per-file and project comparisons, and explicit unavailable provenance.
+The historical native commit and executable hash were not recorded and are
+not inferred from the current checkout. Native determinism is not reference
+parity: 15 scenarios are `DIFFERENT` and two remain `UNVERIFIED`.
+
+| case (language) | lines | ncloc | comment_lines | duplicated_lines | duplicated_blocks | duplicated_files | duplicated_lines_density |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `baseline-python` (python) | 140/147 ≠ | 133/133 = | 7/9 ≠ | 64/62 ≠ | 2/2 = | 2/2 = | 84.21052631578947/42.2 ≠ |
+| `baseline-javascript` (javascript) | 146/153 ≠ | 139/139 = | 7/4 ≠ | 66/64 ≠ | 2/2 = | 2/2 = | 82.5/41.8 ≠ |
+| `baseline-typescript` (typescript) | 146/153 ≠ | 139/139 = | 7/4 ≠ | 66/64 ≠ | 2/2 = | 2/2 = | 82.5/41.8 ≠ |
+| `baseline-csharp` (csharp) | 177/188 ≠ | 170/172 ≠ | 7/4 ≠ | 72/72 = | 2/2 = | 2/2 = | 71.28712871287128/38.3 ≠ |
+| `baseline-go` (go) | 160/167 ≠ | 146/146 = | 7/9 ≠ | 66/64 ≠ | 2/2 = | 2/2 = | 73.33333333333333/38.3 ≠ |
+| `baseline-java` (java) | 156/163 ≠ | 151/151 = | 5/4 ≠ | 62/64 ≠ | 2/2 = | 2/2 = | 72.09302325581395/39.3 ≠ |
+| `baseline-rust` (rust) | 152/159 ≠ | 145/145 = | 7/10 ≠ | 66/64 ≠ | 2/2 = | 2/2 = | 78.57142857142857/40.3 ≠ |
+| `baseline-ruby` (ruby) | 146/153 ≠ | 139/139 = | 7/4 ≠ | 66/64 ≠ | 2/2 = | 2/2 = | 82.5/41.8 ≠ |
+| `threshold-python-99` (python) | 40/42 ≠ | 40/40 = | 0/0 = | 40/40 = | 2/2 = | 2/2 = | 100.0/95.2 ≠ |
+| `threshold-python-100` (python) | 40/42 ≠ | 40/40 = | 0/0 = | 40/40 = | 2/2 = | 2/2 = | 100.0/95.2 ≠ |
+| `threshold-python-101` (python) | 40/42 ≠ | 40/40 = | 0/0 = | 40/40 = | 2/2 = | 2/2 = | 100.0/95.2 ≠ |
+| `java-statements-9` (java) | 20/22 ≠ | 20/20 = | 0/0 = | 0/18 ≠ | 0/2 ≠ | 0/2 ≠ | 0.0/81.8 ≠ |
+| `java-statements-10` (java) | 22/24 ≠ | 22/22 = | 0/0 = | 20/20 = | 2/2 = | 2/2 = | 90.9090909090909/83.3 ≠ |
+| `java-statements-11` (java) | 24/26 ≠ | 24/24 = | 0/0 = | 22/22 = | 2/2 = | 2/2 = | 91.66666666666666/84.6 ≠ |
+| `java-structure-ranges` (java) | 67/73 ≠ | 67/67 = | 0/0 = | 50/52 ≠ | 6/8 ≠ | 6/6 = | 74.6268656716418/71.2 ≠ |
+
+The complete comparison rows show `lines` and density differing in every
+case; C# also differs on `ncloc`, and the Java nine-statement boundary differs
+on every duplication aggregate. Duplication occurrence identity remains
+`UNVERIFIED` because the Sonar API exposes line ranges while native reports
+half-open UTF-8 byte offsets.
+
+Unavailable or deliberately unverified reference cases are separate from the
+table:
+
+- `no-denominator-empty` has native zero size counters while the reference
+  marks those size metrics absent; both sides have zero duplication counters
+  and no density denominator. Its absent-reference comparisons are
+  `UNVERIFIED`, not equality.
+- `invalid-input-unverified` exits `2` with an incomplete native report while
+  the reference state is `UNVERIFIED`; all seven metric comparisons remain
+  unverified. Malformed-input recovery is not represented as complete parity.
+- `unsupported-kotlin` and `unsupported-php` are reference-only manifest
+  cases. Sonar has analyzers for them, but the native language registry does
+  not; every metric is `UNVERIFIED` and no equality is claimed.
+
+### Captured CSS/HTML/Docker inventory versus native support
+
+`catalog/reference/issue-52-language-inventory.json` captures CSS, HTML/Web,
+and Docker reference/profile observations, but its implementation matrix
+marks each as `missing/planned only`, `local_dispatch_supported=false`, and
+measurement support is not in the current eight-language native dispatch. The
+planned package matrices do not add rules to the frozen catalog. Reference
+server/profile counts are observations, not shipped detector counts, and
+embedded HTML JavaScript behavior remains reference-only.
+
+For provenance, the Community 26.8.0.126808 capture (image
+`sha256:9026624a61cd25542a402a9e7213dd7dbb39724ac9597e331e6b85362558c079`)
+records these default Sonar Way profile observations:
+
+| reference language | active default profile | all server rules | profile key |
+|---|---:|---:|---|
+| CSS | 40 | 43 | `9ec5a3be-d6b6-40e2-81ef-99285a7cb0c9` |
+| Web/HTML | 61 | 104 | `f222b12d-0a35-4dac-9327-6e40c54fb0ad` |
+| Docker | 25 | 28 | `83c3ad5e-5f4c-48e6-acf8-0225808e4a92` |
+
+These active/all values are server inventory only. They are distinct from
+the planned local implementation-matrix records, which remain unimplemented
+and do not imply native dispatch.
+
+Native directory inventory behavior is part of the current CLI contract:
+recognized unsupported names and suffixes (`style.CSS`, `style.css`,
+`index.HTML`, `index.html`, `Dockerfile`, and `dockerfile`) appear as
+`classification=excluded`, `status=unsupported` inventory entries with no file
+metrics or duplication. The ordinary `main.py` measurement remains
+`files=1`, `lines=1`, `code_lines=1`, `comment_lines=0`, zero duplication, and
+`complete=true`. An explicitly supplied unsupported file remains
+`classification=source`, `status=unsupported`, with no metrics or duplication,
+`complete=false`, and exit `2`. This inventory behavior does not provide CSS,
+HTML, or Docker syntax support.
+
+Native metric support, native language syntax support, Sonar server reference
+evidence, and optional IDE actions are separate contracts. Java and Ruby add
+measurement support only; they do not add frozen Sonar rule families.
+Reference plugins or profiles do not create local analyzers. Optional rule
+quick fixes are tracked in `QUICKFIX.md`, not inferred from semantic-context
+or metric evidence.
+
+### Evidence publication status
+
+Portable repository-relative manifests preserve the captured inputs and
+qualification boundaries:
+
+- [`tools/oracle/roadmap-focused-reference-20260909.json`](tools/oracle/roadmap-focused-reference-20260909.json)
+  preserves the C# reference corpus and marks native qualification as pending.
+- [`tools/oracle/roadmap-jsts-python-reference-20260909.json`](tools/oracle/roadmap-jsts-python-reference-20260909.json)
+  preserves the focused JavaScript/TypeScript reference cases and pending
+  native replay contract.
+- [`tools/oracle/security-qualification-20260909.json`](tools/oracle/security-qualification-20260909.json)
+  preserves the security wrapper's explicit unverified boundaries.
+- [`tools/oracle/metrics-qualification-20260909.json`](tools/oracle/metrics-qualification-20260909.json)
+  records the native metric comparison and its incomplete malformed-input row.
+
+The configured C# and JavaScript/TypeScript results described above remain
+worktree qualification, not final published-binary evidence. Captured JSON
+findings, source hashes, and reference identities are not rewritten, and no
+pending or blocked draft is represented as a final release result.
+
+
+## GitLab Code Quality scope
+
+`analyze --format gitlab-codequality` emits GitLab's single-array Code Quality
+contract for the default `sonar-parity` profile and cumulative native profiles.
+Each finding carries its message as `description`, its rule key as `check_name`,
+a stable SHA-256 `fingerprint`, a lowercase GitLab severity, and a
+repository-relative `location.path` with inclusive positive `lines.begin` and
+`lines.end`. The fingerprint uses length-delimited normalized primary path, rule
+key, message, and primary range only; nested flow/fix metadata does not change
+identity. Paths are raw POSIX-style checkout paths without a `./` prefix;
+ordinary colon filename components are preserved, while drive- and URI-like
+prefixes, backslashes, and control characters fail closed. File-level findings
+use line 1 as their conventional anchor.
+
+Empty findings emit `[]`. Invalid non-file ranges, outside-checkout paths, and
+non-UTF-8 paths fail closed. The report remains issue-only: project metrics,
+scope inventory, duplication, and completeness stay in the versioned JSON
+report. A valid incomplete scan still emits its report and exits 2; findings
+alone do not fail the scan.
+
 ## GitHub Code Quality scope
 
 The separate `catalog/github-code-quality.json` is authoritative metadata for
@@ -110,7 +372,8 @@ multiset:
 
 Important statuses:
 
-- `PASS`: exact bad-fixture equality and both good controls clean.
+- `PASS`: exact full finding-multiset equality, including cross-fixture findings,
+  with both designated good controls clean.
 - `ENTERPRISE_UNVERIFIED`: local fixture passes, but Community cannot execute
   the Enterprise rule. Explicit non-pass accepted by routine Community gates.
 - `UPSTREAM_UNVERIFIED`: local bad/good controls pass, but the current Community
@@ -130,7 +393,8 @@ Important statuses:
 Every `INFRA` row must match an exact key and reason in
 `catalog/infra-boundaries.json`. Fixture manifests cannot self-classify a new
 exception, change its reason, or silently retain a removed boundary. The same
-manifest identifies the 17 implementation gaps used by catalog coverage.
+manifest distinguishes implementation gaps from required external project or
+reference context; an implemented rule can still have an unverified prerequisite.
 
 Enterprise-unverified rules still require local evidence. If Hoonarqube misses
 their bad fixture or fires on their good control, the result is `OURS_MISS` or
@@ -142,9 +406,109 @@ missing or repeated keys are rejected even when page counts and totals match.
 Legacy line-only artifacts are rejected. `--quick` validates cached artifacts;
 a full run refreshes scanner results.
 
-## Current evidence — 2026-08-29
+The Rust scanner's generated Cargo graph includes every valid bad and good
+control as an isolated module. Only malformed `S2260` bad source remains
+frontend-only; it is retained unchanged in the scanned source inventory.
+For this deliberately noncompliant oracle corpus, `RUSTFLAGS=--cap-lints=warn`
+retains denied-lint diagnostics without aborting the owning Clippy process.
+The flag is recorded in provenance; syntax errors and upstream-unverified
+boundaries are not converted into passes.
 
-Current state is **not full parity**.
+## Security qualification — 2026-09-10
+
+The machine-readable [security qualification matrix](tools/oracle/security-qualification-20260910.json)
+covers all 268 security keys and 840 attack, safe, near-miss, and flow controls
+from the versioned manifests. Native replay used commit
+`14b389bc34af2835c56ccf050dde48989013fece`; the artifact records exact binary
+and input hashes, reference versions, profiles, parameters, source identities,
+and reproduction commands.
+
+All 840 native scans completed after preparing declared C# dependencies.
+Two positive controls (`csharpsquid:S4347` and `S5773`) remain unmatched and
+explicitly Enterprise-unverified; completion is not correctness.
+There are 724 source/configuration-matched reference comparisons and 116
+unverified cases. Of the 724 comparable controls, 67 disagree with native
+target presence. This is separate from the two independent control-expectation
+disagreements; matching presence alone does not establish matching identities,
+ranges, kinds, or flows.
+
+| Qualified case outcome | Count |
+|---|---:|
+| Exact available detector evidence and matching control expectations | 477 |
+| Different finding identity, position, kind, or flow evidence | 213 |
+| Reference execution unavailable or incomplete | 116 |
+| Necessary detector evidence unavailable | 34 |
+
+The comparison retains messages, ranges, detector kinds, available flows and
+secondary locations, and separate human-review state. Equal empty findings on
+an attack control are not a qualification pass. Corrected fixture APIs and
+control classifications retain their versioned rationale and historical
+evidence; existing mismatches are not silently accepted as new clean baselines.
+A fresh 13-key refresh captured eight keys; three live-rule metadata lookups
+returned `404`, and two keys require unavailable licensed analyzers. These
+attempts remain explicit non-passes. All 17 Enterprise keys remain unverified;
+no licensed Enterprise execution or complete Security parity is claimed.
+
+## Whole-corpus qualification — 2026-09-10
+
+The [complete compressed evidence](tools/oracle/full-corpus-qualification-20260910.json.gz)
+binds fresh native and reference captures to source commit
+`14b389bc34af2835c56ccf050dde48989013fece`. Existing provenance validators
+accept the six-language inputs. The publication status is
+`VALIDATED_EVIDENCE_NONPASS`, not complete analyzer parity.
+
+All 1,853 rule rows remain visible. The C# replay now completes with exit `0`
+over all 920 source files, including mixed Nullable project settings. It has
+300 exact rule comparisons, 109 `BAD_MISMATCH`, one `OURS_MISS`, 40 `INFRA`,
+17 `ENTERPRISE_UNVERIFIED`, and 81 new-upstream `INVALID_ARTIFACT` rows.
+The artifact retains all 6,653 native findings and all 13,899 reference
+findings: 11,204 file-scoped findings plus 2,695 separately retained project
+findings. The project-level keys do not overlap the 300 passing rule keys.
+
+The Python, JavaScript, TypeScript, Go, and Rust corpora retain their intentional
+malformed-source controls. Their native analyses exit `2`; incomplete scope
+is not converted into clean or exact-parity results. All emitted findings,
+cross-fixture findings, unassigned/infrastructure findings, diagnostics, and
+source identities remain available in the artifact. No fixture was removed
+to make the complete corpus pass.
+
+Go's 135 emitted native finding identities equal the 135 reference identities,
+including messages, ranges, and multiplicities. This regression observation
+does not override its incomplete full-project status. The five Rust upstream
+contracts (`S1858`, `S3723`, `S3807`, `S4275`, `S7450`) were freshly rechecked
+against the pinned plugin and Clippy; their boundaries remain explicit and
+are not native implementation failures or parity passes.
+
+## Four-language quickfix qualification — 2026-09-10
+
+The [compressed quickfix matrix](tools/oracle/quickfix-qualification-20260910.json.gz)
+records 275 actual CLI scenarios at the same source commit and binary SHA-256.
+It embeds byte-exact replay manifests and the runner, with per-file hashes.
+Every C# manifest row is covered; the long C# run was partitioned into disjoint
+rule slices while retaining completed applications and unique case identities.
+
+| Language | Verified application | Safety refusal | Expected no action | Native action refusal | Reference difference |
+|---|---:|---:|---:|---:|---:|
+| Python | 64 | 1 | 0 | 0 | 0 |
+| JavaScript | 25 | 8 | 26 | 1 | 1 |
+| TypeScript | 46 | 3 | 37 | 3 | 0 |
+| C# | 46 | 14 | 0 | 0 | 0 |
+
+There are no failed or unavailable scenarios. This does not make refusals or
+different edits equivalent to upstream fixes. JavaScript `S6326` retains its
+explicit `reference_different` status. For C# `S3005` and `S3447`, original
+minimal controls remain unchanged when independent verification detects new
+findings; separate used-member controls apply successfully. The verifier's
+guard was not weakened. Exact edit availability, preview, apply, source hashes,
+reanalysis, compiler checks, and negative controls are retained per scenario.
+
+## Historical whole-corpus baseline — 2026-08-29
+
+The following counts describe a captured qualification baseline; they do not
+identify the current checkout `HEAD` or a release artifact. Current state is
+**not full parity**. Full-corpus comparisons include intentional malformed-input
+rows, and incomplete rows remain fail-closed/non-pass rather than being counted
+as clean results.
 
 - Coverage audit finds direct repository tests for all 1,724 actionable
   implementations: 460 C#, 403 JavaScript, 406 TypeScript, 334 Python,

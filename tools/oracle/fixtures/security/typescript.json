@@ -1,0 +1,728 @@
+{
+  "schema_version": 1,
+  "language": "typescript",
+  "rules": [
+    {
+      "key": "typescript:S1313",
+      "rationale": "A non-loopback IP literal hard-codes a network endpoint.",
+      "cases": {
+        "attack": {"description": "Existing TypeScript s1313_bad.ts IP-literal control.", "files": {"s1313_bad.ts": "const host = '10.0.0.1';\n"}, "sources": ["s1313_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Hostname control has no numeric IP literal.", "files": {"s1313_good.ts": "const host = 'example.com';\n"}, "sources": ["s1313_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same string-literal API with loopback, the documented non-network exception.", "files": {"s1313_near_miss.ts": "const host = '127.0.0.1';\n"}, "sources": ["s1313_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S1523",
+      "rationale": "Dynamic code execution must not receive user-controlled code strings.",
+      "cases": {
+        "attack": {"description": "Dynamic eval receives a role-derived code string.", "files": {"s1523_bad.ts": "function run(role: string): void {\n  eval(`handle_${role}()`);\n}\n"}, "sources": ["s1523_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "A literal eval string has no user-controlled code component.", "files": {"s1523_good.ts": "eval('handle_user()');\n"}, "sources": ["s1523_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Global eval with a literal string remains outside the user-controlled-code case.", "files": {"s1523_near_miss.ts": "globalThis.eval('work()');\n"}, "sources": ["s1523_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S1525",
+      "rationale": "A debugger statement left in shipped code pauses execution.",
+      "cases": {
+        "attack": {"description": "Existing debugger-statement control.", "files": {"s1525_bad.ts": "function pause(): void {\n  debugger;\n  resume();\n}\n"}, "sources": ["s1525_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Function has no debugger statement.", "files": {"s1525_good.ts": "function pause(): void {\n  resume();\n}\n"}, "sources": ["s1525_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The same word in a string is not a debugger statement node.", "files": {"s1525_near_miss.ts": "const marker: string = 'debugger';\nvoid marker;\n"}, "sources": ["s1525_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S2068",
+      "rationale": "A password-named literal is a hard-coded credential.",
+      "cases": {
+        "attack": {"description": "Existing password-word literal control.", "files": {"s2068_bad.ts": "const password: string = 'hunter2';\n"}, "sources": ["s2068_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Non-credential variable does not use a configured password word.", "files": {"s2068_good.ts": "const nickname: string = 'hunter2';\n"}, "sources": ["s2068_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same credential name reads deployment configuration rather than embedding a literal.", "files": {"s2068_near_miss.ts": "const password: string | undefined = process.env.PASSWORD;\n"}, "sources": ["s2068_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S2077",
+      "rationale": "The approved reference attack interpolates process input into a recognized MySQL query; parameterized PostgreSQL controls keep input out of SQL text.",
+      "cases": {
+        "attack": {"description": "Exact tools/oracle/security_evidence.py REFERENCE_SOURCES TypeScript attack payload.", "files": {"s2077_attack.ts": "const mysql = require('mysql');\nconst mycon = mysql.createConnection({});\nconst userinput = process.env.USER_INPUT as string;\nmycon.connect(function(err) {\n    mycon.query('SELECT * FROM users WHERE id = ' + userinput, (err, res) => {});\n});\n"}, "sources": ["s2077_attack.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Exact approved parameterized PostgreSQL safe payload.", "files": {"s2077_safe.ts": "import pg from 'pg';\nconst pgcon = new pg.Client({});\nconst userinput = process.env.USER_INPUT as string;\npgcon.query('SELECT * FROM users WHERE id = $1', [userinput]);\n"}, "sources": ["s2077_safe.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Exact approved same-API wrapper near miss with a parameterized query.", "files": {"s2077_near_miss.ts": "import pg from 'pg';\nconst pgcon = new pg.Client({});\nfunction run(value: string) {\n  return pgcon.query('SELECT * FROM users WHERE id = $1', [value]);\n}\nrun(process.env.USER_INPUT as string);\n"}, "sources": ["s2077_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      },
+      "flow_cases": [
+        {"name": "parameterized_wrapper", "description": "The same PostgreSQL sink and parameter array cross a TypeScript wrapper boundary.", "files": {"db.ts": "import pg from 'pg';\nconst pgcon = new pg.Client({});\nexport const run = (value: string) => pgcon.query('SELECT * FROM users WHERE id = $1', [value]);\n", "entry.ts": "import { run } from './db';\nrun(process.env.USER_INPUT as string);\n"}, "sources": ["db.ts", "entry.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      ]
+    },
+    {
+      "key": "typescript:S2092",
+      "rationale": "Supported session-cookie APIs must set secure=true.",
+      "cases": {
+        "attack": {"description": "cookie-session explicitly disables the secure flag.", "files": {"s2092_bad.ts": "import cookieSession from 'cookie-session';\nconst session = cookieSession({ secure: false });\n"}, "sources": ["s2092_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "cookie-session explicitly enables the secure flag.", "files": {"s2092_good.ts": "import cookieSession from 'cookie-session';\nconst session = cookieSession({ secure: true });\n"}, "sources": ["s2092_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The same cookie-session API enables secure and HttpOnly protection.", "files": {"s2092_near_miss.ts": "import cookieSession from 'cookie-session';\nconst session = cookieSession({ secure: true, httpOnly: true });\n"}, "sources": ["s2092_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S2245",
+      "rationale": "Math.random is not suitable for security-sensitive token generation.",
+      "cases": {
+        "attack": {"description": "Existing token derives entropy from Math.random.", "files": {"s2245_bad.ts": "const token = Math.random().toString(36).slice(2);\n"}, "sources": ["s2245_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Cryptographic UUID source avoids Math.random.", "files": {"s2245_good.ts": "import crypto from 'crypto';\nconst token = crypto.randomUUID();\n"}, "sources": ["s2245_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same token use is backed by cryptographic randomBytes.", "files": {"s2245_near_miss.ts": "import crypto from 'crypto';\nconst token = crypto.randomBytes(32).toString('hex');\n"}, "sources": ["s2245_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S2255",
+      "rationale": "Set-Cookie responses need transport and scope protections.",
+      "unavailable_prerequisites": ["Community /api/rules/show: HTTP 404 for typescript:S2255 (2026-09-10); owning live metadata/examples unavailable."],
+      "cases": {
+        "attack": {"description": "Existing Set-Cookie header omits Secure.", "files": {"s2255_bad.ts": "function respond(response: any): void {\n  response.setHeader('Set-Cookie', 'session=abc123; Path=/');\n}\n"}, "sources": ["s2255_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Unrelated security header does not write a cookie.", "files": {"s2255_good.ts": "function respond(response: any): void {\n  response.setHeader('X-Frame-Options', 'DENY');\n}\n"}, "sources": ["s2255_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "A similarly named Set-Cookie-Policy header does not create a cookie; the owning predicate requires the exact Set-Cookie header name.", "files": {"s2255_near_miss.ts": "response.setHeader('Set-Cookie-Policy', 'session=abc123; Path=/; Secure; HttpOnly');\n"}, "sources": ["s2255_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      },
+      "flow_cases": [
+        {"name": "hardened_cookie_review", "description": "Secure and HttpOnly do not remove the retained S2255 cookie-review hotspot: the historical owning predicate reports Set-Cookie writes regardless of attributes. Current live-rule availability remains unverified.", "files": {"s2255_near_miss.ts": "response.setHeader('Set-Cookie', 'session=abc123; Path=/; Secure; HttpOnly');\n"}, "sources": ["s2255_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true}
+      ]
+    },
+    {
+      "key": "typescript:S2598",
+      "rationale": "Multer diskStorage uploads need an explicit trusted destination.",
+      "cases": {
+        "attack": {"description": "Multer diskStorage has no explicit upload destination.", "files": {"s2598_bad.ts": "import multer from 'multer';\nconst diskStorage = multer.diskStorage({\n  filename: (_req: any, _file: any, cb: (error: Error | null, filename: string) => void) => cb(null, 'upload.bin')\n});\nconst diskUpload = multer({ storage: diskStorage });\n"}, "sources": ["s2598_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Multer diskStorage writes uploads to an approved destination.", "files": {"s2598_good.ts": "import multer from 'multer';\nconst diskStorage = multer.diskStorage({\n  destination: '/uploads/',\n  filename: (_req: any, _file: any, cb: (error: Error | null, filename: string) => void) => cb(null, 'upload.bin')\n});\nconst diskUpload = multer({ storage: diskStorage });\n"}, "sources": ["s2598_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The same Multer API uses another approved upload destination.", "files": {"s2598_near_miss.ts": "import multer from 'multer';\nconst diskStorage = multer.diskStorage({\n  destination: '/var/lib/app/uploads/',\n  filename: (_req: any, _file: any, cb: (error: Error | null, filename: string) => void) => cb(null, 'upload.bin')\n});\nconst diskUpload = multer({ storage: diskStorage });\n"}, "sources": ["s2598_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S2612",
+      "rationale": "The live TypeScript S2612 contract rejects chmod modes granting permissions to other users; weak hashes belong to S4790.",
+      "cases": {
+        "attack": {"description": "Live-rule example: chmodSync grants all permissions to other users.", "files": {"s2612_attack.ts": "import fs from 'fs';\nfs.chmodSync('/tmp/fs', 0o777);\n"}, "sources": ["s2612_attack.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Same fs.chmodSync API grants permissions only to the owner.", "files": {"s2612_safe.ts": "import fs from 'fs';\nfs.chmodSync('/tmp/fs', 0o700);\n"}, "sources": ["s2612_safe.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same API keeps group read/execute access but no permissions for other users.", "files": {"s2612_near_miss.ts": "import fs from 'fs';\nfs.chmodSync('/tmp/fs', 0o750);\n"}, "sources": ["s2612_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S2755",
+      "rationale": "XML entity substitution can enable external entity expansion.",
+      "cases": {
+        "attack": {"description": "Existing libxmljs parser enables entity substitution.", "files": {"s2755_bad.ts": "import libxmljs from 'libxmljs';\nconst doc = libxmljs.parseXmlString(xmlText, { noent: true, noblanks: true });\n"}, "sources": ["s2755_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing parser disables substitution and external entities.", "files": {"s2755_good.ts": "import libxmljs from 'libxmljs';\nconst doc = libxmljs.parseXmlString(xmlText, { noent: false, noxxe: true, noblanks: true });\n"}, "sources": ["s2755_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same parser API uses explicit noent false.", "files": {"s2755_near_miss.ts": "import libxmljs from 'libxmljs';\nlibxmljs.parseXmlString(xmlText, { noent: false, huge: false });\n"}, "sources": ["s2755_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S2817",
+      "rationale": "The live rule's noncompliant example calls window.openDatabase to store application data; Web SQL is deprecated and insecure for application storage.",
+      "cases": {
+        "attack": {"description": "Exact live-rule pattern: window.openDatabase creates a Web SQL database.", "files": {"s2817_attack.ts": "const db = window.openDatabase(\"myDb\", \"1.0\", \"Personal secrets stored here\", 2*1024*1024);\n"}, "sources": ["s2817_attack.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Related IndexedDB storage API does not call the obsolete openDatabase API.", "files": {"s2817_safe.ts": "const db = window.indexedDB.open('myDb');\n"}, "sources": ["s2817_safe.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same browser storage family uses IndexedDB through an alias, not Web SQL.", "files": {"s2817_near_miss.ts": "const open = window.indexedDB.open;\nconst db = open('myDb');\n"}, "sources": ["s2817_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S2819",
+      "rationale": "Message handlers must validate origin before acting on cross-window data.",
+      "cases": {
+        "attack": {"description": "Existing message listener acts without checking origin.", "files": {"s2819_bad.ts": "window.addEventListener('message', (event: MessageEvent) => {\n  applyRemoteCommand(event.data);\n});\n"}, "sources": ["s2819_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing message listener rejects untrusted origins.", "files": {"s2819_good.ts": "window.addEventListener('message', (event: MessageEvent) => {\n  if (event.origin !== 'https://portal.example.com') return;\n  applyRemoteCommand(event.data);\n});\n"}, "sources": ["s2819_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same message API checks a trusted origin branch before using data.", "files": {"s2819_near_miss.ts": "window.addEventListener('message', (event: MessageEvent) => {\n  if (event.origin === 'https://portal.example.com') applyRemoteCommand(event.data);\n});\n"}, "sources": ["s2819_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      },
+      "flow_cases": [
+        {"name": "origin_guard_branch", "description": "A guarded handler is registered from another TypeScript file.", "files": {"handler.ts": "export function handle(event: MessageEvent): void {\n  if (event.origin !== 'https://portal.example.com') return;\n  applyRemoteCommand(event.data);\n}\n", "entry.ts": "import { handle } from './handler';\nwindow.addEventListener('message', handle);\n"}, "sources": ["handler.ts", "entry.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      ]
+    },
+    {
+      "key": "typescript:S3330",
+      "rationale": "Supported cookie APIs must set httpOnly=true.",
+      "cases": {
+        "attack": {"description": "The cookies package explicitly disables HttpOnly.", "files": {"s3330_bad.ts": "import Cookies = require('cookies');\ndeclare const req: any;\ndeclare const res: any;\nconst cookies = new Cookies(req, res, { keys: ['fixture-secret'] });\ncookies.set('LastVisit', new Date().toISOString(), { httpOnly: false });\n"}, "sources": ["s3330_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "The cookies package explicitly enables HttpOnly.", "files": {"s3330_good.ts": "import Cookies = require('cookies');\ndeclare const req: any;\ndeclare const res: any;\nconst cookies = new Cookies(req, res, { keys: ['fixture-secret'] });\ncookies.set('LastVisit', new Date().toISOString(), { httpOnly: true });\n"}, "sources": ["s3330_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The same cookies API enables HttpOnly and Secure.", "files": {"s3330_near_miss.ts": "import Cookies = require('cookies');\ndeclare const req: any;\ndeclare const res: any;\nconst cookies = new Cookies(req, res, { keys: ['fixture-secret'] });\ncookies.set('session', 'token', { httpOnly: true, secure: true, sameSite: 'strict' });\n"}, "sources": ["s3330_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S4036",
+      "rationale": "A bare executable name is resolved through an uncontrolled PATH.",
+      "cases": {
+        "attack": {"description": "Existing spawn call uses a bare executable name.", "files": {"s4036_bad.ts": "import { spawn } from 'child_process';\nspawn('openssl', ['version']);\n"}, "sources": ["s4036_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing spawn call uses an absolute path.", "files": {"s4036_good.ts": "import { spawn } from 'child_process';\nspawn('/usr/bin/openssl', ['version']);\n"}, "sources": ["s4036_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same child-process API uses another absolute executable path.", "files": {"s4036_near_miss.ts": "import { spawn } from 'child_process';\nspawn('/bin/echo', ['ready']);\n"}, "sources": ["s4036_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      },
+      "flow_cases": [
+        {"name": "absolute_path_alias", "description": "An import alias and wrapper preserve the safe absolute path.", "files": {"child.ts": "import { spawn as launch } from 'child_process';\nexport const run = (): void => { launch('/usr/bin/openssl', ['version']); };\n", "entry.ts": "import { run } from './child';\nrun();\n"}, "sources": ["child.ts", "entry.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      ]
+    },
+    {
+      "key": "typescript:S4423",
+      "rationale": "TLS transport APIs must reject obsolete protocol versions.",
+      "cases": {
+        "attack": {"description": "An HTTPS request sets the obsolete TLSv1 minimum version.", "files": {"s4423_bad.ts": "import * as https from 'node:https';\nconst request = https.request({ hostname: 'api.example.net', minVersion: 'TLSv1' }, (response) => {\n  response.resume();\n});\nrequest.end();\n"}, "sources": ["s4423_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "An HTTPS request requires TLSv1.2 or newer.", "files": {"s4423_good.ts": "import * as https from 'node:https';\nconst request = https.request({ hostname: 'api.example.net', minVersion: 'TLSv1.2' }, (response) => {\n  response.resume();\n});\nrequest.end();\n"}, "sources": ["s4423_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The same HTTPS API requires TLSv1.3.", "files": {"s4423_near_miss.ts": "import * as https from 'node:https';\nconst request = https.request({ hostname: 'api.example.net', minVersion: 'TLSv1.3' }, (response) => {\n  response.resume();\n});\nrequest.end();\n"}, "sources": ["s4423_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S4426",
+      "rationale": "Generated RSA keys need a sufficiently strong modulus.",
+      "cases": {
+        "attack": {"description": "generateKeyPairSync creates an RSA key with a weak 1024-bit modulus.", "files": {"s4426_bad.ts": "import * as crypto from 'node:crypto';\nconst { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {\n  modulusLength: 1024,\n  publicKeyEncoding: { type: 'spki', format: 'pem' },\n  privateKeyEncoding: { type: 'pkcs8', format: 'pem' }\n});\n"}, "sources": ["s4426_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "The same key-generation API creates a 2048-bit RSA key.", "files": {"s4426_good.ts": "import * as crypto from 'node:crypto';\nconst { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {\n  modulusLength: 2048,\n  publicKeyEncoding: { type: 'spki', format: 'pem' },\n  privateKeyEncoding: { type: 'pkcs8', format: 'pem' }\n});\n"}, "sources": ["s4426_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The same key-generation API creates a stronger 3072-bit RSA key.", "files": {"s4426_near_miss.ts": "import * as crypto from 'node:crypto';\nconst { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {\n  modulusLength: 3072,\n  publicKeyEncoding: { type: 'spki', format: 'pem' },\n  privateKeyEncoding: { type: 'pkcs8', format: 'pem' }\n});\n"}, "sources": ["s4426_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S4502",
+      "rationale": "The live rule detects CSURF missing from an unsafe Express HTTP method; disabling or bypassing CSRF protection exposes state-changing endpoints.",
+      "cases": {
+        "attack": {"description": "Exact live-rule pattern: an unsafe POST does not use the configured csrfProtection middleware.", "files": {"s4502_attack.ts": "let csrf = require('csurf');\nlet express = require('express');\n\nlet csrfProtection = csrf({ cookie: true });\n\nlet app = express();\n\n// Noncompliant: this route is not protected by CSURF middleware (csrfProtection is not used)\napp.post('/money_transfer', parseForm, function (req, res) {\n  res.send('Money transferred');\n});\n"}, "sources": ["s4502_attack.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Same Express POST API uses csrfProtection as route middleware.", "files": {"s4502_safe.ts": "const csrf = require('csurf');\nconst express = require('express');\nconst csrfProtection = csrf({ cookie: true });\nconst app = express();\napp.post('/money_transfer', csrfProtection, parseForm, function (req, res) {\n  res.send('Money transferred');\n});\n"}, "sources": ["s4502_safe.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same protected POST is registered through an Express router.", "files": {"s4502_near_miss.ts": "const csrf = require('csurf');\nconst express = require('express');\nconst csrfProtection = csrf({ cookie: true });\nconst router = express.Router();\nrouter.post('/money_transfer', csrfProtection, parseForm, function (req, res) {\n  res.send('Money transferred');\n});\n"}, "sources": ["s4502_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S4507",
+      "rationale": "Express errorhandler middleware must be limited to development.",
+      "cases": {
+        "attack": {"description": "An Express app mounts imported errorhandler middleware unconditionally.", "files": {"s4507_bad.ts": "import express from 'express';\nimport errorhandler from 'errorhandler';\nconst app = express();\napp.use(errorhandler());\n"}, "sources": ["s4507_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "An Express app mounts errorhandler only for development.", "files": {"s4507_good.ts": "import express from 'express';\nimport errorhandler from 'errorhandler';\nconst app = express();\nif (process.env.NODE_ENV === 'development') {\n  app.use(errorhandler());\n}\n"}, "sources": ["s4507_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The Express app mounts ordinary JSON middleware, not errorhandler.", "files": {"s4507_near_miss.ts": "import express from 'express';\nconst app = express();\napp.use(express.json());\n"}, "sources": ["s4507_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S4721",
+      "rationale": "Shell-interpreting execution must not receive a dynamic command.",
+      "cases": {
+        "attack": {"description": "child_process.exec receives a process-controlled command and spawns a shell.", "files": {"s4721_bad.ts": "import * as childProcess from 'node:child_process';\nconst command: string = process.env.COMMAND ?? 'git status --porcelain';\nchildProcess.exec(command);\n"}, "sources": ["s4721_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "spawnSync uses an absolute executable path with shell disabled.", "files": {"s4721_good.ts": "import * as childProcess from 'node:child_process';\nchildProcess.spawnSync('/usr/bin/file.exe', { shell: false });\n"}, "sources": ["s4721_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "execFile passes an argument vector without a shell.", "files": {"s4721_near_miss.ts": "import * as childProcess from 'node:child_process';\nchildProcess.execFile('/usr/bin/git', ['status', '--porcelain']);\n"}, "sources": ["s4721_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S4784",
+      "rationale": "Runtime-built regular expressions can enable regular-expression denial of service.",
+      "unavailable_prerequisites": ["Community /api/rules/show: HTTP 404 for typescript:S4784 (2026-09-10); owning live metadata/examples unavailable."],
+      "cases": {
+        "attack": {"description": "Existing dynamic RegExp constructors receive computed patterns.", "files": {"s4784_bad.ts": "new RegExp('a' + userInput);\nnew RegExp(`^${prefix}`);\nconst p = buildPattern();\nnew RegExp(p);\n"}, "sources": ["s4784_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing constant regex construction is deterministic.", "files": {"s4784_good.ts": "const digits = '\\\\d+';\nnew RegExp(digits);\nnew RegExp('abc');\n"}, "sources": ["s4784_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same RegExp API uses an inline bounded constant pattern.", "files": {"s4784_near_miss.ts": "const bounded = new RegExp('^[a-z]{1,32}$');\nvoid bounded;\n"}, "sources": ["s4784_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S4787",
+      "rationale": "Encryption API use requires review of key handling and mode choices.",
+      "unavailable_prerequisites": ["Community /api/rules/show: HTTP 404 for typescript:S4787 (2026-09-10); owning live metadata/examples unavailable."],
+      "cases": {
+        "attack": {"description": "Existing publicEncrypt call uses a direct encryption API.", "files": {"s4787_bad.ts": "import crypto from 'crypto';\nconst sealed = crypto.publicEncrypt(peerPublicKey, payload);\n"}, "sources": ["s4787_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing crypto call generates random bytes rather than encrypting data.", "files": {"s4787_good.ts": "import crypto from 'crypto';\nconst tag = crypto.randomBytes(16).toString('hex');\n"}, "sources": ["s4787_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same crypto family uses a digest API, not an encryption entry point.", "files": {"s4787_near_miss.ts": "import crypto from 'crypto';\nconst digest = crypto.createHash('sha256').update(payload).digest('hex');\n"}, "sources": ["s4787_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S4790",
+      "rationale": "Deprecated MD-family hashes are cryptographically weak.",
+      "cases": {
+        "attack": {"description": "Existing createHash call uses MD4.", "files": {"s4790_bad.ts": "import crypto from 'crypto';\nconst digest = crypto.createHash('md4').update(blob).digest();\n"}, "sources": ["s4790_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing same API uses SHA3-256.", "files": {"s4790_good.ts": "import crypto from 'crypto';\nconst digest = crypto.createHash('sha3-256').update(blob).digest();\n"}, "sources": ["s4790_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same createHash API uses SHA-512 outside the weak family.", "files": {"s4790_near_miss.ts": "import crypto from 'crypto';\nconst digest = crypto.createHash('sha512').update(blob).digest();\n"}, "sources": ["s4790_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S4817",
+      "rationale": "XPath evaluation is an injection-sensitive query surface.",
+      "unavailable_prerequisites": ["Community /api/rules/show: HTTP 404 for typescript:S4817 (2026-09-10); owning live metadata/examples unavailable."],
+      "cases": {
+        "attack": {"description": "Existing xpath module evaluates a selector.", "files": {"s4817_bad.ts": "import xpath from 'xpath';\nconst nodes = xpath.select(expression, document);\n"}, "sources": ["s4817_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing CSS selector dependency is not XPath evaluation.", "files": {"s4817_good.ts": "import cssSelect from 'css-select';\nvoid cssSelect;\n"}, "sources": ["s4817_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same document-query purpose uses the DOM CSS selector API.", "files": {"s4817_near_miss.ts": "const nodes = document.querySelectorAll('.result');\n"}, "sources": ["s4817_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S4818",
+      "rationale": "Raw sockets bypass higher-level transport protections.",
+      "unavailable_prerequisites": ["Community /api/rules/show: HTTP 404 for typescript:S4818 (2026-09-10); owning live metadata/examples unavailable."],
+      "cases": {
+        "attack": {"description": "Existing dgram raw socket module.", "files": {"s4818_bad.ts": "import dgram from 'dgram';\nconst channel = dgram.createSocket('udp4');\n"}, "sources": ["s4818_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing TLS module is a protected transport.", "files": {"s4818_good.ts": "import tls from 'tls';\nconst port = 8443;\nvoid tls;\nvoid port;\n"}, "sources": ["s4818_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same transport family uses an HTTPS client API.", "files": {"s4818_near_miss.ts": "import https from 'https';\nhttps.get('https://example.com', response => response.resume());\n"}, "sources": ["s4818_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S4823",
+      "rationale": "Command-line arguments are externally controlled process input.",
+      "unavailable_prerequisites": ["Community /api/rules/show: HTTP 404 for typescript:S4823 (2026-09-10); owning live metadata/examples unavailable."],
+      "cases": {
+        "attack": {"description": "Existing process.argv access consumes a command-line argument.", "files": {"s4823_bad.ts": "const target = process.argv[2];\n"}, "sources": ["s4823_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Configuration lookup does not read argv.", "files": {"s4823_good.ts": "const target = config.targets[2];\n"}, "sources": ["s4823_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same process configuration family reads an environment value.", "files": {"s4823_near_miss.ts": "const target = process.env.TARGET;\n"}, "sources": ["s4823_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S4829",
+      "rationale": "Standard input is an externally controlled stream.",
+      "unavailable_prerequisites": ["Community /api/rules/show: HTTP 404 for typescript:S4829 (2026-09-10); owning live metadata/examples unavailable."],
+      "cases": {
+        "attack": {"description": "Existing process.stdin event read.", "files": {"s4829_bad.ts": "process.stdin.setEncoding('utf8');\nprocess.stdin.on('data', consume);\n"}, "sources": ["s4829_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing stdout write does not read stdin.", "files": {"s4829_good.ts": "process.stdout.write('ready\\n');\n"}, "sources": ["s4829_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same process stream family reads a fixed file instead.", "files": {"s4829_near_miss.ts": "import fs from 'fs';\nconst data = fs.readFileSync('input.txt', 'utf8');\n"}, "sources": ["s4829_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S4830",
+      "rationale": "TLS clients must keep server certificate verification enabled.",
+      "cases": {
+        "attack": {"description": "An HTTPS client explicitly disables certificate verification.", "files": {"s4830_bad.ts": "import * as https from 'node:https';\nconst request = https.request({ hostname: 'www.example.com', port: 443, rejectUnauthorized: false, secureProtocol: 'TLSv1_2_method' }, (response) => {\n  response.resume();\n});\nrequest.end();\n"}, "sources": ["s4830_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "An HTTPS client uses the secure certificate-verification default.", "files": {"s4830_good.ts": "import * as https from 'node:https';\nconst request = https.request({ hostname: 'www.example.com', port: 443, secureProtocol: 'TLSv1_2_method' }, (response) => {\n  response.resume();\n});\nrequest.end();\n"}, "sources": ["s4830_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The same HTTPS client explicitly enables certificate verification.", "files": {"s4830_near_miss.ts": "import * as https from 'node:https';\nconst request = https.request({ hostname: 'www.example.com', port: 443, rejectUnauthorized: true, secureProtocol: 'TLSv1_2_method' }, (response) => {\n  response.resume();\n});\nrequest.end();\n"}, "sources": ["s4830_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5042",
+      "rationale": "Archive expansion must bound entry count, size, and compression ratio.",
+      "cases": {
+        "attack": {"description": "AdmZip expands an archive without resource-consumption limits.", "files": {"s5042_bad.ts": "import AdmZip = require('adm-zip');\nconst zip = new AdmZip('./foo.zip');\nzip.extractAllTo('.', false);\n"}, "sources": ["s5042_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "AdmZip checks entry count, size, and compression ratio before extraction.", "files": {"s5042_good.ts": "import AdmZip = require('adm-zip');\nconst MAX_FILES = 10000;\nconst MAX_SIZE = 1000000000;\nconst THRESHOLD_RATIO = 10;\nlet fileCount = 0;\nlet totalSize = 0;\nconst zip = new AdmZip('./foo.zip');\nfor (const entry of zip.getEntries()) {\n  fileCount++;\n  if (fileCount > MAX_FILES) throw new Error('Reached max. number of files');\n  const entrySize = entry.getData().length;\n  totalSize += entrySize;\n  if (totalSize > MAX_SIZE) throw new Error('Reached max. size');\n  if (entry.header.compressedSize > 0 && entrySize / entry.header.compressedSize > THRESHOLD_RATIO) throw new Error('Reached max. compression ratio');\n  if (!entry.isDirectory) zip.extractEntryTo(entry.entryName, '.', false, false);\n}\n"}, "sources": ["s5042_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "AdmZip only enumerates entries and does not expand them.", "files": {"s5042_near_miss.ts": "import AdmZip = require('adm-zip');\nconst zip = new AdmZip('./foo.zip');\nfor (const entry of zip.getEntries()) console.log(entry.entryName);\n"}, "sources": ["s5042_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5122",
+      "rationale": "CORS middleware must restrict requests to trusted origins.",
+      "cases": {
+        "attack": {"description": "An Express app mounts CORS middleware with a wildcard origin.", "files": {"s5122_bad.ts": "import express from 'express';\nimport cors from 'cors';\nconst app = express();\napp.use(cors({ origin: '*', methods: ['GET'] }));\n"}, "sources": ["s5122_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "An Express app mounts CORS middleware for one trusted origin.", "files": {"s5122_good.ts": "import express from 'express';\nimport cors from 'cors';\nconst app = express();\napp.use(cors({ origin: 'https://dashboard.example.com', methods: ['GET'] }));\n"}, "sources": ["s5122_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The same mounted CORS API uses a finite origin allow-list.", "files": {"s5122_near_miss.ts": "import express from 'express';\nimport cors from 'cors';\nconst app = express();\napp.use(cors({ origin: ['https://app.example.com', 'https://admin.example.com'] }));\n"}, "sources": ["s5122_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5148",
+      "rationale": "A new window without noopener can retain a reference to its opener.",
+      "cases": {
+        "attack": {"description": "Existing window.open features omit noopener.", "files": {"s5148_bad.ts": "window.open(targetUrl, '_blank', 'menubar=yes,width=600,height=400');\n"}, "sources": ["s5148_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing features include noopener and noreferrer.", "files": {"s5148_good.ts": "window.open(targetUrl, '_blank', 'noopener,noreferrer,menubar=no');\n"}, "sources": ["s5148_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same API uses noopener with a different feature list.", "files": {"s5148_near_miss.ts": "window.open(targetUrl, '_blank', 'noopener,width=640');\n"}, "sources": ["s5148_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5247",
+      "rationale": "HTML template engines must retain autoescaping.",
+      "cases": {
+        "attack": {"description": "Handlebars compilation disables HTML escaping.", "files": {"s5247_bad.ts": "import Handlebars from 'handlebars';\nconst source = '<p>attack {{name}}</p>';\nconst template = Handlebars.compile(source, { noEscape: true });\n"}, "sources": ["s5247_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Handlebars compilation retains its escaping default.", "files": {"s5247_good.ts": "import Handlebars from 'handlebars';\nconst source = '<p>attack {{name}}</p>';\nconst template = Handlebars.compile(source);\n"}, "sources": ["s5247_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The same Handlebars API explicitly keeps escaping enabled.", "files": {"s5247_near_miss.ts": "import Handlebars from 'handlebars';\nconst source = '<p>attack {{name}}</p>';\nconst template = Handlebars.compile(source, { noEscape: false });\n"}, "sources": ["s5247_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5332",
+      "rationale": "Network clients must not use cleartext HTTP or WebSocket transports.",
+      "cases": {
+        "attack": {"description": "HTTP and WebSocket clients use cleartext schemes on a non-documentation host.", "files": {"s5332_bad.ts": "const request = fetch('http://api.acme.com');\nconst socket = new WebSocket('ws://api.acme.com');\nvoid request;\nvoid socket;\n"}, "sources": ["s5332_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "The same HTTP and WebSocket clients use encrypted schemes.", "files": {"s5332_good.ts": "const request = fetch('https://api.acme.com');\nconst socket = new WebSocket('wss://api.acme.com');\nvoid request;\nvoid socket;\n"}, "sources": ["s5332_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The same HTTP client uses the owning rule's localhost loopback exemption.", "files": {"s5332_near_miss.ts": "const request = fetch('http://localhost:8000/health');\nvoid request;\n"}, "sources": ["s5332_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5443",
+      "rationale": "The live rule rejects hard-coded temporary files in publicly writable directories such as /tmp; this is distinct from S2612 file-mode permissions.",
+      "cases": {
+        "attack": {"description": "Live-rule noncompliant pattern: a predictable file is read from /tmp.", "files": {"s5443_bad.ts": "import fs from 'fs';\nlet tmp_file = \"/tmp/temporary_file\";\nfs.readFile(tmp_file, 'utf8', function (err, data) {});\n"}, "sources": ["s5443_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Live-rule compliant pattern: tmp.fileSync creates an unpredictable temporary file.", "files": {"s5443_good.ts": "import tmp from 'tmp';\nconst tmpobj = tmp.fileSync();\n"}, "sources": ["s5443_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same fs.readFile API uses an application-owned non-public path rather than a public temporary directory.", "files": {"s5443_near_miss.ts": "import fs from 'fs';\nfs.readFile('/opt/app/cache.txt', 'utf8', function (err, data) {});\n"}, "sources": ["s5443_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5527",
+      "rationale": "TLS clients must use hostname verification rather than a no-op override.",
+      "cases": {
+        "attack": {"description": "An HTTPS client replaces hostname verification with a no-op callback.", "files": {"s5527_bad.ts": "import * as https from 'node:https';\nconst request = https.request({ hostname: 'www.example.com', port: 443, checkServerIdentity: (_hostname, _certificate) => undefined, secureProtocol: 'TLSv1_2_method' }, (response) => {\n  response.resume();\n});\nrequest.end();\n"}, "sources": ["s5527_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "An HTTPS client keeps Node's default hostname verification.", "files": {"s5527_good.ts": "import * as https from 'node:https';\nconst request = https.request({ hostname: 'www.example.com', port: 443, secureProtocol: 'TLSv1_2_method' }, (response) => {\n  response.resume();\n});\nrequest.end();\n"}, "sources": ["s5527_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "An HTTPS client delegates hostname verification to tls.checkServerIdentity.", "files": {"s5527_near_miss.ts": "import * as https from 'node:https';\nimport * as tls from 'node:tls';\nconst request = https.request({ hostname: 'www.example.com', port: 443, checkServerIdentity: tls.checkServerIdentity, secureProtocol: 'TLSv1_2_method' }, (response) => {\n  response.resume();\n});\nrequest.end();\n"}, "sources": ["s5527_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5542",
+      "rationale": "ECB and insecure cipher modes do not provide safe confidentiality.",
+      "cases": {
+        "attack": {"description": "Existing createCipheriv call uses AES ECB.", "files": {"s5542_bad.ts": "import crypto from 'crypto';\nconst cipher = crypto.createCipheriv('aes-128-ecb', Buffer.alloc(16), null);\n"}, "sources": ["s5542_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing same API uses AES-GCM with a nonce.", "files": {"s5542_good.ts": "import crypto from 'crypto';\nconst cipher = crypto.createCipheriv('aes-256-gcm', Buffer.alloc(32), Buffer.alloc(12));\n"}, "sources": ["s5542_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same createCipheriv API uses AES-256-GCM with a distinct key/IV shape.", "files": {"s5542_near_miss.ts": "import crypto from 'crypto';\ncrypto.createCipheriv('aes-256-gcm', key, iv);\n"}, "sources": ["s5542_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5547",
+      "rationale": "DES-family ciphers are cryptographically weak.",
+      "cases": {
+        "attack": {"description": "Existing createCipheriv call uses DES.", "files": {"s5547_bad.ts": "import crypto from 'crypto';\nconst cipher = crypto.createCipheriv('des-ede3-cbc', Buffer.alloc(24), Buffer.alloc(8));\n"}, "sources": ["s5547_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing same API uses AES-GCM.", "files": {"s5547_good.ts": "import crypto from 'crypto';\nconst cipher = crypto.createCipheriv('aes-256-gcm', Buffer.alloc(32), Buffer.alloc(12));\n"}, "sources": ["s5547_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same cipher API uses ChaCha20-Poly1305, not DES.", "files": {"s5547_near_miss.ts": "import crypto from 'crypto';\ncrypto.createCipheriv('chacha20-poly1305', key, iv, { authTagLength: 16 });\n"}, "sources": ["s5547_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5604",
+      "rationale": "Sensitive geolocation permission requests and position reads require justification.",
+      "cases": {
+        "attack": {"description": "The browser requests geolocation permission and reads the current position.", "files": {"s5604_bad.ts": "navigator.permissions.query({ name: 'geolocation' }).then((result) => {\n  console.log(result.state);\n});\nnavigator.geolocation.getCurrentPosition((position) => {\n  console.log(`coordinates x=${position.coords.latitude} and y=${position.coords.longitude}`);\n});\n"}, "sources": ["s5604_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Reading navigator.language does not request a sensitive device permission.", "files": {"s5604_good.ts": "function currentLanguage() {\n  return navigator.language;\n}\n"}, "sources": ["s5604_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Reading navigator.storage does not request geolocation permission.", "files": {"s5604_near_miss.ts": "function currentStorage() {\n  return navigator.storage;\n}\n"}, "sources": ["s5604_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5659",
+      "rationale": "JWT algorithm none disables signature verification.",
+      "cases": {
+        "attack": {"description": "Existing jsonwebtoken sign call selects none.", "files": {"s5659_bad.ts": "import jwt from 'jsonwebtoken';\nconst token = jwt.sign({ sub: 'user' }, 'key', { algorithm: 'none' });\n"}, "sources": ["s5659_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing jsonwebtoken sign call selects HS256.", "files": {"s5659_good.ts": "import jwt from 'jsonwebtoken';\nconst token = jwt.sign({ sub: 'user' }, 'key', { algorithm: 'HS256' });\n"}, "sources": ["s5659_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same JWT API verifies with RS256.", "files": {"s5659_near_miss.ts": "jwt.verify(token, publicKey, { algorithms: ['RS256'] });\n"}, "sources": ["s5659_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5689",
+      "rationale": "Express fingerprint disclosure must be disabled.",
+      "cases": {
+        "attack": {"description": "An Express app uses its default X-Powered-By fingerprint disclosure.", "files": {"s5689_bad.ts": "import express from 'express';\nconst app = express();\napp.get('/', (_req, res) => {\n  res.send('example');\n});\n"}, "sources": ["s5689_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "The Express app disables the x-powered-by fingerprint header.", "files": {"s5689_good.ts": "import express from 'express';\nconst app = express();\napp.disable('x-powered-by');\n"}, "sources": ["s5689_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Helmet hides the powered-by fingerprint on an Express app.", "files": {"s5689_near_miss.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet.hidePoweredBy());\n"}, "sources": ["s5689_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5691",
+      "rationale": "Static middleware must not serve dotfiles.",
+      "cases": {
+        "attack": {"description": "Mounted serve-static middleware allows dotfiles.", "files": {"s5691_bad.ts": "import express from 'express';\nimport serveStatic from 'serve-static';\nconst app = express();\nconst serveStaticMiddleware = serveStatic('public', { index: false, dotfiles: 'allow' });\napp.use(serveStaticMiddleware);\n"}, "sources": ["s5691_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Mounted serve-static middleware ignores dotfiles.", "files": {"s5691_good.ts": "import express from 'express';\nimport serveStatic from 'serve-static';\nconst app = express();\nconst serveStaticMiddleware = serveStatic('public', { index: false, dotfiles: 'ignore' });\napp.use(serveStaticMiddleware);\n"}, "sources": ["s5691_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Mounted serve-static middleware explicitly denies dotfiles.", "files": {"s5691_near_miss.ts": "import express from 'express';\nimport serveStatic from 'serve-static';\nconst app = express();\nconst serveStaticMiddleware = serveStatic('public', { index: false, dotfiles: 'deny' });\napp.use(serveStaticMiddleware);\n"}, "sources": ["s5691_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5693",
+      "rationale": "Body-parser request bodies must have a bounded size.",
+      "cases": {
+        "attack": {"description": "body-parser accepts a four-megabyte request body, above the reviewed limit.", "files": {"s5693_bad.ts": "import bodyParser from 'body-parser';\nconst jsonParser = bodyParser.json({ limit: '4mb' });\nconst urlencodedParser = bodyParser.urlencoded({ extended: false, limit: '4mb' });\n"}, "sources": ["s5693_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "body-parser limits JSON and URL-encoded bodies to exactly 2,000,000 bytes.", "files": {"s5693_good.ts": "import bodyParser from 'body-parser';\nconst jsonParser = bodyParser.json({ limit: 2000000 });\nconst urlencodedParser = bodyParser.urlencoded({ extended: false, limit: 2000000 });\n"}, "sources": ["s5693_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The same body-parser APIs use a stricter one-megabyte limit.", "files": {"s5693_near_miss.ts": "import bodyParser from 'body-parser';\nconst jsonParser = bodyParser.json({ limit: '1mb' });\nconst urlencodedParser = bodyParser.urlencoded({ extended: false, limit: '1mb' });\n"}, "sources": ["s5693_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      },
+      "flow_cases": [
+        {"name": "binary_unit_boundary", "description": "The original 2mb controls are 2,097,152 bytes under npm bytes, above the 2,000,000-byte threshold; preserve them as positive boundary cases.", "files": {"s5693_good.ts": "import bodyParser from 'body-parser';\nconst jsonParser = bodyParser.json({ limit: '2mb' });\nconst urlencodedParser = bodyParser.urlencoded({ extended: false, limit: '2mb' });\n"}, "sources": ["s5693_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true}
+      ]
+    },
+    {
+      "key": "typescript:S5725",
+      "rationale": "Versioned remote scripts must carry subresource integrity metadata.",
+      "cases": {
+        "attack": {"description": "A versioned remote script is appended without an integrity hash.", "files": {"s5725_bad.ts": "const script = document.createElement('script');\nscript.src = 'https://cdn.example.com/v5.3.6/script.js';\nscript.crossOrigin = 'anonymous';\ndocument.head.appendChild(script);\n"}, "sources": ["s5725_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "A versioned remote script supplies an integrity hash and anonymous CORS.", "files": {"s5725_good.ts": "const script = document.createElement('script');\nscript.src = 'https://cdn.example.com/v5.3.6/script.js';\nscript.integrity = 'sha384-oqVuAfXRKap7fdgcCY5uykM6+R9GqQ8K/uxy9rx7HNQlGYl1kPzQho1wx4JwY8wC';\nscript.crossOrigin = 'anonymous';\ndocument.head.appendChild(script);\n"}, "sources": ["s5725_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The same DOM script API supplies integrity for a different versioned resource.", "files": {"s5725_near_miss.ts": "const script = document.createElement('script');\nscript.src = 'https://cdn.example.com/v5.3.7/script.js';\nscript.integrity = 'sha384-oqVuAfXRKap7fdgcCY5uykM6+R9GqQ8K/uxy9rx7HNQlGYl1kPzQho1wx4JwY8wC';\nscript.crossOrigin = 'anonymous';\ndocument.head.appendChild(script);\n"}, "sources": ["s5725_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5728",
+      "rationale": "Mounted Helmet CSP must retain its fetch directives rather than disable contentSecurityPolicy.",
+      "cases": {
+        "attack": {"description": "Mounted Helmet disables its content-security-policy middleware.", "files": {"s5728_bad.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet({ contentSecurityPolicy: false }));\n"}, "sources": ["s5728_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Mounted Helmet CSP uses its secure default policy.", "files": {"s5728_good.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet.contentSecurityPolicy());\n"}, "sources": ["s5728_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Mounted Helmet CSP supplies a self-only script directive.", "files": {"s5728_near_miss.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet({ contentSecurityPolicy: { directives: { scriptSrc: ['self'] } } }));\n"}, "sources": ["s5728_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5730",
+      "rationale": "Mounted Helmet CSP must enable blockAllMixedContent.",
+      "cases": {
+        "attack": {"description": "Mounted Helmet CSP omits blockAllMixedContent.", "files": {"s5730_bad.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet.contentSecurityPolicy({\n  directives: {\n    'default-src': [\"'self'\", 'example.com', 'code.jquery.com']\n  }\n}));\n"}, "sources": ["s5730_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Mounted Helmet CSP enables blockAllMixedContent.", "files": {"s5730_good.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet.contentSecurityPolicy({\n  directives: {\n    'default-src': [\"'self'\", 'example.com', 'code.jquery.com'],\n    blockAllMixedContent: []\n  }\n}));\n"}, "sources": ["s5730_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The same mounted Helmet CSP enables blockAllMixedContent with a different source list.", "files": {"s5730_near_miss.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet.contentSecurityPolicy({\n  directives: {\n    'default-src': [\"'none'\"],\n    blockAllMixedContent: []\n  }\n}));\n"}, "sources": ["s5730_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5732",
+      "rationale": "Mounted Helmet CSP must configure frame-ancestors. Explicit null removes the directive, while omission inherits Helmet's safe default. The captured rule prose incorrectly describes 'none' as disabling protection: it actually denies all framing. Preserve that semantic negative and record any observed reference or native disagreement.",
+      "cases": {
+        "attack": {"description": "Mounted Helmet CSP explicitly removes the frameAncestors directive instead of inheriting its safe default.", "files": {"s5732_bad.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet.contentSecurityPolicy({\n  directives: {\n    frameAncestors: null\n  }\n}));\n"}, "sources": ["s5732_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Mounted Helmet CSP allows only same-origin framing with 'self'.", "files": {"s5732_good.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet.contentSecurityPolicy({\n  directives: {\n    frameAncestors: [\"'self'\"]\n  }\n}));\n"}, "sources": ["s5732_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Mounted Helmet CSP denies all framing with the semantically restrictive 'none' value.", "files": {"s5732_near_miss.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet.contentSecurityPolicy({\n  directives: {\n    frameAncestors: [\"'none'\"]\n  }\n}));\n"}, "sources": ["s5732_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5734",
+      "rationale": "Mounted Helmet's noSniff control must not be disabled.",
+      "cases": {
+        "attack": {"description": "Mounted Helmet explicitly disables the noSniff middleware.", "files": {"s5734_bad.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet({ noSniff: false }));\n"}, "sources": ["s5734_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Mounted Helmet enables its noSniff middleware.", "files": {"s5734_good.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet.noSniff());\n"}, "sources": ["s5734_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Mounted Helmet explicitly keeps noSniff enabled.", "files": {"s5734_near_miss.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet({ noSniff: true }));\n"}, "sources": ["s5734_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5736",
+      "rationale": "Mounted Helmet referrerPolicy must use a safe value.",
+      "cases": {
+        "attack": {"description": "Mounted Helmet sets the unsafe no-referrer-when-downgrade policy.", "files": {"s5736_bad.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet.referrerPolicy({ policy: 'no-referrer-when-downgrade' }));\n"}, "sources": ["s5736_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Mounted Helmet sets the no-referrer policy.", "files": {"s5736_good.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet.referrerPolicy({ policy: 'no-referrer' }));\n"}, "sources": ["s5736_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Mounted Helmet sets a strict cross-origin referrer policy.", "files": {"s5736_near_miss.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet.referrerPolicy({ policy: 'strict-origin-when-cross-origin' }));\n"}, "sources": ["s5736_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5739",
+      "rationale": "Mounted Helmet HSTS must use a long max-age and include subdomains.",
+      "cases": {
+        "attack": {"description": "Mounted Helmet HSTS uses a short max-age and excludes subdomains.", "files": {"s5739_bad.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet.hsts({ maxAge: 3153600, includeSubDomains: false }));\n"}, "sources": ["s5739_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Mounted Helmet HSTS uses a long max-age and includes subdomains.", "files": {"s5739_good.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet.hsts({ maxAge: 31536000, includeSubDomains: true }));\n"}, "sources": ["s5739_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The same mounted Helmet HSTS API uses an even longer max-age and includes subdomains.", "files": {"s5739_near_miss.ts": "import express from 'express';\nimport helmet from 'helmet';\nconst app = express();\napp.use(helmet.hsts({ maxAge: 63072000, includeSubDomains: true }));\n"}, "sources": ["s5739_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5742",
+      "rationale": "Expect-CT max-age zero removes certificate transparency enforcement.",
+      "unavailable_prerequisites": ["Community /api/rules/show: HTTP 404 for typescript:S5742 (2026-09-10); owning live metadata/examples unavailable."],
+      "cases": {
+        "attack": {"description": "Existing Expect-CT header sets max-age zero.", "files": {"s5742_bad.ts": "res.setHeader('Expect-CT', 'max-age=0, enforce');\n"}, "sources": ["s5742_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing Expect-CT header enforces a nonzero max-age.", "files": {"s5742_good.ts": "res.setHeader('Expect-CT', 'max-age=86400, enforce');\n"}, "sources": ["s5742_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same header API uses nonzero max-age.", "files": {"s5742_near_miss.ts": "res.setHeader('Expect-CT', 'max-age=86400');\n"}, "sources": ["s5742_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5743",
+      "rationale": "Enabling DNS prefetch can disclose visited hostnames.",
+      "unavailable_prerequisites": ["Community /api/rules/show: HTTP 404 for typescript:S5743 (2026-09-10); owning live metadata/examples unavailable."],
+      "cases": {
+        "attack": {"description": "Existing X-DNS-Prefetch-Control enables prefetching.", "files": {"s5743_bad.ts": "res.setHeader('X-DNS-Prefetch-Control', 'on');\n"}, "sources": ["s5743_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing header disables prefetching.", "files": {"s5743_good.ts": "res.setHeader('X-DNS-Prefetch-Control', 'off');\n"}, "sources": ["s5743_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same header API uses case-insensitive OFF spelling.", "files": {"s5743_near_miss.ts": "res.setHeader('X-DNS-Prefetch-Control', 'OFF');\n"}, "sources": ["s5743_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5757",
+      "rationale": "Signale loggers must configure secret patterns before logging sensitive values.",
+      "cases": {
+        "attack": {"description": "Signale logging uses an empty secrets list, so card numbers are not masked.", "files": {"s5757_bad.ts": "import { Signale } from 'signale';\nconst CREDIT_CARD_NUMBERS: string[] = ['1234-5678-0000-9999'];\nconst options = { secrets: [] };\nconst logger = new Signale(options);\nCREDIT_CARD_NUMBERS.forEach((number) => logger.log('card=%s', number));\n"}, "sources": ["s5757_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Signale masks card numbers with a configured secret pattern.", "files": {"s5757_good.ts": "import { Signale } from 'signale';\nconst CREDIT_CARD_NUMBERS: string[] = ['1234-5678-0000-9999'];\nconst options = { secrets: ['([0-9]{4}-?)+'] };\nconst logger = new Signale(options);\nCREDIT_CARD_NUMBERS.forEach((number) => logger.log('card=%s', number));\n"}, "sources": ["s5757_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The same Signale API configures a second card-number masking pattern.", "files": {"s5757_near_miss.ts": "import { Signale } from 'signale';\nconst CREDIT_CARD_NUMBERS: string[] = ['1234567812345678'];\nconst options = { secrets: ['[0-9]{16}'] };\nconst logger = new Signale(options);\nCREDIT_CARD_NUMBERS.forEach((number) => logger.log('card=%s', number));\n"}, "sources": ["s5757_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5759",
+      "rationale": "Proxy middleware must not forward client IP headers by default.",
+      "cases": {
+        "attack": {"description": "Mounted proxy middleware enables xfwd and forwards the client IP.", "files": {"s5759_bad.ts": "import express from 'express';\nimport { createProxyMiddleware } from 'http-proxy-middleware';\nconst app = express();\napp.use('/proxy', createProxyMiddleware({ target: 'http://localhost:9000', changeOrigin: true, xfwd: true }));\n"}, "sources": ["s5759_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Mounted proxy middleware leaves xfwd disabled.", "files": {"s5759_good.ts": "import express from 'express';\nimport { createProxyMiddleware } from 'http-proxy-middleware';\nconst app = express();\napp.use('/proxy', createProxyMiddleware({ target: 'http://localhost:9000', changeOrigin: true, xfwd: false }));\n"}, "sources": ["s5759_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The same proxy middleware uses its secure default with xfwd omitted.", "files": {"s5759_near_miss.ts": "import express from 'express';\nimport { createProxyMiddleware } from 'http-proxy-middleware';\nconst app = express();\napp.use('/proxy', createProxyMiddleware({ target: 'http://localhost:9000', changeOrigin: true }));\n"}, "sources": ["s5759_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5852",
+      "rationale": "Nested quantifiers can cause catastrophic regex backtracking.",
+      "cases": {
+        "attack": {"description": "Existing nested-quantifier regex is vulnerable.", "files": {"s5852_bad.ts": "const re = /(a+)+$/;\n"}, "sources": ["s5852_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing anchored linear regex has no nested quantifier.", "files": {"s5852_good.ts": "export const SAFE_PATTERN = /^a+$/;\n"}, "sources": ["s5852_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same regex API uses a bounded quantifier.", "files": {"s5852_near_miss.ts": "const re = /^a{1,64}$/;\n"}, "sources": ["s5852_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S5876",
+      "rationale": "Authenticated sessions must regenerate before assigning user state or redirecting.",
+      "cases": {
+        "attack": {"description": "An authenticated Passport route redirects without regenerating the session.", "files": {"s5876_bad.ts": "import express from 'express';\nimport passport from 'passport';\nconst app = express();\napp.post('/login',\n  passport.authenticate('local', { failureRedirect: '/login' }),\n  function (req: any, res: any) {\n    res.redirect('/');\n  });\n"}, "sources": ["s5876_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "An authenticated Passport route assigns and redirects inside the regeneration callback.", "files": {"s5876_good.ts": "import express from 'express';\nimport passport from 'passport';\nconst app = express();\napp.post('/login',\n  passport.authenticate('local', { failureRedirect: '/login' }),\n  function (req: any, res: any) {\n    const previousSession = req.session;\n    req.session.regenerate((err: Error | null) => {\n      if (err) {\n        res.status(500).end();\n        return;\n      }\n      Object.assign(req.session, previousSession);\n      res.redirect('/');\n    });\n  }\n);\n"}, "sources": ["s5876_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The authenticated route assigns user state and redirects inside regenerate's callback.", "files": {"s5876_near_miss.ts": "import express from 'express';\nimport passport from 'passport';\nconst app = express();\napp.post('/login',\n  passport.authenticate('local', { failureRedirect: '/login' }),\n  function (req: any, res: any) {\n    req.session.regenerate((err: Error | null) => {\n      if (err) {\n        res.status(500).end();\n        return;\n      }\n      req.session.user = req.body.user;\n      res.redirect('/');\n    });\n  }\n);\n"}, "sources": ["s5876_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6245",
+      "rationale": "S3 bucket creation should include server-side encryption configuration.",
+      "unavailable_prerequisites": ["Community /api/rules/show: HTTP 404 for typescript:S6245 (2026-09-10); owning live metadata/examples unavailable."],
+      "cases": {
+        "attack": {"description": "Existing CreateBucketCommand omits encryption configuration.", "files": {"s6245_bad.ts": "import { CreateBucketCommand } from '@aws-sdk/client-s3';\nconst command = new CreateBucketCommand({ Bucket: 'reports' });\n"}, "sources": ["s6245_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing command includes server-side encryption configuration.", "files": {"s6245_good.ts": "import { CreateBucketCommand } from '@aws-sdk/client-s3';\nconst command = new CreateBucketCommand({ Bucket: 'reports', ServerSideEncryptionConfiguration: { Rules: [] } });\n"}, "sources": ["s6245_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same command API includes a concrete AES256 encryption rule.", "files": {"s6245_near_miss.ts": "import { CreateBucketCommand } from '@aws-sdk/client-s3';\nnew CreateBucketCommand({ Bucket: 'reports', ServerSideEncryptionConfiguration: { Rules: [{ ApplyServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } }] } });\n"}, "sources": ["s6245_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6249",
+      "rationale": "CDK S3 buckets should enforce HTTPS-only access.",
+      "cases": {
+        "attack": {"description": "Existing CDK bucket omits enforceSSL; the aws-cdk-lib import is required for dispatch.", "files": {"s6249_bad.ts": "import { aws_s3 } from 'aws-cdk-lib';\nnew aws_s3.Bucket(this, 'InsecureBucket', { versioned: true });\n"}, "sources": ["s6249_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing CDK bucket enables enforceSSL.", "files": {"s6249_good.ts": "import { aws_s3 } from 'aws-cdk-lib';\nnew aws_s3.Bucket(this, 'SecureBucket', { versioned: true, enforceSSL: true });\n"}, "sources": ["s6249_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same CDK Bucket API keeps HTTPS enforcement while disabling versioning.", "files": {"s6249_near_miss.ts": "import { aws_s3 } from 'aws-cdk-lib';\nnew aws_s3.Bucket(this, 'Bucket', { enforceSSL: true, versioned: false });\n"}, "sources": ["s6249_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6252",
+      "rationale": "CDK S3 buckets should enable object versioning.",
+      "cases": {
+        "attack": {"description": "Existing CDK bucket explicitly disables versioning.", "files": {"s6252_bad.ts": "import { aws_s3 } from 'aws-cdk-lib';\nnew aws_s3.Bucket(this, 'UnversionedBucket', { enforceSSL: true, versioned: false });\n"}, "sources": ["s6252_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing CDK bucket enables versioning.", "files": {"s6252_good.ts": "import { aws_s3 } from 'aws-cdk-lib';\nnew aws_s3.Bucket(this, 'VersionedBucket', { enforceSSL: true, versioned: true });\n"}, "sources": ["s6252_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same CDK Bucket API keeps versioning true with an encryption key.", "files": {"s6252_near_miss.ts": "import { aws_s3 } from 'aws-cdk-lib';\nnew aws_s3.Bucket(this, 'Bucket', { versioned: true, encryptionKey: key });\n"}, "sources": ["s6252_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6265",
+      "rationale": "CDK S3 buckets must not grant public read access.",
+      "cases": {
+        "attack": {"description": "Existing CDK bucket uses PUBLIC_READ accessControl.", "files": {"s6265_bad.ts": "import { aws_s3 } from 'aws-cdk-lib';\nnew aws_s3.Bucket(this, 'PublicBucket', { accessControl: aws_s3.BucketAccessControl.PUBLIC_READ, enforceSSL: true, versioned: true });\n"}, "sources": ["s6265_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing CDK bucket is private.", "files": {"s6265_good.ts": "import { aws_s3 } from 'aws-cdk-lib';\nnew aws_s3.Bucket(this, 'PrivateBucket', { accessControl: aws_s3.BucketAccessControl.PRIVATE, publicReadAccess: false, enforceSSL: true, versioned: true });\n"}, "sources": ["s6265_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same CDK Bucket API uses an explicit false publicReadAccess guard.", "files": {"s6265_near_miss.ts": "import { aws_s3 } from 'aws-cdk-lib';\nnew aws_s3.Bucket(this, 'Private', { publicReadAccess: false, enforceSSL: true });\n"}, "sources": ["s6265_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6268",
+      "rationale": "Angular sanitizer bypass methods trust potentially unsafe markup.",
+      "cases": {
+        "attack": {"description": "Existing sanitizer bypasses Angular HTML sanitization.", "files": {"s6268_bad.ts": "function trusted(html: string) {\n  return DomSanitizer.bypassSecurityTrustHtml(html);\n}\n"}, "sources": ["s6268_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing sanitizer call retains Angular sanitization.", "files": {"s6268_good.ts": "function sanitized(context: any, html: string) {\n  return DomSanitizer.sanitize(context, html);\n}\n"}, "sources": ["s6268_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same sanitizer object uses sanitize rather than a bypass method.", "files": {"s6268_near_miss.ts": "const safe = sanitizer.sanitize(SecurityContext.HTML, html);\n"}, "sources": ["s6268_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      },
+      "flow_cases": [
+        {"name": "sanitizer_branch", "description": "A branch always chooses native sanitization for untrusted input.", "files": {"sanitize.ts": "export function render(html: string, trusted: boolean): unknown {\n  if (trusted) return sanitizer.sanitize(SecurityContext.HTML, html);\n  return sanitizer.sanitize(SecurityContext.HTML, html);\n}\n"}, "sources": ["sanitize.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      ]
+    },
+    {
+      "key": "typescript:S6270",
+      "rationale": "AWS resource policies must not grant access to every principal.",
+      "cases": {
+        "attack": {"description": "Existing CDK policy uses StarPrincipal with ALLOW.", "files": {"s6270_bad.ts": "import { aws_iam } from 'aws-cdk-lib';\nnew aws_iam.PolicyStatement({ effect: aws_iam.Effect.ALLOW, actions: ['s3:GetObject'], resources: ['arn:aws:s3:::example-bucket/*'], principals: [new aws_iam.StarPrincipal()] });\n"}, "sources": ["s6270_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing CDK policy scopes principal to one ARN.", "files": {"s6270_good.ts": "import { aws_iam } from 'aws-cdk-lib';\nnew aws_iam.PolicyStatement({ effect: aws_iam.Effect.ALLOW, actions: ['s3:GetObject'], resources: ['arn:aws:s3:::example-bucket/*'], principals: [new aws_iam.ArnPrincipal('arn:aws:iam::123456789012:user/app')] });\n"}, "sources": ["s6270_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same policy API uses a concrete service principal.", "files": {"s6270_near_miss.ts": "import { aws_iam } from 'aws-cdk-lib';\nnew aws_iam.PolicyStatement({ effect: aws_iam.Effect.ALLOW, actions: ['s3:GetObject'], resources: ['arn:aws:s3:::example-bucket/*'], principals: [new aws_iam.ServicePrincipal('lambda.amazonaws.com')] });\n"}, "sources": ["s6270_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6275",
+      "rationale": "EBS volumes should be encrypted at rest.",
+      "cases": {
+        "attack": {"description": "Existing CDK volume disables encryption.", "files": {"s6275_bad.ts": "import { aws_ec2 } from 'aws-cdk-lib';\nnew aws_ec2.Volume(this, 'PlainVolume', { encrypted: false });\n"}, "sources": ["s6275_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing CDK volume enables encryption.", "files": {"s6275_good.ts": "import { aws_ec2 } from 'aws-cdk-lib';\nnew aws_ec2.Volume(this, 'EncryptedVolume', { encrypted: true });\n"}, "sources": ["s6275_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same Volume API enables encryption with GP3 type.", "files": {"s6275_near_miss.ts": "import { aws_ec2 } from 'aws-cdk-lib';\nnew aws_ec2.Volume(this, 'Volume', { encrypted: true, volumeType: aws_ec2.EbsDeviceVolumeType.GP3 });\n"}, "sources": ["s6275_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6281",
+      "rationale": "S3 public-access blocks must deny every public access mode.",
+      "cases": {
+        "attack": {"description": "Existing CDK block leaves public policy unblocked.", "files": {"s6281_bad.ts": "import { aws_s3 } from 'aws-cdk-lib';\nnew aws_s3.Bucket(this, 'PartialBlockBucket', { blockPublicAccess: new aws_s3.BlockPublicAccess({ blockPublicAcls: true, blockPublicPolicy: false, ignorePublicAcls: true, restrictPublicBuckets: true }) });\n"}, "sources": ["s6281_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing CDK block enables all public-access protections.", "files": {"s6281_good.ts": "import { aws_s3 } from 'aws-cdk-lib';\nnew aws_s3.Bucket(this, 'FullyBlockedBucket', { blockPublicAccess: new aws_s3.BlockPublicAccess({ blockPublicAcls: true, blockPublicPolicy: true, ignorePublicAcls: true, restrictPublicBuckets: true }) });\n"}, "sources": ["s6281_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same CDK Bucket API uses BLOCK_ALL preset.", "files": {"s6281_near_miss.ts": "import { aws_s3 } from 'aws-cdk-lib';\nnew aws_s3.Bucket(this, 'Blocked', { blockPublicAccess: aws_s3.BlockPublicAccess.BLOCK_ALL });\n"}, "sources": ["s6281_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6299",
+      "rationale": "Vue v-html inserts unsanitized HTML into the DOM.",
+      "unavailable_prerequisites": ["Community /api/rules/show: HTTP 404 for typescript:S6299 (2026-09-10); owning live metadata/examples unavailable."],
+      "cases": {
+        "attack": {"description": "Existing Vue template binds body through v-html.", "files": {"s6299_bad.ts": "const row = `<div v-html=\"item.body\"></div>`;\n"}, "sources": ["s6299_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing Vue interpolation escapes text content.", "files": {"s6299_good.ts": "const row = `<div>{{ item.body }}</div>`;\n"}, "sources": ["s6299_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same Vue template uses text interpolation with a conditional value.", "files": {"s6299_near_miss.ts": "const row = `<div>${item.body ? item.body : ''}</div>`;\n"}, "sources": ["s6299_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6302",
+      "rationale": "IAM actions wildcard grants every privilege.",
+      "cases": {
+        "attack": {"description": "Existing CDK statement allows actions '*'.", "files": {"s6302_bad.ts": "import { aws_iam } from 'aws-cdk-lib';\nnew aws_iam.PolicyStatement({ effect: aws_iam.Effect.ALLOW, actions: ['*'], resources: ['arn:aws:s3:::example-bucket/*'] });\n"}, "sources": ["s6302_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing CDK statement lists only required S3 actions.", "files": {"s6302_good.ts": "import { aws_iam } from 'aws-cdk-lib';\nnew aws_iam.PolicyStatement({ effect: aws_iam.Effect.ALLOW, actions: ['s3:GetObject', 's3:ListBucket'], resources: ['arn:aws:s3:::example-bucket/*'] });\n"}, "sources": ["s6302_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same policy API uses wildcard actions under DENY.", "files": {"s6302_near_miss.ts": "import { aws_iam } from 'aws-cdk-lib';\nnew aws_iam.PolicyStatement({ effect: aws_iam.Effect.DENY, actions: ['*'], resources: ['arn:aws:s3:::example-bucket/*'] });\n"}, "sources": ["s6302_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6303",
+      "rationale": "RDS storage should be encrypted at rest.",
+      "cases": {
+        "attack": {"description": "Existing CDK RDS instance disables storage encryption.", "files": {"s6303_bad.ts": "import { aws_rds } from 'aws-cdk-lib';\nnew aws_rds.DatabaseInstance(this, 'Database', { storageEncrypted: false });\n"}, "sources": ["s6303_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing CDK RDS instance enables storage encryption.", "files": {"s6303_good.ts": "import { aws_rds } from 'aws-cdk-lib';\nnew aws_rds.DatabaseInstance(this, 'Database', { storageEncrypted: true });\n"}, "sources": ["s6303_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same RDS API keeps encryption true with a storage class.", "files": {"s6303_near_miss.ts": "import { aws_rds } from 'aws-cdk-lib';\nnew aws_rds.DatabaseInstance(this, 'Database', { storageEncrypted: true, storageType: 'gp3' });\n"}, "sources": ["s6303_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6304",
+      "rationale": "IAM Resource wildcard grants access to every resource.",
+      "cases": {
+        "attack": {"description": "Existing CDK policy allows Resource '*'.", "files": {"s6304_bad.ts": "import { aws_iam } from 'aws-cdk-lib';\nnew aws_iam.PolicyStatement({ effect: aws_iam.Effect.ALLOW, actions: ['s3:GetObject'], resources: ['*'] });\n"}, "sources": ["s6304_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing CDK policy scopes Resource to one bucket prefix.", "files": {"s6304_good.ts": "import { aws_iam } from 'aws-cdk-lib';\nnew aws_iam.PolicyStatement({ effect: aws_iam.Effect.ALLOW, actions: ['s3:GetObject'], resources: ['arn:aws:s3:::example-bucket/*'] });\n"}, "sources": ["s6304_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same policy API uses wildcard Resource under DENY.", "files": {"s6304_near_miss.ts": "import { aws_iam } from 'aws-cdk-lib';\nnew aws_iam.PolicyStatement({ effect: aws_iam.Effect.DENY, actions: ['s3:GetObject'], resources: ['*'] });\n"}, "sources": ["s6304_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6308",
+      "rationale": "L2 OpenSearch Domain encryption uses the encryptionAtRest property.",
+      "cases": {
+        "attack": {"description": "L2 OpenSearch Domain explicitly disables encryptionAtRest.", "files": {"s6308_attack.ts": "import { aws_opensearchservice } from 'aws-cdk-lib';\nnew aws_opensearchservice.Domain(this, 'Domain', { version: aws_opensearchservice.EngineVersion.OPENSEARCH_2_3, encryptionAtRest: { enabled: false } });\n"}, "sources": ["s6308_attack.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "L2 OpenSearch Domain explicitly enables encryptionAtRest.", "files": {"s6308_safe.ts": "import { aws_opensearchservice } from 'aws-cdk-lib';\nnew aws_opensearchservice.Domain(this, 'Domain', { version: aws_opensearchservice.EngineVersion.OPENSEARCH_2_3, encryptionAtRest: { enabled: true } });\n"}, "sources": ["s6308_safe.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The same L2 Domain API retains encryptionAtRest with another engine version.", "files": {"s6308_near_miss.ts": "import { aws_opensearchservice } from 'aws-cdk-lib';\nnew aws_opensearchservice.Domain(this, 'Domain', { version: aws_opensearchservice.EngineVersion.OPENSEARCH_2_5, encryptionAtRest: { enabled: true } });\n"}, "sources": ["s6308_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6317",
+      "rationale": "Privilege-escalating IAM actions must not target wildcard role resources.",
+      "cases": {
+        "attack": {"description": "Existing CDK AssumeRole action targets every role.", "files": {"s6317_bad.ts": "import { aws_iam } from 'aws-cdk-lib';\nnew aws_iam.PolicyStatement({ effect: aws_iam.Effect.ALLOW, actions: ['sts:AssumeRole'], resources: ['*:*:*:*:role/*'], principals: [new aws_iam.ServicePrincipal('ec2.amazonaws.com')] });\n"}, "sources": ["s6317_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing CDK AssumeRole action targets one role ARN.", "files": {"s6317_good.ts": "import { aws_iam } from 'aws-cdk-lib';\nnew aws_iam.PolicyStatement({ effect: aws_iam.Effect.ALLOW, actions: ['sts:AssumeRole'], resources: ['arn:aws:iam::123456789012:role/deploy'], principals: [new aws_iam.ServicePrincipal('ec2.amazonaws.com')] });\n"}, "sources": ["s6317_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same action uses a wildcard non-role resource outside the escalation pattern.", "files": {"s6317_near_miss.ts": "import { aws_iam } from 'aws-cdk-lib';\nnew aws_iam.PolicyStatement({ effect: aws_iam.Effect.ALLOW, actions: ['s3:GetObject'], resources: ['*:*:*:*:policy/*'] });\n"}, "sources": ["s6317_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6319",
+      "rationale": "SageMaker notebook storage should be encrypted with a KMS key.",
+      "cases": {
+        "attack": {"description": "Existing CDK notebook omits kmsKeyId.", "files": {"s6319_bad.ts": "import { aws_sagemaker } from 'aws-cdk-lib';\nnew aws_sagemaker.CfnNotebookInstance(this, 'Notebook');\n"}, "sources": ["s6319_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing CDK notebook provides a KMS key ARN.", "files": {"s6319_good.ts": "import { aws_sagemaker } from 'aws-cdk-lib';\nnew aws_sagemaker.CfnNotebookInstance(this, 'Notebook', { kmsKeyId: 'arn:aws:kms:eu-central-1:123456789012:key/1234abcd-12ab-34cd-56ef-1234567890ab' });\n"}, "sources": ["s6319_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same notebook API supplies a KMS alias and instance type.", "files": {"s6319_near_miss.ts": "import { aws_sagemaker } from 'aws-cdk-lib';\nnew aws_sagemaker.CfnNotebookInstance(this, 'Notebook', { kmsKeyId: 'alias/notebook-key', instanceType: 'ml.t3.medium' });\n"}, "sources": ["s6319_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6321",
+      "rationale": "SSH and RDP must not be reachable from the open internet.",
+      "cases": {
+        "attack": {"description": "Existing CDK security group opens SSH and RDP to any IPv4 address.", "files": {"s6321_bad.ts": "import { aws_ec2 } from 'aws-cdk-lib';\nsg.connections.allowFromAnyIpv4(aws_ec2.Port.tcp(22));\nsg.connections.allowFrom(aws_ec2.Peer.anyIpv4(), aws_ec2.Port.tcp(3389));\n"}, "sources": ["s6321_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing CDK security group restricts SSH and leaves HTTPS out of scope.", "files": {"s6321_good.ts": "import { aws_ec2 } from 'aws-cdk-lib';\nsg.connections.allowFrom(aws_ec2.Peer.ipv4('10.0.0.0/8'), aws_ec2.Port.tcp(22));\nsg.connections.allowFrom(aws_ec2.Peer.anyIpv4(), aws_ec2.Port.tcp(8443));\n"}, "sources": ["s6321_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same connections API opens non-admin port 8443 to any IPv4 address.", "files": {"s6321_near_miss.ts": "import { aws_ec2 } from 'aws-cdk-lib';\nsg.connections.allowFrom(aws_ec2.Peer.anyIpv4(), aws_ec2.Port.tcp(8443));\n"}, "sources": ["s6321_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6327",
+      "rationale": "L2 SNS Topic.masterKey requires an AWS KMS key object.",
+      "cases": {
+        "attack": {"description": "Existing CDK topic omits a master key.", "files": {"s6327_bad.ts": "import { aws_sns } from 'aws-cdk-lib';\nnew aws_sns.Topic(this, 'Topic');\n"}, "sources": ["s6327_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "The L2 SNS Topic receives a typed KMS Key object as masterKey.", "files": {"s6327_good.ts": "import { aws_kms, aws_sns } from 'aws-cdk-lib';\nconst encryptionKey = new aws_kms.Key(this, 'ExampleKey', { enableKeyRotation: true });\nnew aws_sns.Topic(this, 'Topic', { masterKey: encryptionKey });\n"}, "sources": ["s6327_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same SNS API uses L1 CfnTopic with kmsMasterKeyId.", "files": {"s6327_near_miss.ts": "import { aws_sns } from 'aws-cdk-lib';\nnew aws_sns.CfnTopic(this, 'Topic', { kmsMasterKeyId: 'alias/example-key' });\n"}, "sources": ["s6327_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6329",
+      "rationale": "Cloud resources on public networks expose administrative surfaces.",
+      "cases": {
+        "attack": {"description": "Existing CDK EC2 and DMS resources are publicly exposed.", "files": {"s6329_bad.ts": "import { aws_dms, aws_ec2 } from 'aws-cdk-lib';\nnew aws_ec2.Instance(this, 'Instance', { vpcSubnets: { subnetType: aws_ec2.SubnetType.PUBLIC } });\nnew aws_dms.CfnReplicationInstance(this, 'Replication', { publiclyAccessible: true });\n"}, "sources": ["s6329_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing CDK DMS replication instance is not publicly accessible.", "files": {"s6329_good.ts": "import { aws_dms } from 'aws-cdk-lib';\nnew aws_dms.CfnReplicationInstance(this, 'Replication', { publiclyAccessible: false });\n"}, "sources": ["s6329_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same DMS API keeps public accessibility false with another instance class.", "files": {"s6329_near_miss.ts": "import { aws_dms } from 'aws-cdk-lib';\nnew aws_dms.CfnReplicationInstance(this, 'Replication', { publiclyAccessible: false, replicationInstanceClass: 'dms.t3.medium' });\n"}, "sources": ["s6329_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6330",
+      "rationale": "SQS queues should be encrypted at rest.",
+      "cases": {
+        "attack": {"description": "Existing CDK queue disables encryption and L1 form omits a KMS key.", "files": {"s6330_bad.ts": "import { aws_sqs } from 'aws-cdk-lib';\nnew aws_sqs.Queue(this, 'Queue', { encryption: aws_sqs.QueueEncryption.UNENCRYPTED });\nnew aws_sqs.CfnQueue(this, 'CfnQueue');\n"}, "sources": ["s6330_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing CDK queue uses managed encryption and an L1 KMS key.", "files": {"s6330_good.ts": "import { aws_sqs } from 'aws-cdk-lib';\nnew aws_sqs.Queue(this, 'Queue', { encryption: aws_sqs.QueueEncryption.KMS_MANAGED });\nnew aws_sqs.CfnQueue(this, 'CfnQueue', { kmsMasterKeyId: 'alias/example-key' });\n"}, "sources": ["s6330_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same L1 queue API supplies a concrete KMS key id.", "files": {"s6330_near_miss.ts": "import { aws_sqs } from 'aws-cdk-lib';\nnew aws_sqs.CfnQueue(this, 'Queue', { kmsMasterKeyId: 'arn:aws:kms:eu-central-1:123456789012:key/abcd' });\n"}, "sources": ["s6330_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6332",
+      "rationale": "EFS file systems should be encrypted at rest.",
+      "cases": {
+        "attack": {"description": "Existing L2 EFS and L1 EFS controls leave encryption disabled or omitted.", "files": {"s6332_bad.ts": "import { aws_efs } from 'aws-cdk-lib';\nnew aws_efs.FileSystem(this, 'FileSystem', { encrypted: false });\nnew aws_efs.CfnFileSystem(this, 'CfnFileSystem');\n"}, "sources": ["s6332_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing L2 default and L1 explicit encryption are safe controls.", "files": {"s6332_good.ts": "import { aws_efs } from 'aws-cdk-lib';\nnew aws_efs.FileSystem(this, 'FileSystem');\nnew aws_efs.CfnFileSystem(this, 'CfnFileSystem', { encrypted: true });\n"}, "sources": ["s6332_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same L1 EFS API explicitly enables encryption with a KMS key.", "files": {"s6332_near_miss.ts": "import { aws_efs } from 'aws-cdk-lib';\nnew aws_efs.CfnFileSystem(this, 'FileSystem', { encrypted: true, kmsKeyId: 'alias/efs-key' });\n"}, "sources": ["s6332_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6333",
+      "rationale": "Resource.addMethod receives a real integration second and authorization options third.",
+      "cases": {
+        "attack": {"description": "Existing CfnMethod uses NONE authorization and addMethod omits options.", "files": {"s6333_bad.ts": "import { aws_apigateway } from 'aws-cdk-lib';\nnew aws_apigateway.CfnMethod(this, 'Method', { httpMethod: 'GET', authorizationType: 'NONE' });\nconst api = new aws_apigateway.RestApi(this, 'Api');\napi.root.addMethod('GET');\n"}, "sources": ["s6333_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Same API Gateway method uses AWS_IAM authorization.", "files": {"s6333_good.ts": "import { aws_apigateway } from 'aws-cdk-lib';\nnew aws_apigateway.CfnMethod(this, 'Method', { httpMethod: 'GET', authorizationType: 'AWS_IAM' });\n"}, "sources": ["s6333_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "The RestApi method passes a real integration second and IAM authorization options third.", "files": {"s6333_near_miss.ts": "import { aws_apigateway } from 'aws-cdk-lib';\nconst api = new aws_apigateway.RestApi(this, 'Api');\napi.root.addMethod('GET', new aws_apigateway.HttpIntegration('https://example.org'), { authorizationType: aws_apigateway.AuthorizationType.IAM });\n"}, "sources": ["s6333_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    },
+    {
+      "key": "typescript:S6418",
+      "rationale": "A high-entropy literal assigned to a secret-like name is a hard-coded secret.",
+      "cases": {
+        "attack": {"description": "Existing apiKey literal is high entropy and matches secretWords.", "files": {"s6418_bad.ts": "const apiKeyValue: string = 'Zx9kQ2vL8pR4tW7yB1nM6cJ3fH5dG0aE#';\n"}, "sources": ["s6418_bad.ts"], "native_args": [], "sonar_properties": {}, "expected_target": true},
+        "safe": {"description": "Existing short token is not long or random enough to be a hard-coded secret.", "files": {"s6418_good.ts": "const token: string = 'Zx9kQ2';\n"}, "sources": ["s6418_good.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false},
+        "near_miss": {"description": "Same secret-like name reads deployment configuration instead of embedding a literal.", "files": {"s6418_near_miss.ts": "const apiKeyValue: string | undefined = process.env.API_KEY;\n"}, "sources": ["s6418_near_miss.ts"], "native_args": [], "sonar_properties": {}, "expected_target": false}
+      }
+    }
+  ]
+}

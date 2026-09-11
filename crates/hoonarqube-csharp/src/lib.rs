@@ -6,23 +6,19 @@
 //! catalog (`csharpsquid:S103`); severity and type always resolve through the
 //! frozen `hoonarqube-catalog` catalog via [`hoonarqube_ir::Issue::rule_key`],
 //! never duplicated here. Syntax errors emit no issues (no catalog-backed
-//! `ParsingError` rule exists for C#), except exact S2306 declaration recovery
-//! for valid contextual-keyword identifiers misparsed by tree-sitter.
+//! `ParsingError` rule exists for C#).
 //!
-//! # Documented coverage gaps (INFRA skips)
+//! Explicit project-mode APIs in [`semantic`] can invoke a trusted Roslyn
+//! helper once for a complete source snapshot set.  The standalone
+//! [`analyze`] function never requires that helper and never emits
+//! compiler-backed semantic findings without a complete verified context;
+//! narrow syntax-only subsets may still run natively.
 //!
-//! Seven rules of the frozen `csharpsquid` catalog are intentionally not
-//! implemented because the analysis infrastructure they require does not
-//! exist in this crate; the coverage audit gaps are explained here in code:
-//!
-//! - `csharpsquid:S110`, `csharpsquid:S1200`, `csharpsquid:S1944`,
-//!   `csharpsquid:S3242`, `csharpsquid:S3246`, `csharpsquid:S4047`
-//!   (type-lattice and inheritance-coupling checks): detection needs
-//!   Roslyn-grade type lattice / inheritance coupling graphs that a
-//!   single-pass tree-sitter syntax tree cannot provide.
-//! - `csharpsquid:S6802` (Blazor loop lambdas): detection needs a compilation
-//!   containing `RenderTreeBuilder` plus semantic invocation binding, which a
-//!   single-pass tree-sitter syntax tree cannot provide.
+//! The compiler-backed rules are:
+//! `csharpsquid:S110`, `S1200`, `S1905`, `S1944`, `S3242`, `S3246`,
+//! `S4047`, and `S6802`.  Their facts are versioned and fail closed when
+//! project evaluation, references, compiler diagnostics, or generated-source
+//! mappings are missing.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -162,22 +158,11 @@ pub fn analyze(
     let root = tree.root_node();
     let (metrics, code_line_count) = metrics::file_metrics(root, source);
     if root.has_error() {
-        // tree-sitter-c-sharp currently recovers valid contextual-keyword
-        // declarations such as `int await` with ERROR nodes. Its declaration
-        // names remain exact identifier nodes, so preserve S2306 and the
-        // independent file-scope S3903 evidence without running other rules.
-        let mut issues =
-            rules::modifiers::contextual_keyword_identifiers::check(root, source, language);
-        if !issues.is_empty() {
-            issues.extend(rules::structure::types_outside_namespaces::check(
-                root, source, language,
-            ));
-        }
-        hoonarqube_ir::sort_issues(&mut issues);
+        // Do not run rule families on a recovered malformed tree.
         return hoonarqube_ir::FileReport {
             path,
             language: language.prefix().to_string(),
-            issues,
+            issues: Vec::new(),
             metrics,
         };
     }
@@ -232,14 +217,15 @@ pub fn analyze(
     issues.extend(rules::tier_c::tier_c_heuristic_issues(
         root, source, language,
     ));
-    hoonarqube_ir::sort_issues(&mut issues);
-
-    hoonarqube_ir::FileReport {
+    let mut report = hoonarqube_ir::FileReport {
         path,
         language: language.prefix().to_string(),
         issues,
         metrics,
-    }
+    };
+    quickfix::attach_fixes_from_tree(root, source, options, &mut report, None);
+    hoonarqube_ir::sort_issues(&mut report.issues);
+    report
 }
 /// Exact `CodeQL` query IDs emitted by [`analyze_github_quality`], in sorted order.
 pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
@@ -599,13 +585,41 @@ fn parse(source: &str) -> tree_sitter::Tree {
         .parse(source, None)
         .expect("parse always yields a tree")
 }
-mod github_quality;
-
 mod cst;
+mod github_quality;
 mod metrics;
 mod rules;
 mod symbol_table;
 
+pub(crate) mod quickfix;
+pub mod semantic;
+pub mod semantic_quickfix;
+pub use semantic::{
+    BUNDLED_HELPER_NUGET_CONFIG, BUNDLED_HELPER_PROGRAM, BUNDLED_HELPER_PROJECT,
+    BUNDLED_HELPER_QUICKFIX_PLANNER, BaseTypeSuggestionFact, BlazorLambdaFact, CastFact,
+    CompilerFingerprint, GenericVarianceFact, HelperCommand, NullableMode, ProjectSemanticConfig,
+    ProjectSemanticContext, RefObjectParameterFact, SEMANTIC_SCHEMA_VERSION, SemanticDiagnostic,
+    SemanticFacts, SemanticRuleOptions, SemanticSpan, SemanticStatus, SourceSnapshot, TypeFact,
+    prepare_bundled_helper,
+};
+pub use semantic_quickfix::{CompilerQuickFixAction, CompilerQuickFixEdit, CompilerQuickFixFact};
+/// Attaches C# quick-fix alternatives using the supplied source and analyzer
+/// options, plus (optionally) an exact complete project context.  The ordinary
+/// per-file API may pass `None`; project-semantic alternatives remain
+/// suppressed.
+pub fn attach_fixes_with_context(
+    source: &str,
+    options: &AnalyzerOptions,
+    report: &mut hoonarqube_ir::FileReport,
+    context: Option<&ProjectSemanticContext>,
+) {
+    quickfix::attach_fixes(
+        source,
+        options,
+        report,
+        context.map(|context| context as &dyn quickfix::QuickFixSemanticFacts),
+    );
+}
 #[cfg(test)]
 mod tests;
 
@@ -1138,6 +1152,19 @@ class Derived : Base { }
                 .count(),
             1
         );
+    }
+    #[test]
+    fn lock_this_reports_innermost_this_through_parentheses() {
+        let found = analyze_github_quality(
+            "class C\n{\n    void Run()\n    {\n        lock ((this))\n        {\n        }\n    }\n}\n",
+        );
+        let issue = found
+            .iter()
+            .find(|issue| issue.rule_key == "cs/lock-this")
+            .expect("parenthesized this is reported");
+        assert_eq!(issue.range.start.line, 5);
+        assert_eq!(issue.range.start.column, 15);
+        assert_eq!(issue.range.end.column, 19);
     }
 
     #[test]

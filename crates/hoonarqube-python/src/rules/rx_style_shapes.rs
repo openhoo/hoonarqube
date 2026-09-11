@@ -3,8 +3,9 @@ use crate::engine::rx::RxAtom;
 use crate::engine::rx::RxParsed;
 use crate::engine::rx::for_each_class;
 use crate::engine::rx::for_each_rx_item;
+use crate::engine::rx::for_each_rx_seq_deep;
 use crate::engine::rx::rx_complexity;
-use crate::rules::curly_quantifier::check_curly_quantifier;
+use crate::rules::curly_quantifier::{check_curly_quantifier, check_redundant_repetition};
 use crate::rules::rx_class::check_rx_class;
 use ruff_text_size::{TextRange, TextSize};
 
@@ -52,6 +53,9 @@ pub(crate) fn check_rx_style_shapes(
             check_curly_quantifier(quant, source, push);
         }
     });
+    for_each_rx_seq_deep(&parsed.root, &mut |seq| {
+        check_redundant_repetition(seq, source, push);
+    });
     // Class-level checks.
     for_each_class(&parsed.root, &mut |class| {
         check_rx_class(class, source, push);
@@ -75,6 +79,22 @@ mod tests {
         assert!(!regex_finds(
             "import re\nre.compile(r'<[^>]*>')\n",
             "python:S5857"
+        ));
+    }
+
+    #[test]
+    fn s6353_flags_verbose_class_and_equal_range_shapes() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'[0-9]')\n",
+            "python:S6353"
+        ));
+        assert!(regex_finds(
+            "import re\nre.compile(r'[a-a]')\n",
+            "python:S6353"
+        ));
+        assert!(regex_finds(
+            "import re\nre.compile(r'[\\w\\W]')\n",
+            "python:S6353"
         ));
     }
 

@@ -1,0 +1,12 @@
+{
+  "name": "hoonarqube-jsts-semantic-fixture",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "declared-package": "1.0.0"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./internal": "./src/internal.ts"
+  }
+}

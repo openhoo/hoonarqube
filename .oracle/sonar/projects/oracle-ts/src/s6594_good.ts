@@ -1,1 +1,1 @@
-const one = text.match(/ab/);
+const hits = text.match(/ab/g);

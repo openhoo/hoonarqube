@@ -1,5 +1,8 @@
 function work() {
+  const value = prepare();
   {
-    prepare();
+    let value = prepare();
+    use(value);
   }
+  use(value);
 }

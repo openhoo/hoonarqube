@@ -4,7 +4,7 @@ inputs:
   version:
     description: Hoonarqube release version to install.
     required: false
-    default: "0.4.2"
+    default: "0.8.2"
   executable:
     description: Optional Hoonarqube executable path; skips release installation when set.
     required: false
@@ -28,6 +28,10 @@ inputs:
     description: "Minimum SARIF severity that fails the action: none, findings, note, warning, or error."
     required: false
     default: "none"
+  cache-dir:
+    description: Optional analysis cache directory; the executable must support --cache-dir.
+    required: false
+    default: ""
 outputs:
   report:
     description: Absolute path to the validated SARIF report.
@@ -61,6 +65,7 @@ runs:
       env:
         INPUT_EXECUTABLE: ${{ inputs.executable }}
         INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_CACHE_DIR: ${{ inputs.cache-dir }}
         INPUT_OUTPUT: ${{ inputs.output }}
         INPUT_PATHS: ${{ inputs.paths }}
         INPUT_UPLOAD: ${{ inputs.upload }}
@@ -105,18 +110,51 @@ runs:
           paths+=("$path")
         done <<< "$INPUT_PATHS"
 
+        reject_symlink_path() {
+          local path="$1"
+          local current="/"
+          local component
+          local -a components=()
+          if [[ "$path" != /* ]]; then
+            current="."
+          fi
+          IFS='/' read -r -a components <<< "${path#/}"
+          for component in "${components[@]}"; do
+            [[ -z "$component" || "$component" == "." ]] && continue
+            current="${current%/}/$component"
+            if [[ -L "$current" ]]; then
+              return 1
+            fi
+          done
+          return 0
+        }
+
         report_path="$INPUT_OUTPUT"
         if [[ "$report_path" != /* ]]; then
           report_path="$PWD/$report_path"
         fi
-        mkdir -p -- "$(dirname -- "$report_path")"
-
-        temp_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
-        mkdir -p -- "$temp_root"
-        temporary_report="$(mktemp "$temp_root/hoonarqube-code-quality.XXXXXX.sarif")"
+        if ! reject_symlink_path "$report_path"; then
+          echo "::error::output path must not traverse symlinks."
+          exit 2
+        fi
+        report_dir="$(dirname -- "$report_path")"
+        mkdir -p -- "$report_dir"
+        if ! reject_symlink_path "$report_path"; then
+          echo "::error::output path must not traverse symlinks."
+          exit 2
+        fi
+        if [[ -d "$report_path" ]]; then
+          echo "::error::output path must name a report file."
+          exit 2
+        fi
+        temporary_report="$(mktemp "$report_dir/.hoonarqube-code-quality.XXXXXX.sarif")"
         trap 'rm -f -- "$temporary_report"' EXIT
 
-        if ! "${hoonarqube_command[@]}" analyze --profile github-code-quality --format sarif -- "${paths[@]}" > "$temporary_report"; then
+        analysis_args=(analyze --profile github-code-quality --format sarif)
+        if [[ -n "$INPUT_CACHE_DIR" ]]; then
+          analysis_args+=(--cache-dir "$INPUT_CACHE_DIR")
+        fi
+        if ! "${hoonarqube_command[@]}" "${analysis_args[@]}" -- "${paths[@]}" > "$temporary_report"; then
           echo "::error::Hoonarqube analysis failed; no SARIF report was published."
           exit 1
         fi

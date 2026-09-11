@@ -2,13 +2,9 @@
 use crate::engine::scope_model::callee_member_name;
 use crate::engine::scope_model::member_optional;
 use crate::engine::scope_model::tb_assignment_target;
-use crate::rules::shared::SHELL_EXEC_FUNCTIONS;
 use crate::rules::shared::duplicated_key_name;
 use crate::rules::shared::expression_through_this_link;
-use crate::rules::shared::is_unpinned_npm_install;
 use crate::rules::shared::regex_pattern_text;
-use crate::rules::shared::static_command_text;
-use crate::rules::tier_b::s2077_tb_sql_injection::SqlInjectionCollector;
 use crate::rules::tier_b::s2259_tb_null_accesses::NullAccessCollector;
 use crate::rules::tier_b::s2589_tb_constant_conditions::ConstantConditionCollector;
 use crate::rules::tier_b::s2933_tb_readonly_candidate_fields::ReadonlyFieldCollector;
@@ -18,14 +14,11 @@ use crate::rules::tier_b::s4043_tb_in_place_captures::InPlaceCaptureCollector;
 use crate::rules::tier_b::s4143_tb_map_round_trips::MapRoundTripCollector;
 use crate::rules::tier_b::s4784_tb_dynamic_regexps::DynamicRegexCollector;
 use crate::rules::tier_b::s5443_tb_permissive_file_access::PermissiveAccessCollector;
-use crate::rules::tier_b::s5725_tb_shell_commands::ShellCommandCollector;
 use crate::rules::tier_b::s5860_tb_named_groups::NamedGroupCollector;
-use crate::rules::tier_b::s5876_tb_session_regeneration::SessionRegenerationCollector;
 use crate::rules::tier_b::s6486_tb_unstable_keys::UnstableKeyCollector;
 use crate::rules::tier_b::s6544_tb_promise_chains::PromiseChainCollector;
 use crate::support::IssueSink;
 use crate::support::ast::callee_name;
-use crate::support::ast::expression_root_name;
 use crate::support::member_object;
 use crate::support::property_key_name;
 use crate::support::static_property_name;
@@ -207,9 +200,6 @@ impl<'a> Visit<'a> for ClassRuleCollector<'a, '_> {
     }
 }
 
-/// All Tier-B checks that run over the scope model.
-const SQL_SINK_METHODS: [&str; 3] = ["query", "execute", "exec"];
-
 const WRITE_ONLY_METHODS: [&str; 4] = ["push", "unshift", "set", "add"];
 
 const IN_PLACE_ARRAY_METHODS: [&str; 4] = ["sort", "reverse", "splice", "fill"];
@@ -223,23 +213,6 @@ const FS_WRITE_FUNCTIONS: [&str; 7] = [
     "appendFileSync",
     "mkdir",
 ];
-
-fn is_dynamic_sql(expression: &Expression<'_>) -> bool {
-    match expression {
-        Expression::TemplateLiteral(template) => !template.expressions.is_empty(),
-        Expression::BinaryExpression(binary) if binary.operator == BinaryOperator::Addition => {
-            sql_operand_is_untrusted(&binary.left) || sql_operand_is_untrusted(&binary.right)
-        }
-        _ => false,
-    }
-}
-
-fn sql_operand_is_untrusted(expression: &Expression<'_>) -> bool {
-    !matches!(
-        unparenthesized(expression),
-        Expression::StringLiteral(_) | Expression::NumericLiteral(_)
-    )
-}
 
 fn is_empty_collection_init(init: &Expression<'_>) -> bool {
     match init {
@@ -341,19 +314,6 @@ fn is_static_regex_source(expression: &Expression<'_>) -> bool {
         Expression::TemplateLiteral(template) => template.expressions.is_empty(),
         Expression::BinaryExpression(binary) if binary.operator == BinaryOperator::Addition => {
             is_static_regex_source(&binary.left) && is_static_regex_source(&binary.right)
-        }
-        _ => false,
-    }
-}
-
-fn is_login_path(expression: &Expression<'_>) -> bool {
-    match expression {
-        Expression::StringLiteral(literal) => {
-            let path = literal.value.to_ascii_lowercase();
-            path.contains("login")
-                || path.contains("signin")
-                || path.contains("sign-in")
-                || path.contains("auth")
         }
         _ => false,
     }
@@ -534,8 +494,7 @@ impl<'p> Visit<'p> for TrailingCommaListCollector<'p> {
     }
 }
 
-/// The `S1438` skip note above explains why no semicolon findings are emitted;
-/// this collector only feeds the trailing-comma checks.
+/// Collects array and object elements for trailing-comma checks.
 impl<'p> TrailingCommaListCollector<'p> {
     /// Constructs a collector over raw source bytes.
     pub(crate) fn new(source: &'p str) -> Self {
@@ -708,20 +667,6 @@ impl<'a> Visit<'a> for LetToConstCollector<'a> {
         }
         walk_declaration(self, &declaration.declaration);
         self.in_export = saved;
-    }
-}
-
-impl<'p> Visit<'p> for SqlInjectionCollector {
-    fn visit_call_expression(&mut self, call: &CallExpression<'p>) {
-        if let Some(name) = callee_member_name(call)
-            && SQL_SINK_METHODS.contains(&name)
-            && let Some(argument) = call.arguments.first()
-            && let Some(expression) = argument.as_expression()
-            && is_dynamic_sql(unparenthesized(expression))
-        {
-            self.sites.push(expression.span());
-        }
-        walk_call_expression(self, call);
     }
 }
 
@@ -995,21 +940,6 @@ impl<'p> Visit<'p> for DynamicRegexCollector<'p> {
     }
 }
 
-impl<'p> Visit<'p> for SessionRegenerationCollector {
-    fn visit_call_expression(&mut self, call: &CallExpression<'p>) {
-        if callee_member_name(call) == Some("post")
-            && expression_root_name(&call.callee) == Some("app")
-            && let Some(path) = call.arguments.first().and_then(|a| a.as_expression())
-            && is_login_path(unparenthesized(path))
-            && let Some(handler) = call.arguments.get(1).and_then(|a| a.as_expression())
-        {
-            // Handler details need source text; resolved in the rule query.
-            self.sites.push(handler.span());
-        }
-        walk_call_expression(self, call);
-    }
-}
-
 impl<'p> Visit<'p> for UnstableKeyCollector {
     fn visit_jsx_attribute(&mut self, attribute: &JSXAttribute<'p>) {
         if let JSXAttributeName::Identifier(name) = &attribute.name
@@ -1034,36 +964,6 @@ impl<'p> Visit<'p> for PromiseChainCollector {
             && then_callback_returns_nothing(receiver)
         {
             self.sites.push(receiver.span());
-        }
-        walk_call_expression(self, call);
-    }
-}
-
-impl<'p> Visit<'p> for ShellCommandCollector {
-    fn visit_call_expression(&mut self, call: &CallExpression<'p>) {
-        let name = callee_name(call).or_else(|| callee_member_name(call));
-        if let Some(name) = name
-            && SHELL_EXEC_FUNCTIONS.contains(&name)
-            && let Some(command) = call
-                .arguments
-                .first()
-                .and_then(|argument| argument.as_expression())
-                .and_then(static_command_text)
-        {
-            let site = match (
-                command.starts_with("curl ")
-                    && command
-                        .split_whitespace()
-                        .any(|token| token.starts_with("http://")),
-                is_unpinned_npm_install(&command),
-            ) {
-                (true, _) => Some("http"),
-                (false, true) => Some("npm"),
-                (false, false) => None,
-            };
-            if let Some(site) = site {
-                self.sites.push((call.span, site));
-            }
         }
         walk_call_expression(self, call);
     }

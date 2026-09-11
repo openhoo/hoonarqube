@@ -1713,7 +1713,7 @@ pub(crate) fn concise_class_replacement(class: &RxClass) -> Option<&'static str>
             }
             _ => false,
         };
-    complementary.then_some("Use the wildcard instead of this all-matching character class.")
+    complementary.then_some(".")
 }
 
 /// RSPEC-5843 complexity: nesting-sensitive operator counting.

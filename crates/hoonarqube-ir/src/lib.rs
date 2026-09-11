@@ -12,6 +12,8 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Deserializer, Serialize, de};
+/// Versioned optional baseline, coverage, and gate assessment.
+pub mod assessment;
 
 /// Source position. `line` is 1-based, `column` is 0-based (`SonarQube`
 /// text-range convention).
@@ -154,6 +156,23 @@ pub struct Fix {
     pub message: String,
     pub edits: Vec<TextEdit>,
 }
+impl Fix {
+    /// Builds a machine-applicable remedy, sorting `edits` ascending by start
+    /// position so the [`Fix`] invariants hold.
+    ///
+    /// # Panics
+    /// Panics when any edit's range is inverted (`start` after `end`) or when
+    /// two edits overlap — including two insertions at the same position —
+    /// because overlapping edits cannot be applied deterministically.
+    #[must_use]
+    pub fn new(message: impl Into<String>, edits: Vec<TextEdit>) -> Self {
+        Self {
+            message: message.into(),
+            edits: validate_fix_edits(edits),
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct FixRepr {
     message: String,
@@ -193,6 +212,64 @@ impl<'de> Deserialize<'de> for Fix {
             edits: raw.edits,
         })
     }
+}
+/// One named alternative machine-applicable remedy.
+///
+/// The `id` is stable within its containing issue and selects this remedy
+/// explicitly; alternatives are never treated as the issue's automatic fix.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FixAlternative {
+    pub id: String,
+    pub fix: Fix,
+}
+
+#[derive(Deserialize)]
+struct FixAlternativeRepr {
+    id: String,
+    fix: Fix,
+}
+
+impl<'de> Deserialize<'de> for FixAlternative {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = FixAlternativeRepr::deserialize(deserializer)?;
+        if raw.id.is_empty() {
+            return Err(de::Error::custom(
+                "quick fix alternative id must not be empty",
+            ));
+        }
+        Ok(Self {
+            id: raw.id,
+            fix: raw.fix,
+        })
+    }
+}
+
+fn validate_fix_edits(mut edits: Vec<TextEdit>) -> Vec<TextEdit> {
+    assert!(
+        !edits.is_empty(),
+        "quick fix must contain at least one TextEdit"
+    );
+    for edit in &edits {
+        assert!(
+            (edit.range.start.line, edit.range.start.column)
+                <= (edit.range.end.line, edit.range.end.column),
+            "inverted TextEdit range {:?}",
+            edit.range
+        );
+    }
+    edits.sort_by_key(|edit| edit.range.start);
+    for pair in edits.windows(2) {
+        assert!(
+            !pair[0].overlaps(&pair[1]),
+            "overlapping TextEdits at {:?} / {:?}",
+            pair[0].range,
+            pair[1].range
+        );
+    }
+    edits
 }
 
 /// One secondary location in an execution/data-flow trace. `path=None`
@@ -244,8 +321,10 @@ impl<'de> Deserialize<'de> for IssueFlow {
 
 /// One finding. `rule_key` resolves through either the frozen Sonar catalog
 /// or the separate Hoonarqube-native catalog; severity/type are never
-/// duplicated here. `fix` optionally carries a machine-applicable quick fix.
-/// `flows` carries ordered supporting locations for path-sensitive rules.
+/// duplicated here. `fix` optionally carries the one machine-applicable
+/// automatic quick fix, while `alternatives` carries explicitly selected
+/// remedies. `flows` carries ordered supporting locations for path-sensitive
+/// rules.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Issue {
     pub rule_key: String,
@@ -253,6 +332,8 @@ pub struct Issue {
     pub range: Range,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fix: Option<Fix>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<FixAlternative>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub flows: Vec<IssueFlow>,
 }
@@ -264,6 +345,8 @@ struct IssueRepr {
     #[serde(default)]
     fix: Option<Fix>,
     #[serde(default)]
+    alternatives: Vec<FixAlternative>,
+    #[serde(default)]
     flows: Vec<IssueFlow>,
 }
 
@@ -273,11 +356,23 @@ impl<'de> Deserialize<'de> for Issue {
         D: Deserializer<'de>,
     {
         let raw = IssueRepr::deserialize(deserializer)?;
+        for (index, alternative) in raw.alternatives.iter().enumerate() {
+            if raw.alternatives[..index]
+                .iter()
+                .any(|previous| previous.id == alternative.id)
+            {
+                return Err(de::Error::custom(format!(
+                    "duplicate quick fix alternative id {:?}",
+                    alternative.id
+                )));
+            }
+        }
         Ok(Self {
             rule_key: raw.rule_key,
             message: raw.message,
             range: raw.range,
             fix: raw.fix,
+            alternatives: raw.alternatives,
             flows: raw.flows,
         })
     }
@@ -308,7 +403,7 @@ pub fn sort_issues(issues: &mut [Issue]) {
 
 impl Issue {
     /// Builds a fix-less finding; attach a remedy separately via
-    /// [`Issue::with_fix`].
+    /// [`Issue::with_fix`] or [`Issue::with_alternative`].
     #[must_use]
     pub fn new(rule_key: impl Into<String>, message: impl Into<String>, range: Range) -> Self {
         Self {
@@ -316,6 +411,7 @@ impl Issue {
             message: message.into(),
             range,
             fix: None,
+            alternatives: Vec::new(),
             flows: Vec::new(),
         }
     }
@@ -328,32 +424,50 @@ impl Issue {
     /// two edits overlap — including two insertions at the same position —
     /// because overlapping edits cannot be applied deterministically.
     #[must_use]
-    pub fn with_fix(mut self, message: impl Into<String>, mut edits: Vec<TextEdit>) -> Self {
+    pub fn with_fix(mut self, message: impl Into<String>, edits: Vec<TextEdit>) -> Self {
+        self.fix = Some(Fix::new(message, edits));
+        self
+    }
+
+    /// Adds one explicitly selected alternative quick fix in place.
+    ///
+    /// # Panics
+    /// Panics when `id` is empty, another alternative already uses `id`, or
+    /// any edit's range is inverted or overlaps another edit.
+    pub fn add_alternative(
+        &mut self,
+        id: impl Into<String>,
+        message: impl Into<String>,
+        edits: Vec<TextEdit>,
+    ) {
+        let id = id.into();
+        assert!(!id.is_empty(), "quick fix alternative id must not be empty");
         assert!(
-            !edits.is_empty(),
-            "quick fix must contain at least one TextEdit"
+            !self
+                .alternatives
+                .iter()
+                .any(|alternative| alternative.id == id),
+            "duplicate quick fix alternative id {id:?}"
         );
-        for edit in &edits {
-            assert!(
-                (edit.range.start.line, edit.range.start.column)
-                    <= (edit.range.end.line, edit.range.end.column),
-                "inverted TextEdit range {:?}",
-                edit.range
-            );
-        }
-        edits.sort_by_key(|edit| edit.range.start);
-        for pair in edits.windows(2) {
-            assert!(
-                !pair[0].overlaps(&pair[1]),
-                "overlapping TextEdits at {:?} / {:?}",
-                pair[0].range,
-                pair[1].range
-            );
-        }
-        self.fix = Some(Fix {
-            message: message.into(),
-            edits,
+        self.alternatives.push(FixAlternative {
+            id,
+            fix: Fix::new(message, edits),
         });
+    }
+
+    /// Attaches one explicitly selected alternative quick fix.
+    ///
+    /// # Panics
+    /// Panics when `id` is empty, another alternative already uses `id`, or
+    /// any edit's range is inverted or overlaps another edit.
+    #[must_use]
+    pub fn with_alternative(
+        mut self,
+        id: impl Into<String>,
+        message: impl Into<String>,
+        edits: Vec<TextEdit>,
+    ) -> Self {
+        self.add_alternative(id, message, edits);
         self
     }
 
@@ -549,6 +663,11 @@ pub fn apply_fixes(source: &str, edits: &[&TextEdit]) -> Result<String, FixApply
 }
 
 /// SonarQube-style size metrics for one file.
+///
+/// `lines` is the physical line count, `code_lines` counts rows containing
+/// syntax after comments/layout are removed, and `comment_lines` counts rows
+/// containing comments but no code. All values are bounded to `u32` for
+/// compatibility with per-file analyzer output.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileMetrics {
     pub lines: u32,
@@ -565,66 +684,136 @@ pub struct FileReport {
     pub metrics: FileMetrics,
 }
 
-/// Complete result of analyzing one target.
+/// A physical source range participating in a duplication group.
+///
+/// Line endpoints are one-based and inclusive. Byte endpoints are UTF-8 byte
+/// offsets in the file and form a zero-based half-open range. The byte span
+/// distinguishes blocks that occupy the same physical line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DuplicateOccurrence {
+    pub path: PathBuf,
+    pub start_line: u32,
+    pub end_line: u32,
+    pub start_byte: u32,
+    pub end_byte: u32,
+}
+
+/// A set of matching source ranges in one language.
+///
+/// Groups contain at least two occurrences. JavaScript and TypeScript remain
+/// separate language groups even though their issue analyzers share a crate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DuplicateGroup {
+    pub language: String,
+    pub occurrences: Vec<DuplicateOccurrence>,
+}
+
+/// Project-wide duplication counters.
+///
+/// `duplicated_lines` is the count of distinct physical lines covered by at
+/// least one reported block. `duplicated_blocks` counts distinct source byte
+/// spans, and `duplicated_files` counts files with at least one covered line.
+/// `duplicated_lines_density` is weighted by eligible physical lines; it is
+/// `None` when no eligible denominator exists.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DuplicationMetrics {
+    pub duplicated_lines: u64,
+    pub duplicated_blocks: u64,
+    pub duplicated_files: u64,
+    pub duplicated_lines_density: Option<f64>,
+}
+
+/// Duplication counters for one file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DuplicationFileMetrics {
+    pub path: PathBuf,
+    pub metrics: DuplicationMetrics,
+}
+
+/// Classification assigned by project orchestration before measurement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileClassification {
+    Source,
+    Test,
+    Generated,
+    Vendor,
+    Excluded,
+}
+
+/// Outcome of measuring one file in the project inventory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MeasurementStatus {
+    Complete,
+    Excluded,
+    Failed,
+    Unsupported,
+}
+
+/// Widened project size counters.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectMetrics {
+    pub files: u64,
+    pub lines: u64,
+    pub code_lines: u64,
+    pub comment_lines: u64,
+}
+
+/// One scope entry's classification, measurement status, and optional
+/// measurements.
+///
+/// `ProjectReport::files` is a scope inventory, not only a list of measured
+/// files. It may include an explicitly excluded directory root; that entry has
+/// `status = Excluded` and no `metrics` or `duplication`, and does not count as
+/// a measured file.
+/// `metrics` is absent when the file was excluded, unsupported, or failed.
+/// `duplication` is absent for tests, excluded files, failed files, and source
+/// files excluded from duplication. A complete eligible source with no match
+/// receives an explicit zero-valued duplication object.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectFileMeasurement {
+    pub path: PathBuf,
+    pub classification: FileClassification,
+    pub status: MeasurementStatus,
+    pub metrics: Option<FileMetrics>,
+    pub duplication: Option<DuplicationMetrics>,
+    pub reason: Option<String>,
+}
+
+/// Project-wide measurements and completeness inventory.
+///
+/// `files` is the project scope inventory. It may include explicitly excluded
+/// directory roots with no metrics or duplication; those entries expose pruned
+/// scope but are not measured files.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectReport {
+    pub metrics: ProjectMetrics,
+    pub files: Vec<ProjectFileMeasurement>,
+    pub duplications: Vec<DuplicateGroup>,
+    pub duplication: Option<DuplicationMetrics>,
+    pub complete: bool,
+    pub warnings: Vec<String>,
+    pub roots: Vec<PathBuf>,
+}
+
+/// Complete result of analyzing one target and its project inventory.
+///
+/// `schema_version` is the first versioned report schema and is currently
+/// always `1`. `files` retains the issue-oriented per-file reports, while
+/// `project` carries classifications, completeness, and project measurements.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalysisReport {
+    pub schema_version: u32,
     pub files: Vec<FileReport>,
+    pub project: ProjectReport,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assessment: Option<assessment::AssessmentReport>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Documented field semantics via literal construction: first line is 1,
-    /// first column is 0, spans are half-open.
-    #[test]
-    fn pos_and_range_field_semantics() {
-        let start = Pos { line: 1, column: 0 };
-        assert_eq!(start.line, 1);
-        assert_eq!(start.column, 0);
-
-        let end = Pos {
-            line: 3,
-            column: 12,
-        };
-        let range = Range { start, end };
-        assert_eq!(range.start.line, 1);
-        assert_eq!(range.start.column, 0);
-        assert_eq!(range.end.line, 3);
-        assert_eq!(range.end.column, 12);
-    }
-
-    #[test]
-    fn analysis_report_json_round_trip() {
-        let report = AnalysisReport {
-            files: vec![FileReport {
-                path: PathBuf::from("src/app.py"),
-                language: "python".to_string(),
-                issues: vec![Issue {
-                    rule_key: "python:BackticksUsage".to_string(),
-                    message: "Replace the backticks with regular quotes.".to_string(),
-                    range: Range {
-                        start: Pos { line: 4, column: 8 },
-                        end: Pos {
-                            line: 4,
-                            column: 23,
-                        },
-                    },
-                    fix: None,
-                    flows: Vec::new(),
-                }],
-                metrics: FileMetrics {
-                    lines: 42,
-                    code_lines: 30,
-                    comment_lines: 5,
-                },
-            }],
-        };
-
-        let json = serde_json::to_string(&report).expect("serialize");
-        let parsed: AnalysisReport = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(parsed, report);
-    }
 
     #[test]
     fn issue_flows_round_trip_and_empty_fields_stay_omitted() {
@@ -639,6 +828,7 @@ mod tests {
         let plain_json = serde_json::to_value(&plain).expect("serialize plain issue");
         assert!(plain_json.get("flows").is_none());
         assert!(plain_json.get("fix").is_none());
+        assert!(plain_json.get("alternatives").is_none());
 
         let traced = plain.clone().with_flow(vec![FlowLocation {
             path: Some(PathBuf::from("src/source.py")),
@@ -860,6 +1050,48 @@ mod tests {
         let _ = Issue::new("python:S1721", "message", range)
             .with_fix("fix", vec![edit((1, 5), (1, 2), "A")]);
     }
+    #[test]
+    #[should_panic(expected = "quick fix alternative id must not be empty")]
+    fn with_alternative_panics_on_empty_id() {
+        let range = Range {
+            start: Pos { line: 1, column: 0 },
+            end: Pos { line: 1, column: 4 },
+        };
+        let _ = Issue::new("python:S1721", "message", range).with_alternative(
+            "",
+            "fix",
+            vec![edit((1, 0), (1, 1), "A")],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate quick fix alternative id")]
+    fn with_alternative_panics_on_duplicate_id() {
+        let range = Range {
+            start: Pos { line: 1, column: 0 },
+            end: Pos { line: 1, column: 4 },
+        };
+        let issue = Issue::new("python:S1721", "message", range).with_alternative(
+            "rename",
+            "first",
+            vec![edit((1, 0), (1, 1), "A")],
+        );
+        let _ = issue.with_alternative("rename", "second", vec![edit((1, 1), (1, 2), "B")]);
+    }
+
+    #[test]
+    #[should_panic(expected = "quick fix must contain at least one TextEdit")]
+    fn with_alternative_panics_on_empty_edits() {
+        let range = Range {
+            start: Pos { line: 1, column: 0 },
+            end: Pos { line: 1, column: 4 },
+        };
+        let _ = Issue::new("python:S1721", "message", range).with_alternative(
+            "rename",
+            "fix",
+            Vec::new(),
+        );
+    }
 
     #[test]
     fn serde_rejects_invalid_public_ir_invariants() {
@@ -899,6 +1131,24 @@ mod tests {
             {"range":{"start":{"line":1,"column":1},"end":{"line":1,"column":3}},"replacement":"y"}
         ]}"#;
         assert!(serde_json::from_str::<Fix>(overlapping).is_err());
+        let empty_alternative_id = r#"{"id":"","fix":{"message":"fix","edits":[
+            {"range":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},"replacement":"x"}
+        ]}}"#;
+        assert!(serde_json::from_str::<FixAlternative>(empty_alternative_id).is_err());
+        let duplicate_alternative_ids = r#"{
+            "rule_key":"x",
+            "message":"m",
+            "range":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},
+            "alternatives":[
+                {"id":"rename","fix":{"message":"a","edits":[
+                    {"range":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},"replacement":"a"}
+                ]}},
+                {"id":"rename","fix":{"message":"b","edits":[
+                    {"range":{"start":{"line":1,"column":1},"end":{"line":1,"column":2}},"replacement":"b"}
+                ]}}
+            ]
+        }"#;
+        assert!(serde_json::from_str::<Issue>(duplicate_alternative_ids).is_err());
         assert!(serde_json::from_str::<IssueFlow>(r#"{"locations":[]}"#).is_err());
         assert!(serde_json::from_str::<Issue>(
             r#"{"rule_key":"x","message":"m","range":{"start":{"line":1,"column":0},"end":{"line":1,"column":1}},"flows":[{"locations":[]}]}"#
@@ -915,12 +1165,25 @@ mod tests {
         let without = serde_json::to_string(&Issue::new("python:S1721", "m", range.clone()))
             .expect("serialize");
         assert!(!without.contains("\"fix\""));
+        assert!(!without.contains("\"alternatives\""));
 
-        let with = Issue::new("python:S1721", "m", range)
+        let with = Issue::new("python:S1721", "m", range.clone())
             .with_fix("fix message", vec![edit((1, 4), (1, 4), "")]);
         let json = serde_json::to_string(&with).expect("serialize");
         assert!(json.contains("\"fix\""));
         let parsed: Issue = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(parsed, with);
+
+        let with_alternative = Issue::new("python:S1721", "m", range).with_alternative(
+            "rename",
+            "alternative message",
+            vec![edit((1, 0), (1, 1), "x")],
+        );
+        let alternative_json =
+            serde_json::to_string(&with_alternative).expect("serialize alternative");
+        assert!(alternative_json.contains("\"alternatives\""));
+        let parsed: Issue =
+            serde_json::from_str(&alternative_json).expect("deserialize alternative");
+        assert_eq!(parsed, with_alternative);
     }
 }

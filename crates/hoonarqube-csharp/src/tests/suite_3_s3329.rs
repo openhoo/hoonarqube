@@ -1692,15 +1692,17 @@ fn s2245_flags_random_in_security_named_contexts() {
 }
 
 #[test]
-fn s2257_flags_xor_mixing_in_cipher_named_methods() {
+fn s2257_flags_hash_algorithm_subclasses() {
     let violating = analyze_default(
-        "class Crypto\n{\n    byte[] EncryptBlock(byte[] data)\n    {\n        var mixed = data[0] ^ 0x42;\n        return [mixed];\n    }\n}\n",
+        "using System;\nusing System.Security.Cryptography;\n\npublic sealed class CustomDigest : HashAlgorithm\n{\n    private byte[]? result;\n\n    public CustomDigest() { }\n\n    public override int HashSize => 128;\n\n    public override void Initialize() => result = null;\n\n    protected override void HashCore(byte[] array, int ibStart, int cbSize) { }\n\n    protected override byte[] HashFinal() => result ?? Array.Empty<byte>();\n}\n",
     );
     let flagged = with_key(&violating, "csharpsquid:S2257");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 3);
+    assert_eq!(flagged[0].range.start.line, 4);
 
-    let clean = analyze_default("int Mix(int value)\n{\n    return value ^ 0xFF;\n}\n");
+    let clean = analyze_default(
+        "class Crypto\n{\n    byte[] Encrypt(byte[] key)\n        => new AesGcm(key).Encrypt(key, key, key);\n}\n",
+    );
     assert!(with_key(&clean, "csharpsquid:S2257").is_empty());
 }
 

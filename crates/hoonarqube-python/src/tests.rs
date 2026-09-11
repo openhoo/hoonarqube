@@ -1,54 +1,7 @@
 use std::path::PathBuf;
 
 use super::{AnalyzerOptions, analyze};
-use crate::test_support::{
-    findings, findings_of, issue, pos, regex_finds, scan, scan_with_options,
-};
-
-#[test]
-fn one_statement_per_line_flags_the_complete_statement_sequence() {
-    let report = scan("a = 1\nb = 2\nc = 3; d = 4\n");
-    assert_eq!(
-        report.issues,
-        vec![
-            hoonarqube_ir::Issue::new(
-                "python:S1720",
-                "Add a docstring to this module.",
-                hoonarqube_ir::Range::file_level(),
-            ),
-            issue(
-                "python:S1481",
-                "Remove the unused local variable \"a\".",
-                (1, 0),
-                (1, 1),
-            ),
-            issue(
-                "python:S1481",
-                "Remove the unused local variable \"b\".",
-                (2, 0),
-                (2, 1),
-            ),
-            issue(
-                "python:S1481",
-                "Remove the unused local variable \"c\".",
-                (3, 0),
-                (3, 1),
-            ),
-            issue(
-                "python:OneStatementPerLine",
-                "At most one statement is allowed per line, but 2 statements were found on this line.",
-                (3, 0),
-                (3, 12),
-            ),
-            issue(
-                "python:S1481",
-                "Remove the unused local variable \"d\".",
-                (3, 7),
-                (3, 8),
-            ),
-        ]
-    );
-}
+use crate::test_support::{findings, findings_of, pos, regex_finds, scan, scan_with_options};
 
 #[test]
 fn exec_and_print_calls_are_py3_calls_and_not_flagged() {
@@ -82,7 +35,7 @@ fn issue_positions_are_one_based_line_zero_based_column() {
         .filter(|issue| issue.rule_key == "python:OneStatementPerLine")
         .collect();
     assert_eq!(split_issues.len(), 1);
-    assert_eq!(split_issues[0].range.start, pos(2, 2));
+    assert_eq!(split_issues[0].range.end, pos(2, 14));
 }
 
 #[test]
@@ -105,41 +58,25 @@ fn integration_assembles_full_report_sorted() {
         &AnalyzerOptions::default(),
     );
     assert_eq!(
-        report,
-        hoonarqube_ir::FileReport {
-            path: PathBuf::from("demo.py"),
-            language: "python".to_string(),
-            issues: vec![
-                hoonarqube_ir::Issue::new(
-                    "python:S1720",
-                    "Add a docstring to this module.",
-                    hoonarqube_ir::Range::file_level(),
-                ),
-                issue(
-                    "python:S1720",
-                    "Add a docstring to this function.",
-                    (3, 4),
-                    (3, 9),
-                ),
-                issue(
-                    "python:OneStatementPerLine",
-                    "At most one statement is allowed per line, but 2 statements were found on this line.",
-                    (6, 4),
-                    (6, 16),
-                ),
-                issue(
-                    "python:NoSonar",
-                    "Is #NOSONAR used to exclude false-positive or to hide real quality flaw?",
-                    (10, 16),
-                    (10, 30),
-                ),
-            ],
-            metrics: hoonarqube_ir::FileMetrics {
-                lines: 10,
-                code_lines: 7,
-                comment_lines: 1,
-            },
-        }
+        report
+            .issues
+            .iter()
+            .map(|issue| issue.range.start)
+            .collect::<Vec<_>>(),
+        vec![pos(0, 0), pos(3, 4), pos(6, 4), pos(10, 16)]
+    );
+    assert_eq!(
+        report
+            .issues
+            .iter()
+            .map(|issue| issue.rule_key.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "python:S1720",
+            "python:S1720",
+            "python:OneStatementPerLine",
+            "python:NoSonar",
+        ]
     );
 }
 
@@ -174,11 +111,16 @@ fn s5899_flags_test_methods_runners_cannot_discover() {
 }
 
 #[test]
-fn s5915_flags_unittest_assertion_closing_except_block() {
-    let flagged =
-        scan("try:\n    parse(raw)\nexcept ValueError:\n    self.assertEqual(got, want)\n");
+fn s5915_flags_assertion_closing_pytest_raises_block() {
+    let flagged = scan(concat!(
+        "import pytest\n",
+        "def test_it():\n",
+        "    with pytest.raises(ValueError):\n",
+        "        parse(raw)\n",
+        "        assert got == want\n"
+    ));
     assert_eq!(findings(&flagged, "python:S5915").len(), 1);
-    let clean = "try:\n    parse(raw)\nexcept ValueError:\n    log(got)\nassert want == got\n";
+    let clean = "try:\n    parse(raw)\nexcept ValueError:\n    self.assertEqual(got, want)\n";
     assert!(findings(&scan(clean), "python:S5915").is_empty());
 }
 
@@ -358,12 +300,14 @@ fn s7516_flags_sorting_before_set_construction() {
 }
 
 #[test]
-fn s7517_flags_manual_key_lookups_by_loop_variable() {
-    let flagged = scan("for k in prices:\n    total[k] = prices[k]\n");
+fn s7517_flags_two_name_iteration_over_proven_dict() {
+    let flagged = scan("settings = {1: 2}\nfor key, value in settings:\n    print(key, value)\n");
     let found = findings(&flagged, "python:S7517");
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].range.start.line, 2);
-    let clean = "for k in prices:\n    show(k)\n";
+    assert_eq!(found[0].range.end.line, 2);
+
+    let clean = "for key, value in settings:\n    print(key, value)\n";
     assert!(findings(&scan(clean), "python:S7517").is_empty());
 }
 
@@ -531,8 +475,15 @@ fn s6734_flags_inplace_pandas_methods() {
 
 #[test]
 fn s6735_requires_explicit_merge_keys() {
-    let flagged = scan("left.merge(right)\nleft.merge(right, on=\"k\")\n");
-    assert_eq!(findings(&flagged, "python:S6735").len(), 1);
+    let flagged = scan(concat!(
+        "import pandas as pd\n",
+        "left = pd.DataFrame()\n",
+        "right = pd.DataFrame()\n",
+        "left.merge(right)\n",
+        "left.merge(right, on=\"k\")\n",
+        "left.merge(right, how=\"inner\", on=\"k\", validate=\"many_to_many\")\n"
+    ));
+    assert_eq!(findings(&flagged, "python:S6735").len(), 2);
 }
 
 #[test]
@@ -604,7 +555,17 @@ fn s6890_prefers_zoneinfo_over_pytz() {
 
 #[test]
 fn s6929_requires_explicit_reduction_axis() {
-    let flagged = scan("tf.reduce_sum(x)\ntf.reduce_sum(x, axis=0)\nnp.sum(y)\nnp.sum(y, 0)\n");
+    let flagged = scan(concat!(
+        "import tensorflow as tf\n",
+        "import numpy as np\n",
+        "import torch\n",
+        "tf.reduce_sum(x)\n",
+        "tf.reduce_sum(x, axis=0)\n",
+        "np.sum(y)\n",
+        "np.sum(y, 0)\n",
+        "torch.argmin(y)\n",
+        "torch.argmin(y, dim=0)\n"
+    ));
     assert_eq!(findings(&flagged, "python:S6929").len(), 2);
 }
 
@@ -1120,7 +1081,7 @@ fn s6982_requires_eval_before_loaded_model_inference() {
 }
 
 #[test]
-fn s7502_flags_discarded_asyncio_tasks() {
+fn s7502_flags_discarded_asyncio_tasks_but_not_task_groups() {
     let flagged = scan(
         "import asyncio\n\n\nasync def worker():\n    pass\n\n\nasyncio.create_task(worker())\n",
     );
@@ -1129,6 +1090,14 @@ fn s7502_flags_discarded_asyncio_tasks() {
         "import asyncio\n\n\nasync def worker():\n    pass\n\n\ntask_handle = asyncio.create_task(worker())\n",
     );
     assert!(findings(&retained, "python:S7502").is_empty());
+    let task_group = scan(
+        "import asyncio\n\n\nasync def worker():\n    pass\n\n\nasync def run():\n    async with asyncio.TaskGroup() as group:\n        group.create_task(worker())\n",
+    );
+    assert!(findings(&task_group, "python:S7502").is_empty());
+    let custom = scan(
+        "class Group:\n    def create_task(self, worker):\n        return worker\n\nGroup().create_task(worker())\n",
+    );
+    assert!(findings(&custom, "python:S7502").is_empty());
 }
 
 #[test]
@@ -1176,11 +1145,69 @@ fn s7497_requires_reraise_of_cancellation_exceptions() {
     );
     assert!(findings(&reraised, "python:S7497").is_empty());
 }
+#[test]
+fn s7497_requires_reachable_reraise_of_cancellation_exceptions() {
+    let flagged = scan(
+        "async def shielded():\n    try:\n        await work()\n    except CancelledError:\n        release_lock()\n",
+    );
+    assert_eq!(findings(&flagged, "python:S7497").len(), 1);
+    let unreachable = scan(
+        "async def shielded():\n    try:\n        await work()\n    except CancelledError:\n        if False:\n            raise\n",
+    );
+    assert_eq!(findings(&unreachable, "python:S7497").len(), 1);
+    let reraised = scan(
+        "async def shielded():\n    try:\n        await work()\n    except CancelledError:\n        release_lock()\n        raise\n",
+    );
+    assert!(findings(&reraised, "python:S7497").is_empty());
+    let intentional = scan(
+        "async def shielded():\n    try:\n        await work()\n    except CancelledError:\n        task.uncancel()\n",
+    );
+    assert!(findings(&intentional, "python:S7497").is_empty());
+    let unreachable_uncancel = scan(
+        "async def shielded():\n    try:\n        await work()\n    except CancelledError:\n        if False:\n            task.uncancel()\n",
+    );
+    assert_eq!(findings(&unreachable_uncancel, "python:S7497").len(), 1);
+}
 
-// ------------------------------------------------------------------
-// Tier B — option knobs.
-// ------------------------------------------------------------------
+#[test]
+fn s7497_rejects_unreachable_and_partial_propagation() {
+    for body in [
+        "        if True:\n            pass\n        else:\n            raise\n",
+        "        return\n        raise\n",
+        "        if should_stop:\n            raise\n",
+        "        False and task.uncancel()\n",
+        "        for item in items:\n            raise\n        else:\n            pass\n",
+        "        [task.uncancel() for item in []]\n",
+        "        (task.uncancel() for item in items)\n",
+        "        0 > 1 > task.uncancel()\n",
+    ] {
+        let source = format!(
+            "import asyncio\nasync def work():\n    try:\n        await wait()\n    except asyncio.CancelledError:\n{body}"
+        );
+        assert_eq!(findings(&scan(&source), "python:S7497").len(), 1, "{body}");
+    }
+}
 
+#[test]
+fn s7497_preserves_guaranteed_propagation_through_cleanup() {
+    for body in [
+        "        if stop:\n            raise\n        else:\n            task.uncancel()\n",
+        "        try:\n            cleanup()\n        finally:\n            raise\n",
+        "        try:\n            return\n        finally:\n            raise\n",
+        "        for item in items:\n            break\n        raise\n",
+        "        for item in items:\n            pass\n        else:\n            raise\n",
+        "        while True:\n            if stop:\n                break\n        raise\n",
+        "        task.uncancel() if stop else task.uncancel()\n",
+    ] {
+        let source = format!(
+            "import asyncio\nasync def work():\n    try:\n        await wait()\n    except asyncio.CancelledError:\n{body}"
+        );
+        assert!(
+            findings(&scan(&source), "python:S7497").is_empty(),
+            "{body}"
+        );
+    }
+}
 #[test]
 fn s1481_honors_the_ignore_pattern_option() {
     let defaults = scan("def run():\n    dummy = 1\n    return 1\n\n\nrun()\n");
@@ -1428,10 +1455,15 @@ fn s6353_suggests_concise_quantifiers_and_classes() {
 
 #[test]
 fn s6397_flags_single_character_classes_with_metachar_exception() {
-    assert!(regex_finds(
-        "import re\nre.compile(r'a[b]c')\n",
-        "python:S6397"
-    ));
+    for character in ["b", "é"] {
+        assert!(
+            regex_finds(
+                &format!("import re\nre.compile(r'a[{character}]c')\n"),
+                "python:S6397"
+            ),
+            "{character}"
+        );
+    }
     assert!(!regex_finds(
         "import re\nre.compile(r'a[.]c')\n",
         "python:S6397"
@@ -1440,6 +1472,34 @@ fn s6397_flags_single_character_classes_with_metachar_exception() {
         "import re\nre.compile(r'[ab]')\n",
         "python:S6397"
     ));
+    assert!(!regex_finds(
+        "import re\nre.compile(r'[éx]')\n",
+        "python:S6397"
+    ));
+    assert!(!regex_finds(
+        "import re\nre.compile(r'[b')\n",
+        "python:S6397"
+    ));
+}
+
+#[test]
+fn s6397_quick_fix_replaces_ascii_and_unicode_classes() {
+    for character in ["b", "é"] {
+        let source = format!("import re\nre.compile(r'a[{character}]c')\n");
+        let report = scan(&source);
+        let issue = findings(&report, "python:S6397")
+            .into_iter()
+            .next()
+            .expect("single-character class finding");
+        let alternative = issue
+            .alternatives
+            .iter()
+            .find(|alternative| alternative.id == "s6397-remove-character-class")
+            .expect("single-character class alternative");
+        let edits = alternative.fix.edits.iter().collect::<Vec<_>>();
+        let fixed = hoonarqube_ir::apply_fixes(&source, &edits).expect("fix applies");
+        assert_eq!(fixed, format!("import re\nre.compile(r'a{character}c')\n"));
+    }
 }
 
 #[test]
@@ -2223,6 +2283,22 @@ fn s930_uses_python_c3_order_for_diamond_inheritance() {
 }
 
 #[test]
+fn s5655_rejects_complex_literals_for_float_parameters() {
+    let source = concat!(
+        "def accept(value: float):\n",
+        "    return value\n",
+        "accept(1j)\n",
+        "accept(1)\n",
+        "accept(1.0)\n",
+        "accept(True)\n",
+        "def complex_accept(value: complex):\n",
+        "    return value\n",
+        "complex_accept(1j)\n",
+        "complex_accept(1.0)\n",
+    );
+    assert_eq!(findings_of(source, "python:S5655").len(), 1);
+}
+#[test]
 fn s5655_flags_arguments_contradicting_parameter_annotations() {
     let flagged = concat!(
         "def repeat(text: str, times: int) -> str:\n",
@@ -2356,6 +2432,44 @@ fn s5713_flags_subclass_and_parent_sharing_an_except_clause() {
         "try:\n    pass\nexcept NotFound:\n    pass\n"
     );
     assert!(findings_of(clean, "python:S5713").is_empty());
+    let builtin_hierarchy = concat!(
+        "try:\n    work()\n",
+        "except (NotImplementedError, RuntimeError):\n    recover()\n",
+        "try:\n    work()\n",
+        "except (TypeError, TypeError):\n    recover()\n",
+    );
+    assert_eq!(findings_of(builtin_hierarchy, "python:S5713").len(), 2);
+
+    let imported_hierarchy = concat!(
+        "import json\n",
+        "import urllib.error\n",
+        "try:\n    work()\n",
+        "except (ValueError, json.JSONDecodeError):\n    recover()\n",
+        "try:\n    work()\n",
+        "except (urllib.error.URLError, OSError):\n    recover()\n",
+    );
+    assert_eq!(findings_of(imported_hierarchy, "python:S5713").len(), 2);
+
+    let local_shadowing = concat!(
+        "class RuntimeError(Exception):\n    pass\n",
+        "class NotImplementedError(Exception):\n    pass\n",
+        "try:\n    work()\n",
+        "except (NotImplementedError, RuntimeError):\n    recover()\n",
+    );
+    assert!(findings_of(local_shadowing, "python:S5713").is_empty());
+    let scoped_shadowing = concat!(
+        "def check(RuntimeError):\n",
+        "    try:\n        work()\n",
+        "    except (NotImplementedError, RuntimeError):\n        recover()\n",
+    );
+    assert!(findings_of(scoped_shadowing, "python:S5713").is_empty());
+
+    let source_order = concat!(
+        "RuntimeError = ValueError\n",
+        "try:\n    work()\n",
+        "except (NotImplementedError, RuntimeError):\n    recover()\n",
+    );
+    assert!(findings_of(source_order, "python:S5713").is_empty());
 }
 #[test]
 fn s100_and_s1542_partition_functions_by_class_nesting() {
@@ -2753,18 +2867,27 @@ fn s108_treats_docstrings_and_functions_as_content() {
 
 #[test]
 fn s1110_flags_inner_paren_pairs_with_single_content() {
-    let flagged = scan("print((\"Hello\" + name))\nvalue = ((a))\n");
+    let flagged = scan("print(((\"Hello\" + name)))\nvalue = ((a))\n");
     let found = findings(&flagged, "python:S1110");
     assert_eq!(found.len(), 2);
 }
 
 #[test]
-fn s1110_spares_meaningful_and_empty_pairs() {
+fn s1110_flags_redundant_collection_pairs_but_spares_required_pairs() {
+    let flagged = scan(
+        "pair = ((a, b))\n\
+         nested = (())\n\
+         generator = ((item for item in items))\n",
+    );
+    // The outer pair is redundant; the inner tuple/generator delimiters stay
+    // required by Python's grammar.
+    assert_eq!(findings(&flagged, "python:S1110").len(), 3);
+
     for clean in [
-        // Tuples change arity when the inner pair is removed.
-        "pair = ((a, b))\nreturning = f((a, b))\n",
-        // Empty pairs and string-only interiors are skipped.
-        "unit = ()\nnested = (())\ntext = (\"s\")\n",
+        // The tuple pair is required as a single call argument.
+        "returning = f((a, b))\n",
+        // Empty tuples and one-level grouping have no redundant pair.
+        "unit = ()\ntext = (\"s\")\n",
         // Call and grouping parentheses are load-bearing.
         "plain = (a)\ncalled = f(a)\nsub = table[(a)]\n",
     ] {

@@ -1,4 +1,4 @@
-use crate::engine::rx::RxQuant;
+use crate::engine::rx::{RxAtom, RxQuant, RxSeq};
 use ruff_text_size::TextRange;
 
 pub(crate) fn check_curly_quantifier(
@@ -7,27 +7,71 @@ pub(crate) fn check_curly_quantifier(
     push: &mut dyn FnMut(&str, &str, TextRange),
 ) {
     if !quant.curly {
-        // `*`, `+`, `?` are already the concise forms.
         return;
     }
     let superfluous = quant.max == Some(quant.min) && quant.min <= 1;
-    // `{n,n}` is a style improvement over the redundant comma spelling.
-    // Bare `{n}` is already the concise form — no suggestion needed.
-    let concise = match (quant.min, quant.max) {
-        (0, Some(1) | None) | (1, None) => true,
-        (min, Some(max)) => min == max && min >= 2 && source[quant.span].contains(','),
-        _ => false,
+    if superfluous {
+        push(
+            "python:S6396",
+            "Remove this superfluous quantifier.",
+            quant.span,
+        );
+    }
+    // VerboseRegexFinder reports only comma-form quantifiers.  A bare
+    // `{n}` is already the concise spelling (and `{0}`/`{1}` belong to
+    // S6396's superfluous-quantifier rule).
+    let concise = if quant.possessive || !source[quant.span].contains(',') {
+        false
+    } else {
+        match (quant.min, quant.max) {
+            (0, Some(1)) | (0 | 1, None) => true,
+            (min, Some(max)) => min == max,
+            _ => false,
+        }
     };
-    let finding = match (superfluous, concise) {
-        (true, _) => Some(("python:S6396", "Remove this superfluous quantifier.")),
-        (false, true) => Some((
+    if concise {
+        push(
             "python:S6353",
             "Use the concise equivalent for this quantifier.",
-        )),
-        (false, false) => None,
-    };
-    if let Some((rule, message)) = finding {
-        push(rule, message, quant.span);
+            quant.span,
+        );
+    }
+}
+
+pub(crate) fn check_redundant_repetition(
+    seq: &RxSeq,
+    source: &str,
+    push: &mut dyn FnMut(&str, &str, TextRange),
+) {
+    for pair in seq.items.windows(2) {
+        let [first, second] = pair else { continue };
+        let Some(quant) = second.quant.as_ref() else {
+            continue;
+        };
+        if first.quant.is_some() {
+            continue;
+        }
+        if quant.curly || quant.min != 0 || quant.max.is_some() || quant.lazy || quant.possessive {
+            continue;
+        }
+        let first_atom = TextRange::new(first.span.start(), second.span.start());
+        let second_atom_end = quant.span.start();
+        let second_atom = TextRange::new(second.span.start(), second_atom_end);
+        if source[first_atom] != source[second_atom]
+            || !matches!(
+                &second.atom,
+                RxAtom::Literal(_) | RxAtom::Dot | RxAtom::Class(_) | RxAtom::EscClass(_)
+            )
+        {
+            continue;
+        }
+        let element = &source[first_atom];
+        let repetition = &source[second.span];
+        push(
+            "python:S6353",
+            &format!("Use simple repetition '{element}+' instead of '{repetition}'."),
+            second.span,
+        );
     }
 }
 
@@ -71,6 +115,18 @@ mod tests {
         assert!(regex_finds(
             "import re\nre.compile(r'a{1,1}b')\n",
             "python:S6396"
+        ));
+    }
+
+    #[test]
+    fn s6353_flags_repeated_element_before_greedy_star() {
+        assert!(regex_finds(
+            "import re\nre.compile(r'aa*')\n",
+            "python:S6353"
+        ));
+        assert!(!regex_finds(
+            "import re\nre.compile(r'a+a*')\n",
+            "python:S6353"
         ));
     }
 

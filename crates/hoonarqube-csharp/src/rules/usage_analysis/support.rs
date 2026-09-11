@@ -154,7 +154,6 @@ pub(crate) fn member_uses<'t>(
 ) -> Vec<Node<'t>> {
     symbols
         .uses_of(member.name)
-        .into_iter()
         .filter(|reference| reference_resolves_to_member(*reference, member, symbols, source))
         .collect()
 }
@@ -167,7 +166,6 @@ pub(crate) fn member_writes<'t>(
 ) -> Vec<Node<'t>> {
     symbols
         .writes_of(member.name)
-        .into_iter()
         .filter(|write| {
             collect_kinds(*write, &["identifier"])
                 .into_iter()
@@ -193,7 +191,6 @@ pub(crate) fn local_uses<'t>(
     let span = callable.byte_range();
     symbols
         .uses_of(name)
-        .into_iter()
         .filter(|use_site| {
             let site = use_site.byte_range();
             site.start >= span.start && site.end <= span.end

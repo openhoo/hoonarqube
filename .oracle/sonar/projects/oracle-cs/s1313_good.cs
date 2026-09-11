@@ -1,9 +1,3 @@
-class S1313Good
-{
-    string Version() { return "1.2.3"; }
+public static class IpSafe { public static string Address(string configured) => configured; }
 
-    string NotAnAddress() { return "256.300.1.2"; }
-
-    string Host() { return "db.internal.example";
-    }
-}
+public static class IpNearMiss { public static string Address() => "192.168.10"; }

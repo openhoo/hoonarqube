@@ -36,3 +36,5 @@
 /tools/oracle/**/obj/
 /tools/oracle/native-csharp-*/
 /scripts/__pycache__/
+/tools/semantic/csharp/bin/
+/tools/semantic/csharp/obj/

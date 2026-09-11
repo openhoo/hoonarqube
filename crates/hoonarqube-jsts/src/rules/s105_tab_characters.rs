@@ -2,17 +2,14 @@
 
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
-use crate::support::to_u32;
+use crate::support::{LineIndex, to_u32};
 use hoonarqube_ir::Issue;
 
-fn check_tab_characters(source: &str, language: JstsLanguage) -> Vec<Issue> {
+fn check_tab_characters(index: &LineIndex, language: JstsLanguage) -> Vec<Issue> {
     let rule_key = format!("{}:S105", language.prefix());
     let mut issues = Vec::new();
-    for (zero_based, chunk) in source.split_inclusive('\n').enumerate() {
-        let line_number = to_u32(zero_based) + 1;
-        if chunk.contains('\t') {
-            let line = chunk.strip_suffix('\n').unwrap_or(chunk);
-            let line = line.strip_suffix('\r').unwrap_or(line);
+    for (line_number, line) in index.lines() {
+        if line.contains('\t') {
             issues.push(Issue {
                 rule_key: rule_key.clone(),
                 message: "Replace all tab characters in this file by sequences of white-spaces."
@@ -29,6 +26,7 @@ fn check_tab_characters(source: &str, language: JstsLanguage) -> Vec<Issue> {
                 },
                 fix: None,
                 flows: Vec::new(),
+                alternatives: Vec::new(),
             });
         }
     }
@@ -36,7 +34,7 @@ fn check_tab_characters(source: &str, language: JstsLanguage) -> Vec<Issue> {
 }
 
 pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_tab_characters(ctx.source, ctx.language)
+    check_tab_characters(ctx.index, ctx.language)
 }
 #[cfg(test)]
 mod tests {
@@ -72,5 +70,22 @@ mod tests {
                 (2, 9),
             )]
         );
+    }
+
+    #[test]
+    fn tab_character_lines_use_all_ecmascript_line_terminators() {
+        let source = "let a = 1;\r\tlet b = 2;\r\nlet c = 3;\u{2028}\tlet d = 4;\u{2029}let e = 5;";
+        let report = js(source);
+        let lines: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S105")
+            .map(|issue| issue.range.start.line)
+            .collect();
+        assert_eq!(lines, vec![2, 4]);
+
+        let clean =
+            js_keys("let a = 1;\rlet b = 2;\r\nlet c = 3;\u{2028}let d = 4;\u{2029}let e = 5;");
+        assert_eq!(count_key(&clean, "javascript:S105"), 0);
     }
 }

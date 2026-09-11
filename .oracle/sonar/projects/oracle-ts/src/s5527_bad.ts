@@ -1,5 +1,5 @@
-const url = require("url");
+const https = require("https");
 
-const request = url.request;
+const request = https.request;
 
-request("https://example.com", { rejectUnauthorized: false });
+request({ hostname: "example.com", rejectUnauthorized: false });

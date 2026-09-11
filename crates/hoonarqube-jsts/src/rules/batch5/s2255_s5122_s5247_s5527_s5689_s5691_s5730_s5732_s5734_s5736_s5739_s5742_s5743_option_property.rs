@@ -146,9 +146,6 @@ impl SecurityHotspotCollector<'_, '_> {
     /// Table-driven option-object checks over every object literal.
     pub(crate) fn check_option_property(&mut self, property: &ObjectProperty<'_>) {
         let finding = match (duplicated_key_name(&property.key), &property.value) {
-            (Some("rejectUnauthorized"), Expression::BooleanLiteral(literal)) if !literal.value => {
-                Some(("S5527", "Do not disable TLS certificate verification."))
-            }
             (Some("dotfiles"), Expression::StringLiteral(literal)) if literal.value == "allow" => {
                 Some(("S5691", "Do not serve dotfiles to clients."))
             }

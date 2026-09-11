@@ -71,15 +71,48 @@ pub(crate) struct LineIndex<'src> {
 impl<'src> LineIndex<'src> {
     pub(crate) fn new(source: &'src str) -> Self {
         let mut line_starts = vec![0_u32];
-        for (offset, byte) in source.bytes().enumerate() {
-            if byte == b'\n' {
-                line_starts.push(to_u32(offset + 1));
-            }
+        let mut chars = source.char_indices().peekable();
+        while let Some((offset, character)) = chars.next() {
+            let line_start = match character {
+                '\r' => {
+                    if let Some(&(line_feed_offset, '\n')) = chars.peek() {
+                        let _ = chars.next();
+                        line_feed_offset + 1
+                    } else {
+                        offset + 1
+                    }
+                }
+                '\n' | '\u{2028}' | '\u{2029}' => offset + character.len_utf8(),
+                _ => continue,
+            };
+            line_starts.push(to_u32(line_start));
         }
         Self {
             line_starts,
             source,
         }
+    }
+
+    /// Iterates logical source lines with 1-based line numbers. ECMAScript
+    /// line terminators are omitted from each returned line, and the
+    /// trailing empty row after a final terminator is not yielded.
+    pub(crate) fn lines(&self) -> impl Iterator<Item = (u32, &'src str)> + '_ {
+        let source_len = to_u32(self.source.len());
+        let mut line_count = self.line_starts.len();
+        if self.line_starts.last().copied() == Some(source_len) {
+            line_count = line_count.saturating_sub(1);
+        }
+        let source = self.source;
+        let line_starts = &self.line_starts;
+        (0..line_count).map(move |zero_based| {
+            let start = line_starts[zero_based] as usize;
+            let end = line_starts
+                .get(zero_based + 1)
+                .copied()
+                .unwrap_or(source_len) as usize;
+            let line = &source[start..end];
+            (to_u32(zero_based) + 1, strip_line_terminator(line))
+        })
     }
 
     /// Byte offset where the line containing `offset` begins (for callers
@@ -135,6 +168,15 @@ impl<'src> LineIndex<'src> {
     }
 }
 
+fn strip_line_terminator(line: &str) -> &str {
+    line.strip_suffix("\r\n")
+        .or_else(|| line.strip_suffix('\r'))
+        .or_else(|| line.strip_suffix('\n'))
+        .or_else(|| line.strip_suffix('\u{2028}'))
+        .or_else(|| line.strip_suffix('\u{2029}'))
+        .unwrap_or(line)
+}
+
 pub(crate) use hoonarqube_ir::sort_issues;
 
 pub(crate) fn file_metrics(
@@ -146,7 +188,11 @@ pub(crate) fn file_metrics(
     let lines = if source.is_empty() {
         0
     } else {
-        to_u32(source.lines().count())
+        let mut line_count = index.line_starts.len();
+        if index.line_starts.last().copied() == Some(to_u32(source.len())) {
+            line_count = line_count.saturating_sub(1);
+        }
+        to_u32(line_count)
     };
 
     // Code lines derive from statement spans; the oxc lexer skips comments
@@ -202,6 +248,10 @@ pub(crate) enum ScanState {
     Template,
 }
 
+fn is_ecmascript_line_terminator(character: char) -> bool {
+    matches!(character, '\r' | '\n' | '\u{2028}' | '\u{2029}')
+}
+
 pub(crate) struct Scanner {
     pub(crate) chars: Vec<char>,
     /// Byte offset of `chars[i]`, kept parallel so spans stay byte-accurate.
@@ -245,12 +295,15 @@ impl Scanner {
         let mut i = 0;
         while i < self.chars.len() {
             let c = self.chars[i];
-            if c == '\n' {
+            if is_ecmascript_line_terminator(c) {
                 if self.state == ScanState::LineComment {
                     self.close_comment(self.offsets[i], self.offsets[i]);
                     self.state = ScanState::Code;
                 }
                 i += 1;
+                if c == '\r' && self.chars.get(i) == Some(&'\n') {
+                    i += 1;
+                }
             } else {
                 let next = self.chars.get(i + 1).copied();
                 let (jump, _) = self.step(i, c, next);
@@ -395,6 +448,7 @@ pub(crate) fn span_issue(
         range: index.range(span),
         fix: None,
         flows: Vec::new(),
+        alternatives: Vec::new(),
     }
 }
 
@@ -445,6 +499,7 @@ impl IssueSink<'_> {
             },
             fix: None,
             flows: Vec::new(),
+            alternatives: Vec::new(),
         });
     }
 }
@@ -613,7 +668,7 @@ pub(crate) mod ast;
 #[cfg(test)]
 mod scanner_tests {
     use super::*;
-    use crate::test_support::{count_key, js_keys};
+    use crate::test_support::{count_key, js, js_keys};
 
     #[test]
     fn source_type_preserves_path_semantics_case_insensitively() {
@@ -643,6 +698,120 @@ mod scanner_tests {
             index.pos(u32::MAX),
             hoonarqube_ir::Pos { line: 1, column: 4 }
         );
+    }
+
+    #[test]
+    fn line_index_handles_ecmascript_terminators_and_unicode_columns() {
+        let source = "é\r\nβ\u{2028}γ\u{2029}δ\n";
+        let index = LineIndex::new(source);
+        assert_eq!(index.line_starts, vec![0, 4, 9, 14, 17]);
+        assert_eq!(
+            index.lines().collect::<Vec<_>>(),
+            vec![(1, "é"), (2, "β"), (3, "γ"), (4, "δ")]
+        );
+        assert_eq!(index.pos(2), hoonarqube_ir::Pos { line: 1, column: 1 });
+        assert_eq!(index.pos(4), hoonarqube_ir::Pos { line: 2, column: 0 });
+        assert_eq!(index.pos(6), hoonarqube_ir::Pos { line: 2, column: 1 });
+        assert_eq!(index.pos(9), hoonarqube_ir::Pos { line: 3, column: 0 });
+        assert_eq!(index.pos(11), hoonarqube_ir::Pos { line: 3, column: 1 });
+        assert_eq!(index.pos(14), hoonarqube_ir::Pos { line: 4, column: 0 });
+        assert_eq!(index.pos(16), hoonarqube_ir::Pos { line: 4, column: 1 });
+        assert_eq!(index.pos(17), hoonarqube_ir::Pos { line: 5, column: 0 });
+        assert_eq!(index.covered_lines(Span::new(0, 4)), 1..=1);
+        assert_eq!(index.covered_lines(Span::new(4, 9)), 2..=2);
+        assert_eq!(index.covered_lines(Span::new(0, 14)), 1..=3);
+    }
+
+    #[test]
+    fn line_index_retains_lf_line_starts_and_covered_lines() {
+        let source = "first\nsecond\n";
+        let index = LineIndex::new(source);
+        assert_eq!(index.line_starts, vec![0, 6, 13]);
+        assert_eq!(index.pos(6), hoonarqube_ir::Pos { line: 2, column: 0 });
+        assert_eq!(index.covered_lines(Span::new(0, 6)), 1..=1);
+    }
+
+    #[test]
+    fn cr_line_comments_close_and_metrics_follow_each_line() {
+        let source = "// TODO\rconst x=1;\rconst y=2;";
+        let report = js(source);
+        let todo_positions: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S1135")
+            .map(|issue| {
+                (
+                    issue.range.start.line,
+                    issue.range.start.column,
+                    issue.range.end.line,
+                    issue.range.end.column,
+                )
+            })
+            .collect();
+        assert_eq!(todo_positions, vec![(1, 3, 1, 7)]);
+        assert_eq!(comment_bodies(source), vec![" TODO"]);
+        assert_eq!(report.metrics.lines, 3);
+        assert_eq!(report.metrics.code_lines, 2);
+        assert_eq!(report.metrics.comment_lines, 1);
+
+        let clean = js("const x=1\rconst y=2");
+        assert!(scan_comments("const x=1\rconst y=2").is_empty());
+        assert_eq!(clean.metrics.lines, 2);
+        assert_eq!(clean.metrics.code_lines, 2);
+        assert_eq!(clean.metrics.comment_lines, 0);
+    }
+
+    #[test]
+    fn crlf_line_comments_close_once_and_keep_line_starts_unique() {
+        let source = "// TODO\r\nconst x=1;\r\nconst y=2;";
+        let index = LineIndex::new(source);
+        assert_eq!(index.line_starts, vec![0, 9, 21]);
+
+        let report = js(source);
+        let todo_positions: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S1135")
+            .map(|issue| (issue.range.start.line, issue.range.start.column))
+            .collect();
+        assert_eq!(todo_positions, vec![(1, 3)]);
+        assert_eq!(comment_bodies(source), vec![" TODO"]);
+        assert_eq!(report.metrics.lines, 3);
+        assert_eq!(report.metrics.code_lines, 2);
+        assert_eq!(report.metrics.comment_lines, 1);
+    }
+
+    #[test]
+    fn unicode_line_comments_close_and_metrics_use_unicode_breaks() {
+        let source = "// TODO\u{2028}const x=1;\u{2029}// TODO";
+        let index = LineIndex::new(source);
+        assert_eq!(index.line_starts, vec![0, 10, 23]);
+
+        let report = js(source);
+        let todo_positions: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S1135")
+            .map(|issue| (issue.range.start.line, issue.range.start.column))
+            .collect();
+        assert_eq!(todo_positions, vec![(1, 3), (3, 3)]);
+        assert_eq!(comment_bodies(source), vec![" TODO", " TODO"]);
+        assert_eq!(report.metrics.lines, 3);
+        assert_eq!(report.metrics.code_lines, 1);
+        assert_eq!(report.metrics.comment_lines, 2);
+
+        let clean = js("const x=1\u{2028}const y=2");
+        assert!(scan_comments("const x=1\u{2028}const y=2").is_empty());
+        assert_eq!(clean.metrics.lines, 2);
+        assert_eq!(clean.metrics.code_lines, 2);
+        assert_eq!(clean.metrics.comment_lines, 0);
+    }
+
+    #[test]
+    fn line_terminators_inside_literals_and_block_comments_do_not_start_comments() {
+        let source = "const single = '// hidden\rTODO'; const template = `// hidden\u{2028}TODO`; \
+             /* // hidden\u{2029} */\n// TODO";
+        assert_eq!(comment_bodies(source), vec![" // hidden\u{2029} ", " TODO"]);
     }
 
     fn comment_bodies(source: &str) -> Vec<&str> {

@@ -9,6 +9,7 @@ use crate::support::member_root_name;
 use crate::support::property_key_name;
 use crate::support::static_property_name;
 use crate::support::unparenthesized;
+use oxc_allocator::ArenaVec;
 use oxc_ast::ast::ArrowFunctionExpression;
 use oxc_ast::ast::AssignmentExpression;
 use oxc_ast::ast::BinaryExpression;
@@ -61,8 +62,8 @@ use oxc_ast_visit::walk::{
     walk_continue_statement, walk_declaration, walk_do_while_statement, walk_export_declaration,
     walk_expression, walk_for_in_statement, walk_for_of_statement, walk_for_statement,
     walk_formal_parameters, walk_if_statement, walk_logical_expression, walk_member_expression,
-    walk_method_definition, walk_new_expression, walk_object_expression, walk_switch_statement,
-    walk_try_statement, walk_unary_expression, walk_while_statement,
+    walk_method_definition, walk_new_expression, walk_object_expression, walk_statements,
+    walk_switch_statement, walk_try_statement, walk_unary_expression, walk_while_statement,
 };
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeFlags;
@@ -273,6 +274,7 @@ impl ComplexityWalker {
 /// descent reaches them.
 pub(crate) struct FunctionMetricsCollector<'index> {
     pub(crate) sink: IssueSink<'index>,
+    pub(crate) array_call_spans: BTreeSet<u32>,
 }
 
 impl<'a> Visit<'a> for FunctionMetricsCollector<'_> {
@@ -476,23 +478,40 @@ impl<'a> Visit<'a> for ClassAccessorCollector<'_> {
     }
 }
 
-/// `S3972` (`else`/`catch`/`finally` sharing the closing brace's line) and
-/// `S3973` (unbraced single-statement bodies indented deeper than their
-/// head statement).
+/// `S3972` (adjacent sibling `if` statements sharing a line) and `S3973`
+/// (unbraced single-statement bodies indented deeper than their head
+/// statement).
 pub(crate) struct KeywordPlacementCollector<'a, 'index> {
     pub(crate) sink: IssueSink<'index>,
     pub(crate) source: &'a str,
     pub(crate) index: &'index LineIndex<'index>,
+    pub(crate) suppress_else_if_chain: bool,
 }
 
 impl<'a> Visit<'a> for KeywordPlacementCollector<'a, '_> {
+    fn visit_statements(&mut self, statements: &ArenaVec<'a, Statement<'a>>) {
+        self.check_sibling_ifs(statements);
+        walk_statements(self, statements);
+    }
+
     fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
         if let Some(alternate) = &it.alternate {
-            self.check_keyword_line(it.consequent.span(), alternate.span(), "else");
+            if !self.suppress_else_if_chain && !matches!(alternate, Statement::IfStatement(_)) {
+                self.check_keyword_line(it.consequent.span(), alternate.span(), "else");
+            }
             self.check_unbraced_indent(it.span(), alternate);
         }
         self.check_unbraced_indent(it.span(), &it.consequent);
-        walk_if_statement(self, it);
+        self.visit_expression(&it.test);
+        self.visit_statement(&it.consequent);
+        if let Some(alternate) = &it.alternate {
+            let saved_suppression = self.suppress_else_if_chain;
+            if matches!(alternate, Statement::IfStatement(_)) {
+                self.suppress_else_if_chain = true;
+            }
+            self.visit_statement(alternate);
+            self.suppress_else_if_chain = saved_suppression;
+        }
     }
 
     fn visit_for_statement(&mut self, it: &ForStatement<'a>) {

@@ -52,6 +52,7 @@ pub(crate) fn check_commented_code(
                 range: to_range(token.range(), index, source),
                 fix: None,
                 flows: Vec::new(),
+                alternatives: Vec::new(),
             });
         }
     }

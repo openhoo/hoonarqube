@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Generate deterministic CLI performance fixtures in a new directory."""
+"""Generate deterministic CLI performance fixtures in a new directory.
+
+Every file is owned by this invocation and refuses to overwrite an existing
+directory. Larger repeated workloads vary identifiers/literals per file so
+project duplication remains complete under the CLI's normal bounded budget.
+"""
 
 import argparse
 import itertools
@@ -16,39 +21,60 @@ def generate(root):
         )
         + "}\n"
     )
-    ruby = "".join(f"def compute{i}(value)\n  value + {i}\nend\n" for i in range(30))
-    python = "".join(f"x{j} = 1; y{j} = 2 # TODO\n" for j in range(40))
+
+    def ruby_source(file_index):
+        return "".join(
+            f"def compute{i}(value)\n  value + {file_index * 30 + i}\nend\n"
+            for i in range(30)
+        )
+
+    def python_source(file_index):
+        return "".join(
+            f"x{file_index}_{j} = 1; y{file_index}_{j} = 2 # TODO\n" for j in range(40)
+        )
+
     workloads = [
-        ("tiny-jsts", 4096, ".js", "export const value = 1;\n"),
-        ("rust-arrays", 1, ".rs", arrays),
-        ("ruby-metrics", 64, ".rb", ruby),
-        ("report-heavy", 400, ".py", python),
+        (
+            "tiny-jsts",
+            4096,
+            ".js",
+            lambda index: f"export const value{index} = 1;\n",
+        ),
+        ("rust-arrays", 1, ".rs", lambda _index: arrays),
+        ("ruby-metrics", 64, ".rb", ruby_source),
+        ("report-heavy", 400, ".py", python_source),
     ]
-    for name, count, extension, source in workloads:
+    for name, count, extension, source_for in workloads:
         directory = root / name
         directory.mkdir()
         for index in range(count):
-            (directory / f"file{index:04d}{extension}").write_text(source)
+            (directory / f"file{index:04d}{extension}").write_text(
+                source_for(index),
+                encoding="utf-8",
+            )
 
     controls = root / "rust-controls"
     controls.mkdir()
     cases = itertools.product(
-        ["a", "mut", "let", "_foo"],
+        ["a", "mut_value", "let_value", "_foo"],
         [
-            "let NAME = value;",
-            "let mut NAME = value;",
-            "let let NAME;",
-            "let other = value;",
+            "let shadow_NAME = value;",
+            "let mut shadow_NAME = value;",
+            "let alias_NAME = value;",
+            "let other_NAME = value;",
             "",
         ],
-        ["NAME[2]", "éNAME[2]", "NAME[２]", "NAME2[2]"],
+        ["NAME[2]", "éNAME[2]", "NAME[3]", "NAME2[2]"],
     )
     for index, (name, shadow, access) in enumerate(cases):
         source = (
             f"fn main() {{ let {name} = [1]; consume!({access}); "
             f"{shadow} consume!({access}); }}\n"
         )
-        (controls / f"control{index:03d}.rs").write_text(source.replace("NAME", name))
+        (controls / f"control{index:03d}.rs").write_text(
+            source.replace("NAME", name),
+            encoding="utf-8",
+        )
 
 
 def main():

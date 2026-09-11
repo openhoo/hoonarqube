@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Deterministic>true</Deterministic>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="Hoonarqube.BuildSdkPath" Value="$(MSBuildToolsPath)" />
+    <Compile Include="Program.cs" />
+    <Compile Include="QuickFixPlanner.cs" />
+    <Compile Include="RazorSourceFacts.cs" />
+    <Reference Include="Microsoft.CodeAnalysis" HintPath="$(MSBuildToolsPath)/DotnetTools/dotnet-format/Microsoft.CodeAnalysis.dll" Private="false" />
+    <Reference Include="Microsoft.CodeAnalysis.CSharp" HintPath="$(MSBuildToolsPath)/DotnetTools/dotnet-format/Microsoft.CodeAnalysis.CSharp.dll" Private="false" />
+    <Reference Include="Microsoft.CodeAnalysis.Workspaces" HintPath="$(MSBuildToolsPath)/DotnetTools/dotnet-format/Microsoft.CodeAnalysis.Workspaces.dll" Private="false" />
+    <Reference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" HintPath="$(MSBuildToolsPath)/DotnetTools/dotnet-format/Microsoft.CodeAnalysis.CSharp.Workspaces.dll" Private="false" />
+    <Reference Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" HintPath="$(MSBuildToolsPath)/DotnetTools/dotnet-format/Microsoft.CodeAnalysis.Workspaces.MSBuild.dll" Private="false" />
+    <Reference Include="Microsoft.Build.Locator" HintPath="$(MSBuildToolsPath)/DotnetTools/dotnet-format/BuildHost-netcore/Microsoft.Build.Locator.dll" Private="false" />
+  </ItemGroup>
+</Project>

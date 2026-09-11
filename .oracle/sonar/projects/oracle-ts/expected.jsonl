@@ -31,14 +31,14 @@
 {"key": "typescript:S6583", "bad": "s6583_bad.ts", "expect_lines_min": 1}
 {"key": "typescript:S6590", "bad": "s6590_bad.ts", "expect_lines_min": 1}
 {"key": "typescript:S6598", "bad": "s6598_bad.ts", "expect_lines_min": 1}
-{"key": "typescript:S6759", "bad": "s6759_bad.ts", "expect_lines_min": 1}
+{"key": "typescript:S6759", "bad": "s6759_bad.tsx", "expect_lines_min": 1}
 {"key": "typescript:S7059", "bad": "s7059_bad.ts", "expect_lines_min": 1}
 {"key": "typescript:S4798", "bad": "s4798_bad.ts", "expect_lines_min": 1}
-{"key":"typescript:S1438","infra":"exact semicolon detection requires token-preserving automatic-semicolon-insertion boundaries"}
+{"key":"typescript:S1438","bad":"s1438_bad.ts","expect_lines_min":1}
 {"key":"typescript:S1874","infra":"deprecated API detection requires semantic symbol resolution and dependency declaration metadata"}
 {"key":"typescript:S4325","infra":"unnecessary type assertion detection requires TypeScript checker type semantics"}
 {"key":"typescript:S4328","infra":"unresolvable import detection requires cross-file module resolution"}
-{"key":"typescript:S6606","infra":"type alias simplification requires TypeScript checker type semantics"}
+{"key":"typescript:S6606","infra":"nullish-coalescing suggestions require TypeScript checker value and nullability semantics; falsy values such as 0, false, and empty strings must remain distinguishable from null and undefined"}
 {"key":"typescript:S6627","infra":"internal API import detection requires cross-file module resolution"}
 {"key":"typescript:S1128","bad":"s1128_bad.ts","expect_lines_min":1}
 {"key":"typescript:S1526","bad":"s1526_bad.ts","expect_lines_min":1}

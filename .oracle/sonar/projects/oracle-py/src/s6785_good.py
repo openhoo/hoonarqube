@@ -1,8 +1,29 @@
-Schema = object
-Query = object
-QueryDepthLimiter = object
+import graphene
+from flask_sqlalchemy import SQLAlchemy
+from graphene.validation import depth_limit_validator
+from graphql_server.flask import GraphQLView
 
-schema = Schema(
-    query=Query,
-    extensions=[QueryDepthLimiter(max_depth=10)],
+db = SQLAlchemy()
+
+
+class Record(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    parent_id = db.Column(db.Integer, db.ForeignKey("record.id"))
+    parent = db.relationship("Record", remote_side=[id], backref="children")
+
+
+
+class Node(graphene.ObjectType):
+    child = graphene.Field(lambda: Node)
+
+
+class Query(graphene.ObjectType):
+    node = graphene.Field(Node)
+
+
+schema = graphene.Schema(query=Query)
+view = GraphQLView.as_view(
+    "api",
+    schema=schema,
+    validation_rules=[depth_limit_validator(10)],
 )

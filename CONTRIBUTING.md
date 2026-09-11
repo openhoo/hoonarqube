@@ -7,6 +7,8 @@ request.
 ## Development
 
 Use the repository Rust toolchain and Python 3.
+The full workspace test suite also requires the .NET 10 SDK (CI uses 10.0.111).
+The compiler-backed C# regression restores and builds isolated fixture projects.
 
 ```sh
 cargo fmt --all --check

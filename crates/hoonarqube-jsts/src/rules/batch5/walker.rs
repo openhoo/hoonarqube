@@ -1,12 +1,16 @@
 // Family walker for 'batch5' (generated).
-use super::collectors::{SecurityHotspotCollector, TsTypeCollector};
+use super::collectors::{SecurityBindingResolver, SecurityHotspotCollector, TsTypeCollector};
 use super::collectors_hotspots::{MiscCollector, check_default_export_name, check_self_imports};
 use super::s2187_test_framework_rules::check_test_framework_rules;
+use super::s4036_s4721_shell_exec::ProcessBindingResolver;
+use super::s6759_s6759_ts_interface_declaration::check_s6759;
+use super::s7059_s7059_await_expression::S7059State;
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::support::{IssueSink, LineIndex};
 use hoonarqube_ir::Issue;
 use oxc_ast_visit::Visit;
+use oxc_semantic::Semantic;
 use std::path::Path;
 
 // --- Batch5: TypeScript-only AST rules, security hotspots, test-framework
@@ -19,11 +23,12 @@ fn check_batch5_rules<'a>(
     source: &'a str,
     index: &'a LineIndex,
     language: JstsLanguage,
+    semantic: Option<&Semantic<'_>>,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_ts_type_rules(program, source, index, language));
     issues.extend(check_security_hotspot_rules(
-        program, source, index, language,
+        program, source, index, language, semantic,
     ));
     if is_test_file(path) {
         issues.extend(check_test_framework_rules(program, source, index, language));
@@ -47,10 +52,12 @@ fn check_ts_type_rules(
             issues: Vec::new(),
         },
         class_stack: Vec::new(),
+        s7059: S7059State::default(),
         constructor_depth: 0,
         try_guard_depth: 0,
     };
     collector.visit_program(program);
+    check_s6759(program, &mut collector.sink);
     collector.sink.issues
 }
 
@@ -60,6 +67,7 @@ fn check_security_hotspot_rules(
     source: &str,
     index: &LineIndex,
     language: JstsLanguage,
+    semantic: Option<&Semantic<'_>>,
 ) -> Vec<Issue> {
     let mut collector = SecurityHotspotCollector {
         source,
@@ -68,8 +76,20 @@ fn check_security_hotspot_rules(
             language,
             issues: Vec::new(),
         },
+        process_bindings: ProcessBindingResolver::new(semantic),
+        app_aliases: std::collections::HashMap::new(),
+        security_bindings: SecurityBindingResolver::new(program, semantic),
+        unsafe_helmet_middleware: std::collections::HashSet::new(),
+        pending_express_apps: Vec::new(),
+        disabled_express_apps: std::collections::HashSet::new(),
+        csrf_protected_apps: std::collections::HashSet::new(),
+        debug_guard_spans: Vec::new(),
+        script_bindings: std::collections::HashMap::new(),
+        function_depth: 0,
+        signale_unprotected: std::collections::HashSet::new(),
     };
     collector.visit_program(program);
+    collector.finish_security();
     collector.sink.issues
 }
 
@@ -114,12 +134,27 @@ fn check_misc_rules(
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_batch5_rules(ctx.path, ctx.program, ctx.source, ctx.index, ctx.language)
+    check_batch5_rules(
+        ctx.path,
+        ctx.program,
+        ctx.source,
+        ctx.index,
+        ctx.language,
+        ctx.semantic,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
+    fn tsx_keys(source: &str) -> Vec<(String, u32)> {
+        report_keys(&analyze(
+            PathBuf::from("test.tsx"),
+            source,
+            JstsLanguage::TypeScript,
+            &AnalyzerOptions::default(),
+        ))
+    }
 
     #[test]
     fn computed_enum_members_are_flagged() {
@@ -400,14 +435,20 @@ mod tests {
 
     #[test]
     fn props_interfaces_require_readonly_fields() {
-        let violating = ts_keys("interface ButtonProps { label: string; size: number; }\n");
-        assert_eq!(count_key(&violating, "typescript:S6759"), 2);
+        let violating = tsx_keys(
+            "interface ButtonProps { label: string; size: number; }\n\
+             function Button(props: ButtonProps) { return <div>{props.label}</div>; }\n",
+        );
+        assert_eq!(count_key(&violating, "typescript:S6759"), 1);
 
-        let readonly = ts_keys("interface ButtonProps { readonly label: string; }\n");
+        let readonly = tsx_keys(
+            "interface ButtonProps { readonly label: string; }\n\
+             function Button(props: ButtonProps) { return <div>{props.label}</div>; }\n",
+        );
         assert_eq!(count_key(&readonly, "typescript:S6759"), 0);
 
-        let not_props = ts_keys("interface Config { label: string; }\n");
-        assert_eq!(count_key(&not_props, "typescript:S6759"), 0);
+        let not_component = ts_keys("interface Config { label: string; }\n");
+        assert_eq!(count_key(&not_component, "typescript:S6759"), 0);
     }
 
     #[test]
@@ -452,17 +493,30 @@ mod tests {
 
     #[test]
     fn weak_hash_algorithms_are_flagged() {
-        let findings = js_keys("const hash = crypto.createHash('md5');\n");
-        assert_eq!(count_key(&findings, "javascript:S2612"), 1);
+        let findings =
+            js_keys("const crypto = require('crypto'); const hash = crypto.createHash('md5');\n");
+        assert_eq!(count_key(&findings, "javascript:S2612"), 0);
         assert_eq!(count_key(&findings, "javascript:S4790"), 1);
 
-        let strong = js_keys("const hash = crypto.createHash('sha256');\n");
+        let strong = js_keys(
+            "const crypto = require('crypto'); const hash = crypto.createHash('sha256');\n",
+        );
         assert_eq!(count_key(&strong, "javascript:S2612"), 0);
         assert_eq!(count_key(&strong, "javascript:S4790"), 0);
 
-        let family = js_keys("const h = crypto.createHash('ripemd160');\n");
+        let family = js_keys(
+            "const crypto = require('crypto'); const h = crypto.createHash('ripemd160');\n",
+        );
         assert_eq!(count_key(&family, "javascript:S2612"), 0);
         assert_eq!(count_key(&family, "javascript:S4790"), 0);
+    }
+
+    #[test]
+    fn s2612_reports_world_permissions_not_hash_algorithms() {
+        let world = js_keys("const fs = require('fs'); fs.chmodSync('/tmp/fs', 0o777);\n");
+        assert_eq!(count_key(&world, "javascript:S2612"), 1);
+        let owner = js_keys("const fs = require('fs'); fs.chmodSync('/tmp/fs', 0o700);\n");
+        assert_eq!(count_key(&owner, "javascript:S2612"), 0);
     }
 
     #[test]
