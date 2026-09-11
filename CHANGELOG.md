@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.2 (2026-09-11)
+
+### Bug Fixes
+
+- **hoonarqube:** harden analysis boundaries and quick fixes (e7add58)
+
 ## 0.8.1 (2026-09-10)
 
 ### Bug Fixes
