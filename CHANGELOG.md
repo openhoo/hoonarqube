@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.3 (2026-09-11)
+
+### Performance
+
+- **hoonarqube:** reduce profile runtime and report footprint (3b3c642)
+
 ## 0.8.2 (2026-09-11)
 
 ### Bug Fixes

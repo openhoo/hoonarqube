@@ -11,13 +11,13 @@ publish.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
-hoonarqube-ir = { version = "0.8.2", path = "../hoonarqube-ir" }
+hoonarqube-ir = { version = "0.8.3", path = "../hoonarqube-ir" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.10.9"
 tree-sitter = "0.25"
 tree-sitter-c-sharp = { version = "0.23.5", path = "../../vendor/tree-sitter-c-sharp" }
 [dev-dependencies]
-hoonarqube-core = { version = "0.8.2", path = "../hoonarqube-core" }
+hoonarqube-core = { version = "0.8.3", path = "../hoonarqube-core" }
 [lints]
 workspace = true

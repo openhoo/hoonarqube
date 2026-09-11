@@ -820,7 +820,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hoonarqube"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "hoonarqube-catalog",
  "hoonarqube-core",
@@ -829,7 +829,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-bench"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "hoonarqube-core",
  "hoonarqube-csharp",
@@ -842,7 +842,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-catalog"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "hex",
  "serde",
@@ -853,7 +853,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-cli"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "atomicwrites",
  "clap",
@@ -872,7 +872,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-core"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "base64 0.23.1",
  "hoonarqube-catalog",
@@ -901,7 +901,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-csharp"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "hoonarqube-core",
  "hoonarqube-ir",
@@ -914,11 +914,11 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-dataflow"
-version = "0.8.2"
+version = "0.8.3"
 
 [[package]]
 name = "hoonarqube-go"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "hoonarqube-dataflow",
  "hoonarqube-ir",
@@ -928,7 +928,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-ir"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -937,7 +937,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-java"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "hoonarqube-ir",
  "tree-sitter",
@@ -946,7 +946,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-jsts"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "hoonarqube-core",
  "hoonarqube-ir",
@@ -964,7 +964,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-python"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "hoonarqube-ir",
  "ruff_python_ast",
@@ -975,7 +975,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-ruby"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "hoonarqube-ir",
  "tree-sitter",
@@ -984,7 +984,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-rust"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "hoonarqube-ir",
  "regex",
@@ -994,7 +994,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-service"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "axum",
  "hex",
@@ -3467,7 +3467,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "anyhow",
  "clap",
