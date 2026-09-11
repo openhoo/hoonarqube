@@ -16,9 +16,10 @@ use crate::store::{
     RetentionResult, ReviewRecord, Store, StoreError,
 };
 use axum::body::Bytes;
-use axum::extract::{DefaultBodyLimit, Path, Query, State};
+use axum::extract::{DefaultBodyLimit, FromRequest, FromRequestParts, Path, Query, Request, State};
 use axum::http::header::{self, HeaderMap, HeaderValue};
 use axum::http::{StatusCode, Uri};
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
@@ -28,6 +29,7 @@ use hoonarqube_core::assessment::gates::{
 };
 use hoonarqube_ir::assessment::GateReport;
 use hoonarqube_ir::{AnalysisReport, FileReport, Issue};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -49,6 +51,79 @@ const MAX_REPORT_ISSUES: usize = 500_000;
 const MAX_REPORT_PROJECT_FILES: usize = 100_000;
 const MAX_ASSESSMENT_SOURCES: usize = 100_000;
 const MAX_ASSESSMENT_FINDINGS: usize = 500_000;
+
+struct SafePath<T>(T);
+
+impl<S, T> FromRequestParts<S> for SafePath<T>
+where
+    S: Send + Sync,
+    T: DeserializeOwned + Send,
+{
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        Path::<T>::from_request_parts(parts, state)
+            .await
+            .map(|Path(value)| Self(value))
+            .map_err(|_| ApiError::bad_request())
+    }
+}
+
+struct SafeQuery<T>(T);
+
+impl<S, T> FromRequestParts<S> for SafeQuery<T>
+where
+    S: Send + Sync,
+    T: DeserializeOwned + Send,
+{
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        Query::<T>::from_request_parts(parts, state)
+            .await
+            .map(|Query(value)| Self(value))
+            .map_err(|_| ApiError::bad_request())
+    }
+}
+
+struct SafeBytes(Bytes);
+
+impl<S> FromRequest<S> for SafeBytes
+where
+    S: Send + Sync,
+{
+    type Rejection = ApiError;
+
+    async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
+        Bytes::from_request(request, state)
+            .await
+            .map(Self)
+            .map_err(|rejection| api_body_error(rejection.status()))
+    }
+}
+
+struct SafeJson<T>(T);
+
+impl<S, T> FromRequest<S> for SafeJson<T>
+where
+    S: Send + Sync,
+    T: DeserializeOwned + Send,
+{
+    type Rejection = ApiError;
+
+    async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
+        Json::<T>::from_request(request, state)
+            .await
+            .map(|Json(value)| Self(value))
+            .map_err(|rejection| api_body_error(rejection.status()))
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -624,11 +699,35 @@ impl ApiError {
         }
     }
 
+    const fn unsupported_media_type() -> Self {
+        Self {
+            status: StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            code: "unsupported_media_type",
+            message: "the request content type is not supported",
+        }
+    }
+
+    const fn unprocessable_entity() -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "unprocessable_entity",
+            message: "the request body could not be deserialized",
+        }
+    }
+
     const fn not_found() -> Self {
         Self {
             status: StatusCode::NOT_FOUND,
             code: "not_found",
             message: "the requested resource was not found",
+        }
+    }
+
+    const fn method_not_allowed() -> Self {
+        Self {
+            status: StatusCode::METHOD_NOT_ALLOWED,
+            code: "method_not_allowed",
+            message: "the request method is not supported",
         }
     }
 
@@ -657,6 +756,16 @@ impl ApiError {
     }
 }
 
+fn api_body_error(status: StatusCode) -> ApiError {
+    match status {
+        StatusCode::PAYLOAD_TOO_LARGE => ApiError::too_large(),
+        StatusCode::UNSUPPORTED_MEDIA_TYPE => ApiError::unsupported_media_type(),
+        StatusCode::UNPROCESSABLE_ENTITY => ApiError::unprocessable_entity(),
+        StatusCode::INTERNAL_SERVER_ERROR => ApiError::internal(),
+        _ => ApiError::bad_request(),
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let mut response = (
@@ -680,6 +789,7 @@ impl IntoResponse for ApiError {
 }
 
 fn router(state: AppState) -> Router {
+    let max_body_bytes = state.limits.max_body_bytes;
     Router::new()
         .route(&format!("{API_PREFIX}/projects"), get(list_projects))
         .route(
@@ -727,7 +837,9 @@ fn router(state: AppState) -> Router {
         .route("/app.js", get(app_js))
         .route("/style.css", get(style_css))
         .fallback(api_not_found)
-        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
+        .method_not_allowed_fallback(api_method_not_allowed)
+        .layer(DefaultBodyLimit::max(max_body_bytes))
+        .layer(middleware::from_fn(apply_security_headers))
         .with_state(state)
 }
 
@@ -749,7 +861,7 @@ async fn list_projects(
 async fn list_branches(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path(project): Path<String>,
+    SafePath(project): SafePath<String>,
 ) -> Result<Json<BranchesResponse>, ApiError> {
     let principal = authorize_project(&state, &headers, &project, Role::Reader)?;
     let _ = principal;
@@ -764,8 +876,8 @@ async fn list_branches(
 async fn list_analyses(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path(project): Path<String>,
-    Query(query): Query<AnalysisQuery>,
+    SafePath(project): SafePath<String>,
+    SafeQuery(query): SafeQuery<AnalysisQuery>,
 ) -> Result<Json<AnalysesResponse>, ApiError> {
     let principal = authorize_project(&state, &headers, &project, Role::Reader)?;
     let _ = principal;
@@ -783,7 +895,7 @@ async fn list_analyses(
 async fn get_analysis(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path((project, analysis_id)): Path<(String, i64)>,
+    SafePath((project, analysis_id)): SafePath<(String, i64)>,
 ) -> Result<Json<AnalysisResponse>, ApiError> {
     let principal = authorize_project(&state, &headers, &project, Role::Reader)?;
     let _ = principal;
@@ -801,7 +913,7 @@ async fn get_analysis(
 async fn get_findings(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path((project, analysis_id)): Path<(String, i64)>,
+    SafePath((project, analysis_id)): SafePath<(String, i64)>,
 ) -> Result<Json<FindingsResponse>, ApiError> {
     let principal = authorize_project(&state, &headers, &project, Role::Reader)?;
     let _ = principal;
@@ -819,8 +931,8 @@ async fn get_findings(
 async fn ingest_analysis(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path(project): Path<String>,
-    body: Bytes,
+    SafePath(project): SafePath<String>,
+    SafeBytes(body): SafeBytes,
 ) -> Result<Json<IngestResponse>, ApiError> {
     let principal = authorize_project(&state, &headers, &project, Role::Admin)?;
     let _ = principal;
@@ -844,8 +956,8 @@ async fn ingest_analysis(
 async fn list_reviews(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path(project): Path<String>,
-    Query(query): Query<ReviewQuery>,
+    SafePath(project): SafePath<String>,
+    SafeQuery(query): SafeQuery<ReviewQuery>,
 ) -> Result<Json<ReviewsResponse>, ApiError> {
     let principal = authorize_project(&state, &headers, &project, Role::Reader)?;
     let _ = principal;
@@ -866,8 +978,8 @@ async fn list_reviews(
 async fn post_review(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path(project): Path<String>,
-    Json(request): Json<ReviewRequest>,
+    SafePath(project): SafePath<String>,
+    SafeJson(request): SafeJson<ReviewRequest>,
 ) -> Result<Json<ReviewResponse>, ApiError> {
     let principal = authorize_project(&state, &headers, &project, Role::Reviewer)?;
     validate_project(&project)?;
@@ -896,8 +1008,8 @@ async fn post_review(
 async fn get_history(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path((project, review_id)): Path<(String, i64)>,
-    Query(query): Query<FindingIdentityQuery>,
+    SafePath((project, review_id)): SafePath<(String, i64)>,
+    SafeQuery(query): SafeQuery<FindingIdentityQuery>,
 ) -> Result<Json<HistoryResponse>, ApiError> {
     let principal = authorize_project(&state, &headers, &project, Role::Reader)?;
     let _ = principal;
@@ -915,8 +1027,8 @@ async fn get_history(
 async fn delete_analysis(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path((project, analysis_id)): Path<(String, i64)>,
-    Query(query): Query<DeleteQuery>,
+    SafePath((project, analysis_id)): SafePath<(String, i64)>,
+    SafeQuery(query): SafeQuery<DeleteQuery>,
 ) -> Result<StatusCode, ApiError> {
     let principal = authorize_project(&state, &headers, &project, Role::Admin)?;
     validate_project(&project)?;
@@ -940,8 +1052,8 @@ async fn delete_analysis(
 async fn delete_project(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path(project): Path<String>,
-    Query(query): Query<DeleteQuery>,
+    SafePath(project): SafePath<String>,
+    SafeQuery(query): SafeQuery<DeleteQuery>,
 ) -> Result<StatusCode, ApiError> {
     let principal = authorize_project(&state, &headers, &project, Role::Admin)?;
     validate_project(&project)?;
@@ -960,7 +1072,7 @@ async fn delete_project(
 async fn export_project(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path(project): Path<String>,
+    SafePath(project): SafePath<String>,
 ) -> Result<Json<BackupEnvelope>, ApiError> {
     let principal = authorize_project(&state, &headers, &project, Role::Admin)?;
     let _ = principal;
@@ -982,8 +1094,8 @@ async fn export_project(
 async fn restore_project(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path(project): Path<String>,
-    body: Bytes,
+    SafePath(project): SafePath<String>,
+    SafeBytes(body): SafeBytes,
 ) -> Result<Json<RestoreResponse>, ApiError> {
     let principal = authorize_project(&state, &headers, &project, Role::Admin)?;
     let _ = principal;
@@ -1004,8 +1116,8 @@ async fn restore_project(
 async fn retention(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path(project): Path<String>,
-    Json(request): Json<RetentionRequest>,
+    SafePath(project): SafePath<String>,
+    SafeJson(request): SafeJson<RetentionRequest>,
 ) -> Result<Json<RetentionResult>, ApiError> {
     let principal = authorize_project(&state, &headers, &project, Role::Admin)?;
     validate_project(&project)?;
@@ -1055,6 +1167,15 @@ async fn style_css() -> Response {
 async fn api_not_found(uri: Uri) -> Response {
     let _ = uri;
     ApiError::not_found().into_response()
+}
+async fn api_method_not_allowed() -> Response {
+    ApiError::method_not_allowed().into_response()
+}
+
+async fn apply_security_headers(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    security_headers(response.headers_mut());
+    response
 }
 
 fn static_response(content_type: &'static str, body: &'static str) -> Response {
@@ -2140,6 +2261,11 @@ fn hash_bytes(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt::Write as _;
+    use std::io::{Read, Write};
+    use std::net::{SocketAddr, TcpStream};
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+    use std::time::Duration;
 
     #[test]
     fn review_state_machines_are_disjoint() {
@@ -2225,5 +2351,296 @@ mod tests {
         assert_eq!(findings.len(), 2);
         assert!(findings.iter().all(|finding| finding.ambiguous));
         assert_eq!(findings[0].identity, findings[1].identity);
+    }
+
+    #[test]
+    fn api_body_rejections_preserve_framework_statuses() {
+        assert_eq!(
+            api_body_error(StatusCode::PAYLOAD_TOO_LARGE).status,
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+        assert_eq!(
+            api_body_error(StatusCode::UNSUPPORTED_MEDIA_TYPE).status,
+            StatusCode::UNSUPPORTED_MEDIA_TYPE
+        );
+        assert_eq!(
+            api_body_error(StatusCode::UNPROCESSABLE_ENTITY).status,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        assert_eq!(
+            api_body_error(StatusCode::INTERNAL_SERVER_ERROR).status,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert_eq!(
+            api_body_error(StatusCode::BAD_REQUEST).status,
+            StatusCode::BAD_REQUEST
+        );
+    }
+
+    #[test]
+    fn api_error_responses_include_json_and_security_headers() {
+        let response = ApiError::unauthorized().into_response();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE),
+            Some(&HeaderValue::from_static("application/json"))
+        );
+        assert_eq!(
+            response.headers().get(header::CONTENT_SECURITY_POLICY),
+            Some(&HeaderValue::from_static(
+                "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; connect-src 'self'"
+            ))
+        );
+        assert_eq!(
+            response.headers().get(header::X_CONTENT_TYPE_OPTIONS),
+            Some(&HeaderValue::from_static("nosniff"))
+        );
+        assert_eq!(
+            response.headers().get(header::WWW_AUTHENTICATE),
+            Some(&HeaderValue::from_static("Bearer"))
+        );
+    }
+    const TEST_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; connect-src 'self'";
+    static NEXT_HTTP_TEST_ID: AtomicU64 = AtomicU64::new(0);
+
+    struct RawHttpResponse {
+        status: u16,
+        headers: std::collections::BTreeMap<String, String>,
+        body: Vec<u8>,
+    }
+
+    fn response_header_end(bytes: &[u8]) -> Option<usize> {
+        bytes.windows(4).position(|window| window == b"\r\n\r\n")
+    }
+
+    fn response_content_length(header_bytes: &[u8]) -> Option<usize> {
+        String::from_utf8_lossy(header_bytes)
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                if name.eq_ignore_ascii_case("content-length") {
+                    value.trim().parse().ok()
+                } else {
+                    None
+                }
+            })
+    }
+
+    fn parse_http_response(bytes: &[u8]) -> RawHttpResponse {
+        let header_end = response_header_end(bytes).expect("HTTP response headers");
+        let header_text = String::from_utf8_lossy(&bytes[..header_end]);
+        let mut lines = header_text.lines();
+        let status = lines
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|value| value.parse().ok())
+            .expect("HTTP response status");
+        let headers = lines
+            .filter_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                Some((name.to_ascii_lowercase(), value.trim().to_string()))
+            })
+            .collect();
+        RawHttpResponse {
+            status,
+            headers,
+            body: bytes[header_end + 4..].to_vec(),
+        }
+    }
+
+    fn send_http_request(address: SocketAddr, request: &str) -> RawHttpResponse {
+        let mut stream = TcpStream::connect(address).expect("connect to test service");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("set HTTP read timeout");
+        stream
+            .write_all(request.as_bytes())
+            .expect("write HTTP request");
+        let mut response = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        loop {
+            let count = match stream.read(&mut buffer) {
+                Ok(count) => count,
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                    ) =>
+                {
+                    break;
+                }
+                Err(error) => panic!("read HTTP response: {error}"),
+            };
+            if count == 0 {
+                break;
+            }
+            response.extend_from_slice(&buffer[..count]);
+            if let Some(header_end) = response_header_end(&response)
+                && let Some(length) = response_content_length(&response[..header_end])
+                && response.len() >= header_end + 4 + length
+            {
+                break;
+            }
+        }
+        parse_http_response(&response)
+    }
+
+    async fn http_request(address: SocketAddr, request: String) -> RawHttpResponse {
+        tokio::task::spawn_blocking(move || send_http_request(address, &request))
+            .await
+            .expect("HTTP client task")
+    }
+
+    async fn api_request(
+        address: SocketAddr,
+        method: &str,
+        path: &str,
+        content_type: Option<&str>,
+        body: &str,
+    ) -> RawHttpResponse {
+        let mut request = format!(
+            "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer secret\r\nConnection: close\r\nContent-Length: {}\r\n",
+            body.len()
+        );
+        if let Some(content_type) = content_type {
+            write!(&mut request, "Content-Type: {content_type}\r\n").expect("write request header");
+        }
+        request.push_str("\r\n");
+        request.push_str(body);
+        http_request(address, request).await
+    }
+
+    fn assert_api_headers(response: &RawHttpResponse) {
+        assert_eq!(
+            response.headers.get("content-type").map(String::as_str),
+            Some("application/json")
+        );
+        assert_eq!(
+            response
+                .headers
+                .get("content-security-policy")
+                .map(String::as_str),
+            Some(TEST_CSP)
+        );
+        assert_eq!(
+            response
+                .headers
+                .get("x-content-type-options")
+                .map(String::as_str),
+            Some("nosniff")
+        );
+    }
+
+    fn assert_api_error(response: &RawHttpResponse, status: u16, code: &str) {
+        assert_eq!(response.status, status);
+        assert_api_headers(response);
+        let body: Value = serde_json::from_slice(&response.body).expect("JSON API error");
+        assert_eq!(
+            body.get("error")
+                .and_then(|error| error.get("code"))
+                .and_then(Value::as_str),
+            Some(code)
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn http_api_boundaries_are_json_hardened() {
+        let test_id = NEXT_HTTP_TEST_ID.fetch_add(1, AtomicOrdering::Relaxed);
+        let database_path = std::env::temp_dir().join(format!(
+            "hoonarqube-service-http-{}-{test_id}.sqlite3",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&database_path);
+        let auth = AuthConfig::new(vec![Credential::new(
+            "admin",
+            "secret",
+            [("demo".to_string(), Role::Admin)],
+        )])
+        .expect("test credentials");
+        let service = Service::open(&database_path, auth)
+            .expect("test database")
+            .with_limits(Limits {
+                max_body_bytes: 64,
+                max_report_files: 100,
+                max_report_issues: 100,
+            });
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("test listener");
+        let address = listener.local_addr().expect("test listener address");
+        let router = service.router();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router)
+                .await
+                .expect("test service server");
+        });
+
+        let success = api_request(address, "GET", "/api/v1/projects", None, "").await;
+        assert_eq!(success.status, 200);
+        assert_api_headers(&success);
+        let success_body: Value =
+            serde_json::from_slice(&success.body).expect("JSON project response");
+        assert!(success_body.get("projects").is_some_and(Value::is_array));
+
+        let malformed = api_request(
+            address,
+            "POST",
+            "/api/v1/projects/demo/reviews",
+            Some("application/json"),
+            "{",
+        )
+        .await;
+        assert_api_error(&malformed, 400, "invalid_request");
+
+        let bad_path = api_request(
+            address,
+            "GET",
+            "/api/v1/projects/demo/analyses/not-an-id",
+            None,
+            "",
+        )
+        .await;
+        assert_api_error(&bad_path, 400, "invalid_request");
+
+        let method_not_allowed = api_request(address, "POST", "/api/v1/projects", None, "").await;
+        assert_api_error(&method_not_allowed, 405, "method_not_allowed");
+
+        let oversized_body = "x".repeat(128);
+        let too_large = api_request(
+            address,
+            "POST",
+            "/api/v1/projects/demo/reviews",
+            Some("application/json"),
+            &oversized_body,
+        )
+        .await;
+        assert_api_error(&too_large, 413, "payload_too_large");
+
+        let unsupported_media_type = api_request(
+            address,
+            "POST",
+            "/api/v1/projects/demo/reviews",
+            Some("text/plain"),
+            "{}",
+        )
+        .await;
+        assert_api_error(&unsupported_media_type, 415, "unsupported_media_type");
+
+        let unprocessable = api_request(
+            address,
+            "POST",
+            "/api/v1/projects/demo/reviews",
+            Some("application/json"),
+            r#"{"schema_version":"bad"}"#,
+        )
+        .await;
+        assert_api_error(&unprocessable, 422, "unprocessable_entity");
+
+        server.abort();
+        let _ = server.await;
+        drop(service);
+        let _ = std::fs::remove_file(&database_path);
+        let _ = std::fs::remove_file(format!("{}-wal", database_path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", database_path.display()));
     }
 }

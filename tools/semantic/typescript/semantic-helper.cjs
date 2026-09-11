@@ -789,6 +789,101 @@ function quickfixSymbol(checker, node) {
     return undefined;
   }
 }
+function quickfixScriptValueSymbol(ts, checker, sourceFile, name) {
+  if (!sourceFile || ts.isExternalModule(sourceFile)) return undefined;
+  const nameNodes = [];
+  const addBindingNames = bindingName => {
+    if (ts.isIdentifier(bindingName)) {
+      nameNodes.push(bindingName);
+      return;
+    }
+    if (ts.isObjectBindingPattern(bindingName) || ts.isArrayBindingPattern(bindingName)) {
+      for (const element of bindingName.elements || []) {
+        if (ts.isBindingElement(element)) addBindingNames(element.name);
+      }
+    }
+  };
+  try {
+    for (const statement of sourceFile.statements || []) {
+      if (ts.isVariableStatement(statement)) {
+        for (const declaration of statement.declarationList.declarations || []) {
+          addBindingNames(declaration.name);
+        }
+      } else if (ts.isFunctionDeclaration(statement)
+        || ts.isClassDeclaration(statement)
+        || ts.isEnumDeclaration(statement)
+        || ts.isModuleDeclaration(statement)) {
+        addBindingNames(statement.name);
+      }
+    }
+  } catch {
+    return null;
+  }
+  const matches = [];
+  for (const nameNode of nameNodes) {
+    const symbol = quickfixSymbol(checker, nameNode);
+    if (!symbol || String(symbol.escapedName) !== name || !(symbol.flags & ts.SymbolFlags.Value)) continue;
+    const declarations = symbol.declarations || [];
+    if (!declarations.some(declaration => {
+      try { return declaration.getSourceFile() === sourceFile; } catch { return false; }
+    })) continue;
+    if (!matches.includes(symbol)) matches.push(symbol);
+  }
+  return matches.length > 1 ? null : matches[0];
+}
+
+function quickfixVisibleValueSymbol(ts, checker, sourceFile, node, name) {
+  const scriptSymbol = quickfixScriptValueSymbol(ts, checker, sourceFile, name);
+  if (scriptSymbol !== undefined) return scriptSymbol;
+  let symbol;
+  try {
+    symbol = typeof checker.resolveName === 'function'
+      ? checker.resolveName(name, node, ts.SymbolFlags.Value, false)
+      : undefined;
+  } catch {
+    return null;
+  }
+  if (symbol) return symbol;
+  let symbols;
+  try {
+    symbols = checker.getSymbolsInScope(node, ts.SymbolFlags.Value);
+  } catch {
+    return null;
+  }
+  const matches = (symbols || []).filter(item => (
+    item && String(item.escapedName) === name
+  ));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function quickfixDefaultLibraryValue(ts, checker, program, sourceFile, node, name) {
+  const symbol = quickfixVisibleValueSymbol(ts, checker, sourceFile, node, name);
+  if (!symbol || (symbol.flags & ts.SymbolFlags.Alias)) return false;
+  const declarations = symbol.declarations || [];
+  const valueDeclaration = symbol.valueDeclaration;
+  if (!valueDeclaration || !ts.isVariableDeclaration(valueDeclaration) || declarations.length === 0) {
+    return false;
+  }
+  if (declarations.filter(declaration => ts.isVariableDeclaration(declaration)).length !== 1) {
+    return false;
+  }
+  if (typeof program?.isSourceFileDefaultLibrary !== 'function') return false;
+  return declarations.every(declaration => {
+    let declarationSource;
+    try {
+      declarationSource = declaration.getSourceFile();
+    } catch {
+      return false;
+    }
+    if (!declarationSource || declarationSource.isDeclarationFile !== true) return false;
+    try {
+      return program.isSourceFileDefaultLibrary(declarationSource) === true;
+    } catch {
+      return false;
+    }
+  });
+}
+
 function quickfixSymbolType(checker, symbol, node) {
   try {
     return checker.getTypeOfSymbolAtLocation(symbol, node);
@@ -960,7 +1055,7 @@ function quickfixHasJsx(ts, node) {
   return found;
 }
 
-function collectQuickfixes(ts, checker, sourceFile, config) {
+function collectQuickfixes(ts, checker, program, sourceFile, config) {
   const source = sourceFile.text;
   const facts = [];
   const add = fact => facts.push(fact);
@@ -1250,11 +1345,16 @@ function collectQuickfixes(ts, checker, sourceFile, config) {
     const regexText = text(argument);
     const flags = regexText.slice(regexText.lastIndexOf('/') + 1);
     const eligible = quickfixStringType(ts, receiverType) && !flags.includes('g');
-    add(eligible
+    const standardRegExp = eligible
+      && quickfixDefaultLibraryValue(ts, checker, program, sourceFile, node, 'RegExp');
+    const replacement = standardRegExp
+      ? `RegExp(${regexText}).exec(${text(member.object)})`
+      : undefined;
+    add(eligible && replacement
       ? quickfixFact(source, 'S6594', member.propertyNode, 's6594-use-regexp-exec', 'Replace with "RegExp.exec()"', [{
         start: node.getStart(sourceFile),
         end: node.end,
-        replacement: `RegExp(${regexText}).exec(${text(member.object)})`,
+        replacement,
       }])
       : quickfixNoAction(source, 'S6594', member.propertyNode));
   }
@@ -1378,10 +1478,10 @@ function collectQuickfixes(ts, checker, sourceFile, config) {
   return facts;
 }
 
-function collectFacts(ts, checker, sourceFile, config, host, root, diagnostics) {
+function collectFacts(ts, checker, program, sourceFile, config, host, root, diagnostics) {
   let quickfixes = [];
   try {
-    quickfixes = collectQuickfixes(ts, checker, sourceFile, config);
+    quickfixes = collectQuickfixes(ts, checker, program, sourceFile, config);
   } catch (error) {
     diagnostics.push(diagnostic('TS_HELPER_QUICKFIX_FACTS', `Unable to collect compiler quick-fix facts: ${error.message}`, sourceFile.fileName));
   }
@@ -1616,7 +1716,7 @@ function moduleKind(ts, sourceFile) {
 function analyzeFile(ts, checker, program, sourceFile, config, host, request, diagnostics) {
   const root = request.root || path.dirname(sourceFile.fileName);
   const source = sourceFile.text;
-  const facts = collectFacts(ts, checker, sourceFile, config, host, root, diagnostics);
+  const facts = collectFacts(ts, checker, program, sourceFile, config, host, root, diagnostics);
   const imports = collectImports(ts, checker, program, sourceFile, config, host, root);
   return {
     path: canonicalPath(sourceFile.fileName),

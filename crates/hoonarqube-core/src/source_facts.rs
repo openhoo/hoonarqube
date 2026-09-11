@@ -5,6 +5,7 @@
 //! delimiters, interpolation, and layout-sensitive Python constructs apart
 //! while a single iterative walk collects both tokens and line metrics.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::Path;
@@ -60,6 +61,15 @@ const MAX_TREE_NODES: usize = 8 * 1024 * 1024;
 const MAX_FACT_TOKENS: usize = 2 * 1024 * 1024;
 const MAX_INTERPOLATION_SCAN_NODES: usize = 100_000;
 const MAX_SIGNATURE_BYTES: usize = 32 * 1024 * 1024;
+/// Returns whether a registered source would be rejected before parser
+/// construction.  Project orchestration uses this cheap preflight to avoid
+/// handing resource-sized input to native analyzers first.
+pub(crate) fn source_exceeds_limits(path: &Path, source: &str) -> bool {
+    let Some(language) = crate::language_for_path(path) else {
+        return false;
+    };
+    source.len() > MAX_SOURCE_BYTES || semantic_line_count(source, language) > MAX_SOURCE_LINES
+}
 
 /// Collect syntax facts for a supported source path.
 ///
@@ -92,13 +102,11 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
             language,
         });
     }
-
-    let physical_lines = if source.is_empty() {
-        0
-    } else {
-        source.lines().count()
-    };
-    if source.len() > MAX_SOURCE_BYTES || physical_lines > MAX_SOURCE_LINES {
+    // Count before retaining one byte offset per line.  Rejected inputs can
+    // be tens of megabytes of newline-only text, so they must not allocate a
+    // line-start map just to produce fallback metrics.
+    if source.len() > MAX_SOURCE_BYTES {
+        let physical_lines = semantic_line_count(source, language);
         return Some(SourceFacts {
             metrics: fallback_metrics(source, language),
             tokens: Vec::new(),
@@ -111,6 +119,21 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
             language,
         });
     }
+    let physical_lines = semantic_line_count(source, language);
+    if physical_lines > MAX_SOURCE_LINES {
+        return Some(SourceFacts {
+            metrics: fallback_metrics(source, language),
+            tokens: Vec::new(),
+            symbols: Vec::new(),
+            error: Some(format!(
+                "source exceeds bounded facts input ({} bytes, {} lines)",
+                source.len(),
+                physical_lines
+            )),
+            language,
+        });
+    }
+    let line_starts = semantic_line_starts(source, language);
 
     let mut parser = Parser::new();
     if let Err(error) = set_parser_language(&mut parser, language, extension) {
@@ -122,8 +145,12 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
             language,
         });
     }
-
-    let Some(tree) = parser.parse(source, None) else {
+    let parser_source = if language == Language::Java {
+        normalize_java_parser_source(source)
+    } else {
+        Cow::Borrowed(source)
+    };
+    let Some(tree) = parser.parse(parser_source.as_ref(), None) else {
         return Some(SourceFacts {
             metrics: fallback_metrics(source, language),
             tokens: Vec::new(),
@@ -132,12 +159,11 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
             language,
         });
     };
-
     let parse_error = tree
         .root_node()
         .has_error()
         .then(|| "syntax tree contains recovered or missing nodes".to_owned());
-    let mut collector = FactCollector::new(source, language, physical_lines);
+    let mut collector = FactCollector::new(source, language, physical_lines, line_starts);
     collector.walk(tree.root_node());
     let metrics = collector.metrics();
     let error = collector.error.or(parse_error);
@@ -173,6 +199,28 @@ fn set_parser_language(
         Language::Ruby => parser.set_language(&tree_sitter_ruby::LANGUAGE.into()),
     };
     result.map_err(|_| "tree-sitter grammar is unavailable or incompatible".to_owned())
+}
+/// Tree-sitter Java's line-comment grammar only recognizes LF.  Java source
+/// semantics also treat a lone CR as a line terminator, so normalize only the
+/// parser view while retaining the original byte-identical source for facts.
+fn normalize_java_parser_source(source: &str) -> Cow<'_, str> {
+    let bytes = source.as_bytes();
+    let mut normalized = None;
+    let mut segment_start = 0;
+    for (offset, character) in source.char_indices() {
+        if character == '\r' && bytes.get(offset + 1) != Some(&b'\n') {
+            let output = normalized.get_or_insert_with(|| String::with_capacity(source.len()));
+            output.push_str(&source[segment_start..offset]);
+            output.push('\n');
+            segment_start = offset + 1;
+        }
+    }
+    if let Some(mut output) = normalized {
+        output.push_str(&source[segment_start..]);
+        Cow::Owned(output)
+    } else {
+        Cow::Borrowed(source)
+    }
 }
 
 struct RowFlags {
@@ -229,6 +277,7 @@ struct FactCollector<'source> {
     source: &'source str,
     language: Language,
     physical_lines: usize,
+    line_starts: Vec<usize>,
     rows: RowFlags,
     tokens: Vec<NormalizedToken>,
     symbols: Vec<String>,
@@ -246,11 +295,17 @@ struct JavaStream<'tree> {
 }
 
 impl<'source> FactCollector<'source> {
-    fn new(source: &'source str, language: Language, physical_lines: usize) -> Self {
+    fn new(
+        source: &'source str,
+        language: Language,
+        physical_lines: usize,
+        line_starts: Vec<usize>,
+    ) -> Self {
         Self {
             source,
             language,
             physical_lines,
+            line_starts,
             rows: RowFlags::new(physical_lines),
             tokens: Vec::with_capacity(source.len().min(4096) / 8),
             symbols: Vec::new(),
@@ -772,7 +827,7 @@ impl<'source> FactCollector<'source> {
             self.stopped = true;
             return;
         };
-        let (_, end_line) = line_span(node);
+        let (_, end_line) = line_span(node, &self.line_starts);
         let end_byte = saturating_u32(node.end_byte());
         self.tokens.push(NormalizedToken {
             symbol,
@@ -793,7 +848,7 @@ impl<'source> FactCollector<'source> {
             self.stopped = true;
             return;
         };
-        let (start_line, full_end_line) = line_span(node);
+        let (start_line, full_end_line) = line_span(node, &self.line_starts);
         let start_byte = saturating_u32(node.start_byte());
         let full_end_byte = saturating_u32(node.end_byte());
         self.tokens.push(NormalizedToken {
@@ -852,37 +907,37 @@ impl<'source> FactCollector<'source> {
         // as executable code (and empty comment rows as comments).
         let start = node.start_byte().min(self.source.len());
         let end = node.end_byte().min(self.source.len()).max(start);
-        let mut row = node.start_position().row;
+        let mut row = line_number_at_byte(&self.line_starts, start);
         let mut has_non_whitespace = false;
-        for byte in self.source.as_bytes()[start..end].iter().copied() {
-            if byte == b'\n' {
+        let bytes = self.source.as_bytes();
+        let mut offset = start;
+        while offset < end {
+            if let Some(width) = line_break_width(bytes, offset, self.language)
+                && offset.saturating_add(width) <= end
+            {
                 if has_non_whitespace {
-                    self.rows.mark(
-                        saturating_u32(row.saturating_add(1)),
-                        saturating_u32(row.saturating_add(1)),
-                        code,
-                    );
+                    self.rows.mark(row, row, code);
                 }
                 row = row.saturating_add(1);
                 has_non_whitespace = false;
-            } else if !byte.is_ascii_whitespace() {
-                has_non_whitespace = true;
+                offset = offset.saturating_add(width);
+            } else {
+                if !bytes[offset].is_ascii_whitespace() {
+                    has_non_whitespace = true;
+                }
+                offset += 1;
             }
         }
         if has_non_whitespace {
-            self.rows.mark(
-                saturating_u32(row.saturating_add(1)),
-                saturating_u32(row.saturating_add(1)),
-                code,
-            );
+            self.rows.mark(row, row, code);
         } else if start == end {
-            let (line, _) = line_span(node);
+            let line = line_number_at_byte(&self.line_starts, start);
             self.rows.mark(line, line, code);
         }
     }
 
     fn mark_start(&mut self, node: Node<'_>, code: bool) {
-        let (start, _) = line_span(node);
+        let (start, _) = line_span(node, &self.line_starts);
         self.rows.mark(start, start, code);
     }
 
@@ -933,17 +988,99 @@ fn push_children_with_context<'tree>(
     }
 }
 
-fn line_span(node: Node<'_>) -> (u32, u32) {
-    let start = node.start_position();
-    let end = node.end_position();
-    let start_line = saturating_u32(start.row.saturating_add(1)).max(1);
-    let end_row = if end.column == 0 && end.row > start.row {
-        end.row - 1
-    } else {
-        end.row
+fn line_span(node: Node<'_>, line_starts: &[usize]) -> (u32, u32) {
+    let start_byte = node.start_byte();
+    let end_byte = node.end_byte();
+    let start_line = line_number_at_byte(line_starts, start_byte);
+    if end_byte <= start_byte {
+        return (start_line, start_line);
+    }
+    let mut end_line = line_number_at_byte(line_starts, end_byte);
+    // A half-open node ending at a line start belongs to the preceding line.
+    // This matches tree-sitter's end-position convention while also handling
+    // ECMAScript separators that tree-sitter does not count as rows.
+    if line_starts.binary_search(&end_byte).is_ok() {
+        end_line = end_line.saturating_sub(1).max(start_line);
+    }
+    (start_line, end_line.max(start_line))
+}
+
+fn line_number_at_byte(line_starts: &[usize], byte: usize) -> u32 {
+    let line = match line_starts.binary_search(&byte) {
+        Ok(index) => index.saturating_add(1),
+        Err(index) => index.max(1),
     };
-    let end_line = saturating_u32(end_row.saturating_add(1)).max(start_line);
-    (start_line, end_line)
+    saturating_u32(line).max(1)
+}
+
+fn semantic_line_count(source: &str, language: Language) -> usize {
+    if source.is_empty() {
+        return 0;
+    }
+    let bytes = source.as_bytes();
+    let mut lines: usize = 1;
+    let mut offset = 0;
+    while offset < bytes.len() {
+        if let Some(width) = line_break_width(bytes, offset, language) {
+            offset = offset.saturating_add(width);
+            if offset < bytes.len() {
+                lines = lines.saturating_add(1);
+            }
+        } else {
+            offset += 1;
+        }
+    }
+    lines
+}
+
+fn semantic_line_starts(source: &str, language: Language) -> Vec<usize> {
+    if source.is_empty() {
+        return Vec::new();
+    }
+    let bytes = source.as_bytes();
+    let mut starts = Vec::with_capacity(source.len().min(4096) / 8);
+    starts.push(0);
+    let mut offset = 0;
+    while offset < bytes.len() {
+        if let Some(width) = line_break_width(bytes, offset, language) {
+            offset += width;
+            if offset < bytes.len() {
+                starts.push(offset);
+            }
+        } else {
+            offset += 1;
+        }
+    }
+    starts
+}
+
+fn line_break_width(bytes: &[u8], offset: usize, language: Language) -> Option<usize> {
+    if bytes.get(offset) == Some(&b'\n') {
+        return Some(1);
+    }
+    if !matches!(
+        language,
+        Language::JavaScript | Language::TypeScript | Language::Java
+    ) {
+        return None;
+    }
+    if bytes.get(offset) == Some(&b'\r') {
+        return Some(if bytes.get(offset + 1) == Some(&b'\n') {
+            2
+        } else {
+            1
+        });
+    }
+    if matches!(language, Language::JavaScript | Language::TypeScript)
+        && bytes.get(offset) == Some(&0xe2)
+        && bytes.get(offset + 1) == Some(&0x80)
+        && bytes
+            .get(offset + 2)
+            .is_some_and(|byte| matches!(*byte, 0xa8 | 0xa9))
+    {
+        return Some(3);
+    }
+    None
 }
 
 fn saturating_u32(value: usize) -> u32 {
@@ -1160,18 +1297,14 @@ fn contains_interpolation(node: Node<'_>) -> bool {
 }
 
 fn fallback_metrics(source: &str, language: Language) -> FileMetrics {
-    let lines = if source.is_empty() {
-        0
-    } else {
-        source.lines().count()
-    };
+    let lines = semantic_line_count(source, language);
     let mut code_lines = 0usize;
     let mut comment_lines = 0usize;
     let mut in_block_comment = false;
-    for line in source.lines() {
+    let mut process_line = |line: &str| {
         let text = line.trim();
         if text.is_empty() {
-            continue;
+            return;
         }
         let (has_code, has_comment) = fallback_line_flags(text, language, &mut in_block_comment);
         if has_code {
@@ -1179,6 +1312,21 @@ fn fallback_metrics(source: &str, language: Language) -> FileMetrics {
         } else if has_comment {
             comment_lines = comment_lines.saturating_add(1);
         }
+    };
+    let bytes = source.as_bytes();
+    let mut line_start = 0;
+    let mut offset = 0;
+    while offset < bytes.len() {
+        if let Some(width) = line_break_width(bytes, offset, language) {
+            process_line(&source[line_start..offset]);
+            offset += width;
+            line_start = offset;
+        } else {
+            offset += 1;
+        }
+    }
+    if line_start < source.len() {
+        process_line(&source[line_start..]);
     }
     FileMetrics {
         lines: saturating_u32(lines),
@@ -1398,6 +1546,76 @@ type ImportedKeys = keyof import("./module").Widget;
         );
     }
     #[test]
+    fn javascript_line_terminators_keep_metrics_and_token_positions() {
+        for path in ["sample.js", "sample.ts"] {
+            for separator in ["\r", "\r\n", "\u{2028}", "\u{2029}"] {
+                let source = format!("// comment{separator}let x = 1;{separator}let y = 2;");
+                let facts = facts(path, &source);
+                assert_eq!(facts.metrics.lines, 3, "{path} {separator:?}");
+                assert_eq!(facts.metrics.code_lines, 2, "{path} {separator:?}");
+                assert_eq!(facts.metrics.comment_lines, 1, "{path} {separator:?}");
+                assert!(facts.error.is_none(), "{path}: {:?}", facts.error);
+                for (needle, line) in [("let x", 2), ("let y", 3)] {
+                    let start = source.find(needle).expect("statement");
+                    let keyword_end = start + "let".len();
+                    assert!(facts.tokens.iter().any(|token| {
+                        token.start_byte as usize == start
+                            && token.end_byte as usize == keyword_end
+                            && token.start_line == line
+                            && token.end_line == line
+                    }));
+                }
+
+                let fallback = fallback_metrics(&source, Language::JavaScript);
+                assert_eq!(fallback.lines, 3, "{separator:?}");
+                assert_eq!(fallback.code_lines, 2, "{separator:?}");
+                assert_eq!(fallback.comment_lines, 1, "{separator:?}");
+            }
+        }
+
+        let java_facts = facts(
+            "sample.java",
+            "// comment\rclass A { int f() { return 1; } }\r",
+        );
+        assert_eq!(java_facts.metrics.lines, 2);
+        assert_eq!(java_facts.metrics.code_lines, 1);
+        assert_eq!(java_facts.metrics.comment_lines, 1);
+        assert!(java_facts.error.is_none(), "{:?}", java_facts.error);
+
+        let java_crlf = facts(
+            "sample.java",
+            "// comment\r\nclass A { int f() { return 1; } }\r\n",
+        );
+        assert_eq!(java_crlf.metrics.lines, 2);
+        assert_eq!(java_crlf.metrics.code_lines, 1);
+        assert_eq!(java_crlf.metrics.comment_lines, 1);
+        assert!(java_crlf.error.is_none(), "{:?}", java_crlf.error);
+        for (facts, source) in [
+            (
+                &java_facts,
+                "// comment\rclass A { int f() { return 1; } }\r",
+            ),
+            (
+                &java_crlf,
+                "// comment\r\nclass A { int f() { return 1; } }\r\n",
+            ),
+        ] {
+            let start = source.find("return").expect("return statement");
+            assert!(facts.tokens.iter().any(|token| {
+                token.start_byte as usize == start && token.start_line == 2 && token.end_line == 2
+            }));
+        }
+
+        let java = fallback_metrics("/* comment */\rclass C {}\r", Language::Java);
+        assert_eq!(java.lines, 2);
+        assert_eq!(java.code_lines, 1);
+        assert_eq!(java.comment_lines, 1);
+
+        let non_javascript = fallback_metrics("x = 1\u{2028}y = 2", Language::Python);
+        assert_eq!(non_javascript.lines, 1);
+        assert_eq!(non_javascript.code_lines, 1);
+    }
+    #[test]
     fn interpolated_template_comments_keep_comment_only_rows() {
         let facts = facts("sample.js", "const s = `${\n// comment\nvalue\n}`;\n");
         assert_eq!(facts.metrics.lines, 4);
@@ -1483,5 +1701,29 @@ type ImportedKeys = keyof import("./module").Widget;
         assert_eq!(facts.metrics.lines, 3);
         assert_eq!(facts.metrics.code_lines, 2);
         assert_eq!(facts.metrics.comment_lines, 1);
+    }
+    #[test]
+    fn bounded_inputs_use_fallback_metrics_without_start_map() {
+        let oversized = "x".repeat(MAX_SOURCE_BYTES + 1);
+        let oversized_facts = facts("oversized.js", &oversized);
+        assert!(oversized_facts.error.is_some());
+        assert_eq!(oversized_facts.metrics.lines, 1);
+        assert_eq!(oversized_facts.metrics.code_lines, 1);
+        assert_eq!(oversized_facts.metrics.comment_lines, 0);
+        assert!(oversized_facts.tokens.is_empty());
+        assert!(oversized_facts.symbols.is_empty());
+        drop(oversized);
+
+        let line_limited = "\n".repeat(MAX_SOURCE_LINES + 1);
+        let facts = facts("too-many-lines.js", &line_limited);
+        assert!(facts.error.is_some());
+        assert_eq!(
+            facts.metrics.lines,
+            u32::try_from(MAX_SOURCE_LINES).expect("source line limit fits u32") + 1
+        );
+        assert_eq!(facts.metrics.code_lines, 0);
+        assert_eq!(facts.metrics.comment_lines, 0);
+        assert!(facts.tokens.is_empty());
+        assert!(facts.symbols.is_empty());
     }
 }

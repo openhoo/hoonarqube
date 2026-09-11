@@ -21,7 +21,7 @@ use crate::duplication::{
     DuplicationFile, DuplicationOptions, DuplicationResult, detect_duplications,
 };
 
-use crate::source_facts::{SourceFacts, collect_source_facts};
+use crate::source_facts::{SourceFacts, collect_source_facts, source_exceeds_limits};
 use crate::{AnalyzerOptions, analyze, is_razor_path};
 
 /// One input file and the facts gathered from its single source snapshot.
@@ -68,10 +68,9 @@ pub fn analyze_project_file(
         };
     }
 
-    let mut report = if is_razor_path(path) {
-        // Razor markup is a mixed-language source document.  It has no safe
-        // syntax-only fallback; a trusted compiler context must supply the
-        // generated-source report and source classification.
+    let mut report = if is_razor_path(path) || source_exceeds_limits(path, source) {
+        // Razor and resource-sized input have no safe native-analysis path;
+        // source facts still retain bounded metrics and the failure reason.
         None
     } else {
         analyze(path, source, options)
@@ -332,7 +331,7 @@ impl ProjectAggregation {
         };
         let status = if metrics.is_some() {
             MeasurementStatus::Complete
-        } else if facts.is_none() && facts_error.is_none() {
+        } else if facts.is_none() && facts_error.is_none() && !report_available {
             MeasurementStatus::Unsupported
         } else {
             MeasurementStatus::Failed
@@ -664,5 +663,119 @@ mod tests {
         assert_eq!(report.project.files[0].status, MeasurementStatus::Failed);
         assert_eq!(report.project.files[0].metrics, None);
         assert_eq!(report.project.files[0].duplication, None);
+    }
+    #[test]
+    fn report_without_facts_is_failed_not_unsupported() {
+        let report = build_project_report(
+            vec![input(
+                "missing-facts.py",
+                FileClassification::Source,
+                None,
+                None,
+            )],
+            Vec::new(),
+            Vec::new(),
+            &DuplicationOptions::default(),
+        )
+        .expect("valid options");
+
+        assert!(!report.project.complete);
+        assert_eq!(report.project.metrics.files, 0);
+        assert_eq!(report.project.files[0].status, MeasurementStatus::Failed);
+        assert_eq!(
+            report.project.files[0].reason.as_deref(),
+            Some("file analysis did not produce complete facts")
+        );
+        assert_eq!(report.project.duplication, None);
+    }
+    #[test]
+    fn project_report_uses_javascript_semantic_line_metrics() {
+        let path = Path::new("sample.js");
+        let source = "// comment\r\nlet x = 1;\u{2028}let y = 2;\u{2029}";
+        let input = analyze_project_file(
+            path,
+            source,
+            &AnalyzerOptions::default(),
+            FileClassification::Source,
+            false,
+        );
+        let file_report = input.report.as_ref().expect("JavaScript report");
+        assert_eq!(file_report.metrics.lines, 3);
+        assert_eq!(file_report.metrics.code_lines, 2);
+        assert_eq!(file_report.metrics.comment_lines, 1);
+
+        let report = build_project_report(
+            vec![input],
+            Vec::new(),
+            Vec::new(),
+            &DuplicationOptions::default(),
+        )
+        .expect("valid options");
+        assert!(report.project.complete);
+        assert_eq!(report.project.metrics.files, 1);
+        assert_eq!(report.project.metrics.lines, 3);
+        assert_eq!(report.project.metrics.code_lines, 2);
+        assert_eq!(report.project.metrics.comment_lines, 1);
+        assert_eq!(report.files[0].metrics.lines, 3);
+        assert_eq!(report.files[0].metrics.code_lines, 2);
+        assert_eq!(report.files[0].metrics.comment_lines, 1);
+    }
+    #[test]
+    fn resource_limited_source_skips_native_analyzer() {
+        let source = "\n".repeat(4 * 1024 * 1024 + 1);
+        let input = analyze_project_file(
+            Path::new("too-many-lines.py"),
+            &source,
+            &AnalyzerOptions::default(),
+            FileClassification::Source,
+            false,
+        );
+        assert!(input.report.is_none());
+        let facts = input.facts.as_ref().expect("bounded facts");
+        assert!(facts.error.is_some());
+        assert_eq!(facts.metrics.lines, 4 * 1024 * 1024 + 1);
+        assert_eq!(facts.metrics.code_lines, 0);
+        assert_eq!(facts.metrics.comment_lines, 0);
+
+        let report = build_project_report(
+            vec![input],
+            Vec::new(),
+            Vec::new(),
+            &DuplicationOptions::default(),
+        )
+        .expect("valid options");
+        assert!(!report.project.complete);
+        assert_eq!(report.project.metrics.files, 0);
+        assert_eq!(report.project.duplication, None);
+        assert_eq!(report.project.files[0].status, MeasurementStatus::Failed);
+    }
+    #[test]
+    fn syntax_errors_retain_issue_report_while_failing_measurement() {
+        let input = analyze_project_file(
+            Path::new("syntax-error.py"),
+            "def broken(:\n    pass\n",
+            &AnalyzerOptions::default(),
+            FileClassification::Source,
+            false,
+        );
+        assert!(input.report.is_some());
+        assert!(
+            input
+                .facts
+                .as_ref()
+                .is_some_and(|facts| facts.error.is_some())
+        );
+
+        let report = build_project_report(
+            vec![input],
+            Vec::new(),
+            Vec::new(),
+            &DuplicationOptions::default(),
+        )
+        .expect("valid options");
+        assert!(!report.project.complete);
+        assert_eq!(report.files.len(), 1);
+        assert_eq!(report.project.files[0].status, MeasurementStatus::Failed);
+        assert_eq!(report.project.duplication, None);
     }
 }

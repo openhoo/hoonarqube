@@ -619,6 +619,23 @@ fn load_python_context(
     fingerprints: &mut SemanticFingerprintParts,
 ) -> Option<hoonarqube_python::PythonProjectContext> {
     let project = semantic.python_project.as_ref()?;
+    match fs::metadata(project) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            diagnostics.push(format!(
+                "python project path does not exist: {}",
+                project.display()
+            ));
+            return None;
+        }
+        Err(error) => {
+            diagnostics.push(format!(
+                "cannot inspect python project {}: {error}",
+                project.display()
+            ));
+            return None;
+        }
+    }
     let root = project_root(project);
     if !root.is_dir() {
         diagnostics.push(format!(
@@ -1153,5 +1170,49 @@ mod tests {
         let _ = merged_csharp_snapshots(&analyzed, &context, &mut diagnostics);
         assert_eq!(analyzed, original);
         assert!(diagnostics.is_empty());
+    }
+    #[test]
+    fn python_project_requires_an_existing_path_and_accepts_directory_or_file() {
+        let root = std::env::temp_dir().join(format!(
+            "hoonarqube-python-project-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let existing_dir = root.join("package");
+        fs::create_dir_all(&existing_dir).unwrap();
+        let existing_file = root.join("pyproject.toml");
+        fs::write(&existing_file, "[project]\n").unwrap();
+
+        for project in [&existing_dir, &existing_file] {
+            let semantic = SemanticOptions {
+                python_project: Some((*project).clone()),
+                ..SemanticOptions::default()
+            };
+            let mut diagnostics = Vec::new();
+            let mut fingerprints = SemanticFingerprintParts::default();
+            assert!(
+                load_python_context(&[], &semantic, &mut diagnostics, &mut fingerprints).is_some()
+            );
+            assert!(diagnostics.is_empty());
+        }
+
+        let missing = root.join("missing.py");
+        let semantic = SemanticOptions {
+            python_project: Some(missing.clone()),
+            ..SemanticOptions::default()
+        };
+        let mut diagnostics = Vec::new();
+        let mut fingerprints = SemanticFingerprintParts::default();
+        assert!(load_python_context(&[], &semantic, &mut diagnostics, &mut fingerprints).is_none());
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("python project path does not exist"))
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 }

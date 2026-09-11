@@ -73,7 +73,6 @@ pub(crate) fn check_missing_docstrings(
 
 #[cfg(test)]
 mod tests {
-
     use crate::test_support::{findings, scan};
 
     #[test]
@@ -94,5 +93,63 @@ mod tests {
         ] {
             assert!(findings(&scan(clean), "python:S1720").is_empty());
         }
+    }
+
+    #[test]
+    fn s1720_class_after_function_inserts_into_class_body() {
+        let source =
+            "def previous():\n    return 1\nclass C(Base):\n    # class comment\n    value = 1\n";
+        let report = scan(source);
+        let issue = findings(&report, "python:S1720")
+            .into_iter()
+            .find(|issue| issue.message == "Add a docstring to this class.")
+            .expect("class finding");
+        let alternative = issue
+            .alternatives
+            .iter()
+            .find(|alternative| alternative.id == "s1720-add-docstring")
+            .expect("class docstring alternative");
+        let edits = alternative.fix.edits.iter().collect::<Vec<_>>();
+        let fixed = hoonarqube_ir::apply_fixes(source, &edits).expect("fix applies");
+        assert_eq!(
+            fixed,
+            "def previous():\n    return 1\nclass C(Base):\n    # class comment\n    \"\"\" doc \"\"\"\n    value = 1\n"
+        );
+    }
+
+    #[test]
+    fn s1720_triple_quoted_class_base_keeps_ast_context() {
+        let source =
+            "def previous():\n    return 1\nclass C(\"\"\"base)): #\"\"\"):\n    value = 1\n";
+        let report = scan(source);
+        let issue = findings(&report, "python:S1720")
+            .into_iter()
+            .find(|issue| issue.message == "Add a docstring to this class.")
+            .expect("class finding");
+        let alternative = issue
+            .alternatives
+            .iter()
+            .find(|alternative| alternative.id == "s1720-add-docstring")
+            .expect("class docstring alternative");
+        let edits = alternative.fix.edits.iter().collect::<Vec<_>>();
+        let fixed = hoonarqube_ir::apply_fixes(source, &edits).expect("fix applies");
+        assert_eq!(
+            fixed,
+            "def previous():\n    return 1\nclass C(\"\"\"base)): #\"\"\"):\n    \"\"\" doc \"\"\"\n    value = 1\n"
+        );
+    }
+
+    #[test]
+    fn s1720_inline_class_suite_stays_fixless() {
+        let source = "def previous():\n    return 1\nclass Inline: pass\n";
+        let report = scan(source);
+        let issue = findings(&report, "python:S1720")
+            .into_iter()
+            .find(|issue| issue.message == "Add a docstring to this class.")
+            .expect("class finding");
+        assert!(
+            issue.alternatives.is_empty(),
+            "ambiguous inline class suite must not edit a prior function"
+        );
     }
 }

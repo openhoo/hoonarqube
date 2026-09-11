@@ -675,8 +675,27 @@ fn ensure_safe_destination(
         }
         current = path.parent();
     }
+    let destination_identity = canonical_identity(destination)
+        .map_err(|error| format!("cannot resolve baseline destination: {error}"))?;
+    let lexical_collides = |candidate: &Path| absolute_lexical_path(root, candidate) == destination;
+    let canonical_collides = |candidate: &Path| -> Result<bool, String> {
+        let candidate = absolute_lexical_path(root, candidate);
+        if candidate == destination {
+            return Ok(true);
+        }
+        let Some(destination_identity) = destination_identity.as_deref() else {
+            return Ok(false);
+        };
+        let candidate_identity = canonical_identity(&candidate).map_err(|error| {
+            format!(
+                "cannot resolve analyzed source {}: {error}",
+                candidate.display()
+            )
+        })?;
+        Ok(candidate_identity.as_deref() == Some(destination_identity))
+    };
     for source in sources {
-        if absolute_lexical_path(root, &source.path) == destination {
+        if canonical_collides(&source.path)? {
             return Err(format!(
                 "baseline destination collides with analyzed source {}",
                 source.path.display()
@@ -684,7 +703,7 @@ fn ensure_safe_destination(
         }
     }
     for measurement in &report.project.files {
-        if absolute_lexical_path(root, &measurement.path) == destination {
+        if lexical_collides(&measurement.path) {
             return Err(format!(
                 "baseline destination collides with analyzed source {}",
                 measurement.path.display()
@@ -692,7 +711,7 @@ fn ensure_safe_destination(
         }
     }
     for file in &report.files {
-        if absolute_lexical_path(root, &file.path) == destination {
+        if canonical_collides(&file.path)? {
             return Err(format!(
                 "baseline destination collides with analyzed source {}",
                 file.path.display()
@@ -700,6 +719,26 @@ fn ensure_safe_destination(
         }
     }
     Ok(())
+}
+
+fn canonical_identity(path: &Path) -> std::io::Result<Option<PathBuf>> {
+    match fs::canonicalize(path) {
+        Ok(canonical) => Ok(Some(canonical)),
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            let Some(file_name) = path.file_name() else {
+                return Ok(None);
+            };
+            let Some(parent) = path.parent() else {
+                return Ok(None);
+            };
+            match fs::canonicalize(parent) {
+                Ok(parent) => Ok(Some(parent.join(file_name))),
+                Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+                Err(error) => Err(error),
+            }
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn absolute_lexical_path(root: &Path, path: &Path) -> PathBuf {
@@ -996,5 +1035,179 @@ mod tests {
             }),
         };
         assert_eq!(assessment_exit_status(&report), 2);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn baseline_write_rejects_symlink_aliases_but_allows_distinct_destination() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "hoonarqube-assessment-alias-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let target = root.join("target.py");
+        fs::write(&target, "value = 1\n").unwrap();
+        symlink(&target, root.join("link.py")).unwrap();
+        let source = AnalyzedSource {
+            path: PathBuf::from("link.py"),
+            source: "value = 1\n".to_owned(),
+            classification: hoonarqube_ir::FileClassification::Source,
+        };
+        let report = AnalysisReport {
+            schema_version: 1,
+            files: Vec::new(),
+            project: hoonarqube_ir::ProjectReport {
+                metrics: hoonarqube_ir::ProjectMetrics {
+                    files: 0,
+                    lines: 0,
+                    code_lines: 0,
+                    comment_lines: 0,
+                },
+                files: Vec::new(),
+                duplications: Vec::new(),
+                duplication: None,
+                complete: true,
+                warnings: Vec::new(),
+                roots: Vec::new(),
+            },
+            assessment: None,
+        };
+
+        let error = write_baseline_atomically(
+            Path::new("target.py"),
+            &report,
+            &root,
+            std::slice::from_ref(&source),
+        )
+        .expect_err("a symlinked input alias must not overwrite its target");
+        assert!(error.contains("collides with analyzed source"));
+        assert_eq!(fs::read_to_string(&target).unwrap(), "value = 1\n");
+
+        write_baseline_atomically(
+            Path::new("baseline.json"),
+            &report,
+            &root,
+            std::slice::from_ref(&source),
+        )
+        .expect("a distinct baseline destination remains writable");
+        assert!(root.join("baseline.json").is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn baseline_write_rejects_symlinked_parent_aliases() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "hoonarqube-assessment-parent-alias-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let real = root.join("real");
+        fs::create_dir_all(&real).unwrap();
+        let target = real.join("target.py");
+        fs::write(&target, "value = 1\n").unwrap();
+        symlink(&real, root.join("alias")).unwrap();
+        let source = AnalyzedSource {
+            path: PathBuf::from("alias/target.py"),
+            source: "value = 1\n".to_owned(),
+            classification: hoonarqube_ir::FileClassification::Source,
+        };
+        let report = AnalysisReport {
+            schema_version: 1,
+            files: Vec::new(),
+            project: hoonarqube_ir::ProjectReport {
+                metrics: hoonarqube_ir::ProjectMetrics {
+                    files: 0,
+                    lines: 0,
+                    code_lines: 0,
+                    comment_lines: 0,
+                },
+                files: Vec::new(),
+                duplications: Vec::new(),
+                duplication: None,
+                complete: true,
+                warnings: Vec::new(),
+                roots: Vec::new(),
+            },
+            assessment: None,
+        };
+
+        let error = write_baseline_atomically(
+            Path::new("real/target.py"),
+            &report,
+            &root,
+            std::slice::from_ref(&source),
+        )
+        .expect_err("a symlinked parent alias must not overwrite its target");
+        assert!(error.contains("collides with analyzed source"));
+        assert_eq!(fs::read_to_string(&target).unwrap(), "value = 1\n");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn baseline_write_does_not_probe_excluded_inventory_paths() {
+        let root = std::env::temp_dir().join(format!(
+            "hoonarqube-assessment-excluded-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let source_path = root.join("main.py");
+        fs::write(&source_path, "value = 1\n").unwrap();
+        fs::write(root.join("blocker"), "not a directory\n").unwrap();
+        let source = AnalyzedSource {
+            path: PathBuf::from("main.py"),
+            source: "value = 1\n".to_owned(),
+            classification: hoonarqube_ir::FileClassification::Source,
+        };
+        let report = AnalysisReport {
+            schema_version: 1,
+            files: Vec::new(),
+            project: hoonarqube_ir::ProjectReport {
+                metrics: hoonarqube_ir::ProjectMetrics {
+                    files: 1,
+                    lines: 1,
+                    code_lines: 1,
+                    comment_lines: 0,
+                },
+                files: vec![hoonarqube_ir::ProjectFileMeasurement {
+                    path: PathBuf::from("blocker/ignored.py"),
+                    classification: hoonarqube_ir::FileClassification::Excluded,
+                    status: hoonarqube_ir::MeasurementStatus::Excluded,
+                    metrics: None,
+                    duplication: None,
+                    reason: None,
+                }],
+                duplications: Vec::new(),
+                duplication: None,
+                complete: true,
+                warnings: Vec::new(),
+                roots: vec![root.clone()],
+            },
+            assessment: None,
+        };
+
+        write_baseline_atomically(
+            Path::new("baseline.json"),
+            &report,
+            &root,
+            std::slice::from_ref(&source),
+        )
+        .expect("excluded inventory paths are not probed for canonical aliases");
+        assert!(root.join("baseline.json").is_file());
+        assert_eq!(fs::read_to_string(&source_path).unwrap(), "value = 1\n");
+        fs::remove_dir_all(root).unwrap();
     }
 }

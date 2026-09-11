@@ -14,7 +14,7 @@ mod type_fixes;
 
 use crate::engine::bindings::KnownBinding;
 use crate::engine::file_context::{AnyImport, FileContext};
-use crate::support::{parse, to_range, to_u32};
+use crate::support::{for_each_stmt, parse, to_range, to_u32};
 use hoonarqube_ir::{Issue, TextEdit};
 use ruff_python_ast::{Expr, ModModule, Stmt};
 use ruff_python_parser::Parsed;
@@ -46,7 +46,7 @@ pub(crate) fn attach_quick_fixes(
             "python:S1110" => s1110(parsed, issue, index, source),
             "python:S1131" => s1131(issue, index, source),
             "python:S1186" => s1186(issue, index, source),
-            "python:S1720" => s1720(issue, index, source),
+            "python:S1720" => s1720(parsed, issue, index, source),
             "python:S1940" => s1940(issue, index, source),
             "python:S2710" => s2710(issue, index, source),
             "python:S2772" | "python:S3626" => remove_line(issue, index, source),
@@ -511,7 +511,12 @@ fn s1186(issue: &Issue, index: &LineIndex, source: &str) -> Vec<Alternative> {
     ));
     result
 }
-fn s1720(issue: &Issue, index: &LineIndex, source: &str) -> Vec<Alternative> {
+fn s1720(
+    parsed: &Parsed<ModModule>,
+    issue: &Issue,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Alternative> {
     if issue.range.is_file_level() {
         let insertion = text_edit(
             index,
@@ -521,7 +526,27 @@ fn s1720(issue: &Issue, index: &LineIndex, source: &str) -> Vec<Alternative> {
         );
         return vec![alt("s1720-add-docstring", "Add docstring", vec![insertion])];
     }
-    let at = issue_range(issue, index, source).start().to_usize();
+    let issue_span = issue_range(issue, index, source);
+    match s1720_class_context(parsed, issue_span, source) {
+        S1720ClassContext::Body {
+            line_start,
+            indentation,
+        } => {
+            let insertion = text_edit(
+                index,
+                source,
+                TextRange::new(
+                    TextSize::from(to_u32(line_start)),
+                    TextSize::from(to_u32(line_start)),
+                ),
+                format!("{indentation}\"\"\" doc \"\"\"\n"),
+            );
+            return vec![alt("s1720-add-docstring", "Add docstring", vec![insertion])];
+        }
+        S1720ClassContext::Unsafe => return Vec::new(),
+        S1720ClassContext::NotClass => {}
+    }
+    let at = issue_span.start().to_usize();
     let Some((_, body, _, _)) = function_context(source, at) else {
         return Vec::new();
     };
@@ -539,6 +564,62 @@ fn s1720(issue: &Issue, index: &LineIndex, source: &str) -> Vec<Alternative> {
         format!("{body_indent}\"\"\" doc \"\"\"\n"),
     );
     vec![alt("s1720-add-docstring", "Add docstring", vec![insertion])]
+}
+
+enum S1720ClassContext {
+    NotClass,
+    Unsafe,
+    Body {
+        line_start: usize,
+        indentation: String,
+    },
+}
+
+fn s1720_class_context(
+    parsed: &Parsed<ModModule>,
+    issue_span: TextRange,
+    source: &str,
+) -> S1720ClassContext {
+    let mut context = S1720ClassContext::NotClass;
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |statement| {
+        if !matches!(&context, S1720ClassContext::NotClass) {
+            return;
+        }
+        let Stmt::ClassDef(class) = statement else {
+            return;
+        };
+        if class.name.range() != issue_span {
+            return;
+        }
+        context = S1720ClassContext::Unsafe;
+        let Some(first) = class.body.first() else {
+            return;
+        };
+        let class_line = source.line_start(class.name.range().start());
+        let first_start = first.range().start();
+        let first_line = source.line_start(first_start);
+        if class_line == first_line {
+            return;
+        }
+        let Some(class_line_text) = source
+            .get(class_line.to_usize()..source.line_end(class.name.range().start()).to_usize())
+        else {
+            return;
+        };
+        let Some(indentation) = source.get(first_line.to_usize()..first_start.to_usize()) else {
+            return;
+        };
+        if !indentation.chars().all(char::is_whitespace)
+            || indentation.len() <= indent(class_line_text).len()
+        {
+            return;
+        }
+        context = S1720ClassContext::Body {
+            line_start: first_line.to_usize(),
+            indentation: indentation.to_string(),
+        };
+    });
+    context
 }
 
 fn remove_line(issue: &Issue, index: &LineIndex, source: &str) -> Vec<Alternative> {
@@ -1460,16 +1541,24 @@ fn s6395(issue: &Issue, index: &LineIndex, source: &str) -> Vec<Alternative> {
 
 fn s6397(issue: &Issue, index: &LineIndex, source: &str) -> Vec<Alternative> {
     let range = issue_range(issue, index, source);
-    let text = source[range].to_string();
-    if text.len() != 1 {
+    let start = range.start().to_usize();
+    let end = range.end().to_usize();
+    let Some(text) = source.get(start..end) else {
+        return Vec::new();
+    };
+    if text.chars().count() != 1 {
         return Vec::new();
     }
-    let at = range.start().to_usize();
-    if at == 0
-        || range.end().to_usize() >= source.len()
-        || source.as_bytes()[at - 1] != b'['
-        || source.as_bytes()[range.end().to_usize()] != b']'
-    {
+    let Some(open) = start
+        .checked_sub(1)
+        .and_then(|at| source.as_bytes().get(at))
+    else {
+        return Vec::new();
+    };
+    let Some(close) = source.as_bytes().get(end) else {
+        return Vec::new();
+    };
+    if *open != b'[' || *close != b']' {
         return Vec::new();
     }
     vec![alt(
@@ -1479,16 +1568,13 @@ fn s6397(issue: &Issue, index: &LineIndex, source: &str) -> Vec<Alternative> {
             text_edit(
                 index,
                 source,
-                TextRange::new(TextSize::from(to_u32(at - 1)), range.start()),
+                TextRange::new(TextSize::from(to_u32(start - 1)), range.start()),
                 "",
             ),
             text_edit(
                 index,
                 source,
-                TextRange::new(
-                    range.end(),
-                    TextSize::from(to_u32(range.end().to_usize() + 1)),
-                ),
+                TextRange::new(range.end(), TextSize::from(to_u32(end + 1))),
                 "",
             ),
         ],

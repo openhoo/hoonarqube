@@ -2305,6 +2305,40 @@ mod tests {
     const ROADMAP_BLAZOR_SOURCE: &str = include_str!(
         "../../../tools/oracle/fixtures/roadmap-csharp/reference-39-41/src/SemanticFixtures/BlazorInvocationCases.cs"
     );
+    const S4581_PROJECT: &str = r#"<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>
+"#;
+    const S4581_SOURCE: &str = r"using System;
+
+namespace OrdinaryGuid
+{
+    public static class OrdinaryCase
+    {
+        public static Guid Create() => new Guid();
+    }
+}
+
+namespace AliasedGuid
+{
+    using Guid = System.String;
+
+    public static class AliasedCase
+    {
+        public static string PreserveAlias(string value)
+        {
+            Guid alias = value;
+            return alias;
+        }
+
+        public static System.Guid Create() => new System.Guid();
+    }
+}
+";
 
     struct OwnedTempDir(PathBuf);
 
@@ -2889,6 +2923,143 @@ namespace Unsafe
                 .all(|alternative| alternative.id != "csharp.s3169.change-orderby-to-thenby"),
             "custom ThenBy binding must withhold the replacement action: {:?}",
             unsafe_chain.alternatives
+        );
+    }
+    fn s4581_fixture() -> (
+        OwnedTempDir,
+        ProjectSemanticConfig,
+        SourceSnapshot,
+        hoonarqube_ir::FileReport,
+    ) {
+        let workspace = OwnedTempDir::new("quickfix-s4581");
+        let project = workspace.write("src/QuickFix/QuickFix.csproj", S4581_PROJECT);
+        let source_path = workspace.write("src/QuickFix/GuidCases.cs", S4581_SOURCE);
+        let dotnet =
+            env::var_os("HOONARQUBE_DOTNET").map_or_else(|| PathBuf::from("dotnet"), PathBuf::from);
+        restore_fixture_project(&dotnet, &project);
+        let helper = prepare_bundled_helper(&workspace.path().join("helper-cache"))
+            .expect("bundled CSharp helper must build for S4581 regression coverage");
+        let config = ProjectSemanticConfig {
+            project: project.clone(),
+            helper: Some(helper),
+            trusted_evaluation: true,
+            timeout_ms: 120_000,
+            ..ProjectSemanticConfig::default()
+        };
+        let snapshot = SourceSnapshot::new(source_path, S4581_SOURCE).with_project(project.clone());
+        let context = ProjectSemanticContext::load(&config, std::slice::from_ref(&snapshot));
+        assert!(
+            context.is_complete(),
+            "S4581 semantic context is incomplete: {:?}",
+            context.diagnostics
+        );
+        let report = context.analyze_with_context(
+            snapshot.path.clone(),
+            &snapshot.source,
+            CsLanguage::CSharp,
+            &AnalyzerOptions::default(),
+        );
+        (workspace, config, snapshot, report)
+    }
+
+    #[test]
+    fn s4581_helper_qualifies_guid_empty_for_shadowed_guid() {
+        let (_workspace, config, snapshot, report) = s4581_fixture();
+        let findings: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "csharpsquid:S4581")
+            .collect();
+        assert_eq!(
+            findings.len(),
+            2,
+            "ordinary and explicitly-qualified Guid constructions must be reported: {:?}",
+            report.issues
+        );
+        let ordinary = findings
+            .iter()
+            .copied()
+            .find(|issue| {
+                issue.alternatives.iter().any(|alternative| {
+                    alternative.id == "csharp.s4581.use-guid-empty"
+                        && alternative
+                            .fix
+                            .edits
+                            .iter()
+                            .any(|edit| edit.replacement == "Guid.Empty")
+                })
+            })
+            .expect("ordinary Guid construction must receive the canonical action");
+        let ordinary_action = ordinary
+            .alternatives
+            .iter()
+            .find(|alternative| alternative.id == "csharp.s4581.use-guid-empty")
+            .expect("ordinary Guid construction action");
+        assert_eq!(ordinary_action.fix.edits.len(), 1);
+        assert_eq!(
+            ordinary_action.fix.edits[0].replacement, "Guid.Empty",
+            "ordinary System.Guid must use the canonical short replacement"
+        );
+
+        let aliased = findings
+            .iter()
+            .copied()
+            .find(|issue| {
+                issue.alternatives.iter().any(|alternative| {
+                    alternative.id == "csharp.s4581.use-guid-empty"
+                        && alternative
+                            .fix
+                            .edits
+                            .iter()
+                            .any(|edit| edit.replacement == "global::System.Guid.Empty")
+                })
+            })
+            .expect("explicit System.Guid construction under the Guid alias");
+        let aliased_action = aliased
+            .alternatives
+            .iter()
+            .find(|alternative| alternative.id == "csharp.s4581.use-guid-empty")
+            .expect("aliased System.Guid construction action");
+        assert_eq!(aliased_action.fix.edits.len(), 1);
+        assert_eq!(
+            aliased_action.fix.edits[0].replacement, "global::System.Guid.Empty",
+            "the String alias must not be shadowed by an unqualified replacement"
+        );
+
+        let ordinary_source =
+            hoonarqube_ir::apply_fixes(&snapshot.source, &[&ordinary_action.fix.edits[0]])
+                .expect("ordinary S4581 edit should apply");
+        assert_eq!(
+            ordinary_source,
+            snapshot.source.replacen("new Guid()", "Guid.Empty", 1)
+        );
+        let aliased_source =
+            hoonarqube_ir::apply_fixes(&snapshot.source, &[&aliased_action.fix.edits[0]])
+                .expect("aliased S4581 edit should apply");
+        assert_eq!(
+            aliased_source,
+            snapshot
+                .source
+                .replacen("new System.Guid()", "global::System.Guid.Empty", 1)
+        );
+        let rewritten_source = hoonarqube_ir::apply_fixes(
+            &snapshot.source,
+            &[&ordinary_action.fix.edits[0], &aliased_action.fix.edits[0]],
+        )
+        .expect("S4581 edits should apply together");
+        assert!(rewritten_source.contains("using Guid = System.String;"));
+        assert!(rewritten_source.contains("Guid alias = value;"));
+        assert!(rewritten_source.contains("=> Guid.Empty;"));
+        assert!(rewritten_source.contains("=> global::System.Guid.Empty;"));
+
+        let rewritten_snapshot = SourceSnapshot::new(snapshot.path.clone(), rewritten_source)
+            .with_project(config.project.clone());
+        let rewritten_context =
+            ProjectSemanticContext::load(&config, std::slice::from_ref(&rewritten_snapshot));
+        assert!(
+            rewritten_context.is_complete(),
+            "rewritten S4581 source must remain compiler-valid: {:?}",
+            rewritten_context.diagnostics
         );
     }
 }

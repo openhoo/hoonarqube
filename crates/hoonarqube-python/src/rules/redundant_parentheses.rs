@@ -5,7 +5,7 @@ use ruff_python_ast::visitor::source_order::{SourceOrderVisitor, TraversalSignal
 use ruff_python_ast::{AnyNodeRef, ModModule};
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
-use ruff_text_size::{TextRange, TextSize};
+use ruff_text_size::{Ranged, TextRange, TextSize};
 
 // --- python:S1110 — redundant pairs of parentheses -----------------------------
 //
@@ -94,7 +94,15 @@ impl<'a> SourceOrderVisitor<'a> for S1110Visitor<'a> {
                 AnyNodeRef::ExprGenerator(generator) if generator.parenthesized
             );
 
-            let pairs = parentheses_iterator(expression, parent, self.tokens);
+            let safe_parent = parent.filter(|parent| {
+                let safe_end = if matches!(parent, AnyNodeRef::Arguments(_)) {
+                    parent.end().checked_sub(TextSize::new(1))
+                } else {
+                    Some(parent.end())
+                };
+                safe_end.is_some_and(|safe_end| expression.end() <= safe_end)
+            });
+            let pairs = parentheses_iterator(expression, safe_parent, self.tokens);
             let pairs = if parenthesized_collection {
                 pairs.collect::<Vec<_>>()
             } else {
@@ -115,5 +123,32 @@ impl<'a> SourceOrderVisitor<'a> for S1110Visitor<'a> {
 
     fn leave_node(&mut self, _node: AnyNodeRef<'a>) {
         let _ = self.parents.pop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_redundant_parentheses;
+    use crate::support::parse;
+    use ruff_source_file::LineIndex;
+
+    #[test]
+    fn truncated_call_argument_does_not_panic() {
+        let source = "def total(values):\n    return sum(valu";
+        let parsed = parse(source);
+        let issues =
+            check_redundant_parentheses(&parsed, &LineIndex::from_source_text(source), source);
+
+        assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn valid_redundant_parentheses_are_still_reported() {
+        let source = "value = ((value))\n";
+        let parsed = parse(source);
+        let issues =
+            check_redundant_parentheses(&parsed, &LineIndex::from_source_text(source), source);
+
+        assert_eq!(issues.len(), 1);
     }
 }

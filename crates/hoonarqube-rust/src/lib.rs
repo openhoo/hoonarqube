@@ -1361,7 +1361,7 @@ fn check_whole_file(
     issues: &mut Vec<Issue>,
 ) {
     check_invisible_unicode(source, issues);
-    check_regex_literals(source, uncommented, issues);
+    check_regex_literals(source, code, uncommented, root, issues);
     check_vector_pushes(root, source, issues);
     check_getters(root, source, code, issues);
     check_returned_locals(root, source, code, issues);
@@ -1929,11 +1929,23 @@ fn check_invisible_unicode(source: &str, issues: &mut Vec<Issue>) {
     }
 }
 
-fn check_regex_literals(source: &str, scan: &str, issues: &mut Vec<Issue>) {
+fn check_regex_literals(
+    source: &str,
+    code: &str,
+    scan: &str,
+    root: Node<'_>,
+    issues: &mut Vec<Issue>,
+) {
     for captures in regex_constructor().captures_iter(scan) {
         let Some(pattern) = captures.name("pattern") else {
             continue;
         };
+        let Some(full) = captures.get(0) else {
+            continue;
+        };
+        if !regex_constructor_is_visible(code, root, full.start()) {
+            continue;
+        }
         if let Err(error) = Regex::new(pattern.as_str()) {
             issues.push(offset_issue(
                 "rust:S5856",
@@ -1944,6 +1956,31 @@ fn check_regex_literals(source: &str, scan: &str, issues: &mut Vec<Issue>) {
             ));
         }
     }
+}
+
+const REGEX_CONSTRUCTOR_PREFIX: &str = "Regex::new(";
+
+fn regex_constructor_is_visible(code: &str, root: Node<'_>, start: usize) -> bool {
+    let Some(prefix_end) = start.checked_add(REGEX_CONSTRUCTOR_PREFIX.len()) else {
+        return false;
+    };
+    if code.get(start..prefix_end) != Some(REGEX_CONSTRUCTOR_PREFIX) {
+        return false;
+    }
+    let Some(node) = root.descendant_for_byte_range(start, prefix_end) else {
+        return false;
+    };
+    !std::iter::successors(Some(node), Node::parent).any(|ancestor| {
+        matches!(
+            ancestor.kind(),
+            "char_literal"
+                | "doc_comment"
+                | "line_comment"
+                | "block_comment"
+                | "raw_string_literal"
+                | "string_literal"
+        )
+    })
 }
 
 fn check_vector_pushes(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
@@ -5398,6 +5435,40 @@ mod tests {
         assert!(
             malformed.iter().all(|key| key != "rust:S106"),
             "{malformed:?}"
+        );
+    }
+
+    #[test]
+    fn regex_literal_rule_ignores_raw_text_but_preserves_real_call() {
+        for source in [
+            r##"fn main() { let doc = r#"Regex::new("[")"#; }"##,
+            r##"fn main() { let doc = r#"Regex::new("[a-z]")"#; }"##,
+        ] {
+            let found = keys(source);
+            assert!(
+                found.iter().all(|key| key != "rust:S5856"),
+                "{source:?}: {found:?}"
+            );
+        }
+
+        let source = r#"fn main() { let _ = Regex::new("["); }"#;
+        let report = analyze(
+            PathBuf::from("fixture.rs"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        let issue = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "rust:S5856")
+            .expect("real invalid regex constructor");
+        assert_eq!(issue.range.start.line, 1);
+        assert_eq!(issue.range.start.column, 32);
+        assert_eq!(issue.range.end.line, 1);
+        assert_eq!(issue.range.end.column, 33);
+        assert_eq!(
+            issue.message,
+            "Correct the regex pattern to ensure it compiles without errors."
         );
     }
 
