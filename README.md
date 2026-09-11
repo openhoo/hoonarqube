@@ -209,6 +209,9 @@ cargo run -p hoonarqube-bench -- --iterations N                # throughput tabl
 cargo run -p xtask -- catalog coverage                         # parity audit
 ```
 
+See [PERFORMANCE.md](PERFORMANCE.md) for measured runtime and memory changes,
+release footprint, and repeatable CLI benchmarks with exact output comparison.
+
 ### Project contexts and prerequisites
 
 `analyze <paths>` is source-only by default: supported source inputs are

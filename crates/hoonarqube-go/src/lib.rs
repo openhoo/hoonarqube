@@ -14,6 +14,28 @@ mod github_quality;
 
 pub use github_quality::analyze_github_quality;
 
+/// Runs GitHub Code Quality queries and computes file metrics from one parse.
+///
+/// # Panics
+/// Panics if the embedded grammar is incompatible or parsing returns no tree.
+#[must_use]
+pub fn analyze_github_quality_report(path: PathBuf, source: &str) -> FileReport {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&tree_sitter_go::LANGUAGE.into())
+        .expect("tree-sitter-go language is compatible");
+    let tree = parser
+        .parse(source, None)
+        .expect("Go parser returned no tree");
+    let root = tree.root_node();
+    FileReport {
+        path,
+        language: "go".to_owned(),
+        issues: github_quality::analyze_parsed(root, source),
+        metrics: metrics(source, &LineFacts::collect(source, root)),
+    }
+}
+
 /// Exact `CodeQL` query IDs emitted by [`analyze_github_quality`], in sorted order.
 pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
     "go/duplicate-condition",

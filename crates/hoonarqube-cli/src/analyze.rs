@@ -885,7 +885,15 @@ fn analyze_project_files(
     worker_count: usize,
     cache: Option<&Cache>,
 ) -> Vec<(usize, ProjectFile)> {
-    if worker_count <= 1 {
+    let requires_jsts_stack = files.iter().any(|file| {
+        matches!(
+            hoonarqube_core::language_for_path(&file.path),
+            Some(Language::JavaScript | Language::TypeScript)
+        )
+    });
+    // Even one CPU benefits from a reusable guarded JSTS worker; otherwise
+    // each file spawns a new parser thread (and each additional profile again).
+    if worker_count <= 1 && !requires_jsts_stack {
         return files
             .iter()
             .enumerate()
@@ -898,16 +906,10 @@ fn analyze_project_files(
             .collect();
     }
 
-    let requires_jsts_stack = files.iter().any(|file| {
-        matches!(
-            hoonarqube_core::language_for_path(&file.path),
-            Some(Language::JavaScript | Language::TypeScript)
-        )
-    });
     let next = AtomicUsize::new(0);
     let mut outcomes = thread::scope(|scope| {
         let background_worker_count = if requires_jsts_stack {
-            worker_count
+            worker_count.max(1)
         } else {
             worker_count - 1
         };
@@ -1962,6 +1964,76 @@ mod tests {
                 .iter()
                 .any(|warning| warning.contains("source is not valid UTF-8"))
         );
+    }
+
+    #[test]
+    fn guarded_project_workers_preserve_results_and_order_at_every_worker_count() {
+        let fix = TempDir::new("guarded-project-workers");
+        let files = vec![
+            ProjectInput {
+                path: fix.write("a.js", "const n = 1; n = 2;\n"),
+                classification: FileClassification::Source,
+                duplication_excluded: false,
+                source_index: None,
+            },
+            ProjectInput {
+                path: fix.write("b.tsx", "const element = <div />;\n"),
+                classification: FileClassification::Source,
+                duplication_excluded: false,
+                source_index: None,
+            },
+            ProjectInput {
+                path: fix.write("c.py", "values = ['a' 'b']\n"),
+                classification: FileClassification::Source,
+                duplication_excluded: false,
+                source_index: None,
+            },
+            ProjectInput {
+                path: fix.0.join("missing.js"),
+                classification: FileClassification::Source,
+                duplication_excluded: false,
+                source_index: None,
+            },
+            ProjectInput {
+                path: fix.write("broken.js", "function f( {\n"),
+                classification: FileClassification::Source,
+                duplication_excluded: false,
+                source_index: None,
+            },
+        ];
+        let expected_indices: Vec<_> = (0..files.len()).collect();
+        for profile in [
+            hoonarqube_core::RuleProfile::SonarParity,
+            hoonarqube_core::RuleProfile::Strict,
+            hoonarqube_core::RuleProfile::GithubCodeQuality,
+        ] {
+            let options = AnalyzerOptionsBundle {
+                profile,
+                ..AnalyzerOptionsBundle::default()
+            };
+            let expected: Vec<_> = files
+                .iter()
+                .map(|file| read_and_analyze_project(file, &[], &options, None, None))
+                .collect();
+            for workers in [0, 1, 2, 4] {
+                let outcomes = analyze_project_files(&files, &[], &options, None, workers, None);
+                assert_eq!(
+                    outcomes.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
+                    expected_indices
+                );
+                for (position, ((actual_index, actual), expected)) in
+                    outcomes.iter().zip(expected.iter()).enumerate()
+                {
+                    assert_eq!(*actual_index, position);
+                    assert_eq!(actual.path, expected.path);
+                    assert_eq!(actual.classification, expected.classification);
+                    assert_eq!(actual.report, expected.report);
+                    assert_eq!(actual.facts, expected.facts);
+                    assert_eq!(actual.error, expected.error);
+                    assert_eq!(actual.duplication_excluded, expected.duplication_excluded);
+                }
+            }
+        }
     }
 
     #[test]

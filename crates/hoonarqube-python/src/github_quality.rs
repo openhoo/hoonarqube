@@ -661,19 +661,27 @@ const FORMAT_METHOD: &str = "format";
 #[must_use]
 pub(crate) fn analyze(source: &str) -> Vec<Issue> {
     let parsed = parse(source);
+    let index = LineIndex::from_source_text(source);
+    analyze_parsed(source, &parsed, &index)
+}
+
+pub(crate) fn analyze_parsed(
+    source: &str,
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+) -> Vec<Issue> {
     if !parsed.errors().is_empty() {
         return Vec::new();
     }
 
-    let index = LineIndex::from_source_text(source);
-    let file_ctx = FileContext::build(&parsed);
-    let facts = BindingFacts::build(&parsed);
+    let file_ctx = FileContext::build(parsed);
+    let facts = BindingFacts::build(parsed);
     let mut issues = Vec::new();
-    check_regex_backspace(&index, source, &file_ctx, &facts, &mut issues);
-    check_implicit_string_in_list(&parsed, &index, source, &file_ctx, &mut issues);
-    check_redundant_globals(&parsed, &index, source, &mut issues);
-    check_explicit_del(&parsed, &index, source, &mut issues);
-    check_mixed_format_fields(&index, source, &file_ctx, &facts, &mut issues);
+    check_regex_backspace(index, source, &file_ctx, &facts, &mut issues);
+    check_implicit_string_in_list(parsed, index, source, &file_ctx, &mut issues);
+    check_redundant_globals(parsed, index, source, &mut issues);
+    check_explicit_del(parsed, index, source, &mut issues);
+    check_mixed_format_fields(index, source, &file_ctx, &facts, &mut issues);
     sort_issues(&mut issues);
     issues
 }

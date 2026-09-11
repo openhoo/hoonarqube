@@ -2207,6 +2207,9 @@ pub fn github_quality(source: &str) -> Vec<hoonarqube_ir::Issue> {
         return Vec::new();
     };
     let root = tree.root_node();
+    if root.has_error() {
+        return Vec::new();
+    }
     let facts = analyze_facts_with_tree(source, &tree, &map);
     if facts.malformed || !facts.analysis_complete {
         return Vec::new();

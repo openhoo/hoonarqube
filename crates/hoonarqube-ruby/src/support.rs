@@ -1,6 +1,6 @@
 //! Source-coordinate, syntax-tree, and lexical-metric helpers for Ruby.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::VecDeque;
 use std::str;
 
 use hoonarqube_ir::{FileMetrics, Pos, Range, u32_saturating};
@@ -449,24 +449,24 @@ pub fn lexical_metrics(source: &str) -> FileMetrics {
     } else {
         source.lines().count()
     };
-    let mut code_lines = BTreeSet::new();
-    let mut comment_lines = BTreeSet::new();
+    let mut code_lines = 0;
+    let mut comment_lines = 0;
     let mut state = LexicalState::default();
 
-    for (row, line) in source.split_inclusive('\n').enumerate() {
+    for line in source.split_inclusive('\n') {
         let (has_code, has_comment) = scan_lexical_line(line, &mut state);
         if has_code {
-            code_lines.insert(row);
+            code_lines += 1;
         }
         if has_comment {
-            comment_lines.insert(row);
+            comment_lines += 1;
         }
     }
 
     FileMetrics {
         lines: u32_saturating(lines),
-        code_lines: u32_saturating(code_lines.len()),
-        comment_lines: u32_saturating(comment_lines.len()),
+        code_lines: u32_saturating(code_lines),
+        comment_lines: u32_saturating(comment_lines),
     }
 }
 

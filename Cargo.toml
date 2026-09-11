@@ -41,6 +41,10 @@ all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 suspicious_operation_groupings = "warn"
 
+[profile.release]
+lto = "thin"
+strip = "symbols"
+
 [patch.crates-io]
 # Keep the exact 0.146.0 parser dependency while carrying the upstream EOF
 # finalization fix required by malformed-source token collection.
