@@ -116,6 +116,10 @@ jobs:
         with:
           dotnet-version: 10.0.111
 
+      - name: Initialize .NET and NuGet
+        if: matrix.package == 'hoonarqube-csharp'
+        run: dotnet restore tools/semantic/csharp/CSharpSemanticHelper.csproj --nologo
+
       - name: Install pinned TypeScript compiler
         if: matrix.package == 'hoonarqube-jsts'
         run: >-
