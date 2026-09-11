@@ -1405,10 +1405,45 @@ internal static class QuickFixPlanner
         foreach (var creation in root.DescendantNodes().OfType<ObjectCreationExpressionSyntax>())
         {
             if (creation.ArgumentList?.Arguments.Count != 0 || !SymbolEqualityComparer.Default.Equals(model.GetTypeInfo(creation).Type, guid)) continue;
-            var replacement = SyntaxFactory.MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, SyntaxFactory.IdentifierName("Guid"), SyntaxFactory.IdentifierName("Empty"));
+            var useShortName = CanUseUnqualifiedGuidName(model, creation.Type.SpanStart, guid);
+            var guidName = useShortName
+                ? (NameSyntax)SyntaxFactory.IdentifierName("Guid")
+                : SyntaxFactory.QualifiedName(
+                    SyntaxFactory.AliasQualifiedName(
+                        SyntaxFactory.IdentifierName("global"),
+                        SyntaxFactory.IdentifierName("System")),
+                    SyntaxFactory.IdentifierName("Guid"));
+            var replacement = SyntaxFactory.MemberAccessExpression(
+                SyntaxKind.SimpleMemberAccessExpression,
+                guidName,
+                SyntaxFactory.IdentifierName("Empty"));
             AddFact(facts, tree, "csharpsquid:S4581", creation.Span,
                 Action("csharp.s4581.use-guid-empty", "Use 'Guid.Empty'.", Edit(tree, creation.Span, replacement.ToFullString())));
         }
+    }
+
+    private static bool CanUseUnqualifiedGuidName(SemanticModel model, int position, INamedTypeSymbol guid)
+    {
+        var identifier = SyntaxFactory.IdentifierName("Guid");
+        var typeSymbolInfo = model.GetSpeculativeSymbolInfo(position, identifier, SpeculativeBindingOption.BindAsTypeOrNamespace);
+        var typeInfo = model.GetSpeculativeTypeInfo(position, identifier, SpeculativeBindingOption.BindAsTypeOrNamespace);
+        if (typeSymbolInfo.CandidateReason != CandidateReason.None
+            || typeSymbolInfo.CandidateSymbols.Length != 0
+            || !SymbolEqualityComparer.Default.Equals(typeInfo.Type, guid))
+        {
+            return false;
+        }
+
+        var expressionSymbolInfo = model.GetSpeculativeSymbolInfo(position, identifier, SpeculativeBindingOption.BindAsExpression);
+        if (expressionSymbolInfo.CandidateReason != CandidateReason.None || expressionSymbolInfo.CandidateSymbols.Length != 0)
+        {
+            return false;
+        }
+
+        var typeSymbol = typeSymbolInfo.Symbol is IAliasSymbol typeAlias ? typeAlias.Target : typeSymbolInfo.Symbol;
+        var expressionSymbol = expressionSymbolInfo.Symbol is IAliasSymbol expressionAlias ? expressionAlias.Target : expressionSymbolInfo.Symbol;
+        return SymbolEqualityComparer.Default.Equals(typeSymbol, guid)
+            && SymbolEqualityComparer.Default.Equals(expressionSymbol, guid);
     }
 
     private static void CollectS6610(CSharpCompilation compilation, SyntaxTree tree, SyntaxNode root, SemanticModel model, List<CompilerQuickFixFact> facts) { }

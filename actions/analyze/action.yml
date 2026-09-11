@@ -102,6 +102,45 @@ runs:
           echo "::error::output must be a single-line report path."
           exit 2
         fi
+        reject_symlink_path() {
+          local path="$1"
+          local current="/"
+          local component
+          local -a components=()
+          if [[ "$path" != /* ]]; then
+            current="."
+          fi
+          IFS='/' read -r -a components <<< "${path#/}"
+          for component in "${components[@]}"; do
+            [[ -z "$component" || "$component" == "." ]] && continue
+            current="${current%/}/$component"
+            if [[ -L "$current" ]]; then
+              return 1
+            fi
+          done
+          return 0
+        }
+
+        report_path="$INPUT_OUTPUT"
+        if [[ "$report_path" != /* ]]; then
+          report_path="$PWD/$report_path"
+        fi
+        if ! reject_symlink_path "$report_path"; then
+          echo "::error::output path must not traverse symlinks."
+          exit 2
+        fi
+        report_dir="$(dirname -- "$report_path")"
+        mkdir -p -- "$report_dir"
+        if ! reject_symlink_path "$report_path"; then
+          echo "::error::output path must not traverse symlinks."
+          exit 2
+        fi
+        if [[ -d "$report_path" ]]; then
+          echo "::error::output path must name a report file."
+          exit 2
+        fi
+        temporary_report="$(mktemp "$report_dir/.hoonarqube-analyze.XXXXXX.json")"
+        trap 'rm -f -- "$temporary_report"' EXIT
 
         mapfile -t paths < <(printf '%s\n' "$INPUT_PATHS" | sed '/^[[:space:]]*$/d')
         if [[ "${#paths[@]}" -eq 0 ]]; then
@@ -118,9 +157,26 @@ runs:
         if [[ -n "$INPUT_CACHE_DIR" ]]; then
           args+=(--cache-dir "$INPUT_CACHE_DIR")
         fi
-        "${hoonarqube_command[@]}" "${args[@]}" -- "${paths[@]}" > "$INPUT_OUTPUT"
-        jq -e '.rules | type == "array"' "$INPUT_OUTPUT" >/dev/null
-        jq -e '.issues | type == "array"' "$INPUT_OUTPUT" >/dev/null
+        analysis_status=0
+        set +e
+        "${hoonarqube_command[@]}" "${args[@]}" -- "${paths[@]}" > "$temporary_report"
+        analysis_status=$?
+        set -e
+        if ! jq -e -s '
+          length == 1
+          and (.[0] | type == "object")
+          and (.[0].rules | type == "array")
+          and (.[0].issues | type == "array")
+        ' "$temporary_report" >/dev/null
+        then
+          echo "::error::generated report failed validation; no report was published."
+          if (( analysis_status != 0 )); then
+            exit "$analysis_status"
+          fi
+          exit 1
+        fi
+        mv -- "$temporary_report" "$report_path"
+
 
         blocking=0
         if [[ "$threshold" != none ]]; then
@@ -142,6 +198,9 @@ runs:
           echo "report=$INPUT_OUTPUT"
           echo "blocking-findings=$blocking"
         } >> "$GITHUB_OUTPUT"
+        if (( analysis_status != 0 )); then
+          exit "$analysis_status"
+        fi
         if [[ "$blocking" -ne 0 ]]; then
           echo "::error::Hoonarqube found ${blocking} issue(s) at or above ${threshold}."
           exit 1

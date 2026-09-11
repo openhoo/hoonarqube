@@ -1455,10 +1455,15 @@ fn s6353_suggests_concise_quantifiers_and_classes() {
 
 #[test]
 fn s6397_flags_single_character_classes_with_metachar_exception() {
-    assert!(regex_finds(
-        "import re\nre.compile(r'a[b]c')\n",
-        "python:S6397"
-    ));
+    for character in ["b", "é"] {
+        assert!(
+            regex_finds(
+                &format!("import re\nre.compile(r'a[{character}]c')\n"),
+                "python:S6397"
+            ),
+            "{character}"
+        );
+    }
     assert!(!regex_finds(
         "import re\nre.compile(r'a[.]c')\n",
         "python:S6397"
@@ -1467,6 +1472,34 @@ fn s6397_flags_single_character_classes_with_metachar_exception() {
         "import re\nre.compile(r'[ab]')\n",
         "python:S6397"
     ));
+    assert!(!regex_finds(
+        "import re\nre.compile(r'[éx]')\n",
+        "python:S6397"
+    ));
+    assert!(!regex_finds(
+        "import re\nre.compile(r'[b')\n",
+        "python:S6397"
+    ));
+}
+
+#[test]
+fn s6397_quick_fix_replaces_ascii_and_unicode_classes() {
+    for character in ["b", "é"] {
+        let source = format!("import re\nre.compile(r'a[{character}]c')\n");
+        let report = scan(&source);
+        let issue = findings(&report, "python:S6397")
+            .into_iter()
+            .next()
+            .expect("single-character class finding");
+        let alternative = issue
+            .alternatives
+            .iter()
+            .find(|alternative| alternative.id == "s6397-remove-character-class")
+            .expect("single-character class alternative");
+        let edits = alternative.fix.edits.iter().collect::<Vec<_>>();
+        let fixed = hoonarqube_ir::apply_fixes(&source, &edits).expect("fix applies");
+        assert_eq!(fixed, format!("import re\nre.compile(r'a{character}c')\n"));
+    }
 }
 
 #[test]

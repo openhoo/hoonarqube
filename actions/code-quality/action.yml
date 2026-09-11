@@ -110,15 +110,44 @@ runs:
           paths+=("$path")
         done <<< "$INPUT_PATHS"
 
+        reject_symlink_path() {
+          local path="$1"
+          local current="/"
+          local component
+          local -a components=()
+          if [[ "$path" != /* ]]; then
+            current="."
+          fi
+          IFS='/' read -r -a components <<< "${path#/}"
+          for component in "${components[@]}"; do
+            [[ -z "$component" || "$component" == "." ]] && continue
+            current="${current%/}/$component"
+            if [[ -L "$current" ]]; then
+              return 1
+            fi
+          done
+          return 0
+        }
+
         report_path="$INPUT_OUTPUT"
         if [[ "$report_path" != /* ]]; then
           report_path="$PWD/$report_path"
         fi
-        mkdir -p -- "$(dirname -- "$report_path")"
-
-        temp_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
-        mkdir -p -- "$temp_root"
-        temporary_report="$(mktemp "$temp_root/hoonarqube-code-quality.XXXXXX.sarif")"
+        if ! reject_symlink_path "$report_path"; then
+          echo "::error::output path must not traverse symlinks."
+          exit 2
+        fi
+        report_dir="$(dirname -- "$report_path")"
+        mkdir -p -- "$report_dir"
+        if ! reject_symlink_path "$report_path"; then
+          echo "::error::output path must not traverse symlinks."
+          exit 2
+        fi
+        if [[ -d "$report_path" ]]; then
+          echo "::error::output path must name a report file."
+          exit 2
+        fi
+        temporary_report="$(mktemp "$report_dir/.hoonarqube-code-quality.XXXXXX.sarif")"
         trap 'rm -f -- "$temporary_report"' EXIT
 
         analysis_args=(analyze --profile github-code-quality --format sarif)

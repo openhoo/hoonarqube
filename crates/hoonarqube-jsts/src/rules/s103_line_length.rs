@@ -1,23 +1,21 @@
 // Rule module s103_line_length (generated).
 
 use crate::context::AnalysisContext;
-use crate::support::to_u32;
+use crate::support::{LineIndex, to_u32};
 use crate::{AnalyzerOptions, JstsLanguage};
 use hoonarqube_ir::Issue;
 
 fn check_line_length(
-    source: &str,
+    index: &LineIndex,
     language: JstsLanguage,
     options: &AnalyzerOptions,
 ) -> Vec<Issue> {
     let maximum = usize::try_from(options.maximum_line_length).unwrap_or(usize::MAX);
     let rule_key = format!("{}:S103", language.prefix());
     let mut issues = Vec::new();
-    for (zero_based, chunk) in source.split_inclusive('\n').enumerate() {
-        let line = chunk.trim_end_matches(['\r', '\n']);
+    for (line_number, line) in index.lines() {
         let length = line.chars().count();
         if length > maximum {
-            let line_number = to_u32(zero_based) + 1;
             issues.push(Issue {
                 rule_key: rule_key.clone(),
                 message: format!(
@@ -44,7 +42,7 @@ fn check_line_length(
 }
 
 pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_line_length(ctx.source, ctx.language, ctx.options)
+    check_line_length(ctx.index, ctx.language, ctx.options)
 }
 
 #[cfg(test)]
@@ -135,6 +133,40 @@ mod tests {
                 (1, 0),
                 (1, 11),
             )]
+        );
+    }
+
+    #[test]
+    fn line_length_uses_all_ecmascript_line_terminators() {
+        let options = AnalyzerOptions {
+            maximum_line_length: 5,
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze(
+            PathBuf::from("test.js"),
+            "ok();\rinspect();\rabcdef;\u{2028}abcdef;\u{2029}abcdef;",
+            JstsLanguage::JavaScript,
+            &options,
+        );
+        let lengths: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S103")
+            .map(|issue| (issue.range.start.line, issue.range.end.column))
+            .collect();
+        assert_eq!(lengths, vec![(2, 10), (3, 7), (4, 7), (5, 7)]);
+
+        let clean = analyze(
+            PathBuf::from("test.js"),
+            "ok();\ra();\r\nb();\u{2028}x();\u{2029}y();\r\n",
+            JstsLanguage::JavaScript,
+            &options,
+        );
+        assert!(
+            clean
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "javascript:S103")
         );
     }
 }

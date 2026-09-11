@@ -508,6 +508,36 @@ fn broken_source_neither_panics_nor_hides_parse_errors() {
 }
 
 #[test]
+fn malformed_lexer_tokens_do_not_panic_and_valid_tokens_remain_available() {
+    let javascript = js("const value = 1;\0");
+    assert!(
+        javascript
+            .issues
+            .iter()
+            .any(|issue| issue.rule_key == "javascript:S2260"),
+        "a trailing NUL must remain a normal JavaScript parse error"
+    );
+
+    let typescript = ts("const value: number = 1;\u{202e}");
+    assert!(
+        typescript
+            .issues
+            .iter()
+            .any(|issue| issue.rule_key == "typescript:S2260"),
+        "a trailing bidi control must remain a normal TypeScript parse error"
+    );
+
+    let valid = js("const value = 42");
+    assert!(
+        valid
+            .issues
+            .iter()
+            .any(|issue| issue.rule_key == "javascript:S1438"),
+        "valid source must retain token-dependent semicolon findings"
+    );
+}
+
+#[test]
 fn comment_lines_are_counted_separately_from_code() {
     let report = ts("// leading note\nconst X: number = 1;\n/* block\nstill block */\n");
     assert_eq!(report.metrics.lines, 4);
@@ -1807,6 +1837,33 @@ export { anyOr, unknownOr, neverOr };
     );
 }
 
+fn add_s6594_sources(root: &Path, files: &mut Vec<(PathBuf, String)>) {
+    add_semantic_source(
+        files,
+        root,
+        "src/s6594-control.ts",
+        r"const text: string = 'text';
+const matches = text.match(/a/);
+export { matches };
+",
+    );
+    add_semantic_source(
+        files,
+        root,
+        "src/s6594-shadow.ts",
+        r"const text: string = 'text';
+const outside = text.match(/a/);
+function localRegExp() {
+  function RegExp(pattern: string) {
+    return pattern;
+  }
+  return text.match(/a/);
+}
+export { outside, localRegExp };
+",
+    );
+}
+
 fn semantic_rule_sources(root: &Path) -> Vec<(PathBuf, String)> {
     let mut files = Vec::new();
     add_s1874_import_sources(root, &mut files);
@@ -1817,6 +1874,7 @@ fn semantic_rule_sources(root: &Path) -> Vec<(PathBuf, String)> {
     add_s6606_union_sources(root, &mut files);
     add_s6606_effect_sources(root, &mut files);
     add_s6606_special_sources(root, &mut files);
+    add_s6594_sources(root, &mut files);
     files
 }
 
@@ -1853,7 +1911,9 @@ fn write_semantic_rules_config(root: &Path) {
     "src/s6606-mixed-union.ts",
     "src/s6606-nullable-union.ts",
     "src/s6606-side-effects.ts",
-    "src/s6606-special-types.ts"
+    "src/s6606-special-types.ts",
+    "src/s6594-control.ts",
+    "src/s6594-shadow.ts"
   ]
 }"#,
     );
@@ -2126,5 +2186,112 @@ fn semantic_s6606_flags_nullish_ternaries_without_falsy_primitive_false_positive
             "falsy, mixed, side-effect, and special types must not be rewritten as nullish in {name}"
         );
     }
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
+fn semantic_s6594_uses_global_regexp_but_rejects_shadowed_binding() {
+    let Some((fixture, context)) = load_semantic_rules_fixture() else {
+        return;
+    };
+
+    let (control_path, control_source) = fixture.file("src/s6594-control.ts");
+    let control = context.analyze_with_context(
+        control_path.clone(),
+        control_source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+    );
+    let control_issues: Vec<_> = control
+        .report
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key == "typescript:S6594")
+        .collect();
+    assert_eq!(
+        control_issues
+            .iter()
+            .map(|issue| (
+                issue.range.start.line,
+                issue.range.start.column,
+                issue.range.end.line,
+                issue.range.end.column,
+                semantic_issue_source_text(control_source, issue),
+            ))
+            .collect::<Vec<_>>(),
+        vec![(2, 21, 2, 26, "match")]
+    );
+    let [control_issue] = control_issues.as_slice() else {
+        panic!("ordinary S6594 control should report one exact issue");
+    };
+    let control_action = control_issue
+        .alternatives
+        .iter()
+        .find(|alternative| alternative.id == "s6594-use-regexp-exec")
+        .expect("ordinary S6594 should expose the RegExp.exec action");
+    let [control_edit] = control_action.fix.edits.as_slice() else {
+        panic!("ordinary S6594 action should contain one edit");
+    };
+    assert_eq!(control_edit.range.start.line, 2);
+    assert_eq!(control_edit.range.start.column, 16);
+    assert_eq!(control_edit.range.end.line, 2);
+    assert_eq!(control_edit.range.end.column, 31);
+    assert_eq!(control_edit.replacement, "RegExp(/a/).exec(text)");
+    let fixed_control = hoonarqube_ir::apply_fixes(control_source, &[control_edit])
+        .expect("ordinary S6594 action should apply");
+    assert_eq!(
+        fixed_control,
+        "const text: string = 'text';\n\
+const matches = RegExp(/a/).exec(text);\n\
+export { matches };\n"
+    );
+
+    let (shadow_path, shadow_source) = fixture.file("src/s6594-shadow.ts");
+    let shadow = context.analyze_with_context(
+        shadow_path.clone(),
+        shadow_source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+    );
+    let shadow_issues: Vec<_> = shadow
+        .report
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key == "typescript:S6594")
+        .collect();
+    assert_eq!(
+        shadow_issues
+            .iter()
+            .map(|issue| (
+                issue.range.start.line,
+                issue.range.start.column,
+                issue.range.end.line,
+                issue.range.end.column,
+                semantic_issue_source_text(shadow_source, issue),
+            ))
+            .collect::<Vec<_>>(),
+        vec![(2, 21, 2, 26, "match"), (7, 14, 7, 19, "match")]
+    );
+    let [outside_issue, shadowed_issue] = shadow_issues.as_slice() else {
+        panic!("shadow fixture should report both exact S6594 call sites");
+    };
+    let outside_action = outside_issue
+        .alternatives
+        .iter()
+        .find(|alternative| alternative.id == "s6594-use-regexp-exec")
+        .expect("unshadowed S6594 call should remain actionable");
+    let [outside_edit] = outside_action.fix.edits.as_slice() else {
+        panic!("unshadowed S6594 action should contain one edit");
+    };
+    assert_eq!(outside_edit.replacement, "RegExp(/a/).exec(text)");
+    assert!(
+        shadowed_issue.fix.is_none(),
+        "shadowed RegExp call must not receive an automatic fix"
+    );
+    assert!(
+        shadowed_issue.alternatives.is_empty(),
+        "shadowed RegExp call must not receive an unsafe action"
+    );
+
     let _ = fs::remove_dir_all(fixture.root);
 }
