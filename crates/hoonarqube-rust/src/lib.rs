@@ -1518,30 +1518,22 @@ fn previous_code_sibling(node: Node<'_>) -> Option<Node<'_>> {
 }
 
 fn statement_expression_is_unit(node: Node<'_>, source: &str) -> bool {
-    let value = if node.kind() == "expression_statement" {
-        let Some(value) = node.named_child(0) else {
-            return true;
-        };
-        value
-    } else {
-        node
-    };
-    if value.kind() == "macro_invocation" {
-        return [
-            "println!",
-            "print!",
-            "eprintln!",
-            "eprint!",
-            "panic!",
-            "assert!",
-        ]
-        .iter()
-        .any(|name| text(value, source).contains(name));
+    if node.kind() == "expression_statement" {
+        return text(node, source).trim_end().ends_with(';')
+            || node
+                .named_child(0)
+                .is_some_and(|value| statement_value_is_unit(value, source));
     }
-    value.kind() == "unit_expression"
+    statement_value_is_unit(node, source)
 }
 
 fn statement_value_is_unit(node: Node<'_>, source: &str) -> bool {
+    if matches!(
+        node.kind(),
+        "unit_expression" | "while_expression" | "for_expression"
+    ) {
+        return true;
+    }
     if matches!(node.kind(), "block" | "unsafe_block") {
         let body = node.child_by_field_name("body").unwrap_or(node);
         let mut last = None;
@@ -1557,34 +1549,54 @@ fn statement_value_is_unit(node: Node<'_>, source: &str) -> bool {
             _ => statement_value_is_unit(child, source),
         });
     }
+    if node.kind() == "else_clause" {
+        return node
+            .named_child(0)
+            .is_some_and(|value| statement_value_is_unit(value, source));
+    }
     if node.kind() == "if_expression" {
         return node
-            .child_by_field_name("consequence")
-            .is_some_and(|c| statement_value_is_unit(c, source))
-            && node
-                .child_by_field_name("alternative")
-                .is_none_or(|a| statement_value_is_unit(a, source));
-    }
-    if node.kind() == "match_expression" {
-        let Some(body) = node.child_by_field_name("body") else {
-            return false;
-        };
-        let mut cursor = body.walk();
-        let arms: Vec<_> = body
-            .named_children(&mut cursor)
-            .filter(|arm| arm.kind() == "match_arm")
-            .collect();
-        return !arms.is_empty()
-            && arms.into_iter().all(|arm| {
-                arm.named_child(arm.named_child_count().saturating_sub(1))
-                    .is_some_and(|value| {
-                        statement_expression_is_unit(value, source)
-                            || value.kind() == "unit_expression"
-                            || value.kind() == "block" && statement_value_is_unit(value, source)
-                    })
+            .child_by_field_name("alternative")
+            .is_none_or(|alternative| {
+                node.child_by_field_name("consequence")
+                    .is_some_and(|value| statement_value_is_unit(value, source))
+                    && statement_value_is_unit(alternative, source)
             });
     }
-    false
+    node.kind() == "match_expression" && match_value_is_unit(node, source)
+}
+
+fn match_value_is_unit(node: Node<'_>, source: &str) -> bool {
+    let Some(body) = node.child_by_field_name("body") else {
+        return false;
+    };
+    let mut cursor = body.walk();
+    let mut has_arm = false;
+    let mut all_unit = true;
+    for arm in body
+        .named_children(&mut cursor)
+        .filter(|arm| arm.kind() == "match_arm")
+    {
+        has_arm = true;
+        let Some(value) = arm.named_child(arm.named_child_count().saturating_sub(1)) else {
+            return false;
+        };
+        // A non-diverging unit arm constrains every arm of a well-typed match
+        // to unit, including arms whose value comes from a call or `?`.
+        if value.kind() == "unit_expression" || empty_unit_block(value) {
+            return true;
+        }
+        all_unit &= statement_expression_is_unit(value, source);
+    }
+    has_arm && all_unit
+}
+
+fn empty_unit_block(node: Node<'_>) -> bool {
+    let mut cursor = node.walk();
+    node.kind() == "block"
+        && node
+            .named_children(&mut cursor)
+            .all(|child| matches!(child.kind(), "line_comment" | "block_comment"))
 }
 
 fn check_wildcard_import(node: Node<'_>, source: &str, code: &str, issues: &mut Vec<Issue>) {
@@ -1615,10 +1627,35 @@ fn check_wildcard_import(node: Node<'_>, source: &str, code: &str, issues: &mut 
 
 fn enum_glob_target(node: Node<'_>, path: &str, target: &str, source: &str) -> bool {
     let mut root = node;
+    let mut modules = Vec::new();
     while let Some(parent) = root.parent() {
+        if parent.kind() == "mod_item"
+            && let Some(name) = parent.child_by_field_name("name")
+        {
+            modules.push(text(name, source).trim());
+        }
         root = parent;
     }
-    let import_identity = path.trim_start_matches("crate::").trim().to_string();
+    modules.reverse();
+    let mut relative = path.trim();
+    if let Some(absolute) = relative
+        .strip_prefix("crate::")
+        .or_else(|| relative.strip_prefix("::"))
+    {
+        modules.clear();
+        relative = absolute;
+    } else if let Some(local) = relative.strip_prefix("self::") {
+        relative = local;
+    } else {
+        while let Some(parent) = relative.strip_prefix("super::") {
+            if modules.pop().is_none() {
+                return false;
+            }
+            relative = parent;
+        }
+    }
+    modules.push(relative);
+    let import_identity = modules.join("::");
     let mut found = false;
     walk_valid(root, &mut |item| {
         if item.kind() == "enum_item"
@@ -5548,7 +5585,7 @@ fn module_type_identity(node: Node<'_>, name: &str, source: &str) -> String {
 }
 
 fn check_derived_hash_eq(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
-    let mut hashed = HashSet::new();
+    let mut hashed = HashMap::new();
     walk_valid(root, &mut |node| {
         if !matches!(node.kind(), "struct_item" | "enum_item") {
             return;
@@ -5559,7 +5596,14 @@ fn check_derived_hash_eq(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) 
         let mut sibling = node.prev_named_sibling();
         while let Some(attribute) = sibling {
             if derive_hash_attribute(attribute, source) {
-                hashed.insert(module_type_identity(node, text(name, source), source));
+                walk_all(attribute, &mut |token| {
+                    if token.child_count() == 0 && text(token, source) == "Hash" {
+                        hashed.insert(
+                            module_type_identity(node, text(name, source), source),
+                            token,
+                        );
+                    }
+                });
                 break;
             }
             if !matches!(
@@ -5575,7 +5619,7 @@ fn check_derived_hash_eq(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) 
         if node.kind() != "impl_item"
             || !node
                 .child_by_field_name("trait")
-                .is_some_and(|t| text(t, source).trim().ends_with("PartialEq"))
+                .is_some_and(|trait_| text(trait_, source).trim().ends_with("PartialEq"))
         {
             return;
         }
@@ -5583,11 +5627,11 @@ fn check_derived_hash_eq(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) 
             return;
         };
         let identity = module_type_identity(node, text(ty, source), source);
-        if hashed.contains(&identity) {
+        if let Some(&hash) = hashed.get(&identity) {
             issues.push(node_issue(
                 "rust:S7424",
                 "Replace this manually implemented `PartialEq` with the derived implementation.",
-                node,
+                hash,
                 source,
             ));
         }
@@ -6521,10 +6565,28 @@ mod tests {
 
     #[test]
     fn issue_127_partial_eq_must_match_derived_type() {
-        assert!(has_rule(
-            "#[derive(Hash)] struct S(u8); impl PartialEq for S { fn eq(&self, other: &Self) -> bool { self.0 == other.0 } }\n",
-            "rust:S7424"
-        ));
+        let source = "#[derive(Hash)]\nstruct S(u8);\nimpl PartialEq for S { fn eq(&self, other: &Self) -> bool { self.0 == other.0 } }\n";
+        let report = analyze(
+            PathBuf::from("fixture.rs"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        let findings: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "rust:S7424")
+            .collect();
+        assert_eq!(findings.len(), 1);
+        assert_eq!(
+            findings[0].range,
+            Range {
+                start: Pos { line: 1, column: 9 },
+                end: Pos {
+                    line: 1,
+                    column: 13
+                },
+            }
+        );
         assert!(!has_rule(
             "#[derive(Hash)] struct S(u8); struct T(u8); impl PartialEq for T { fn eq(&self, other: &Self) -> bool { self.0 == other.0 } }\n",
             "rust:S7424"
@@ -6533,26 +6595,40 @@ mod tests {
 
     #[test]
     fn issue_205_empty_statement_preserves_required_match_semicolons() {
-        assert!(has_rule(
-            "fn f() { if true { () }; match Some(1) { Some(_) => (), None => () }; }\n",
-            "rust:S1116"
-        ));
-        assert!(!has_rule(
+        for source in [
+            "fn f() { if true { () }; }\n",
+            "fn f() { if true { println!(\"x\"); }; }\n",
+            "fn f() { match Some(1) { Some(_) => (), None => () }; }\n",
+            "fn f(v: bool) -> Result<(), ()> { match v { true => {}, false => g()? }; Ok(()) } fn g() -> Result<(), ()> { Ok(()) }\n",
+        ] {
+            assert!(has_rule(source, "rust:S1116"), "{source}");
+        }
+        for source in [
             "fn f() {\n // boundary comment\n match true { true => 1, false => 2 };\n macro_rules! m { () => { 1 }; }\n m!();\n}\n",
-            "rust:S1116"
-        ));
+            "macro_rules! println { () => { 1 }; } fn f() -> i32 { { println!() }; 7 }\n",
+            "macro_rules! value { ($unused:expr) => { 1 }; } fn f() -> i32 { { value!(\"println!\") }; 7 }\n",
+            "fn f(v: bool) -> i32 { match v { true => { return 1; }, false => 2 }; 3 }\n",
+        ] {
+            assert!(!has_rule(source, "rust:S1116"), "{source}");
+        }
     }
 
     #[test]
     fn issue_206_wildcard_import_distinguishes_modules_from_variants() {
-        assert!(has_rule(
+        for source in [
             "mod module { pub struct A; }\nuse crate::module::*;\nfn main() {}\n",
-            "rust:S2208"
-        ));
-        assert!(!has_rule(
-            "enum E { A }\nuse E::*;\nfn main() {}\n",
-            "rust:S2208"
-        ));
+            "mod nested { pub mod module { pub struct A; } use self::module::*; }\nfn main() {}\n",
+        ] {
+            assert!(has_rule(source, "rust:S2208"), "{source}");
+        }
+        for source in [
+            "enum E { A }\nfn main() { use E::*; }\n",
+            "enum E { A }\nfn main() { use self::E::*; }\n",
+            "mod nested { pub enum E { A } fn f() { use self::E::*; } }\nfn main() {}\n",
+            "enum E { A }\nmod nested { fn f() { use super::E::*; } }\nfn main() {}\n",
+        ] {
+            assert!(!has_rule(source, "rust:S2208"), "{source}");
+        }
     }
 
     #[test]
