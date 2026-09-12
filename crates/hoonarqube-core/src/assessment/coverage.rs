@@ -593,6 +593,7 @@ struct ParsedFile {
     lines: Vec<ParsedLine>,
     branches: Vec<ParsedBranch>,
     file_hash: Option<String>,
+    file_uids: BTreeSet<String>,
 }
 
 #[derive(Debug)]
@@ -1039,6 +1040,7 @@ struct OpenCoverParser<'a> {
     stack: Vec<String>,
     files: BTreeMap<String, (String, Option<String>)>,
     method_file: Option<String>,
+    method_file_uid: Option<String>,
     method_uid: Option<String>,
     method_anchor_line: Option<u32>,
     method_child: Option<String>,
@@ -1062,6 +1064,7 @@ impl<'a> OpenCoverParser<'a> {
             stack: Vec::new(),
             files: BTreeMap::new(),
             method_file: None,
+            method_file_uid: None,
             method_uid: None,
             method_anchor_line: None,
             method_child: None,
@@ -1222,6 +1225,7 @@ impl<'a> OpenCoverParser<'a> {
 
     fn handle_file_ref(&mut self, attrs: &BTreeMap<String, String>) {
         if let Some(uid) = attr(attrs, "uid") {
+            self.method_file_uid = Some(uid.to_owned());
             self.method_file = self.files.get(uid).map(|(path, _)| path.clone());
             if self.method_file.is_none() {
                 self.parsed.invalid = true;
@@ -1251,7 +1255,10 @@ impl<'a> OpenCoverParser<'a> {
         .join("|");
         self.method_uid = (!identity.is_empty()).then_some(identity);
         self.method_anchor_line = None;
-        self.method_file = attr_any(attrs, &["fileid", "fileuid"])
+        self.method_file_uid = attr_any(attrs, &["fileid", "fileuid"]).map(ToOwned::to_owned);
+        self.method_file = self
+            .method_file_uid
+            .as_deref()
             .and_then(|uid| self.files.get(uid).map(|(path, _)| path.clone()));
     }
 
@@ -1277,9 +1284,22 @@ impl<'a> OpenCoverParser<'a> {
                 .push("OpenCover SequencePoint requires vc".to_owned());
             return;
         };
-        let path = attr_any(attrs, &["fileid", "fileuid"])
-            .and_then(|uid| self.files.get(uid).map(|(path, _)| path.clone()))
-            .or_else(|| self.method_file.clone());
+        let explicit_file_uid = attr_any(attrs, &["fileid", "fileuid"]).map(ToOwned::to_owned);
+        let file_uid = explicit_file_uid
+            .clone()
+            .or_else(|| self.method_file_uid.clone());
+        let path = if let Some(uid) = file_uid.as_deref() {
+            let Some((path, _)) = self.files.get(uid) else {
+                self.parsed.invalid = true;
+                self.diagnostics.push(format!(
+                    "OpenCover SequencePoint references unknown file UID '{uid}'"
+                ));
+                return;
+            };
+            Some(path.clone())
+        } else {
+            self.method_file.clone()
+        };
         let Some(path) = path else {
             self.parsed.invalid = true;
             self.diagnostics
@@ -1302,13 +1322,15 @@ impl<'a> OpenCoverParser<'a> {
                 self.method_anchor_line
                     .map_or(line_start, |anchor| anchor.min(line_start)),
             );
-            let file_hash = self.file_hash_for_path(&path);
+            let file_hash = file_uid
+                .as_deref()
+                .and_then(|uid| self.files.get(uid).and_then(|(_, hash)| hash.clone()));
+            self.update_file_record(&path, file_uid.as_deref(), file_hash);
             let file = self
                 .records
                 .entry(path.clone())
                 .or_insert_with(|| ParsedFile {
                     path,
-                    file_hash,
                     ..ParsedFile::default()
                 });
             for line in line_start..=line_end {
@@ -1340,9 +1362,22 @@ impl<'a> OpenCoverParser<'a> {
                 .push("OpenCover branch point requires vc".to_owned());
             return;
         };
-        let path = attr_any(attrs, &["fileid", "fileuid"])
-            .and_then(|uid| self.files.get(uid).map(|(path, _)| path.clone()))
-            .or_else(|| self.method_file.clone());
+        let explicit_file_uid = attr_any(attrs, &["fileid", "fileuid"]).map(ToOwned::to_owned);
+        let file_uid = explicit_file_uid
+            .clone()
+            .or_else(|| self.method_file_uid.clone());
+        let path = if let Some(uid) = file_uid.as_deref() {
+            let Some((path, _)) = self.files.get(uid) else {
+                self.parsed.invalid = true;
+                self.diagnostics.push(format!(
+                    "OpenCover branch point references unknown file UID '{uid}'"
+                ));
+                return;
+            };
+            Some(path.clone())
+        } else {
+            self.method_file.clone()
+        };
         let Some(path) = path else {
             self.parsed.invalid = true;
             self.diagnostics
@@ -1359,7 +1394,6 @@ impl<'a> OpenCoverParser<'a> {
             "el",
         ]
         .iter()
-        .filter_map(|key| attr(attrs, key).map(|value| format!("{key}={value}")))
         .collect::<Vec<_>>();
         if branch_identity.is_empty() {
             self.parsed.invalid = true;
@@ -1378,13 +1412,15 @@ impl<'a> OpenCoverParser<'a> {
             "method={method_key}|line={line}|{}",
             branch_identity.join("|")
         );
-        let file_hash = self.file_hash_for_path(&path);
+        let file_hash = file_uid
+            .as_deref()
+            .and_then(|uid| self.files.get(uid).and_then(|(_, hash)| hash.clone()));
+        self.update_file_record(&path, file_uid.as_deref(), file_hash);
         let file = self
             .records
             .entry(path.clone())
             .or_insert_with(|| ParsedFile {
                 path,
-                file_hash,
                 ..ParsedFile::default()
             });
         file.branches.push(ParsedBranch {
@@ -1416,11 +1452,34 @@ impl<'a> OpenCoverParser<'a> {
         }
     }
 
-    fn file_hash_for_path(&self, path: &str) -> Option<String> {
-        self.files
-            .values()
-            .find(|(candidate, _)| candidate == path)
-            .and_then(|(_, hash)| hash.clone())
+    fn update_file_record(&mut self, path: &str, uid: Option<&str>, hash: Option<String>) {
+        let conflict = self.records.get(path).and_then(|record| {
+            record
+                .file_hash
+                .as_ref()
+                .zip(hash.as_ref())
+                .filter(|(existing, current)| !existing.eq_ignore_ascii_case(current))
+        });
+        if conflict.is_some() {
+            self.parsed.invalid = true;
+            self.diagnostics.push(format!(
+                "OpenCover source hashes conflict for '{}' across referenced file UIDs",
+                path
+            ));
+        }
+        let record = self
+            .records
+            .entry(path.to_owned())
+            .or_insert_with(|| ParsedFile {
+                path: path.to_owned(),
+                ..ParsedFile::default()
+            });
+        if record.file_hash.is_none() {
+            record.file_hash = hash;
+        }
+        if let Some(uid) = uid {
+            record.file_uids.insert(uid.to_owned());
+        }
     }
 
     fn close_empty(&mut self, name: &str) {
@@ -1455,6 +1514,7 @@ impl<'a> OpenCoverParser<'a> {
         if name == "method" {
             self.method_file = None;
             self.method_uid = None;
+            self.method_file_uid = None;
             self.method_anchor_line = None;
         }
         if name == "coveragesession" && self.depth == 1 {
@@ -1881,6 +1941,121 @@ mod tests {
                 .diagnostics
                 .iter()
                 .any(|message| message.contains("hash mismatch"))
+        );
+    }
+
+    #[test]
+    fn opencover_uses_referenced_uid_when_same_path_hashes_conflict() {
+        let source_text = "class C { int x = 1; }\n";
+        let files = [source("C.cs", source_text)];
+        let current_hash =
+            "7ef44f96f48677695ccc911eb6d82cd2084f8294b01106495f133a4b9ae6b084";
+        let stale_hash =
+            "0000000000000000000000000000000000000000000000000000000000000000";
+        let xml = format!(
+            r#"<CoverageSession><Modules><Module><Files><File uid="1" fullPath="C.cs" hash="{current_hash}"/><File uid="2" fullPath="C.cs" hash="{stale_hash}"/></Files><Classes><Class><Methods><Method><FileRef uid="2"/><SequencePoints><SequencePoint vc="1" sl="1" el="1" fileid="2"/></SequencePoints><BranchPoints><BranchPoint vc="1" sl="1" ordinal="0" fileid="2"/></BranchPoints></Method></Methods></Class></Classes></Module></Modules></CoverageSession>"#
+        );
+        let report = import_coverage(
+            Path::new("/repo"),
+            &[CoverageSource {
+                path: PathBuf::from("coverage.xml"),
+                format: CoverageFormat::OpenCover,
+                content: xml,
+            }],
+            &files,
+        );
+        assert_eq!(report.status, AssessmentStatus::Invalid);
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|message| message.contains("hash mismatch"))
+        );
+    }
+
+    #[test]
+    fn opencover_stale_only_reference_uid_rejected_but_current_matching_uid_passes() {
+        let source_text = "class C { int x = 1; }\n";
+        let files = [source("C.cs", source_text)];
+        let current_hash =
+            "7ef44f96f48677695ccc911eb6d82cd2084f8294b01106495f133a4b9ae6b084";
+        let stale_hash =
+            "0000000000000000000000000000000000000000000000000000000000000000";
+        let report_for = |uid: &str, hash: &str| {
+            import_coverage(
+                Path::new("/repo"),
+                &[CoverageSource {
+                    path: PathBuf::from("coverage.xml"),
+                    format: CoverageFormat::OpenCover,
+                    content: format!(
+                        r#"<CoverageSession><Modules><Module><Files><File uid="{uid}" fullPath="C.cs" hash="{hash}"/></Files><Classes><Class><Methods><Method><FileRef uid="{uid}"/><SequencePoints><SequencePoint vc="1" sl="1" el="1" fileid="{uid}"/></SequencePoints></Method></Methods></Class></Classes></Module></Modules></CoverageSession>"#
+                    ),
+                }],
+                &files,
+            )
+        };
+
+        let stale = report_for("2", stale_hash);
+        assert_eq!(stale.status, AssessmentStatus::Invalid);
+        assert!(
+            stale
+                .diagnostics
+                .iter()
+                .any(|message| message.contains("hash mismatch"))
+        );
+
+        let current = report_for("1", current_hash);
+        assert_eq!(current.status, AssessmentStatus::Complete);
+        assert_eq!(
+            current.lines,
+            CoverageCounter {
+                eligible: 1,
+                covered: 1
+            }
+        );
+    }
+
+    #[test]
+    fn opencover_unknown_sequence_file_uid_is_invalid() {
+        let files = [source("src/A.cs", "one\n")];
+        let xml = r#"<CoverageSession><Modules><Module><Files><File uid="1" fullPath="/repo/src/A.cs"/></Files><Classes><Class><Methods><Method><FileRef uid="1"/><SequencePoints><SequencePoint vc="1" sl="1" el="1" fileid="99"/></SequencePoints></Method></Methods></Class></Classes></Module></Modules></CoverageSession>"#;
+        let report = import_coverage(
+            Path::new("/repo"),
+            &[CoverageSource {
+                path: PathBuf::from("coverage.xml"),
+                format: CoverageFormat::OpenCover,
+                content: xml.to_owned(),
+            }],
+            &files,
+        );
+        assert_eq!(report.status, AssessmentStatus::Invalid);
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|message| message.contains("unknown file UID"))
+        );
+    }
+
+    #[test]
+    fn opencover_unknown_branch_file_uid_is_invalid() {
+        let files = [source("src/A.cs", "one\n")];
+        let xml = r#"<CoverageSession><Modules><Module><Files><File uid="1" fullPath="/repo/src/A.cs"/></Files><Classes><Class><Methods><Method><FileRef uid="1"/><BranchPoints><BranchPoint vc="1" sl="1" ordinal="0" fileid="99"/></BranchPoints></Method></Methods></Class></Classes></Module></Modules></CoverageSession>"#;
+        let report = import_coverage(
+            Path::new("/repo"),
+            &[CoverageSource {
+                path: PathBuf::from("coverage.xml"),
+                format: CoverageFormat::OpenCover,
+                content: xml.to_owned(),
+            }],
+            &files,
+        );
+        assert_eq!(report.status, AssessmentStatus::Invalid);
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|message| message.contains("unknown file UID"))
         );
     }
 
