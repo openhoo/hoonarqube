@@ -79,6 +79,7 @@ jobs:
           python3 scripts/sync_release_version.py --check
           python3 -m unittest scripts/test_sync_release_version.py
           python3 -m unittest scripts/test_shell_scripts.py
+          python3 -m unittest scripts/test_issue_queue.py
 
       - name: Issue intake regressions
         run: node --test .github/scripts/issue-intake.test.cjs
